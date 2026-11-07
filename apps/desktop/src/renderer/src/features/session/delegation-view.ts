@@ -1,3 +1,4 @@
+import { presentChildTask } from '@ari/contracts/orchestration-presentation'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import type { DelegatedChild, DelegatedChildState } from '../transcript/types'
 import type { SessionActivity } from './session-activity'
@@ -25,27 +26,16 @@ export function delegatedChildState(
   destroyed: boolean,
 ): DelegatedChildState {
   if (destroyed) return 'removed'
+  if (task?.workState === 'queued') return 'queued'
+  if (task?.workState === 'blocked_on_parent') return 'needs-lead'
   if (activity?.phase === 'paused') return 'needs-you'
   if (activity?.phase === 'working') return 'working'
   if (task === undefined) {
     if (activity?.phase === 'done') return 'done'
     return activity?.phase === 'error' ? 'failed' : 'idle'
   }
-  switch (task.workState) {
-    case 'working':
-      return 'working'
-    case 'blocked_on_user':
-      return 'needs-you'
-    case 'waiting_for_children':
-    case 'blocked_on_parent':
-    case 'queued':
-      return 'waiting'
-    case 'not_started':
-      return 'idle'
-    case 'result_available':
-      if (task.latestTurn?.stopReason === 'error') return 'failed'
-      return task.latestTurn?.stopReason === 'interrupted' ? 'stopped' : 'done'
-  }
+  const state = presentChildTask(task).state
+  return state === 'completed' ? 'done' : state === 'interrupted' ? 'stopped' : state
 }
 
 /** Joins spawn history with the latest task snapshot and live activity into task cards. */

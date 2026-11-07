@@ -13,6 +13,7 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
    */
   z.object({
     kind: z.literal('completion'),
+    deliveryId: z.string().optional(),
     sessionIds: z.array(z.string().min(1)).min(1).max(32),
   }),
   /** A child's provider asked a question that its lead is being woken for. */

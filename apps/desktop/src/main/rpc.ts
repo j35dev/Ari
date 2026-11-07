@@ -33,6 +33,7 @@ import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
+import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
 import { WalkCache } from './file-index'
@@ -1049,6 +1050,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...providerEnvironment(session.driverKind),
     }),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
+    canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
       const { enabled, autoDeliverResults } = getSettingsStore().current.delegation
@@ -1584,6 +1586,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.tasks', async ({ sessionId }) =>
     (await controlReady).service.tasks(sessionId),
   )
+  const stopOrchestrationRefresh = registerOrchestrationRpc(r, controlReady)
+  contents.once('destroyed', stopOrchestrationRefresh)
 
   r.register('session.stopChildren', async ({ sessionId }) => ({
     stopped: await (await controlReady).supervisor.stopBelow(sessionId),
@@ -2562,6 +2566,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (params.name === 'scm.changed') sourceControlLive.watch(params.id, params.params)
+    if (params.name === 'orchestration.changed' && typeof params.params['sessionId'] === 'string') {
+      rpcRegistry.sendTo(params.id, {
+        sessionId: params.params['sessionId'],
+        changedSessionIds: [],
+        at: Date.now(),
+      })
+    }
     if (params.name === 'terminal.data') {
       const terminalId = params.params['id']
       if (typeof terminalId === 'string') {

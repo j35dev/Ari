@@ -1,4 +1,10 @@
+import { coordinationMessageSchema } from './coordination'
 import { z } from 'zod'
+import {
+  orchestrationTaskRecordSchema,
+  contextPackageSchema,
+  operationReceiptSchema,
+} from './orchestration'
 import {
   approvalOptionSchema,
   driverKindSchema,
@@ -30,6 +36,19 @@ const eventBase = z.object({
 })
 
 export const journalEventSchema = z.discriminatedUnion('type', [
+  eventBase.extend({ type: z.literal('coordination.updated'), message: coordinationMessageSchema }),
+  eventBase.extend({
+    type: z.literal('orchestration.task.updated'),
+    task: orchestrationTaskRecordSchema,
+  }),
+  eventBase.extend({
+    type: z.literal('orchestration.context.created'),
+    context: contextPackageSchema,
+  }),
+  eventBase.extend({
+    type: z.literal('orchestration.operation.updated'),
+    operation: operationReceiptSchema,
+  }),
   eventBase.extend({
     type: z.literal('child.session.spawned'),
     childSessionId: z.string().min(1),
@@ -111,6 +130,9 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   }),
   eventBase.extend({
     type: z.literal('approval.requested'),
+    providerThreadId: z.string().optional(),
+    providerTurnId: z.string().optional(),
+    providerItemId: z.string().optional(),
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
@@ -184,6 +206,9 @@ export const journalEventSchema = z.discriminatedUnion('type', [
    */
   eventBase.extend({
     type: z.literal('background.task.updated'),
+    providerThreadId: z.string().optional(),
+    providerTurnId: z.string().optional(),
+    providerItemId: z.string().optional(),
     taskId: z.string().min(1),
     kind: backgroundTaskKindSchema,
     label: z.string(),

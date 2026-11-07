@@ -13,6 +13,11 @@ import {
 
 const TONE: Record<AgentState, string> = {
   working: 'text-fg',
+  queued: 'text-fg-subtle',
+  'needs-lead': 'text-warning',
+  starting: 'text-fg-muted',
+  stopping: 'text-fg-muted',
+  unknown: 'text-fg-subtle',
   'needs-you': 'text-warning',
   waiting: 'text-fg-muted',
   done: 'text-fg-muted',
@@ -21,7 +26,12 @@ const TONE: Record<AgentState, string> = {
   idle: 'text-fg-subtle',
 }
 const DOT: Record<AgentState, string> = {
-  working: 'status-pulse bg-success',
+  working: 'bg-success',
+  queued: 'bg-fg-subtle',
+  'needs-lead': 'bg-warning',
+  starting: 'bg-fg-subtle',
+  stopping: 'bg-fg-subtle',
+  unknown: 'bg-fg-subtle',
   'needs-you': 'bg-warning',
   waiting: 'bg-fg-subtle',
   done: 'bg-success',
@@ -90,13 +100,18 @@ export function Agents({
                       onOpen(task.sessionId)
                     }}
                   >
-                    <span aria-hidden className={`mt-2 size-2 shrink-0 rounded-full ${DOT[state]}`} />
+                    <span
+                      aria-hidden
+                      className={`mt-2 size-2 shrink-0 rounded-full ${DOT[state]}`}
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
                         <span className="min-w-0 flex-1 truncate text-[15px] font-medium tracking-tight">
                           {task.title}
                         </span>
-                        <span className={`shrink-0 text-xs ${TONE[state]}`}>{AGENT_LABEL[state]}</span>
+                        <span className={`shrink-0 text-xs ${TONE[state]}`}>
+                          {AGENT_LABEL[state]}
+                        </span>
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-fg-subtle">
                         {[task.role && task.role !== 'general' ? task.role : null, task.driverKind]

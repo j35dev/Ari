@@ -18,6 +18,8 @@ import {
 import { AcpAuthRequiredError, AcpConnectionError } from './connection'
 import type { AcpConnection, AcpLaunch } from './connection'
 import type { AdapterSession, ProviderAdapter } from '../driver'
+import { getProviderCapabilities } from '../driver'
+import { AcpSessionPool } from './session-pool'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
 
@@ -274,6 +276,78 @@ function noticesOf(events: AgentEvent[]): string[] {
 describe('createAcpAdapter', () => {
   beforeEach(() => {
     __resetLearnedAcpSelectors()
+  })
+
+  it('discovers supported ACP controls and observes Codex lifecycle without enabling child controls', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            method: 'session/update',
+            params: {
+              sessionId: 'sess_acp_1',
+              update: {
+                sessionUpdate: 'tool_call',
+                toolCallId: 'spawn',
+                status: 'completed',
+                rawInput: { receiverThreadIds: ['native-child'], prompt: 'Inspect code' },
+                _meta: { codex: { collaboration: { tool: 'spawnAgent' } } },
+              },
+            },
+          })}\n`,
+        )
+      }
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    expect(getProviderCapabilities(adapter)).toMatchObject({
+      steering: 'follow-up',
+      liveResponses: 'approvals-and-input',
+      responsesAfterReconnect: false,
+      nativeChildren: {
+        visibility: 'unknown',
+        inspect: false,
+        message: false,
+        stop: false,
+        approvals: false,
+      },
+      nativeFork: false,
+      nativeHandoff: false,
+      processContinuity: 'turn-only',
+    })
+    const events = await collectEvents(adapter)
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'background-task', id: 'native-child', status: 'running' }),
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'background-task', id: 'native-child', status: 'completed' }),
+    )
+    expect(getProviderCapabilities(adapter).nativeChildren.visibility).toBe('lifecycle')
+    await adapter.dispose()
+    expect(adapter.keepsBackgroundWork?.()).toBe(false)
+  })
+
+  it('discovers live steering from the handshake and process continuity from pooling', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) =>
+      method === 'initialize'
+        ? { protocolVersion: 1, _meta: { steering: { supported: true } } }
+        : standardAgent()(method, params, id),
+    )
+    const pool = new AcpSessionPool()
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
+    expect(getProviderCapabilities(adapter)).toMatchObject({
+      steering: 'live',
+      processContinuity: 'between-turns',
+      responsesAfterReconnect: false,
+    })
+    await collectEvents(adapter)
+    await adapter.dispose()
+    expect(adapter.keepsBackgroundWork?.()).toBe(true)
+    expect(child.killed).toBe(false)
+    await pool.shutdownAll()
+    expect(child.killed).toBe(true)
   })
 
   it('applies the requested model and permission mode via config options', async () => {

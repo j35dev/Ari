@@ -127,6 +127,55 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+it('recovers a delivered parent result after acknowledgement loss without resubmitting its notice', async () => {
+  await start('root')
+  await settle('root')
+  await start('a')
+  await settle('a', 'completed', 'Reviewed output')
+  const record = host.record.bind(host)
+  host.record = async (id, event) => {
+    if (event.type === 'child.session.acknowledged' && event.via === 'delivered')
+      throw new Error('crash before acknowledgement')
+    return record(id, event)
+  }
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(1)
+  host.record = record
+  supervisor.close()
+  await store.closeJournal('root')
+  supervisor = new DelegationSupervisor(host)
+  await supervisor.evaluate('root')
+  expect((await store.load('root')).childCompletions?.a?.acknowledged).toBe(true)
+  await settle('root')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(1)
+  expect(
+    Object.values((await store.load('root')).orchestration?.operations ?? {}).filter(
+      (entry) => entry.method === 'child.result.delivery',
+    ),
+  ).toMatchObject([{ status: 'completed' }])
+})
+
+it('leaves a result delivery with uncertain acceptance inspectable instead of replaying it', async () => {
+  await start('root')
+  await settle('root')
+  await start('a')
+  await settle('a', 'completed', 'Output')
+  const dispatch = host.dispatch.bind(host)
+  host.dispatch = async (command, origin) => {
+    if (origin?.kind === 'completion') throw new Error('unknown provider acceptance')
+    return dispatch(command, origin)
+  }
+  await supervisor.evaluate('root')
+  host.dispatch = dispatch
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).childCompletions?.a?.acknowledged).toBe(false)
+  expect(Object.values((await store.load('root')).orchestration?.operations ?? {})).toMatchObject([
+    { status: 'uncertain' },
+  ])
+})
+
 it('wakes an idle parent once with every finished child and names the ones still working', async () => {
   await start('root')
   await settle('root')
@@ -139,7 +188,7 @@ it('wakes an idle parent once with every finished child and names the ones still
   await supervisor.evaluate('root')
 
   const [notice] = await notices('root')
-  expect(notice?.origin).toEqual({ kind: 'completion', sessionIds: ['a', 'b'] })
+  expect(notice?.origin).toMatchObject({ kind: 'completion', sessionIds: ['a', 'b'] })
   const text = notice?.parts[0]?.type === 'text' ? notice.parts[0].text : ''
   expect(text).toContain('A (a) finished its turn.\nReport:\nA is done.')
   expect(text).toContain('B (b) failed.\nError: boom')
@@ -180,7 +229,10 @@ it('skips results the parent already read or is blocked waiting on', async () =>
   expect(await notices('root')).toHaveLength(0)
   waiting.clear()
   await supervisor.evaluate('root')
-  expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['b'] })
+  expect((await notices('root'))[0]?.origin).toMatchObject({
+    kind: 'completion',
+    sessionIds: ['b'],
+  })
 })
 
 it('leaves results pending behind a failed parent turn, a queue, or a child that resumed', async () => {
@@ -257,7 +309,10 @@ it('holds a report briefly while a sibling is about to finish, so both arrive to
 
   await settle('b', 'completed', 'B is done.')
   await supervisor.evaluate('root')
-  expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['a', 'b'] })
+  expect((await notices('root'))[0]?.origin).toMatchObject({
+    kind: 'completion',
+    sessionIds: ['a', 'b'],
+  })
   await settle('root')
 
   // The window is a ceiling, not a requirement: a slow sibling does not hold a result hostage,
@@ -297,7 +352,10 @@ it('does not wake an idle parent because someone stopped one of its children', a
   // The stop is not held against later news: the other child still reports.
   await settle('b', 'completed', 'B is done.')
   await supervisor.evaluate('root')
-  expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['b'] })
+  expect((await notices('root'))[0]?.origin).toMatchObject({
+    kind: 'completion',
+    sessionIds: ['b'],
+  })
 })
 
 it('reaches a grandchild whose own parent already ended its turn, and wakes nobody afterwards', async () => {
@@ -380,11 +438,14 @@ it('wakes a lead with a delegated child question, once, and never for a personâ€
     prompt: 'Which store?',
     choicesJson: JSON.stringify(['Settings', 'JSON file']),
   })
-  await expect.poll(async () => (await store.load('root')).queuedMessages.length).toBe(1)
-  const [queued] = (await store.load('root')).queuedMessages
+  await expect
+    .poll(async () => Object.values((await store.load('root')).inbox ?? {}).length)
+    .toBe(1)
+  const [queued] = Object.values((await store.load('root')).inbox ?? {})
   expect(queued).toMatchObject({
-    held: true,
-    origin: { kind: 'question', sessionId: 'a', inputId: 'q1' },
+    status: 'pending',
+    senderSessionId: 'a',
+    recipientSessionId: 'root',
   })
   expect(queued?.text).toContain('Which store?')
   expect(queued?.text).toContain('Settings / JSON file')
@@ -398,7 +459,7 @@ it('wakes a lead with a delegated child question, once, and never for a personâ€
     choicesJson: null,
   })
   await new Promise((resolve) => setTimeout(resolve, 30))
-  expect((await store.load('root')).queuedMessages).toHaveLength(1)
+  expect(Object.values((await store.load('root')).inbox ?? {})).toHaveLength(1)
 
   // A question on a turn the person started stays with the person.
   await start('b', 'mine', 'person')
@@ -409,10 +470,10 @@ it('wakes a lead with a delegated child question, once, and never for a personâ€
     choicesJson: null,
   })
   await new Promise((resolve) => setTimeout(resolve, 30))
-  expect((await store.load('root')).queuedMessages).toHaveLength(1)
+  expect(Object.values((await store.load('root')).inbox ?? {})).toHaveLength(1)
 })
 
-it('continues a delegated turn after a restart, but leaves a personâ€™s turn stopped', async () => {
+it('records interrupted turns after restart without replaying provider submissions', async () => {
   await start('root')
   await start('a')
   await start('b', 'mine', 'person')
@@ -421,16 +482,11 @@ it('continues a delegated turn after a restart, but leaves a personâ€™s turn sto
   await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
   await expect.poll(async () => (await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
 
-  const [continuation] = (await store.load('a')).queuedMessages
-  expect(continuation).toMatchObject({
-    text: 'Continue where you left off.',
-    held: true,
-    origin: { kind: 'session', sessionId: 'root' },
-  })
+  expect((await store.load('a')).queuedMessages).toEqual([])
   expect((await store.load('b')).queuedMessages).toEqual([])
 })
 
-it('does not deliver at start-up what settled before the launch', async () => {
+it('retains historical reports without starting unattended provider turns', async () => {
   // Also the shape every journal from before delivery existed is in: a
   // settled child and nothing that says the parent has seen it.
   await start('root')
@@ -445,7 +501,7 @@ it('does not deliver at start-up what settled before the launch', async () => {
   await expect.poll(async () => (await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
   await expect
     .poll(async () => (await store.load('root')).childCompletions?.a?.acknowledged)
-    .toBe(true)
+    .toBe(false)
   // The user's next message in the old session is answered once, not twice.
   await start('root')
   await settle('root')

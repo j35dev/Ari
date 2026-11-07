@@ -42,7 +42,7 @@ describe('agentState', () => {
     expect(agentState(task({ workState: 'working' }))).toBe('working')
     expect(agentState(task({ workState: 'blocked_on_user' }))).toBe('needs-you')
     expect(agentState(task({ workState: 'waiting_for_children' }))).toBe('waiting')
-    expect(agentState(task({ workState: 'queued' }))).toBe('waiting')
+    expect(agentState(task({ workState: 'queued' }))).toBe('queued')
     expect(agentState(task({ workState: 'not_started' }))).toBe('idle')
     expect(['working', 'needs-you', 'waiting'].every((state) => isLive(state as never))).toBe(true)
     expect(isLive('done')).toBe(false)
@@ -57,7 +57,7 @@ it('summarizes a group most urgent first', () => {
       task({ workState: 'working' }),
       task({ workState: 'blocked_on_user' }),
     ]),
-  ).toBe('4 agents · 1 needs you · 2 working · 1 done')
+  ).toBe('4 agents · 1 needs you · 2 working · 1 result ready')
   expect(agentsSummary([settled('error')])).toBe('1 agent · 1 failed')
 })
 
@@ -87,11 +87,15 @@ describe('delegationUpdate', () => {
       headline: 'Parser reported back',
       body: 'Child session "Parser" (a) finished its turn.\nReport:\nFixed.',
     })
-    expect(delegationUpdate(text, ['a', 'b'], titleOf).headline).toBe('Parser and Docs reported back')
+    expect(delegationUpdate(text, ['a', 'b'], titleOf).headline).toBe(
+      'Parser and Docs reported back',
+    )
     expect(delegationUpdate(text, ['a', 'b', 'c'], titleOf).headline).toBe(
       'Parser and 2 others reported back',
     )
-    expect(delegationUpdate(text, ['gone'], titleOf).headline).toBe('A removed session reported back')
+    expect(delegationUpdate(text, ['gone'], titleOf).headline).toBe(
+      'A removed session reported back',
+    )
   })
 
   it('says so when every child in the update failed', () => {

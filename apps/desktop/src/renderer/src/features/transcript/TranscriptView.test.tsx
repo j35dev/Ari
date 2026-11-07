@@ -165,10 +165,10 @@ describe('TranscriptView delegation', () => {
     ]
     const { container } = render(view([message('a')], { delegations }))
     expect(screen.getByText('Delegated to 2 sessions')).toBeInTheDocument()
-    expect(screen.getByText('1 working · 1 done')).toBeInTheDocument()
+    expect(screen.getByText('1 working · 1 result ready')).toBeInTheDocument()
     expect(screen.getByText('Two findings. See notes.')).toBeInTheDocument()
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
-    await userEvent.click(screen.getByRole('button', { name: 'Open Parser: Done' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open Parser: Result ready' }))
     expect(onOpenSession).toHaveBeenCalledWith('child_a')
   })
 })

@@ -1,3 +1,4 @@
+import type { CoordinationMessage } from '@ari/contracts/coordination'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionReadModel } from './projection'
@@ -11,6 +12,8 @@ export interface WaitSource {
 }
 
 export type WaitOutcome =
+  | { status: 'coordination'; sessionId: string; messages: CoordinationMessage[] }
+  | { status: 'question'; sessionId: string; questions: SessionReadModel['pendingInputs'] }
   | {
       status: 'settled'
       sessionId: string
@@ -65,8 +68,7 @@ export async function waitForTurn(
     if (target === event.turnId) complete(event)
   })
   const cancel = (): void => reject(new ControlFailure('wait_cancelled', 'Wait cancelled.'))
-  const gone = (): void =>
-    reject(new ControlFailure('session_not_found', 'Session not found.'))
+  const gone = (): void => reject(new ControlFailure('session_not_found', 'Session not found.'))
   signal?.addEventListener('abort', cancel, { once: true })
   const unwatchGone = source.onGone?.(id, gone)
   const timer = setTimeout(

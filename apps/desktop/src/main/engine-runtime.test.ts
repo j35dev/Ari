@@ -5,7 +5,7 @@ import { expect, it } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { DriverRegistry } from '@ari/providers/registry'
-import type { AdapterSession } from '@ari/providers/driver'
+import { UNKNOWN_PROVIDER_CAPABILITIES, type AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
 
 it('runs concurrent sessions with distinct cwd and credentials without journaling secrets', async () => {
@@ -43,6 +43,7 @@ it('runs concurrent sessions with distinct cwd and credentials without journalin
     expect(new Set(seen.map((s) => s.runtimeEnv?.['ARI_CONTROL_TOKEN'])).size).toBe(2)
     for (const id of ['root', 'child']) expect(JSON.stringify(await engine.replaySession(id))).not.toContain('secret-')
   } finally {
+    await Promise.all(['root', 'child'].map((id) => engine.quiesce(id)))
     await store.closeJournal('root')
     await store.closeJournal('child')
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
@@ -65,6 +66,7 @@ it('answers a permission request for a safe ari command itself and asks the user
   registry.register({
     kind: 'claude',
     create: async () => ({
+      capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, liveResponses: 'approvals' }),
       start: () => ({
         async *[Symbol.asyncIterator]() {
           for (const [approvalId, command] of [
@@ -122,6 +124,7 @@ it('answers a permission request for a safe ari command itself and asks the user
     await engine.quiesce('s')
   } finally {
     release()
+    await engine.quiesce('s')
     await store.closeJournal('s')
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
   }

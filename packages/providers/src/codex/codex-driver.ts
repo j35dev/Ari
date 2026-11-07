@@ -3,12 +3,14 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { Readable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
-import { mapCodexLine, createAppServerMapper } from './mapper'
-import type { AppServerInbound } from './mapper'
+import { mapCodexLine, createAppServerMapper, appServerCorrelation } from './mapper'
+import type { AppServerCorrelation, AppServerRequestId } from './mapper'
+import { CodexNativeChildren } from './native-children'
 import { AppServerConnection } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
 import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { UNKNOWN_PROVIDER_CAPABILITIES, ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
@@ -77,6 +79,12 @@ export interface LegacyChildProcess {
 export class CodexDriver implements Driver {
   readonly kind = 'codex' as const
 
+  capabilities() {
+    return this.options.probe === null
+      ? ONE_SHOT_PROVIDER_CAPABILITIES
+      : UNKNOWN_PROVIDER_CAPABILITIES
+  }
+
   constructor(
     private readonly binaryPath: string,
     private readonly options: CodexDriverOptions = {},
@@ -127,6 +135,7 @@ export class CodexDriver implements Driver {
     })[Symbol.asyncIterator]()
 
     return {
+      capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
       interrupt: () => {
         if (!child.killed) child.kill()
@@ -156,6 +165,17 @@ export interface CodexAppServerAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
   /** False when there is no live turn or the server refused the steer. */
   steer(text: string): Promise<boolean>
+  /** Bounded, transient wire evidence; child output never becomes root prose. */
+  diagnostics(): CodexFrameDiagnostic[]
+}
+
+export interface CodexFrameDiagnostic extends AppServerCorrelation {
+  requestId: AppServerRequestId | null
+  method: string
+  disposition: 'child' | 'native-collaboration' | 'stale' | 'unscoped' | 'unsupported'
+  rawJson: string
+  /** Large payloads retain their identity and the start of their wire frame. */
+  truncated?: boolean
 }
 
 /**
@@ -207,21 +227,223 @@ export async function createCodexAppServerAdapter(
     notify = null
   }
 
-  const pendingApprovals = new Map<string, number>()
+  const pendingApprovals = new Map<
+    string,
+    { requestId: AppServerRequestId; correlation: AppServerCorrelation }
+  >()
+  const releaseApprovals = (threadId: string, turnId: string | null): void => {
+    for (const [approvalId, pending] of pendingApprovals) {
+      if (
+        pending.correlation.threadId !== threadId ||
+        (pending.correlation.turnId !== null && pending.correlation.turnId !== turnId)
+      )
+        continue
+      connection.respond(pending.requestId, { decision: 'decline' })
+      pendingApprovals.delete(approvalId)
+    }
+  }
+  const children = new CodexNativeChildren()
+  const expireChildApprovals = (): void => {
+    for (const [approvalId, pending] of pendingApprovals) {
+      const { threadId, turnId } = pending.correlation
+      if (
+        threadId === null ||
+        threadId === rootThreadId ||
+        children.acceptsRequest(threadId, turnId)
+      )
+        continue
+      connection.respond(pending.requestId, { decision: 'decline' })
+      pendingApprovals.delete(approvalId)
+    }
+  }
+  const diagnostics: CodexFrameDiagnostic[] = []
+  const diagnose = (
+    line: string,
+    method: string,
+    disposition: CodexFrameDiagnostic['disposition'],
+  ) => {
+    const correlation = appServerCorrelation(parseParams(line))
+    const id = (JSON.parse(line) as { id?: unknown }).id
+    diagnostics.push({
+      ...correlation,
+      requestId: typeof id === 'string' || typeof id === 'number' ? id : null,
+      method,
+      disposition,
+      rawJson: line.slice(0, 64_000),
+      ...(line.length > 64_000 ? { truncated: true } : {}),
+    })
+    // Keep evidence bounded by count and bytes; do not persist child content.
+    while (
+      diagnostics.length > 200 ||
+      diagnostics.reduce((size, frame) => size + frame.rawJson.length, 0) > 1_000_000
+    ) {
+      diagnostics.shift()
+    }
+    log.debug('codex correlated frame', { ...correlation, method, disposition })
+  }
+  let rootThreadId: string | null = null
   let activeTurnId: string | null = null
+  let startRequested = false
+  let startConfirmed = false
+  let rootTurnStarted = false
+  let interrupted = false
+  let terminal = false
+  let disposed = false
+  const beforeThread: string[] = []
+  const beforeTurn: string[] = []
 
-  connection.onFrame = (line: string) => {
-    const inbound: AppServerInbound = mapper.mapLine(line)
-    if (inbound.kind === 'server-request' && inbound.approvalId !== null) {
-      pendingApprovals.set(inbound.approvalId, inbound.requestId)
-    } else if (inbound.kind === 'notification' && inbound.method === 'turn/started') {
-      const turn = parseParams(line)['turn'] as { id?: unknown } | undefined
-      if (typeof turn?.['id'] === 'string') activeTurnId = turn['id']
+  const handleFrame = (line: string): void => {
+    if (rootThreadId === null) {
+      beforeThread.push(line)
+      return
+    }
+    const params = parseParams(line)
+    const correlation = appServerCorrelation(params)
+    const frame = JSON.parse(line) as { method?: string; id?: AppServerRequestId }
+    const requestId = typeof frame.id === 'number' || typeof frame.id === 'string' ? frame.id : null
+    const method = frame.method ?? ''
+    if (terminal || disposed) {
+      diagnose(line, method, 'stale')
+      return
+    }
+    if (correlation.threadId === null) {
+      diagnose(line, method, 'unscoped')
+      if (requestId !== null)
+        connection.reject(requestId, -32602, 'Request has no thread ownership')
+      return
+    }
+    const isRoot = correlation.threadId === rootThreadId
+    if (isRoot) {
+      // Only the start/resume response owns the persisted resume reference.
+      if (method === 'thread/started') return
+      if (!startRequested && method !== 'thread/tokenUsage/updated') {
+        diagnose(line, method, 'stale')
+        return
+      }
+      if (startRequested && !startConfirmed) {
+        beforeTurn.push(line)
+        return
+      }
+      if (method === 'turn/started' && activeTurnId === null) activeTurnId = correlation.turnId
+      if (
+        (correlation.turnId !== null && correlation.turnId !== activeTurnId) ||
+        ((method === 'turn/completed' || method === 'turn/started') &&
+          correlation.turnId === null) ||
+        (method === 'turn/completed' && activeTurnId === null)
+      ) {
+        diagnose(line, method, 'stale')
+        if (requestId !== null)
+          connection.reject(requestId, -32602, 'Request belongs to an inactive turn')
+        return
+      }
+    } else {
+      diagnose(line, method, 'child')
+      if (
+        requestId !== null &&
+        method.endsWith('/requestApproval') &&
+        !children.acceptsRequest(correlation.threadId, correlation.turnId)
+      ) {
+        diagnose(line, method, 'stale')
+        connection.reject(requestId, -32602, 'Request belongs to an inactive child turn')
+        return
+      }
+      push(children.observe(method, params))
+      expireChildApprovals()
+      if (method === 'turn/completed') releaseApprovals(correlation.threadId, correlation.turnId)
+      // Child messages, context, usage, references and terminals never enter
+      // the root mapper, including its stateful item/usage de-duplication.
+      if (requestId === null) return
+    }
+    if (isRoot && method === 'turn/started') rootTurnStarted = true
+    if (isRoot && (method === 'item/started' || method === 'item/completed')) {
+      if ((params['item'] as { type?: string } | undefined)?.type === 'collabAgentToolCall') {
+        diagnose(line, method, 'native-collaboration')
+      }
+      push(children.observeCollaboration(params))
+      expireChildApprovals()
+    }
+    const inbound = mapper.mapLine(line)
+    if (inbound.kind === 'server-request') {
+      if (inbound.approvalId === null) {
+        diagnose(line, method, 'unsupported')
+        connection.reject(inbound.requestId, -32601, `Ari does not support ${method}`)
+        push([
+          {
+            type: 'notice',
+            message: `Unsupported Codex request ${method} (thread ${correlation.threadId}).`,
+          },
+        ])
+        return
+      }
+      // Include the wire request as well as its full ownership. Two threads
+      // may reuse item ids, and a later request may revisit the same item.
+      const approvalId = `codex-appr-${encodeURIComponent(
+        JSON.stringify([
+          correlation.threadId,
+          correlation.turnId,
+          correlation.itemId,
+          inbound.requestId,
+        ]),
+      )}`
+      pendingApprovals.set(approvalId, { requestId: inbound.requestId, correlation })
+      push(
+        inbound.events.map((event) =>
+          event.type === 'approval-requested'
+            ? {
+                ...event,
+                approvalId,
+                ...{
+                  providerThreadId: correlation.threadId!,
+                  ...(correlation.turnId ? { providerTurnId: correlation.turnId } : {}),
+                  ...(correlation.itemId ? { providerItemId: correlation.itemId } : {}),
+                },
+              }
+            : event,
+        ),
+      )
+      return
+    }
+    if (inbound.kind === 'notification' && method === 'turn/completed') {
+      terminal = true
+      activeTurnId = null
+      const status = (params['turn'] as { status?: string } | undefined)?.status
+      push(children.end())
+      push(
+        inbound.events.map((event) =>
+          event.type === 'done'
+            ? {
+                ...event,
+                ...(['completed', 'interrupted', 'failed'].includes(status ?? '')
+                  ? {
+                      stopReason:
+                        status === 'interrupted'
+                          ? 'interrupted'
+                          : status === 'failed'
+                            ? 'error'
+                            : 'completed',
+                    }
+                  : {}),
+              }
+            : event,
+        ),
+      )
+      return
     }
     push(inbound.events)
   }
+  connection.onFrame = handleFrame
+  // EOF must wake the iterator even when no RPC is pending to reject.
+  void connection.waitClosed().then(() => {
+    notify?.()
+    notify = null
+  })
 
-  await connection.request(
+  const startupRequest = (method: string, params: unknown, timeoutMs: number): Promise<unknown> =>
+    connection.request(method, params, timeoutMs).catch((error: unknown) => {
+      connection.kill()
+      throw error
+    })
+  await startupRequest(
     'initialize',
     { clientInfo: { name: 'ari', version: '0.1.0' }, capabilities: {} },
     15_000,
@@ -236,7 +458,7 @@ export async function createCodexAppServerAdapter(
       ? { model: session.modelId }
       : {}),
   }
-  const threadResult = (await connection.request(
+  const threadResult = (await startupRequest(
     session.resumeOf !== null ? 'thread/resume' : 'thread/start',
     session.resumeOf !== null
       ? { ...baseThreadParams, threadId: session.resumeOf }
@@ -253,10 +475,14 @@ export async function createCodexAppServerAdapter(
     connection.kill()
     throw new Error('codex app-server returned no thread id')
   }
+  rootThreadId = threadId
   push([{ type: 'session-ref', ref: threadId }])
+  for (const line of beforeThread.splice(0)) handleFrame(line)
 
   const finish = (): void => {
-    for (const requestId of pendingApprovals.values()) {
+    disposed = true
+    activeTurnId = null
+    for (const { requestId } of pendingApprovals.values()) {
       connection.respond(requestId, { decision: 'decline' })
     }
     pendingApprovals.clear()
@@ -265,6 +491,7 @@ export async function createCodexAppServerAdapter(
 
   const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
     // The user turn rides out on first pull; its completion closes the stream.
+    startRequested = true
     void connection
       .request('turn/start', {
         threadId,
@@ -277,10 +504,33 @@ export async function createCodexAppServerAdapter(
         ...(hasEffort(session.effort) ? { effort: session.effort } : {}),
       })
       .then((result) => {
+        if (terminal || disposed) return
         const turn = (result as { turn?: { id?: string } } | null)?.turn
         if (typeof turn?.id === 'string') activeTurnId = turn.id
+        startConfirmed = true
+        // Notifications may precede the response. Replay only after its
+        // authoritative turn id is known, so old completions cannot win.
+        for (const line of beforeTurn.splice(0)) handleFrame(line)
+        if (!rootTurnStarted && activeTurnId !== null && !terminal) {
+          // Some servers confirm the turn only in the response. Resumed
+          // baseline updates replayed before it remain history, while future
+          // usage belongs to this confirmed turn.
+          mapper.mapLine(
+            JSON.stringify({
+              method: 'turn/started',
+              params: {
+                threadId,
+                turn: { id: activeTurnId },
+              },
+            }),
+          )
+          rootTurnStarted = true
+        }
       })
       .catch((error: unknown) => {
+        if (terminal || disposed) return
+        terminal = true
+        activeTurnId = null
         log.debug('codex turn/start failed', { error: String(error) })
         push([
           { type: 'error', message: formatUnknownError(error), rawJson: null },
@@ -299,10 +549,23 @@ export async function createCodexAppServerAdapter(
         }
       }
       if (connection.closed && queue.length === 0) {
-        push([
-          { type: 'error', message: 'codex app-server ended before completing the turn', rawJson: null },
-          { type: 'done' },
-        ])
+        push(children.end())
+        if (interrupted) {
+          const done: AgentEvent & { stopReason: 'interrupted' } = {
+            type: 'done',
+            stopReason: 'interrupted',
+          }
+          push([done])
+        } else {
+          push([
+            {
+              type: 'error',
+              message: 'codex app-server ended before completing the turn',
+              rawJson: null,
+            },
+            { type: 'done', ...{ stopReason: 'error' } },
+          ])
+        }
         continue
       }
       await new Promise<void>((resolve) => {
@@ -314,8 +577,24 @@ export async function createCodexAppServerAdapter(
   })()
 
   return {
+    capabilities: () => ({
+      ...ONE_SHOT_PROVIDER_CAPABILITIES,
+      steering: 'live',
+      liveResponses: 'approvals',
+      terminalStatus: 'explicit',
+      nativeChildren: {
+        visibility: 'lifecycle',
+        inspect: false,
+        message: false,
+        stop: false,
+        approvals: true,
+      },
+    }),
+    diagnostics: () => diagnostics.map((frame) => ({ ...frame })),
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
     interrupt: () => {
+      if (terminal || disposed) return
+      interrupted = true
       if (activeTurnId === null) {
         finish()
         return
@@ -329,13 +608,13 @@ export async function createCodexAppServerAdapter(
         })
     },
     respondApproval: (approvalId, decision) => {
-      const requestId = pendingApprovals.get(approvalId)
-      if (requestId === undefined) return
+      const pending = pendingApprovals.get(approvalId)
+      if (pending === undefined || terminal || disposed) return
       pendingApprovals.delete(approvalId)
-      connection.respond(requestId, { decision: serverDecision(decision) })
+      connection.respond(pending.requestId, { decision: serverDecision(decision) })
     },
     steer: async (text) => {
-      if (activeTurnId === null) {
+      if (activeTurnId === null || terminal || disposed || connection.closed) {
         log.debug('codex steer ignored: no active turn')
         return false
       }

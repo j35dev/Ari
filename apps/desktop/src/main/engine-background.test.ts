@@ -12,6 +12,10 @@ import { Engine } from './engine'
 let root: string
 let store: SessionStore
 
+// Journal I/O can be slow on a loaded Windows runner; assertions stay bounded.
+const waitForJournal = (assertion: () => unknown | Promise<unknown>) =>
+  vi.waitFor(assertion, { timeout: 10_000 })
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'ari-background-'))
   store = new SessionStore({ rootDir: root })
@@ -97,7 +101,7 @@ describe('background output', () => {
       { type: 'text-delta', text: 'Tests ' },
       { type: 'text-delta', text: 'passed.' },
     ])
-    await vi.waitFor(async () => {
+    await waitForJournal(async () => {
       const model = await store.load('sess_1')
       expect(model.messages).toHaveLength(1)
       expect(model.messages[0]).toMatchObject({
@@ -119,7 +123,7 @@ describe('background output', () => {
       { type: 'text-delta', text: 'Tests passed.' },
       { ...shell, status: 'completed', detail: 'The agent reported back' },
     ])
-    await vi.waitFor(async () => {
+    await waitForJournal(async () => {
       const model = await store.load('sess_1')
       expect(model.backgroundTasks).toEqual([
         expect.objectContaining({
@@ -165,7 +169,7 @@ describe('background output', () => {
   it('releases what the journal shows running once the process is gone', async () => {
     const engine = engineWith()
     engine.recordBackground('sess_1', [shell])
-    await vi.waitFor(async () =>
+    await waitForJournal(async () =>
       expect((await store.load('sess_1')).backgroundTasks?.[0]?.status).toBe('running'),
     )
     await engine.releaseBackgroundTasks('sess_1', 'The agent process ended')

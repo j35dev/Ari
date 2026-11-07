@@ -1,50 +1,72 @@
+import { presentChildTask } from '@ari/contracts/orchestration-presentation'
 import type { ChildTask } from '@ari/contracts/agent-control'
 
 /** How one delegated child reads on a phone; the desktop's task cards use the same words. */
 export type AgentState =
-  'working' | 'needs-you' | 'waiting' | 'done' | 'failed' | 'stopped' | 'idle'
+  | 'working'
+  | 'needs-you'
+  | 'needs-lead'
+  | 'queued'
+  | 'starting'
+  | 'stopping'
+  | 'unknown'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'stopped'
+  | 'idle'
 
 export const AGENT_LABEL: Record<AgentState, string> = {
   working: 'Working',
+  queued: 'Queued',
+  'needs-lead': 'Needs lead',
+  starting: 'Starting',
+  stopping: 'Stopping',
+  unknown: 'Activity unknown',
   'needs-you': 'Needs you',
   waiting: 'Waiting on its agents',
-  done: 'Done',
+  done: 'Result ready',
   failed: 'Failed',
-  stopped: 'Stopped',
+  stopped: 'Interrupted',
   idle: 'Not started',
 }
 
 export function agentState(task: ChildTask): AgentState {
-  switch (task.workState) {
-    case 'working':
-      return 'working'
-    case 'blocked_on_user':
-      return 'needs-you'
-    case 'waiting_for_children':
-    case 'blocked_on_parent':
-    case 'queued':
-      return 'waiting'
-    case 'not_started':
-      return 'idle'
-    case 'result_available':
-      if (task.latestTurn?.stopReason === 'error') return 'failed'
-      return task.latestTurn?.stopReason === 'interrupted' ? 'stopped' : 'done'
-  }
+  const state = presentChildTask(task).state
+  return state === 'completed' ? 'done' : state === 'interrupted' ? 'stopped' : state
 }
 
 /** States with something still in motion: these are what "Stop all" stops. */
 export function isLive(state: AgentState): boolean {
-  return state === 'working' || state === 'needs-you' || state === 'waiting'
+  return !['done', 'failed', 'stopped', 'idle'].includes(state)
 }
 
-const ORDER: AgentState[] = ['needs-you', 'working', 'waiting', 'failed', 'stopped', 'done', 'idle']
+const ORDER: AgentState[] = [
+  'needs-you',
+  'needs-lead',
+  'unknown',
+  'queued',
+  'starting',
+  'stopping',
+  'working',
+  'waiting',
+  'failed',
+  'stopped',
+  'done',
+  'idle',
+]
 const PHRASE: Record<AgentState, string> = {
   'needs-you': 'needs you',
   working: 'working',
   waiting: 'waiting',
   failed: 'failed',
-  stopped: 'stopped',
-  done: 'done',
+  stopped: 'interrupted',
+  done: 'results ready',
+  'needs-lead': 'needs lead',
+  queued: 'queued',
+  starting: 'starting',
+  stopping: 'stopping',
+  unknown: 'activity unknown',
   idle: 'not started',
 }
 
@@ -61,7 +83,9 @@ export function agentsStatus(tasks: readonly ChildTask[]): string | null {
   const states = tasks.map(agentState)
   const asking = states.filter((state) => state === 'needs-you').length
   if (asking > 0) return `${asking} agent${asking === 1 ? ' needs' : 's need'} you`
-  const running = states.filter((state) => state === 'working' || state === 'waiting').length
+  const lead = states.filter((state) => state === 'needs-lead').length
+  if (lead > 0) return `${lead} agent${lead === 1 ? ' needs' : 's need'} lead`
+  const running = states.filter(isLive).length
   return running > 0 ? `waiting on ${running} agent${running === 1 ? '' : 's'}` : null
 }
 
@@ -70,7 +94,9 @@ export function agentsSummary(tasks: readonly ChildTask[]): string {
   const states = tasks.map(agentState)
   const counts = ORDER.flatMap((state) => {
     const count = states.filter((entry) => entry === state).length
-    return count > 0 ? [`${count} ${PHRASE[state]}`] : []
+    return count > 0
+      ? [`${count} ${state === 'done' && count === 1 ? 'result ready' : PHRASE[state]}`]
+      : []
   })
   return [`${tasks.length} agent${tasks.length === 1 ? '' : 's'}`, ...counts].join(' · ')
 }

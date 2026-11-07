@@ -4,6 +4,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const net = require('node:net')
 const fs = require('node:fs/promises')
+const fsSync = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { randomUUID } = require('node:crypto')
@@ -23,6 +24,7 @@ function parse(argv) {
     'allow-stale',
     'any',
     'tools',
+    'include-consumed',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -64,6 +66,9 @@ function parse(argv) {
     'find',
     'text',
     'input',
+    'params',
+    'params-file',
+    'prompt-file',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -72,6 +77,30 @@ function parse(argv) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000)
     throw new Error('Timeout must be between 0.001 and 3600 seconds')
   const [group, verb, target, ...rest] = positional
+  const readInputFile = (filename) => {
+    const stat = fsSync.statSync(filename)
+    if (!stat.isFile() || stat.size > 1024 * 1024)
+      throw new Error('Input must be a regular file no larger than 1 MiB')
+    return fsSync.readFileSync(filename, 'utf8').replace(/^\uFEFF/, '')
+  }
+  const promptText = (inline) => {
+    if (!flags['prompt-file']) return inline
+    if (inline) throw new Error('Use either inline prompt text or --prompt-file')
+    const value = readInputFile(flags['prompt-file'])
+    if (!value.trim() || value.length > 64_000)
+      throw new Error('Prompt file must contain between 1 and 64,000 characters')
+    return value
+  }
+  if (
+    flags['prompt-file'] &&
+    !(
+      (group === 'parent' && verb === 'message') ||
+      (group === 'session' && ['spawn', 'prompt', 'message'].includes(verb))
+    )
+  )
+    throw new Error('--prompt-file is supported for spawn, prompt and coordination messages')
+  if (flags['params-file'] && !['task', 'orchestration'].includes(group))
+    throw new Error('--params-file is supported for orchestration commands')
   let method
   let params
   if (group === 'env') {
@@ -84,12 +113,56 @@ function parse(argv) {
     method = 'session.message'
     params = {
       targetSessionId: 'parent',
-      text: [target, ...rest].filter(Boolean).join(' '),
+      text: promptText([target, ...rest].filter(Boolean).join(' ')),
       idempotencyKey: key,
     }
+  } else if (group === 'orchestration' || group === 'task') {
+    const verbs = new Set([
+      'view',
+      'inbox',
+      'launch',
+      'retry',
+      'update',
+      'review',
+      'result',
+      'context',
+      'context.get',
+      'diff',
+      'integrate',
+      'verify',
+      'answer',
+      'stop',
+      'compare',
+      'routine.list',
+      'routine.add',
+      'routine.remove',
+    ])
+    if (!verbs.has(verb)) throw new Error('Unknown orchestration command')
+    method = `orchestration.${verb}`
+    if (flags.params && flags['params-file'])
+      throw new Error('Use either --params or --params-file')
+    params = flags['params-file']
+      ? JSON.parse(readInputFile(flags['params-file']))
+      : flags.params
+        ? JSON.parse(flags.params)
+        : {}
+    if (!params || Array.isArray(params) || typeof params !== 'object')
+      throw new Error('--params must be a JSON object')
+    params.sessionId = flags.session || params.sessionId || 'self'
+    if (!['view', 'inbox', 'context.get', 'diff', 'routine.list'].includes(verb))
+      params.idempotencyKey = flags.key || params.idempotencyKey || key
   } else if (group === 'session') {
     method = `session.${verb}`
     switch (verb) {
+      case 'delivery':
+        params = { targetSessionId: target, messageId: rest[0] }
+        break
+      case 'inbox':
+        params = { includeConsumed: Boolean(flags['include-consumed']) }
+        break
+      case 'ack':
+        params = { messageIds: [target, ...rest].filter(Boolean), idempotencyKey: key }
+        break
       case 'get':
         params = { targetSessionId: target || 'self' }
         break
@@ -107,12 +180,12 @@ function parse(argv) {
           ...(flags.effort ? { effort: flags.effort } : {}),
           ...(flags.permission ? { permissionMode: flags.permission } : {}),
           ...(flags.workspace ? { workspaceMode: flags.workspace } : {}),
-          ...(flags.prompt ? { prompt: flags.prompt } : {}),
+          ...(flags.prompt || flags['prompt-file'] ? { prompt: promptText(flags.prompt) } : {}),
         }
         break
       case 'prompt':
       case 'message':
-        params = { targetSessionId: target, text: rest.join(' '), idempotencyKey: key }
+        params = { targetSessionId: target, text: promptText(rest.join(' ')), idempotencyKey: key }
         break
       case 'answer':
         if (!target || !flags.input) throw new Error('session answer needs a child id and --input')

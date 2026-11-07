@@ -51,11 +51,12 @@ beforeEach(async () => {
       updatedAt: 1,
     },
   })
-})
+}, 30_000)
 
 afterEach(async () => {
+  await store.closeJournal('sess_1')
   await rm(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
-})
+}, 30_000)
 
 function engine(
   start: () => AsyncGenerator<AgentEvent>,
