@@ -1225,7 +1225,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     raw.onData((data) => dataListeners.forEach((l) => l(data)))
     raw.onExit((_e) => exitListeners.forEach((l) => l(0)))
     const pty: PtyLike = {
-      pid: raw.pid,
+      get pid() {
+        // ConPTY sets this asynchronously once its output worker connects.
+        return raw.pid
+      },
       write: (data) => raw.write(data),
       resize: (cols, rows) => raw.resize(cols, rows),
       kill: () => raw.kill(),
@@ -1248,7 +1251,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     ptyFactory,
   )
   shutdownTasks.push(() => terminals.close())
-  contents.once('destroyed', () => terminals.close())
+  contents.once('destroyed', () => void terminals.close())
   const browsers = new BrowserService(hostedBrowserGuestFactory(contents), (state) =>
     rpcRegistry.publish('browser.updated', state),
   )
@@ -2047,8 +2050,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { resized: true }
   })
 
-  r.register('terminal.kill', (params) => {
-    terminals.kill(params.id)
+  r.register('terminal.kill', async (params) => {
+    await terminals.kill(params.id)
     return { killed: true }
   })
 
