@@ -252,6 +252,7 @@ export function SessionView({
   hidden?: boolean
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
@@ -269,6 +270,8 @@ export function SessionView({
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
+  const errorTurnIdRef = useRef<string | null>(null)
+  const dismissedErrorTurnIdRef = useRef<string | null>(null)
   const { toast } = useToast()
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
@@ -378,6 +381,8 @@ export function SessionView({
     setApprovals([])
     setPendingQuestion(null)
     setTurnError(null)
+    errorTurnIdRef.current = null
+    dismissedErrorTurnIdRef.current = null
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
     setSpawns([])
@@ -496,7 +501,24 @@ export function SessionView({
           liveBufferRef.current = []
           for (const event of buffered.sort((a, b) => a.seq - b.seq)) ingest(event, true)
           history.finish(frame.replayOutcome !== 'incomplete')
-          const { model, telemetry } = history.controls()
+          const { model, telemetry, settledTurnIds } = history.controls()
+          settledTurnIdsRef.current = settledTurnIds
+          for (const turnId of turnsInView)
+            if (settledTurnIds.has(turnId)) fetchTurnDiffRef.current(turnId)
+          // Retry can recover a settlement that never reached the live applier.
+          // Derive its banner without replaying notifications or undoing dismissal.
+          const failure =
+            frame.liveTurnId == null &&
+            model.activeTurnId === null &&
+            model.lastTurn?.stopReason === 'error'
+              ? model.lastTurn
+              : null
+          errorTurnIdRef.current = failure?.turnId ?? null
+          setTurnError(
+            failure && failure.turnId !== dismissedErrorTurnIdRef.current
+              ? (failure.errorMessage ?? null)
+              : null,
+          )
           setTelemetry(telemetry)
           setApprovals(model.pendingApprovals)
           setPendingQuestion(model.pendingInputs.at(-1) ?? null)
@@ -624,7 +646,7 @@ export function SessionView({
       unsubscribe?.()
       retiring?.stop()
     }
-  }, [sessionId, store])
+  }, [sessionId, store, turnsInView])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
@@ -692,6 +714,7 @@ export function SessionView({
       case 'turn.started':
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
+        errorTurnIdRef.current = null
         if (live) {
           setRunning(true)
           activeTurnIdRef.current = event.turnId
@@ -727,6 +750,7 @@ export function SessionView({
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
           // Raw text is kept: the banner's Details disclosure shows it verbatim.
+          errorTurnIdRef.current = event.turnId
           setTurnError(event.errorMessage)
           if (live && !hiddenRef.current) notifySettledRef.current({ error: event.errorMessage })
         } else if (live && !hiddenRef.current) {
@@ -950,9 +974,14 @@ export function SessionView({
     [dispatchSend, toast],
   )
 
-  const handleTurnInView = useCallback((turnId: string) => {
-    if (settledTurnIdsRef.current.has(turnId)) fetchTurnDiffRef.current(turnId)
-  }, [])
+  const handleTurnInView = useCallback(
+    (turnId: string) => {
+      turnsInView.add(turnId)
+      if (historyReadySession === sessionId && settledTurnIdsRef.current.has(turnId))
+        fetchTurnDiffRef.current(turnId)
+    },
+    [historyReadySession, sessionId, turnsInView],
+  )
 
   const retryTurnDiff = useCallback((turnId: string) => {
     fetchedTurnIdsRef.current.delete(turnId)
@@ -1560,7 +1589,10 @@ export function SessionView({
             canRetry={lastUserMessage !== null}
             retryDisabled={running}
             onRetry={resendLastPrompt}
-            onDismiss={() => setTurnError(null)}
+            onDismiss={() => {
+              dismissedErrorTurnIdRef.current = errorTurnIdRef.current
+              setTurnError(null)
+            }}
             resume={turnResume}
           />
         ) : null}
