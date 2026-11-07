@@ -41,7 +41,7 @@ summaries) and `summary.md`; the table is also printed.
 ## Metrics
 
 - `coldStart.*`: spawn → first contentful paint, → "New session" button mounted, → that button
-  hit-testable (launch splash gone; the splash has a 3.2 s minimum by design).
+  hit-testable (launch splash gone; the splash has a 0.9 s floor plus a 0.36 s handover fade).
 - `switch.*`: real mouse click on a sidebar row (found by title) → first painted frame in which
   the target transcript's last message is laid out (`paint`), and → end of the last long task
   that followed (`settled`), with long-task count/total. `shortToLongFirst` opens a long session
