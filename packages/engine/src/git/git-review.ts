@@ -243,7 +243,36 @@ export class GitReviewService {
       { signal },
     )
     if (!counts.ok) return counts
-    const allFiles = parseReviewFiles(names.value, counts.value, status.value.files)
+    const raw = await this.git.run(
+      [...args, '--raw', '--no-abbrev', '-z', oldTree.value.trim(), newTree.value.trim(), '--'],
+      { signal },
+    )
+    if (!raw.ok) return raw
+    // Raw tree diffs carry object IDs and modes, including binary files and deletions.
+    // NUL records preserve literal paths; no blob reads are needed to fingerprint content.
+    const identities = new Map<string, string>()
+    const records = raw.value.split('\0')
+    for (let at = 0; at < records.length; at++) {
+      const header = records[at]
+      if (!header?.startsWith(':')) continue
+      const renamed = / [RC]\d+$/.test(header)
+      const oldPath = renamed ? records[++at] : undefined
+      const path = records[++at]
+      if (path) identities.set(path, JSON.stringify([header, oldPath, path]))
+    }
+    const allFiles = parseReviewFiles(names.value, counts.value, status.value.files).map((file) => {
+      const identity = identities.get(file.path)
+      return {
+        ...file,
+        ...(identity
+          ? {
+              contentId: createHash('sha256')
+                .update(JSON.stringify([identity, file.kind, file.binary]))
+                .digest('hex'),
+            }
+          : {}),
+      }
+    })
     const id = createHash('sha256')
       .update(
         JSON.stringify([
@@ -266,6 +295,18 @@ export class GitReviewService {
       .digest('hex')
     const manifest: GitReviewManifest = {
       id,
+      reviewScopeId: createHash('sha256')
+        .update(
+          JSON.stringify([
+            resolve(this.cwd),
+            comparison,
+            oldTree.value.trim(),
+            status.value.branch,
+            baseLabel,
+            live ? null : newTree.value.trim(),
+          ]),
+        )
+        .digest('hex'),
       comparison,
       baseOid: oldTree.value.trim(),
       headOid: newTree.value.trim(),
