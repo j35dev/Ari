@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { orchestrationParams } from './orchestration'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
 
@@ -111,6 +112,7 @@ export interface ChildTask {
 }
 
 export const controlParams = {
+  ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
   'providers.list': z.object({}).strict(),
   'session.get': z.object({ targetSessionId: target.default('self') }).strict(),
@@ -129,15 +131,29 @@ export const controlParams = {
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
       workspaceMode: z.enum(['isolated', 'shared']).optional(),
+      baseSnapshotCommit: z
+        .string()
+        .regex(/^[a-f0-9]{40,64}$/)
+        .optional(),
       prompt: text.optional(),
       idempotencyKey: key,
     })
     .strict(),
   'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
   'session.message': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  'session.delivery': z.object({ targetSessionId: target, messageId: target }).strict(),
+  'session.inbox': z.object({ includeConsumed: z.boolean().default(false) }).strict(),
+  'session.ack': z
+    .object({ messageIds: z.array(target).min(1).max(100), idempotencyKey: key })
+    .strict(),
   /** A direct parent answers a provider question its child is blocked on. */
   'session.answer': z
-    .object({ targetSessionId: target, inputId: target, value: text, idempotencyKey: key })
+    .object({
+      targetSessionId: target,
+      inputId: target,
+      value: z.string().max(64_000),
+      idempotencyKey: key,
+    })
     .strict(),
   'session.read': z
     .object({

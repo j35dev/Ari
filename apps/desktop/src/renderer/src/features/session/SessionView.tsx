@@ -4,12 +4,16 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
   type ComponentProps,
 } from 'react'
-import { ChildSessionActivity } from './ChildSessionActivity'
+import { WorkPanel } from './WorkPanel'
+import { WorkStatusLine } from './WorkStatusLine'
+import type { OrchestrationView } from '@ari/contracts/orchestration'
+import { invokeWork, workActionKey } from './work-actions'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
@@ -255,7 +259,7 @@ export function SessionView({
   const messageFoldRef = useRef(createMessageFold())
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
-  const [queued, setQueued] = useState<{ text: string; attachments: AttachmentRef[] }[]>([])
+  const [queued, setQueued] = useState<QueuedMessageView[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
@@ -296,6 +300,12 @@ export function SessionView({
   // Null until the first snapshot lands: a card drawn before it would have
   // to guess, and reads as idle for the moment it takes to arrive.
   const [tasks, setTasks] = useState<ChildTask[] | null>(null)
+  const workPanelId = useId()
+  const stopChildrenKeyRef = useRef<string | null>(null)
+  const [workOpen, setWorkOpen] = useState(false)
+  const [workView, setWorkView] = useState<OrchestrationView | null>(null)
+  const [workError, setWorkError] = useState<string | null>(null)
+  const [stoppingChildren, setStoppingChildren] = useState(false)
   // The agent harness's own sub-agents and background shells, and whether it
   // is reporting back between turns right now (output with no turn live).
   const [background, setBackground] = useState<{
@@ -360,6 +370,11 @@ export function SessionView({
     setTurnDiffs({})
     setSpawns([])
     setTasks(null)
+    setWorkOpen(false)
+    stopChildrenKeyRef.current = null
+    setStoppingChildren(false)
+    setWorkView(null)
+    setWorkError(null)
     setBackground(EMPTY_BACKGROUND)
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
@@ -372,18 +387,31 @@ export function SessionView({
     // Task snapshots trail the journal: a burst of child events (replay, or
     // siblings settling together) coalesces into one fetch.
     let tasksTimer: ReturnType<typeof setTimeout> | null = null
+    let taskRequest = 0
     refreshTasksRef.current = () => {
       if (tasksTimer !== null) return
       tasksTimer = setTimeout(() => {
         tasksTimer = null
+        const request = ++taskRequest
+        void invokeWork('orchestration.view', { sessionId })
+          .then((next) => {
+            if (!cancelled && request === taskRequest && next && Array.isArray(next.tasks)) {
+              setWorkView(next)
+              setWorkError(null)
+            }
+          })
+          .catch(() => {
+            if (!cancelled && request === taskRequest)
+              setWorkError('Work details could not be refreshed. The last known state is shown.')
+          })
         void rpc
           .invoke('session.tasks', { sessionId })
           .then((next) => {
-            if (!cancelled) setTasks(next)
+            if (!cancelled && request === taskRequest) setTasks(next)
           })
           // Without a snapshot the cards still show, from live activity alone.
           .catch(() => {
-            if (!cancelled) setTasks((prev) => prev ?? [])
+            if (!cancelled && request === taskRequest) setTasks((prev) => prev ?? [])
           })
       }, 200)
     }
@@ -399,6 +427,7 @@ export function SessionView({
         appliedSeqsRef.current.add(seq)
       }
       applyEvent(raw, live)
+      if (raw.type.startsWith('orchestration.')) refreshTasksRef.current()
     }
     // One transcript update per IPC frame, and live deltas at most once per
     // animation frame: a burst of flushes (several panes streaming, or a
@@ -538,6 +567,7 @@ export function SessionView({
             spawn.sessionId === event.childSessionId ? { ...spawn, destroyed: true } : spawn,
           ),
         )
+        refreshTasksRef.current()
         break
       case 'child.session.settled':
       case 'child.session.stopped':
@@ -545,6 +575,7 @@ export function SessionView({
         break
       case 'child.session.integrated':
       case 'child.session.acknowledged':
+        refreshTasksRef.current()
         break
       case 'user.message.added':
         lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
@@ -576,6 +607,7 @@ export function SessionView({
         break
       }
       case 'background.task.updated':
+        refreshTasksRef.current()
         setBackground((prev) => ({
           ...prev,
           tasks: foldBackgroundTask(prev.tasks, event, event.at),
@@ -632,7 +664,14 @@ export function SessionView({
         break
       }
       case 'message.enqueued':
-        setQueued((prev) => [...prev, { text: event.text, attachments: event.attachments ?? [] }])
+        setQueued((prev) => [
+          ...prev,
+          {
+            text: event.text,
+            attachments: event.attachments ?? [],
+            ...(event.origin ? { origin: event.origin } : {}),
+          },
+        ])
         break
       case 'message.dequeued':
         setQueued((prev) => {
@@ -640,6 +679,7 @@ export function SessionView({
           const idx = prev.findIndex(
             (q) =>
               q.text === event.text &&
+              JSON.stringify(q.origin ?? null) === JSON.stringify(event.origin ?? null) &&
               (event.attachments === undefined ||
                 q.attachments.map((a) => a.id).join(',') === want),
           )
@@ -1084,16 +1124,35 @@ export function SessionView({
 
   // A parent that ended its turn to wait has no Stop of its own, yet its
   // children may run for a long time. The rail offers one for all of them.
-  const delegatedWorkLive = delegations.some(
-    (child) =>
-      child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
-  )
   const stopChildren = useCallback(() => {
+    if (stoppingChildren) return
+    setStoppingChildren(true)
     void rpc
-      .invoke('session.stopChildren', { sessionId })
-      .then(() => refreshTasksRef.current())
+      .invoke('orchestration.stop', {
+        sessionId,
+        tree: true,
+        idempotencyKey: (stopChildrenKeyRef.current ??= workActionKey()),
+      })
+      .then(() => {
+        stopChildrenKeyRef.current = null
+        refreshTasksRef.current()
+      })
       .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
-  }, [sessionId, toast])
+      .finally(() => setStoppingChildren(false))
+  }, [sessionId, toast, stoppingChildren])
+
+  useEffect(() => {
+    if (childSessions.length > 0) refreshTasksRef.current()
+  }, [childSessions.length])
+
+  useEffect(
+    () => rpc.subscribe('orchestration.changed', { sessionId }, () => refreshTasksRef.current()),
+    [sessionId],
+  )
+
+  useEffect(() => {
+    if (workOpen) refreshTasksRef.current()
+  }, [workOpen])
 
   const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
 
@@ -1136,6 +1195,23 @@ export function SessionView({
     turnError === null
 
   const backgroundShown = backgroundSummary(background.tasks, background.reporting) !== null
+  const queuedForComposer = useMemo(
+    () =>
+      queued.map((message) => ({
+        ...message,
+        ...(message.origin && message.origin.kind !== 'human'
+          ? {
+              senderLabel:
+                message.origin.kind === 'session' || message.origin.kind === 'question'
+                  ? (sessionTitle?.(message.origin.sessionId) ?? 'Agent message')
+                  : message.origin.kind === 'completion'
+                    ? 'Agent results'
+                    : 'Scheduled message',
+            }
+          : {}),
+      })),
+    [queued, sessionTitle],
+  )
 
   // The composer is built only when something it shows changes: a session
   // view re-render (telemetry, child snapshots) must not re-render the editor
@@ -1148,7 +1224,7 @@ export function SessionView({
         onSend={handleSend}
         onStop={handleStop}
         running={running}
-        queued={queued}
+        queued={queuedForComposer}
         onSteerQueued={handleSteerQueued}
         onRemoveQueued={handleRemoveQueued}
         onEditQueued={handleEditQueued}
@@ -1160,7 +1236,7 @@ export function SessionView({
           // A plan approval is answered in the side panel, so it mounts no
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
-          composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
+          composerAttentionRequired || backgroundShown ? (
             <>
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
@@ -1194,18 +1270,9 @@ export function SessionView({
                   ))}
                 </div>
               ) : null}
-              {childSessions.length > 0 ? (
-                <ChildSessionActivity
-                  sessions={childSessions}
-                  activityOf={activityOf}
-                  onOpen={onOpenSession}
-                  // While this session runs, its own Stop reaches the children.
-                  {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
-                />
-              ) : null}
               {backgroundShown ? (
                 <>
-                  {composerAttentionRequired || childSessions.length > 0 ? (
+                  {composerAttentionRequired ? (
                     <div className="mx-3 border-t border-border/60" />
                   ) : null}
                   <BackgroundWork
@@ -1247,7 +1314,7 @@ export function SessionView({
       handleSend,
       handleStop,
       running,
-      queued,
+      queuedForComposer,
       handleSteerQueued,
       handleRemoveQueued,
       handleEditQueued,
@@ -1264,7 +1331,6 @@ export function SessionView({
       respondApproval,
       activityOf,
       onOpenSession,
-      delegatedWorkLive,
       stopChildren,
       backgroundShown,
       background,
@@ -1283,7 +1349,7 @@ export function SessionView({
   }, [])
 
   const view = (
-    <div className="flex h-full min-h-0">
+    <div className="ari-session-workspace relative flex h-full min-h-0">
       <div
         ref={canvasRef}
         className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
@@ -1297,6 +1363,17 @@ export function SessionView({
           sessionId={sessionId}
           parentSession={parentSession}
           onOpenSession={onOpenSession}
+          trailing={
+            <button
+              type="button"
+              aria-expanded={workOpen}
+              aria-controls={workPanelId}
+              onClick={() => setWorkOpen((value) => !value)}
+              className="rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              Work
+            </button>
+          }
         />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
@@ -1310,10 +1387,24 @@ export function SessionView({
             regenerateDisabled={running}
             running={running}
             chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
-            header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} tasks={tasks} />}
+            header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
-            working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+            working={
+              running || (workView?.tasks.length ?? tasks?.length ?? 0) > 0 ? (
+                <>
+                  {running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+                  <WorkStatusLine
+                    panelId={workPanelId}
+                    tasks={workView?.tasks ?? tasks ?? []}
+                    open={workOpen}
+                    onOpen={() => setWorkOpen((value) => !value)}
+                    onStopAll={stopChildren}
+                    stopping={stoppingChildren}
+                  />
+                </>
+              ) : null
+            }
             delegations={delegations}
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
@@ -1385,6 +1476,18 @@ export function SessionView({
           {composer}
         </ComposerDock>
       </div>
+      {workOpen && pendingPlan === null ? (
+        <WorkPanel
+          panelId={workPanelId}
+          sessionId={sessionId}
+          view={workView}
+          loadError={workError}
+          defaults={defaults}
+          onClose={() => setWorkOpen(false)}
+          onOpen={onOpenSession}
+          onChanged={() => refreshTasksRef.current()}
+        />
+      ) : null}
       {pendingPlan !== null ? (
         <PlanReviewRail
           prompt={pendingPlan.prompt}

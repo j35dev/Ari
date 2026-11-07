@@ -1,3 +1,4 @@
+import { UNKNOWN_PROVIDER_CAPABILITIES } from '@ari/providers/driver'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -94,6 +95,152 @@ async function seedSession(
 }
 
 describe('engine end-to-end with scripted driver', () => {
+  it.each(['live', 'follow-up', 'unknown', false] as const)(
+    'uses the created adapter steering capability %s for coordination',
+    async (steering) => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const steer = vi.fn(async () => true)
+      const registry = new DriverRegistry()
+      registry.register({
+        kind: 'claude',
+        capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, steering: 'live' }),
+        create: async () => ({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering,
+            liveResponses: false,
+          }),
+          start: () => ({
+            async *[Symbol.asyncIterator]() {
+              yield { type: 'text-delta' as const, text: 'working' }
+              await gate
+              yield { type: 'done' as const }
+            },
+          }),
+          interrupt: release,
+          dispose: async () => undefined,
+          steer,
+          respondApproval: () => undefined,
+          respondInput: () => undefined,
+        }),
+      })
+      const engine = new Engine({
+        store,
+        registry,
+        publish: (sessionId, event) => published.push({ sessionId, event }),
+        git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      })
+      await seedSession(store, 'capability')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'capability',
+        text: 'work',
+        attachments: [],
+      })
+      await expect
+        .poll(() => published.some((entry) => entry.event.type === 'assistant.parts.appended'))
+        .toBe(true)
+      expect(engine.liveCapabilities('capability')).toEqual({
+        approval: false,
+        question: false,
+        steer: steering === 'live',
+      })
+      const delivered = await engine.deliverCoordination({
+        messageId: 'inbox-one',
+        senderSessionId: 'sender',
+        recipientSessionId: 'capability',
+        text: 'coordinate',
+        createdAt: 1,
+        status: 'delivering',
+        turnId: (await store.load('capability')).activeTurnId,
+        consumedAt: null,
+      })
+      expect(delivered).toBe(steering === 'live')
+      expect(steer).toHaveBeenCalledTimes(steering === 'live' ? 1 : 0)
+      if (delivered)
+        expect(
+          (await store.load('capability')).messages.find((message) => message.id === 'inbox-one')
+            ?.origin,
+        ).toEqual({ kind: 'session', sessionId: 'sender' })
+      release()
+      await engine.quiesce('capability')
+      expect((await store.load('capability')).queuedMessages).toEqual([])
+    },
+  )
+
+  it.each(['completed', 'interrupted', 'error'] as const)(
+    'preserves provider task/request identity and explicit done reason %s',
+    async (stopReason) => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const identity = {
+        providerThreadId: 'provider-child',
+        providerTurnId: 'provider-turn',
+        providerItemId: 'provider-item',
+      }
+      const registry = new DriverRegistry()
+      registry.register({
+        kind: 'claude',
+        create: async () => ({
+          capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, liveResponses: 'approvals' }),
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield {
+                type: 'background-task',
+                id: 'native',
+                kind: 'subagent',
+                label: 'Native',
+                status: 'running',
+                ...identity,
+              }
+              yield {
+                type: 'approval-requested',
+                approvalId: 'grant',
+                toolName: 'Bash',
+                summaryJson: '{}',
+                options: [],
+                ...identity,
+              }
+              await gate
+              yield { type: 'done', stopReason }
+            },
+          }),
+          interrupt: release,
+          dispose: async () => undefined,
+          respondApproval: () => undefined,
+        }),
+      })
+      const engine = new Engine({
+        store,
+        registry,
+        publish: (sessionId, event) => published.push({ sessionId, event }),
+        git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      })
+      await seedSession(store, 'identity')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'identity',
+        text: 'work',
+        attachments: [],
+      })
+      await expect.poll(async () => (await store.load('identity')).pendingApprovals.length).toBe(1)
+      expect((await store.load('identity')).pendingApprovals[0]).toMatchObject(identity)
+      expect((await store.load('identity')).backgroundTasks?.[0]).toMatchObject(identity)
+      release()
+      await engine.quiesce('identity')
+      expect((await store.load('identity')).lastTurn?.stopReason).toBe(stopReason)
+      await store.closeJournal('identity')
+      const replayed = await new SessionStore({ rootDir: dir }).load('identity')
+      expect(replayed.backgroundTasks?.[0]).toMatchObject(identity)
+      expect(replayed.lastTurn?.stopReason).toBe(stopReason)
+    },
+  )
+
   it('keeps quiesce fenced while turn-start events are being journaled', async () => {
     let releaseAppend!: () => void
     const appendEntered = new Promise<void>((resolve) => {
@@ -223,6 +370,11 @@ describe('engine end-to-end with scripted driver', () => {
       create: (session: AdapterSession) => {
         seen.push(session)
         return Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'done' }
@@ -279,6 +431,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: () =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'text-delta', text: 'Here it is.' }
@@ -343,6 +500,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: () =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield {
@@ -401,6 +563,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator]() {
               yield { type: 'status', status: 'running' as const }
@@ -570,6 +737,11 @@ describe('engine end-to-end with scripted driver', () => {
           yield { type: 'done' }
         }
         return {
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({ [Symbol.asyncIterator]: () => start()[Symbol.asyncIterator]() }),
           interrupt: () => undefined,
           dispose: () => Promise.resolve(),
@@ -625,6 +797,11 @@ describe('engine end-to-end with scripted driver', () => {
           yield { type: 'done' }
         }
         return {
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({ [Symbol.asyncIterator]: () => start()[Symbol.asyncIterator]() }),
           interrupt: () => undefined,
           dispose: () => Promise.resolve(),
@@ -668,6 +845,11 @@ describe('engine end-to-end with scripted driver', () => {
       create: (session) => {
         created.push(session)
         return Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'permission-mode', mode: 'full' }
@@ -712,6 +894,11 @@ describe('engine end-to-end with scripted driver', () => {
         create: (session) => {
           created.push(session)
           return Promise.resolve({
+            capabilities: () => ({
+              ...UNKNOWN_PROVIDER_CAPABILITIES,
+              steering: 'live',
+              liveResponses: 'approvals-and-input',
+            }),
             start: () => ({
               async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
                 yield { type: 'session-ref', ref: 'native-thread-1' }
@@ -768,6 +955,11 @@ describe('engine end-to-end with scripted driver', () => {
         kind: 'claude',
         create: () =>
           Promise.resolve({
+            capabilities: () => ({
+              ...UNKNOWN_PROVIDER_CAPABILITIES,
+              steering: 'live',
+              liveResponses: 'approvals-and-input',
+            }),
             start: () => ({
               async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
                 yield { type: 'text-delta', text: 'Still ' }
@@ -830,6 +1022,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               started.push(session.sessionId)
@@ -879,6 +1076,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: () =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'done' }
@@ -946,6 +1148,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -1025,6 +1232,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -1095,6 +1307,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -1160,6 +1377,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'tool-started', callId: 'c1', name: 'Bash', argsJson: '{}' }
@@ -1238,6 +1460,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               // Still in the coalescing buffer when the steer lands.
@@ -1382,6 +1609,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -1435,6 +1667,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield {
@@ -1505,6 +1742,11 @@ describe('engine end-to-end with scripted driver', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator]() {
               yield {
@@ -1666,6 +1908,11 @@ describe('engine end-to-end with scripted driver', () => {
         kind: 'claude',
         create: () =>
           Promise.resolve({
+            capabilities: () => ({
+              ...UNKNOWN_PROVIDER_CAPABILITIES,
+              steering: 'live',
+              liveResponses: 'approvals-and-input',
+            }),
             start: () => ({
               async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
                 yield { type: 'error', message: 'boom', rawJson: null }
@@ -1780,6 +2027,11 @@ describe('session title source', () => {
       create: () => {
         const events = turns[next++] ?? []
         return Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield* events
@@ -1975,6 +2227,11 @@ describe('turn workspace', () => {
       create: (session) => {
         created.push(session)
         return Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'done' }
@@ -2111,6 +2368,11 @@ describe('Engine durable queue continuation', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -2189,6 +2451,11 @@ describe('Engine durable queue continuation', () => {
       kind: 'claude',
       create: (_session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
@@ -2412,6 +2679,11 @@ describe('Engine durable queue continuation', () => {
       kind: 'claude',
       create: (session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               started.push(session.sessionId)
@@ -2519,6 +2791,11 @@ describe('Engine durable queue continuation', () => {
       kind: 'claude',
       create: (session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               runCount++
@@ -2605,6 +2882,11 @@ describe('Engine durable queue continuation', () => {
       kind: 'claude',
       create: (session: AdapterSession) =>
         Promise.resolve({
+          capabilities: () => ({
+            ...UNKNOWN_PROVIDER_CAPABILITIES,
+            steering: 'live',
+            liveResponses: 'approvals-and-input',
+          }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               runCount++

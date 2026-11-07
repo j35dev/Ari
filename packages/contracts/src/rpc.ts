@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { orchestrationParams, type OrchestrationResults } from './orchestration'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
@@ -300,6 +301,7 @@ export type PickedElement = z.infer<typeof pickedElementSchema>
 
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
+  'orchestration.changed',
   'session.events',
   'terminal.data',
   'providers.updates',
@@ -635,6 +637,7 @@ export interface UpdateStart {
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
 export const rpcParams = {
+  ...orchestrationParams,
   ping: z.undefined(),
   'app.info': z.undefined(),
   /** Kick a release check now; unpackaged builds reply `started: false`. */
@@ -1005,7 +1008,7 @@ export const rpcParams = {
 
 export type RpcMethod = keyof typeof rpcParams
 
-export interface RpcResults {
+export interface RpcResults extends OrchestrationResults {
   ping: { pong: boolean; at: number }
   'app.info': {
     platform: string

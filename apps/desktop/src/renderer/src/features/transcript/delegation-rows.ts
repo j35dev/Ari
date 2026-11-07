@@ -53,14 +53,33 @@ export function insertDelegationRows(
   return [...group(-1), ...rows.flatMap((row, index) => [row, ...group(index)])]
 }
 
-const STATE_ORDER = ['needs-you', 'working', 'waiting', 'failed', 'stopped', 'done', 'idle', 'removed']
+const STATE_ORDER = [
+  'needs-you',
+  'needs-lead',
+  'unknown',
+  'queued',
+  'starting',
+  'stopping',
+  'working',
+  'waiting',
+  'failed',
+  'stopped',
+  'done',
+  'idle',
+  'removed',
+]
 const STATE_PHRASE: Record<string, string> = {
   'needs-you': 'needs you',
   working: 'working',
   waiting: 'waiting',
   failed: 'failed',
-  stopped: 'stopped',
-  done: 'done',
+  stopped: 'interrupted',
+  done: 'results ready',
+  'needs-lead': 'needs lead',
+  queued: 'queued',
+  starting: 'starting',
+  stopping: 'stopping',
+  unknown: 'activity unknown',
   idle: 'idle',
   removed: 'removed',
 }
@@ -69,6 +88,8 @@ const STATE_PHRASE: Record<string, string> = {
 export function summarizeDelegation(children: readonly DelegatedChild[]): string {
   return STATE_ORDER.flatMap((state) => {
     const count = children.filter((child) => child.state === state).length
-    return count > 0 ? [`${count} ${STATE_PHRASE[state]}`] : []
+    return count > 0
+      ? [`${count} ${state === 'done' && count === 1 ? 'result ready' : STATE_PHRASE[state]}`]
+      : []
   }).join(' · ')
 }

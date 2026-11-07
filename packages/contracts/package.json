@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./orchestration-presentation": "./src/orchestration-presentation.ts",
+    "./coordination": "./src/coordination.ts",
+    "./orchestration": "./src/orchestration.ts",
     "./agent-control": "./src/agent-control.ts",
     "./common": "./src/common.ts",
     "./session": "./src/session.ts",

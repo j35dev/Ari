@@ -11,6 +11,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Bookmark, Clock, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
+import type { MessageOrigin } from '@ari/contracts/message'
 import { transitions } from '@ari/ui/motion'
 import { Popover } from '@ari/ui/popover'
 import { activeTokenAt } from './active-token'
@@ -51,6 +52,8 @@ export interface ComposerSeed {
 export interface QueuedMessageView {
   text: string
   attachments: AttachmentRef[]
+  origin?: MessageOrigin
+  senderLabel?: string
 }
 
 export interface ComposerProps {
@@ -558,7 +561,13 @@ export function Composer({
       // back into the composer. Imaged rows stay queued: an edit draft is text.
       if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
         const atStart = (e.currentTarget.selectionStart ?? caret) === 0
-        const lastText = [...queued].reverse().find((message) => message.attachments.length === 0)
+        const lastText = [...queued]
+          .reverse()
+          .find(
+            (message) =>
+              message.attachments.length === 0 &&
+              (!message.origin || message.origin.kind === 'human'),
+          )
         if (atStart && onEditQueued && lastText !== undefined) {
           e.preventDefault()
           onEditQueued(lastText)
@@ -600,8 +609,8 @@ export function Composer({
             <div className="flex items-center gap-2 px-3">
               <Clock size={12} className="shrink-0 text-fg-subtle" />
               <span>
-                {queued.length} queued message{queued.length > 1 ? 's' : ''} · will send after the
-                current turn
+                {queued.length} queued message{queued.length > 1 ? 's' : ''} ·{' '}
+                {running ? 'waiting for the current turn' : 'waiting to start'}
               </span>
             </div>
             <ul className="mt-1 space-y-px px-1.5" aria-label="Queued messages">
@@ -611,6 +620,9 @@ export function Composer({
                   className="group flex items-center gap-1 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1 truncate text-fg" title={message.text}>
+                    {message.senderLabel ? (
+                      <span className="mr-2 text-2xs text-fg-subtle">{message.senderLabel}</span>
+                    ) : null}
                     {message.text}
                   </span>
                   {message.attachments.length > 0 ? (
@@ -621,7 +633,9 @@ export function Composer({
                   ) : null}
                   {/* Steering rides the provider's text channel, so an imaged
                       message can only ever run as the follow-up turn. */}
-                  {onSteerQueued && message.attachments.length === 0 ? (
+                  {onSteerQueued &&
+                  message.attachments.length === 0 &&
+                  (!message.origin || message.origin.kind === 'human') ? (
                     <button
                       type="button"
                       aria-label={`Steer queued message ${index + 1} into the current turn`}
@@ -632,7 +646,9 @@ export function Composer({
                       <CornerUpRight size={11} />
                     </button>
                   ) : null}
-                  {onEditQueued && message.attachments.length === 0 ? (
+                  {onEditQueued &&
+                  message.attachments.length === 0 &&
+                  (!message.origin || message.origin.kind === 'human') ? (
                     <button
                       type="button"
                       aria-label={`Edit queued message ${index + 1}`}
@@ -643,7 +659,7 @@ export function Composer({
                       <Pencil size={11} />
                     </button>
                   ) : null}
-                  {onRemoveQueued ? (
+                  {onRemoveQueued && (!message.origin || message.origin.kind === 'human') ? (
                     <button
                       type="button"
                       aria-label={`Remove queued message ${index + 1}`}

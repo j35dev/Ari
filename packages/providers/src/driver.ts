@@ -2,6 +2,63 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { Detection } from './types'
 
+/** Supported by Ari's transport, not merely by the provider's native CLI. */
+export interface ProviderCapabilities {
+  steering: 'live' | 'follow-up' | false | 'unknown'
+  liveResponses: 'approvals' | 'approvals-and-input' | false | 'unknown'
+  responsesAfterReconnect: boolean | 'unknown'
+  nativeChildren: {
+    visibility: 'lifecycle' | 'full' | false | 'unknown'
+    inspect: boolean | 'unknown'
+    message: boolean | 'unknown'
+    stop: boolean | 'unknown'
+    approvals: boolean | 'unknown'
+  }
+  nativeFork: boolean | 'unknown'
+  nativeHandoff: boolean | 'unknown'
+  processContinuity: 'between-turns' | 'turn-only' | 'unknown'
+  terminalStatus: 'explicit' | 'inferred' | 'unknown'
+}
+
+/** Missing declarations never enable a control. Unknown requires discovery. */
+export const UNKNOWN_PROVIDER_CAPABILITIES: Readonly<ProviderCapabilities> = Object.freeze({
+  steering: 'unknown',
+  liveResponses: 'unknown',
+  responsesAfterReconnect: false,
+  nativeChildren: Object.freeze({
+    visibility: 'unknown',
+    inspect: false,
+    message: false,
+    stop: false,
+    approvals: false,
+  }),
+  nativeFork: false,
+  nativeHandoff: false,
+  processContinuity: 'unknown',
+  terminalStatus: 'unknown',
+})
+
+/** A one-shot adapter has no writable controls or process continuity. */
+export const ONE_SHOT_PROVIDER_CAPABILITIES: Readonly<ProviderCapabilities> = Object.freeze({
+  ...UNKNOWN_PROVIDER_CAPABILITIES,
+  steering: false,
+  liveResponses: false,
+  nativeChildren: Object.freeze({
+    ...UNKNOWN_PROVIDER_CAPABILITIES.nativeChildren,
+    visibility: false,
+  }),
+  processContinuity: 'turn-only',
+  terminalStatus: 'inferred',
+})
+
+/** Read the created adapter for the actual transport; drivers may fall back. */
+export function getProviderCapabilities(
+  provider: Pick<ProviderAdapter | Driver, 'capabilities'>,
+): ProviderCapabilities {
+  const capabilities = provider.capabilities?.() ?? UNKNOWN_PROVIDER_CAPABILITIES
+  return { ...capabilities, nativeChildren: { ...capabilities.nativeChildren } }
+}
+
 /** One staged image handed to an adapter; `path` is null when unresolvable. */
 export interface SessionAttachment {
   id: string
@@ -44,6 +101,7 @@ export interface AdapterSession {
 }
 
 export interface ProviderAdapter {
+  capabilities?(): Readonly<ProviderCapabilities>
   start(): AsyncIterable<AgentEvent>
   interrupt(): void
   dispose(): Promise<void>
@@ -90,6 +148,8 @@ export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow' | { opti
 
 export interface Driver {
   kind: DriverKind
+  /** Preflight discovery may be unknown until create selects a transport. */
+  capabilities?(): Readonly<ProviderCapabilities>
   /** True when {@link AdapterSession.instructions} reaches the provider's system prompt. */
   systemInstructions?: boolean
   create(session: AdapterSession): Promise<ProviderAdapter>

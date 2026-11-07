@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -161,6 +161,25 @@ it('releases the worktree, branch and orchestration refs and is idempotent', asy
   expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/child/')).toBe('')
   await manager.release('child')
   await manager.release('missing-child')
+}, 30_000)
+
+it('preserves shared dependency directories linked into a released worktree', async () => {
+  const workspace = await manager.isolate(root, repo, 'linked-dependencies')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const shared = join(dir, 'shared dependencies')
+  await mkdir(join(shared, '.bin'), { recursive: true })
+  await writeFile(join(shared, '.bin', 'tool.cmd'), 'shared tool\n')
+  await mkdir(join(workspace.path, 'packages', 'engine'), { recursive: true })
+  for (const link of [
+    join(workspace.path, 'node_modules'),
+    join(workspace.path, 'packages', 'engine', 'node_modules'),
+  ])
+    await symlink(shared, link, process.platform === 'win32' ? 'junction' : 'dir')
+
+  await manager.release('linked-dependencies')
+  expect(await readFile(join(shared, '.bin', 'tool.cmd'), 'utf8')).toBe('shared tool\n')
+  expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(workspace.path)
+  await manager.release('linked-dependencies')
 }, 30_000)
 
 it('prunes snapshots keeping only the current commit', async () => {
