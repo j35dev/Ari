@@ -545,7 +545,9 @@ describe('Shell split panes', () => {
   it('keeps the welcome panel while the one pane is empty', async () => {
     render(<App />)
 
-    expect(await screen.findByText('Quick Actions', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Start a new session' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
   })
 
@@ -859,7 +861,9 @@ describe('Shell spaces', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New space' }))
     // The new tab is a blank surface, not the old space's panes.
-    expect(await screen.findByText('Quick Actions', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Start a new session' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Beta' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Space 1' }))
@@ -877,12 +881,12 @@ describe('Shell spaces', () => {
     await vi.waitFor(() => expect(loads()).toBe(2), { timeout: 10_000 })
 
     fireEvent.click(screen.getByRole('button', { name: 'New space' }))
-    await screen.findByText('Quick Actions', {}, { timeout: 10_000 })
+    await screen.findByRole('button', { name: 'Start a new session' }, { timeout: 10_000 })
     fireEvent.click(screen.getByRole('tab', { name: 'Space 1' }))
 
     expect(await screen.findByRole('region', { name: 'Beta' })).toBeVisible()
     // The space left behind stays mounted too, out of sight.
-    expect(screen.getByText('Quick Actions')).not.toBeVisible()
+    expect(screen.getByText('Start a new session')).not.toBeVisible()
     expect(loads()).toBe(2)
   })
 
