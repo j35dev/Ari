@@ -64,6 +64,7 @@ import {
   getProjectStore,
   getSessionStore,
   getSettingsStore,
+  getHostingService,
   loadProject,
   sessionsRoot,
 } from './store'
@@ -2279,6 +2280,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   const sourceControl = new SourceControlHost(r, {
+    hosting: getHostingService(),
     root: resolveScopeRoot,
     session: (id) => getSessionStore().load(id),
     requestRoot: join(app.getPath('userData'), 'request-worktrees'),

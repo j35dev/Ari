@@ -20,6 +20,8 @@ import type {
   RequestCheckout,
   SourceControlError,
   SourceControlStatus,
+  SourceControlConnection,
+  ChangeRequest,
 } from './source-control'
 export { sourceControlSchemas, gitMutationSchema }
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
@@ -36,6 +38,9 @@ export type {
   SourceControlProvider,
   SourceControlRepository,
   SourceControlStatus,
+  SourceControlConnection,
+  SourceControlConnect,
+  ChangeRequestAction,
 } from './source-control'
 
 /**
@@ -533,6 +538,9 @@ export interface GitSummary {
   /** Whether any Git remote is configured. */
   hasRemote: boolean
   operation: SourceControlStatus['operation']
+  /** Absent on older engines; false keeps generic Git remotes on commit/push flows. */
+  canCreateRequest?: boolean
+  requestKind?: 'pull' | 'merge'
 }
 
 /** The open pull request for the current branch, as the GitHub CLI reports it. */
@@ -578,6 +586,7 @@ export interface SourceControlEnvironment {
   git: SourceControlTool
   github: SourceControlTool
   gitlab: SourceControlTool
+  connections?: SourceControlConnection[]
 }
 
 export interface SourceControlContext {
@@ -890,6 +899,20 @@ export const rpcParams = {
   }),
   'scm.pullRequest': gitScopeSchema.extend({ refresh: z.boolean().optional() }),
   'scm.environment': z.undefined(),
+  'scm.connect': sourceControlSchemas.connect,
+  'scm.disconnect': z.object({ id: z.string().min(1).max(128) }),
+  'scm.request': gitScopeSchema.extend({
+    number: z.number().int().positive().max(1_000_000),
+    requestId: z.string().min(1).max(128).optional(),
+  }),
+  'scm.requestDiff': gitScopeSchema.extend({
+    number: z.number().int().positive().max(1_000_000),
+    requestId: z.string().min(1).max(128).optional(),
+  }),
+  'scm.requestAction': gitScopeSchema.extend({
+    number: z.number().int().positive().max(1_000_000),
+    action: sourceControlSchemas.requestAction,
+  }),
   'scm.cancel': z.object({ requestId: z.string().min(1).max(128) }),
   'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
@@ -1303,6 +1326,11 @@ export interface RpcResults {
   'scm.ship': SourceControlResult<GitShipOutcome>
   'scm.pullRequest': SourceControlResult<GitPullRequest | null>
   'scm.environment': SourceControlEnvironment
+  'scm.connect': SourceControlResult<SourceControlConnection>
+  'scm.disconnect': SourceControlResult<boolean>
+  'scm.request': SourceControlResult<ChangeRequest>
+  'scm.requestDiff': SourceControlResult<string>
+  'scm.requestAction': SourceControlResult<{ message: string }>
   'scm.cancel': { cancelled: boolean }
   'git.status': {
     isRepo: boolean

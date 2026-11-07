@@ -62,14 +62,19 @@ export async function ship(
   }
 
   if (action === 'commit' || action === 'commit_push' || action === 'commit_push_pr') {
+    const prefix = await git.run(['rev-parse', '--show-prefix'], { signal })
+    if (!prefix.ok) return prefix
+    if (prefix.value.trim())
+      return err({ code: 'unsupported', message: 'Open the repository root to commit changes.' })
     const chosen = input.paths
       ? status.files.filter((file) => input.paths!.includes(file.path))
       : status.files
     if (chosen.length === 0) return err({ code: 'invalid-input', message: 'Nothing to commit.' })
+    if (chosen.some((file) => file.kind === 'conflicted'))
+      return err({ code: 'busy', message: 'Resolve conflicted files before committing.' })
+    const paths = chosen.flatMap((file) => (file.oldPath ? [file.oldPath, file.path] : [file.path]))
     if (input.paths) {
-      const reset = await git.run(['reset', '-q'], { signal, detail: true })
-      if (!reset.ok) return reset
-      const added = await git.run(['add', '-A', '--', ...chosen.map((file) => file.path)], {
+      const added = await git.run(['--literal-pathspecs', 'add', '-A', '--', ...paths], {
         signal,
         detail: true,
       })
@@ -79,12 +84,21 @@ export async function ship(
       if (!added.ok) return added
     }
     const message = input.message?.trim() || defaultCommitMessage(chosen.map((file) => file.path))
-    const committed = await git.run(['commit', '-F', '-'], {
-      signal,
-      input: message,
-      timeoutMs: NETWORK_MS,
-      detail: true,
-    })
+    const committed = await git.run(
+      [
+        '--literal-pathspecs',
+        'commit',
+        '-F',
+        '-',
+        ...(input.paths ? ['--only', '--', ...paths] : []),
+      ],
+      {
+        signal,
+        input: message,
+        timeoutMs: NETWORK_MS,
+        detail: true,
+      },
+    )
     if (!committed.ok) return committed
     outcome.committed = message.split('\n')[0] ?? message
   }

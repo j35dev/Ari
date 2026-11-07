@@ -205,6 +205,8 @@ export const settingsSchema = z.object({
       diffView: z.enum(['split', 'unified']).default('split'),
       /** Wrap long lines in diffs instead of scrolling sideways. */
       wrapDiffLines: z.boolean().default(false),
+      /** Undefined retains migration compatibility; the UI defaults to the full workspace. */
+      diffOpenMode: z.enum(['workspace', 'sidebar']).optional(),
     })
     .default({
       confirmDefaultPush: true,
@@ -308,6 +310,7 @@ export const settingsUpdateSchema = z.object({
       fetchIntervalSeconds: z.number().int().min(0).max(3600),
       diffView: z.enum(['split', 'unified']),
       wrapDiffLines: z.boolean(),
+      diffOpenMode: z.enum(['workspace', 'sidebar']),
     })
     .partial()
     .optional(),
