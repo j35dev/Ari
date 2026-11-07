@@ -127,7 +127,7 @@ const ROW_ACTION_CLUSTER =
   'absolute right-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
 
 /** Quiet section caption shared by the view switch, recency buckets and shelves. */
-const SECTION_LABEL = 'text-[11px] font-medium tracking-[0.01em] text-fg-subtle'
+const SECTION_LABEL = 'text-2xs font-medium tracking-[0.01em] text-fg-subtle'
 
 function SelectMark({ checked }: { checked: boolean }) {
   return (
@@ -1519,10 +1519,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   const inbox = useMemo(() => (view === 'sessions' ? inboxSplit(sessions) : null), [sessions, view])
   // Live sessions, including children that are not drawn as their own cards,
   // so a root card can still chase while a child agent is the one running.
-  const liveSessions = useMemo(
-    () => sessions.filter((session) => !session.archived),
-    [sessions],
-  )
+  const liveSessions = useMemo(() => sessions.filter((session) => !session.archived), [sessions])
 
   const archivedShelf =
     archived.length > 0 ? (
@@ -1658,9 +1655,11 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           onClick={(e) => onNewSession?.(anchorBelow(e.currentTarget))}
           className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
-          New session
-          <Kbd className="ml-auto h-4 border-border/60 px-1 text-[10px] text-fg-subtle">Mod+N</Kbd>
+          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
+          <span className="min-w-0 flex-1 truncate text-left">New session</span>
+          <Kbd className="ml-auto h-4 shrink-0 border-border/60 px-1 text-[10px] text-fg-subtle">
+            Mod+N
+          </Kbd>
         </button>
         {/* Adding a project is how a session gets somewhere to run, so it sits
             beside New session rather than tucked away as a sidebar icon. */}
@@ -1671,8 +1670,8 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           onClick={() => onOpenProject?.()}
           className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
-          Add project
+          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
+          <span className="min-w-0 truncate">Add project</span>
         </button>
       </div>
       <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
@@ -1760,7 +1759,7 @@ function SidebarViewSwitch({
         type="button"
         aria-pressed={selected}
         onClick={() => onChange(id)}
-        className={`rounded-sm px-1 text-[11px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           selected ? 'text-fg' : 'text-fg-subtle hover:text-fg-muted'
         }`}
       >
@@ -1772,7 +1771,7 @@ function SidebarViewSwitch({
     <div className="flex h-8 items-center gap-1 px-3">
       <div role="group" aria-label="Sidebar view" className="flex items-center gap-1">
         {tab('projects', 'Projects')}
-        <span aria-hidden className="text-[11px] text-fg-subtle/60">
+        <span aria-hidden className="text-2xs text-fg-subtle/60">
           ·
         </span>
         {tab('sessions', 'Sessions')}

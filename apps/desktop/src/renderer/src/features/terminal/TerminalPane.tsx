@@ -56,10 +56,11 @@ export function TerminalPane({
     // font family is rejected outright, leaving the grid measured against
     // 10px sans-serif while the rows render in the real font. Resolve it here.
     const fontFamily = readToken('--ari-font-mono', FALLBACK_FONT)
+    const fontSize = FONT_SIZE
 
     const term = new Terminal({
       fontFamily,
-      fontSize: FONT_SIZE,
+      fontSize,
       lineHeight: LINE_HEIGHT,
       fontWeight: 400,
       fontWeightBold: 600,
@@ -81,6 +82,16 @@ export function TerminalPane({
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
+    const fitAndResize = (): void => {
+      try {
+        fit.fit()
+        void rpc
+          .invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
+          .catch(() => undefined)
+      } catch {
+        // A hidden pane can have a zero-size box; its resize observer retries.
+      }
+    }
     const disposeClipboard = bindTerminalClipboard(term, (message) => {
       term.writeln(`\r\n[${message}]`)
     })
@@ -93,19 +104,40 @@ export function TerminalPane({
     // The bundled mono webfont may still be loading when a rail opens, and the
     // cell is only measured once. Only an option *change* re-runs that
     // measurement, hence the round trip through the fallback family.
-    try {
-      void document.fonts
-        .load(`${FONT_SIZE}px ${fontFamily}`)
-        .then(() => {
-          if (termRef.current !== term || fontFamily === FALLBACK_FONT) return
-          term.options.fontFamily = FALLBACK_FONT
-          term.options.fontFamily = fontFamily
-          fit.fit()
-        })
-        .catch(() => undefined)
-    } catch {
-      // no FontFaceSet (jsdom): the first measurement stands
+    const warmFont = (family: string, size: number): void => {
+      try {
+        void document.fonts
+          .load(`${size}px ${family}`)
+          .then(() => {
+            if (
+              termRef.current !== term ||
+              term.options.fontFamily !== family ||
+              term.options.fontSize !== size ||
+              family === FALLBACK_FONT
+            )
+              return
+            term.options.fontFamily = FALLBACK_FONT
+            term.options.fontFamily = family
+            fitAndResize()
+          })
+          .catch(() => undefined)
+      } catch {
+        // no FontFaceSet (jsdom): the first measurement stands
+      }
     }
+    warmFont(fontFamily, fontSize)
+
+    // Update font metrics in place so choosing a new face never restarts a shell.
+    const fontObserver = new MutationObserver(() => {
+      const family = readToken('--ari-font-mono', FALLBACK_FONT)
+      const size = FONT_SIZE
+      if (term.options.fontFamily === family && term.options.fontSize === size) return
+      term.options.fontFamily = family
+      term.options.fontSize = size
+      fitAndResize()
+      warmFont(family, size)
+    })
+    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
 
     // A rejected create used to vanish into `.catch(() => undefined)`, leaving
     // a blank xterm with a blinking cursor and no way to tell it had failed.
@@ -132,16 +164,7 @@ export function TerminalPane({
       void rpc.invoke('terminal.write', { id: terminalId, data }).catch(() => undefined)
     })
 
-    const observer = new ResizeObserver(() => {
-      try {
-        fit.fit()
-        rpc
-          .invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
-          .catch(() => undefined)
-      } catch {
-        // zero-size layout moments are fine
-      }
-    })
+    const observer = new ResizeObserver(fitAndResize)
     observer.observe(host)
     void rpc
       .invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
@@ -150,6 +173,7 @@ export function TerminalPane({
     return () => {
       termRef.current = null
       observer.disconnect()
+      fontObserver.disconnect()
       dataSub()
       inputSub.dispose()
       disposeClipboard()

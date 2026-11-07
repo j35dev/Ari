@@ -28,6 +28,7 @@ const engineSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
+    ...defaultSettings.appearance,
     themeId: 'obsidian',
     mode: 'system',
     reducedMotion: false,

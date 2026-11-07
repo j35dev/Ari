@@ -6,6 +6,7 @@ import { applyCachedTheme } from '@ari/ui/theme-provider'
 // vendored woff2 files unbundled in production builds.
 import '@ari/ui/fonts'
 import { App } from './App'
+import { applyCachedAppearance } from './lib/appearance'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { installExternalLinkInterceptor } from './lib/external-links'
 import './styles/index.css'
@@ -15,6 +16,7 @@ if (!container) throw new Error('missing #root element')
 
 // Runs before the first React paint so a pinned light theme never flashes dark.
 applyCachedTheme()
+applyCachedAppearance()
 
 // The window's first frame is the launch canvas, not the themed app
 // background. App clears the flag once the launch animation hands over
