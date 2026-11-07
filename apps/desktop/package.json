@@ -11,6 +11,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "dist": "pnpm --filter @ari/mobile build && electron-builder",
+    "e2e": "vite build --ssr src/main/testing/browser-state-input.e2e.ts --outDir out/e2e --emptyOutDir && electron --no-sandbox out/e2e/browser-state-input.e2e.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
