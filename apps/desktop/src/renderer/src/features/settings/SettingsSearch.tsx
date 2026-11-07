@@ -35,8 +35,29 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-appearance',
-    label: 'Density',
-    keywords: 'compact comfortable spacing layout',
+    label: 'Interface font',
+    keywords:
+      'typography typeface geist mono system serif jetbrains fira manrope source appearance',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Code and terminal font',
+    keywords: 'monospace jetbrains fira cascadia code shell terminal diff font',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Text size',
+    keywords: 'font size small compact comfortable larger accessibility chat messages composer',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Chat width',
+    keywords: 'compact focused balanced comfortable wide full width spacing margins layout',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Chat style',
+    keywords: 'terminal cli streaming conversation commands edits results',
   },
   {
     section: 'settings-providers',
@@ -51,7 +72,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-providers',
     label: 'Provider binary path',
-    keywords: 'executable location custom cli install path browse which claude.exe npm shim connection',
+    keywords:
+      'executable location custom cli install path browse which claude.exe npm shim connection',
   },
   {
     section: 'settings-agents',

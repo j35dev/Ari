@@ -1,7 +1,7 @@
 /* Transcript markdown styling — scoped under .ari-md. Tokens only. */
 
 .ari-md {
-  font-size: var(--ari-text-sm);
+  font-size: var(--ari-chat-text, var(--ari-text-md));
   line-height: 1.65;
   color: var(--ari-fg);
   word-break: break-word;
@@ -36,13 +36,13 @@
 }
 
 .ari-md h1 {
-  font-size: var(--ari-text-xl);
+  font-size: calc(var(--ari-text-xl) * var(--ari-chat-scale, 1));
 }
 .ari-md h2 {
-  font-size: var(--ari-text-lg);
+  font-size: calc(var(--ari-text-lg) * var(--ari-chat-scale, 1));
 }
 .ari-md h3 {
-  font-size: var(--ari-text-md);
+  font-size: calc(var(--ari-text-md) * var(--ari-chat-scale, 1));
 }
 
 .ari-md ul,
@@ -63,7 +63,7 @@
 
 .ari-md code {
   font-family: var(--ari-font-mono);
-  font-size: var(--ari-text-xs);
+  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
   background: var(--ari-surface-2);
   border: 1px solid var(--ari-border);
   border-radius: var(--ari-radius-sm);
@@ -84,7 +84,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: var(--ari-text-xs);
+  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
   line-height: 1.55;
 }
 
@@ -108,9 +108,12 @@
 }
 
 .ari-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0.6rem 0;
   border-collapse: collapse;
-  font-size: var(--ari-text-xs);
+  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
 }
 
 .ari-md th,

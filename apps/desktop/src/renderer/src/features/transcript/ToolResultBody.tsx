@@ -104,7 +104,13 @@ function mcpContentItems(parsed: unknown): McpContentItem[] | null {
  * plain terminal text — copyable, and expandable past the collapsed clip when
  * the output is long.
  */
-export function ToolResultBody({ resultJson }: { resultJson: string }) {
+export function ToolResultBody({
+  resultJson,
+  expanded = false,
+}: {
+  resultJson: string
+  expanded?: boolean
+}) {
   const isDiff = useMemo(() => looksLikeUnifiedDiff(resultJson), [resultJson])
   const parsed = useMemo(() => {
     try {
@@ -120,15 +126,22 @@ export function ToolResultBody({ resultJson }: { resultJson: string }) {
   }, [resultJson])
 
   if (isDiff) return <DiffViewer diffText={resultJson} />
-  if (parsed.content) return <McpContentBody items={parsed.content} />
-  return <TextBody text={parsed.text} lang={parsed.isJson ? 'json' : 'text'} />
+  if (parsed.content) return <McpContentBody items={parsed.content} expanded={expanded} />
+  return (
+    <TextBody
+      text={parsed.text}
+      lang={parsed.isJson ? 'json' : 'text'}
+      defaultExpanded={expanded}
+    />
+  )
 }
 
-function McpContentBody({ items }: { items: McpContentItem[] }) {
+function McpContentBody({ items, expanded }: { items: McpContentItem[]; expanded: boolean }) {
   return (
     <div className="bg-surface-0">
       {items.map((item, i) => {
-        if (item.kind === 'text') return <TextBody key={i} text={item.text} lang="text" />
+        if (item.kind === 'text')
+          return <TextBody key={i} text={item.text} lang="text" defaultExpanded={expanded} />
         if (item.kind === 'image')
           return <McpImage key={i} dataUrl={item.dataUrl} label={item.label} />
         return (
@@ -181,8 +194,17 @@ function McpImage({ dataUrl, label }: { dataUrl: string; label: string }) {
   )
 }
 
-function TextBody({ text, lang }: { text: string; lang: string }) {
-  const [expanded, setExpanded] = useState(false)
+function TextBody({
+  text,
+  lang,
+  defaultExpanded = false,
+}: {
+  text: string
+  lang: string
+  defaultExpanded?: boolean
+}) {
+  const [override, setOverride] = useState<boolean | null>(null)
+  const expanded = override ?? defaultExpanded
   const clippable = isClippable(text)
   return (
     <div className="relative">
@@ -197,7 +219,7 @@ function TextBody({ text, lang }: { text: string; lang: string }) {
       {clippable ? (
         <button
           type="button"
-          onClick={() => setExpanded((e) => !e)}
+          onClick={() => setOverride((previous) => !(previous ?? defaultExpanded))}
           aria-expanded={expanded}
           className="flex w-full items-center justify-center gap-1 border-t border-border py-1 text-2xs text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
         >

@@ -16,7 +16,9 @@ export function SettingsPage({ title, description, children, className }: Settin
   return (
     <div
       id={`settings-${title.toLowerCase()}`}
-      className={['mx-auto max-w-2xl space-y-8 p-8', className].filter(Boolean).join(' ')}
+      className={['ari-settings-page mx-auto max-w-2xl space-y-8 p-8', className]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div className="space-y-1">
         <h1 className="text-lg font-semibold">{title}</h1>

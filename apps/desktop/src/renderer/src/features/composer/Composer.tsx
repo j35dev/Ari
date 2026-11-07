@@ -309,6 +309,35 @@ export function Composer({
 
   useEffect(resize, [text, resize])
 
+  // Reflow an existing draft when its font, text size, or pane width changes.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    const remeasure = (): void => {
+      measuredRef.current.floor = -1
+      resize()
+    }
+    const appearanceObserver = new MutationObserver(remeasure)
+    appearanceObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'data-ari-chat-style'],
+    })
+    let lastWidth = -1
+    const widthObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width === undefined || width === lastWidth) return
+      lastWidth = width
+      remeasure()
+    })
+    widthObserver.observe(el)
+    document.fonts?.addEventListener('loadingdone', remeasure)
+    return () => {
+      appearanceObserver.disconnect()
+      widthObserver.disconnect()
+      document.fonts?.removeEventListener('loadingdone', remeasure)
+    }
+  }, [resize])
+
   // Draft injection: only a fresh nonce applies the seed, so re-renders with
   // the same object never clobber what the user is typing.
   const seededNonceRef = useRef<number | null>(null)
@@ -558,7 +587,7 @@ export function Composer({
   )
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="ari-composer-content px-4 pb-4 pt-2">
       <AnimatePresence>
         {queued.length > 0 ? (
           <motion.div
@@ -821,7 +850,7 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boole
       <div
         ref={ref}
         aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
+        className={`ari-composer-mention-overlay pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
           resting ? 'pl-4 pr-12' : 'px-4'
         }`}
       >

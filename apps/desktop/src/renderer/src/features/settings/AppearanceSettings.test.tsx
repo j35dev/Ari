@@ -20,6 +20,7 @@ const engineSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
+    ...defaultSettings.appearance,
     themeId: 'obsidian',
     mode: 'system',
     reducedMotion: false,
@@ -49,6 +50,54 @@ function renderPage() {
 }
 
 describe('AppearanceSettings', () => {
+  it('offers only modest text sizes and starts at the released default scale', () => {
+    renderPage()
+    const select = screen.getByRole('combobox', { name: 'Text size' }) as HTMLSelectElement
+    expect(select.value).toBe('16')
+    expect(Array.from(select.options, (option) => Number(option.value))).toEqual([
+      14, 15, 16, 17, 18,
+    ])
+  })
+  it('offers bundled fonts, separate code faces, intermediate sizes, and full width', async () => {
+    renderPage()
+    const user = userEvent.setup()
+    for (const label of [
+      'JetBrains Mono',
+      'Fira Code',
+      'Manrope',
+      'Source Sans 3',
+      'Source Serif 4',
+    ]) {
+      expect(screen.getAllByRole('option', { name: label }).length).toBeGreaterThan(0)
+    }
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Interface font' }), 'manrope')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Code and terminal font' }),
+      'jetbrains-mono',
+    )
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Text size' }), '17')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat width' }), 'full')
+    expect(mocks.update.mock.calls.map(([patch]) => patch)).toEqual([
+      { appearance: { fontFamily: 'manrope' } },
+      { appearance: { codeFont: 'jetbrains-mono' } },
+      { appearance: { fontSize: 17 } },
+      { appearance: { chatWidth: 'full' } },
+    ])
+  })
+  it('persists font, scale, width, and terminal choices as independent patches', async () => {
+    renderPage()
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Interface font' }), 'mono')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Text size' }), '18')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat width' }), 'wide')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat style' }), 'terminal')
+    expect(mocks.update.mock.calls.map(([patch]) => patch)).toEqual([
+      { appearance: { fontFamily: 'mono' } },
+      { appearance: { fontSize: 18 } },
+      { appearance: { chatWidth: 'wide' } },
+      { appearance: { chatStyle: 'terminal' } },
+    ])
+  })
   beforeEach(() => {
     mocks.update.mockReset()
     mocks.update.mockResolvedValue(engineSettings)
@@ -119,6 +168,7 @@ describe('AppearanceSettings', () => {
     mocks.holder.settings = {
       ...engineSettings,
       appearance: {
+        ...engineSettings.appearance,
         themeId: 'obsidian',
         mode: 'system',
         reducedMotion: true,

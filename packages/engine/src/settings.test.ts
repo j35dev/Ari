@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SettingsStore } from './settings'
+import { settingsUpdateSchema } from '@ari/contracts/settings'
 
 let dir: string
 
@@ -15,6 +16,60 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('caps retired oversized text preferences and rejects new oversized choices', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, appearance: { fontSize: 22, fontFamily: 'jetbrains-mono' } }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).appearance).toMatchObject({
+      fontSize: 18,
+      fontFamily: 'jetbrains-mono',
+    })
+    expect(settingsUpdateSchema.safeParse({ appearance: { fontSize: 20 } }).success).toBe(false)
+    expect((await store.update({ appearance: { fontSize: 20 as 18 } })).appearance.fontSize).toBe(
+      18,
+    )
+    await store.update({ appearance: { chatWidth: 'comfortable' } })
+    expect((await new SettingsStore({ dir }).load()).appearance.fontSize).toBe(18)
+  })
+  it('migrates old appearance settings and preserves chat preferences across theme saves', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, appearance: { themeId: 'verdant', wallpaper: 'anime-city' } }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).appearance).toMatchObject({
+      fontFamily: 'theme',
+      codeFont: 'geist-mono',
+      fontSize: 16,
+      chatWidth: 'comfortable',
+      chatStyle: 'conversation',
+    })
+    await store.update({
+      appearance: {
+        fontFamily: 'jetbrains-mono',
+        codeFont: 'fira-code',
+        fontSize: 17,
+        chatWidth: 'full',
+        chatStyle: 'terminal',
+      },
+    })
+    await store.update({ appearance: { themeId: 'porcelain', mode: 'porcelain' } })
+    expect((await new SettingsStore({ dir }).load()).appearance).toMatchObject({
+      themeId: 'porcelain',
+      wallpaper: 'anime-city',
+      fontFamily: 'jetbrains-mono',
+      codeFont: 'fira-code',
+      fontSize: 17,
+      chatWidth: 'full',
+      chatStyle: 'terminal',
+    })
+    await expect(store.update({ appearance: { fontSize: 200 as 16 } })).rejects.toThrow()
+    expect(store.current.appearance.fontSize).toBe(17)
+  })
   it('persists first-run completion across unrelated updates and rejects invalid markers', async () => {
     const store = new SettingsStore({ dir })
     expect((await store.load()).onboarding).toBeUndefined()

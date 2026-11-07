@@ -44,6 +44,40 @@ export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
+export const interfaceFontSchema = z.enum([
+  'theme',
+  'geist',
+  'system',
+  'mono',
+  'serif',
+  'jetbrains-mono',
+  'fira-code',
+  'manrope',
+  'source-sans',
+  'source-serif',
+])
+export const codeFontSchema = z.enum([
+  'geist-mono',
+  'jetbrains-mono',
+  'fira-code',
+  'cascadia',
+  'system-mono',
+])
+export const interfaceFontSizeSchema = z.union([
+  z.literal(14),
+  z.literal(15),
+  z.literal(16),
+  z.literal(17),
+  z.literal(18),
+])
+// Preserve preferences from previews that offered oversized text settings.
+const savedInterfaceFontSizeSchema = z.preprocess(
+  (value) => (value === 19 || value === 20 || value === 22 ? 18 : value),
+  interfaceFontSizeSchema,
+)
+export const chatWidthSchema = z.enum(['focused', 'balanced', 'comfortable', 'wide', 'full'])
+export const chatStyleSchema = z.enum(['conversation', 'terminal'])
+
 /** The agent CLIs Ari drives; Ari Core is built in and has no connection to configure. */
 export const cliKindSchema = driverKindSchema.exclude(['ari-core'])
 export type CliKind = z.infer<typeof cliKindSchema>
@@ -114,6 +148,11 @@ const defaultAppearance = {
   mode: 'system',
   reducedMotion: false,
   wallpaper: 'none',
+  fontFamily: 'theme',
+  codeFont: 'geist-mono',
+  fontSize: 16,
+  chatWidth: 'comfortable',
+  chatStyle: 'conversation',
 } as const
 
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
@@ -139,6 +178,11 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
+      fontFamily: interfaceFontSchema.default(defaultAppearance.fontFamily),
+      codeFont: codeFontSchema.default(defaultAppearance.codeFont),
+      fontSize: savedInterfaceFontSizeSchema.default(defaultAppearance.fontSize),
+      chatWidth: chatWidthSchema.default(defaultAppearance.chatWidth),
+      chatStyle: chatStyleSchema.default(defaultAppearance.chatStyle),
     })
     .default(defaultAppearance),
   sessions: z
@@ -228,6 +272,11 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
+      fontFamily: interfaceFontSchema,
+      codeFont: codeFontSchema,
+      fontSize: interfaceFontSizeSchema,
+      chatWidth: chatWidthSchema,
+      chatStyle: chatStyleSchema,
     })
     .partial()
     .optional(),

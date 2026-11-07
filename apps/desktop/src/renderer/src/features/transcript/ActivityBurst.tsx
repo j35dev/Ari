@@ -81,18 +81,29 @@ function ActivityLedger({ entries }: { entries: ActivityLedgerEntry[] }) {
  * result. A settled burst holding a single call skips the intermediate list and
  * opens straight to that call's body.
  */
-export function ActivityBurst({ row, active }: { row: ToolGroupRow; active: boolean }) {
+export function ActivityBurst({
+  row,
+  active,
+  terminal = false,
+}: {
+  row: ToolGroupRow
+  active: boolean
+  terminal?: boolean
+}) {
   const [openOverride, setOpenOverride] = useState<boolean | null>(null)
   const live = useHeldLive(active)
   const activity = useMemo(() => describeActivity(row, live), [row, live])
   const { verb, subject, more, label, summary, ledger, stat } = activity
-  const open = openOverride ?? live
+  const open = openOverride ?? (terminal || live)
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   // The lone-call shortcut trades the step list for the call's own body. Held
   // back while the turn runs: a burst grows from one call to many as the model
   // chains them, and swapping the body's shape mid-turn reads as the thing you
   // were reading collapsing. Live, the body is append-only.
-  const lone = !live && steps.length === 1 && steps[0]?.kind === 'tool-call' ? steps[0] : undefined
+  const lone =
+    !terminal && !live && steps.length === 1 && steps[0]?.kind === 'tool-call'
+      ? steps[0]
+      : undefined
   const tally = formatToolSummary(summary)
 
   const imageCall = row.calls.length === 1 ? row.calls[0] : undefined
@@ -107,7 +118,7 @@ export function ActivityBurst({ row, active }: { row: ToolGroupRow; active: bool
     <div className="ari-burst my-1 pl-3" data-activity={live ? 'working' : 'settled'}>
       <button
         type="button"
-        onClick={() => setOpenOverride((prev) => !(prev ?? live))}
+        onClick={() => setOpenOverride((prev) => !(prev ?? (terminal || live)))}
         aria-expanded={open}
         aria-label={named.join(' · ')}
         className="group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors hover:bg-surface-1/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
@@ -152,7 +163,12 @@ export function ActivityBurst({ row, active }: { row: ToolGroupRow; active: bool
         ) : (
           <div className="ari-burst-steps pb-1 pl-0.5">
             {steps.map((step) => (
-              <BurstStep key={step.key} step={step} results={row.resultsByCallId} />
+              <BurstStep
+                key={step.key}
+                step={step}
+                results={row.resultsByCallId}
+                terminal={terminal}
+              />
             ))}
           </div>
         )
@@ -164,10 +180,19 @@ export function ActivityBurst({ row, active }: { row: ToolGroupRow; active: bool
 function BurstStep({
   step,
   results,
+  terminal,
 }: {
   step: TranscriptBlock
   results: Map<string, TranscriptBlock>
+  terminal: boolean
 }) {
-  if (step.kind === 'thinking') return <ThinkingBlock text={step.text ?? ''} compact />
-  return <ActivityStep call={step} result={step.callId ? results.get(step.callId) : undefined} />
+  if (step.kind === 'thinking')
+    return <ThinkingBlock text={step.text ?? ''} compact expanded={terminal} />
+  return (
+    <ActivityStep
+      call={step}
+      result={step.callId ? results.get(step.callId) : undefined}
+      expanded={terminal}
+    />
+  )
 }
