@@ -15,6 +15,7 @@ export function ChildSessionActivity({
   activityOf,
   onOpen,
   onStopAll,
+  stopping = false,
 }: {
   sessions: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
@@ -24,6 +25,7 @@ export function ChildSessionActivity({
    * something to stop and this session has no turn of its own to stop instead.
    */
   onStopAll?: () => void
+  stopping?: boolean
 }) {
   const [open, setOpen] = useState(false)
   if (sessions.length === 0) return null
@@ -122,11 +124,12 @@ export function ChildSessionActivity({
         {onStopAll ? (
           <button
             type="button"
+            disabled={stopping}
             onClick={onStopAll}
             title="Stop every session this one delegated to"
-            className="me-2 shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="me-2 shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
           >
-            Stop all
+            {stopping ? 'Stopping…' : 'Stop all'}
           </button>
         ) : null}
       </div>
