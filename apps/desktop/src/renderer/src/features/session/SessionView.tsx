@@ -34,7 +34,13 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
-import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
+import {
+  Composer,
+  type ComposerDraft,
+  type ComposerRecovery,
+  type ComposerSeed,
+  type QueuedMessageView,
+} from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard, type ApprovalAnswer } from '../approvals/ApprovalCard'
@@ -64,6 +70,7 @@ import {
   restoreBrowserPicks,
   subscribeBrowserPicks,
   takeBrowserPicks,
+  type BrowserPick,
 } from '../browser/browser-picks'
 import {
   appendReviewNote,
@@ -72,7 +79,14 @@ import {
   reviewDraftChipLabel,
   useReviewDrafts,
   writeReviewDrafts,
+  type ReviewDraft,
 } from '../changes/review-drafts'
+
+interface UnsentMessage extends ComposerRecovery {
+  sessionId: string
+  notes: readonly ReviewDraft[]
+  picks: readonly BrowserPick[]
+}
 
 interface PendingApproval {
   approvalId: string
@@ -268,6 +282,13 @@ export function SessionView({
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
+  const [unsent, setUnsent] = useState<UnsentMessage[]>([])
+  const unsentRef = useRef<UnsentMessage[]>([])
+  const pendingSendRef = useRef(new Set<string>())
+  const [pendingSends, setPendingSends] = useState(new Set<string>())
+  const sendPending = pendingSends.has(sessionId)
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
@@ -767,7 +788,9 @@ export function SessionView({
     ): Promise<boolean> => {
       const fail = (reason: string): void => {
         onRejected?.(reason)
-        toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+        if (!hiddenRef.current && command.sessionId === sessionIdRef.current) {
+          toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+        }
       }
       return rpc
         .invoke('command.dispatch', { command })
@@ -786,80 +809,130 @@ export function SessionView({
     [toast],
   )
 
-  const dispatchSend = useCallback(
-    (text: string, attachments: AttachmentRef[], files: File[]) => {
-      // Review notes ride along with the next outgoing message, then clear.
-      // Read from state here rather than through a state updater: React may
-      // defer an updater, and one that has not run yet would leave `outgoing`
-      // without the notes this dispatch is about to send.
-      const notes = reviewNotes
+  const rememberUnsent = useCallback((message: Omit<UnsentMessage, 'id'>) => {
+    unsentRef.current = [...unsentRef.current, { ...message, id: crypto.randomUUID() }]
+    setUnsent(unsentRef.current)
+  }, [])
+
+  const recoverMessage = useCallback(
+    (message: ComposerRecovery, current: ComposerDraft, focus: boolean): boolean => {
+      if (
+        hiddenRef.current ||
+        sessionIdRef.current !== sessionId ||
+        pendingSendRef.current.has(sessionId)
+      )
+        return false
+      const saved = unsentRef.current.find(
+        (entry) => entry.id === message.id && entry.sessionId === sessionId,
+      )
+      if (!saved) return false
+      const notes = readReviewDrafts(sessionId)
       const picks = takeBrowserPicks()
+      unsentRef.current = unsentRef.current.filter((entry) => entry.id !== saved.id)
+      if (
+        current.text.length > 0 ||
+        current.files.length > 0 ||
+        notes.length > 0 ||
+        picks.length > 0
+      ) {
+        unsentRef.current.push({
+          ...current,
+          sessionId,
+          notes,
+          picks,
+          id: crypto.randomUUID(),
+          autoRestore: false,
+        })
+      }
+      setUnsent(unsentRef.current)
+      writeReviewDrafts(sessionId, saved.notes)
+      restoreBrowserPicks(saved.picks)
+      setComposerSeed((prev) => ({
+        text: saved.text,
+        files: saved.files,
+        sessionId,
+        nonce: (prev?.nonce ?? 0) + 1,
+        replaceFiles: true,
+        focus,
+      }))
+      return true
+    },
+    [sessionId],
+  )
+
+  const recoveries = useMemo(
+    () => unsent.filter((message) => message.sessionId === sessionId),
+    [unsent, sessionId],
+  )
+
+  const dispatchSend = useCallback(
+    (text: string, attachments: AttachmentRef[], files: File[], fromComposer = true): boolean => {
+      // Reserve synchronously: repeated Enter/clicks can precede React's render.
+      if (
+        hiddenRef.current ||
+        sessionIdRef.current !== sessionId ||
+        pendingSendRef.current.has(sessionId)
+      )
+        return false
+      pendingSendRef.current.add(sessionId)
+      setPendingSends(new Set(pendingSendRef.current))
+      // Snapshot context before asynchronous image preparation. New notes/picks
+      // belong to the next draft, including when another session becomes active.
+      const notes = fromComposer ? readReviewDrafts(sessionId) : []
+      const picks = fromComposer ? takeBrowserPicks() : []
       const elementBlock = promptForPicks(picks)
       const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
       if (notes.length > 0) writeReviewDrafts(sessionId, [])
-      // A rejected send must cost a retry, not the message: the composer
-      // already cleared its draft — text, images and the notes above — so put
-      // all of it back and the retry carries the same context.
       const restoreDraft = (): void => {
-        if (notes.length > 0 && readReviewDrafts(sessionId).length === 0) {
-          writeReviewDrafts(sessionId, notes)
-        }
-        if (picks.length > 0) restoreBrowserPicks(picks)
-        setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
+        // Regenerate/retry already has its complete message in the transcript.
+        // Recovery never merges a failed message into a newer draft.
+        if (fromComposer) rememberUnsent({ sessionId, text, files, notes, picks })
       }
-      if (running) {
-        // The engine journals the queue (and dequeues immediately when the
-        // transport confirms the steer); the mirrored events update the view.
-        // With no turn actually live it promotes the message to the next turn
-        // rather than rejecting, so a send racing a settle is never lost.
-        void dispatch(
-          { type: 'message.enqueue', sessionId, text: outgoing, attachments },
-          'Couldn’t queue message',
-          restoreDraft,
+      const allFiles = [...picks.flatMap((pick) => (pick.image ? [pick.image] : [])), ...files]
+      const prepared = allFiles.length > 0 ? stageImages(allFiles) : Promise.resolve(attachments)
+      void prepared
+        .then(
+          (refs) => {
+            return dispatch(
+              {
+                type: running ? 'message.enqueue' : 'turn.start',
+                sessionId,
+                text: outgoing,
+                attachments: refs,
+              },
+              running ? 'Couldn’t queue message' : 'Couldn’t send message',
+              restoreDraft,
+            ).then((accepted) => {
+              if (accepted && !running && sessionIdRef.current === sessionId) setTurnError(null)
+              return accepted
+            })
+          },
+          (err: unknown) => {
+            restoreDraft()
+            if (!hiddenRef.current && sessionIdRef.current === sessionId) {
+              toast({
+                title: 'Couldn’t attach images',
+                description: err instanceof Error ? err.message : String(err),
+                tone: 'danger',
+                durationMs: 6000,
+              })
+            }
+          },
         )
-        return
-      }
-      setTurnError(null)
-      void dispatch(
-        { type: 'turn.start', sessionId, text: outgoing, attachments },
-        'Couldn’t send message',
-        restoreDraft,
-      )
+        .finally(() => {
+          pendingSendRef.current.delete(sessionId)
+          setPendingSends(new Set(pendingSendRef.current))
+        })
+      return true
     },
-    [sessionId, running, dispatch, reviewNotes],
+    [sessionId, running, dispatch, rememberUnsent, toast],
   )
 
   const handleSend = useCallback(
-    (text: string, files: File[]) => {
-      const pickImages = browserPicksState()
-        .map((pick) => pick.image)
-        .filter((file): file is File => file !== null)
-      const allFiles = [...pickImages, ...files]
-      // Staging is async; imageless sends skip it and dispatch synchronously.
-      if (allFiles.length === 0) {
-        dispatchSend(text, [], [])
-        return
-      }
-      void stageImages(allFiles).then(
-        (attachments) => dispatchSend(text, attachments, allFiles),
-        (err: unknown) => {
-          // The composer already cleared: restore the draft so the failure
-          // costs a retry, not the message, and never send text-only behind
-          // images the user explicitly attached. The notes were never spent —
-          // no dispatch happened — so they are still in state.
-          setComposerSeed((prev) => ({ text, files: allFiles, nonce: (prev?.nonce ?? 0) + 1 }))
-          toast({
-            title: 'Couldn’t attach images',
-            description: err instanceof Error ? err.message : String(err),
-            tone: 'danger',
-            durationMs: 6000,
-          })
-        },
-      )
-    },
-    [dispatchSend, toast],
+    (text: string, files: File[]) => dispatchSend(text, [], files),
+    [dispatchSend],
   )
 
   const handleTurnInView = useCallback((turnId: string) => {
@@ -964,26 +1037,33 @@ export function SessionView({
         'Couldn’t edit queued message',
       ).then((accepted) => {
         if (!accepted) return
-        setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+        rememberUnsent({ sessionId, text: message.text, files: [], notes: [], picks: [] })
       })
     },
-    [sessionId, dispatch],
+    [sessionId, dispatch, rememberUnsent],
   )
 
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
-  const handleEditMessage = useCallback((text: string) => {
-    setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
-  }, [])
+  const handleEditMessage = useCallback(
+    (text: string) => {
+      setComposerSeed((prev) => ({ text, sessionId, nonce: (prev?.nonce ?? 0) + 1 }))
+    },
+    [sessionId],
+  )
 
   // Quote splices a blockquote at the caret and keeps whatever is already drafted.
-  const handleQuoteAssistant = useCallback((quote: string) => {
-    setComposerSeed((prev) => ({
-      text: quote,
-      nonce: (prev?.nonce ?? 0) + 1,
-      mode: 'insert',
-    }))
-  }, [])
+  const handleQuoteAssistant = useCallback(
+    (quote: string) => {
+      setComposerSeed((prev) => ({
+        text: quote,
+        nonce: (prev?.nonce ?? 0) + 1,
+        mode: 'insert',
+        sessionId,
+      }))
+    },
+    [sessionId],
+  )
 
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
   // message's text plus its staged image refs (null when the transcript has
@@ -1017,7 +1097,7 @@ export function SessionView({
   const resendLastPrompt = useCallback(() => {
     if (running || lastUserMessage === null) return
     // No composer Files to restore: the resend does not come from the draft.
-    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [])
+    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [], false)
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
@@ -1245,6 +1325,9 @@ export function SessionView({
         centered={centered}
         sessionId={sessionId}
         onSend={handleSend}
+        sendPending={sendPending}
+        recoveries={recoveries}
+        onRecover={recoverMessage}
         onStop={handleStop}
         running={running}
         queued={queuedForComposer}
@@ -1335,6 +1418,9 @@ export function SessionView({
       centered,
       sessionId,
       handleSend,
+      sendPending,
+      recoveries,
+      recoverMessage,
       handleStop,
       running,
       queuedForComposer,
@@ -1367,9 +1453,12 @@ export function SessionView({
       telemetry.turnCount,
     ],
   )
-  const startFromStarter = useCallback((text: string) => {
-    setComposerSeed({ text, nonce: Date.now() })
-  }, [])
+  const startFromStarter = useCallback(
+    (text: string) => {
+      setComposerSeed({ text, sessionId, nonce: Date.now() })
+    },
+    [sessionId],
+  )
 
   const view = (
     <div className="ari-session-workspace relative flex h-full min-h-0">
@@ -1403,7 +1492,7 @@ export function SessionView({
             onEditUserMessage={handleEditMessage}
             onQuoteAssistant={handleQuoteAssistant}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
-            regenerateDisabled={running}
+            regenerateDisabled={running || sendPending}
             running={running}
             chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
@@ -1436,7 +1525,7 @@ export function SessionView({
           <TurnErrorBanner
             message={turnError}
             canRetry={lastUserMessage !== null}
-            retryDisabled={running}
+            retryDisabled={running || sendPending}
             onRetry={resendLastPrompt}
             onDismiss={() => setTurnError(null)}
             resume={turnResume}

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -515,6 +515,58 @@ describe('Composer prompt stash', () => {
 })
 
 describe('Composer draft seeding', () => {
+  it('ignores seeds for another session and accepts its own nonce independently', async () => {
+    localStorage.clear()
+    const onSend = vi.fn()
+    const { rerender } = render(
+      <Composer
+        onSend={onSend}
+        sessionId="s1"
+        seed={{ sessionId: 's1', text: 'first', nonce: 1 }}
+      />,
+    )
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('first'))
+    rerender(
+      <Composer
+        onSend={onSend}
+        sessionId="s2"
+        seed={{ sessionId: 's1', text: 'late first', nonce: 2 }}
+      />,
+    )
+    expect(screen.getByLabelText('Message')).toHaveValue('')
+    rerender(
+      <Composer
+        onSend={onSend}
+        sessionId="s2"
+        seed={{ sessionId: 's2', text: 'second', nonce: 1 }}
+      />,
+    )
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('second'))
+  })
+
+  it('keeps a complete draft when the send handler refuses a duplicate attempt', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn(() => false)
+    render(<Composer onSend={onSend} />)
+    const input = screen.getByLabelText('Message')
+    fireEvent.paste(input, {
+      clipboardData: { files: [new File(['image'], 'shot.png', { type: 'image/png' })] },
+    })
+    await user.type(input, 'keep everything{Enter}')
+    expect(input).toHaveValue('keep everything')
+    expect(screen.getByAltText('shot.png')).toBeInTheDocument()
+  })
+
+  it('does not take focus when automatically recovering into an empty draft', async () => {
+    const onSend = vi.fn()
+    const { rerender } = render(<Composer onSend={onSend} />)
+    const stash = screen.getByRole('button', { name: /prompt stash/i })
+    act(() => stash.focus())
+    rerender(<Composer onSend={onSend} seed={{ text: 'unsent', nonce: 1, focus: false }} />)
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('unsent'))
+    expect(stash).toHaveFocus()
+  })
+
   it('replaces the draft, focuses the field, and sends the edited text', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
