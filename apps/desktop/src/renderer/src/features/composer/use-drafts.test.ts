@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DRAFTS_STORAGE_KEY, useDrafts } from './use-drafts'
+import { DRAFTS_STORAGE_KEY, dropDraftTextMemory, useDrafts } from './use-drafts'
 
 function stored(): Record<string, string> {
   return JSON.parse(localStorage.getItem(DRAFTS_STORAGE_KEY) ?? '{}') as Record<string, string>
@@ -8,6 +8,7 @@ function stored(): Record<string, string> {
 
 describe('useDrafts', () => {
   beforeEach(() => {
+    dropDraftTextMemory()
     localStorage.clear()
   })
 
@@ -24,6 +25,38 @@ describe('useDrafts', () => {
   it('starts empty when nothing is stored', () => {
     const { result } = renderHook(() => useDrafts('s1'))
     expect(result.current.draft).toBe('')
+  })
+
+  it('shares the latest text across two mounted copies without an older unmount overwriting it', () => {
+    const first = renderHook(() => useDrafts('s1'))
+    act(() => first.result.current.setDraft('first edit'))
+    const second = renderHook(() => useDrafts('s1'))
+    expect(second.result.current.draft).toBe('first edit')
+    act(() => second.result.current.setDraft('newer edit'))
+    expect(first.result.current.draft).toBe('newer edit')
+    first.unmount()
+    second.unmount()
+    expect(stored()).toEqual({ s1: 'newer edit' })
+  })
+
+  it('keeps the live text through unavailable storage and remount', () => {
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('unavailable')
+    })
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('unavailable')
+    })
+    try {
+      const first = renderHook(() => useDrafts('s1'))
+      act(() => first.result.current.setDraft('keep me'))
+      first.unmount()
+      const second = renderHook(() => useDrafts('s1'))
+      expect(second.result.current.draft).toBe('keep me')
+      expect(second.result.current.storageIssue).toBe(true)
+    } finally {
+      read.mockRestore()
+      write.mockRestore()
+    }
   })
 
   it('writes after the 300ms debounce, not before', () => {
@@ -95,6 +128,17 @@ describe('useDrafts', () => {
     act(() => result.current.setDraft('unsaved'))
     unmount()
     expect(stored()).toEqual({ s1: 'unsaved' })
+  })
+
+  it('flushes edits and clears before renderer page exit', () => {
+    vi.useFakeTimers()
+    const { result } = renderHook(() => useDrafts('s1'))
+    act(() => result.current.setDraft('before reload'))
+    act(() => window.dispatchEvent(new Event('pagehide')))
+    expect(stored()).toEqual({ s1: 'before reload' })
+    act(() => result.current.setDraft(''))
+    act(() => window.dispatchEvent(new Event('beforeunload')))
+    expect(stored()).toEqual({})
   })
 
   it('ignores corrupt stored payloads', () => {
