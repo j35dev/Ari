@@ -28,6 +28,7 @@ export function ChildSessionActivity({
   const [open, setOpen] = useState(false)
   if (sessions.length === 0) return null
   const working = sessions.filter((session) => activityOf?.(session.id)?.phase === 'working').length
+  const queued = sessions.filter((session) => activityOf?.(session.id)?.phase === 'queued').length
   // A child waiting on an approval or a question is stuck until someone
   // answers it in that child, and from here nothing else says so.
   const blocked = sessions.filter((session) => activityOf?.(session.id)?.phase === 'paused')
@@ -71,9 +72,11 @@ export function ChildSessionActivity({
                     >
                       {activity?.phase === 'working'
                         ? 'working'
-                        : activity?.phase === 'paused'
-                          ? 'needs you'
-                          : session.status}
+                        : activity?.phase === 'queued'
+                          ? 'queued'
+                          : activity?.phase === 'paused'
+                            ? 'needs you'
+                            : session.status}
                     </span>
                   </button>
                 </li>
@@ -102,8 +105,9 @@ export function ChildSessionActivity({
             </span>
           ) : null}
           <span className="shrink-0">
-            {working > 0 ? `${working} working` : blocked.length > 0 ? null : 'idle'}
+            {working > 0 ? `${working} working` : queued > 0 || blocked.length > 0 ? null : 'idle'}
           </span>
+          {queued > 0 ? <span className="shrink-0">{queued} queued</span> : null}
           <ChevronUp
             size={11}
             aria-hidden
