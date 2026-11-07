@@ -76,8 +76,13 @@ describe('background work from Claude tool calls', () => {
       expect.objectContaining({ status: 'running', detail: 'Read src/a.ts' }),
       expect.objectContaining({ status: 'completed', detail: 'Read src/a.ts' }),
     ])
-    // The transcript still gets the same tool parts as before.
-    expect(events.filter((event) => event.type === 'tool-started')).toHaveLength(2)
+    // The call is announced again once its input arrives; downstream the
+    // repeat replaces the first part.
+    const started = events.filter((event) => event.type === 'tool-started')
+    expect(started.map((event) => event.callId)).toEqual(['agent_1', 'agent_1', 'child_1'])
+    expect(JSON.parse(started[1]?.argsJson ?? '{}')).toMatchObject({
+      input: { description: 'Survey the repo' },
+    })
     expect(events.filter((event) => event.type === 'tool-completed')).toHaveLength(1)
   })
 

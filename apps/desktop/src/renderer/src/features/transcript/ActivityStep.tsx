@@ -4,7 +4,7 @@ import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { editDiffStat } from './edit-diff'
 import { resultHint } from './result-hint'
-import { describeToolCall, effectiveToolName, humanizeToolName, type ToolKind } from './toolLabels'
+import { describeToolCall, namelessStepLabel, type ToolKind } from './toolLabels'
 import type { TranscriptBlock } from './types'
 
 /** Glyph per bucket; the same set labels the ledger on a burst header. */
@@ -68,9 +68,7 @@ export function ActivityStep({
       verb,
       target,
       nameOnly,
-      label: nameOnly
-        ? humanizeToolName(effectiveToolName(call.name, call.argsJson))
-        : `${verb} ${target}`,
+      label: nameOnly ? namelessStepLabel(call, result === undefined) : `${verb} ${target}`,
       stat: kind === 'edit' && !nameOnly ? editDiffStat(call.argsJson) : null,
       hint: resultHint(kind, result?.resultJson, result?.isError === true),
     }
@@ -90,7 +88,7 @@ export function ActivityStep({
       >
         <Icon size={11} className="text-fg-subtle" aria-hidden="true" />
         {nameOnly ? (
-          <span className="col-span-2 truncate font-mono text-2xs text-fg-muted">{label}</span>
+          <span className="col-span-2 truncate text-xs text-fg-muted">{label}</span>
         ) : (
           <>
             <span className="truncate text-2xs text-fg-subtle">{verb}</span>

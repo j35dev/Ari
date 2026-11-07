@@ -1,8 +1,7 @@
 import {
   classifyToolCall,
   describeToolCall,
-  effectiveToolName,
-  humanizeToolName,
+  namelessStepLabel,
   parseToolArgs,
   pastVerb,
   toolSubject,
@@ -416,7 +415,7 @@ export function describeActivity(
     if (call !== undefined) {
       const { verb, target } = describeToolCall(call, true)
       if (target.length === 0) {
-        const name = humanizeToolName(effectiveToolName(call.name, call.argsJson))
+        const name = namelessStepLabel(call, true)
         return { ...base, verb: name, subject: '', label: name }
       }
       // The live row shows one target and has the width for it, so it keeps the

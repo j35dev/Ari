@@ -70,4 +70,20 @@ describe('createMessageFold', () => {
     expect(list?.map((m) => m.id)).toEqual(['a1', 'u2'])
     expect(list?.[0]?.parts).toHaveLength(2)
   })
+
+  it('replaces a repeated tool call in place and counts it once', () => {
+    const fold = createMessageFold()
+    const call = (argsJson: string) =>
+      ({ type: 'tool-call', callId: 'c1', name: 'execute', argsJson }) as const
+    expect(fold.appendParts('a1', [call('{}')], start('a1'))).toBe(1)
+    const first = fold.commit()
+    expect(fold.appendParts('a1', [{ type: 'text', text: 'x' }], start('a1'))).toBe(2)
+    expect(fold.appendParts('a1', [call('{"input":{"command":"ls"}}')], start('a1'))).toBe(2)
+    const second = fold.commit()
+    expect(second?.[0]?.parts).toEqual([
+      call('{"input":{"command":"ls"}}'),
+      { type: 'text', text: 'x' },
+    ])
+    expect(first?.[0]?.parts).toEqual([call('{}')])
+  })
 })

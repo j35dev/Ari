@@ -102,3 +102,26 @@ export const messageSchema = z.object({
   createdAt: timestampSchema,
 })
 export type Message = z.infer<typeof messageSchema>
+
+/**
+ * Appends streamed parts to `parts` in place. A tool call whose id is already
+ * there replaces that part instead: providers announce a call again once its
+ * input is known, and it must stay one row.
+ */
+export function pushMessageParts(parts: MessagePart[], incoming: readonly MessagePart[]): void {
+  for (const part of incoming) {
+    if (part.type === 'tool-call') {
+      let index = parts.length - 1
+      while (index >= 0) {
+        const prev = parts[index]
+        if (prev?.type === 'tool-call' && prev.callId === part.callId) break
+        index--
+      }
+      if (index >= 0) {
+        parts[index] = part
+        continue
+      }
+    }
+    parts.push(part)
+  }
+}

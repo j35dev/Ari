@@ -681,7 +681,7 @@ describe('TranscriptView tool bursts', () => {
       'aria-expanded',
       'true',
     )
-    expect(screen.getByText('live')).toBeInTheDocument()
+    expect(document.querySelector('[data-activity="working"]')).not.toBeNull()
     // Live, the body is the step timeline: the lone-call shortcut is a
     // settled-state affordance, so the row's shape cannot change mid-turn.
     expect(screen.getByRole('button', { name: 'Reading src/a.ts' })).toBeInTheDocument()
@@ -703,7 +703,7 @@ describe('TranscriptView tool bursts', () => {
 
     const settled = await screen.findByRole('button', { name: 'Read a.ts · Read 1 file' })
     expect(settled).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-activity="working"]')).toBeNull()
   })
 
   it('keeps a whole stretch of work in one row instead of a wall of tallies', () => {

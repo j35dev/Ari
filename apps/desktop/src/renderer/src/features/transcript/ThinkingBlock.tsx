@@ -37,12 +37,10 @@ export function ThinkingBlock({
           size={12}
           className={`shrink-0 transition-transform duration-150 ${compact ? 'text-fg-subtle' : 'text-accent'} ${open ? 'rotate-90' : ''}`}
         />
-        <span
-          className={`text-2xs font-semibold uppercase tracking-wider ${compact ? 'text-fg-subtle' : 'text-accent/90'}`}
-        >
-          thought
+        <span className={`shrink-0 text-xs ${compact ? 'text-fg-subtle' : 'text-fg-muted'}`}>
+          Thought
         </span>
-        <span className="min-w-0 flex-1 truncate text-2xs italic text-fg-subtle">
+        <span className="min-w-0 flex-1 truncate text-xs italic text-fg-subtle">
           {thoughtPreview(text)}
         </span>
       </button>

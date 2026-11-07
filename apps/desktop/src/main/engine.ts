@@ -1039,11 +1039,13 @@ export class Engine {
           }
           case 'tool-started': {
             await flush()
-            // Tool calls attach to the same streaming assistant message.
-            callMessageIds.set(event.callId, messageId)
+            // Tool calls attach to the same streaming assistant message. A
+            // repeat (refined args) goes to the message holding the call.
+            const callMessageId = callMessageIds.get(event.callId) ?? messageId
+            callMessageIds.set(event.callId, callMessageId)
             await append({
               type: 'assistant.parts.appended',
-              messageId,
+              messageId: callMessageId,
               parts: [
                 {
                   type: 'tool-call',

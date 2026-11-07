@@ -9,6 +9,7 @@ import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
+import { SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 import { SourceControlConnectionsSettings } from './SourceControlConnectionsSettings'
 
@@ -28,26 +29,6 @@ const TOOLS: { key: 'git' | 'github' | 'gitlab'; label: string }[] = [
   { key: 'gitlab', label: 'GitLab CLI' },
 ]
 
-function Section({
-  title,
-  action,
-  children,
-}: {
-  title: string
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <section className="mt-6 first:mt-0">
-      <div className="mb-1 flex items-center justify-between">
-        <h3 className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{title}</h3>
-        {action}
-      </div>
-      <div className="rounded-xl border border-border/60 bg-surface-0 px-4">{children}</div>
-    </section>
-  )
-}
-
 function ToolRow({ label, tool }: { label: string; tool: SourceControlTool | null }) {
   const tone =
     tool === null
@@ -58,7 +39,7 @@ function ToolRow({ label, tool }: { label: string; tool: SourceControlTool | nul
           ? 'bg-success'
           : 'bg-warning'
   return (
-    <div className="flex items-center gap-3 border-b border-border/60 py-3 last:border-b-0">
+    <div className="flex min-h-14 items-center gap-3 px-4 py-3">
       <span aria-hidden className={`size-2 shrink-0 rounded-full ${tone}`} />
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2 text-sm font-medium text-fg">
@@ -111,14 +92,14 @@ export function SourceControlSettings() {
       title="Source control"
       description="Connect your repositories, choose how Git actions work, and make code review your own."
     >
-      <Section title="Hosting connections">
+      <SettingsSection title="Hosting connections">
         <SourceControlConnectionsSettings environment={environment} onChanged={scan} />
-        <p className="border-t border-border/60 py-3 text-xs leading-relaxed text-fg-subtle">
+        <p className="px-4 py-3 text-xs leading-relaxed text-fg-subtle">
           Git commits, branches, fetch, push and pull work with any Git remote. Connect a host to
           create, review and manage its pull or merge requests.
         </p>
-      </Section>
-      <Section title="Git actions">
+      </SettingsSection>
+      <SettingsSection title="Git actions">
         <SettingsRow
           label="Confirm pushes to the default branch"
           hint="Ask before pushing straight to main, master, trunk or develop without a pull request."
@@ -151,9 +132,9 @@ export function SourceControlSettings() {
             className="w-44"
           />
         </SettingsRow>
-      </Section>
+      </SettingsSection>
 
-      <Section title="Diffs">
+      <SettingsSection title="Diffs">
         <SettingsRow
           label="Open reviews in"
           hint="Use the full workspace for room to compare code, or keep changes beside your conversation."
@@ -196,9 +177,9 @@ export function SourceControlSettings() {
             onCheckedChange={(checked) => set({ wrapDiffLines: checked })}
           />
         </SettingsRow>
-      </Section>
+      </SettingsSection>
 
-      <Section
+      <SettingsSection
         title="Tools"
         action={
           <button
@@ -207,7 +188,7 @@ export function SourceControlSettings() {
             disabled={scanning}
             aria-label="Check again"
             title="Check Git and hosting tools again"
-            className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+            className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
           >
             <RefreshCw size={12} className={scanning ? 'animate-spin' : ''} aria-hidden />
           </button>
@@ -217,11 +198,11 @@ export function SourceControlSettings() {
           <ToolRow key={tool.key} label={tool.label} tool={environment?.[tool.key] ?? null} />
         ))}
         {scanError ? (
-          <p role="alert" className="pb-3 text-xs text-danger">
+          <p role="alert" className="px-4 py-3 text-xs text-danger">
             {scanError}
           </p>
         ) : null}
-      </Section>
+      </SettingsSection>
     </SettingsPage>
   )
 }

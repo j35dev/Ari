@@ -25,6 +25,7 @@ import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
 import { menuActions, pushesToDefault, quickAction, type MenuAction } from './git-quick-action'
 import { useEngineSettings } from '../settings/useEngineSettings'
+import { branchLabel } from '../session/branch-label'
 
 const log = createLogger('ui:git-control')
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
@@ -218,6 +219,19 @@ export function GitControl({
         className="flex h-7 items-stretch overflow-hidden rounded-lg border border-border/70 bg-surface-1/70 text-xs text-fg shadow-sm"
         title={primary.kind === 'disabled' ? primary.reason : undefined}
       >
+        {/* The branch the workspace is on; it used to take a row of its own
+            above the transcript. */}
+        <span
+          className="flex max-w-40 items-center gap-1.5 pl-2.5 pr-2 text-fg-muted"
+          title={summary.branch ?? 'Detached HEAD'}
+          data-testid="git-branch"
+        >
+          <GitBranch size={12} aria-hidden className="shrink-0" />
+          <span className="truncate">
+            {summary.branch ? branchLabel(summary.branch) : 'detached'}
+          </span>
+        </span>
+        <span aria-hidden className="w-px bg-border/70" />
         <button
           type="button"
           onClick={onPrimary}
