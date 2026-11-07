@@ -76,7 +76,9 @@ describe('insertDelegationRows', () => {
     const placed = insertDelegationRows(rows, [child('lost', { messageId: 'gone', partIndex: 0 })])
     expect(placed.at(-1)?.kind).toBe('delegation')
     expect(placed).toHaveLength(rows.length + 1)
-    expect(insertDelegationRows([], [child('only', { messageId: null, partIndex: 0 })])).toHaveLength(1)
+    expect(
+      insertDelegationRows([], [child('only', { messageId: null, partIndex: 0 })]),
+    ).toHaveLength(1)
   })
 })
 
@@ -89,5 +91,5 @@ it('summarizes a group most urgent first', () => {
       child('c', at, 'working'),
       child('d', at, 'needs-you'),
     ]),
-  ).toBe('1 needs you · 2 working · 1 done')
+  ).toBe('1 needs you · 2 working · 1 result ready')
 })

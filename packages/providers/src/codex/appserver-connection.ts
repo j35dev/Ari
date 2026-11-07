@@ -147,8 +147,13 @@ export class AppServerConnection {
   }
 
   /** Answers a server→client request by its wire id. */
-  respond(id: number, result: unknown): void {
+  respond(id: number | string, result: unknown): void {
     this.#write({ id, result })
+  }
+
+  /** Rejects an unsupported or unowned server request in its own RPC scope. */
+  reject(id: number | string, code: number, message: string): void {
+    this.#write({ id, error: { code, message } })
   }
 
   waitClosed(): Promise<void> {

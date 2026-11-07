@@ -16,6 +16,8 @@ describe('WorkingGlyph', () => {
     const { container } = render(<WorkingGlyph />)
 
     expect(screen.getByText('forging…')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Agent working' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
     expect(container.querySelectorAll('.size-1')).toHaveLength(9)
   })
 

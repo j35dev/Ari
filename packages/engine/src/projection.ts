@@ -1,4 +1,10 @@
+import type { CoordinationMessage } from '@ari/contracts/coordination'
 import type { JournalEvent } from '@ari/contracts/events'
+import type {
+  ContextPackage,
+  OperationReceipt,
+  OrchestrationTaskRecord,
+} from '@ari/contracts/orchestration'
 import type { ApprovalOption } from '@ari/contracts/common'
 import type { Message } from '@ari/contracts/message'
 import type { QueuedMessage } from '@ari/contracts/attachments'
@@ -24,6 +30,14 @@ export interface UsageTotals {
  * The UI observes this shape; it never reads journals directly.
  */
 export interface SessionReadModel {
+  inbox?: Record<string, CoordinationMessage>
+  lastObservedAt?: number
+  usageObserved?: boolean
+  orchestration?: {
+    tasks: Record<string, OrchestrationTaskRecord>
+    contexts: Record<string, ContextPackage>
+    operations: Record<string, OperationReceipt>
+  }
   session: Session | null
   messages: Message[]
   /** Streaming assistant message currently accepting parts, if any. */
@@ -38,6 +52,9 @@ export interface SessionReadModel {
    */
   pendingApprovals: {
     approvalId: string
+    providerThreadId?: string
+    providerTurnId?: string
+    providerItemId?: string
     toolName: string
     summaryJson: string
     options: ApprovalOption[]
@@ -107,10 +124,38 @@ export function initialReadModel(): SessionReadModel {
 export function applyEvent(state: SessionReadModel, event: JournalEvent): SessionReadModel {
   const next: SessionReadModel = {
     ...state,
+    lastObservedAt: event.at,
     lastSeq: Math.max(state.lastSeq, event.seq),
   }
 
   switch (event.type) {
+    case 'coordination.updated': {
+      const previous = next.inbox?.[event.message.messageId]
+      next.inbox = {
+        ...next.inbox,
+        [event.message.messageId]: previous?.status === 'consumed' ? previous : event.message,
+      }
+      break
+    }
+    case 'orchestration.task.updated':
+    case 'orchestration.context.created':
+    case 'orchestration.operation.updated': {
+      const previous = state.orchestration ?? { tasks: {}, contexts: {}, operations: {} }
+      next.orchestration = { ...previous }
+      if (event.type === 'orchestration.task.updated')
+        next.orchestration.tasks = { ...previous.tasks, [event.task.taskId]: event.task }
+      if (event.type === 'orchestration.context.created')
+        next.orchestration.contexts = {
+          ...previous.contexts,
+          [event.context.contextId]: event.context,
+        }
+      if (event.type === 'orchestration.operation.updated')
+        next.orchestration.operations = {
+          ...previous.operations,
+          [event.operation.operationId]: event.operation,
+        }
+      break
+    }
     case 'child.session.spawned':
     case 'child.session.settled':
     case 'child.session.integrated':
@@ -184,6 +229,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       break
 
     case 'usage.recorded':
+      next.usageObserved = true
       next.usage = {
         inputTokens: state.usage.inputTokens + event.inputTokens,
         outputTokens: state.usage.outputTokens + event.outputTokens,
@@ -194,9 +240,14 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
     case 'approval.requested':
       next.pendingApprovals = [
-        ...next.pendingApprovals,
+        ...next.pendingApprovals.filter((entry) => entry.approvalId !== event.approvalId),
         {
           approvalId: event.approvalId,
+          ...(event.providerThreadId !== undefined
+            ? { providerThreadId: event.providerThreadId }
+            : {}),
+          ...(event.providerTurnId !== undefined ? { providerTurnId: event.providerTurnId } : {}),
+          ...(event.providerItemId !== undefined ? { providerItemId: event.providerItemId } : {}),
           toolName: event.toolName,
           summaryJson: event.summaryJson,
           options: event.options,
@@ -210,7 +261,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
     case 'input.requested':
       next.pendingInputs = [
-        ...next.pendingInputs,
+        ...next.pendingInputs.filter((entry) => entry.inputId !== event.inputId),
         { inputId: event.inputId, prompt: event.prompt, choicesJson: event.choicesJson },
       ]
       break
@@ -368,6 +419,7 @@ function foldCompletion(
  * nothing until the replay finishes.
  */
 export function applyEventToDraft(draft: SessionReadModel, event: JournalEvent): SessionReadModel {
+  draft.lastObservedAt = event.at
   switch (event.type) {
     case 'user.message.added':
       draft.lastSeq = Math.max(draft.lastSeq, event.seq)

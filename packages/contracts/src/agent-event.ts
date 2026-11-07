@@ -41,6 +41,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('approval-requested'),
+    providerThreadId: z.string().optional(),
+    providerTurnId: z.string().optional(),
+    providerItemId: z.string().optional(),
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
@@ -95,6 +98,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('background-task'),
+    providerThreadId: z.string().optional(),
+    providerTurnId: z.string().optional(),
+    providerItemId: z.string().optional(),
     id: z.string().min(1),
     kind: backgroundTaskKindSchema,
     label: z.string(),
@@ -111,7 +117,10 @@ export const agentEventSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('notice'), message: z.string() }),
   z.object({ type: z.literal('error'), message: z.string(), rawJson: z.string().nullable() }),
-  z.object({ type: z.literal('done') }),
+  z.object({
+    type: z.literal('done'),
+    stopReason: z.enum(['completed', 'interrupted', 'error']).optional(),
+  }),
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

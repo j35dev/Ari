@@ -3,6 +3,7 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { getProviderCapabilities, UNKNOWN_PROVIDER_CAPABILITIES } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
 import { acpSessionPool, type AcpSessionPool } from './session-pool'
 import type { AcpChildProcess, AcpLaunch, AcpMcpServer } from './connection'
@@ -124,10 +125,14 @@ export async function createAcpAdapter(
   let inputSeq = 0
 
   let folder = new AcpUpdateFolder()
+  let nativeChildVisibility: 'lifecycle' | 'unknown' = 'unknown'
   const queue: AgentEvent[] = []
   let notify: (() => void) | null = null
   const push = (events: AgentEvent[]): void => {
     if (events.length === 0) return
+    if (events.some((event) => event.type === 'background-task' && event.kind === 'subagent')) {
+      nativeChildVisibility = 'lifecycle'
+    }
     queue.push(...events)
     notify?.()
     notify = null
@@ -611,6 +616,17 @@ export async function createAcpAdapter(
   let parked = false
 
   return {
+    capabilities: () => ({
+      ...UNKNOWN_PROVIDER_CAPABILITIES,
+      steering: steeringExtension ? 'live' : 'follow-up',
+      liveResponses: 'approvals-and-input',
+      nativeChildren: {
+        ...UNKNOWN_PROVIDER_CAPABILITIES.nativeChildren,
+        visibility: nativeChildVisibility,
+      },
+      processContinuity: pool ? 'between-turns' : 'turn-only',
+      terminalStatus: 'explicit',
+    }),
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
     keepsBackgroundWork: () => parked,
     interrupt: () => {
@@ -1306,6 +1322,12 @@ export function systemInstructionsMeta(
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
   readonly systemInstructions: boolean
+
+  capabilities() {
+    return this.launch === null && this.fallback
+      ? getProviderCapabilities(this.fallback)
+      : UNKNOWN_PROVIDER_CAPABILITIES
+  }
 
   constructor(
     kind: DriverKind,

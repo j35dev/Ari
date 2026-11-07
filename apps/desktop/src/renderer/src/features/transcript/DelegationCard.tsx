@@ -7,17 +7,27 @@ import type { DelegatedChild, DelegatedChildState, DelegationRow } from './types
 
 const STATE_LABEL: Record<DelegatedChildState, string> = {
   working: 'Working',
+  queued: 'Queued',
+  'needs-lead': 'Needs lead',
+  starting: 'Starting',
+  stopping: 'Stopping',
+  unknown: 'Activity unknown',
   'needs-you': 'Needs you',
   waiting: 'Waiting on its children',
-  done: 'Done',
+  done: 'Result ready',
   failed: 'Failed',
-  stopped: 'Stopped',
+  stopped: 'Interrupted',
   idle: 'Idle',
   removed: 'Removed',
 }
 
 const STATE_TONE: Record<DelegatedChildState, string> = {
   working: 'text-fg',
+  queued: 'text-fg-subtle',
+  'needs-lead': 'text-warning',
+  starting: 'text-fg-muted',
+  stopping: 'text-fg-muted',
+  unknown: 'text-fg-subtle',
   'needs-you': 'text-warning',
   waiting: 'text-fg-muted',
   done: 'text-fg-muted',
@@ -30,7 +40,7 @@ const STATE_TONE: Record<DelegatedChildState, string> = {
 /** The sidebar's activity mark for the states it has one for. */
 function markFor(state: DelegatedChildState, startedAt: number | null): SessionActivity | null {
   if (state === 'working') return { phase: 'working', startedAt }
-  if (state === 'needs-you') return { phase: 'paused', startedAt }
+  if (state === 'needs-you' || state === 'needs-lead') return { phase: 'paused', startedAt }
   if (state === 'done') return { phase: 'done', startedAt: null }
   if (state === 'failed') return { phase: 'error', startedAt: null }
   return null
@@ -129,8 +139,17 @@ export function DelegationCard({
   row: DelegationRow
   onOpenSession?: (id: string) => void
 }) {
-  const live = row.children.some(
-    (child) => child.state === 'working' || child.state === 'needs-you',
+  const live = row.children.some((child) =>
+    [
+      'working',
+      'needs-you',
+      'needs-lead',
+      'queued',
+      'starting',
+      'stopping',
+      'waiting',
+      'unknown',
+    ].includes(child.state),
   )
   return (
     <div className="ari-burst my-1 pl-3" data-activity={live ? 'working' : 'settled'}>

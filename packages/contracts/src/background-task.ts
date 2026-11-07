@@ -11,8 +11,14 @@ export type BackgroundTaskKind = z.infer<typeof backgroundTaskKindSchema>
 export const backgroundTaskStatusSchema = z.enum(['running', 'completed', 'failed', 'stopped'])
 export type BackgroundTaskStatus = z.infer<typeof backgroundTaskStatusSchema>
 
+export interface ProviderTaskIdentity {
+  providerThreadId?: string
+  providerTurnId?: string
+  providerItemId?: string
+}
+
 /** One task as the session read model holds it. */
-export interface BackgroundTask {
+export interface BackgroundTask extends ProviderTaskIdentity {
   id: string
   kind: BackgroundTaskKind
   label: string
@@ -26,7 +32,7 @@ export interface BackgroundTask {
 }
 
 /** A report about one task, as journaled. An absent `detail` keeps the last one. */
-export interface BackgroundTaskReport {
+export interface BackgroundTaskReport extends ProviderTaskIdentity {
   taskId: string
   kind: BackgroundTaskKind
   label: string
@@ -51,6 +57,12 @@ export function foldBackgroundTask(
   const running = report.status === 'running'
   const next: BackgroundTask = {
     id: report.taskId,
+    ...(previous?.providerThreadId ? { providerThreadId: previous.providerThreadId } : {}),
+    ...(previous?.providerTurnId ? { providerTurnId: previous.providerTurnId } : {}),
+    ...(previous?.providerItemId ? { providerItemId: previous.providerItemId } : {}),
+    ...(report.providerThreadId !== undefined ? { providerThreadId: report.providerThreadId } : {}),
+    ...(report.providerTurnId !== undefined ? { providerTurnId: report.providerTurnId } : {}),
+    ...(report.providerItemId !== undefined ? { providerItemId: report.providerItemId } : {}),
     kind: report.kind,
     label: report.label.length > 0 ? report.label : (previous?.label ?? ''),
     status: report.status,

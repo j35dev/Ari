@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { CornerLeftUp, GitBranch } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
@@ -24,11 +25,13 @@ export function SessionBranchChip({
   sessionId,
   parentSession = null,
   onOpenSession,
+  trailing,
 }: {
   sessionId: string | null
   /** The session that delegated to this one; shown as a way back to it. */
   parentSession?: { id: string; title: string } | null
   onOpenSession?: (id: string) => void
+  trailing?: ReactNode
 }) {
   const [branch, setBranch] = useState<string | null>(null)
   const missesRef = useRef(0)
@@ -78,7 +81,7 @@ export function SessionBranchChip({
     }
   }, [sessionId])
 
-  if (branch === null && parentSession === null) return null
+  if (branch === null && parentSession === null && !trailing) return null
   return (
     <div className="flex h-7 shrink-0 items-center gap-2 px-3">
       {parentSession !== null ? (
@@ -104,6 +107,7 @@ export function SessionBranchChip({
           </span>
         </span>
       ) : null}
+      {trailing ? <div className={branch === null ? 'ml-auto' : ''}>{trailing}</div> : null}
     </div>
   )
 }

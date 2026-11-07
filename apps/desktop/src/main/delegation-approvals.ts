@@ -65,6 +65,10 @@ export class DelegationApprovals {
     return true
   }
 
+  isPending(id: string): boolean {
+    return this.#pending.has(id)
+  }
+
   cancel(rootId: string): void {
     for (const [id, pending] of this.#pending)
       if (pending.root === rootId) this.#deny(id, pending.root)

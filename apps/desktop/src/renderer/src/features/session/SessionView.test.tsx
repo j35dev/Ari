@@ -1287,8 +1287,8 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') sessionListener = onEvent
         return () => undefined
       },
     )
@@ -2796,6 +2796,9 @@ describe('SessionView delegated work', () => {
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'session.tasks') return [TASK]
+      if (method === 'orchestration.view') return null
+      if (method === 'git.status') return { isRepo: false, branch: null }
+      if (method === 'plan.get') return { items: null }
       if (method === 'git.turnDiff') return { diffText: null }
       if (method === 'providers.detect') return []
       if (method === 'providers.models') return []
@@ -2804,8 +2807,8 @@ describe('SessionView delegated work', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') sessionListener = onEvent
         return () => undefined
       },
     )
@@ -2878,7 +2881,7 @@ describe('SessionView delegated work', () => {
     replayDelegatingTurn()
     emitReplayDone()
 
-    const card = await screen.findByRole('button', { name: 'Open Parser worker: Done' })
+    const card = await screen.findByRole('button', { name: 'Open Parser worker: Result ready' })
     expect(card).toHaveTextContent('Parser fixed and tested.')
     const reply = screen.getByText('Delegated the parser.')
     expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -2916,5 +2919,76 @@ describe('SessionView delegated work', () => {
     expect(screen.queryByRole('button', { name: /^Delegation update:/ })).not.toBeInTheDocument()
     expect(screen.queryByText(/Ari delegation update/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
+  })
+
+  it('ignores a task snapshot that arrives after a newer refresh', async () => {
+    const original = invokeMock.getMockImplementation()!
+    let resolveOld!: (tasks: unknown) => void
+    const old = new Promise((resolve) => {
+      resolveOld = resolve
+    })
+    let fetches = 0
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'session.tasks')
+        return ++fetches === 1 ? old : [{ ...TASK, title: 'Updated parser' }]
+      return original(method, params)
+    })
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          onOpenSession={vi.fn()}
+        />
+      </ToastProvider>,
+    )
+    await screen.findByLabelText('Message')
+    replayDelegatingTurn()
+    emitReplayDone()
+    await waitFor(() => expect(fetches).toBe(1))
+    replay(11, {
+      type: 'child.session.settled',
+      childSessionId: 'child_1',
+      turnId: 'turn_c',
+      stopReason: 'completed',
+    })
+    await waitFor(() => expect(fetches).toBe(2))
+    expect(
+      await screen.findByRole('button', { name: 'Open Updated parser: Result ready' }),
+    ).toBeInTheDocument()
+    await act(async () => {
+      resolveOld([TASK])
+      await old
+    })
+    expect(
+      screen.getByRole('button', { name: 'Open Updated parser: Result ready' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open Parser worker: Result ready' })).toBeNull()
+  })
+
+  it('dequeues the right sender when a human and agent queued the same text', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    replayDelegatingTurn()
+    replay(7, {
+      type: 'message.enqueued',
+      text: 'Same input',
+      attachments: [],
+      origin: { kind: 'session', sessionId: 'child_1' },
+    })
+    replay(8, { type: 'message.enqueued', text: 'Same input', attachments: [] })
+    emitReplayDone()
+    expect(screen.getByText('Agent message')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit queued message 1' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Edit queued message 2' })).toBeInTheDocument()
+    replay(9, {
+      type: 'message.dequeued',
+      text: 'Same input',
+      attachments: [],
+      origin: { kind: 'session', sessionId: 'child_1' },
+    })
+    expect(screen.queryByText('Agent message')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Edit queued message 1' })).toBeInTheDocument()
   })
 })

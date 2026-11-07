@@ -15,12 +15,32 @@ const SESSION = new Set([
   'spawn',
   'prompt',
   'message',
+  'delivery',
+  'inbox',
+  'ack',
   'read',
   'wait',
   'stop',
   'diff',
 ])
 const COMMAND_WORDS = new Set(['ari', 'ari.cmd', '$ARI_CLI', '"$ARI_CLI"'])
+const ORCHESTRATION = new Set([
+  'view',
+  'inbox',
+  'routine.list',
+  'launch',
+  'retry',
+  'update',
+  'review',
+  'result',
+  'context',
+  'context.get',
+  'diff',
+  'verify',
+  'answer',
+  'stop',
+  'compare',
+])
 /** What agents habitually append to keep output short; neither can do harm. */
 const OUTPUT_TRIM = / \| (?:head|tail)(?: -n)?(?: -?\d+)?$/
 
@@ -57,7 +77,10 @@ function words(segment: string): string[] | null {
 }
 
 function isSafeInvocation(segment: string): boolean {
-  const trimmed = segment.trim().replace(OUTPUT_TRIM, '').replace(/ 2>&1$/, '')
+  const trimmed = segment
+    .trim()
+    .replace(OUTPUT_TRIM, '')
+    .replace(/ 2>&1$/, '')
   const space = trimmed.indexOf(' ')
   const head = space === -1 ? trimmed : trimmed.slice(0, space)
   if (!COMMAND_WORDS.has(head)) return false
@@ -67,6 +90,8 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'session') return second !== undefined && SESSION.has(second)
+  if (first === 'task' || first === 'orchestration')
+    return second !== undefined && ORCHESTRATION.has(second)
   return first === 'parent' && second === 'message'
 }
 

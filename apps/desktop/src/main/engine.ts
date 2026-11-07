@@ -24,7 +24,8 @@ import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 import type { DriverRegistry } from '@ari/providers/registry'
-import type { AdapterApprovalDecision } from '@ari/providers/driver'
+import { getProviderCapabilities, type AdapterApprovalDecision } from '@ari/providers/driver'
+import type { CoordinationMessage } from '@ari/contracts/coordination'
 
 const log = createLogger('desktop:engine')
 
@@ -43,6 +44,9 @@ function backgroundTaskUpdated(
     label: event.label,
     status: event.status,
     ...(event.detail !== undefined ? { detail: event.detail } : {}),
+    ...(event.providerThreadId !== undefined ? { providerThreadId: event.providerThreadId } : {}),
+    ...(event.providerTurnId !== undefined ? { providerTurnId: event.providerTurnId } : {}),
+    ...(event.providerItemId !== undefined ? { providerItemId: event.providerItemId } : {}),
   }
 }
 
@@ -128,6 +132,7 @@ export interface EngineDeps {
   resolveWorkspace?: (projectId: string) => Promise<string | null>
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
+  canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
   deliversResults?: () => boolean
@@ -163,6 +168,7 @@ export interface EngineDeps {
 }
 
 interface ActiveTurn {
+  capabilities: { approval: boolean; question: boolean; steer: boolean }
   sessionId: string
   turnId: string
   interrupt: () => void
@@ -227,6 +233,49 @@ export class Engine {
   /** Includes providers still disposing after a durable settle. */
   hasLiveTurn(sessionId: string): boolean {
     return this.#turnTasks.has(sessionId)
+  }
+
+  /** Live methods, never inferred from a replayed request or provider name. */
+  liveCapabilities(sessionId: string) {
+    return (
+      this.#activeTurns.get(sessionId)?.capabilities ?? {
+        approval: false,
+        question: false,
+        steer: false,
+      }
+    )
+  }
+
+  /** Inbox coordination can use only a live transport, never ACP's buffered follow-up. */
+  async deliverCoordination(message: CoordinationMessage): Promise<boolean> {
+    const turn = this.#activeTurns.get(message.recipientSessionId)
+    if (!turn?.capabilities.steer || turn.turnId !== message.turnId) return false
+    const delivered = await turn.steer(
+      attributedInput(`[Coordination ${message.messageId}]\n${message.text}`, {
+        kind: 'session',
+        sessionId: message.senderSessionId,
+      }),
+    )
+    if (delivered) {
+      // The inbox retains identity and delivery state. A transcript echo preserves origin without a queued assignment.
+      const flushed = turn.splitMessage()
+      await Promise.all([
+        flushed,
+        this.#append(message.recipientSessionId, {
+          type: 'user.message.added',
+          message: {
+            id: message.messageId,
+            sessionId: message.recipientSessionId,
+            turnId: turn.turnId,
+            role: 'user',
+            parts: [{ type: 'text', text: message.text }],
+            createdAt: message.createdAt,
+            origin: { kind: 'session', sessionId: message.senderSessionId },
+          },
+        }),
+      ])
+    }
+    return delivered
   }
 
   /** Between-turn output buffered per session, flushed as one journal event. */
@@ -397,6 +446,30 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
+    if (
+      command.type === 'approval.respond' &&
+      command.approvalId.startsWith('ari_delegate_') &&
+      this.#deps.canRespondControlApproval &&
+      !this.#deps.canRespondControlApproval(command.approvalId)
+    )
+      return {
+        accepted: false,
+        reason: 'This delegation approval callback is no longer available.',
+      }
+    if (command.type === 'input.respond' && !this.liveCapabilities(command.sessionId).question)
+      return {
+        accepted: false,
+        reason: 'The provider question callback is unavailable. Resume in a new turn.',
+      }
+    if (
+      command.type === 'approval.respond' &&
+      !command.approvalId.startsWith('ari_delegate_') &&
+      !this.liveCapabilities(command.sessionId).approval
+    )
+      return {
+        accepted: false,
+        reason: 'The provider approval callback is unavailable. Resume in a new turn.',
+      }
     const ids: DispatchIds = {
       turnId: newTypedId('turn'),
       messageId: newTypedId('msg'),
@@ -509,6 +582,11 @@ export class Engine {
     }
 
     if (command.type === 'message.steer') {
+      if (!this.liveCapabilities(command.sessionId).steer)
+        return {
+          accepted: false,
+          reason: 'This transport supports follow-up messages only, not live steering.',
+        }
       // Pushes an already-queued message into the running turn. The decider
       // gated the preconditions; only the adapter can say whether it took the
       // text, so a refusal is reported rather than journaled — the message
@@ -806,7 +884,17 @@ export class Engine {
     let messageId = newTypedId('msg')
     // A result joins the message holding its call, even across a split.
     const callMessageIds = new Map<string, string>()
+    const capabilities = getProviderCapabilities(adapter)
     this.#activeTurns.set(session.id, {
+      capabilities: {
+        approval:
+          ['approvals', 'approvals-and-input'].includes(String(capabilities.liveResponses)) &&
+          adapter.respondApproval !== undefined,
+        question:
+          capabilities.liveResponses === 'approvals-and-input' &&
+          adapter.respondInput !== undefined,
+        steer: capabilities.steering === 'live' && adapter.steer !== undefined,
+      },
       sessionId: session.id,
       turnId,
       interrupt: () => {
@@ -825,7 +913,7 @@ export class Engine {
           return await adapter.steer(text)
         } catch (e) {
           log.debug('steer failed', { sessionId: session.id, error: String(e) })
-          return false
+          throw e
         }
       },
       splitMessage: () => {
@@ -916,7 +1004,8 @@ export class Engine {
       }
     }
 
-    let stopReason: 'completed' | 'error'
+    let stopReason: 'completed' | 'interrupted' | 'error'
+    let providerStopReason: 'completed' | 'interrupted' | 'error' | undefined
     let errorMessage: string | null
     try {
       let firstErrorMessage: string | null = null
@@ -1015,7 +1104,11 @@ export class Engine {
             // Ari's own control commands are governed by its delegation
             // policy, not by a click on every one of them.
             const grant = hasControl ? (this.#deps.autoApprove?.(event) ?? null) : null
-            if (grant !== null && adapter.respondApproval !== undefined) {
+            if (
+              grant !== null &&
+              this.liveCapabilities(session.id).approval &&
+              adapter.respondApproval !== undefined
+            ) {
               adapter.respondApproval(event.approvalId, { optionId: grant })
               break
             }
@@ -1025,6 +1118,15 @@ export class Engine {
               toolName: event.toolName,
               summaryJson: event.summaryJson,
               options: event.options,
+              ...(event.providerThreadId !== undefined
+                ? { providerThreadId: event.providerThreadId }
+                : {}),
+              ...(event.providerTurnId !== undefined
+                ? { providerTurnId: event.providerTurnId }
+                : {}),
+              ...(event.providerItemId !== undefined
+                ? { providerItemId: event.providerItemId }
+                : {}),
             })
             break
           }
@@ -1068,6 +1170,7 @@ export class Engine {
             })
             break
           case 'done':
+            providerStopReason = event.stopReason ?? providerStopReason
             break
         }
       }
@@ -1079,7 +1182,7 @@ export class Engine {
       // Provider-emitted errors (auth failures, CLI crashes with exit 0, HTTP
       // errors) must settle the turn as `error`, never as a completed chat —
       // otherwise the failure is invisible and the UI looks broken.
-      stopReason = firstErrorMessage === null ? 'completed' : 'error'
+      stopReason = firstErrorMessage === null ? (providerStopReason ?? 'completed') : 'error'
       errorMessage = firstErrorMessage
     } catch (e) {
       await flush().catch((error: unknown) =>

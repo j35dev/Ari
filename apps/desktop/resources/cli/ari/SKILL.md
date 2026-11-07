@@ -7,6 +7,45 @@ metadata:
 
 # Ari session control
 
+## Typed tasks and reviewable results
+
+`ari orchestration view --json` (also `ari task view`) reports assignments,
+attempts, actual requests, review states, and durable operation outcomes.
+Commands take a validated JSON object with `--params`; use `--key` to make
+retries idempotent and `--session` to select a session in your subtree.
+
+```sh
+ari task launch --key implement --params '{"title":"Implement parser","driverKind":"codex","assignment":{"goal":"Implement the parser","role":"implementation","ownedPaths":["src/parser"],"acceptanceCriteria":["Parser tests pass"],"dependsOn":[]}}'
+ari task context --key inputs --params '{"messageIds":["msg_id"],"files":["README.md"],"resultIds":[],"maxChars":24000}'
+ari task review --key accept --params '{"taskId":"task_id","resultId":"result_id","state":"accepted","snapshotCommit":"exact_snapshot_oid"}'
+ari task retry --key correction --params '{"taskId":"task_id","feedback":"Fix the failed case"}'
+```
+
+Dependencies name task IDs and dispatch only after their current code results are
+integrated or report-only results are accepted. Results remain versioned across retries. `context.get`, `diff`,
+`integrate`, `verify`, `update`, `answer`, `stop`, and `compare` use the same JSON API.
+Integration requires an accepted result ID and its exact snapshot; inspect
+the diff first. A provider/model change on retry requires `newSession:true`.
+Selected context is frozen and recorded on the attempt. Approvals remain
+human decisions; leads can answer only their direct child's lead-owned question.
+
+A worker reports checks with:
+
+```sh
+ari task result --session parent --params '{"taskId":"task_id","attemptId":"attempt_id","summary":"Outcome","workerReportedChecks":[{"command":"pnpm test","cwd":"workspace","exitCode":0,"snapshotCommit":null,"detail":null}]}'
+```
+
+Reported checks are claims. `verify` independently runs `git diff --check`
+against the immutable result snapshot and stores command, cwd, exit status,
+and snapshot under `verifiedChecks`; it does not independently run tests. An
+`uncertain_outcome` receipt means the effect may already have happened;
+inspect the task before an explicit new attempt instead of changing keys
+and resubmitting blindly. Existing `routine` commands remain supported.
+Renderer clients can use the equivalent `orchestration.routine.add`,
+`orchestration.routine.list`, and `orchestration.routine.remove` RPCs. A
+question can be dismissed with an empty `orchestration.answer` value where
+the live adapter supports it; approval values must be exact offered IDs.
+
 Activate only when `ARI_ENV=1`. Run `ari env --json` and `ari agents --json`
 to discover your session, available providers/models, delegation policy and remaining slots.
 Call it as `ari`. Only if `ari` is absent from PATH, invoke the executable in `ARI_CLI`;
@@ -176,3 +215,40 @@ and unresolved issues in the final response to the human.
 `ari --skill` prints these release-matched instructions. The explicit command
 `ari skill install codex` or `ari skill install claude` installs this skill into
 that agent's user configuration; Ari never writes instructions into project folders.
+
+## Coordination inbox
+
+For multiline or long text, use `--prompt-file PATH` on `session spawn`,
+`session prompt`, `session message`, or `parent message`. It reads UTF-8 text
+without shell newline/quoting loss. Orchestration commands also accept
+`--params-file PATH` for a JSON parameter object. Inline and file input are
+mutually exclusive; keep the same key when retrying unchanged file contents.
+
+`session prompt` is an assignment that queues a new turn. `session message` and
+`parent message` are scoped coordination: they enter a durable recipient inbox
+and return `messageId` and actual `status` (`pending`, `delivered`, `consumed`, or
+`uncertain`). They do not queue another assignment or create automatic replies.
+Only a created adapter that supports live steering receives them mid-turn.
+Buffered provider follow-ups are not reported as live delivery.
+
+Check `session inbox` after meaningful work chunks and before reporting a result.
+Read and act on a live-delivered note once, then acknowledge its exact message ID;
+inbox inspection leaves delivery and consumption distinct. A note to an idle agent
+stays in its inbox; use `session prompt` to assign a new turn.
+
+`session wait` also returns immediately for incoming coordination or a direct
+child's lead-owned question, even when waiting for every target. Read the inbox
+and acknowledge the exact identities after acting on them; a wait never consumes
+unread messages. Direct siblings may coordinate and wait, but cannot prompt,
+answer approvals, integrate, or control each other's sessions.
+
+```sh
+ari session inbox --json
+ari session ack MESSAGE_ID --key consumed-1 --json
+ari session inbox --include-consumed --json
+ari session delivery RECIPIENT MESSAGE_ID --json
+```
+
+Inbox acceptance and acknowledgements survive restart. An uncertain live delivery
+remains retrievable and is never resent automatically. Reusing a message key
+recovers the accepted inbox identity after a lost sender receipt.
