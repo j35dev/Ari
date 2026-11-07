@@ -1,6 +1,7 @@
 import { createLogger } from '@ari/shared/logger'
 import { mapOpencodeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
@@ -24,6 +25,9 @@ export function buildOpencodeArgs(session: AdapterSession): string[] {
 }
 
 export class OpencodeDriver implements Driver {
+  capabilities() {
+    return ONE_SHOT_PROVIDER_CAPABILITIES
+  }
   readonly kind = 'opencode' as const
 
   constructor(private readonly binaryPath: string) {}
@@ -43,6 +47,7 @@ export class OpencodeDriver implements Driver {
     })[Symbol.asyncIterator]()
 
     return Promise.resolve({
+      capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
       interrupt: () => {
         if (!child.killed) child.kill()

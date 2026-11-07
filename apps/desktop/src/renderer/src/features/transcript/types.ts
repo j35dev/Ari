@@ -19,7 +19,19 @@ export type TranscriptRow = GroupedRow | DelegationRow
 export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
 
 export type DelegatedChildState =
-  'working' | 'needs-you' | 'waiting' | 'done' | 'failed' | 'stopped' | 'idle' | 'removed'
+  | 'working'
+  | 'needs-you'
+  | 'needs-lead'
+  | 'queued'
+  | 'starting'
+  | 'stopping'
+  | 'unknown'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'stopped'
+  | 'idle'
+  | 'removed'
 
 /** One child session a turn delegated to, as its task card shows it. */
 export interface DelegatedChild {

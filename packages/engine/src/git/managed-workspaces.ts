@@ -1,6 +1,16 @@
-import { mkdtemp, mkdir, readdir, rm, writeFile, realpath, stat } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  rm,
+  writeFile,
+  realpath,
+  stat,
+  lstat,
+  unlink,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { GitService } from './git-service'
@@ -76,11 +86,15 @@ export class ManagedWorkspaces {
     cwd: string,
     childId: string,
     title = '',
+    frozenBase?: string,
   ): Promise<NonNullable<Session['workspace']>> {
     if (!component.test(parent.projectId))
       throw new ControlFailure('invalid_request', 'Invalid project identifier.')
     const baseRef = `${this.#ref(childId)}/base`
-    const baseCommit = await this.snapshot(cwd, baseRef)
+    if (frozenBase && !oid.test(frozenBase))
+      throw new ControlFailure('invalid_request', 'Invalid frozen base snapshot.')
+    const baseCommit = frozenBase ?? (await this.snapshot(cwd, baseRef))
+    if (frozenBase) await this.#run(cwd, ['update-ref', baseRef, frozenBase])
     const path = join(this.rootDir, parent.projectId, childId)
     const branch = await this.#uniqueBranch(cwd, orchestrationBranch(title, childId))
     await mkdir(join(this.rootDir, parent.projectId), { recursive: true })
@@ -101,8 +115,23 @@ export class ManagedWorkspaces {
     const paths = await this.#sessionPaths(sessionId)
     const repos: string[] = []
     for (const path of paths) {
+      if ((await lstat(path)).isSymbolicLink()) {
+        await unlink(path)
+        continue
+      }
+      const root = await realpath(this.rootDir)
+      const target = await realpath(path)
+      const inside = relative(root, target)
+      if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside))
+        throw new ControlFailure(
+          'invalid_request',
+          'Managed workspace is outside its cleanup root.',
+        )
       const repo = await this.#mainRepo(path)
       if (repo && !repos.includes(repo)) repos.push(repo)
+      // Git for Windows can descend through junctions while removing a worktree.
+      // Unlink them first without walking targets such as shared dependencies.
+      await this.#detachLinks(path)
       if (repo) {
         const removed = await this.git.removeWorktree(repo, path)
         if (!removed.ok) {
@@ -126,6 +155,15 @@ export class ManagedWorkspaces {
         if (!name.startsWith(`${prefix}/`)) continue
         await this.git.runPlumbing(repo, ['update-ref', '-d', name])
       }
+    }
+  }
+
+  async #detachLinks(path: string): Promise<void> {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const child = join(path, entry.name)
+      const info = await lstat(child)
+      if (info.isSymbolicLink()) await unlink(child)
+      else if (info.isDirectory()) await this.#detachLinks(child)
     }
   }
 

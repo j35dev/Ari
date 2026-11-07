@@ -226,7 +226,7 @@ describe('delegated agents', () => {
 
     fireEvent.click(
       await screen.findByRole('button', {
-        name: 'Delegated agents: 3 agents · 1 needs you · 1 working · 1 done',
+        name: 'Delegated agents: 3 agents · 1 needs you · 1 working · 1 result ready',
       }),
     )
     // Its own turn is over, but the work is not: the header must not say "ready".

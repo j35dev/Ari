@@ -11,6 +11,8 @@ import { budgetExceeded, treeSpend } from '@ari/engine/tree-budget'
 import type { SessionStore } from '@ari/engine/session-store'
 import type { Engine } from './engine'
 import { DelegationApprovals } from './delegation-approvals'
+import { createOrchestrationRuntime } from './orchestration-runtime'
+import type { OrchestrationMethod } from '@ari/contracts/orchestration'
 
 const scopedKeys = [
   'ARI_ENV',
@@ -150,10 +152,22 @@ async function startControlTransport(
     subscribe: (listener) => store.subscribe(listener),
     ...(options.recover === false ? {} : { isRunning: (id: string) => engine.hasLiveTurn(id) }),
     isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
+    coordinate: async (senderId, recipientId, text, key) => {
+      const result = await service.invoke(senderId, 'session.message', {
+        targetSessionId: recipientId,
+        text,
+        idempotencyKey: key,
+      })
+      if (!result.ok) throw new ControlFailure(result.error.code, result.error.message)
+    },
     treeSpend: spendOf,
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })
   const service = new AgentControlService({
+    canDeliverCoordination: (id) => engine.liveCapabilities(id).steer,
+    deliverCoordination: (message) => engine.deliverCoordination(message),
+    orchestration: (caller, method, params, signal) =>
+      orchestration.invoke(caller, method as OrchestrationMethod, params, false, signal),
     store,
     version: options.version,
     policy: () => options.policy(),
@@ -166,8 +180,8 @@ async function startControlTransport(
     treeSpend: spendOf,
     workspace,
     isRunning: (id) => engine.hasLiveTurn(id),
-    isolate: async (parent, id, title) =>
-      workspaces.isolate(parent, await workspace(parent), id, title),
+    isolate: async (parent, id, title, baseSnapshotCommit) =>
+      workspaces.isolate(parent, await workspace(parent), id, title, baseSnapshotCommit),
     diff: async (child, patch) => {
       await engine.quiesce(child.id)
       if ((await store.load(child.id)).activeTurnId || engine.hasLiveTurn(child.id))
@@ -234,6 +248,7 @@ async function startControlTransport(
     },
     waitEnded: (callerId) => supervisor.schedule(callerId),
   })
+  const orchestration = createOrchestrationRuntime(service, engine, workspaces)
   const server = new AgentControlServer({
     endpoint,
     invoke: (caller, method, params, signal) => service.invoke(caller, method, params, signal),
@@ -256,9 +271,31 @@ async function startControlTransport(
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
     // Archives that bypass the desktop RPC (mobile) still have to drop access.
     if (event.type === 'session.updated' && event.archived === true) dropSession(event.sessionId)
+    if (event.type === 'turn.settled') {
+      void engine
+        .quiesce(event.sessionId)
+        .then(() => store.load(event.sessionId))
+        .then((model) => {
+          if (model.session?.parentSessionId)
+            return orchestration.schedule(model.session.parentSessionId)
+          return undefined
+        })
+        .catch(() => undefined)
+    }
   })
   supervisor.start()
+  // Dependency waits have no queued provider message; explicitly recover them.
+  void store
+    .listSessions()
+    .then(async (rows) => {
+      for (const row of rows) {
+        if ((await store.load(row.id)).orchestration)
+          await orchestration.schedule(row.id).catch(() => undefined)
+      }
+    })
+    .catch(() => undefined)
   return {
+    orchestration,
     service,
     approvals,
     supervisor,

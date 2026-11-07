@@ -2,6 +2,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapPiLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
@@ -37,6 +38,9 @@ function permissionFlags(mode: PermissionMode): string[] {
 }
 
 export class PiDriver implements Driver {
+  capabilities() {
+    return ONE_SHOT_PROVIDER_CAPABILITIES
+  }
   readonly kind = 'pi' as const
 
   constructor(private readonly binaryPath: string) {}
@@ -56,6 +60,7 @@ export class PiDriver implements Driver {
     })[Symbol.asyncIterator]()
 
     return Promise.resolve({
+      capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
       interrupt: () => {
         if (!child.killed) child.kill()

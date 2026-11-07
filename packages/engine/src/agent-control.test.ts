@@ -271,21 +271,21 @@ it('requires approval, rechecks changed policy and denies sibling/cross-project 
   }
 })
 
-it('lets a child wake its parent and queues later messages with preserved origin', async () => {
+it('stores coordination in the parent inbox without queueing assignments', async () => {
   await service.invoke('root', 'session.spawn', spawn)
   const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
-  for (const idempotencyKey of ['a', 'b']) {
+  for (const key of ['first', 'second'])
     expect(
       await service.invoke(child.id, 'session.message', {
         targetSessionId: 'parent',
-        text: 'Question',
-        idempotencyKey,
+        text: key,
+        idempotencyKey: key,
       }),
-    ).toMatchObject({ ok: true })
-  }
+    ).toMatchObject({ ok: true, result: { status: 'pending', senderSessionId: child.id } })
   const parent = await store.load('root')
-  expect(parent.messages[0]?.origin).toEqual({ kind: 'session', sessionId: child.id })
-  expect(parent.queuedMessages[0]?.origin).toEqual({ kind: 'session', sessionId: child.id })
+  expect(Object.values(parent.inbox ?? {})).toHaveLength(2)
+  expect(parent.queuedMessages).toEqual([])
+  expect(parent.activeTurnId).toBeNull()
 })
 
 it('waits for a captured child set and cancels on disconnect', async () => {
@@ -356,7 +356,7 @@ it('lets a parent destroy a child and refuses self or unrelated sessions', async
   ).toMatchObject({ ok: true, result: { destroyed: true, count: 2 } })
 })
 
-it('compensates an isolated spawn when session create fails', async () => {
+it('preserves an isolated orphan for inspection when session create outcome is uncertain', async () => {
   const released: string[] = []
   host.isolate = async (_parent, id) => ({
     kind: 'managed-worktree',
@@ -378,7 +378,7 @@ it('compensates an isolated spawn when session create fails', async () => {
       idempotencyKey: 'iso-fail',
     }),
   ).toMatchObject({ ok: false, error: { code: 'internal_error' } })
-  expect(released).toHaveLength(1)
+  expect(released).toHaveLength(0)
   expect((await store.listSessions()).map((s) => s.id)).toEqual(['root'])
 })
 

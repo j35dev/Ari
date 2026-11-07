@@ -61,7 +61,11 @@ export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
   const word = label ?? FLAVOUR_WORDS[wordIndex] ?? FLAVOUR_WORDS[0]!
 
   return (
-    <span role="status" className="inline-flex items-center gap-2">
+    <span
+      role="img"
+      aria-label={label ?? 'Agent working'}
+      className="inline-flex items-center gap-2"
+    >
       {/* The chase is a compositor-only CSS loop (the sidebar mark's), so a
           long turn costs no JavaScript per frame and nothing on re-render. */}
       <span className="grid grid-cols-3 gap-0.5" aria-hidden="true">

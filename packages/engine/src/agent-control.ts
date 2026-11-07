@@ -1,4 +1,7 @@
+import type { CoordinationMessage } from '@ari/contracts/coordination'
 import { newTypedId } from '@ari/shared/ids'
+import { createHash } from 'node:crypto'
+import type { OperationReceipt } from '@ari/contracts/orchestration'
 import { createLogger } from '@ari/shared/logger'
 import {
   AGENT_CONTROL_VERSION,
@@ -66,6 +69,12 @@ function raceApproval(pending: Promise<boolean>, signal?: AbortSignal): Promise<
 }
 
 export interface ControlHost {
+  orchestration?(
+    callerId: string,
+    method: string,
+    params: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown>
   store: SessionStore
   version: string
   policy(): DelegationSettings
@@ -81,7 +90,14 @@ export interface ControlHost {
   subscribe(listener: (event: JournalEvent) => void): () => void
   workspace(session: Session): Promise<string | null>
   isRunning?(id: string): boolean
-  isolate(parent: Session, childId: string, title?: string): Promise<SessionWorkspace>
+  canDeliverCoordination?(id: string): boolean
+  deliverCoordination?(message: CoordinationMessage): Promise<boolean>
+  isolate(
+    parent: Session,
+    childId: string,
+    title?: string,
+    baseSnapshotCommit?: string,
+  ): Promise<SessionWorkspace>
   diff(child: Session, patch: boolean): Promise<unknown>
   integrate(
     parent: Session,
@@ -116,6 +132,7 @@ export class AgentControlService {
   readonly #roots = new Map<string, Promise<unknown>>()
   readonly #approved = new Set<string>()
   readonly #approving = new Map<string, Promise<boolean>>()
+  readonly #activeDeliveries = new Set<string>()
   readonly #rates = new Map<string, { at: number; count: number }>()
   readonly #gone = new Map<string, Set<() => void>>()
   readonly #waiting = new Map<string, Map<string, number>>()
@@ -199,6 +216,9 @@ export class AgentControlService {
       const caller = await this.#get(callerId)
       const params = parsed.data
       const run = () => this.#run(caller, method, params, signal)
+      // Orchestration owns durable receipts and serializes its own mutations;
+      // taking this lock too would deadlock its scoped session operations.
+      if (method.startsWith('orchestration.')) return { ok: true, result: await run() }
       if (!('idempotencyKey' in params)) {
         if (method !== 'session.diff' && method !== 'session.integrate')
           return { ok: true, result: await run() }
@@ -229,7 +249,9 @@ export class AgentControlService {
           )
         return { ok: true, result: await raced.result }
       }
-      const result = this.#chain(caller, run)
+      const result = this.#chain(caller, () =>
+        this.#durable(caller.id, receiptKey, method, fingerprint, params, run),
+      )
       this.#receipts.set(receiptKey, { fingerprint, result })
       try {
         return { ok: true, result: await result }
@@ -245,6 +267,133 @@ export class AgentControlService {
         }
       log.error('control operation failed', { method })
       return { ok: false, error: { code: 'internal_error', message: 'Control operation failed.' } }
+    }
+  }
+
+  /** Journal barriers surround effects whose repetition could submit or integrate twice. */
+  async #durable(
+    callerId: string,
+    key: string,
+    method: ControlMethod,
+    fingerprint: string,
+    params: unknown,
+    run: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const operationId = `control_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`
+    const previous = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+    if (previous) {
+      if (previous.fingerprint !== fingerprint)
+        throw new ControlFailure(
+          'invalid_request',
+          'Idempotency key already used with different parameters.',
+        )
+      if (previous.status !== 'completed' && method === 'session.ack') {
+        const p = params as ControlParams<'session.ack'>
+        const inbox = (await this.host.store.load(callerId)).inbox ?? {}
+        if (p.messageIds.every((id) => inbox[id]?.status === 'consumed')) {
+          const result = { acknowledged: p.messageIds }
+          await this.host.record(callerId, {
+            type: 'orchestration.operation.updated',
+            operation: {
+              ...previous,
+              status: 'completed',
+              completedAt: Date.now(),
+              result: { ok: true, result },
+            },
+          })
+          return result
+        }
+      }
+      if (previous.status !== 'completed' && method === 'session.message') {
+        // Recipient acceptance is the authoritative durable effect, even if the sender receipt was lost.
+        const p = params as ControlParams<'session.message'>
+        const caller = await this.#get(callerId)
+        const target = await this.#messageTarget(caller, p.targetSessionId)
+        const accepted = (await this.host.store.load(target.id)).inbox?.[
+          this.#messageId(callerId, p.idempotencyKey)
+        ]
+        if (accepted) {
+          const result = await this.#coordinationState(accepted)
+          await this.host.record(callerId, {
+            type: 'orchestration.operation.updated',
+            operation: {
+              ...previous,
+              status: 'completed',
+              completedAt: Date.now(),
+              result: { ok: true, result },
+            },
+          })
+          return result
+        }
+      }
+      if (previous.status !== 'completed') {
+        if (previous.status === 'started')
+          await this.host.record(callerId, {
+            type: 'orchestration.operation.updated',
+            operation: {
+              ...previous,
+              status: 'uncertain',
+              detail:
+                'Process ended before the operation outcome was persisted. Inspect state before recovery.',
+            },
+          })
+        throw new ControlFailure(
+          'uncertain_outcome',
+          'The previous operation may have completed. It will not be repeated automatically.',
+          { operationId },
+        )
+      }
+      const outcome = previous.result as ControlResult
+      if (outcome.ok) return outcome.result
+      // A known validation/policy refusal did not perform the effect. A new
+      // caller may retry after its outstanding approval or condition changes.
+    }
+    const receipt: OperationReceipt = {
+      operationId,
+      method,
+      fingerprint,
+      status: 'started',
+      startedAt: Date.now(),
+      completedAt: null,
+      detail: null,
+    }
+    await this.host.record(callerId, {
+      type: 'orchestration.operation.updated',
+      operation: receipt,
+    })
+    try {
+      const result = await run()
+      await this.host.record(callerId, {
+        type: 'orchestration.operation.updated',
+        operation: {
+          ...receipt,
+          status: 'completed',
+          completedAt: Date.now(),
+          result: { ok: true, result },
+        },
+      })
+      return result
+    } catch (error) {
+      const progress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+        ?.result
+      const known =
+        error instanceof ControlFailure &&
+        !['internal_error', 'uncertain_outcome'].includes(error.code)
+      await this.host.record(callerId, {
+        type: 'orchestration.operation.updated',
+        operation: {
+          ...receipt,
+          status: known ? 'completed' : 'uncertain',
+          completedAt: known ? Date.now() : null,
+          result: known
+            ? { ok: false, error: { code: error.code, message: error.message } }
+            : progress,
+          detail: known
+            ? error.message
+            : 'The effect may have completed before the durable outcome. Inspect state before recovery.',
+        },
+      })
+      throw error
     }
   }
 
@@ -282,6 +431,11 @@ export class AgentControlService {
     signal?: AbortSignal,
   ): Promise<unknown> {
     caller = await this.#get(caller.id)
+    if (method.startsWith('orchestration.')) {
+      if (!this.host.orchestration)
+        throw new ControlFailure('unsupported', 'Orchestration is unavailable in this runtime.')
+      return this.host.orchestration(caller.id, method, raw, signal)
+    }
     switch (method) {
       case 'runtime.info': {
         const chain = await this.#lineage(caller)
@@ -337,20 +491,54 @@ export class AgentControlService {
       }
       case 'session.spawn':
         return this.#spawn(caller, raw as ControlParams<'session.spawn'>, signal)
-      case 'session.prompt':
-      case 'session.message': {
+      case 'session.prompt': {
         const p = raw as ControlParams<'session.prompt'>
-        const target = await this.#target(caller, p.targetSessionId, method === 'session.message')
-        if (
-          method === 'session.message' &&
-          target.id !== caller.parentSessionId &&
-          !(await this.#lineage(target)).some((s) => s.id === caller.id)
-        )
+        return this.#prompt(caller, await this.#target(caller, p.targetSessionId), p.text)
+      }
+      case 'session.message': {
+        const p = raw as ControlParams<'session.message'>
+        return this.#coordinate(caller, await this.#messageTarget(caller, p.targetSessionId), p)
+      }
+      case 'session.delivery': {
+        const p = raw as ControlParams<'session.delivery'>
+        const target = await this.#messageTarget(caller, p.targetSessionId)
+        const message = (await this.host.store.load(target.id)).inbox?.[p.messageId]
+        if (!message || message.senderSessionId !== caller.id)
           throw new ControlFailure(
             'scope_denied',
-            'Messages to ancestors are limited to the direct parent.',
+            'Delivery state belongs to the sender of this scoped message.',
           )
-        return this.#prompt(caller, target, p.text)
+        return this.#coordinationState(message)
+      }
+      case 'session.inbox': {
+        const p = raw as ControlParams<'session.inbox'>
+        const entries = Object.values((await this.host.store.load(caller.id)).inbox ?? {})
+        return {
+          sessionId: caller.id,
+          messages: await Promise.all(
+            entries
+              .filter((entry) => p.includeConsumed || entry.status !== 'consumed')
+              .map((entry) => this.#coordinationState(entry)),
+          ),
+        }
+      }
+      case 'session.ack': {
+        const p = raw as ControlParams<'session.ack'>
+        const inbox = (await this.host.store.load(caller.id)).inbox ?? {}
+        if (p.messageIds.some((id) => !inbox[id]))
+          throw new ControlFailure(
+            'scope_denied',
+            'Acknowledgements belong to the recipient inbox.',
+          )
+        for (const id of new Set(p.messageIds)) {
+          const message = inbox[id]!
+          if (message.status !== 'consumed')
+            await this.host.record(caller.id, {
+              type: 'coordination.updated',
+              message: { ...message, status: 'consumed', consumedAt: Date.now() },
+            })
+        }
+        return { acknowledged: p.messageIds }
       }
       case 'session.answer': {
         const p = raw as ControlParams<'session.answer'>
@@ -361,6 +549,14 @@ export class AgentControlService {
             'Only the direct parent can answer a child question.',
           )
         const model = await this.host.store.load(child.id)
+        const asked = model.messages.find(
+          (message) => message.role === 'user' && message.turnId === model.activeTurnId,
+        )
+        if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== caller.id)
+          throw new ControlFailure(
+            'scope_denied',
+            'This question belongs to the human, not the lead.',
+          )
         if (model.pendingApprovals.some((approval) => approval.approvalId === p.inputId))
           throw new ControlFailure(
             'invalid_request',
@@ -511,6 +707,7 @@ export class AgentControlService {
         return { routineId: entry.id, removed: await routines.remove(entry.id) }
       }
     }
+    throw new ControlFailure('unsupported', 'Unsupported control operation.')
   }
 
   async #active(rootId: string): Promise<number> {
@@ -562,6 +759,16 @@ export class AgentControlService {
       pending = request
     }
     return raceApproval(pending, signal)
+  }
+
+  async #spawnProgress(callerId: string, key: string, recovery: unknown): Promise<void> {
+    const operationId = `control_${createHash('sha256').update(`${callerId}:session.spawn:${key}`).digest('hex').slice(0, 32)}`
+    const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+    if (operation?.status === 'started')
+      await this.host.record(callerId, {
+        type: 'orchestration.operation.updated',
+        operation: { ...operation, result: { recovery } },
+      })
   }
 
   async #spawn(
@@ -616,15 +823,45 @@ export class AgentControlService {
       }
       this.#approved.add(root.id)
     }
+    // User policy and parent permissions can change while the approval is open.
+    // Revalidate them before preparing any workspace or creating a session.
+    const currentCaller = await this.#get(caller.id)
+    const currentPolicy = this.host.policy()
+    checkDelegation(
+      currentPolicy,
+      chain.length - 1,
+      (await this.host.store.listSessions()).filter((row) => row.parentSessionId === caller.id)
+        .length,
+      this.host.treeSpend ? await this.host.treeSpend(root.id) : undefined,
+    )
+    if (
+      currentCaller.archived ||
+      modes.indexOf(permissionMode) > modes.indexOf(currentCaller.permissionMode)
+    )
+      throw new ControlFailure(
+        'scope_denied',
+        'Parent permissions changed while delegation was pending.',
+      )
+    if (mode === 'shared' && !currentPolicy.allowSharedWorkspace)
+      throw new ControlFailure('scope_denied', 'Shared workspaces are disabled.')
     const id = newTypedId('sess')
     let child: Session | undefined
     let isolated = false
+    await this.#spawnProgress(caller.id, p.idempotencyKey, {
+      childSessionId: id,
+      stage: 'workspace_preparing',
+    })
     try {
       const workspace =
         mode === 'isolated'
-          ? await this.host.isolate(caller, id, p.title)
+          ? await this.host.isolate(caller, id, p.title, p.baseSnapshotCommit)
           : { kind: 'project' as const }
       isolated = mode === 'isolated'
+      await this.#spawnProgress(caller.id, p.idempotencyKey, {
+        childSessionId: id,
+        workspace,
+        stage: 'workspace_prepared',
+      })
       // Preparing a worktree can outlast the caller. Whoever asked is no
       // longer there to receive the id, so no child is minted for it.
       if (signal?.aborted)
@@ -647,6 +884,11 @@ export class AgentControlService {
         updatedAt: Date.now(),
       }
       await this.host.create(child)
+      await this.#spawnProgress(caller.id, p.idempotencyKey, {
+        childSessionId: id,
+        workspace,
+        stage: 'session_created',
+      })
       await this.host.record(caller.id, {
         type: 'child.session.spawned',
         childSessionId: id,
@@ -665,15 +907,119 @@ export class AgentControlService {
         initialTurn,
       }
     } catch (error) {
-      if (child) {
-        await this.host.store.destroy(id).catch(() => undefined)
-        await this.host.release(child).catch(() => undefined)
-      } else if (isolated) {
+      // Once session creation is attempted, preserve the worktree and journal
+      // for explicit inspection. Provider submission may already have happened.
+      if (
+        !child &&
+        isolated &&
+        error instanceof ControlFailure &&
+        error.code === 'request_cancelled'
+      )
         await this.host.release({ ...caller, id }).catch(() => undefined)
-      }
-      this.host.revoke?.(id)
+      if (child && error instanceof ControlFailure)
+        throw new ControlFailure(
+          'uncertain_outcome',
+          'Worker creation was attempted before a later refusal. Inspect the preserved session before recovery.',
+          { childSessionId: id },
+        )
       throw error
     }
+  }
+
+  #messageId(sender: string, key: string): string {
+    return `inbox_${createHash('sha256').update(`${sender}:${key}`).digest('hex').slice(0, 32)}`
+  }
+
+  async #messageTarget(caller: Session, id: string): Promise<Session> {
+    await this.#lineage(caller)
+    const target = await this.#get(
+      id === 'self' ? caller.id : id === 'parent' ? (caller.parentSessionId ?? '') : id,
+    )
+    if (target.projectId !== caller.projectId)
+      throw new ControlFailure('scope_denied', 'Cross-project coordination is denied.')
+    const directParent = target.id === caller.parentSessionId
+    const sibling = Boolean(
+      caller.parentSessionId && target.parentSessionId === caller.parentSessionId,
+    )
+    const descendant = (await this.#lineage(target)).some((entry) => entry.id === caller.id)
+    if (!directParent && !sibling && !descendant)
+      throw new ControlFailure(
+        'scope_denied',
+        'Coordination is limited to this subtree, direct parent and siblings.',
+      )
+    return target
+  }
+
+  async #coordinationState(message: CoordinationMessage): Promise<CoordinationMessage> {
+    if (message.status !== 'delivering' || this.#activeDeliveries.has(message.messageId))
+      return message
+    const uncertain = { ...message, status: 'uncertain' as const }
+    await this.host.record(message.recipientSessionId, {
+      type: 'coordination.updated',
+      message: uncertain,
+    })
+    return uncertain
+  }
+
+  async #coordinate(
+    caller: Session,
+    target: Session,
+    p: ControlParams<'session.message'>,
+  ): Promise<CoordinationMessage> {
+    if (target.archived)
+      throw new ControlFailure('scope_denied', 'Restore the recipient before messaging it.')
+    if (!this.host.policy().enabled)
+      throw new ControlFailure('delegation_disabled', 'Delegation is disabled.')
+    const messageId = this.#messageId(caller.id, p.idempotencyKey)
+    const inbox = (await this.host.store.load(target.id)).inbox ?? {}
+    const previous = inbox[messageId]
+    if (previous) {
+      if (previous.text !== p.text || previous.senderSessionId !== caller.id)
+        throw new ControlFailure(
+          'invalid_request',
+          'Message identity was already used with different input.',
+        )
+      return this.#coordinationState(previous)
+    }
+    const rate = this.#rates.get(caller.id)
+    const bucket = rate && Date.now() - rate.at < 60_000 ? rate : { at: Date.now(), count: 0 }
+    if (++bucket.count > 60)
+      throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
+    this.#rates.set(caller.id, bucket)
+    if (Object.values(inbox).filter((entry) => entry.status !== 'consumed').length >= 100)
+      throw new ControlFailure('delegation_limit', 'Recipient coordination inbox is full.')
+    let message: CoordinationMessage = {
+      messageId,
+      senderSessionId: caller.id,
+      recipientSessionId: target.id,
+      text: p.text,
+      createdAt: Date.now(),
+      status: 'pending',
+      turnId: null,
+      consumedAt: null,
+    }
+    await this.host.record(target.id, { type: 'coordination.updated', message })
+    // Pure inbox delivery works while either agent is blocked in a cooperative wait.
+    // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.
+    if (this.host.canDeliverCoordination?.(target.id) && this.host.deliverCoordination) {
+      message = {
+        ...message,
+        status: 'delivering',
+        turnId: (await this.host.store.load(target.id)).activeTurnId,
+      }
+      await this.host.record(target.id, { type: 'coordination.updated', message })
+      this.#activeDeliveries.add(messageId)
+      try {
+        const delivered = await this.host.deliverCoordination(message)
+        message = { ...message, status: delivered ? 'delivered' : 'pending' }
+      } catch {
+        message = { ...message, status: 'uncertain' }
+      } finally {
+        this.#activeDeliveries.delete(messageId)
+      }
+      await this.host.record(target.id, { type: 'coordination.updated', message })
+    }
+    return (await this.host.store.load(target.id)).inbox?.[messageId] ?? message
   }
 
   async #prompt(caller: Session, target: Session, text: string): Promise<unknown> {
@@ -762,17 +1108,59 @@ export class AgentControlService {
     p: ControlParams<'session.wait'>,
     signal?: AbortSignal,
   ): Promise<WaitOutcome[]> {
-    const targets = await Promise.all(p.targetSessionIds.map((id) => this.#target(caller, id)))
+    const targets = await Promise.all(
+      p.targetSessionIds.map((id) => this.#messageTarget(caller, id)),
+    )
     const controller = new AbortController()
     // Aborted only in `any` mode, once one target has an outcome.
     const race = new AbortController()
     const abort = (): void => controller.abort()
     signal?.addEventListener('abort', abort, { once: true })
     if (signal?.aborted) controller.abort()
+    let wake!: (outcomes: WaitOutcome[]) => void
+    const incoming = new Promise<WaitOutcome[]>((resolve) => {
+      wake = resolve
+    })
+    const inspectIncoming = async () => {
+      const model = await this.host.store.load(caller.id)
+      const messages = Object.values(model.inbox ?? {}).filter(
+        (entry) => entry.status !== 'consumed',
+      )
+      if (messages.length) {
+        wake([{ status: 'coordination', sessionId: caller.id, messages }])
+        race.abort()
+        return
+      }
+      for (const target of targets) {
+        const state = await this.host.store.load(target.id)
+        const asked = state.messages.find(
+          (entry) => entry.role === 'user' && entry.turnId === state.activeTurnId,
+        )
+        if (
+          target.parentSessionId === caller.id &&
+          asked?.origin?.kind === 'session' &&
+          asked.origin.sessionId === caller.id &&
+          state.pendingInputs.length
+        ) {
+          wake([{ status: 'question', sessionId: target.id, questions: state.pendingInputs }])
+          race.abort()
+          return
+        }
+      }
+    }
+    const unsubscribeIncoming = this.host.subscribe((event) => {
+      if (
+        (event.sessionId === caller.id && event.type === 'coordination.updated') ||
+        (event.type === 'input.requested' &&
+          targets.some((target) => target.id === event.sessionId))
+      )
+        void inspectIncoming().catch(() => undefined)
+    })
     const own = targets.filter((target) => target.parentSessionId === caller.id)
     for (const target of own) this.#trackWait(caller.id, target.id, 1)
     try {
-      const outcomes = await Promise.all(
+      await inspectIncoming()
+      const waiting = Promise.all(
         targets.map(async (target): Promise<WaitOutcome> => {
           try {
             const outcome = await waitForTurn(
@@ -798,6 +1186,7 @@ export class AgentControlService {
           }
         }),
       )
+      const outcomes = await Promise.race([waiting, incoming])
       // A caller that went away never received these, so they stay pending.
       if (!controller.signal.aborted)
         for (const outcome of outcomes) {
@@ -807,6 +1196,8 @@ export class AgentControlService {
         }
       return outcomes
     } finally {
+      unsubscribeIncoming()
+      race.abort()
       signal?.removeEventListener('abort', abort)
       for (const target of own) this.#trackWait(caller.id, target.id, -1)
       this.host.waitEnded?.(caller.id)
@@ -926,7 +1317,7 @@ function messageText(message: Message, includeToolSummaries: boolean): string {
   return chunks.join('\n')
 }
 
-function descendantIds(
+export function descendantIds(
   sessions: readonly { id: string; parentSessionId?: string | null }[],
   rootId: string,
 ): string[] {

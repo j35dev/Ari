@@ -3,6 +3,7 @@ import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { mapClaudeLine } from './mapper'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
@@ -10,6 +11,11 @@ import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:claude')
+const CLAUDE_CAPABILITIES = {
+  ...ONE_SHOT_PROVIDER_CAPABILITIES,
+  steering: 'live',
+  liveResponses: 'approvals',
+} as const
 
 /** Time the CLI gets to honor an interrupt frame before the kill fallback fires. */
 const INTERRUPT_KILL_FALLBACK_MS = 2000
@@ -251,6 +257,7 @@ export function wireClaudeControl(
   }
 
   return {
+    capabilities: () => CLAUDE_CAPABILITIES,
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
     send: (frame) => {
       writeLine(frame)
@@ -300,6 +307,9 @@ export interface ClaudeDriverOptions {
 }
 
 export class ClaudeDriver implements Driver {
+  capabilities() {
+    return CLAUDE_CAPABILITIES
+  }
   readonly kind = 'claude' as const
   readonly systemInstructions = true
 

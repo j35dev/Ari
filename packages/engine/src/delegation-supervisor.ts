@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import type { OperationReceipt } from '@ari/contracts/orchestration'
 import { createLogger } from '@ari/shared/logger'
 import type { DelegationSettings } from '@ari/contracts/agent-control'
 import type { Command } from '@ari/contracts/commands'
@@ -7,7 +9,6 @@ import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
 import { budgetLine, type TreeSpend } from './tree-budget'
 import {
-  CONTINUATION_PROMPT,
   completionNotice,
   finalAssistantText,
   pendingCompletions,
@@ -50,6 +51,7 @@ export interface SupervisorHost {
   isWaiting?(parentId: string, childId: string): boolean
   /** Spend across the parent's subtree, for the one budget line in a notice. */
   treeSpend?(rootId: string): Promise<TreeSpend>
+  coordinate?(senderId: string, recipientId: string, text: string, key: string): Promise<void>
   settleDelayMs?: number
   retryDelayMs?: number
   batchWindowMs?: number
@@ -96,6 +98,8 @@ export class DelegationSupervisor {
   readonly #refused = new Set<string>()
   /** Questions already delivered, so a replayed request does not wake twice. */
   readonly #asked = new Set<string>()
+  readonly #historical = new Set<string>()
+  #recovering = false
   #unsubscribe: (() => void) | null = null
   constructor(readonly host: SupervisorHost) {}
 
@@ -135,6 +139,7 @@ export class DelegationSupervisor {
   }
 
   #observe(event: JournalEvent): void {
+    if (this.#recovering) return
     if (event.type === 'child.session.settled' || event.type === 'child.session.acknowledged')
       this.schedule(event.sessionId)
     else if (event.type === 'input.requested')
@@ -163,27 +168,52 @@ export class DelegationSupervisor {
     const asked = child.messages.find(
       (message) => message.role === 'user' && message.turnId === child.activeTurnId,
     )
-    if (asked?.origin?.kind !== 'session') return
+    if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== parentId) return
     const key = `${childId}:${event.inputId}`
     if (this.#asked.has(key)) return
     this.#asked.add(key)
-    const outcome = await this.host.dispatch(
-      {
-        type: 'message.enqueue',
-        sessionId: parentId,
-        text: questionNotice({
-          childSessionId: childId,
-          title: child.session?.title ?? 'Child session',
-          prompt: event.prompt,
-          choicesJson: event.choicesJson,
-          inputId: event.inputId,
-        }),
-        attachments: [],
-        hold: true,
-      },
-      { kind: 'question', sessionId: childId, inputId: event.inputId },
-    )
-    if (!outcome.accepted) this.#asked.delete(key)
+    // A blocked cooperative wait reads the actual request directly. Otherwise
+    // retain one scoped inbox notice, never a follow-up assignment in a busy lead's queue.
+    const messageId = `question_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`
+    if (this.host.coordinate) {
+      try {
+        await this.host.coordinate(
+          childId,
+          parentId,
+          questionNotice({
+            childSessionId: childId,
+            title: child.session?.title ?? 'Child session',
+            prompt: event.prompt,
+            choicesJson: event.choicesJson,
+            inputId: event.inputId,
+          }),
+          messageId,
+        )
+      } catch {
+        this.#asked.delete(key)
+      }
+      return
+    }
+    if (!(await this.host.store.load(parentId)).inbox?.[messageId])
+      await this.host.record(parentId, {
+        type: 'coordination.updated',
+        message: {
+          messageId,
+          senderSessionId: childId,
+          recipientSessionId: parentId,
+          text: questionNotice({
+            childSessionId: childId,
+            title: child.session?.title ?? 'Child session',
+            prompt: event.prompt,
+            choicesJson: event.choicesJson,
+            inputId: event.inputId,
+          }),
+          createdAt: Date.now(),
+          status: 'pending',
+          turnId: null,
+          consumedAt: null,
+        },
+      })
   }
 
   #serial(parentId: string, run: () => Promise<void>): Promise<void> {
@@ -220,41 +250,24 @@ export class DelegationSupervisor {
     const isRunning = this.host.isRunning?.bind(this.host)
     if (isRunning === undefined) return
     const rows = await this.host.store.listSessions()
-    // A result that settled before this launch is not delivered by it. Nobody
-    // may be watching when the app starts, and journals written before
-    // delivery existed hold every old child's outcome with no acknowledgment:
-    // waking those parents would start turns on reports that are days stale.
-    // The parent still finds them through `session status`.
-    for (const parentId of new Set(rows.flatMap((row) => row.parentSessionId ?? []))) {
-      const parent = await this.host.store.load(parentId)
-      if (!parent.session) continue
-      for (const pending of pendingCompletions(parent))
-        await this.#acknowledge(parentId, pending.childSessionId, pending.turnId, 'disposed')
-    }
-    for (const row of rows) {
-      const parentId = row.parentSessionId
-      if (!parentId || isRunning(row.id)) continue
-      const model = await this.host.store.load(row.id)
-      if (model.activeTurnId === null) continue
-      // A turn its parent started is delegated work the tree still owes: put
-      // it back in the queue behind the same gate, with the parent's origin so
-      // its report reaches the parent. A person's own turn stays stopped.
-      const asked = model.messages.find(
-        (message) => message.role === 'user' && message.turnId === model.activeTurnId,
-      )
-      const delegated = asked?.origin?.kind === 'session'
-      await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
-      if (!delegated) continue
-      await this.host.dispatch(
-        {
-          type: 'message.enqueue',
-          sessionId: row.id,
-          text: CONTINUATION_PROMPT,
-          attachments: [],
-          hold: true,
-        },
-        { kind: 'session', sessionId: parentId },
-      )
+    this.#recovering = true
+    try {
+      for (const parentId of new Set(rows.flatMap((row) => row.parentSessionId ?? []))) {
+        const parent = await this.host.store.load(parentId)
+        await this.#reconcileDeliveries(parentId)
+        // Historical reports remain readable, without starting unattended provider turns.
+        for (const pending of pendingCompletions(parent))
+          this.#historical.add(`${parentId}:${pending.childSessionId}:${pending.turnId}`)
+      }
+      for (const row of rows) {
+        if (!row.parentSessionId || isRunning(row.id)) continue
+        const model = await this.host.store.load(row.id)
+        if (model.activeTurnId === null) continue
+        // Journal interruption, but never replay an unconfirmed provider submission.
+        await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
+      }
+    } finally {
+      this.#recovering = false
     }
   }
 
@@ -315,7 +328,56 @@ export class DelegationSupervisor {
       this.schedule(parentId)
   }
 
+  async #reconcileDeliveries(parentId: string): Promise<void> {
+    const parent = await this.host.store.load(parentId)
+    for (const operation of Object.values(parent.orchestration?.operations ?? {})) {
+      if (operation.method !== 'child.result.delivery') continue
+      const accepted = parent.messages.some(
+        (message) =>
+          message.origin?.kind === 'completion' &&
+          message.origin.deliveryId === operation.operationId,
+      )
+      const result = operation.result as {
+        accepted?: boolean
+        deliveries?: { childSessionId: string; turnId: string }[]
+      }
+      if (accepted || (operation.status === 'completed' && result?.accepted)) {
+        for (const entry of result?.deliveries ?? []) {
+          const seen = (await this.host.store.load(parentId)).childCompletions?.[
+            entry.childSessionId
+          ]
+          if (!(seen?.turnId === entry.turnId && seen.acknowledged))
+            await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'delivered')
+        }
+        if (operation.status !== 'completed')
+          await this.host.record(parentId, {
+            type: 'orchestration.operation.updated',
+            operation: {
+              ...operation,
+              status: 'completed',
+              completedAt: Date.now(),
+              result: { ...result, accepted: true },
+            },
+          })
+      } else if (operation.status === 'started') {
+        await this.host.record(parentId, {
+          type: 'orchestration.operation.updated',
+          operation: {
+            ...operation,
+            status: 'uncertain',
+            detail:
+              'Result notice acceptance is uncertain. Inspect the parent transcript; delivery will not be repeated automatically.',
+          },
+        })
+      }
+      if (!accepted && operation.status !== 'completed')
+        for (const entry of result?.deliveries ?? [])
+          this.#historical.add(`${parentId}:${entry.childSessionId}:${entry.turnId}`)
+    }
+  }
+
   async #deliver(parentId: string): Promise<void> {
+    await this.#reconcileDeliveries(parentId)
     const policy = this.host.policy()
     if (!policy.enabled || !policy.autoDeliverResults) return
     const parent = await this.host.store.load(parentId)
@@ -353,6 +415,7 @@ export class DelegationSupervisor {
     const delivered: { childSessionId: string; turnId: string }[] = []
     let oldest = Number.POSITIVE_INFINITY
     for (const entry of pending) {
+      if (this.#historical.has(`${parentId}:${entry.childSessionId}:${entry.turnId}`)) continue
       if (delivered.length >= MAX_BATCH) break
       if (this.host.isWaiting?.(parentId, entry.childSessionId)) continue
       // A stop never starts work. Whoever stopped this child, waking its
@@ -432,6 +495,27 @@ export class DelegationSupervisor {
     // `turn.start` rather than an enqueue: refused outright if a turn began
     // after that check, instead of parking a notice behind it.
     const spend = this.host.treeSpend ? await this.host.treeSpend(parentId) : null
+    const operationId = `delivery_${createHash('sha256').update(JSON.stringify(delivered)).digest('hex').slice(0, 32)}`
+    const previous = (await this.host.store.load(parentId)).orchestration?.operations[operationId]
+    if (
+      previous &&
+      (previous.status !== 'completed' || (previous.result as { accepted?: boolean })?.accepted)
+    )
+      return
+    const receipt: OperationReceipt = {
+      operationId,
+      method: 'child.result.delivery',
+      fingerprint: JSON.stringify(delivered),
+      status: 'started',
+      startedAt: Date.now(),
+      completedAt: null,
+      detail: null,
+      result: { accepted: false, deliveries: delivered },
+    }
+    await this.host.record(parentId, {
+      type: 'orchestration.operation.updated',
+      operation: receipt,
+    })
     const outcome = await this.host.dispatch(
       {
         type: 'turn.start',
@@ -443,9 +527,17 @@ export class DelegationSupervisor {
         ),
         attachments: [],
       },
-      { kind: 'completion', sessionIds: delivered.map((entry) => entry.childSessionId) },
+      {
+        kind: 'completion',
+        deliveryId: operationId,
+        sessionIds: delivered.map((entry) => entry.childSessionId),
+      },
     )
     if (!outcome.accepted) {
+      await this.host.record(parentId, {
+        type: 'orchestration.operation.updated',
+        operation: { ...receipt, status: 'completed', completedAt: Date.now() },
+      })
       // A nested parent is refused a turn while its root is at capacity. The
       // results stay pending; any settle may free a slot, and a slow timer
       // covers the case where nothing else moves.
@@ -456,5 +548,14 @@ export class DelegationSupervisor {
     this.#refused.delete(parentId)
     for (const entry of delivered)
       await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'delivered')
+    await this.host.record(parentId, {
+      type: 'orchestration.operation.updated',
+      operation: {
+        ...receipt,
+        status: 'completed',
+        completedAt: Date.now(),
+        result: { accepted: true, deliveries: delivered },
+      },
+    })
   }
 }

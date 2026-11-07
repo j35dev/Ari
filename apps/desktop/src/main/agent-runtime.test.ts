@@ -5,15 +5,19 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import type { OrchestrationView, ResultPackage } from '@ari/contracts/orchestration'
+import type { StreamFrame } from '@ari/contracts/rpc'
 import { SessionStore } from '@ari/engine/session-store'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
 import { controlEndpoint, SOCKET_ROOT, startAgentRuntime } from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
+import { RpcRegistry } from './rpc-registry'
+import { registerOrchestrationRpc } from './orchestration-runtime'
 
 const execute = promisify(execFile)
 const cliPath = resolve('resources/cli/ari.cjs')
@@ -270,6 +274,77 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
         'apply-again',
       ),
     ).toMatchObject({ ok: true, result: { status: 'already_integrated' } })
+    const work = (await cli('task', 'view')) as { result: OrchestrationView }
+    const task = work.result.tasks.find((entry) => entry.child?.sessionId === child.id)!
+    const result = task.results.find((entry) => entry.resultId === task.currentResultId)!
+    expect(result.reviewState).toBe('integrated')
+    const checked = (await cli(
+      'task',
+      'verify',
+      '--params',
+      JSON.stringify({
+        taskId: task.taskId,
+        resultId: result.resultId,
+        snapshotCommit: result.snapshotCommit,
+      }),
+      '--key',
+      'independent-check',
+    )) as { result: ResultPackage }
+    expect(checked.result.verifiedChecks).toMatchObject([
+      { exitCode: 0, snapshotCommit: result.snapshotCommit },
+    ])
+    expect(checked.result.verifiedChecks[0]?.command).toContain('git diff --check')
+    expect(checked.result.workerReportedChecks).toEqual([])
+    const frames: StreamFrame[] = []
+    const rpc = new RpcRegistry({ send: (frame) => frames.push(frame) })
+    const stopRpcRefresh = registerOrchestrationRpc(rpc, Promise.resolve(runtime))
+    expect(await rpc.invoke('orchestration.view', { sessionId: 'root' })).toMatchObject({
+      sessionId: 'root',
+    })
+    await expect(rpc.invoke('orchestration.stop', { sessionId: 'root' })).rejects.toThrow(
+      'invalid params',
+    )
+    rpc.subscribe({ id: 'work-root', name: 'orchestration.changed', params: { sessionId: 'root' } })
+    rpc.subscribe({
+      id: 'work-unrelated',
+      name: 'orchestration.changed',
+      params: { sessionId: 'unrelated' },
+    })
+    await engine.record(child.id, {
+      type: 'usage.recorded',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: null,
+    })
+    await vi.waitFor(() => expect(frames.some((frame) => frame.id === 'work-root')).toBe(true))
+    expect(frames.some((frame) => frame.id === 'work-unrelated')).toBe(false)
+    const rpcRoutine = (await rpc.invoke('orchestration.routine.add', {
+      sessionId: 'root',
+      prompt: 'Follow up',
+      at: Date.now() + 3_600_000,
+      everyMs: 300_000,
+      idempotencyKey: 'rpc-routine',
+    })) as { id: string }
+    expect(await rpc.invoke('orchestration.routine.list', { sessionId: 'root' })).toMatchObject({
+      routines: [{ id: rpcRoutine.id, prompt: 'Follow up' }],
+    })
+    expect(
+      await rpc.invoke('orchestration.routine.remove', {
+        sessionId: 'root',
+        routineId: rpcRoutine.id,
+        idempotencyKey: 'rpc-routine-remove',
+      }),
+    ).toEqual({ removed: true })
+    stopRpcRefresh()
+    const context = (await cli(
+      'task',
+      'context',
+      '--params',
+      JSON.stringify({ files: ['worker.txt'], maxChars: 6 }),
+      '--key',
+      'bounded-context',
+    )) as { result: { items: { content: string; truncated: boolean }[] } }
+    expect(context.result.items).toMatchObject([{ content: 'worker', truncated: true }])
     const parentJournal = await engine.replaySession('root')
     expect(parentJournal.some((event) => event.type === 'child.session.spawned')).toBe(true)
     expect(parentJournal.some((event) => event.type === 'child.session.integrated')).toBe(true)

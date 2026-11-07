@@ -99,6 +99,36 @@ describe('Composer', () => {
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
   })
 
+  it('identifies coordination input and keeps it out of user prompt editing', () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[
+          {
+            text: 'API contract changed',
+            attachments: [],
+            origin: { kind: 'session', sessionId: 'worker-1' },
+            senderLabel: 'API worker',
+          },
+        ]}
+        onSteerQueued={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onEditQueued={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('API worker')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Edit queued message/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Steer queued message/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Remove queued message/ })).toBeNull()
+  })
+
+  it('describes an idle held queue without claiming a turn is running', () => {
+    render(<Composer onSend={vi.fn()} queued={[{ text: 'Follow-up', attachments: [] }]} />)
+    expect(screen.getByText(/waiting to start/)).toBeInTheDocument()
+    expect(screen.queryByText(/current turn/)).toBeNull()
+  })
+
   it('steers and removes individual queued messages', async () => {
     const user = userEvent.setup()
     const onSteerQueued = vi.fn()
