@@ -5,11 +5,21 @@ import { trayTooltip, type TrayStatusSink } from './tray-status'
 
 export interface TrayHandle extends TrayStatusSink {
   destroy(): void
+  isDestroyed(): boolean
+  setBackgrounded(backgrounded: boolean): void
 }
 
-function buildMenu(onShow: () => void, runningCount: number, productName: string) {
+function buildMenu(
+  onShow: () => void,
+  runningCount: number,
+  productName: string,
+  backgrounded: boolean,
+) {
   return Menu.buildFromTemplate([
-    { label: trayTooltip(runningCount, productName), enabled: false },
+    { label: trayTooltip(runningCount, productName, backgrounded), enabled: false },
+    ...(backgrounded
+      ? [{ label: `Show ${productName} to return; Quit stops background work`, enabled: false }]
+      : []),
     { type: 'separator' },
     { label: `Show ${productName}`, click: onShow },
     {
@@ -43,17 +53,32 @@ export function createTray(onShow: () => void): TrayHandle {
   // macOS uses the image's logical size for the menu-bar item, not a fixed tray slot.
   const trayIcon = process.platform === 'darwin' ? icon.resize({ width: 18, height: 18 }) : icon
   const tray = new Tray(trayIcon)
-  tray.setToolTip(trayTooltip(0, productName))
+  let runningCount = 0
+  let backgrounded = false
+  const refresh = (): void => {
+    tray.setToolTip(trayTooltip(runningCount, productName, backgrounded))
+    tray.setContextMenu(buildMenu(onShow, runningCount, productName, backgrounded))
+  }
 
-  tray.setContextMenu(buildMenu(onShow, 0, productName))
-  tray.on('click', onShow)
+  try {
+    refresh()
+    tray.on('click', onShow)
+  } catch (error) {
+    tray.destroy()
+    throw error
+  }
 
   return {
     destroy: () => tray.destroy(),
+    isDestroyed: () => tray.isDestroyed(),
+    setBackgrounded: (value) => {
+      backgrounded = value
+      refresh()
+    },
     // Menus are immutable once built; rebuilding swaps the status label in.
-    setStatus: (runningCount) => {
-      tray.setToolTip(trayTooltip(runningCount, productName))
-      tray.setContextMenu(buildMenu(onShow, runningCount, productName))
+    setStatus: (value) => {
+      runningCount = value
+      refresh()
     },
   }
 }

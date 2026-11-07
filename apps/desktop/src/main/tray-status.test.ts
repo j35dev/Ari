@@ -16,6 +16,11 @@ describe('trayTooltip', () => {
     expect(trayTooltip(0, 'Ari Dev')).toBe('Ari Dev — idle')
     expect(trayTooltip(1, 'Ari Dev')).toBe('Ari Dev — 1 running')
   })
+
+  it('distinguishes background availability from active provider work', () => {
+    expect(trayTooltip(0, 'Ari', true)).toBe('Ari — in background · idle')
+    expect(trayTooltip(1, 'Ari Dev', true)).toBe('Ari Dev — in background · 1 running')
+  })
 })
 
 describe('updateTrayStatus', () => {

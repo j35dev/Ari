@@ -1,10 +1,26 @@
-import { describe, expect, it, vi } from 'vitest'
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { exec } from 'node:child_process'
+import type * as ChildProcess from 'node:child_process'
 import {
   TerminalService,
   ptyUnavailableReason,
   type PtyFactory,
   type PtyLike,
 } from './terminal-service'
+
+// Fake PTYs never authorize killing any real host PID in these tests.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  exec: vi.fn(),
+}))
+beforeEach(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => true)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 type FakePty = PtyLike & {
   write: ReturnType<typeof vi.fn>
@@ -18,7 +34,7 @@ function fakePty(): FakePty {
   const dataCbs: ((d: string) => void)[] = []
   const exitCbs: ((code: number) => void)[] = []
   const pty = {
-    pid: Math.floor(Math.random() * 100000),
+    pid: 1234,
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
@@ -104,6 +120,34 @@ describe('TerminalService', () => {
     service.create('t4', '.')
     ptys[0]?.emitExit()
     expect(exits).toEqual(['t4'])
+  })
+
+  it('closes all native handles and child trees exactly once and refuses late creation', () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.mocked(exec).mockClear()
+    const { service, ptys } = makeService()
+    service.create('one', '.')
+    service.create('two', '.')
+    service.close()
+    service.close()
+    expect(ptys.map((pty) => pty.kill.mock.calls.length)).toEqual([1, 1])
+    expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenCalledWith('taskkill /PID 1234 /T /F', expect.any(Function))
+    expect(service.has('one')).toBe(false)
+    expect(service.has('two')).toBe(false)
+    expect(() => service.create('late', '.')).toThrow('Ari is shutting down')
+    expect(ptys).toHaveLength(2)
+  })
+
+  it('releases an exited terminal without attempting to kill a stale PID', () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.mocked(exec).mockClear()
+    const { service, ptys } = makeService()
+    service.create('exited', '.')
+    ptys[0]!.emitExit()
+    service.close()
+    expect(ptys[0]!.kill).toHaveBeenCalledOnce()
+    expect(exec).not.toHaveBeenCalled()
   })
 })
 
