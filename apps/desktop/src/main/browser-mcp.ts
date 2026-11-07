@@ -10,6 +10,14 @@ import {
   type BrowserService,
   type KeyModifier,
 } from './browser-service'
+import {
+  clockSource,
+  clockText,
+  DEFAULT_CLOCK_FPS,
+  freezeClock,
+  MAX_CLOCK_FPS,
+  MAX_CLOCK_STEP_MS,
+} from './browser-clock-script'
 import { resolveBrowserUrl } from './browser-url'
 
 const log = createLogger('desktop:browser-mcp')
@@ -240,6 +248,27 @@ export const BROWSER_MCP_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'browser_clock',
+    description:
+      'Freeze, step, or resume the page clock (requestAnimationFrame, performance.now, Date.now) so a running game holds still while you observe it. step advances virtual time by ms and runs queued animation frames at fps. Timers and audio are not frozen; navigating drops the freeze.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['freeze', 'step', 'resume'] },
+        ms: {
+          type: 'number',
+          description: `step only: virtual time to advance, 1-${String(MAX_CLOCK_STEP_MS)} ms`,
+        },
+        fps: {
+          type: 'number',
+          description: `step only: frames per second, 1-${String(MAX_CLOCK_FPS)} (default ${String(DEFAULT_CLOCK_FPS)})`,
+        },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 export async function dispatchBrowserMcpTool(
@@ -351,6 +380,29 @@ export async function dispatchBrowserMcpTool(
       await browsers.pointer(tabId, { action, x, y, to: { x: toX, y: toY }, button, modifiers })
       return textResult(`drag from ${String(x)},${String(y)} to ${String(toX)},${String(toY)}`)
     }
+    if (name === 'browser_clock') {
+      const action = args['action']
+      if (action !== 'freeze' && action !== 'step' && action !== 'resume') {
+        return textResult('action must be freeze, step, or resume', true)
+      }
+      const ms = typeof args['ms'] === 'number' ? args['ms'] : 0
+      const fps = typeof args['fps'] === 'number' ? args['fps'] : DEFAULT_CLOCK_FPS
+      if (action === 'step' && !(ms >= 1 && ms <= MAX_CLOCK_STEP_MS)) {
+        return textResult(`ms must be a number from 1 to ${String(MAX_CLOCK_STEP_MS)}`, true)
+      }
+      if (action === 'step' && !(fps >= 1 && fps <= MAX_CLOCK_FPS)) {
+        return textResult(`fps must be a number from 1 to ${String(MAX_CLOCK_FPS)}`, true)
+      }
+      const raw =
+        action === 'freeze'
+          ? await freezeClock(
+              (code) => browsers.runScript(tabId, code),
+              () => browsers.still(tabId),
+            )
+          : await browsers.runScript(tabId, clockSource(action, ms, fps))
+      const result = clockText(action, ms, fps, raw)
+      return textResult(result.text, result.isError)
+    }
     return textResult(`unknown tool ${name}`, true)
   } catch (error: unknown) {
     return textResult(error instanceof Error ? error.message : String(error), true)
@@ -399,7 +451,7 @@ async function handleRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'ari-browser', version: '0.1.0' },
         instructions:
-          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_state, browser_screenshot, browser_key, and browser_pointer to see and play canvas or game pages. Prefer browser_state over a screenshot when the page exposes window.__ari.state(). Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
+          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_state, browser_screenshot, browser_key, browser_pointer, and browser_clock to see and play canvas or game pages. Prefer browser_state over a screenshot when the page exposes window.__ari.state(). Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
       },
     }
   }
