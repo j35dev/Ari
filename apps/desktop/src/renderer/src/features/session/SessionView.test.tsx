@@ -894,6 +894,50 @@ describe('SessionView per-turn diff cards', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders a large turn summary and loads a file only when expanded', async () => {
+    const user = userEvent.setup()
+    const original = invokeMock.getMockImplementation()!
+    const summary = {
+      baseOid: 'a'.repeat(40),
+      headOid: 'b'.repeat(40),
+      files: [
+        {
+          path: 'src/app.ts',
+          kind: 'modified',
+          additions: 10000,
+          deletions: 2,
+          binary: false,
+          staged: false,
+          unstaged: false,
+        },
+      ],
+    }
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'git.turnDiff') return { diffText: null, summary }
+      if (method === 'git.turnDiffFile') return { diffText: TURN_DIFF }
+      return original(method, params)
+    })
+    renderView()
+    await screen.findByLabelText('Message')
+    replaySettledTurn()
+    const toggle = await screen.findByRole('button', { name: 'Turn diff: 1 file changed' })
+    expect(screen.getByText('+10000')).toBeInTheDocument()
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'git.turnDiffFile')).toHaveLength(
+      0,
+    )
+    await user.click(toggle)
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('git.turnDiffFile', {
+        sessionId: 'sess_1',
+        baseOid: summary.baseOid,
+        headOid: summary.headOid,
+        path: 'src/app.ts',
+      }),
+    )
+    expect(await screen.findByLabelText('Changed file')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry turn diff' })).not.toBeInTheDocument()
+  })
+
   it('queries a replayed turn only once the transcript brings it into view', async () => {
     const observed: Element[] = []
     let notify: (entries: Partial<IntersectionObserverEntry>[]) => void = () => undefined
