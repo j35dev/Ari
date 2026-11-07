@@ -324,6 +324,138 @@ it('rejects stale snapshots without changing the parent tree', async () => {
   expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('base\n')
 })
 
+it('atomically rejects retry guards for a superseded result without new attempts or effects', async () => {
+  const first = await launch('guarded-retry')
+  await settle(first, 'Version one')
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  // A new settled turn lands after the result was rendered but before retry.
+  await settle(first, 'Version two')
+  const before = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  expect(before.currentResultId).not.toBe(result.resultId)
+  const created = vi.spyOn(host, 'create')
+  const isolated = vi.spyOn(host, 'isolate')
+  const submitted = submissions
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      sessionId: 'root',
+      taskId: first.taskId,
+      feedback: 'Correct version one',
+      newSession: true,
+      expectedResultId: result.resultId,
+      expectedAttemptId: result.attemptId,
+      expectedSnapshotCommit: result.snapshotCommit,
+      idempotencyKey: 'stale-retry',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  const after = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  expect(after.attempts).toEqual(before.attempts)
+  expect(after.currentResultId).toBe(before.currentResultId)
+  expect(created).not.toHaveBeenCalled()
+  expect(isolated).not.toHaveBeenCalled()
+  expect(submissions).toBe(submitted)
+  expect(integrationCalls).toBe(0)
+})
+
+it('guards attempts and snapshots, supports report-only null, and replays guarded retries', async () => {
+  const task = await launch('retry-identity')
+  await settle(task)
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  expect(result.snapshotCommit).toBeNull()
+  const base = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    expectedResultId: result.resultId,
+    expectedAttemptId: result.attemptId,
+    expectedSnapshotCommit: null,
+  }
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedAttemptId: 'different',
+      idempotencyKey: 'wrong-attempt',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: 'a'.repeat(40),
+      idempotencyKey: 'wrong-snapshot',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedResultId: null,
+      idempotencyKey: 'expected-no-result',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  const retried = await orchestration.invoke('root', 'orchestration.retry', {
+    ...base,
+    idempotencyKey: 'guarded',
+  })
+  expect(retried.attempts).toHaveLength(2)
+  const submitted = submissions
+  reload()
+  expect(
+    await orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      idempotencyKey: 'guarded',
+    }),
+  ).toEqual(retried)
+  expect(submissions).toBe(submitted)
+  // Preconditions are part of the durable fingerprint, not just local checks.
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: 'a'.repeat(40),
+      idempotencyKey: 'guarded',
+    }),
+  ).rejects.toMatchObject({ code: 'invalid_request' })
+})
+
+it('distinguishes an explicit report-only retry guard from an omitted code snapshot guard', async () => {
+  const task = await launch('code-retry-guard')
+  const worker = (await store.load(attempt(task).sessionId!)).session!
+  if (worker.workspace?.kind !== 'managed-worktree') throw new Error('expected isolated workspace')
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'code result\n')
+  await settle(task)
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  expect(result.snapshotCommit).not.toBeNull()
+  const base = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    expectedResultId: result.resultId,
+    expectedAttemptId: result.attemptId,
+  }
+  const submitted = submissions
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: null,
+      idempotencyKey: 'report-only-guard',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  expect(submissions).toBe(submitted)
+  expect(
+    (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })).tasks[0]!
+      .attempts,
+  ).toHaveLength(1)
+  // Callers may opt into result/attempt guards without a snapshot precondition.
+  const retried = await orchestration.invoke('root', 'orchestration.retry', {
+    ...base,
+    idempotencyKey: 'omitted-snapshot-guard',
+  })
+  expect(retried.attempts).toHaveLength(2)
+})
+
 it('routes actual human approvals and direct-parent questions with exact options and rejects dead callbacks', async () => {
   const task = await launch('decision')
   const id = attempt(task).sessionId!
