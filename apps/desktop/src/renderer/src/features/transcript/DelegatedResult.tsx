@@ -23,6 +23,16 @@ export function DelegatedResult({
   sessionId: string
   child: DelegatedChild
 }) {
+  return (
+    <ScopedDelegatedResult
+      key={`${sessionId}:${child.sessionId}`}
+      sessionId={sessionId}
+      child={child}
+    />
+  )
+}
+
+function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child: DelegatedChild }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -158,7 +168,6 @@ export function DelegatedResult({
                   className={resultButton}
                   onClick={() => {
                     setDiffOpen(true)
-                    review.reviewDiff()
                   }}
                 >
                   Review changes
@@ -365,17 +374,15 @@ export function DelegatedResult({
           </button>
         ) : null}
       </div>
-      {open && diffOpen && target ? (
+      {open && diffOpen && target && review.task ? (
         <DelegatedResultDiff
           key={`${target.resultId}:${target.snapshotCommit}`}
           open={diffOpen}
           onOpenChange={setDiffOpen}
           title={child.title}
-          version={target.version}
-          diff={review.diff}
-          busy={busy}
-          error={review.error}
-          onRetry={review.reviewDiff}
+          sessionId={sessionId}
+          taskId={review.task.taskId}
+          target={target}
         />
       ) : null}
     </div>

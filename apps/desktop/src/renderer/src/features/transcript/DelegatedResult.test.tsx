@@ -7,7 +7,8 @@ import { DelegationCard } from './DelegationCard'
 import { TranscriptView } from './TranscriptView'
 import {
   child,
-  diffFixture,
+  fileDiffFixture,
+  manifestFixture,
   resultFixture,
   SNAPSHOT,
   taskFixture,
@@ -35,7 +36,8 @@ beforeEach(() => {
   })
   mocks.invoke.mockImplementation(async (method, params) => {
     if (method === 'orchestration.view') return viewFixture(task)
-    if (method === 'orchestration.diff') return diffFixture
+    if (method === 'orchestration.result.diff')
+      return params.kind === 'files' ? manifestFixture : fileDiffFixture
     if (method === 'orchestration.review') {
       const result = task!.results.find((entry) => entry.resultId === params.resultId)!
       const updated = { ...result, reviewState: params.state }
@@ -120,11 +122,14 @@ describe('delegated result continuity', () => {
       'data-comparison',
       `${'b'.repeat(40)}:${SNAPSHOT}`,
     )
-    expect(calls('orchestration.diff')[0]?.[1]).toEqual({
+    expect(calls('orchestration.result.diff')[0]?.[1]).toEqual({
       sessionId: 'parent',
       taskId: 'task',
       resultId: 'result-1',
-      patch: true,
+      attemptId: 'attempt',
+      version: 1,
+      snapshotCommit: SNAPSHOT,
+      kind: 'files',
     })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Close review' }))
     await userEvent.click(screen.getByRole('button', { name: 'Accept result' }))
@@ -282,8 +287,8 @@ describe('delegated result continuity', () => {
   it('surfaces stale snapshot diff failures and leaves acceptance untouched', async () => {
     const fallback = mocks.invoke.getMockImplementation()!
     mocks.invoke.mockImplementation((method, params) =>
-      method === 'orchestration.diff'
-        ? Promise.resolve({ ...diffFixture, currentSnapshotCommit: 'c'.repeat(40) })
+      method === 'orchestration.result.diff'
+        ? Promise.resolve({ ...manifestFixture, currentSnapshotCommit: 'c'.repeat(40) })
         : fallback(method, params),
     )
     mount()
@@ -345,6 +350,44 @@ describe('delegated result continuity', () => {
     expect(calls('orchestration.integrate')[0]?.[1].idempotencyKey).not.toEqual(
       calls('orchestration.integrate')[1]?.[1].idempotencyKey,
     )
+  })
+
+  it('reuses uncertain mutation arguments after collapse and a newer current result', async () => {
+    task = taskFixture({ results: [resultFixture({ reviewState: 'accepted' })] })
+    const fallback = mocks.invoke.getMockImplementation()!
+    let failed = false
+    mocks.invoke.mockImplementation((method, params) => {
+      if (method === 'orchestration.integrate' && !failed) {
+        failed = true
+        return Promise.reject(new Error('Connection lost'))
+      }
+      return fallback(method, params)
+    })
+    mount()
+    await open()
+    await userEvent.click(screen.getByRole('button', { name: 'Integrate accepted result' }))
+    await screen.findByRole('alert')
+    await userEvent.click(screen.getByRole('button', { name: 'Hide result for Search API' }))
+    task = taskFixture({
+      currentResultId: 'result-2',
+      results: [
+        resultFixture({ reviewState: 'accepted' }),
+        resultFixture({ resultId: 'result-2', version: 2, snapshotCommit: 'c'.repeat(40) }),
+      ],
+    })
+    await open()
+    await screen.findByText(/Historical version/)
+    const retry = screen.getByRole('button', { name: 'Retry integrate version 1' })
+    await waitFor(() => expect(retry).toBeEnabled())
+    await userEvent.click(retry)
+    await screen.findByText('Version 1 integrated into the project.')
+    expect(calls('orchestration.integrate')[0]?.[1]).toEqual(
+      calls('orchestration.integrate')[1]?.[1],
+    )
+    expect(calls('orchestration.integrate')[1]?.[1]).toMatchObject({
+      resultId: 'result-1',
+      snapshotCommit: SNAPSHOT,
+    })
   })
 
   it('separates worker checks from independent whitespace checks and reports failure honestly', async () => {
@@ -409,5 +452,75 @@ describe('delegated result continuity', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Offline')
     await userEvent.click(screen.getByRole('button', { name: 'Retry result' }))
     await screen.findByText('Search implemented.')
+  })
+
+  it('keeps historical review pinned while the current result changes', async () => {
+    mount()
+    await open()
+    await userEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByTestId('diff')
+    task = taskFixture({
+      currentResultId: 'result-2',
+      results: [
+        resultFixture(),
+        resultFixture({ resultId: 'result-2', version: 2, snapshotCommit: 'c'.repeat(40) }),
+      ],
+    })
+    await act(async () => {
+      changed()
+    })
+    expect(within(dialog).getByTestId('diff')).toHaveAttribute(
+      'data-comparison',
+      `${manifestFixture.baseCommit}:${SNAPSHOT}`,
+    )
+    expect(calls('orchestration.result.diff')).toHaveLength(2)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close review' }))
+    expect(screen.getByLabelText('Result version')).toHaveValue('result-1')
+    expect(screen.queryByRole('button', { name: 'Accept result' })).toBeNull()
+  })
+
+  it('ignores old session lookup and action replies after the row identity changes', async () => {
+    const fallback = mocks.invoke.getMockImplementation()!
+    let resolveView!: (value: unknown) => void
+    mocks.invoke.mockImplementation((method, params) =>
+      method === 'orchestration.view' && params.sessionId === 'parent'
+        ? new Promise((done) => {
+            resolveView = done
+          })
+        : fallback(method, params),
+    )
+    const { rerender } = mount()
+    await userEvent.click(screen.getByRole('button', { name: 'Inspect result for Search API' }))
+    rerender(<DelegatedResult sessionId="other-parent" child={child} />)
+    await act(async () => {
+      resolveView(viewFixture(task))
+    })
+    expect(screen.getByRole('button', { name: 'Inspect result for Search API' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(mocks.subscribe.mock.calls.at(-1)?.[1]).toEqual({ sessionId: 'parent' })
+    mocks.invoke.mockImplementation(fallback)
+    await open()
+    let resolveAction!: (value: unknown) => void
+    mocks.invoke.mockImplementation((method, params) =>
+      method === 'orchestration.review'
+        ? new Promise((done) => {
+            resolveAction = done
+          })
+        : fallback(method, params),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Accept result' }))
+    rerender(<DelegatedResult sessionId="third-parent" child={child} />)
+    await act(async () => {
+      resolveAction(resultFixture({ reviewState: 'accepted' }))
+    })
+    expect(screen.queryByText('Version 1 accepted.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Inspect result for Search API' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(calls('orchestration.view').at(-1)?.[1]).toEqual({ sessionId: 'other-parent' })
   })
 })

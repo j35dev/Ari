@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  OrchestrationDiff,
   OrchestrationMethod,
   OrchestrationParams,
   OrchestrationResults,
@@ -33,7 +32,6 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [diff, setDiff] = useState<OrchestrationDiff | null>(null)
   const [retry, setRetry] = useState<{ label: string; action: () => Promise<void> } | null>(null)
   const keys = useRef(new Map<string, string>())
   const lock = useRef(false)
@@ -150,28 +148,9 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     const selected = task?.results.find((entry) => entry.resultId === id)
     if (!selected || lock.current) return
     setTarget(targetOf(selected))
-    setDiff(null)
     setError(null)
     setNotice(null)
     setRetry(null)
-  }
-  const reviewDiff = () => {
-    if (!task || !result?.snapshotCommit || lock.current) return
-    setDiff(null)
-    const pinned = targetOf(result)
-    void run(`review changes for version ${pinned.version}`, async () => {
-      const next = await invoke('orchestration.diff', {
-        sessionId,
-        taskId: task.taskId,
-        resultId: pinned.resultId,
-        patch: true,
-      })
-      if (next.currentSnapshotCommit !== pinned.snapshotCommit)
-        throw new ResultActionFailure(
-          'This snapshot changed. Refresh and choose a result to review.',
-        )
-      if (alive.current) setDiff(next)
-    })
   }
   const accept = () => {
     if (!task || !result || !current || result.snapshotUnavailable) return
@@ -276,7 +255,6 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     busy,
     error,
     notice,
-    diff,
     retry: retry
       ? {
           label: retry.label,
@@ -287,7 +265,6 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
       : null,
     refresh,
     select,
-    reviewDiff,
     accept,
     integrate,
     verify,

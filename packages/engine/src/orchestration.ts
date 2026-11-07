@@ -12,6 +12,8 @@ import {
   type OrchestrationTaskRecord,
   type OrchestrationTask,
   type ResultPackage,
+  type ResultDiffContents,
+  type ResultDiffSelection,
   type TaskAttempt,
 } from '@ari/contracts/orchestration'
 import type { Session } from '@ari/contracts/session'
@@ -35,6 +37,12 @@ export interface OrchestrationHost {
     maxChars: number,
   ): Promise<{ content: string; truncated: boolean }>
   freezeBase?(session: Session, key: string): Promise<string>
+  readResultDiff?(
+    session: Session,
+    snapshotCommit: string,
+    selection: ResultDiffSelection,
+    signal?: AbortSignal,
+  ): Promise<ResultDiffContents>
   verifySnapshot?(
     session: Session,
     snapshotCommit: string,
@@ -143,7 +151,8 @@ export class OrchestrationService {
       method === 'orchestration.result',
     )
     return this.#serial(parent.id, async () => {
-      await this.#refresh(parent)
+      // Immutable result reads must not capture or follow the live worker files.
+      if (method !== 'orchestration.result.diff') await this.#refresh(parent)
       const run = () => this.#run(parent, method, parsed.data, callerId, human, signal)
       return (
         'idempotencyKey' in parsed.data && typeof parsed.data.idempotencyKey === 'string'
@@ -1128,6 +1137,52 @@ export class OrchestrationService {
         ),
       })
       return updated
+    }
+    if (method === 'orchestration.result.diff') {
+      const params = raw as OrchestrationParams<'orchestration.result.diff'>
+      const result = task.results.find((entry) => entry.resultId === params.resultId)
+      if (!result) throw new ControlFailure('result_not_found', 'Result not found.')
+      if (
+        result.attemptId !== params.attemptId ||
+        result.version !== params.version ||
+        result.snapshotCommit !== params.snapshotCommit
+      )
+        throw new ControlFailure('stale_result', 'The selected result identity changed.')
+      if (result.snapshotUnavailable)
+        throw new ControlFailure(
+          'snapshot_unavailable',
+          'The selected result snapshot is unavailable.',
+        )
+      const attempt = task.attempts.find((entry) => entry.attemptId === result.attemptId)
+      const child = attempt?.sessionId
+        ? (await this.options.host.store.load(attempt.sessionId)).session
+        : null
+      if (!child)
+        throw new ControlFailure('session_not_found', 'The result worker session is unavailable.')
+      if (child.parentSessionId !== parent.id || child.projectId !== parent.projectId)
+        throw new ControlFailure(
+          'scope_denied',
+          'The result worker is outside this session family.',
+        )
+      if (!this.options.readResultDiff)
+        throw new ControlFailure('unsupported', 'Pinned result review is unavailable.')
+      const contents = await this.options.readResultDiff(
+        child,
+        params.snapshotCommit,
+        params,
+        signal,
+      )
+      if (
+        contents.currentSnapshotCommit !== params.snapshotCommit ||
+        (params.kind === 'file' && contents.baseCommit !== params.baseCommit)
+      )
+        throw new ControlFailure('stale_snapshot', 'The selected comparison changed.')
+      return {
+        ...contents,
+        resultId: result.resultId,
+        attemptId: result.attemptId,
+        version: result.version,
+      }
     }
     if (method === 'orchestration.diff') {
       const params = raw as OrchestrationParams<'orchestration.diff'>
