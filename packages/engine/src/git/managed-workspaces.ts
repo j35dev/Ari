@@ -1,14 +1,4 @@
-import {
-  mkdtemp,
-  mkdir,
-  readdir,
-  rm,
-  writeFile,
-  realpath,
-  stat,
-  lstat,
-  unlink,
-} from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm, realpath, stat, lstat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
@@ -555,22 +545,25 @@ export class ManagedWorkspaces {
     const tree = parts[0]?.trim() ?? ''
     if (!oid.test(tree))
       throw new ControlFailure('integration_failed', 'Git returned an invalid merge tree.')
-    const patch = await this.#run(cwd, [
-      'diff',
-      '--binary',
-      '--no-ext-diff',
-      parentSnapshot,
-      tree,
-      '--',
-    ])
     const files = (await this.#run(cwd, ['diff', '--name-only', '-z', parentSnapshot, tree, '--']))
       .split('\0')
       .filter(Boolean)
-    if (patch) {
+    if (files.length > 0) {
       const scratch = await mkdtemp(join(tmpdir(), 'ari-integrate-'))
       try {
         const patchFile = join(scratch, 'changes.patch')
-        await writeFile(patchFile, patch, 'utf8')
+        // Git writes the complete binary patch to disk without passing its
+        // contents through the bounded stdout runner or a JavaScript string.
+        await this.#run(cwd, [
+          'diff',
+          '--binary',
+          '--no-ext-diff',
+          '--no-textconv',
+          `--output=${patchFile}`,
+          parentSnapshot,
+          tree,
+          '--',
+        ])
         await this.#run(cwd, ['apply', '--check', '--binary', patchFile])
         if (
           (await this.snapshot(cwd, `${this.#ref(parent.id)}/integration-check`)) !== parentSnapshot
