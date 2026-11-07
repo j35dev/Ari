@@ -50,6 +50,7 @@ import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
+import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
@@ -2531,13 +2532,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // serializes and hands the renderer a jank-sized clone in one go.
         // Frame order plus the final sentinel preserve the burst contract the
         // renderer already relies on (seq-ordered, terminated by replayDone).
-        const sendChunk = (events: JournalEvent[]): void => {
-          rpcRegistry.sendTo(params.id, {
-            sessionId,
-            events,
-            replay: true,
-          } satisfies SessionEventFrame)
-        }
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
         const settled = acpSessionPool.has(sessionId)
@@ -2550,19 +2544,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                   error: String(error),
                 }),
               )
-        void settled
-          .then(() => engine.replaySessionChunks(sessionId, sendChunk))
-          // The sentinel still goes out: the renderer holds live frames, and
-          // its loading state, until it arrives.
-          .catch((error: unknown) => {
-            log.warn('journal replay failed', { sessionId, error: String(error) })
-          })
-          .finally(() => {
-            rpcRegistry.sendTo(params.id, {
-              sessionId,
-              replayDone: true,
-            } satisfies SessionEventFrame)
-          })
+        void streamSessionReplay(
+          sessionId,
+          async (sendChunk) => {
+            await settled
+            await engine.replaySessionChunks(sessionId, sendChunk)
+          },
+          (frame) => rpcRegistry.sendTo(params.id, frame),
+          (error) => log.warn('journal replay failed', { sessionId, error: String(error) }),
+          () => engine.liveTurnId(sessionId),
+        )
       }
     }
     if (params.name === 'scm.changed') sourceControlLive.watch(params.id, params.params)
