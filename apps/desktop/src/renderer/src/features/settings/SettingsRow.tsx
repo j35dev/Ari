@@ -1,20 +1,25 @@
 import type { ReactNode } from 'react'
 
 export interface SettingsRowProps {
-  label: string
-  hint: string
+  label: ReactNode
+  hint?: ReactNode
   children?: ReactNode
+  className?: string
 }
 
-/** T3-style setting row: copy on the left, control on the right. */
-export function SettingsRow({ label, hint, children }: SettingsRowProps) {
+/** One row inside a settings card: copy on the left, control on the right. */
+export function SettingsRow({ label, hint, children, className }: SettingsRowProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border/40 py-3.5 last:border-b-0">
-      <div className="min-w-0 max-w-lg flex-1 basis-56">
+    <div
+      className={['flex min-h-14 items-center justify-between gap-6 px-4 py-3', className]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <div className="min-w-0 max-w-lg">
         <p className="text-sm font-medium text-fg">{label}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{hint}</p>
+        {hint != null && <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{hint}</p>}
       </div>
-      {children ? <div className="flex shrink-0 items-center pt-0.5">{children}</div> : null}
+      {children != null && <div className="flex shrink-0 items-center gap-2">{children}</div>}
     </div>
   )
 }

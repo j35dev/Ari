@@ -6,7 +6,7 @@ import type {
   OrchestrationTaskRecord,
 } from '@ari/contracts/orchestration'
 import type { ApprovalOption } from '@ari/contracts/common'
-import type { Message } from '@ari/contracts/message'
+import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts/message'
 import type { QueuedMessage } from '@ari/contracts/attachments'
 import type { Session, SessionStatus } from '@ari/contracts/session'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
@@ -189,19 +189,24 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'assistant.parts.appended': {
       const existing = next.messages.find((m) => m.id === event.messageId)
       if (!existing) {
+        const parts: MessagePart[] = []
+        pushMessageParts(parts, event.parts)
         const message: Message = {
           id: event.messageId,
           sessionId: event.sessionId,
           turnId: next.activeTurnId,
           role: 'assistant',
-          parts: [...event.parts],
+          parts,
           createdAt: event.at,
         }
         next.messages = [...next.messages, message]
       } else {
-        next.messages = next.messages.map((m) =>
-          m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
-        )
+        next.messages = next.messages.map((m) => {
+          if (m.id !== event.messageId) return m
+          const parts = [...m.parts]
+          pushMessageParts(parts, event.parts)
+          return { ...m, parts }
+        })
       }
       next.streamingMessageId = event.messageId
       break
@@ -432,14 +437,16 @@ export function applyEventToDraft(draft: SessionReadModel, event: JournalEvent):
       const existing =
         last?.id === event.messageId ? last : draft.messages.find((m) => m.id === event.messageId)
       if (existing) {
-        for (const part of event.parts) existing.parts.push(part)
+        pushMessageParts(existing.parts, event.parts)
       } else {
+        const parts: MessagePart[] = []
+        pushMessageParts(parts, event.parts)
         draft.messages.push({
           id: event.messageId,
           sessionId: event.sessionId,
           turnId: draft.activeTurnId,
           role: 'assistant',
-          parts: [...event.parts],
+          parts,
           createdAt: event.at,
         })
       }

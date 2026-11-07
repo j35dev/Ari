@@ -45,14 +45,11 @@ export function RemoteConnectSetup({
   const canSignIn = ['signed-out', 'denied', 'error'].includes(state.phase)
   const connected = !['unconfigured', 'signed-out'].includes(state.phase)
   return (
-    <section
-      aria-labelledby="remote-connect-heading"
-      className="space-y-3 border-t border-border pt-5"
-    >
+    <section aria-labelledby="remote-connect-heading" className="space-y-3 p-4">
       <h2 id="remote-connect-heading" className="flex items-center gap-3 text-sm font-semibold">
         <span
           aria-hidden="true"
-          className="flex size-6 items-center justify-center rounded-md bg-surface-2 font-mono text-xs text-fg-muted"
+          className="flex size-6 items-center justify-center rounded-md bg-surface-2 text-xs font-medium tabular-nums text-fg-muted"
         >
           2
         </span>

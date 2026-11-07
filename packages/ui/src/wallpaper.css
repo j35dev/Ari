@@ -82,62 +82,41 @@
   background-color: transparent;
 }
 
-/* Haze filters only stationary artwork, never the live transcript/editor.
-   The same crop under each alpha mask keeps the scene aligned as blur grows.
-   At 100% presence the artwork still fades into the theme below the horizon. */
+/* Content panes never paint their own fill: the chat sits on the same plate
+   as the sidebar and titlebar, so all of them read as one tone. Painting the
+   theme background here is what made the chat look much darker (or, on light
+   themes, much whiter) than the rest of the window. */
 [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas) {
-  --ari-haze-presence: 1;
-  --ari-haze-background:
+  isolation: isolate;
+  background: none;
+}
+
+/* The empty session (a title and the composer) shows the scene sharp. The art
+   is pinned to the window, the same geometry as the baked blur below, and
+   fades out toward the bottom, so it dissolves into the plate as a gradual
+   focus pull rather than a seam or a doubled image. The tint is heaviest
+   where the title sits. The welcome panel is too dense for sharp art behind
+   it and stays on the plate like the rest of the window. */
+[data-ari-wallpaper] {
+  --ari-haze-art:
     linear-gradient(
       to bottom,
-      color-mix(in oklab, var(--ari-bg) calc(100% - 82% * var(--ari-haze-presence)), transparent) 15%,
-      color-mix(in oklab, var(--ari-bg) calc(100% - 64% * var(--ari-haze-presence)), transparent) 36%,
-      color-mix(in oklab, var(--ari-bg) calc(100% - 28% * var(--ari-haze-presence)), transparent) 58%,
-      var(--ari-bg) 92%
+      color-mix(in oklab, var(--ari-surface-0) 22%, transparent) 0%,
+      color-mix(in oklab, var(--ari-surface-0) 50%, transparent) 38%,
+      color-mix(in oklab, var(--ari-surface-0) 62%, transparent) 85%
     ),
     var(--ari-wallpaper-image);
-  isolation: isolate;
-  background: var(--ari-haze-background) center 46% / cover no-repeat;
+  --ari-haze-fade: linear-gradient(to bottom, var(--ari-fg) 0%, var(--ari-fg) 42%, transparent 88%);
 }
 
-[data-ari-wallpaper] .ari-session-canvas {
-  --ari-haze-presence: 0.2;
-}
-
-[data-ari-wallpaper] .ari-session-canvas:has(> .ari-session-scene[data-visible]) {
-  --ari-haze-presence: 1;
-}
-
-/* Keep the existing scene's visibility marker and composer choreography, but
-   replace only its old artwork so it cannot double-tint the new background. */
 [data-ari-wallpaper] .ari-session-scene {
-  background-image: none;
+  background: var(--ari-haze-art) center / cover no-repeat fixed;
+  mask-image: var(--ari-haze-fade);
 }
 
-[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before,
-[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: inherit;
-  clip-path: inset(0);
-}
-
-[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before {
-  filter: blur(8px);
-  mask-image: linear-gradient(to bottom, transparent 20%, var(--ari-fg) 48%);
-}
-
-[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
-  filter: blur(20px);
-  mask-image: linear-gradient(to bottom, transparent 35%, var(--ari-fg) 72%);
-}
-
-/* Reading lane: once a conversation runs, a calm band sits behind the text and
-   fades out at its sides, so the scene stays visible at the edges while the
-   messages read against a quiet backdrop. It does not scroll with them. */
+/* Reading lane: once a conversation runs, a faint band of the plate's own tone
+   sits behind the text and feathers out at its sides. Same hue as the sidebar,
+   only slightly denser, so long replies stay calm to read. */
 [data-ari-wallpaper] .ari-reading-lane::before {
   content: '';
   position: absolute;
@@ -148,11 +127,13 @@
   transform: translateX(-50%);
   z-index: -1;
   pointer-events: none;
+  --ari-lane-tone: color-mix(in oklab, var(--ari-surface-0) 30%, transparent);
   background: linear-gradient(
     to bottom,
-    color-mix(in oklab, var(--ari-bg) 52%, transparent) 0%,
-    color-mix(in oklab, var(--ari-bg) 80%, transparent) 14%,
-    color-mix(in oklab, var(--ari-bg) 84%, transparent) 100%
+    transparent,
+    var(--ari-lane-tone) 3rem,
+    var(--ari-lane-tone) calc(100% - 3rem),
+    transparent
   );
   -webkit-mask-image: linear-gradient(
     to right,
@@ -188,17 +169,15 @@
     background-image: var(--ari-wallpaper-image);
     background-size: cover;
   }
-  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas) {
-    background-image:
+  [data-ari-wallpaper] {
+    --ari-haze-art:
       linear-gradient(
-        color-mix(in oklab, var(--ari-bg) 92%, transparent),
-        color-mix(in oklab, var(--ari-bg) 92%, transparent)
+        color-mix(in oklab, var(--ari-surface-0) 70%, transparent),
+        color-mix(in oklab, var(--ari-surface-0) 70%, transparent)
       ),
       var(--ari-wallpaper-image);
   }
-  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before,
-  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
+  [data-ari-wallpaper] .ari-reading-lane::before {
     content: none;
-    filter: none;
   }
 }

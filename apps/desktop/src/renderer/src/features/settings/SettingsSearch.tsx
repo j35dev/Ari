@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Search } from 'lucide-react'
 import { Input } from '@ari/ui/input'
+import { Kbd } from '@ari/ui/kbd'
 
 export interface SettingsIndexEntry {
   /** Element id of the wrapping section this entry scrolls to. */
@@ -163,9 +165,21 @@ export function filterSettingsIndex(query: string): readonly SettingsIndexEntry[
   )
 }
 
+const GROUP_LABELS: Record<string, string> = {
+  remote: 'Mobile access',
+  'source-control': 'Source control',
+}
+
 function groupLabel(section: string): string {
   const name = section.replace(/^settings-/, '')
-  return name.charAt(0).toUpperCase() + name.slice(1)
+  return GROUP_LABELS[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+/** True when a keypress is going into a text field and must not be taken over. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 }
 
 /**
@@ -180,7 +194,26 @@ export function SettingsSearch({
   onJump?: (section: string) => void
 } = {}) {
   const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
   const results = useMemo(() => filterSettingsIndex(query), [query])
+
+  // `/` focuses search, unless the user is already typing somewhere.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.defaultPrevented || isTyping(event.target)) return
+      event.preventDefault()
+      inputRef.current?.focus()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.key !== 'Escape') return
+    if (query.length > 0) setQuery('')
+    else event.currentTarget.blur()
+  }
 
   const handleQueryChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setQuery(event.target.value)
@@ -203,14 +236,20 @@ export function SettingsSearch({
   return (
     <div className="space-y-2">
       <Input
+        ref={inputRef}
         type="search"
         aria-label="Search settings"
+        aria-keyshortcuts="/"
         placeholder="Search"
         value={query}
         onChange={handleQueryChange}
+        onKeyDown={handleKeyDown}
+        className="h-8 text-sm"
+        leading={<Search size={14} strokeWidth={1.8} aria-hidden />}
+        trailing={searching ? undefined : <Kbd aria-hidden>/</Kbd>}
       />
       {searching ? (
-        <ul className="overflow-hidden rounded-md border border-border bg-surface-1">
+        <ul className="overflow-hidden rounded-lg border border-border bg-surface-1">
           {results.map((entry) => (
             <li key={`${entry.section}:${entry.label}`}>
               <button

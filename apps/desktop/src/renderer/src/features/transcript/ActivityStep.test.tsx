@@ -18,7 +18,10 @@ describe('ActivityStep', () => {
   it('reads verb + target and opens to arguments and result', async () => {
     const user = userEvent.setup()
     const { container } = render(
-      <ActivityStep call={call('run_terminal_command', '{"command":"git status --short"}')} result={result()} />,
+      <ActivityStep
+        call={call('run_terminal_command', '{"command":"git status --short"}')}
+        result={result()}
+      />,
     )
 
     const toggle = screen.getByRole('button', { name: 'Ran git status --short' })
@@ -33,15 +36,24 @@ describe('ActivityStep', () => {
     expect(screen.getByText('"done"')).toBeInTheDocument()
   })
 
-  it('names a targetless step by its tool instead of doubling verb + name', () => {
+  it('words a targetless generic step plainly instead of doubling verb + name', () => {
     render(<ActivityStep call={call('Edit', '{}')} result={result()} />)
 
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edited a file' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Edited Edit' })).not.toBeInTheDocument()
   })
 
+  it('keeps a specific tool name when the step has no target', () => {
+    render(<ActivityStep call={call('browser_navigate', '{}')} result={result()} />)
+
+    expect(screen.getByRole('button', { name: 'browser navigate' })).toBeInTheDocument()
+  })
+
   it('advertises edit size and tenses a pending step live', () => {
-    const edit = call('Edit', JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }))
+    const edit = call(
+      'Edit',
+      JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }),
+    )
     render(<ActivityStep call={edit} result={undefined} />)
 
     expect(screen.getByRole('button', { name: 'Editing src/a.ts' })).toBeInTheDocument()

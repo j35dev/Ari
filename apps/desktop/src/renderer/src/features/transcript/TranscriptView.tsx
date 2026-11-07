@@ -122,6 +122,7 @@ export function TranscriptView({
   header,
   onDiffComment,
   onRetryTurnDiff,
+  onUndoTurn,
   working,
   activity,
   delegations,
@@ -168,6 +169,8 @@ export function TranscriptView({
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   /** Asks the session to read one turn's diff again after an unavailable result. */
   onRetryTurnDiff?: (turnId: string) => void
+  /** Restores the workspace to before a turn; resolves false when it failed. */
+  onUndoTurn?: (turnId: string) => Promise<boolean>
   /** Live working indicator, rendered where the next assistant reply will land. */
   working?: React.ReactNode
   /**
@@ -568,6 +571,8 @@ export function TranscriptView({
                   terminal={chatStyle === 'terminal'}
                   onDiffComment={onDiffComment}
                   onRetryTurnDiff={onRetryTurnDiff}
+                  onUndoTurn={onUndoTurn}
+                  undoDisabled={running}
                 />
               ) : (
                 <RowPlaceholder row={row} index={index} observe={lazyRows.observe} />
@@ -662,6 +667,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
   terminal,
   onDiffComment,
   onRetryTurnDiff,
+  onUndoTurn,
+  undoDisabled,
   sessionTitle,
   onOpenSession,
 }: {
@@ -669,6 +676,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
   index: number
+  onUndoTurn?: (turnId: string) => Promise<boolean>
+  undoDisabled: boolean
   onEditUserMessage?: (text: string) => void
   /** Present only on the newest answer's footer row. */
   onRegenerate?: () => void
@@ -693,6 +702,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
     regenerateDisabled,
     onDiffComment,
     onRetryTurnDiff,
+    onUndoTurn,
+    undoDisabled,
     sessionTitle,
     onOpenSession,
   })
@@ -721,12 +732,16 @@ function renderRowBody({
   regenerateDisabled,
   onDiffComment,
   onRetryTurnDiff,
+  onUndoTurn,
+  undoDisabled,
   sessionTitle,
   onOpenSession,
 }: {
   row: TranscriptRow
   active: boolean
   terminal: boolean
+  onUndoTurn?: (turnId: string) => Promise<boolean>
+  undoDisabled: boolean
   onEditUserMessage?: (text: string) => void
   onRegenerate?: () => void
   onQuote?: (quoted: string) => void
@@ -748,6 +763,8 @@ function renderRowBody({
           error={row.error}
           onRetry={onRetryTurnDiff ? () => onRetryTurnDiff(row.turnId) : undefined}
           onComment={onDiffComment}
+          onUndo={onUndoTurn ? () => onUndoTurn(row.turnId) : undefined}
+          undoDisabled={undoDisabled}
         />
       ) : row.kind === 'delegation' ? (
         <DelegationCard row={row} onOpenSession={onOpenSession} />

@@ -45,7 +45,7 @@ import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../momen
 import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
-import { SessionBranchChip } from './SessionBranchChip'
+import { ParentSessionLink } from './ParentSessionLink'
 import { ComposerDock } from './ComposerDock'
 import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { createMessageFold } from './message-fold'
@@ -315,7 +315,6 @@ export function SessionView({
   }>(EMPTY_BACKGROUND)
   const reportingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
-  const partCountsRef = useRef(new Map<string, number>())
   const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
@@ -379,7 +378,6 @@ export function SessionView({
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
     lastPartRef.current = null
-    partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
     settledTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
@@ -584,16 +582,14 @@ export function SessionView({
       case 'assistant.parts.appended': {
         // Counted per message: a steered user message lands in the middle of
         // a turn, and the assistant message it interrupts keeps growing after.
-        const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
-        partCountsRef.current.set(event.messageId, parts)
-        lastPartRef.current = { messageId: event.messageId, parts }
-        messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
+        const parts = messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
           id: event.messageId,
           sessionId: event.sessionId,
           turnId: activeTurnIdRef.current,
           role: 'assistant',
           createdAt: event.at,
         }))
+        lastPartRef.current = { messageId: event.messageId, parts }
         // Output with no turn live is the agent reporting back on its own;
         // the rail says so while it streams, and a little after.
         if (live && activeTurnIdRef.current === null) {
@@ -879,6 +875,33 @@ export function SessionView({
     })
     fetchTurnDiffRef.current(turnId)
   }, [])
+
+  /** Restores the workspace to the checkpoint taken when the turn began. */
+  const undoTurn = useCallback(
+    async (turnId: string): Promise<boolean> => {
+      try {
+        const result = await rpc.invoke('command.dispatch', {
+          command: { type: 'checkpoint.revert', sessionId, turnId },
+        })
+        if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
+        toast({
+          title: 'Changes undone',
+          description: 'Files are back to before that turn.',
+          tone: 'success',
+        })
+        return true
+      } catch (err) {
+        toast({
+          title: 'Couldn’t undo',
+          description: err instanceof Error ? err.message : String(err),
+          tone: 'danger',
+          durationMs: 6000,
+        })
+        return false
+      }
+    },
+    [sessionId, toast],
+  )
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
@@ -1359,22 +1382,18 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <SessionBranchChip
-          sessionId={sessionId}
-          parentSession={parentSession}
-          onOpenSession={onOpenSession}
-          trailing={
-            <button
-              type="button"
-              aria-expanded={workOpen}
-              aria-controls={workPanelId}
-              onClick={() => setWorkOpen((value) => !value)}
-              className="rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              Work
-            </button>
-          }
-        />
+        <div className="flex h-7 shrink-0 items-center pr-3">
+          <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+          <button
+            type="button"
+            aria-expanded={workOpen}
+            aria-controls={workPanelId}
+            onClick={() => setWorkOpen((value) => !value)}
+            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Work
+          </button>
+        </div>
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
@@ -1390,6 +1409,7 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
+            onUndoTurn={undoTurn}
             working={
               running || (workView?.tasks.length ?? tasks?.length ?? 0) > 0 ? (
                 <>
