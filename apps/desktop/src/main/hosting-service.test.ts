@@ -157,6 +157,27 @@ const fixtures: {
 ]
 
 describe('hosting provider boundary', () => {
+  it.each([
+    { remotes: [], detail: 'no Git remote' },
+    {
+      remotes: [{ name: 'origin', url: 'https://private.test/team/demo.git' }],
+      detail: 'remote is not recognized',
+    },
+  ])(
+    'explains an unidentified remote without treating it as a GitHub login failure',
+    async ({ remotes, detail }) => {
+      const run = vi.fn()
+      const fetcher = vi.fn<typeof fetch>()
+      const service = new HostingService(new HostingApi(store, run, fetcher))
+      expect(await service.list(remotes)).toMatchObject({
+        ok: true,
+        value: { repository: null, requests: [], detail: expect.stringContaining(detail) },
+      })
+      expect(run).not.toHaveBeenCalled()
+      expect(fetcher).not.toHaveBeenCalled()
+    },
+  )
+
   it.each(fixtures)(
     'lists and normalizes $provider on $instance',
     async ({ provider, instance, remote, route, payload }) => {
