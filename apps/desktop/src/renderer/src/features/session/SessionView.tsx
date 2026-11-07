@@ -1382,7 +1382,18 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+        <div className="flex h-7 shrink-0 items-center pr-3">
+          <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+          <button
+            type="button"
+            aria-expanded={workOpen}
+            aria-controls={workPanelId}
+            onClick={() => setWorkOpen((value) => !value)}
+            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Work
+          </button>
+        </div>
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
