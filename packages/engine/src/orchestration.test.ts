@@ -66,6 +66,8 @@ const reload = () => {
       return { content: content.slice(0, maxChars), truncated: content.length > maxChars }
     },
     freezeBase: (session, key) => workspaces.snapshot(repo, `refs/ari/orchestration/${key}/base`),
+    readResultDiff: (session, snapshot, selection, signal) =>
+      workspaces.readResultDiff(session, snapshot, selection, signal),
   })
 }
 
@@ -183,6 +185,90 @@ async function settle(
   })
   return turnId
 }
+
+it('pins result review to the historical identity without capturing current worker files', async () => {
+  const task = await launch('pinned-review')
+  const worker = (await store.load(attempt(task).sessionId!)).session!
+  if (worker.workspace?.kind !== 'managed-worktree') throw new Error('expected isolated workspace')
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'historical result\n')
+  await settle(task)
+  const view = await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+  const result = view.tasks[0]!.results[0]!
+  const target = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    resultId: result.resultId,
+    attemptId: result.attemptId,
+    version: result.version,
+    snapshotCommit: result.snapshotCommit!,
+  }
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'current worker files\n')
+  const capture = vi.spyOn(workspaces, 'snapshot')
+  const liveDiff = vi.spyOn(host, 'diff')
+  const manifest = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    kind: 'files',
+  })
+  if (manifest.kind !== 'files') throw new Error('expected metadata')
+  expect(manifest).not.toHaveProperty('patch')
+  const patch = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    kind: 'file',
+    baseCommit: manifest.baseCommit,
+    path: 'file.txt',
+  })
+  if (patch.kind !== 'file') throw new Error('expected file')
+  expect(patch.patch).toContain('+historical result')
+  expect(patch.patch).not.toContain('+current worker files')
+  expect(capture).not.toHaveBeenCalled()
+  expect(liveDiff).not.toHaveBeenCalled()
+  for (const mismatch of [
+    { attemptId: 'another' },
+    { version: 2 },
+    { snapshotCommit: 'f'.repeat(40) },
+  ])
+    await expect(
+      orchestration.invoke('root', 'orchestration.result.diff', {
+        ...target,
+        ...mismatch,
+        kind: 'files',
+      }),
+    ).rejects.toMatchObject({ code: 'stale_result' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      kind: 'file',
+      baseCommit: 'f'.repeat(40),
+      path: 'file.txt',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      resultId: 'missing',
+      kind: 'files',
+    }),
+  ).rejects.toMatchObject({ code: 'result_not_found' })
+  const load = store.load.bind(store)
+  const moved = vi.spyOn(store, 'load').mockImplementation(async (id) => {
+    const state = await load(id)
+    return id === worker.id
+      ? {
+          ...state,
+          session: { ...state.session!, parentSessionId: 'outside-family' },
+        }
+      : state
+  })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      kind: 'files',
+    }),
+  ).rejects.toMatchObject({ code: 'scope_denied' })
+  moved.mockRestore()
+  capture.mockRestore()
+  liveDiff.mockRestore()
+}, 60_000)
 
 it('keeps dependency waits distinct and dispatches only accepted prerequisites, rejecting cycles', async () => {
   const a = await launch('A')

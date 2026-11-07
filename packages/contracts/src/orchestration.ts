@@ -233,6 +233,15 @@ const launch = {
   workspaceMode: z.enum(['isolated', 'shared']).default('isolated'),
   contextId: id.optional(),
 }
+const resultDiffTarget = {
+  ...scope,
+  taskId: id,
+  resultId: id,
+  attemptId: id,
+  version: z.number().int().positive(),
+  snapshotCommit: oid,
+}
+const resultDiffPath = path.refine((value) => !value.includes('\0'), 'Invalid file path')
 export const orchestrationParams = {
   'orchestration.view': z.object(scope).strict(),
   'orchestration.inbox': z
@@ -303,6 +312,18 @@ export const orchestrationParams = {
   'orchestration.diff': z
     .object({ ...scope, taskId: id, resultId: id.optional(), patch: z.boolean().default(false) })
     .strict(),
+  'orchestration.result.diff': z.discriminatedUnion('kind', [
+    z.object({ ...resultDiffTarget, kind: z.literal('files') }).strict(),
+    z
+      .object({
+        ...resultDiffTarget,
+        kind: z.literal('file'),
+        baseCommit: oid,
+        path: resultDiffPath,
+        oldPath: resultDiffPath.optional(),
+      })
+      .strict(),
+  ]),
   'orchestration.integrate': z
     .object({ ...mutation, taskId: id, resultId: id, snapshotCommit: oid })
     .strict(),
@@ -353,9 +374,27 @@ export interface OrchestrationDiff {
   sessionId: string
   baseCommit: string
   currentSnapshotCommit: string
-  files: { path: string; status: string; additions: number; deletions: number; binary: boolean }[]
+  files: {
+    path: string
+    oldPath?: string
+    status: string
+    additions: number
+    deletions: number
+    binary: boolean
+  }[]
   totals: { files: number; additions: number; deletions: number }
   patch?: string
+  truncated?: boolean
+}
+export type ResultDiffSelection =
+  { kind: 'files' } | { kind: 'file'; baseCommit: string; path: string; oldPath?: string }
+export type ResultDiffContents =
+  | (Omit<OrchestrationDiff, 'patch'> & { kind: 'files' })
+  | { kind: 'file'; baseCommit: string; currentSnapshotCommit: string; path: string; patch: string }
+export type OrchestrationResultDiff = ResultDiffContents & {
+  resultId: string
+  attemptId: string
+  version: number
 }
 export interface OrchestrationResults {
   'orchestration.view': OrchestrationView
@@ -368,6 +407,7 @@ export interface OrchestrationResults {
   'orchestration.context': ContextPackage
   'orchestration.context.get': ContextPackage
   'orchestration.diff': OrchestrationDiff
+  'orchestration.result.diff': OrchestrationResultDiff
   'orchestration.integrate': {
     status: 'integrated' | 'conflict' | 'already_integrated'
     snapshotCommit?: string

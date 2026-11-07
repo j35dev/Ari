@@ -112,3 +112,24 @@ export const diffFixture = {
   patch:
     'diff --git a/src/search.ts b/src/search.ts\n--- a/src/search.ts\n+++ b/src/search.ts\n@@ -1 +1 @@\n-old\n+new\n',
 }
+export const manifestFixture = {
+  kind: 'files' as const,
+  resultId: 'result-1',
+  attemptId: 'attempt',
+  version: 1,
+  sessionId: diffFixture.sessionId,
+  baseCommit: diffFixture.baseCommit,
+  currentSnapshotCommit: SNAPSHOT,
+  files: diffFixture.files,
+  totals: diffFixture.totals,
+}
+export const fileDiffFixture = {
+  kind: 'file' as const,
+  resultId: 'result-1',
+  attemptId: 'attempt',
+  version: 1,
+  baseCommit: diffFixture.baseCommit,
+  currentSnapshotCommit: SNAPSHOT,
+  path: diffFixture.files[0]!.path,
+  patch: diffFixture.patch,
+}

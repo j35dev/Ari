@@ -13,7 +13,10 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import type { ResultDiffContents, ResultDiffSelection } from '@ari/contracts/orchestration'
 import { GitService } from './git-service'
+import { RepositoryGit } from './repository-git'
+import { parseReviewFiles } from './git-review-files'
 import { branchBelongsToSession, orchestrationBranch } from './orchestration-branch'
 
 const oid = /^[a-f0-9]{40,64}$/
@@ -375,6 +378,114 @@ export class ManagedWorkspaces {
             ]),
           }
         : {}),
+    }
+  }
+
+  /** Read a retained result, never capturing current files or changing Git refs/index. */
+  async readResultDiff(
+    child: Session,
+    snapshotCommit: string,
+    selection: ResultDiffSelection,
+    signal?: AbortSignal,
+  ): Promise<ResultDiffContents> {
+    const workspace = await this.#workspace(child)
+    if (!oid.test(snapshotCommit) || !oid.test(workspace.baseCommit))
+      throw new ControlFailure('invalid_request', 'Invalid result revision.')
+    if (selection.kind === 'file' && selection.baseCommit !== workspace.baseCommit)
+      throw new ControlFailure('stale_snapshot', 'The selected result base changed.')
+    const git = new RepositoryGit(workspace.path)
+    const run = async (args: string[], maxBytes?: number) => {
+      const result = await git.run(args, { signal, maxBytes })
+      if (!result.ok) throw new ControlFailure(result.error.code, result.error.message)
+      return result.value
+    }
+    const retained = await git.run(
+      [
+        'rev-parse',
+        '--verify',
+        '--end-of-options',
+        `${this.#ref(child.id)}/snapshots/${snapshotCommit}^{commit}`,
+      ],
+      { signal },
+    )
+    if (!retained.ok && retained.error.code !== 'failed')
+      throw new ControlFailure(retained.error.code, retained.error.message)
+    if (!retained.ok || retained.value.trim() !== snapshotCommit)
+      throw new ControlFailure(
+        'snapshot_unavailable',
+        'The selected result snapshot is unavailable.',
+      )
+    const base = await git.run(
+      ['rev-parse', '--verify', '--end-of-options', `${snapshotCommit}^`],
+      { signal },
+    )
+    if (!base.ok && base.error.code !== 'failed')
+      throw new ControlFailure(base.error.code, base.error.message)
+    if (!base.ok)
+      throw new ControlFailure('snapshot_unavailable', 'The selected result base is unavailable.')
+    // Snapshots record their frozen comparison base as their parent. A changed
+    // session/worktree record must never reinterpret an old result's contents.
+    if (base.value.trim() !== workspace.baseCommit)
+      throw new ControlFailure('stale_snapshot', 'The selected result base changed.')
+    const paths =
+      selection.kind === 'file'
+        ? [selection.path, ...(selection.oldPath ? [selection.oldPath] : [])]
+        : []
+    // Literal pathspecs and the bounded runner are the same read boundary used by SCM review.
+    const args = [
+      '--literal-pathspecs',
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-color',
+      '--find-renames',
+      workspace.baseCommit,
+      snapshotCommit,
+    ]
+    const names = await run([...args, '--name-status', '-z', '--', ...paths])
+    if (selection.kind === 'file') {
+      const files = parseReviewFiles(names, '', [])
+      const file = files.find((file) => file.path === selection.path)
+      if (!file || files.length !== 1 || file.oldPath !== selection.oldPath)
+        throw new ControlFailure(
+          'invalid_file',
+          'The selected file does not match this result comparison.',
+        )
+      return {
+        kind: 'file',
+        baseCommit: workspace.baseCommit,
+        currentSnapshotCommit: snapshotCommit,
+        path: selection.path,
+        patch: await run([...args, '-U3', '--', ...paths], 1024 * 1024),
+      }
+    }
+    const counts = await run([...args, '--numstat', '-z', '--'])
+    const allFiles = parseReviewFiles(names, counts, [])
+    const totals = allFiles.reduce(
+      (sum, file) => ({
+        files: sum.files + 1,
+        additions: sum.additions + file.additions,
+        deletions: sum.deletions + file.deletions,
+      }),
+      { files: 0, additions: 0, deletions: 0 },
+    )
+    return {
+      kind: 'files',
+      sessionId: child.id,
+      baseCommit: workspace.baseCommit,
+      currentSnapshotCommit: snapshotCommit,
+      files: allFiles
+        .slice(0, 5000)
+        .map(({ path, oldPath, kind, additions, deletions, binary }) => ({
+          path,
+          ...(oldPath ? { oldPath } : {}),
+          status: kind,
+          additions,
+          deletions,
+          binary,
+        })),
+      totals,
+      truncated: allFiles.length > 5000,
     }
   }
 
