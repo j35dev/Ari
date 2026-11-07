@@ -43,8 +43,11 @@ describe('provider setup terminal', () => {
     deps.terminals.spawn.mockImplementation(() => {
       throw new Error('pty exited')
     })
-    const cleanup = Promise.withResolvers<void>()
-    deps.terminals.kill.mockReturnValue(cleanup.promise)
+    let releaseCleanup!: () => void
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve
+    })
+    deps.terminals.kill.mockReturnValue(cleanup)
     let finished = false
     const result = openProviderSetupTerminal(deps).then((value) => {
       finished = true
@@ -52,7 +55,7 @@ describe('provider setup terminal', () => {
     })
     await vi.waitFor(() => expect(deps.terminals.kill).toHaveBeenCalledOnce())
     expect(finished).toBe(false)
-    cleanup.resolve()
+    releaseCleanup()
     expect((await result).ok).toBe(false)
     expect(deps.terminals.kill).toHaveBeenCalledOnce()
   })
