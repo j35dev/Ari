@@ -10,7 +10,7 @@ function setup() {
       args: ['login'],
       env: { CODEX_HOME: 'C:\\Account' },
     })),
-    terminals: { spawn: vi.fn(), kill: vi.fn() },
+    terminals: { spawn: vi.fn(), kill: vi.fn(async () => {}) },
     homeDir: 'C:\\Users\\person',
     platform: 'win32',
   }
@@ -43,7 +43,17 @@ describe('provider setup terminal', () => {
     deps.terminals.spawn.mockImplementation(() => {
       throw new Error('pty exited')
     })
-    expect((await openProviderSetupTerminal(deps)).ok).toBe(false)
+    const cleanup = Promise.withResolvers<void>()
+    deps.terminals.kill.mockReturnValue(cleanup.promise)
+    let finished = false
+    const result = openProviderSetupTerminal(deps).then((value) => {
+      finished = true
+      return value
+    })
+    await vi.waitFor(() => expect(deps.terminals.kill).toHaveBeenCalledOnce())
+    expect(finished).toBe(false)
+    cleanup.resolve()
+    expect((await result).ok).toBe(false)
     expect(deps.terminals.kill).toHaveBeenCalledOnce()
   })
 })
