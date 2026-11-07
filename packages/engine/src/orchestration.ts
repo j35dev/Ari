@@ -1306,6 +1306,24 @@ export class OrchestrationService {
       return this.#submit(parent, task)
     }
     if (method === 'orchestration.retry') {
+      // Optional optimistic guards run inside the serialized mutation, before
+      // creating an attempt or causing any worker/workspace effects. Explicit
+      // null pins report-only snapshots (or the absence of a current result).
+      if (
+        (p.expectedResultId !== undefined && p.expectedResultId !== task.currentResultId) ||
+        (p.expectedAttemptId !== undefined && p.expectedAttemptId !== task.currentAttemptId)
+      )
+        throw new ControlFailure(
+          'stale_result',
+          'A newer attempt or result supersedes this result.',
+        )
+      if (
+        p.expectedSnapshotCommit !== undefined &&
+        p.expectedSnapshotCommit !==
+          (task.results.find((entry) => entry.resultId === task.currentResultId)?.snapshotCommit ??
+            null)
+      )
+        throw new ControlFailure('stale_snapshot', 'Retry must name the exact result snapshot.')
       const attempt = currentAttempt(task)
       const state = attempt.sessionId ? await this.options.host.store.load(attempt.sessionId) : null
       if (

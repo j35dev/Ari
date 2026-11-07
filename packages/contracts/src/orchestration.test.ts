@@ -2,6 +2,29 @@ import { expect, it } from 'vitest'
 import { orchestrationParams } from './orchestration'
 import { ROUTINE_MIN_EVERY_MS } from './agent-control'
 
+it('keeps retry guards optional and distinguishes explicit null from omission', () => {
+  const base = { sessionId: 'parent', taskId: 'task', idempotencyKey: 'retry' }
+  const legacy = orchestrationParams['orchestration.retry'].parse(base)
+  expect(legacy).not.toHaveProperty('expectedResultId')
+  expect(legacy).not.toHaveProperty('expectedSnapshotCommit')
+  expect(
+    orchestrationParams['orchestration.retry'].parse({
+      ...base,
+      expectedResultId: null,
+      expectedAttemptId: 'attempt',
+      expectedSnapshotCommit: null,
+    }),
+  ).toMatchObject({
+    expectedResultId: null,
+    expectedAttemptId: 'attempt',
+    expectedSnapshotCommit: null,
+  })
+  expect(
+    orchestrationParams['orchestration.retry'].safeParse({ ...base, expectedSnapshotCommit: 'bad' })
+      .success,
+  ).toBe(false)
+})
+
 it('accepts empty question dismissal without changing the answer payload shape', () => {
   expect(
     orchestrationParams['orchestration.answer'].parse({
