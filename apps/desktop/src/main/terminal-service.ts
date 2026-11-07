@@ -50,9 +50,16 @@ export function ptyUnavailableReason(loadError: string | null): string {
     : 'terminal backend still loading'
 }
 
-function killTree(pid: number): void {
+function killTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
-    exec(`taskkill /PID ${pid} /T /F`, () => undefined)
+    return new Promise((resolve) => {
+      try {
+        exec(`taskkill /PID ${pid} /T /F`, () => resolve())
+      } catch {
+        // Still release the native handle if the cleanup process cannot start.
+        resolve()
+      }
+    })
   } else {
     try {
       process.kill(-pid)
@@ -64,6 +71,7 @@ function killTree(pid: number): void {
       }
     }
   }
+  return Promise.resolve()
 }
 
 interface Session {
@@ -82,6 +90,7 @@ export class TerminalService {
   readonly #sessions = new Map<string, Session>()
   readonly #events: TerminalEvents
   readonly #spawnPty: PtyFactory
+  readonly #pendingKills = new Set<Promise<void>>()
   #closed = false
 
   constructor(events: TerminalEvents, spawnPty: PtyFactory) {
@@ -139,25 +148,35 @@ export class TerminalService {
     }
   }
 
-  kill(id: string): void {
+  kill(id: string): Promise<void> {
     const session = this.#sessions.get(id)
-    if (!session) return
+    if (!session) return Promise.resolve()
     this.#sessions.delete(id)
-    // Release the native handle first; the tree kill is the backstop for
-    // orphaned children (killTree alone leaks the ConPTY/file descriptor).
-    try {
-      session.pty.kill()
-    } catch {
-      // already gone
-    }
-    // An exited shell's PID may already belong to another process.
-    if (!session.exited) killTree(session.pty.pid)
+    const cleanup = (async () => {
+      try {
+        // Keep the shell alive until taskkill has enumerated its descendants.
+        // Closing ConPTY first can orphan detached children before /T runs.
+        // An exited shell's PID may already belong to another process.
+        if (!session.exited && session.pty.pid > 0) await killTree(session.pty.pid)
+      } finally {
+        // Tree termination does not release the native ConPTY/file descriptor.
+        try {
+          session.pty.kill()
+        } catch {
+          // already gone
+        }
+      }
+    })()
+    this.#pendingKills.add(cleanup)
+    void cleanup.finally(() => this.#pendingKills.delete(cleanup))
+    return cleanup
   }
 
   /** Release every native handle and its child process tree on app shutdown. */
-  close(): void {
+  async close(): Promise<void> {
     this.#closed = true
-    for (const id of this.#sessions.keys()) this.kill(id)
+    for (const id of this.#sessions.keys()) void this.kill(id)
+    await Promise.all(this.#pendingKills)
   }
 
   replay(id: string): string {
