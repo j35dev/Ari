@@ -57,6 +57,8 @@ export interface QueuedMessageView {
 }
 
 export interface ComposerProps {
+  /** Announces a mounted, enabled editor; the owner decides whether to focus it. */
+  onReady?: (input: HTMLTextAreaElement) => void
   /** Called with the message text and pending image files when the user sends. */
   onSend: (text: string, files: File[]) => void
   /** Called when the user presses stop during an active turn. */
@@ -149,6 +151,7 @@ export function Composer({
   attentionRequired = false,
   centered = false,
   history,
+  onReady,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -158,6 +161,10 @@ export function Composer({
   const [stashAnchor, setStashAnchor] = useState<HTMLDivElement | null>(null)
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const input = textareaRef.current
+    if (onReady && input && !disabled) onReady(input)
+  }, [onReady, disabled])
   const overlayRef = useRef<HTMLDivElement>(null)
   const { images, addFiles, removeAt, clear } = useImageAttachments()
   const [focused, setFocused] = useState(false)
