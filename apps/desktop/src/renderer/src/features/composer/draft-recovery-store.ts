@@ -117,10 +117,16 @@ function hydratePick(pick: z.infer<typeof pickSchema>): BrowserPick {
 }
 
 function load(): void {
+  // A failed initial read leaves an incomplete cache. Keep the original bytes
+  // until a fresh renderer can hydrate them, rather than overwriting old work.
+  if (unreadable) return
   try {
-    const raw = localStorage.getItem(RECOVERY_STORAGE_KEY)
-    if (!raw) return
     unreadable = true
+    const raw = localStorage.getItem(RECOVERY_STORAGE_KEY)
+    if (!raw) {
+      unreadable = false
+      return
+    }
     if (raw.length > MAX_STORAGE_CHARS) return
     const envelope = z
       .object({
@@ -208,6 +214,7 @@ function persistedPick(pick: BrowserPick): z.infer<typeof pickSchema> {
 }
 
 function persist(): boolean {
+  if (unreadable) return false
   try {
     const sessions = Object.create(null) as Record<string, unknown>
     for (const [id, state] of cache) {
@@ -252,9 +259,11 @@ export function updateSessionDraftIntent(
 ): void {
   if (deleted.has(sessionId)) return
   cache.set(sessionId, update(readSessionDraftIntent(sessionId)))
-  const saved = !sessionId || persist()
-  for (const [id, state] of cache) {
-    if (state.storageIssue !== !saved) cache.set(id, { ...state, storageIssue: !saved })
+  if (sessionId) {
+    const saved = persist()
+    for (const [id, state] of cache) {
+      if (state.storageIssue !== !saved) cache.set(id, { ...state, storageIssue: !saved })
+    }
   }
   for (const listener of listeners) listener()
 }

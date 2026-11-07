@@ -29,18 +29,22 @@ export interface UseDraftsResult {
   storageIssue?: boolean
 }
 
-function readDrafts(): DraftMap {
+function readDrafts(strict = false): DraftMap {
   try {
     const raw = window.localStorage.getItem(DRAFTS_STORAGE_KEY)
-    if (raw == null || raw.length > 2 * 1024 * 1024) return {}
+    if (raw == null) return {}
+    if (raw.length > 2 * 1024 * 1024) throw new Error('Draft storage is too large to read')
     const parsed: unknown = JSON.parse(raw)
-    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw new Error('Draft storage is unreadable')
     const drafts: DraftMap = Object.create(null) as DraftMap
     for (const [sessionId, text] of Object.entries(parsed)) {
       if (sessionId.length <= 128 && typeof text === 'string') drafts[sessionId] = text
+      else if (strict) throw new Error('Draft storage contains unreadable entries')
     }
     return drafts
-  } catch {
+  } catch (error) {
+    if (strict) throw error
     return {}
   }
 }
@@ -59,13 +63,11 @@ function writeDraft(sessionId: string, text: string): void {
   // Tests (and any caller without a session) keep the field in memory only.
   if (sessionId === '') return
   if (deleted.has(sessionId)) return
-  const drafts = readDrafts()
-  if (text === '') {
-    delete drafts[sessionId]
-  } else {
-    drafts[sessionId] = text
-  }
   try {
+    // Never replace an unreadable collection with a partial in-memory map.
+    const drafts = readDrafts(true)
+    if (text === '') delete drafts[sessionId]
+    else drafts[sessionId] = text
     const raw = JSON.stringify(drafts)
     if (Object.keys(drafts).length > 100 || raw.length > 2 * 1024 * 1024)
       throw new Error('Draft storage is full')
@@ -81,7 +83,7 @@ export function deleteSessionDraftText(sessionId: string): void {
   deleted.add(sessionId)
   cache.set(sessionId, EMPTY)
   try {
-    const drafts = readDrafts()
+    const drafts = readDrafts(true)
     delete drafts[sessionId]
     localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts))
   } catch {

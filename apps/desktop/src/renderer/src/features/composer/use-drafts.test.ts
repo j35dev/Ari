@@ -70,6 +70,36 @@ describe('useDrafts', () => {
     expect(stored()).toEqual({ s1: 'in progress' })
   })
 
+  it('does not replace other saved drafts when reading fails but writing is available', () => {
+    vi.useFakeTimers()
+    localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify({ s2: 'other work' }))
+    const { result } = renderHook(() => useDrafts('s1'))
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('temporary read failure')
+    })
+    try {
+      act(() => result.current.setDraft('keep mine too'))
+      act(() => vi.advanceTimersByTime(300))
+      expect(result.current.draft).toBe('keep mine too')
+      expect(result.current.storageIssue).toBe(true)
+    } finally {
+      read.mockRestore()
+    }
+    expect(stored()).toEqual({ s2: 'other work' })
+  })
+
+  it('does not replace an oversized stored draft collection with an incomplete map', () => {
+    vi.useFakeTimers()
+    const original = JSON.stringify({ s2: 'x'.repeat(2 * 1024 * 1024) })
+    localStorage.setItem(DRAFTS_STORAGE_KEY, original)
+    const { result } = renderHook(() => useDrafts('s1'))
+    act(() => result.current.setDraft('keep mine too'))
+    act(() => vi.advanceTimersByTime(300))
+    expect(result.current.draft).toBe('keep mine too')
+    expect(result.current.storageIssue).toBe(true)
+    expect(localStorage.getItem(DRAFTS_STORAGE_KEY)).toBe(original)
+  })
+
   it('coalesces rapid edits into a single final write', () => {
     vi.useFakeTimers()
     const { result } = renderHook(() => useDrafts('s1'))
