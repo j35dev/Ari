@@ -230,6 +230,7 @@ export function SessionView({
   sessionTitle,
   parentSession = null,
   hidden = false,
+  onComposerReady,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -250,9 +251,12 @@ export function SessionView({
    * as it did when switching away unmounted it.
    */
   hidden?: boolean
+  /** Used only by the shell's explicit session-start handoff. */
+  onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
   const loading = historyReadySession !== sessionId
@@ -517,6 +521,7 @@ export function SessionView({
           activeTurnId: string | null
         }
         if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+        setMetadataReadySession(sessionId)
         setRunning(m.activeTurnId !== null)
         onDefaultsChange({
           driverKind: m.session.driverKind,
@@ -1243,6 +1248,9 @@ export function SessionView({
     () => (
       <Composer
         centered={centered}
+        onReady={
+          !hidden && centered && metadataReadySession === sessionId ? onComposerReady : undefined
+        }
         sessionId={sessionId}
         onSend={handleSend}
         onStop={handleStop}
@@ -1333,6 +1341,9 @@ export function SessionView({
     ),
     [
       centered,
+      hidden,
+      metadataReadySession,
+      onComposerReady,
       sessionId,
       handleSend,
       handleStop,
