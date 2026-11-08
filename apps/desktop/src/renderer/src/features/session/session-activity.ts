@@ -20,6 +20,9 @@ export interface ActivityEvent {
   to?: string
   stopReason?: string
   at?: number
+  taskId?: string
+  kind?: string
+  status?: string
 }
 
 /**

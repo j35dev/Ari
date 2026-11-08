@@ -1344,6 +1344,9 @@ export class AcpDriver implements Driver {
   }
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {
+    // A prior ACP fallback may still own live native agents. Reuse that
+    // process rather than opening the same conversation in a second transport.
+    if (this.fallback?.hasLiveSession?.(session.sessionId)) return this.fallback.create(session)
     if (this.launch !== null) {
       try {
         const adapter = await createAcpAdapter(

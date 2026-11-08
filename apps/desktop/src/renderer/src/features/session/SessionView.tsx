@@ -1299,6 +1299,7 @@ export function SessionView({
                     <div className="mx-3 border-t border-border/60" />
                   ) : null}
                   <BackgroundWork
+                    providerLabel={defaults.driverKind === 'claude' ? 'Claude' : undefined}
                     tasks={background.tasks}
                     reporting={background.reporting}
                     since={background.since}
