@@ -260,15 +260,24 @@ export class GitService {
       const scratchIndex = join(scratch, 'index')
       const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: scratchIndex }
       const sourceIndex = resolve(cwd, index.value.stdout.trim())
-      const copied = await stat(sourceIndex)
-        .then(async (sourceStat) => {
-          await copyFile(sourceIndex, scratchIndex)
-          return sourceStat
+      try {
+        const sourceStat = await stat(sourceIndex).catch((error: unknown) => {
+          // A repository without an index legitimately starts from an empty one.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+          throw error
         })
-        .catch(() => undefined)
-      // A newer copy mtime hides racily clean entries from Git's content check.
-      // Date precision rounds down, keeping the scratch no newer than the source.
-      if (copied) await utimes(scratchIndex, copied.atime, copied.mtime)
+        if (sourceStat) {
+          await copyFile(sourceIndex, scratchIndex)
+          // A newer copy mtime hides racily clean entries from Git's content check.
+          // Date precision rounds down, keeping the scratch no newer than the source.
+          await utimes(scratchIndex, sourceStat.atime, sourceStat.mtime)
+        }
+      } catch (error) {
+        return err({
+          code: 'command_failed',
+          message: `Unable to preserve the Git index for this snapshot: ${String(error)}`,
+        })
+      }
       return await use(env)
     } finally {
       await rm(scratch, { recursive: true, force: true })
