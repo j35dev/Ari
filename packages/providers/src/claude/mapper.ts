@@ -24,7 +24,7 @@ export const CLAUDE_APPROVAL_OPTIONS = [
  * message where its input JSON is complete.
  */
 
-interface ContentBlock {
+export interface ContentBlock {
   type: string
   text?: string
   thinking?: string
@@ -49,7 +49,7 @@ interface StreamDelta {
   thinking?: string
 }
 
-interface NativeLine {
+export interface NativeLine {
   type?: string
   subtype?: string
   request_id?: string
@@ -65,6 +65,21 @@ interface NativeLine {
   modelUsage?: Record<string, Record<string, unknown> | undefined>
   total_cost_usd?: number
   result?: string
+  tool_use_result?: unknown
+  task_id?: string
+  tool_use_id?: string
+  task_type?: string
+  subagent_type?: string
+  description?: string
+  summary?: string
+  last_tool_name?: string
+  status?: string
+  is_backgrounded?: boolean
+  ambient?: boolean
+  skip_transcript?: boolean
+  run_id?: string
+  patch?: Record<string, unknown>
+  tasks?: NativeLine[]
 }
 
 function count(raw: Record<string, unknown> | undefined, key: string): number {
@@ -84,8 +99,7 @@ function usageFrom(raw: Record<string, unknown> | undefined): {
 } {
   const cached = count(raw, 'cache_read_input_tokens')
   return {
-    inputTokens:
-      count(raw, 'input_tokens') + count(raw, 'cache_creation_input_tokens') + cached,
+    inputTokens: count(raw, 'input_tokens') + count(raw, 'cache_creation_input_tokens') + cached,
     outputTokens: count(raw, 'output_tokens'),
     cachedInputTokens: cached,
   }
@@ -144,6 +158,10 @@ export function mapClaudeLine(line: string): AgentEvent[] {
 
   const events: AgentEvent[] = []
 
+  // Native agents have their own transcript. Their tools feed the task rail,
+  // but their prose, usage and errors must not become the parent's reply.
+  if (parsed.parent_tool_use_id != null && parsed.type !== 'control_request') return events
+
   if (typeof parsed.error === 'string' && parsed.error.length > 0) {
     events.push({
       type: 'error',
@@ -157,7 +175,11 @@ export function mapClaudeLine(line: string): AgentEvent[] {
     case 'system': {
       // system/init carries the CLI's own session id; surfacing it as the
       // provider ref lets later turns --resume instead of losing context.
-      if (typeof parsed.session_id === 'string' && parsed.session_id.length > 0) {
+      if (
+        parsed.subtype === 'init' &&
+        typeof parsed.session_id === 'string' &&
+        parsed.session_id.length > 0
+      ) {
         events.push({ type: 'session-ref', ref: parsed.session_id })
       }
       break
