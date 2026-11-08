@@ -1,0 +1,464 @@
+/* Reply visuals share Ari's palette, typography and surface hierarchy in every theme. */
+.ari-viz {
+  margin: 16px 0;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--ari-border-strong);
+  border-radius: var(--ari-radius-lg);
+  background: var(--ari-surface-0);
+  color: var(--ari-fg);
+  font-family: var(--ari-font-ui);
+  font-size: var(--ari-text-sm);
+  line-height: 1.5;
+  word-break: normal;
+}
+.ari-viz-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 12px;
+}
+.ari-viz-header > div:first-child {
+  min-width: 0;
+}
+.ari-viz-kind {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-subtle);
+}
+.ari-viz-title {
+  display: block;
+  font-size: var(--ari-text-md);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.ari-viz-toolbar,
+.ari-viz-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ari-viz-view-switch {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-sm);
+  background: var(--ari-surface-1);
+}
+.ari-viz-view-switch button,
+.ari-viz-action,
+.ari-viz-series button {
+  border: 0;
+  background: transparent;
+  color: var(--ari-fg-muted);
+  font: inherit;
+  font-size: var(--ari-text-xs);
+  cursor: pointer;
+  border-radius: var(--ari-radius-sm);
+}
+.ari-viz-view-switch button {
+  padding: 3px 8px;
+}
+.ari-viz-view-switch button[aria-pressed='true'] {
+  color: var(--ari-fg);
+  background: var(--ari-surface-3);
+}
+.ari-viz-action {
+  min-height: 28px;
+  padding: 4px 7px;
+}
+.ari-viz-action:hover,
+.ari-viz-series button:hover {
+  background: var(--ari-surface-2);
+  color: var(--ari-fg);
+}
+.ari-viz button:focus-visible,
+.ari-viz summary:focus-visible,
+.ari-viz-modal button:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: 2px;
+}
+.ari-viz-description {
+  margin: 0;
+  padding: 0 20px 12px;
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-sm);
+}
+.ari-viz-body {
+  padding: 8px 16px 16px;
+  min-width: 0;
+}
+.ari-viz-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ari-border-strong) transparent;
+}
+.ari-viz-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  font-family: var(--ari-font-ui);
+}
+.ari-viz-axis line,
+.ari-viz-grid {
+  stroke: var(--ari-border);
+  stroke-width: 1;
+}
+.ari-viz-axis text,
+.ari-viz-axis-label {
+  fill: var(--ari-fg-muted);
+  font-size: 12px;
+}
+.ari-viz-axis text {
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-total {
+  fill: var(--ari-fg);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.ari-viz-treemap-label,
+.ari-viz-node-label,
+.ari-viz-heat-value {
+  fill: var(--ari-fg);
+  font-size: 13px;
+}
+.ari-viz-node-label {
+  font-weight: 500;
+}
+.ari-viz-edge-label {
+  fill: var(--ari-fg-muted);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--ari-surface-0);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+.ari-viz-mark {
+  outline: none;
+  cursor: crosshair;
+}
+.ari-viz-mark:hover > rect,
+.ari-viz-mark:focus-visible > rect,
+.ari-viz-mark:focus-visible > circle,
+.ari-viz-mark:hover > circle,
+.ari-viz-mark:focus-visible > path {
+  stroke: var(--ari-fg);
+  stroke-width: 2;
+}
+.ari-viz-radar-grid {
+  fill: none;
+  stroke: var(--ari-border);
+  stroke-width: 1;
+}
+.ari-viz-series {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 20px 8px;
+}
+.ari-viz-series button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid var(--ari-border);
+}
+.ari-viz-series button[aria-pressed='false'] {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.ari-viz-series button:disabled {
+  cursor: default;
+}
+.ari-viz-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.ari-viz-inspect {
+  min-height: 35px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--ari-border);
+  background: var(--ari-surface-1);
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ari-viz-source {
+  padding: 8px 20px;
+  border-top: 1px solid var(--ari-border);
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-subtle);
+  overflow-wrap: anywhere;
+}
+.ari-viz-parts {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 0 12px;
+}
+.ari-viz-item-legend {
+  display: grid;
+  gap: 10px;
+}
+.ari-viz-item-legend > div {
+  display: grid;
+  grid-template-columns: 7px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-item-legend strong {
+  font-weight: 500;
+  color: var(--ari-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-funnel {
+  display: grid;
+  gap: 14px;
+  padding: 12px 4px;
+  min-width: 380px;
+}
+.ari-viz-funnel-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 120px) 1fr 55px;
+  gap: 14px;
+  align-items: center;
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-funnel-track {
+  display: flex;
+  justify-content: center;
+  height: 30px;
+}
+.ari-viz-funnel-track button {
+  border: 0;
+  border-radius: 3px;
+  cursor: crosshair;
+}
+.ari-viz-funnel-row strong {
+  text-align: right;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz .ari-viz-timeline,
+.ari-viz-modal .ari-viz-timeline {
+  list-style: none;
+  margin: 8px 12px;
+  padding: 0;
+}
+.ari-viz-timeline li {
+  position: relative;
+  margin: 0;
+  padding: 0 0 24px 26px;
+  border-left: 1px solid var(--ari-border-strong);
+}
+.ari-viz-timeline li:last-child {
+  padding-bottom: 0;
+  border-left-color: transparent;
+}
+.ari-viz-timeline-dot {
+  position: absolute;
+  left: -4px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--viz-tone);
+  box-shadow: 0 0 0 4px var(--ari-surface-0);
+}
+.ari-viz-date {
+  display: block;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+  margin-bottom: 3px;
+}
+.ari-viz-timeline strong {
+  font-weight: 500;
+}
+.ari-viz-timeline p {
+  margin: 4px 0 0;
+  font-size: var(--ari-text-sm);
+  color: var(--ari-fg-muted);
+}
+.ari-viz-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-md);
+  overflow: hidden;
+  background: var(--ari-border);
+  margin: 4px;
+}
+.ari-viz-metrics > div {
+  padding: 18px;
+  background: var(--ari-surface-1);
+}
+.ari-viz-metrics dt {
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-muted);
+}
+.ari-viz-metrics dd {
+  margin: 6px 0;
+  font-size: 28px;
+  font-weight: 550;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-metrics p {
+  margin: 0;
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-subtle);
+}
+.ari-viz-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: var(--ari-text-sm);
+  text-align: left;
+}
+.ari-viz-table th,
+.ari-viz-table td {
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ari-border);
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+  min-width: 90px;
+  max-width: 350px;
+  overflow-wrap: anywhere;
+}
+.ari-viz-table thead th {
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+  font-weight: 500;
+  background: var(--ari-surface-1);
+}
+.ari-viz-table tbody th {
+  font-weight: 500;
+}
+.ari-viz-table td {
+  color: var(--ari-fg-muted);
+}
+.ari-viz-table tr:last-child th,
+.ari-viz-table tr:last-child td {
+  border-bottom: 0;
+}
+.ari-viz-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ari-viz-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  color: var(--ari-fg-muted);
+}
+.ari-viz-pending-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ari-accent);
+}
+.ari-viz-error {
+  padding: 18px 20px;
+}
+.ari-viz-error strong {
+  font-weight: 500;
+}
+.ari-viz-error p {
+  color: var(--ari-fg-muted);
+  margin: 6px 0;
+}
+.ari-viz-error summary {
+  cursor: pointer;
+  font-size: var(--ari-text-xs);
+  color: var(--ari-fg-subtle);
+}
+.ari-viz-error pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--ari-font-mono);
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-modal {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  background: var(--ari-surface-0);
+  padding: 24px;
+  color: var(--ari-fg);
+  font-family: var(--ari-font-ui);
+}
+.ari-viz-modal-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.ari-viz-modal-head > :first-child {
+  flex: 1;
+}
+.ari-viz-modal .ari-viz-body {
+  padding: 16px 0;
+}
+.ari-viz-modal .ari-viz-series {
+  padding: 16px 0 0;
+}
+@media (max-width: 600px) {
+  .ari-viz-header {
+    padding: 14px 14px 10px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .ari-viz-description {
+    padding: 0 14px 10px;
+  }
+  .ari-viz-body {
+    padding: 6px 10px 12px;
+  }
+  .ari-viz-series {
+    padding: 0 14px 6px;
+  }
+  .ari-viz-parts {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 8px;
+  }
+  .ari-viz-parts .ari-viz-svg {
+    max-width: 300px;
+    margin: 0 auto;
+  }
+  .ari-viz-item-legend {
+    padding: 0 8px 16px;
+  }
+  .ari-viz-modal {
+    padding: 16px;
+  }
+  .ari-viz-modal-head {
+    flex-wrap: wrap;
+  }
+}
