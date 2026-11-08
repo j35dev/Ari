@@ -10,6 +10,7 @@ import { applyCachedAppearance } from './lib/appearance'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { installExternalLinkInterceptor } from './lib/external-links'
 import './styles/index.css'
+import '@ari/ui/visualization.css'
 
 const container = document.getElementById('root')
 if (!container) throw new Error('missing #root element')
