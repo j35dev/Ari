@@ -149,7 +149,13 @@ export class GitReviewService {
       input: '',
     })
     if (!empty.ok) return empty
-    const index = await this.git.run(['write-tree'], { signal })
+    const indexTree = await this.checkpoints.indexTree(this.cwd, signal)
+    const index = indexTree.ok
+      ? indexTree
+      : err<SourceControlError>({
+          code: signal?.aborted ? 'unavailable' : 'failed',
+          message: indexTree.error.message,
+        })
     let base = endpoints.base ?? status.value.headOid ?? empty.value.trim()
     let head = endpoints.head
     let baseLabel = 'HEAD'
