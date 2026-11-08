@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, rm, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -230,6 +230,18 @@ export class GitService {
     return this.#withScratchIndex(cwd, (env) => this.#addAllAndWriteTree(cwd, env, signal), signal)
   }
 
+  /** Tree of the staged index, without Git rewriting the user's cached stat data. */
+  indexTree(cwd: string, signal?: AbortSignal): Promise<Result<string, GitError>> {
+    return this.#withScratchIndex(
+      cwd,
+      async (env) => {
+        const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, signal })
+        return tree.ok ? ok(tree.value.stdout.trim()) : tree
+      },
+      signal,
+    )
+  }
+
   /**
    * Runs `use` with `GIT_INDEX_FILE` pointing at a scratch copy of the real
    * index, so the user's index is never touched.
@@ -247,8 +259,16 @@ export class GitService {
     try {
       const scratchIndex = join(scratch, 'index')
       const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: scratchIndex }
-      // Seeding from the real index only spares re-hashing unchanged files.
-      await copyFile(resolve(cwd, index.value.stdout.trim()), scratchIndex).catch(() => undefined)
+      const sourceIndex = resolve(cwd, index.value.stdout.trim())
+      const copied = await stat(sourceIndex)
+        .then(async (sourceStat) => {
+          await copyFile(sourceIndex, scratchIndex)
+          return sourceStat
+        })
+        .catch(() => undefined)
+      // A newer copy mtime hides racily clean entries from Git's content check.
+      // Date precision rounds down, keeping the scratch no newer than the source.
+      if (copied) await utimes(scratchIndex, copied.atime, copied.mtime)
       return await use(env)
     } finally {
       await rm(scratch, { recursive: true, force: true })
