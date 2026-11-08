@@ -19,6 +19,7 @@ export const visualizationSchema = z
     z.strictObject({
       ...base,
       type: z.enum(['bar', 'line', 'area', 'radar']),
+      orientation: z.enum(['vertical', 'horizontal']).optional(),
       labels: z.array(label).min(1).max(64),
       series: z.array(series).min(1).max(8),
       unit: z.string().max(30).optional(),
@@ -60,8 +61,17 @@ export const visualizationSchema = z
     z.strictObject({
       ...base,
       type: z.literal('graph'),
+      direction: z.enum(['right', 'down']).default('right'),
       nodes: z
-        .array(z.strictObject({ id: label, label, description: z.string().max(300).optional() }))
+        .array(
+          z.strictObject({
+            id: label,
+            label,
+            description: z.string().max(300).optional(),
+            shape: z.enum(['process', 'decision', 'start', 'end']).default('process'),
+            tone: tone.optional(),
+          }),
+        )
         .min(1)
         .max(40),
       edges: z.array(z.strictObject({ from: label, to: label, label: label.optional() })).max(80),
@@ -122,6 +132,8 @@ export const visualizationSchema = z
       case 'line':
       case 'area':
       case 'radar':
+        if (visual.type !== 'bar' && visual.orientation !== undefined)
+          issue('Orientation is supported for bar charts only.')
         if (visual.series.some((s) => s.values.length !== visual.labels.length))
           issue('Each series must have one value per label.')
         if (visual.type === 'radar' && (visual.labels.length < 3 || visual.labels.length > 12))
