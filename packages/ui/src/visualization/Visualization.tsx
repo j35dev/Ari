@@ -12,43 +12,11 @@ import {
   ScatterChart,
   TreemapChart,
 } from './charts'
-import { GanttDiagram, GraphDiagram, MetricCards, TimelineDiagram } from './diagrams'
-import { visualizationData } from './data'
-
-function DataTable({ spec }: { spec: VisualizationSpec }) {
-  const data = visualizationData(spec)
-  return (
-    <div className="ari-viz-scroll">
-      <table className="ari-viz-table">
-        <caption className="ari-viz-sr-only">{spec.title} — data</caption>
-        <thead>
-          <tr>
-            {data.columns.map((column, i) => (
-              <th scope="col" key={i}>
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.rows.map((row, i) => (
-            <tr key={i}>
-              {row.map((cell, j) =>
-                j === 0 ? (
-                  <th scope="row" key={j}>
-                    {cell}
-                  </th>
-                ) : (
-                  <td key={j}>{cell}</td>
-                ),
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+import { GanttDiagram, MetricCards, TimelineDiagram } from './diagrams'
+import { GraphDiagram } from './GraphDiagram'
+import { InteractiveSurface } from './interaction'
+import { DataTable } from './DataTable'
+import { HorizontalBarsChart } from './HorizontalBarsChart'
 
 const typeLabels: Record<VisualizationSpec['type'], string> = {
   bar: 'Bar chart',
@@ -75,6 +43,9 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
   const [inspected, inspect] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [copyState, setCopyState] = useState('')
+  const [orientation, setOrientation] = useState(
+    spec.type === 'bar' ? (spec.orientation ?? 'vertical') : 'vertical',
+  )
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(source)
@@ -84,9 +55,11 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
     }
   }
   const series = 'series' in spec ? spec.series : null
-  const toggleSeries = (index: number): void => {
+  const toggleSeries = (index: number, isolate = false): void => {
     setHidden((current) => {
       const next = new Set(current)
+      if (isolate && series !== null)
+        return new Set(series.map((_, i) => i).filter((i) => i !== index))
       if (next.has(index)) next.delete(index)
       else if (series !== null && next.size < series.length - 1) next.add(index)
       return next
@@ -96,6 +69,13 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
   let chart: ReactNode
   switch (spec.type) {
     case 'bar':
+      chart =
+        orientation === 'horizontal' ? (
+          <HorizontalBarsChart spec={spec} hidden={hidden} inspect={inspect} />
+        ) : (
+          <CartesianChart spec={spec} hidden={hidden} inspect={inspect} />
+        )
+      break
     case 'line':
     case 'area':
       chart = <CartesianChart spec={spec} hidden={hidden} inspect={inspect} />
@@ -132,11 +112,31 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
       chart = <MetricCards spec={spec} />
       break
     case 'comparison':
-      chart = <DataTable spec={spec} />
+      chart = null
       break
   }
   const view = (
     <>
+      {spec.type === 'bar' && mode === 'visual' && (
+        <div className="ari-viz-bar-options">
+          <div className="ari-viz-layout-switch" role="group" aria-label="Bar orientation">
+            <button
+              type="button"
+              aria-pressed={orientation === 'vertical'}
+              onClick={() => setOrientation('vertical')}
+            >
+              Vertical bars
+            </button>
+            <button
+              type="button"
+              aria-pressed={orientation === 'horizontal'}
+              onClick={() => setOrientation('horizontal')}
+            >
+              Horizontal bars
+            </button>
+          </div>
+        </div>
+      )}
       {series !== null && mode === 'visual' && (
         <div className="ari-viz-series" role="group" aria-label="Data series">
           {series.map((s, i) => (
@@ -145,7 +145,8 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
               key={i}
               aria-pressed={!hidden.has(i)}
               disabled={!hidden.has(i) && hidden.size === series.length - 1}
-              onClick={() => toggleSeries(i)}
+              onClick={(event) => toggleSeries(i, event.shiftKey)}
+              title="Click to toggle; Shift-click to isolate"
             >
               <span className="ari-viz-swatch" style={{ background: color(i) }} />
               {s.name}
@@ -154,10 +155,25 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
         </div>
       )}
       <div className="ari-viz-body">
-        {mode === 'data' ? (
+        {mode === 'data' || spec.type === 'comparison' ? (
           <DataTable spec={spec} />
         ) : (
-          <div className="ari-viz-scroll">{chart}</div>
+          <InteractiveSurface resetKey={`${[...hidden].join(',')}:${orientation}`}>
+            <div
+              tabIndex={spec.type === 'graph' || spec.type === 'gantt' ? undefined : 0}
+              role={spec.type === 'graph' || spec.type === 'gantt' ? undefined : 'region'}
+              aria-label={
+                spec.type === 'graph' || spec.type === 'gantt' ? undefined : `${spec.title} visual`
+              }
+              className={
+                spec.type === 'graph' || spec.type === 'gantt'
+                  ? 'ari-viz-diagram-view'
+                  : 'ari-viz-scroll ari-viz-visual-scroll'
+              }
+            >
+              {chart}
+            </div>
+          </InteractiveSurface>
         )}
       </div>
       {mode === 'visual' && !['metrics', 'timeline', 'comparison'].includes(spec.type) && (

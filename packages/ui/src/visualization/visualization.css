@@ -222,6 +222,27 @@
   gap: 9px;
   font-size: var(--ari-text-xs);
 }
+.ari-viz-item-legend > button {
+  display: grid;
+  grid-template-columns: 7px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  margin: -2px -8px;
+  border: 0;
+  border-radius: var(--ari-radius-sm);
+  text-align: left;
+  background: transparent;
+  color: var(--ari-fg);
+  font: inherit;
+  font-size: var(--ari-text-xs);
+  cursor: pointer;
+}
+.ari-viz-item-legend > button:hover,
+.ari-viz-item-legend > button:focus-visible {
+  background: var(--ari-surface-2);
+}
 .ari-viz-item-legend strong {
   font-weight: 500;
   color: var(--ari-fg-muted);
@@ -270,6 +291,12 @@
 .ari-viz-timeline li:last-child {
   padding-bottom: 0;
   border-left-color: transparent;
+}
+.ari-viz-timeline li:focus-visible,
+.ari-viz-metrics > div:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: -2px;
+  border-radius: var(--ari-radius-sm);
 }
 .ari-viz-timeline-dot {
   position: absolute;
@@ -460,5 +487,357 @@
   }
   .ari-viz-modal-head {
     flex-wrap: wrap;
+  }
+}
+
+/* Inspectors portal out of scrollable SVGs and use the host's theme and overlay layer. */
+.ari-viz-tooltip {
+  z-index: var(--ari-z-context);
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  min-width: 190px;
+  padding: 13px 15px;
+  border: 1px solid var(--ari-border-strong);
+  border-radius: var(--ari-radius-md);
+  background: var(--ari-surface-2);
+  box-shadow: var(--ari-shadow-3);
+  color: var(--ari-fg);
+  font-family: var(--ari-font-ui);
+  font-size: var(--ari-text-sm);
+  line-height: 1.5;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.ari-viz-tooltip[data-pinned] {
+  pointer-events: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ari-border-strong) transparent;
+  user-select: text;
+}
+.ari-viz-visual-scroll:focus-visible,
+.ari-viz-table-scroll:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: -2px;
+}
+.ari-viz-tooltip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  justify-content: space-between;
+}
+.ari-viz-tooltip-head strong {
+  font-weight: 600;
+}
+.ari-viz-tooltip-head > span {
+  color: var(--ari-accent);
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-tooltip p {
+  margin: 6px 0 0;
+  color: var(--ari-fg-muted);
+}
+.ari-viz-tooltip dl {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+}
+.ari-viz-tooltip dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 28px;
+}
+.ari-viz-tooltip dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ari-fg-muted);
+}
+.ari-viz-tooltip dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-tooltip .ari-viz-tooltip-note {
+  margin-top: 10px;
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-tooltip-hint {
+  display: block;
+  margin-top: 11px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ari-border);
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+}
+.ari-viz-visual-scroll {
+  max-height: 430px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.ari-viz-bar-options {
+  padding: 0 20px 10px;
+}
+.ari-viz-heatmap-key {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 4px 8px 10px;
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-heatmap-key i {
+  display: block;
+  width: 80px;
+  height: 5px;
+  border-radius: 3px;
+}
+.ari-viz-data-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+.ari-viz-data-search {
+  flex: 1;
+  min-width: 100px;
+}
+.ari-viz-data-search input {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--ari-border-strong);
+  border-radius: var(--ari-radius-sm);
+  background: var(--ari-surface-1);
+  color: var(--ari-fg);
+  font: inherit;
+  font-size: var(--ari-text-xs);
+  outline: none;
+}
+.ari-viz-data-search input:focus {
+  border-color: var(--ari-accent);
+  box-shadow: 0 0 0 2px var(--ari-accent-subtle);
+}
+.ari-viz-data-search input::placeholder {
+  color: var(--ari-fg-subtle);
+}
+.ari-viz-row-count {
+  color: var(--ari-fg-subtle);
+  white-space: nowrap;
+  font-size: var(--ari-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-table-scroll {
+  max-height: 430px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-md);
+}
+.ari-viz-table-scroll .ari-viz-table {
+  table-layout: auto;
+}
+.ari-viz-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--ari-border-strong);
+}
+.ari-viz-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--ari-surface-0);
+  box-shadow: 1px 0 0 var(--ari-border);
+}
+.ari-viz-table thead th:first-child {
+  left: 0;
+  z-index: 3;
+}
+.ari-viz-table td {
+  min-width: 130px;
+}
+.ari-viz-table tbody tr:hover td,
+.ari-viz-table td:focus-visible {
+  background: var(--ari-surface-1);
+}
+.ari-viz-table td:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: -2px;
+}
+.ari-viz-data-empty {
+  padding: 28px 16px;
+  margin: 0;
+  text-align: center;
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-sm);
+}
+.ari-viz-interactive {
+  min-width: 0;
+}
+.ari-viz-canvas {
+  min-width: 0;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-md);
+  overflow: hidden;
+}
+.ari-viz-canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ari-border);
+  background: var(--ari-surface-1);
+}
+.ari-viz-canvas-options {
+  min-width: 0;
+}
+.ari-viz-zoom-controls,
+.ari-viz-layout-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ari-viz-zoom-controls button,
+.ari-viz-layout-switch button {
+  border: 0;
+  border-radius: var(--ari-radius-sm);
+  padding: 5px 8px;
+  min-height: 28px;
+  color: var(--ari-fg-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--ari-text-xs);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-zoom-controls button:hover,
+.ari-viz-layout-switch button:hover,
+.ari-viz-layout-switch button[aria-pressed='true'] {
+  background: var(--ari-surface-3);
+  color: var(--ari-fg);
+}
+.ari-viz-zoom-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ari-viz-viewport {
+  position: relative;
+  width: 100%;
+  height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ari-border-strong) var(--ari-surface-0);
+  cursor: grab;
+  touch-action: pan-x pan-y;
+  outline: none;
+}
+.ari-viz-viewport:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: -2px;
+}
+.ari-viz-viewport[data-dragging] {
+  cursor: grabbing;
+  user-select: none;
+}
+.ari-viz-artboard {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+  background-image: radial-gradient(var(--ari-border-strong) 0.7px, transparent 0.7px);
+  background-size: 22px 22px;
+}
+.ari-viz-canvas-content {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  transform-origin: top left;
+}
+.ari-viz-canvas-content > .ari-viz-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ari-viz-canvas-hint {
+  padding: 7px 12px;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+  border-top: 1px solid var(--ari-border);
+  background: var(--ari-surface-1);
+}
+.ari-viz-node-description {
+  fill: var(--ari-fg-subtle);
+  font-size: 11px;
+}
+.ari-viz-node,
+.ari-viz-edge {
+  transition: opacity var(--ari-dur-micro) ease;
+}
+.ari-viz-node-shape {
+  stroke-width: 1.4;
+}
+.ari-viz-node[data-active] .ari-viz-node-shape,
+.ari-viz-node[data-viz-pinned] .ari-viz-node-shape {
+  stroke-width: 2;
+}
+.ari-viz-graph .ari-viz-mark {
+  cursor: pointer;
+}
+.ari-viz-hit-target {
+  pointer-events: all;
+}
+.ari-viz-crosshair {
+  opacity: 0;
+  stroke: var(--ari-fg-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}
+.ari-viz-mark:hover .ari-viz-crosshair,
+.ari-viz-mark:focus-visible .ari-viz-crosshair,
+.ari-viz-mark[data-viz-pinned] .ari-viz-crosshair {
+  opacity: 0.6;
+}
+.ari-viz-mark:hover > .ari-viz-hit-target,
+.ari-viz-mark:focus-visible > .ari-viz-hit-target {
+  stroke: transparent;
+}
+.ari-viz-modal .ari-viz-viewport {
+  height: min(64dvh, 640px);
+}
+.ari-viz-modal .ari-viz-visual-scroll {
+  max-height: min(64dvh, 640px);
+}
+.ari-viz-modal .ari-viz-table-scroll {
+  max-height: min(64dvh, 640px);
+}
+@media (max-width: 600px) {
+  .ari-viz-viewport {
+    height: 310px;
+  }
+  .ari-viz-canvas-hint {
+    font-size: 10px;
+  }
+  .ari-viz-canvas-toolbar {
+    padding: 6px;
+  }
+  .ari-viz-zoom-controls button,
+  .ari-viz-layout-switch button {
+    min-height: 34px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ari-viz-node,
+  .ari-viz-edge {
+    transition: none;
   }
 }

@@ -20,11 +20,11 @@ Every object has `version: 1`, `type`, and `title`. Optional common fields are
 
 | Type | Required data | Optional fields |
 | --- | --- | --- |
-| `bar`, `line`, `area`, `radar` | `labels: string[]`, `series: {name, values: number[]}[]` | `unit`, `xLabel`, `yLabel` |
+| `bar`, `line`, `area`, `radar` | `labels: string[]`, `series: {name, values: number[]}[]` | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
 | `scatter` | `series: {name, points: {x: number, y: number, label?: string}[]}[]` | `xLabel`, `yLabel` |
 | `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]` | `unit` |
 | `heatmap` | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]` | `unit` |
-| `graph` | `nodes: {id, label, description?: string}[]`, `edges: {from, to, label?: string}[]` | — |
+| `graph` | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"` |
 | `timeline` | `events: {label, date?: string, description?: string, tone?: string}[]` | — |
 | `gantt` | `tasks: {label, start: number, end: number}[]` | `unit` |
 | `metrics` | `items: {label, value: string or number, detail?: string, tone?: string}[]` | — |
@@ -37,7 +37,10 @@ Each series needs one value per label. Radar charts need 3–12 nonnegative
 axes. Pie, donut, funnel and treemap values must be nonnegative and have a
 positive total. Heatmap rows match `yLabels`, columns match `xLabels`.
 Graph IDs are unique and edges reference those IDs; graphs support flows,
-architecture, dependencies and concept maps. Gantt endpoints use a shared
+architecture, dependencies and concept maps. Graph direction defaults to
+`right`; use `down` for vertical flows. Node shapes are `process` (default),
+`decision`, `start`, or `end`; optional node tones use the same theme roles.
+Use horizontal bars for long category names. Gantt endpoints use a shared
 numeric scale (for example days from the project start); end is at least start.
 Comparison rows need one string per column. Keep charts legible: at most 64
 categories, 8 series, 32 heatmap rows/columns, 40 diagram nodes/events/tasks,
@@ -62,8 +65,11 @@ For relationships rather than measurements:
 ````
 
 Close the fence when finished. Use top-level fences, outside lists, quotes, or
-other code examples. The user can inspect marks with the mouse or keyboard,
-toggle series, open a data table, copy the JSON, and expand a visualization.
+other code examples. The user can hover or focus marks for full data tooltips,
+click/tap or press Enter to pin an inspection, toggle or Shift-click to isolate
+series, filter and copy data tables, and expand a visualization. Graphs and
+schedules have two-axis scrolling, drag panning, zoom, actual-size and fit
+controls. Users can also change graph direction and bar orientation.
 Ordinary code blocks remain ordinary code. Prefer a table for exact lookup,
 a chart for numeric patterns, a graph for connections, and a timeline or
 schedule for sequence. Scientific/exportable figures can still be generated

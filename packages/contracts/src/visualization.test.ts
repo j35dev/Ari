@@ -79,4 +79,27 @@ describe('visualization contract', () => {
     })
     expect(parseVisualization('null').ok).toBe(false)
   })
+  it('accepts agent-authored graph shapes, theme tones and bar orientation', () => {
+    expect(visualizationSchema.safeParse({ ...bar, orientation: 'horizontal' }).success).toBe(true)
+    expect(
+      visualizationSchema.safeParse({ ...bar, type: 'line', orientation: 'horizontal' }).success,
+    ).toBe(false)
+    expect(
+      visualizationSchema.safeParse({
+        type: 'graph',
+        title: 'Decision',
+        direction: 'down',
+        nodes: [{ id: 'a', label: 'Ready?', shape: 'decision', tone: 'warning' }],
+        edges: [],
+      }).success,
+    ).toBe(true)
+    expect(
+      visualizationSchema.safeParse({
+        type: 'graph',
+        title: 'Custom color',
+        nodes: [{ id: 'a', label: 'A', tone: '#ff0000' }],
+        edges: [],
+      }).success,
+    ).toBe(false)
+  })
 })
