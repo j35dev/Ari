@@ -18,16 +18,30 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitReviewService } from './git-review'
 import { GitService } from './git-service'
 
+const failedIndexIo = vi.hoisted(() => ({ operation: '' }))
+
 // CopyFileW preserves mtime on Windows. Exercise the POSIX copy behavior on
 // every runner using real files and Git, without mocking stat or Git results.
 vi.mock('node:fs/promises', async (importOriginal) => {
   const fs = await importOriginal<typeof FsPromises>()
   return {
     ...fs,
+    stat: async (...args: Parameters<typeof fs.stat>) => {
+      if (failedIndexIo.operation === 'stat')
+        throw Object.assign(new Error('fixture index read denied'), { code: 'EACCES' })
+      return fs.stat(...args)
+    },
     copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
+      if (failedIndexIo.operation === 'copy')
+        throw Object.assign(new Error('fixture index copy denied'), { code: 'EACCES' })
       await fs.copyFile(...args)
       const now = new Date()
       await fs.utimes(args[1], now, now)
+    },
+    utimes: async (...args: Parameters<typeof fs.utimes>) => {
+      if (failedIndexIo.operation === 'utimes')
+        throw Object.assign(new Error('fixture index timestamp denied'), { code: 'EACCES' })
+      return fs.utimes(...args)
     },
   }
 })
@@ -39,6 +53,7 @@ const blob = (cwd: string, ref: string, path: string) =>
   execFileSync('git', ['cat-file', 'blob', `${ref}:${path}`], { cwd, windowsHide: true })
 
 afterEach(async () => {
+  failedIndexIo.operation = ''
   await Promise.all(
     roots
       .splice(0)
@@ -118,6 +133,28 @@ async function racilyClean(
 }
 
 describe('racy snapshot capture with fresh scratch-index mtimes', { timeout: 60_000 }, () => {
+  it.each(['stat', 'copy', 'utimes'])(
+    'refuses a snapshot when index %s fails',
+    async (operation) => {
+      const repo = await repository()
+      const index = await readFile(repo.index)
+      const head = git(repo.root, 'rev-parse', 'HEAD')
+      failedIndexIo.operation = operation
+      const service = new GitService()
+      await expect(service.indexTree(repo.cwd)).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'command_failed' },
+      })
+      await expect(service.worktreeTree(repo.cwd)).resolves.toMatchObject({ ok: false })
+      await expect(service.captureCheckpoint(repo.cwd, 'racy', 'denied')).resolves.toMatchObject({
+        ok: false,
+      })
+      expect(await readFile(repo.index)).toEqual(index)
+      expect(git(repo.root, 'rev-parse', 'HEAD')).toBe(head)
+      expect(git(repo.root, 'for-each-ref', '--format=%(refname)', 'refs/ari')).toBe('')
+    },
+  )
+
   it.each([1577836800, 1577836800.250123])(
     'captures exact equal-size edits at timestamp %s',
     async (timestamp) => {
