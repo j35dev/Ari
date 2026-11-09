@@ -16,7 +16,7 @@ const HELM_COMMANDS =
   'projects, project ask|default, sessions [--query <words>] [--project <id>] [--active], session prompt|message|read|wait|stop|answer'
 
 const CLI_PERMISSIONS =
-  "Ari's own commands run without shell permission prompts by default, except `ari skill install`, which writes your agent configuration. Run one `ari` command per shell call without pipes, substitutions or command chains. Delegation needs no approval by default; Settings → Permissions can change either policy."
+  "Ari's own commands run without shell permission prompts by default, except `ari skill install`, which writes your agent configuration. Safe `ari` commands may be chained with `&&` or `||`; trailing `2>&1` and `| head` or `| tail` are allowed. Delegation needs no approval by default; Settings → Permissions can change either policy."
 
 /** Reports are written by agents that read untrusted files and pages. */
 const UNTRUSTED =

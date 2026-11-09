@@ -134,7 +134,8 @@ it('describes default orchestration permissions separately from provider tool ap
       expect(text).toContain("Ari's own commands run without shell permission prompts by default")
       expect(text).toContain('Delegation needs no approval by default')
       expect(text).toContain('except `ari skill install`')
-      expect(text).toContain('one `ari` command per shell call without pipes')
+      expect(text).toContain('Safe `ari` commands may be chained with `&&` or `||`')
+      expect(text).toContain('trailing `2>&1` and `| head` or `| tail` are allowed')
       expect(text).not.toContain('approvals always go to the user')
     }
   expect(controlPreamble({ ...root, lead: true }, null)).toContain(
