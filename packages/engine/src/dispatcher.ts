@@ -176,6 +176,8 @@ export function decideCommand(
     }
 
     case 'input.respond': {
+      if (command.expectedTurnId !== undefined && model.activeTurnId !== command.expectedTurnId)
+        return reject('question turn changed; refresh current context before answering')
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!model.activeTurnId) return reject('no active turn awaiting input')
       const pending = model.pendingInputs.find((i) => i.inputId === command.inputId)
@@ -259,7 +261,9 @@ function providerSwitch(
       afterTurnId: model.activeTurnId ?? model.lastTurn?.turnId ?? null,
       afterMessageId:
         model.messages.findLast(
-          (message) => message.origin?.kind !== 'completion' && message.origin?.kind !== 'question',
+          (message) =>
+            !message.origin ||
+            !['completion', 'question', 'coordination'].includes(message.origin.kind),
         )?.id ?? null,
     },
   ]

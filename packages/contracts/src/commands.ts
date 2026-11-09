@@ -96,6 +96,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     sessionId: z.string(),
     inputId: z.string(),
     value: z.string(),
+    /** Coordination answers must not cross into a later turn reusing the same input id. */
+    expectedTurnId: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal('checkpoint.revert'),

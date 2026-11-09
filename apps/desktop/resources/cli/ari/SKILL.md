@@ -442,15 +442,27 @@ mutually exclusive; keep the same key when retrying unchanged file contents.
 
 `session prompt` is an assignment that queues a new turn. `session message` and
 `parent message` are scoped coordination: they enter a durable recipient inbox
-and return `messageId` and actual `status` (`pending`, `delivered`, `consumed`, or
-`uncertain`). They do not queue another assignment or create automatic replies.
+and return `messageId` and actual `status` (`pending`, `delivering`, `delivered`,
+`consumed`, or `uncertain`). They do not queue another assignment.
 Only a created adapter that supports live steering receives them mid-turn.
 Buffered provider follow-ups are not reported as live delivery.
 
 Check `session inbox` after meaningful work chunks and before reporting a result.
 Read and act on a live-delivered note once, then acknowledge its exact message ID;
-inbox inspection leaves delivery and consumption distinct. A note to an idle agent
-stays in its inbox; use `session prompt` to assign a new turn.
+inbox inspection leaves delivery and consumption distinct. A note to an idle worker
+stays in its inbox and enters its next turn's context; use `session prompt` to assign
+new work. An explicit note back to the requester of delegated work can wake that
+idle coordinator once. Pending provider questions and approvals also wake their
+coordinator and Aria, including workers below leads. These are coordination notices,
+not assignments; respond only where needed and acknowledge after acting.
+
+`session status --recursive` includes workers under project leads. `session read`
+returns current `pendingInputs`, `pendingApprovals`, `questionOwnerSessionId` and
+`lastSeq` alongside the transcript. Answer only your own agent-owned question;
+coordinate with its named owner otherwise. Approvals always require the human's
+original approval card. A request notice's `request.resolvedAt` says it is obsolete,
+not that anyone consumed it. `delivering` means submission is in progress;
+`delivered` means the adapter accepted the prompt, not that the agent acted on it.
 
 `session wait` also returns immediately for incoming coordination or a direct
 child's lead-owned question, even when waiting for every target. Read the inbox

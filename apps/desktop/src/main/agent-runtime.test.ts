@@ -686,9 +686,9 @@ it('closes without waiting for a stuck retry and starts no cleanup after cancell
     projects,
   })
   const closeSupervisor = runtime.supervisor.close.bind(runtime.supervisor)
-  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(() => {
+  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(async () => {
     expect(retrySignal?.aborted).toBe(true)
-    closeSupervisor()
+    await closeSupervisor()
   })
   const closeApprovals = runtime.approvals.close.bind(runtime.approvals)
   const approvals = vi.spyOn(runtime.approvals, 'close').mockImplementation(() => {
