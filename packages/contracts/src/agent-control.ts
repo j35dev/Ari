@@ -3,6 +3,7 @@ import { orchestrationParams } from './orchestration'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
 import type { ProjectAgent, ResolvedProjectAgent } from './project'
+import type { HelmProjectContext } from './helm'
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -113,7 +114,7 @@ export interface ChildTask {
 }
 
 /** A project as Aria sees it. */
-export interface HelmProject {
+export interface HelmProject extends HelmProjectContext {
   projectId: string
   name: string
   path: string

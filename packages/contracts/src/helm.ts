@@ -8,6 +8,20 @@
  */
 export const HELM_PROJECT_ID = 'helm'
 export const HELM_NAME = 'Aria'
+export const HELM_MAX_PROJECTS = 15
+export const HELM_DESCRIPTION_CHARS = 100
+export const HELM_RECENT_SESSIONS = 3
+export const HELM_SESSION_TITLE_CHARS = 80
+
+/** Compact routing clues gathered by the desktop, without reading folders during a turn. */
+export interface HelmProjectContext {
+  description?: string | null
+  repository?: string | null
+  recentSessionTitles?: readonly string[]
+  open?: boolean
+  lastOpenedAt?: number
+  lastViewed?: boolean
+}
 
 export function isHelmSession(session: { projectId: string } | null | undefined): boolean {
   return session?.projectId === HELM_PROJECT_ID

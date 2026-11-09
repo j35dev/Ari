@@ -39,6 +39,7 @@ import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
 import { AriaThread } from './aria-thread'
 import { queryAriaOverview } from './aria-overview'
+import { ProjectContextCache, ProjectSelection } from './project-context'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1031,15 +1032,39 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  const projectContext = new ProjectContextCache()
+  const projectSelection = new ProjectSelection()
+  const refreshProjectContext = async (): Promise<void> => {
+    try {
+      await projectContext.refresh(
+        (await getProjectStore().load()).map((project) => ({
+          projectId: project.id,
+          path: project.path,
+        })),
+      )
+    } catch (error) {
+      log.warn('project context refresh failed', { error: String(error) })
+    }
+  }
+  // Turns use the last completed read; an unmounted folder never holds up Aria.
+  void refreshProjectContext()
+  const projectContextTimer = setInterval(() => void refreshProjectContext(), 30_000)
+  projectContextTimer.unref()
+  contents.once('destroyed', () => clearInterval(projectContextTimer))
   // Every project the user has added, as Aria reaches them.
-  const helmProjects = async (): Promise<HelmProject[]> =>
-    (await getProjectStore().load()).map((project) => ({
+  const helmProjects = async (): Promise<HelmProject[]> => {
+    const projects = (await getProjectStore().load()).map((project) => ({
       projectId: project.id,
       name: project.name,
       path: project.path,
       available: project.status === 'ok',
+      open: project.open,
+      lastOpenedAt: project.lastOpenedAt,
+      ...projectContext.get(project.id),
       ...(project.defaultAgent === undefined ? {} : { defaultAgent: project.defaultAgent }),
     }))
+    return projectSelection.withHistory(projects, await getSessionStore().listSessions())
+  }
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
   const engine = new Engine({
@@ -1656,7 +1681,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('session.workspace', async ({ sessionId }) => {
+    const viewedAt = Date.now()
     const { session } = await getSessionStore().load(sessionId)
+    // The shell requests this when its selected session changes, including restored panes.
+    if (session) projectSelection.record(session.projectId, viewedAt)
     return { path: session ? await engine.workspace(session) : null }
   })
 
@@ -2123,6 +2151,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Warm the watcher + mentions file index in the background; the index
     // walk is awaited lazily on the first `files.index` call instead.
     if (project.status === 'ok') void ensureProjectWatched(project)
+    void refreshProjectContext()
     return project
   })
 
@@ -2131,6 +2160,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('project.open', async (params) => {
     const project = await getProjectStore().open(params.path, params.name)
     if (project.status === 'ok') void ensureProjectWatched(project)
+    void refreshProjectContext()
     return project
   })
 
