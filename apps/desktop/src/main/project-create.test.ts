@@ -1,5 +1,15 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -18,7 +28,7 @@ let deps: ProjectCreateDeps
 const git = new GitService()
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'ari-project-create-'))
+  dir = await realpath(await mkdtemp(join(tmpdir(), 'ari-project-create-')))
   deps = {
     home: join(dir, 'home'),
     userData: join(dir, 'ari-data'),

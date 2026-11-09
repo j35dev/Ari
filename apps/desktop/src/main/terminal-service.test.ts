@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
-import type * as childProcess from 'node:child_process'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { exec } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import type * as ChildProcess from 'node:child_process'
 import {
   TerminalService,
   ptyUnavailableReason,
@@ -9,10 +10,22 @@ import {
   type PtyLike,
 } from './terminal-service'
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const original = await importOriginal<typeof childProcess>()
-  const exec = vi.fn((_command: string, _options: unknown, done: () => void) => done())
-  return { ...original, exec, default: { ...original, exec } }
+// Fake PTYs never authorize killing any real host PID in these tests.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  exec: vi.fn(),
+}))
+beforeEach(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => true)
+  vi.mocked(exec).mockImplementation((...args) => {
+    const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+    callback(null, '', '')
+    return {} as ReturnType<typeof exec>
+  })
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 type FakePty = PtyLike & {
@@ -27,7 +40,7 @@ function fakePty(): FakePty {
   const dataCbs: ((d: string) => void)[] = []
   const exitCbs: ((code: number) => void)[] = []
   const pty = {
-    pid: Math.floor(Math.random() * 100000),
+    pid: 1234,
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
@@ -87,12 +100,12 @@ describe('TerminalService', () => {
     expect(service.replay('missing')).toBe('')
   })
 
-  it('write/resize delegate to the pty; resize of dead session is safe', () => {
+  it('write/resize delegate to the pty; resize of dead session is safe', async () => {
     const { service, ptys } = makeService()
     service.create('t3', '.')
     service.write('t3', 'ls\r')
     service.resize('t3', 120, 30)
-    service.kill('t3')
+    await service.kill('t3')
     service.resize('t3', 80, 24) // dead — must not throw
     const pty = ptys[0]
     expect(pty?.write.mock.calls[0]).toEqual(['ls\r'])
@@ -126,6 +139,108 @@ describe('TerminalService', () => {
     expect(ptys[1]?.kill).toHaveBeenCalledOnce()
     expect(ptys[2]?.kill).not.toHaveBeenCalled()
     expect(service.has('sibling')).toBe(true)
+  })
+
+  it('closes all native handles and child trees exactly once and refuses late creation', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.mocked(exec).mockClear()
+    const { service, ptys } = makeService()
+    service.create('one', '.')
+    service.create('two', '.')
+    await service.close()
+    await service.close()
+    expect(ptys.map((pty) => pty.kill.mock.calls.length)).toEqual([1, 1])
+    expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenCalledWith(
+      'taskkill /PID 1234 /T /F',
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    )
+    expect(service.has('one')).toBe(false)
+    expect(service.has('two')).toBe(false)
+    expect(() => service.create('late', '.')).toThrow('Ari is shutting down')
+    expect(ptys).toHaveLength(2)
+  })
+
+  it('releases an exited terminal without attempting to kill a stale PID', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.mocked(exec).mockClear()
+    const { service, ptys } = makeService()
+    service.create('exited', '.')
+    ptys[0]!.emitExit()
+    await service.close()
+    expect(ptys[0]!.kill).toHaveBeenCalledOnce()
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('retains the native shell until tree enumeration completes and shutdown awaits a prior kill', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    let finish: (() => void) | undefined
+    vi.mocked(exec).mockImplementation((...args) => {
+      const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+      finish = () => {
+        callback(null, '', '')
+      }
+      return {} as ReturnType<typeof exec>
+    })
+    const { service, ptys } = makeService()
+    service.create('tree', '.')
+    // Like ConPTY, a backend can provide its PID after asynchronous startup.
+    ptys[0]!.pid = 5678
+    const killing = service.kill('tree')
+    expect(exec).toHaveBeenLastCalledWith(
+      'taskkill /PID 5678 /T /F',
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    )
+    expect(ptys[0]!.kill).not.toHaveBeenCalled()
+    expect(service.has('tree')).toBe(false)
+    let closed = false
+    const closing = service.close().then(() => {
+      closed = true
+    })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    finish!()
+    await killing
+    await closing
+    expect(ptys[0]!.kill).toHaveBeenCalledOnce()
+    expect(closed).toBe(true)
+    await service.close()
+    expect(ptys[0]!.kill).toHaveBeenCalledOnce()
+  })
+
+  it.each(['callback', 'launch'])(
+    'releases the native handle when tree cleanup fails at %s',
+    async (failure) => {
+      vi.stubGlobal('process', { ...process, platform: 'win32' })
+      vi.mocked(exec).mockImplementation((...args) => {
+        if (failure === 'launch') throw new Error('could not start taskkill')
+        const callback = args.at(-1) as (
+          error: Error | null,
+          stdout: string,
+          stderr: string,
+        ) => void
+        callback(new Error('already gone'), '', '')
+        return {} as ReturnType<typeof exec>
+      })
+      const { service, ptys } = makeService()
+      service.create('failed', '.')
+      await service.kill('failed')
+      expect(ptys[0]!.kill).toHaveBeenCalledOnce()
+      await service.close()
+    },
+  )
+
+  it('releases a PTY that has not obtained a PID without targeting PID zero', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.mocked(exec).mockClear()
+    const { service, ptys } = makeService()
+    service.create('starting', '.')
+    ptys[0]!.pid = 0
+    await service.close()
+    expect(exec).not.toHaveBeenCalled()
+    expect(ptys[0]!.kill).toHaveBeenCalledOnce()
   })
 })
 

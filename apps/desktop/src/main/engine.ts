@@ -181,6 +181,7 @@ interface ActiveTurn {
   sessionId: string
   turnId: string
   interrupt: () => void
+  dispose: () => Promise<void>
   /** Forwards approval decisions into the live adapter (M16.8). */
   respondApproval: (approvalId: string, decision: AdapterApprovalDecision) => void
   /** Forwards an answered agent question into the live adapter. */
@@ -235,6 +236,42 @@ export class Engine {
   readonly #providerReleases = new Map<string, Promise<void>>()
   readonly #executingTurnIds = new Map<string, string>()
   readonly #capacityBlockedQueues = new Map<string, Set<string>>()
+  #closing = false
+  #shutdown: Promise<void> | null = null
+
+  /** Stop admission, interrupt active/startup turns, and await provider disposal. */
+  shutdown(closeRetained: () => Promise<void> = () => Promise.resolve()): Promise<void> {
+    if (this.#shutdown) return this.#shutdown
+    this.#closing = true
+    const sessionIds = [...this.#turnTasks.keys()]
+    this.#shutdown = Promise.resolve().then(async () => {
+      // Stop live transports immediately, even when a command is awaiting
+      // provider I/O. Protocol cancellation alone need not end that provider.
+      const active = [...this.#activeTurns.values()]
+      for (const turn of active) {
+        try {
+          turn.interrupt()
+        } catch (error) {
+          log.warn('provider cancellation failed during shutdown', { error })
+        }
+      }
+      const disposed = Promise.allSettled(active.map((turn) => turn.dispose())).then(closeRetained)
+      // Commands already awaiting I/O may still own a turn's startup gate.
+      await Promise.allSettled(this.#commands.values())
+      await Promise.allSettled(
+        [...new Set([...sessionIds, ...this.#turnTasks.keys()])].map((sessionId) =>
+          this.#dispatch({ type: 'turn.interrupt', sessionId }),
+        ),
+      )
+      await disposed
+      await closeRetained()
+      await Promise.allSettled(this.#turnTasks.values())
+      // Providers completing startup during shutdown may retain a transport
+      // in dispose(). The owner closes those after the final turn exits too.
+      await closeRetained()
+    })
+    return this.#shutdown
+  }
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
@@ -490,6 +527,8 @@ export class Engine {
     command: Command,
     origin?: MessageOrigin,
   ): Promise<{ accepted: boolean; reason?: string }> {
+    if (this.#closing && command.type !== 'turn.interrupt')
+      return { accepted: false, reason: 'Ari is shutting down' }
     if (!('sessionId' in command)) {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
@@ -554,6 +593,8 @@ export class Engine {
       const reason = await this.#deps.authorizeTurn(model.session)
       if (reason) return { accepted: false, reason }
     }
+    if (this.#closing && command.type !== 'turn.interrupt')
+      return { accepted: false, reason: 'Ari is shutting down' }
     let releaseTurn: ((persisted: boolean) => void) | undefined
     if (startRequest !== null) {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
@@ -811,6 +852,10 @@ export class Engine {
     turnId: string,
     providerContext: ProviderTurnContext,
   ): Promise<void> {
+    if (this.#closing) {
+      await this.#settle(session.id, turnId, 'interrupted', null)
+      return
+    }
     const { resumeOf, handoff, contextSeq } = providerContext
     const releaseError = (error: unknown): void =>
       log.warn('provider connection release failed', {
@@ -927,6 +972,10 @@ export class Engine {
         return
       }
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
+      if (this.#closing) {
+        await this.#settle(session.id, turnId, 'interrupted', null)
+        return
+      }
       hasControl = runtimeEnv?.ARI_ENV === '1'
       // What Ari tells this session goes through the provider's system
       // channel when the driver has one. A note at the top of the user's
@@ -976,10 +1025,15 @@ export class Engine {
       return
     }
 
-    if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
-      adapter.interrupt()
+    if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId || this.#closing) {
+      try {
+        adapter.interrupt()
+      } catch (error) {
+        log.warn('provider cancellation failed before startup completed', { error })
+      }
       await adapter.dispose()
       await this.#releaseProviderConnection(session.id, contextSeq)
+      if (this.#closing) await this.#settle(session.id, turnId, 'interrupted', null)
       await this.#captureTurnEnd(session.id, turnId)
       return
     }
@@ -989,6 +1043,11 @@ export class Engine {
     // A result joins the message holding its call, even across a split.
     const callMessageIds = new Map<string, string>()
     const capabilities = getProviderCapabilities(adapter)
+    let disposal: Promise<void> | null = null
+    const dispose = (): Promise<void> => {
+      disposal ??= Promise.resolve().then(() => adapter.dispose())
+      return disposal
+    }
     this.#activeTurns.set(session.id, {
       capabilities: {
         approval:
@@ -1002,9 +1061,11 @@ export class Engine {
       sessionId: session.id,
       turnId,
       interrupt: () => {
+        if (interrupted) return
         interrupted = true
         adapter.interrupt()
       },
+      dispose,
       respondApproval: (approvalId, decision) => {
         adapter.respondApproval?.(approvalId, decision)
       },
@@ -1327,7 +1388,7 @@ export class Engine {
     } finally {
       try {
         try {
-          await adapter.dispose()
+          await dispose()
         } finally {
           this.#activeTurns.delete(session.id)
         }
@@ -1448,6 +1509,7 @@ export class Engine {
    * concurrent enqueue can slip between the snapshot and the decision.
    */
   async #drainQueue(sessionId: string): Promise<void> {
+    if (this.#closing) return
     const fresh = await this.#deps.store.load(sessionId)
     const session = fresh.session
     if (!session || fresh.activeTurnId !== null) return
@@ -1491,6 +1553,7 @@ export class Engine {
       }
     }
     this.#capacityBlockedQueues.get(session.rootSessionId ?? session.id)?.delete(sessionId)
+    if (this.#closing) return
     const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
     const decision = decideCommand(
       fresh,

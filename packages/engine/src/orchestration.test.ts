@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { controlParams, delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
@@ -66,6 +66,8 @@ const reload = () => {
       return { content: content.slice(0, maxChars), truncated: content.length > maxChars }
     },
     freezeBase: (session, key) => workspaces.snapshot(repo, `refs/ari/orchestration/${key}/base`),
+    readResultDiff: (session, snapshot, selection, signal) =>
+      workspaces.readResultDiff(session, snapshot, selection, signal),
   })
 }
 
@@ -183,6 +185,160 @@ async function settle(
   })
   return turnId
 }
+
+it('pins result review to the historical identity without capturing current worker files', async () => {
+  const task = await launch('pinned-review')
+  const worker = (await store.load(attempt(task).sessionId!)).session!
+  if (worker.workspace?.kind !== 'managed-worktree') throw new Error('expected isolated workspace')
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'historical result\n')
+  await settle(task)
+  const view = await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+  const result = view.tasks[0]!.results[0]!
+  const target = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    resultId: result.resultId,
+    attemptId: result.attemptId,
+    version: result.version,
+    snapshotCommit: result.snapshotCommit!,
+  }
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'current worker files\n')
+  const capture = vi.spyOn(workspaces, 'snapshot')
+  const liveDiff = vi.spyOn(host, 'diff')
+  const manifest = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    kind: 'files',
+  })
+  if (manifest.kind !== 'files') throw new Error('expected metadata')
+  expect(manifest).not.toHaveProperty('patch')
+  const patch = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    kind: 'file',
+    baseCommit: manifest.baseCommit,
+    path: 'file.txt',
+  })
+  if (patch.kind !== 'file') throw new Error('expected file')
+  expect(patch.patch).toContain('+historical result')
+  expect(patch.patch).not.toContain('+current worker files')
+  expect(capture).not.toHaveBeenCalled()
+  expect(liveDiff).not.toHaveBeenCalled()
+  for (const mismatch of [
+    { attemptId: 'another' },
+    { version: 2 },
+    { snapshotCommit: 'f'.repeat(40) },
+  ])
+    await expect(
+      orchestration.invoke('root', 'orchestration.result.diff', {
+        ...target,
+        ...mismatch,
+        kind: 'files',
+      }),
+    ).rejects.toMatchObject({ code: 'stale_result' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      kind: 'file',
+      baseCommit: 'f'.repeat(40),
+      path: 'file.txt',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      resultId: 'missing',
+      kind: 'files',
+    }),
+  ).rejects.toMatchObject({ code: 'result_not_found' })
+  const load = store.load.bind(store)
+  const moved = vi.spyOn(store, 'load').mockImplementation(async (id) => {
+    const state = await load(id)
+    return id === worker.id
+      ? {
+          ...state,
+          session: { ...state.session!, parentSessionId: 'outside-family' },
+        }
+      : state
+  })
+  await expect(
+    orchestration.invoke('root', 'orchestration.result.diff', {
+      ...target,
+      kind: 'files',
+    }),
+  ).rejects.toMatchObject({ code: 'scope_denied' })
+  moved.mockRestore()
+  capture.mockRestore()
+  liveDiff.mockRestore()
+}, 60_000)
+
+it.each(['parentSessionId', 'projectId'] as const)(
+  'rejects result mutations before worker effects when its %s leaves the family',
+  async (field) => {
+    const task = await launch(`foreign-result-${field}`)
+    const worker = (await store.load(attempt(task).sessionId!)).session!
+    if (worker.workspace?.kind !== 'managed-worktree')
+      throw new Error('expected isolated workspace')
+    await writeFile(join(worker.workspace.path, 'file.txt'), 'result changes\n')
+    await settle(task)
+    const view = await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+    const result = view.tasks[0]!.results[0]!
+    const target = {
+      sessionId: 'root',
+      taskId: task.taskId,
+      resultId: result.resultId,
+      snapshotCommit: result.snapshotCommit!,
+    }
+    await orchestration.invoke('root', 'orchestration.review', {
+      ...target,
+      state: 'accepted',
+      idempotencyKey: 'accept-before-move',
+    })
+    const load = store.load.bind(store)
+    vi.spyOn(store, 'load').mockImplementation(async (id) => {
+      const state = await load(id)
+      return id === worker.id
+        ? {
+            ...state,
+            session: { ...state.session!, [field]: 'outside-family' },
+            lastTurn: { ...state.lastTurn!, turnId: 'outside-family-turn' },
+          }
+        : state
+    })
+    const liveDiff = vi.spyOn(host, 'diff')
+    const integrate = vi.spyOn(host, 'integrate')
+    const submitted = submissions
+    for (const method of [
+      'orchestration.review',
+      'orchestration.verify',
+      'orchestration.integrate',
+    ] as const)
+      await expect(
+        orchestration.invoke('root', method, {
+          ...target,
+          ...(method === 'orchestration.review' ? { state: 'changes_requested' } : {}),
+          idempotencyKey: `foreign-${method}`,
+        }),
+      ).rejects.toMatchObject({ code: 'scope_denied' })
+    await expect(
+      orchestration.invoke('root', 'orchestration.retry', {
+        sessionId: 'root',
+        taskId: task.taskId,
+        expectedResultId: result.resultId,
+        expectedAttemptId: result.attemptId,
+        expectedSnapshotCommit: result.snapshotCommit,
+        feedback: 'Fix this',
+        idempotencyKey: 'foreign-retry',
+      }),
+    ).rejects.toMatchObject({ code: 'scope_denied' })
+    expect(liveDiff).not.toHaveBeenCalled()
+    expect(integrate).not.toHaveBeenCalled()
+    expect(submissions).toBe(submitted)
+    const stored = (await load('root')).orchestration!.tasks[task.taskId]!
+    expect(stored.attempts).toHaveLength(1)
+    expect(stored.currentResultId).toBe(result.resultId)
+    expect(stored.results).toHaveLength(1)
+    expect(stored.results[0]!.reviewState).toBe('accepted')
+  },
+)
 
 it('keeps dependency waits distinct and dispatches only accepted prerequisites, rejecting cycles', async () => {
   const a = await launch('A')
@@ -303,6 +459,149 @@ it('versions failed and corrected results, preserves claims, and integrates only
   ).toBe('integrated')
 })
 
+it('integrates a complete result above the Git cap after conflict and explicit retry, with durable replay', async () => {
+  await writeFile(join(repo, '.gitignore'), '*.ignored\n')
+  await writeFile(join(repo, 'untouched.txt'), 'original\n')
+  await writeFile(join(repo, 'rename source.txt'), 'unique renamed contents\n')
+  await writeFile(join(repo, 'deleted.txt'), 'deleted contents\n')
+  await writeFile(join(repo, 'binary.dat'), Buffer.from([0, 1, 2, 255]))
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-qm', 'integration fixtures')
+  await writeFile(join(repo, 'untouched.txt'), 'staged parent\n')
+  git(repo, 'add', 'untouched.txt')
+  await writeFile(join(repo, 'untouched.txt'), 'unstaged parent\n')
+  await writeFile(join(repo, 'untracked.txt'), 'untracked parent\n')
+  await writeFile(join(repo, 'private.ignored'), 'ignored parent\n')
+
+  const task = await launch('large-integration')
+  const child = (await store.load(attempt(task).sessionId!)).session!
+  if (child.workspace?.kind !== 'managed-worktree') throw new Error('expected isolated workspace')
+  const worker = child.workspace.path
+  const binary = randomBytes(600_000)
+  const large = 'large line\n'.repeat(75_000)
+  await writeFile(join(worker, 'file.txt'), 'selected small result\n')
+  await rm(join(worker, 'rename source.txt'))
+  await writeFile(join(worker, 'renamed target.txt'), 'unique renamed contents\n')
+  await rm(join(worker, 'deleted.txt'))
+  await writeFile(join(worker, 'empty.txt'), '')
+  await writeFile(join(worker, 'binary.dat'), binary)
+  for (let i = 0; i < 5; i++) await writeFile(join(worker, `large-${i}.txt`), large)
+  await writeFile(join(worker, 'worker.ignored'), 'worker secret\n')
+  await settle(task)
+  const result = (
+    await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+  ).tasks[0]!.results.at(-1)!
+  const target = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    resultId: result.resultId,
+    snapshotCommit: result.snapshotCommit!,
+  }
+  const diffArgs = [
+    'diff',
+    '--binary',
+    '--no-ext-diff',
+    child.workspace.baseCommit,
+    target.snapshotCommit,
+  ]
+  const aggregateFile = join(dir, 'aggregate.patch')
+  git(worker, ...diffArgs, `--output=${aggregateFile}`, '--')
+  expect((await stat(aggregateFile)).size).toBeGreaterThan(4 * 1024 * 1024)
+  // The ordinary buffered plumbing stays capped; only integration may use a file sink.
+  expect(await workspaces.git.runPlumbing(worker, [...diffArgs, '--'])).toMatchObject({
+    ok: false,
+    error: { code: 'output_overflow', message: 'git output exceeded the byte cap' },
+  })
+  const manifest = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    attemptId: result.attemptId,
+    version: result.version,
+    kind: 'files',
+  })
+  if (manifest.kind !== 'files') throw new Error('expected manifest')
+  const selected = await orchestration.invoke('root', 'orchestration.result.diff', {
+    ...target,
+    attemptId: result.attemptId,
+    version: result.version,
+    kind: 'file',
+    baseCommit: manifest.baseCommit,
+    path: 'file.txt',
+  })
+  if (selected.kind !== 'file') throw new Error('expected selected file')
+  expect(selected.patch).toContain('+selected small result')
+  await orchestration.invoke('root', 'orchestration.review', {
+    ...target,
+    state: 'accepted',
+    idempotencyKey: 'accept-large',
+  })
+  await writeFile(join(repo, 'untouched.txt'), 'later unstaged parent\n')
+  await writeFile(join(repo, 'file.txt'), 'competing parent\n')
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const index = await readFile(join(repo, '.git', 'index'))
+  const stagedPatch = git(repo, 'diff', '--cached', '--binary')
+  const unstagedPatch = git(repo, 'diff', '--binary')
+  const assertParentWork = async () => {
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+    expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+    expect(git(repo, 'diff', '--cached', '--binary')).toBe(stagedPatch)
+    expect(await readFile(join(repo, 'untouched.txt'), 'utf8')).toBe('later unstaged parent\n')
+    expect(await readFile(join(repo, 'untracked.txt'), 'utf8')).toBe('untracked parent\n')
+    expect(await readFile(join(repo, 'private.ignored'), 'utf8')).toBe('ignored parent\n')
+    await expect(readFile(join(repo, 'worker.ignored'))).rejects.toThrow()
+  }
+  const params = { ...target, idempotencyKey: 'large-conflict' }
+  const conflict = await orchestration.invoke('root', 'orchestration.integrate', params)
+  expect(conflict).toMatchObject({ status: 'conflict', files: ['file.txt'] })
+  expect(git(repo, 'diff', '--binary')).toBe(unstagedPatch)
+  await assertParentWork()
+  await expect(readFile(join(repo, 'large-0.txt'))).rejects.toThrow()
+  expect(
+    (
+      await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+    ).tasks[0]!.results.at(-1)?.reviewState,
+  ).toBe('accepted')
+
+  await writeFile(join(repo, 'file.txt'), 'base\n')
+  // A completed conflict receipt is replayed even after the conflict is resolved.
+  expect(await orchestration.invoke('root', 'orchestration.integrate', params)).toEqual(conflict)
+  expect(integrationCalls).toBe(1)
+  const retry = { ...target, idempotencyKey: 'large-explicit-retry' }
+  const integrated = await orchestration.invoke('root', 'orchestration.integrate', retry)
+  expect(integrated).toMatchObject({ status: 'integrated', snapshotCommit: target.snapshotCommit })
+  expect(integrated.files).toEqual(
+    expect.arrayContaining([
+      'file.txt',
+      'binary.dat',
+      'deleted.txt',
+      'empty.txt',
+      'renamed target.txt',
+      ...Array.from({ length: 5 }, (_, i) => `large-${i}.txt`),
+    ]),
+  )
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('selected small result\n')
+  expect(await readFile(join(repo, 'binary.dat'))).toEqual(binary)
+  expect(await readFile(join(repo, 'empty.txt'))).toEqual(Buffer.alloc(0))
+  expect(await readFile(join(repo, 'renamed target.txt'), 'utf8')).toBe('unique renamed contents\n')
+  for (const path of ['rename source.txt', 'deleted.txt'])
+    await expect(readFile(join(repo, path))).rejects.toThrow()
+  for (let i = 0; i < 5; i++)
+    expect(await readFile(join(repo, `large-${i}.txt`), 'utf8')).toBe(large)
+  await assertParentWork()
+
+  await writeFile(join(repo, 'file.txt'), 'user edit after integration\n')
+  for (const row of await store.listSessions()) await store.closeJournal(row.id)
+  reload()
+  expect(await orchestration.invoke('root', 'orchestration.integrate', retry)).toEqual(integrated)
+  expect(integrationCalls).toBe(2)
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('user edit after integration\n')
+  await assertParentWork()
+  expect(
+    (
+      await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+    ).tasks[0]!.results.at(-1)?.reviewState,
+  ).toBe('integrated')
+}, 60_000)
+
 it('rejects stale snapshots without changing the parent tree', async () => {
   const task = await launch('stale')
   await settle(task)
@@ -322,6 +621,138 @@ it('rejects stale snapshots without changing the parent tree', async () => {
     }),
   ).rejects.toMatchObject({ code: 'stale_snapshot' })
   expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('base\n')
+})
+
+it('atomically rejects retry guards for a superseded result without new attempts or effects', async () => {
+  const first = await launch('guarded-retry')
+  await settle(first, 'Version one')
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  // A new settled turn lands after the result was rendered but before retry.
+  await settle(first, 'Version two')
+  const before = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  expect(before.currentResultId).not.toBe(result.resultId)
+  const created = vi.spyOn(host, 'create')
+  const isolated = vi.spyOn(host, 'isolate')
+  const submitted = submissions
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      sessionId: 'root',
+      taskId: first.taskId,
+      feedback: 'Correct version one',
+      newSession: true,
+      expectedResultId: result.resultId,
+      expectedAttemptId: result.attemptId,
+      expectedSnapshotCommit: result.snapshotCommit,
+      idempotencyKey: 'stale-retry',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  const after = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  expect(after.attempts).toEqual(before.attempts)
+  expect(after.currentResultId).toBe(before.currentResultId)
+  expect(created).not.toHaveBeenCalled()
+  expect(isolated).not.toHaveBeenCalled()
+  expect(submissions).toBe(submitted)
+  expect(integrationCalls).toBe(0)
+})
+
+it('guards attempts and snapshots, supports report-only null, and replays guarded retries', async () => {
+  const task = await launch('retry-identity')
+  await settle(task)
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  expect(result.snapshotCommit).toBeNull()
+  const base = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    expectedResultId: result.resultId,
+    expectedAttemptId: result.attemptId,
+    expectedSnapshotCommit: null,
+  }
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedAttemptId: 'different',
+      idempotencyKey: 'wrong-attempt',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: 'a'.repeat(40),
+      idempotencyKey: 'wrong-snapshot',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedResultId: null,
+      idempotencyKey: 'expected-no-result',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_result' })
+  const retried = await orchestration.invoke('root', 'orchestration.retry', {
+    ...base,
+    idempotencyKey: 'guarded',
+  })
+  expect(retried.attempts).toHaveLength(2)
+  const submitted = submissions
+  reload()
+  expect(
+    await orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      idempotencyKey: 'guarded',
+    }),
+  ).toEqual(retried)
+  expect(submissions).toBe(submitted)
+  // Preconditions are part of the durable fingerprint, not just local checks.
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: 'a'.repeat(40),
+      idempotencyKey: 'guarded',
+    }),
+  ).rejects.toMatchObject({ code: 'invalid_request' })
+})
+
+it('distinguishes an explicit report-only retry guard from an omitted code snapshot guard', async () => {
+  const task = await launch('code-retry-guard')
+  const worker = (await store.load(attempt(task).sessionId!)).session!
+  if (worker.workspace?.kind !== 'managed-worktree') throw new Error('expected isolated workspace')
+  await writeFile(join(worker.workspace.path, 'file.txt'), 'code result\n')
+  await settle(task)
+  const rendered = (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }))
+    .tasks[0]!
+  const result = rendered.results.at(-1)!
+  expect(result.snapshotCommit).not.toBeNull()
+  const base = {
+    sessionId: 'root',
+    taskId: task.taskId,
+    expectedResultId: result.resultId,
+    expectedAttemptId: result.attemptId,
+  }
+  const submitted = submissions
+  await expect(
+    orchestration.invoke('root', 'orchestration.retry', {
+      ...base,
+      expectedSnapshotCommit: null,
+      idempotencyKey: 'report-only-guard',
+    }),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  expect(submissions).toBe(submitted)
+  expect(
+    (await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })).tasks[0]!
+      .attempts,
+  ).toHaveLength(1)
+  // Callers may opt into result/attempt guards without a snapshot precondition.
+  const retried = await orchestration.invoke('root', 'orchestration.retry', {
+    ...base,
+    idempotencyKey: 'omitted-snapshot-guard',
+  })
+  expect(retried.attempts).toHaveLength(2)
 })
 
 it('routes actual human approvals and direct-parent questions with exact options and rejects dead callbacks', async () => {

@@ -1,5 +1,14 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile, utimes } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+  utimes,
+} from 'node:fs/promises'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -146,6 +155,127 @@ it('returns conflicts while preserving parent working files and index', async ()
   expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('parent\n')
   expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
 }, 20_000)
+
+it('does not apply a partially generated patch and removes its scratch file on failure', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'file.txt'), 'worker\n')
+  const diff = await manager.diff(child, false)
+  const index = await readFile(join(repo, '.git', 'index'))
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const run = manager.git.runPlumbing.bind(manager.git)
+  let patchFile: string | undefined
+  const plumbing = vi
+    .spyOn(manager.git, 'runPlumbing')
+    .mockImplementation(async (cwd, args, ...rest) => {
+      if (args[0] === 'diff' && args.includes('--binary')) {
+        patchFile = args.find((arg) => arg.startsWith('--output='))?.slice('--output='.length)
+        if (patchFile) await writeFile(patchFile, 'partial patch\n')
+        return { ok: false, error: { code: 'command_failed', message: 'patch generation failed' } }
+      }
+      return run(cwd, args, ...rest)
+    })
+  await expect(
+    manager.integrate(root, repo, child, diff.currentSnapshotCommit),
+  ).rejects.toMatchObject({
+    code: 'integration_failed',
+    message: 'patch generation failed',
+  })
+  expect(plumbing.mock.calls.some(([, args]) => args[0] === 'apply')).toBe(false)
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('base\n')
+  expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+  expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+  expect(patchFile).toBeDefined()
+  await expect(readFile(patchFile!)).rejects.toThrow()
+}, 20_000)
+
+it('keeps the parent race guard between patch generation and application and cleans the patch', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'file.txt'), 'worker\n')
+  const diff = await manager.diff(child, false)
+  const index = await readFile(join(repo, '.git', 'index'))
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const snapshot = manager.snapshot.bind(manager)
+  vi.spyOn(manager, 'snapshot').mockImplementation(async (cwd, ref, parent) => {
+    if (ref.endsWith('/integration-check'))
+      await writeFile(join(repo, 'parent-race.txt'), 'concurrent parent edit\n')
+    return snapshot(cwd, ref, parent)
+  })
+  const plumbing = vi.spyOn(manager.git, 'runPlumbing')
+  await expect(
+    manager.integrate(root, repo, child, diff.currentSnapshotCommit),
+  ).rejects.toMatchObject({
+    code: 'integration_parent_dirty',
+  })
+  expect(
+    plumbing.mock.calls.filter(([, args]) => args[0] === 'apply').map(([, args]) => args[1]),
+  ).toEqual(['--check'])
+  const output = plumbing.mock.calls
+    .flatMap(([, args]) => args)
+    .find((arg) => arg.startsWith('--output='))
+  expect(output).toBeDefined()
+  await expect(readFile(output!.slice('--output='.length))).rejects.toThrow()
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('base\n')
+  expect(await readFile(join(repo, 'parent-race.txt'), 'utf8')).toBe('concurrent parent edit\n')
+  expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+  expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+}, 20_000)
+
+it('integrates an empty delta without invoking apply', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  const diff = await manager.diff(child, false)
+  const index = await readFile(join(repo, '.git', 'index'))
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const plumbing = vi.spyOn(manager.git, 'runPlumbing')
+  expect(await manager.integrate(root, repo, child, diff.currentSnapshotCommit)).toEqual({
+    status: 'integrated',
+    snapshotCommit: diff.currentSnapshotCommit,
+    files: [],
+  })
+  expect(plumbing.mock.calls.some(([, args]) => args[0] === 'apply')).toBe(false)
+  expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+  expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+}, 20_000)
+
+it('rejects invalid, missing and foreign snapshots and stale parent previews before generating a patch', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'file.txt'), 'worker\n')
+  const diff = await manager.diff(child, false)
+  const other = await manager.snapshot(repo, 'refs/ari/orchestration/other/current')
+  git(
+    repo,
+    'update-ref',
+    `refs/ari/orchestration/child/snapshots/${other}`,
+    diff.currentSnapshotCommit,
+  )
+  const preview = await manager.snapshot(repo, 'refs/ari/orchestration/root/preview')
+  await writeFile(join(repo, 'parent.txt'), 'parent edit after preview\n')
+  const index = await readFile(join(repo, '.git', 'index'))
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const plumbing = vi.spyOn(manager.git, 'runPlumbing')
+  for (const [snapshot, code] of [
+    ['invalid', 'invalid_request'],
+    ['f'.repeat(40), 'integration_failed'],
+    [other, 'scope_denied'],
+  ])
+    await expect(manager.integrate(root, repo, child, snapshot!)).rejects.toMatchObject({ code })
+  await expect(
+    manager.integrate(root, repo, child, diff.currentSnapshotCommit, undefined, preview),
+  ).rejects.toMatchObject({ code: 'stale_snapshot' })
+  expect(
+    plumbing.mock.calls.some(([, args]) => args[0] === 'apply' || args.includes('--binary')),
+  ).toBe(false)
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('base\n')
+  expect(await readFile(join(repo, 'parent.txt'), 'utf8')).toBe('parent edit after preview\n')
+  expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+  expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+}, 30_000)
 
 it('names an isolated branch after the child title and releases a collision too', async () => {
   const id = 'sess_c2825b69-d75a-415c-aef6-1deba05b3ded'

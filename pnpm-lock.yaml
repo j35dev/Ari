@@ -341,6 +341,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@floating-ui/react-dom':
         specifier: ^2.1.9
         version: 2.1.9(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -368,6 +371,12 @@ importers:
       motion:
         specifier: ^13.1.1
         version: 13.1.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      remark-parse:
+        specifier: 11.0.0
+        version: 11.0.0
+      unified:
+        specifier: 11.0.5
+        version: 11.0.5
     devDependencies:
       '@types/react':
         specifier: ^19.2.18

@@ -12,7 +12,7 @@ it('creates an owner-only prompt file and disposes it once', async () => {
     expect(await readFile(prompt.path, 'utf8')).toBe('prompt 中文\nwith whitespace \n')
     if (process.platform === 'win32') {
       const command = `$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$acl = Get-Acl -LiteralPath '${prompt.path.replaceAll("'", "''")}'
+$acl = [System.IO.File]::GetAccessControl('${prompt.path.replaceAll("'", "''")}')
 @{owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; current = $sid; rules = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })} | ConvertTo-Json -Compress`
       const { stdout } = await promisify(execFile)(
         'powershell.exe',
@@ -22,9 +22,9 @@ $acl = Get-Acl -LiteralPath '${prompt.path.replaceAll("'", "''")}'
           '-EncodedCommand',
           Buffer.from(command, 'utf16le').toString('base64'),
         ],
-        // PowerShell 7's module path can prevent Windows PowerShell from loading
-        // its built-in Security module. Let the child rebuild its own defaults.
-        { windowsHide: true, env: { ...process.env, PSModulePath: undefined } },
+        // Use the framework ACL API so inherited PowerShell module paths cannot
+        // redirect Get-Acl to an incompatible PowerShell 7 Security module.
+        { windowsHide: true },
       )
       const acl = JSON.parse(stdout) as { owner: string; current: string; rules: string[] }
       expect(acl.owner).toBe(acl.current)

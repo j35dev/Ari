@@ -68,9 +68,11 @@ export function controlPreamble(
           ? leadNote(delivers)
           : parentNote(delivers)
   const body = session.parentSessionId ? brief : `${brief} ${CLI_PERMISSIONS}`
+  const visuals =
+    'When a visual helps answer the user, include a top-level `ari-viz` fenced code block containing a JSON object with version 1, type, title, and data. Ari renders it inline and matches the active theme automatically. Types: bar, line, area, scatter, pie, donut, radar, heatmap, treemap, funnel, graph, timeline, gantt, metrics, comparison. Use real data, label axes and units, and explain assumptions; use a visual only when it improves the answer. Do not include HTML, scripts, or custom colors. Run `ari --skill` for the exact data fields and examples.'
   if (channel === 'system')
-    return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool; call it as \`ari\`. ${body} Do not print the ARI_CONTROL_TOKEN environment variable.`
-  return `[${session.parentSessionId || launched ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} Never disclose ARI_CONTROL_TOKEN.]`
+    return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool; call it as \`ari\`. ${body} ${visuals} Do not print the ARI_CONTROL_TOKEN environment variable.`
+  return `[${session.parentSessionId || launched ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} ${visuals} Never disclose ARI_CONTROL_TOKEN.]`
 }
 
 function helmNote(delivers: boolean): string {

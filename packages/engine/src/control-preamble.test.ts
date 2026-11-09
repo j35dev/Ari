@@ -246,3 +246,14 @@ it('gives an Aria project lead lasting ownership and a worker integration protoc
   )
   expect(controlPreamble(lead, null, 'prompt', false)).toContain('Aria reads your report')
 })
+it('teaches roots, leads and workers to use the same themed visualization format', () => {
+  for (const session of [root, child, { ...root, lead: true as const }]) {
+    for (const channel of ['prompt', 'system'] as const) {
+      const text = controlPreamble(session, null, channel)
+      expect(text).toContain('`ari-viz` fenced code block')
+      expect(text).toContain('matches the active theme automatically')
+      expect(text).toContain('Do not include HTML, scripts, or custom colors')
+      expect(text).toContain('exact data fields and examples')
+    }
+  }
+})

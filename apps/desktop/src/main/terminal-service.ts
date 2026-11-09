@@ -52,10 +52,15 @@ export function ptyUnavailableReason(loadError: string | null): string {
     : 'terminal backend still loading'
 }
 
-async function killTree(pid: number): Promise<void> {
+function killTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
-    await new Promise<void>((done) => {
-      exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, () => done())
+    return new Promise((resolve) => {
+      try {
+        exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, () => resolve())
+      } catch {
+        // Still release the native handle if the cleanup process cannot start.
+        resolve()
+      }
     })
   } else {
     try {
@@ -68,11 +73,13 @@ async function killTree(pid: number): Promise<void> {
       }
     }
   }
+  return Promise.resolve()
 }
 
 interface Session {
   pty: PtyLike
   scrollback: string
+  exited: boolean
   cwd: string
 }
 
@@ -86,6 +93,8 @@ export class TerminalService {
   readonly #sessions = new Map<string, Session>()
   readonly #events: TerminalEvents
   readonly #spawnPty: PtyFactory
+  readonly #pendingKills = new Set<Promise<void>>()
+  #closed = false
 
   constructor(events: TerminalEvents, spawnPty: PtyFactory) {
     this.#events = events
@@ -107,6 +116,7 @@ export class TerminalService {
    * stdin for that program and cannot start another command.
    */
   spawn(id: string, file: string, args: string[], cwd: string, env: Record<string, string>): void {
+    if (this.#closed) throw new Error('Ari is shutting down')
     if (this.#sessions.has(id)) return
     const pty = this.#spawnPty(file, args, {
       name: 'xterm-256color',
@@ -114,7 +124,7 @@ export class TerminalService {
       env,
       windowsHide: true,
     })
-    const session: Session = { pty, scrollback: '', cwd: resolve(cwd) }
+    const session: Session = { pty, scrollback: '', exited: false, cwd: resolve(cwd) }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -123,7 +133,10 @@ export class TerminalService {
       }
       this.#events.onData(id, data)
     })
-    pty.onExit(() => this.#events.onExit(id))
+    pty.onExit(() => {
+      session.exited = true
+      this.#events.onExit(id)
+    })
   }
 
   write(id: string, data: string): void {
@@ -138,33 +151,43 @@ export class TerminalService {
     }
   }
 
-  kill(id: string): void {
-    void this.#kill(id)
-  }
-
-  /** Waits for shells opened inside a workspace before that directory is removed. */
+  /** Waits for shells inside a workspace before that directory is removed. */
   async killInWorkspace(root: string): Promise<void> {
     const ids = [...this.#sessions]
       .filter(([, session]) => isWithinRoot(session.cwd, root))
       .map(([id]) => id)
-    await Promise.all(ids.map((id) => this.#kill(id, true)))
+    await Promise.all(ids.map((id) => this.kill(id)))
   }
 
-  async #kill(id: string, treeFirst = false): Promise<void> {
+  kill(id: string): Promise<void> {
     const session = this.#sessions.get(id)
-    if (!session) return
+    if (!session) return Promise.resolve()
     this.#sessions.delete(id)
-    // Workspace removal must kill descendants while their parent PID still
-    // exists; a shell exiting first can leave children holding the directory.
-    if (treeFirst) await killTree(session.pty.pid)
-    // Tree shutdown alone leaks the ConPTY/file descriptor; release the
-    // native handle even when its process has already exited.
-    try {
-      session.pty.kill()
-    } catch {
-      // already gone
-    }
-    if (!treeFirst) await killTree(session.pty.pid)
+    const cleanup = (async () => {
+      try {
+        // Keep the shell alive until taskkill has enumerated its descendants.
+        // Closing ConPTY first can orphan detached children before /T runs.
+        // An exited shell's PID may already belong to another process.
+        if (!session.exited && session.pty.pid > 0) await killTree(session.pty.pid)
+      } finally {
+        // Tree termination does not release the native ConPTY/file descriptor.
+        try {
+          session.pty.kill()
+        } catch {
+          // already gone
+        }
+      }
+    })()
+    this.#pendingKills.add(cleanup)
+    void cleanup.finally(() => this.#pendingKills.delete(cleanup))
+    return cleanup
+  }
+
+  /** Release every native handle and its child process tree on app shutdown. */
+  async close(): Promise<void> {
+    this.#closed = true
+    for (const id of this.#sessions.keys()) void this.kill(id)
+    await Promise.all(this.#pendingKills)
   }
 
   replay(id: string): string {
