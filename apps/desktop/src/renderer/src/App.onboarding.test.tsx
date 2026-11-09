@@ -136,7 +136,7 @@ describe('App onboarding integration', () => {
       driverKind: 'claude',
       modelId: null,
       effort: null,
-      permissionMode: 'ask',
+      permissionMode: 'full',
     })
     expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
       'aria-current',
