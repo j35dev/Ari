@@ -1618,10 +1618,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const aria = new AriaThread({
     ...sessionDeps,
     listSessions: () => getSessionStore().listSessions(),
-    archive: async (sessionId) => {
-      const result = await engine.dispatch({ type: 'session.update', sessionId, archived: true })
-      if (!result.accepted) throw new Error(result.reason ?? 'Could not archive the topic.')
-    },
+    loadSession: async (sessionId) => (await getSessionStore().load(sessionId)).session,
+    destroySession,
     settings: async () => {
       await settingsReady()
       return getSettingsStore().current
@@ -1643,8 +1641,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   r.register('aria.open', (params) => aria.open(params))
-  r.register('aria.newTopic', (params) => aria.newTopic(params))
-  r.register('aria.topics', () => aria.topics())
+  r.register('aria.newChat', () => aria.newChat())
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
@@ -1679,10 +1676,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { at: await resumeSchedule.get(sessionId) }
   })
 
-  r.register('session.destroy', async (params) => {
+  async function destroySession(sessionId: string) {
     const store = getSessionStore()
-    const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
-    const parentId = (await store.load(params.sessionId)).session?.parentSessionId
+    const ids = [...descendantIds(await store.listSessions(), sessionId), sessionId]
+    const parentId = (await store.load(sessionId)).session?.parentSessionId
     for (const id of ids) {
       const model = await store.load(id)
       if (model.activeTurnId || engine.hasLiveTurn(id)) {
@@ -1699,10 +1696,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (parentId && (await store.load(parentId)).session)
       await engine.record(parentId, {
         type: 'child.session.destroyed',
-        childSessionId: params.sessionId,
+        childSessionId: sessionId,
       })
     return { destroyed: true }
-  })
+  }
+  r.register('session.destroy', ({ sessionId }) => destroySession(sessionId))
 
   // Sessions the user already has in pi, replayed into Ari's own journal. Read
   // only: pi's file stays where it is and stays resumable in pi afterwards.

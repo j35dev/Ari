@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SettingsStore } from './settings'
-import { settingsSchema, settingsUpdateSchema } from '@ari/contracts/settings'
+import { settingsUpdateSchema } from '@ari/contracts/settings'
 
 let dir: string
 
@@ -16,28 +16,25 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
-  it('defaults Aria to null, persists its choices and clears back to session defaults', async () => {
-    expect(settingsSchema.parse({ version: 1 }).aria).toBeNull()
+  it('drops retired Aria preferences while preserving app session defaults', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        aria: { driverKind: 'codex', modelId: 'gpt-6' },
+        sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'allow-edits' },
+      }),
+    )
     const store = new SettingsStore({ dir })
-    expect((await store.load()).aria).toBeNull()
-    await store.update({
-      aria: {
-        driverKind: 'codex',
-        modelId: 'gpt-6',
-        effort: 'high',
-        permissionMode: 'allow-edits',
-      },
-    })
+    expect(await store.load()).not.toHaveProperty('aria')
     await store.update({ notifications: { desktop: false } })
-    expect((await new SettingsStore({ dir }).load()).aria).toEqual({
-      driverKind: 'codex',
-      modelId: 'gpt-6',
-      effort: 'high',
-      permissionMode: 'allow-edits',
+    expect((await new SettingsStore({ dir }).load()).sessions).toEqual({
+      defaultDriverKind: 'claude',
+      defaultPermissionMode: 'allow-edits',
     })
-    await store.update({ aria: null })
-    expect((await new SettingsStore({ dir }).load()).aria).toBeNull()
-    expect(settingsUpdateSchema.safeParse({ aria: { driverKind: 'unknown' } }).success).toBe(false)
+    expect(JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))).not.toHaveProperty(
+      'aria',
+    )
   })
   it('caps retired oversized text preferences and rejects new oversized choices', async () => {
     const { writeFile } = await import('node:fs/promises')

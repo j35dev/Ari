@@ -1,45 +1,54 @@
 import { useState } from 'react'
-import { History, MoreHorizontal, Plus } from 'lucide-react'
+import { MoreHorizontal, Plus, X } from 'lucide-react'
 import { AriaMark } from '@ari/ui/aria-mark'
-import type { SessionSummary } from '@ari/contracts/rpc'
-import { rpc } from '../../lib/rpc'
 import { ContextMenu, type MenuAnchor } from '../../shell/ContextMenu'
 import type { ariaActivity } from './aria-activity'
-
-type RowMenu =
-  | { kind: 'actions'; anchor: MenuAnchor }
-  | { kind: 'topics'; anchor: MenuAnchor; topics: SessionSummary[] | null; error?: boolean }
 
 export function AriaRow({
   selected,
   activity,
   onOpen,
-  onNewTopic,
-  onOpenSession,
+  onNewChat,
 }: {
   selected: boolean
   activity: ReturnType<typeof ariaActivity>
   onOpen: () => void
-  onNewTopic: () => void
-  onOpenSession: (id: string) => void
+  onNewChat: () => void
 }) {
-  const [menu, setMenu] = useState<RowMenu | null>(null)
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
+  const [confirmNewChat, setConfirmNewChat] = useState(false)
   const count = activity.attention || activity.working
   const openMenu = (event: { clientX: number; clientY: number; preventDefault: () => void }) => {
     event.preventDefault()
-    setMenu({ kind: 'actions', anchor: { x: event.clientX, y: event.clientY } })
+    setAnchor({ x: event.clientX, y: event.clientY })
   }
-  const openTopics = (anchor: MenuAnchor) => {
-    const pending: RowMenu = { kind: 'topics', anchor, topics: null }
-    setMenu(pending)
-    void rpc
-      .invoke('aria.topics')
-      .then((topics) =>
-        setMenu((current) => (current === pending ? { ...pending, topics } : current)),
-      )
-      .catch(() =>
-        setMenu((current) => (current === pending ? { ...pending, error: true } : current)),
-      )
+  if (confirmNewChat) {
+    return (
+      <div className="shrink-0 px-2 pb-1">
+        <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-2xs text-danger">Delete Aria chat?</span>
+          <button
+            type="button"
+            aria-label="Confirm new Aria chat"
+            onClick={() => {
+              setConfirmNewChat(false)
+              onNewChat()
+            }}
+            className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+          >
+            New chat
+          </button>
+          <button
+            type="button"
+            aria-label="Cancel new Aria chat"
+            onClick={() => setConfirmNewChat(false)}
+            className="shrink-0 text-fg-subtle hover:text-fg"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+    )
   }
   return (
     <div className="group/aria relative shrink-0 px-2 pb-1">
@@ -67,50 +76,26 @@ export function AriaRow({
         type="button"
         aria-label="Aria actions"
         aria-haspopup="menu"
-        aria-expanded={menu !== null}
+        aria-expanded={anchor !== null}
         onClick={openMenu}
         className="absolute right-3.5 top-1 flex size-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 hover:bg-surface-2 hover:text-fg group-hover/aria:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <MoreHorizontal size={13} aria-hidden />
       </button>
-      {menu ? (
+      {anchor ? (
         <ContextMenu
-          key={
-            menu.kind === 'topics' && menu.topics === null && !menu.error ? 'loading' : menu.kind
-          }
-          anchor={menu.anchor}
-          label={menu.kind === 'actions' ? 'Aria actions' : 'Past topics'}
-          onClose={() => setMenu(null)}
-          items={
-            menu.kind === 'actions'
-              ? [
-                  { id: 'new', label: 'New topic', icon: Plus, onSelect: onNewTopic },
-                  {
-                    id: 'past',
-                    label: 'Past topics',
-                    icon: History,
-                    onSelect: () => openTopics(menu.anchor),
-                  },
-                ]
-              : menu.topics && menu.topics.length > 0
-                ? menu.topics.map((topic) => ({
-                    id: topic.id,
-                    label: topic.title,
-                    onSelect: () => onOpenSession(topic.id),
-                  }))
-                : [
-                    {
-                      id: 'empty',
-                      label: menu.error
-                        ? 'Could not load past topics.'
-                        : menu.topics === null
-                          ? 'Loading past topics…'
-                          : 'No past topics',
-                      disabled: true,
-                      onSelect: () => {},
-                    },
-                  ]
-          }
+          anchor={anchor}
+          label="Aria actions"
+          onClose={() => setAnchor(null)}
+          items={[
+            {
+              id: 'new',
+              label: 'New chat',
+              icon: Plus,
+              danger: true,
+              onSelect: () => setConfirmNewChat(true),
+            },
+          ]}
         />
       ) : null}
     </div>
