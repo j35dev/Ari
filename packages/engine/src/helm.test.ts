@@ -583,3 +583,13 @@ it('shows the resolved project agent and its source compactly in the snapshot', 
   const text = await helmSnapshot(view, await store.load('helm1'), resolved)
   expect(text).toContain('Web (web, claude/model, recent sessions)')
 })
+
+it('lists who started a session, so the sidebar can mark what Aria began', async () => {
+  const spawned = await service.invoke('helm1', 'session.spawn', launch)
+  const id = (spawned as { result: { child: Session } }).result.child.id
+  const row = (await store.listSessions()).find((entry) => entry.id === id)
+  expect(row?.createdBy).toEqual({ kind: 'session', sessionId: 'helm1' })
+  expect(
+    (await store.listSessions()).find((entry) => entry.id === 'web1')?.createdBy,
+  ).toBeUndefined()
+})
