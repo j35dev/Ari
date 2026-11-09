@@ -166,6 +166,22 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
+  /** Aria only: change the current lead's agent, or delete it and its workers. */
+  'projects.lead': z
+    .object({
+      projectId: target,
+      driverKind: driverKindSchema.optional(),
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      reset: z.boolean().default(false),
+      idempotencyKey: key,
+    })
+    .strict()
+    .refine((p) =>
+      p.reset
+        ? p.driverKind === undefined && p.modelId === undefined && p.effort === undefined
+        : p.driverKind !== undefined,
+    ),
   /** Aria only: sessions across every project, newest first. */
   'sessions.find': z
     .object({

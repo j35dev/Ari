@@ -18,11 +18,13 @@ function setup(
   projectId: string,
   accepted = true,
   evidence: 'history' | 'message' | 'ref' | 'running' | 'empty' = 'history',
+  lead = false,
 ) {
   const onPick = vi.fn()
   const session = {
     id: 'aria',
     projectId,
+    ...(lead ? { lead: true, createdBy: { kind: 'session' as const, sessionId: 'helm' } } : {}),
     title: 'Chat',
     driverKind: 'opencode' as const,
     modelId: 'current-model',
@@ -41,6 +43,7 @@ function setup(
         providerSessionId: evidence === 'ref' ? 'native' : null,
       }
     if (method === 'files.index') return { paths: [] }
+    if (method === 'speech.status') return { engine: 'missing', model: null, ready: false }
     if (method === 'providers.detect')
       return ['opencode', 'claude'].map((kind) => ({
         kind,
@@ -359,38 +362,41 @@ describe('Aria model picker', () => {
     },
   )
 
-  it('lists every ready provider mid-chat for Aria and sends an explicit switch', async () => {
-    const { emit } = setup('helm')
-    const user = userEvent.setup()
-    await screen.findByText('Earlier reply')
-    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
-    const providers = screen.getByRole('presentation', { name: 'Providers' })
-    await waitFor(() => expect(within(providers).getByText('OpenCode')).toBeVisible())
-    await user.click(within(providers).getByText('Claude'))
-    await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
-    expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
-      command: {
-        type: 'session.provider.switch',
+  it.each(['aria', 'lead'] as const)(
+    'lists every ready provider mid-chat for %s and sends an explicit switch',
+    async (kind) => {
+      const { emit } = setup(kind === 'aria' ? 'helm' : 'project', true, 'history', kind === 'lead')
+      const user = userEvent.setup()
+      await screen.findByText('Earlier reply')
+      await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+      const providers = screen.getByRole('presentation', { name: 'Providers' })
+      await waitFor(() => expect(within(providers).getByText('OpenCode')).toBeVisible())
+      await user.click(within(providers).getByText('Claude'))
+      await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
+      expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
+        command: {
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'claude',
+          modelId: 'opus',
+          effort: null,
+        },
+      })
+      expect(await screen.findByRole('button', { name: /Model: Claude · Opus/ })).toBeVisible()
+      emit({
+        seq: 5,
+        at: 2,
         sessionId: 'aria',
+        type: 'session.provider.switched',
         driverKind: 'claude',
         modelId: 'opus',
         effort: null,
-      },
-    })
-    expect(await screen.findByRole('button', { name: /Model: Claude · Opus/ })).toBeVisible()
-    emit({
-      seq: 5,
-      at: 2,
-      sessionId: 'aria',
-      type: 'session.provider.switched',
-      driverKind: 'claude',
-      modelId: 'opus',
-      effort: null,
-      afterTurnId: 'first',
-      afterMessageId: 'reply',
-    })
-    expect(await screen.findByRole('separator')).toHaveTextContent('Switched to Claude · Opus')
-  })
+        afterTurnId: 'first',
+        afterMessageId: 'reply',
+      })
+      expect(await screen.findByRole('separator')).toHaveTextContent('Switched to Claude · Opus')
+    },
+  )
 
   it('keeps an ordinary session locked to its provider after its first turn', async () => {
     setup('project')

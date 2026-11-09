@@ -1268,7 +1268,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           return result
         },
         projectAgentDefaults: () => ({
-          driverKind: getSettingsStore().current.sessions.defaultDriverKind,
           permissionMode: getSettingsStore().current.sessions.defaultPermissionMode,
         }),
         setProjectDefault: async (id, agent) =>

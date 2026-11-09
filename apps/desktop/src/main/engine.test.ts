@@ -175,39 +175,50 @@ describe('Aria provider switching', () => {
     },
   )
 
-  it('consumes a ref-less handoff only after a completed turn', async () => {
-    const created: AdapterSession[] = []
-    const registry = new DriverRegistry()
-    registry.register(recordingDriver('claude', created))
-    registry.register({
-      kind: 'opencode',
-      create: async (session) => {
-        created.push(session)
-        return {
-          start: () =>
-            (async function* (): AsyncGenerator<AgentEvent> {
-              yield { type: 'done' }
-            })(),
-          interrupt: () => undefined,
-          dispose: async () => undefined,
-        }
-      },
-    })
-    const engine = engineWith(registry)
-    await seedSession(store, 'aria', 'helm')
-    await turn(engine, 'Existing conversation.')
-    await engine.dispatch({
-      type: 'session.provider.switch',
-      sessionId: 'aria',
-      driverKind: 'opencode',
-      modelId: null,
-      effort: null,
-    })
-    await turn(engine, 'Continue.')
-    expect((await store.load('aria')).providerHandoffPending).toBe(false)
-    await turn(engine, 'Next.')
-    expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
-  })
+  it.each(['aria', 'lead'] as const)(
+    'consumes a ref-less %s handoff only after a completed turn',
+    async (kind) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'done' }
+              })(),
+            interrupt: () => undefined,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(
+        store,
+        'aria',
+        kind === 'aria' ? 'helm' : 'project',
+        kind === 'lead' ? { lead: true, createdBy: { kind: 'session', sessionId: 'helm' } } : {},
+      )
+      await turn(engine, 'Existing conversation.')
+      expect(
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'opencode',
+          modelId: null,
+          effort: null,
+        }),
+      ).toMatchObject({ accepted: true })
+      await turn(engine, 'Continue.')
+      expect(created.at(-1)!.prompt).toContain('User: Existing conversation.')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+      await turn(engine, 'Next.')
+      expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+    },
+  )
 
   it('serializes a provider switch behind turn authorization and journals the same provider the turn uses', async () => {
     const created: AdapterSession[] = []
@@ -831,67 +842,75 @@ describe('Aria provider switching', () => {
     },
   )
 
-  it('lets the running turn finish and switches its queued follow-up, ignoring late refs', async () => {
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const created: AdapterSession[] = []
-    const interrupt = vi.fn()
-    const registry = new DriverRegistry()
-    registry.register({
-      kind: 'claude',
-      create: async (session) => {
-        created.push(session)
-        return {
-          start: () =>
-            (async function* (): AsyncGenerator<AgentEvent> {
-              yield { type: 'text-delta', text: 'Working. ' }
-              await gate
-              yield { type: 'session-ref', ref: 'late-claude-thread' }
-              yield { type: 'text-delta', text: 'Finished the old turn.' }
-              yield { type: 'done' }
-            })(),
-          interrupt,
-          dispose: async () => undefined,
-        }
-      },
-    })
-    registry.register(recordingDriver('opencode', created))
-    const engine = engineWith(registry)
-    await seedSession(store, 'aria', 'helm')
-    await engine.dispatch({
-      type: 'turn.start',
-      sessionId: 'aria',
-      text: 'Start work.',
-      attachments: [],
-    })
-    await expect.poll(() => created.length).toBe(1)
-    const running = (await store.load('aria')).activeTurnId
-    await engine.dispatch({
-      type: 'session.provider.switch',
-      sessionId: 'aria',
-      driverKind: 'opencode',
-      modelId: 'next-model',
-      effort: null,
-    })
-    expect((await store.load('aria')).activeTurnId).toBe(running)
-    expect(interrupt).not.toHaveBeenCalled()
-    await engine.dispatch({
-      type: 'message.enqueue',
-      sessionId: 'aria',
-      text: 'Next turn.',
-      attachments: [],
-    })
-    release()
-    await expect.poll(() => created.length, { timeout: 5_000 }).toBe(2)
-    await engine.quiesce('aria')
-    expect(created[1]!).toMatchObject({ resumeOf: null, modelId: 'next-model' })
-    expect(created[1]!.prompt).toContain('Finished the old turn.')
-    expect(created[1]!.prompt).toContain('User: Start work.')
-    expect(created[1]!.prompt).toContain('[Ari now: test]\n\nNext turn.')
-    expect((await store.load('aria')).providerSessionId).toBe('opencode-2')
-  })
+  it.each(['aria', 'lead'] as const)(
+    'lets the running %s turn finish and switches its queued follow-up, ignoring late refs',
+    async (kind) => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const created: AdapterSession[] = []
+      const interrupt = vi.fn()
+      const registry = new DriverRegistry()
+      registry.register({
+        kind: 'claude',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'text-delta', text: 'Working. ' }
+                await gate
+                yield { type: 'session-ref', ref: 'late-claude-thread' }
+                yield { type: 'text-delta', text: 'Finished the old turn.' }
+                yield { type: 'done' }
+              })(),
+            interrupt,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      registry.register(recordingDriver('opencode', created))
+      const engine = engineWith(registry)
+      await seedSession(
+        store,
+        'aria',
+        kind === 'aria' ? 'helm' : 'project',
+        kind === 'lead' ? { lead: true, createdBy: { kind: 'session', sessionId: 'helm' } } : {},
+      )
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Start work.',
+        attachments: [],
+      })
+      await expect.poll(() => created.length).toBe(1)
+      const running = (await store.load('aria')).activeTurnId
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: 'next-model',
+        effort: null,
+      })
+      expect((await store.load('aria')).activeTurnId).toBe(running)
+      expect(interrupt).not.toHaveBeenCalled()
+      await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId: 'aria',
+        text: 'Next turn.',
+        attachments: [],
+      })
+      release()
+      await expect.poll(() => created.length, { timeout: 5_000 }).toBe(2)
+      await engine.quiesce('aria')
+      expect(created[1]!).toMatchObject({ resumeOf: null, modelId: 'next-model' })
+      expect(created[1]!.prompt).toContain('Finished the old turn.')
+      expect(created[1]!.prompt).toContain('User: Start work.')
+      expect(created[1]!.prompt).toContain('[Ari now: test]\n\nNext turn.')
+      expect((await store.load('aria')).providerSessionId).toBe('opencode-2')
+    },
+  )
 
   it('starts fresh each time Aria switches back and forth, even when returning to a known provider', async () => {
     const created: AdapterSession[] = []
@@ -930,7 +949,10 @@ describe('Aria provider switching', () => {
         modelId: 'model',
         effort: null,
       }),
-    ).toMatchObject({ accepted: false, reason: 'provider switching is only available to Aria' })
+    ).toMatchObject({
+      accepted: false,
+      reason: 'provider switching is only available to Aria and its project leads',
+    })
     expect(published).toEqual([])
     expect((await store.load('ordinary')).session?.driverKind).toBe('claude')
   })

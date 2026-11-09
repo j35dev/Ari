@@ -48,6 +48,11 @@ export function isHelmProjectLead(
   )
 }
 
+/** These coordinators can carry their conversation to a different provider. */
+export function canSwitchProvider(session: Parameters<typeof isHelmProjectLead>[0]): boolean {
+  return isHelmSession(session) || isHelmProjectLead(session)
+}
+
 /** Aria has its own entry point, outside the project's navigation surfaces. */
 export function visibleProjects<T extends { id: string }>(projects: readonly T[]): T[] {
   return projects.filter((project) => project.id !== HELM_PROJECT_ID)

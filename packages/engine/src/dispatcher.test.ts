@@ -43,44 +43,54 @@ describe('decideCommand', () => {
     )
     expect(result).toMatchObject({
       accepted: false,
-      reason: 'provider switching is only available to Aria',
+      reason: 'provider switching is only available to Aria and its project leads',
       events: [],
     })
   })
 
-  it('records Aria switches without interrupting the active turn', () => {
-    let model = modelWithSession()
-    model.session = { ...session, projectId: 'helm' }
-    model = previewDispatch(model, {
-      accepted: true,
-      events: [{ type: 'turn.started', turnId: 'running' }],
-    })
-    const result = decideCommand(
-      model,
-      {
-        type: 'session.provider.switch',
-        sessionId: session.id,
+  it.each(['aria', 'lead'] as const)(
+    'records %s switches without interrupting the active turn',
+    (kind) => {
+      let model = modelWithSession()
+      model.session =
+        kind === 'aria'
+          ? { ...session, projectId: 'helm' }
+          : { ...session, lead: true, createdBy: { kind: 'session', sessionId: 'aria' } }
+      model = previewDispatch(model, {
+        accepted: true,
+        events: [{ type: 'turn.started', turnId: 'running' }],
+      })
+      const result = decideCommand(
+        model,
+        {
+          type: 'session.provider.switch',
+          sessionId: session.id,
+          driverKind: 'opencode',
+          modelId: 'model',
+          effort: 'high',
+        },
+        ids,
+      )
+      expect(result.events).toEqual([
+        {
+          type: 'session.provider.switched',
+          driverKind: 'opencode',
+          modelId: 'model',
+          effort: 'high',
+          afterTurnId: 'running',
+          afterMessageId: null,
+        },
+      ])
+      const next = previewDispatch(model, result)
+      expect(next.session).toMatchObject({
         driverKind: 'opencode',
         modelId: 'model',
         effort: 'high',
-      },
-      ids,
-    )
-    expect(result.events).toEqual([
-      {
-        type: 'session.provider.switched',
-        driverKind: 'opencode',
-        modelId: 'model',
-        effort: 'high',
-        afterTurnId: 'running',
-        afterMessageId: null,
-      },
-    ])
-    const next = previewDispatch(model, result)
-    expect(next.session).toMatchObject({ driverKind: 'opencode', modelId: 'model', effort: 'high' })
-    expect(next.activeTurnId).toBe('running')
-    expect(next.providerHandoffPending).toBe(true)
-  })
+      })
+      expect(next.activeTurnId).toBe('running')
+      expect(next.providerHandoffPending).toBe(true)
+    },
+  )
 
   it('keeps same-provider model changes and initial ordinary provider choices on session.update', () => {
     const initial = decideCommand(
@@ -122,7 +132,7 @@ describe('decideCommand', () => {
       ),
     ).toMatchObject({
       accepted: false,
-      reason: 'use session.provider.switch to change Aria’s provider',
+      reason: 'use session.provider.switch to change the provider',
       events: [],
     })
   })

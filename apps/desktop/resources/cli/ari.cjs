@@ -26,6 +26,7 @@ function parse(argv) {
     'tools',
     'include-consumed',
     'active',
+    'reset',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -155,7 +156,25 @@ function parse(argv) {
         ...(flags.effort ? { effort: flags.effort } : {}),
         ...(flags.permission ? { permissionMode: flags.permission } : {}),
       }
-    } else throw new Error('Use ari project create, ari project ask or ari project default')
+    } else if (verb === 'lead') {
+      if (!target) throw new Error('project lead needs a project id')
+      if (rest.length) throw new Error('project lead does not accept prompt text')
+      if (flags.reset && (flags.agent || flags.model || flags.effort))
+        throw new Error('Use either --reset or --agent with optional --model and --effort')
+      if (!flags.reset && !flags.agent) throw new Error('project lead needs --agent or --reset')
+      if (flags.permission) throw new Error('project lead keeps the lead permissions')
+      method = 'projects.lead'
+      params = {
+        projectId: target,
+        idempotencyKey: key,
+        ...(flags.reset ? { reset: true } : { driverKind: flags.agent }),
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+      }
+    } else
+      throw new Error(
+        'Use ari project create, ari project ask, ari project default or ari project lead',
+      )
   } else if (group === 'sessions') {
     const words = positional.slice(1).join(' ')
     if (words && flags.query) throw new Error('Use either query words or --query')

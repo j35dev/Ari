@@ -92,6 +92,48 @@ it('preserves multiline file input for assignment and coordination without shell
   }
 })
 
+it('parses lead switches and resets, refusing ambiguous or incomplete choices', () => {
+  expect(
+    cli.parse([
+      'project',
+      'lead',
+      'proj_1',
+      '--agent',
+      'codex',
+      '--model',
+      'gpt',
+      '--effort',
+      'high',
+      '--key',
+      'switch',
+    ]),
+  ).toMatchObject({
+    method: 'projects.lead',
+    params: {
+      projectId: 'proj_1',
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'high',
+      idempotencyKey: 'switch',
+    },
+  })
+  expect(cli.parse(['project', 'lead', 'proj_1', '--reset', '--key', 'reset'])).toMatchObject({
+    method: 'projects.lead',
+    params: { projectId: 'proj_1', reset: true, idempotencyKey: 'reset' },
+  })
+  expect(() => cli.parse(['project', 'lead', '--reset'])).toThrow('project id')
+  expect(() => cli.parse(['project', 'lead', 'proj_1'])).toThrow('--agent or --reset')
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--reset', '--agent', 'codex'])).toThrow(
+    'either',
+  )
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--reset', '--model', 'gpt'])).toThrow(
+    'either',
+  )
+  expect(() =>
+    cli.parse(['project', 'lead', 'proj_1', '--agent', 'codex', '--permission', 'full']),
+  ).toThrow('permissions')
+})
+
 it('parses the Aria commands', () => {
   expect(
     cli.parse(['project', 'ask', 'proj_1', 'Fix login', '--title', 'Web lead', '--key', 'fix']),
