@@ -342,6 +342,15 @@ export function SessionView({
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
   const defaultsRef = useRef(defaults)
   defaultsRef.current = defaults
+  const modelPicksRef = useRef({
+    sequence: 0,
+    pending: 0,
+    confirmed: {
+      driverKind: defaults.driverKind,
+      modelId: defaults.modelId,
+      effort: defaults.effort,
+    },
+  })
   const hiddenRef = useRef(hidden)
   hiddenRef.current = hidden
   const onDefaultsChangeRef = useRef(onDefaultsChange)
@@ -387,6 +396,15 @@ export function SessionView({
     setAriaSession(false)
     setProviderSwitches([])
     setProviderContext(EMPTY_PROVIDER_CONTEXT)
+    modelPicksRef.current = {
+      sequence: 0,
+      pending: 0,
+      confirmed: {
+        driverKind: defaultsRef.current.driverKind,
+        modelId: defaultsRef.current.modelId,
+        effort: defaultsRef.current.effort,
+      },
+    }
     setQueued([])
     setApprovals([])
     setPendingQuestion(null)
@@ -1151,9 +1169,17 @@ export function SessionView({
       if (switched && providerLocked) return
       const switchProvider = ariaSession && switched && hasProviderContext(providerContext)
       const effort = ariaSession && switched ? { effort: null } : {}
+      const picks = modelPicksRef.current
+      if (picks.pending === 0)
+        picks.confirmed = {
+          driverKind: defaultsRef.current.driverKind,
+          modelId: defaultsRef.current.modelId,
+          effort: defaultsRef.current.effort,
+        }
+      const sequence = ++picks.sequence
+      picks.pending++
       if (!switchProvider) {
         onDefaultsChange({ ...defaultsRef.current, ...next, ...effort })
-        onPick?.({ ...next, ...effort })
       }
       void dispatch(
         switchProvider
@@ -1161,13 +1187,16 @@ export function SessionView({
           : { type: 'session.update', sessionId, ...next, ...effort },
         'Couldn’t change model',
       ).then((accepted) => {
-        if (!accepted || !switchProvider) return
-        onDefaultsChange({
-          ...defaultsRef.current,
-          ...next,
-          effort: null,
-        })
-        onPick?.({ ...next, effort: null })
+        if (modelPicksRef.current !== picks) return
+        picks.pending--
+        if (accepted) {
+          picks.confirmed = { ...picks.confirmed, ...next, ...effort }
+          onPick?.({ ...next, ...effort })
+        }
+        // An older rejection must not overwrite a more recent optimistic pick.
+        if (sequence !== picks.sequence) return
+        if (!accepted || switchProvider)
+          onDefaultsChange({ ...defaultsRef.current, ...picks.confirmed })
       })
     },
     [

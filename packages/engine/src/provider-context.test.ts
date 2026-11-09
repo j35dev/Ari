@@ -118,7 +118,7 @@ describe('provider handoff', () => {
     expect(handoff.length).toBe(12_000)
     expect(handoff).toContain('Aria: ')
     expect(handoff).toMatch(/newest ending$/)
-    expect(handoff).not.toContain('old request')
+    expect(handoff).toContain('User: old request')
     expect(conversationHandoff([message('user', 'text')], 10)).toBeNull()
     expect(conversationHandoff([])).toBeNull()
   })
@@ -135,6 +135,7 @@ describe('provider handoff', () => {
     expect(context.resumeOf).toBeNull()
     expect(context.contextSeq).toBe(7)
     expect(context.handoff).toContain('User: earlier')
+    expect(providerTurnContext({ ...model, providerSessionId: 'empty-thread' }).resumeOf).toBeNull()
     expect(JSON.stringify(model.messages)).toBe(before)
     expect(
       providerTurnContext({
@@ -143,5 +144,41 @@ describe('provider handoff', () => {
         providerSessionId: 'new-thread',
       }),
     ).toEqual({ resumeOf: 'new-thread', contextSeq: 7, handoff: null, handoffPending: false })
+  })
+
+  it.each(
+    [
+      { command: ['bash', '-lc', 'ari project ask proj_web "Fix it"'] },
+      ['bash', '-lc', 'ari project ask proj_web "Fix it"'],
+      { title: 'ari project ask proj_web "Fix it"' },
+      { command: '$ARI_CLI project ask proj_web "Fix it"' },
+      { command: '"$ARI_CLI" project ask proj_web "Fix it"' },
+      { command: '"C:\\npm\\ari.cmd" project ask proj_web "Fix it"' },
+    ].map((args) => ({ args })),
+  )('recognises work launched through wrapped command $args', ({ args }) => {
+    const assignment = message('assistant', '')
+    assignment.parts = [
+      { type: 'tool-call', callId: 'work', name: 'execute', argsJson: JSON.stringify(args) },
+    ]
+    expect(conversationHandoff([assignment])).toContain('project ask proj_web "Fix it"')
+  })
+
+  it('reserves recent conversation when long reports arrive after it', () => {
+    const reports = [1, 2, 3, 4].map((id) => ({
+      ...message('user', `${'report chatter '.repeat(3_000)}Report ${id} result`),
+      origin: { kind: 'completion' as const, sessionIds: [`worker-${id}`] },
+    }))
+    const handoff = conversationHandoff([
+      message('user', 'Please fix the parser.'),
+      message('assistant', 'I am keeping the existing API.'),
+      ...reports,
+    ])!
+    expect(handoff.length).toBeLessThanOrEqual(12_000)
+    expect(handoff).toContain('User: Please fix the parser.')
+    expect(handoff).toContain('Aria: I am keeping the existing API.')
+    expect(handoff).toContain('Report 4 result')
+    for (const report of handoff.split('\n\n').filter((entry) => entry.startsWith('Work reports')))
+      expect(report.length).toBeLessThanOrEqual(2_400)
+    expect(handoff.indexOf('Please fix')).toBeLessThan(handoff.indexOf('Report 4 result'))
   })
 })

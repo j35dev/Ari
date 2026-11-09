@@ -21,8 +21,7 @@ import {
   type TitleRequest,
   type TitleStrategy,
 } from '@ari/engine/title'
-import { Engine } from './engine'
-import { acpSessionPool } from '@ari/providers/acp'
+import { Engine, type EngineDeps } from './engine'
 
 let dir: string
 let store: SessionStore
@@ -96,9 +95,16 @@ async function seedSession(
 }
 
 describe('Aria provider switching', () => {
-  it.each(['throw', 'error', 'stop'] as const)(
-    'retries the handoff after %s inside the new adapter start without a thread id',
-    async (failure) => {
+  it.each([
+    { failure: 'throw', hasRef: false },
+    { failure: 'error', hasRef: false },
+    { failure: 'stop', hasRef: false },
+    { failure: 'throw', hasRef: true },
+    { failure: 'error', hasRef: true },
+    { failure: 'stop', hasRef: true },
+  ] as const)(
+    'retries the handoff after $failure before delivery (has ref: $hasRef)',
+    async ({ failure, hasRef }) => {
       const created: AdapterSession[] = []
       const registry = new DriverRegistry()
       registry.register(recordingDriver('claude', created))
@@ -117,6 +123,7 @@ describe('Aria provider switching', () => {
               (async function* (): AsyncGenerator<AgentEvent> {
                 started = true
                 if (!retry) {
+                  if (hasRef) yield { type: 'session-ref', ref: 'empty-thread' }
                   if (failure === 'throw') throw new Error('Start failed')
                   if (failure === 'error') {
                     yield { type: 'error', message: 'Start failed', rawJson: null }
@@ -133,7 +140,8 @@ describe('Aria provider switching', () => {
           }
         },
       })
-      const engine = engineWith(registry)
+      const releaseConnection = vi.fn(async () => undefined)
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
       await seedSession(store, 'aria', 'helm')
       await turn(engine, 'Remember the existing work.')
       await engine.dispatch({
@@ -152,12 +160,14 @@ describe('Aria provider switching', () => {
       await expect.poll(() => started).toBe(true)
       if (failure === 'stop') await engine.dispatch({ type: 'turn.interrupt', sessionId: 'aria' })
       await engine.quiesce('aria')
-      expect((await store.load('aria')).providerSessionId).toBeNull()
+      expect((await store.load('aria')).providerSessionId).toBe(hasRef ? 'empty-thread' : null)
       expect((await store.load('aria')).providerHandoffPending).toBe(true)
+      releaseConnection.mockClear()
       retry = true
       await turn(engine, 'Try again.')
       expect(created.at(-1)!.resumeOf).toBeNull()
       expect(created.at(-1)!.prompt).toContain('User: Remember the existing work.')
+      expect(releaseConnection).toHaveBeenCalledWith('aria')
       expect((await store.load('aria')).providerHandoffPending).toBe(false)
     },
   )
@@ -247,13 +257,13 @@ describe('Aria provider switching', () => {
   })
 
   it('releases a parked connection on switching and releases one parked by the finishing old turn', async () => {
-    const releasePool = vi.spyOn(acpSessionPool, 'release')
+    const releasePool = vi.fn(async () => undefined)
     try {
       const created: AdapterSession[] = []
       const registry = new DriverRegistry()
       registry.register(recordingDriver('claude', created))
       registry.register(recordingDriver('opencode', created))
-      const engine = engineWith(registry)
+      const engine = engineWith(registry, { releaseProviderConnection: releasePool })
       await seedSession(store, 'aria', 'helm')
       await turn(engine, 'First.')
       await engine.dispatch({
@@ -308,7 +318,7 @@ describe('Aria provider switching', () => {
   })
 
   it('releases the old connection when Stop and a switch arrive during adapter creation', async () => {
-    const releasePool = vi.spyOn(acpSessionPool, 'release')
+    const releasePool = vi.fn(async () => undefined)
     try {
       const registry = new DriverRegistry()
       let creating = false
@@ -329,7 +339,7 @@ describe('Aria provider switching', () => {
           }
         },
       })
-      const engine = engineWith(registry)
+      const engine = engineWith(registry, { releaseProviderConnection: releasePool })
       await seedSession(store, 'aria', 'helm')
       await engine.dispatch({
         type: 'turn.start',
@@ -354,6 +364,200 @@ describe('Aria provider switching', () => {
       releasePool.mockRestore()
     }
   })
+
+  it.each(['text', 'tool'] as const)(
+    'acknowledges delivery on the first agent %s despite a later error',
+    async (output) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'session-ref', ref: 'accepted-thread' }
+                if (output === 'text') yield { type: 'text-delta', text: 'Working on the request.' }
+                else yield { type: 'tool-started', callId: 'work', name: 'Bash', argsJson: '{}' }
+                yield { type: 'error', message: 'Later failure', rawJson: null }
+              })(),
+            interrupt: () => undefined,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember the request.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      await turn(engine, 'Continue.')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+      expect((await store.load('aria')).lastTurn?.stopReason).toBe('error')
+      await turn(engine, 'Retry.')
+      expect(created.at(-1)!.resumeOf).toBe('accepted-thread')
+      expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+    },
+  )
+
+  it.each(['output', 'completion'] as const)(
+    'settles as an error if delivery acknowledgement cannot be journaled at %s',
+    async (at) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              if (at === 'output') yield { type: 'text-delta', text: 'Reply' }
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: async () => undefined,
+        }),
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Existing context.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      const originalAppend = store.append.bind(store)
+      const appendSpy = vi.spyOn(store, 'append').mockImplementation(async (id, event) => {
+        if (event.type === 'session.provider.context.started')
+          throw new Error('acknowledgement write failed')
+        return originalAppend(id, event)
+      })
+      try {
+        await turn(engine, 'Continue.')
+        const model = await store.load('aria')
+        expect(model.activeTurnId).toBeNull()
+        expect(model.lastTurn).toMatchObject({
+          stopReason: 'error',
+          errorMessage: expect.stringContaining('acknowledgement write failed'),
+        })
+        expect(model.providerHandoffPending).toBe(true)
+      } finally {
+        appendSpy.mockRestore()
+      }
+    },
+  )
+
+  it('keeps root commands responsive during shutdown and fences the next provider turn', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    registry.register(recordingDriver('opencode', created))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const releaseConnection = vi.fn(() => gate)
+    const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    expect(
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      }),
+    ).toEqual({ accepted: true })
+    expect(releaseConnection).toHaveBeenCalledWith('aria')
+    expect(
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Next.',
+        attachments: [],
+      }),
+    ).toEqual({ accepted: true })
+    expect(
+      await engine.dispatch({ type: 'session.update', sessionId: 'aria', title: 'Responsive' }),
+    ).toEqual({ accepted: true })
+    expect(created).toHaveLength(1)
+    release()
+    await engine.quiesce('aria')
+    expect(created).toHaveLength(2)
+    expect(created[1]!.resumeOf).toBeNull()
+  })
+
+  it.each(['running', 'idle'] as const)(
+    'ends background tasks when switching away from a %s parked-capable provider',
+    async (state) => {
+      const registry = new DriverRegistry()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      registry.register({
+        kind: 'claude',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'session-ref', ref: 'old-thread' }
+              yield {
+                type: 'background-task',
+                id: 'shell',
+                kind: 'shell',
+                label: 'Old shell',
+                status: 'running',
+              }
+              if (state === 'running') await gate
+              yield { type: 'done' }
+            })(),
+          interrupt: release,
+          dispose: async () => undefined,
+          keepsBackgroundWork: () => true,
+        }),
+      })
+      const releaseConnection = vi.fn(async () => {
+        await engine.releaseBackgroundTasks('aria', 'Process ended')
+      })
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+      await seedSession(store, 'aria', 'helm')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Work.',
+        attachments: [],
+      })
+      await expect
+        .poll(async () => (await store.load('aria')).backgroundTasks?.[0]?.status)
+        .toBe('running')
+      if (state === 'idle') await engine.quiesce('aria')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      if (state === 'running') {
+        expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('running')
+        release()
+        await engine.quiesce('aria')
+      }
+      await expect
+        .poll(async () => (await store.load('aria')).backgroundTasks?.[0]?.status)
+        .toBe('stopped')
+    },
+  )
 
   function recordingDriver(
     kind: 'claude' | 'opencode',
@@ -380,7 +584,7 @@ describe('Aria provider switching', () => {
     }
   }
 
-  function engineWith(registry: DriverRegistry): Engine {
+  function engineWith(registry: DriverRegistry, deps: Partial<EngineDeps> = {}): Engine {
     return new Engine({
       store,
       registry,
@@ -388,6 +592,7 @@ describe('Aria provider switching', () => {
       git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
       runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
       turnContext: async () => '[Ari now: test]',
+      ...deps,
     })
   }
 

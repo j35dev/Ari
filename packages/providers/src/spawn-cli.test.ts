@@ -45,7 +45,9 @@ describe('Windows handoff budget', () => {
       const binary = `C:\\project\\node_modules\\.bin\\${kind}.cmd`
       const args = argsWithWindowsHandoffBudget(binary, session, buildArgs)
       const wrapped = buildCmdSpawnArgs(binary, args)
-      expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191)
+      expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(
+        8_191 - 512,
+      )
       const prompt = args.find((arg) => arg.includes('Current request'))!
       expect(prompt).toContain('Preamble')
       expect(prompt).toContain('[Conversation so far]')
@@ -55,6 +57,39 @@ describe('Windows handoff budget', () => {
       expect(session.prompt).toContain(handoff)
     },
   )
+
+  it('preserves replacement-pattern dollars literally when trimming history', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const literal = ['$&', "$'", '$`', '$$'].join(' ')
+    const carried = `[Conversation so far]\n\n${'older '.repeat(2_000)}${literal}`
+    const args = argsWithWindowsHandoffBudget(
+      'agent.cmd',
+      { ...session, handoff: carried, prompt: `Preamble\n\n${carried}\n\nCurrent request` },
+      buildPiArgs,
+    )
+    const prompt = args.at(-1)!
+    expect(prompt).toContain(literal)
+    expect(prompt).toMatch(/^Preamble\n\n\[Conversation so far\]/)
+    expect(prompt.endsWith(`${literal}\n\nCurrent request`)).toBe(true)
+    expect(prompt.match(/Preamble/g)).toHaveLength(1)
+    expect(prompt.match(/Current request/g)).toHaveLength(1)
+  })
+
+  it('leaves room for a shim prefix even when the outer command alone fits', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const binary = 'agent.cmd'
+    const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
+    const bounded = { ...session, handoff: carried, prompt: carried }
+    const original = buildCmdSpawnArgs(binary, buildPiArgs(bounded))
+    const originalLength = original.file.length + 1 + original.args.join(' ').length
+    expect(originalLength).toBeLessThanOrEqual(8_191)
+    expect(originalLength).toBeGreaterThan(8_191 - 512)
+    const wrapped = buildCmdSpawnArgs(
+      binary,
+      argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs),
+    )
+    expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191 - 512)
+  })
 
   it('keeps the full history for direct executables, PowerShell and non-Windows argv', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' })

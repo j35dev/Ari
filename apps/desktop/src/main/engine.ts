@@ -22,7 +22,6 @@ import { controlPreamble } from '@ari/engine/control-preamble'
 import { turnRequester } from '@ari/engine/helm'
 import { isHelmSession } from '@ari/contracts/helm'
 import { providerTurnContext, type ProviderTurnContext } from '@ari/engine/provider-context'
-import { acpSessionPool } from '@ari/providers/acp'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -138,6 +137,8 @@ export interface EngineDeps {
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** Detaches a parked provider connection before awaiting its shutdown. */
+  releaseProviderConnection?: (sessionId: string) => Promise<void>
   /**
    * Live state put ahead of a turn's prompt for the provider only, never in
    * the transcript. Aria reads the state of every project this way.
@@ -232,6 +233,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #providerReleases = new Map<string, Promise<void>>()
   readonly #capacityBlockedQueues = new Map<string, Set<string>>()
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
@@ -380,6 +382,35 @@ export class Engine {
   async releaseBackgroundTasks(sessionId: string, detail: string): Promise<void> {
     if (this.#turnTasks.has(sessionId)) return
     await this.#endBackgroundTasks(sessionId, () => true, 'stopped', detail)
+  }
+
+  /** A new turn waits for shutdown outside the root's command chain. */
+  async #releaseProviderConnection(sessionId: string, staleContextSeq?: number): Promise<void> {
+    if (
+      staleContextSeq !== undefined &&
+      ((await this.#deps.store.load(sessionId)).providerContextSeq ?? 0) === staleContextSeq
+    )
+      return
+    const endTasks = staleContextSeq !== undefined || !this.#activeTurns.has(sessionId)
+    const previous = this.#providerReleases.get(sessionId)
+    const release = (async () => {
+      if (previous) await previous
+      await this.#deps.releaseProviderConnection?.(sessionId)
+      if (endTasks || !this.#activeTurns.has(sessionId))
+        await this.#endBackgroundTasks(
+          sessionId,
+          () => true,
+          'stopped',
+          'Provider connection released',
+        )
+    })()
+    this.#providerReleases.set(sessionId, release)
+    try {
+      await release
+    } finally {
+      if (this.#providerReleases.get(sessionId) === release)
+        this.#providerReleases.delete(sessionId)
+    }
   }
 
   /** Journals an end for every running task `which` selects. */
@@ -557,7 +588,12 @@ export class Engine {
     releaseTurn?.(true)
 
     if (decision.events.some((event) => event.type === 'session.provider.switched'))
-      await acpSessionPool.release(command.sessionId)
+      void this.#releaseProviderConnection(command.sessionId).catch((error: unknown) =>
+        log.warn('provider connection release failed', {
+          sessionId: command.sessionId,
+          error: String(error),
+        }),
+      )
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
@@ -850,6 +886,9 @@ export class Engine {
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
     try {
+      await this.#providerReleases.get(session.id)
+      // An empty native thread can have been parked before a failed prompt.
+      if (providerContext.handoffPending) await this.#releaseProviderConnection(session.id)
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
         await this.#captureTurnEnd(session.id, turnId)
         return
@@ -906,8 +945,7 @@ export class Engine {
     if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
       adapter.interrupt()
       await adapter.dispose()
-      if (((await this.#deps.store.load(session.id)).providerContextSeq ?? 0) !== contextSeq)
-        await acpSessionPool.release(session.id)
+      await this.#releaseProviderConnection(session.id, contextSeq)
       await this.#captureTurnEnd(session.id, turnId)
       return
     }
@@ -1036,6 +1074,12 @@ export class Engine {
       }
     }
 
+    let handoffPending = providerContext.handoffPending
+    const acceptContext = async (): Promise<void> => {
+      if (!handoffPending) return
+      await append({ type: 'session.provider.context.started', contextSeq })
+      handoffPending = false
+    }
     let stopReason: 'completed' | 'interrupted' | 'error'
     let providerStopReason: 'completed' | 'interrupted' | 'error' | undefined
     let errorMessage: string | null
@@ -1047,6 +1091,7 @@ export class Engine {
         switch (event.type) {
           case 'text-delta':
           case 'thinking-delta': {
+            if (event.type === 'text-delta' && event.text.length > 0) await acceptContext()
             const type = event.type === 'text-delta' ? 'text' : 'thinking'
             const last = buffer[buffer.length - 1]
             if (last?.type === type) last.text += event.text
@@ -1056,10 +1101,12 @@ export class Engine {
             break
           }
           case 'image-output': {
+            await acceptContext()
             await stageProviderImage(event, () => Promise.resolve(event.dataBase64))
             break
           }
           case 'image-output-path': {
+            await acceptContext()
             await stageProviderImage(event, async () => {
               const info = await stat(event.path)
               if (!info.isFile() || info.size === 0 || info.size > MAX_ATTACHMENT_BYTES) {
@@ -1070,6 +1117,7 @@ export class Engine {
             break
           }
           case 'tool-started': {
+            await acceptContext()
             await flush()
             // Tool calls attach to the same streaming assistant message. A
             // repeat (refined args) goes to the message holding the call.
@@ -1231,21 +1279,28 @@ export class Engine {
     // snapshot follow. Disposal still fences the snapshot against late provider
     // writes, and the next turn on this session waits for both (#turnTasks).
     try {
-      // A failed or stopped transport without a native thread must retry with
-      // the handoff. A ref consumes it in projection; completed ref-less
-      // transports need this explicit acknowledgement instead.
-      if (!interrupted && stopReason === 'completed' && providerContext.handoffPending)
-        await append({ type: 'session.provider.context.started', contextSeq })
+      // Opening a thread does not prove the prompt reached the provider.
+      // Output or a completed turn acknowledges delivery, including ref-less CLIs.
+      if (!interrupted && stopReason === 'completed') {
+        try {
+          await acceptContext()
+        } catch (error) {
+          stopReason = 'error'
+          errorMessage = String(error)
+        }
+      }
       if (!interrupted) await this.#settle(session.id, turnId, stopReason, errorMessage)
     } finally {
       try {
-        await adapter.dispose()
-        if (((await this.#deps.store.load(session.id)).providerContextSeq ?? 0) !== contextSeq)
-          await acpSessionPool.release(session.id)
+        try {
+          await adapter.dispose()
+        } finally {
+          this.#activeTurns.delete(session.id)
+        }
+        await this.#releaseProviderConnection(session.id, contextSeq)
       } catch (error) {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
       }
-      this.#activeTurns.delete(session.id)
     }
     // Background work outlives the turn only in a process kept for the next
     // one. A stop ends the turn's sub-agents with it; its shells run on.
