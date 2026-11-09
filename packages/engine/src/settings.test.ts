@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SettingsStore } from './settings'
-import { settingsUpdateSchema } from '@ari/contracts/settings'
+import { settingsSchema, settingsUpdateSchema } from '@ari/contracts/settings'
 
 let dir: string
 
@@ -16,6 +16,29 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('defaults Aria to null, persists its choices and clears back to session defaults', async () => {
+    expect(settingsSchema.parse({ version: 1 }).aria).toBeNull()
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).aria).toBeNull()
+    await store.update({
+      aria: {
+        driverKind: 'codex',
+        modelId: 'gpt-6',
+        effort: 'high',
+        permissionMode: 'allow-edits',
+      },
+    })
+    await store.update({ notifications: { desktop: false } })
+    expect((await new SettingsStore({ dir }).load()).aria).toEqual({
+      driverKind: 'codex',
+      modelId: 'gpt-6',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+    })
+    await store.update({ aria: null })
+    expect((await new SettingsStore({ dir }).load()).aria).toBeNull()
+    expect(settingsUpdateSchema.safeParse({ aria: { driverKind: 'unknown' } }).success).toBe(false)
+  })
   it('caps retired oversized text preferences and rejects new oversized choices', async () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(

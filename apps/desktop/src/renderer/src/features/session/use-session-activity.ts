@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { reduceSessionAttention } from './session-attention'
 import {
   ACTIVE_SETTLE_LINGER_MS,
   reduceSessionActivity,
@@ -22,11 +23,17 @@ import {
  */
 export function useSessionActivity(visibleSessionIds: readonly string[]): {
   activityOf: (sessionId: string) => SessionActivity | undefined
+  attentionCountOf: (sessionId: string) => number
   acknowledge: (sessionId: string) => void
   forget: (sessionId: string) => void
 } {
   const [byId, setById] = useState<ReadonlyMap<string, SessionActivity>>(() => new Map())
   const byIdRef = useRef(byId)
+  const [attention, setAttention] = useState<ReadonlyMap<string, ReadonlySet<string>>>(
+    () => new Map(),
+  )
+  const attentionRef = useRef(attention)
+  attentionRef.current = attention
   byIdRef.current = byId
   const visibleRef = useRef<ReadonlySet<string>>(new Set())
   visibleRef.current = new Set(visibleSessionIds)
@@ -43,6 +50,12 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   const remove = useCallback(
     (sessionId: string): void => {
       clearFade(sessionId)
+      if (attentionRef.current.has(sessionId)) {
+        const next = new Map(attentionRef.current)
+        next.delete(sessionId)
+        attentionRef.current = next
+        setAttention(next)
+      }
       if (!byIdRef.current.has(sessionId)) return
       const next = new Map(byIdRef.current)
       next.delete(sessionId)
@@ -78,8 +91,28 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       const event = frame?.event as ActivityEvent | undefined
       if (sessionId === undefined || event?.type === undefined) return
 
+      const pending = attentionRef.current.get(sessionId) ?? new Set<string>()
+      const requests = reduceSessionAttention(pending, event)
+      if (requests !== pending) {
+        const next = new Map(attentionRef.current)
+        if (requests.size > 0) next.set(sessionId, requests)
+        else next.delete(sessionId)
+        attentionRef.current = next
+        setAttention(next)
+      }
+
       const prev = byIdRef.current.get(sessionId)
-      const nextActivity = reduceSessionActivity(prev, event, Date.now())
+      const reduced = reduceSessionActivity(prev, event, Date.now())
+      const nextActivity =
+        requests.size > 0 && reduced?.phase !== 'paused'
+          ? {
+              phase: 'paused' as const,
+              startedAt: reduced?.startedAt ?? null,
+              pauseReason: [...requests].some((key) => key.startsWith('approval:'))
+                ? ('approval' as const)
+                : ('input' as const),
+            }
+          : reduced
       if (nextActivity === prev) return
 
       const next = new Map(byIdRef.current)
@@ -122,9 +155,14 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   // Changes identity only when some session's activity does, so memoized
   // consumers (the transcript's delegation cards) skip unrelated renders.
   const activityOf = useCallback((sessionId: string) => byId.get(sessionId), [byId])
+  const attentionCountOf = useCallback(
+    (sessionId: string) => attention.get(sessionId)?.size ?? 0,
+    [attention],
+  )
 
   return {
     activityOf,
+    attentionCountOf,
     acknowledge,
     forget,
   }

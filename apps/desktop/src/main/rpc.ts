@@ -15,6 +15,7 @@ import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
 import { cliKindSchema } from '@ari/contracts/settings'
+import { driverKindSchema } from '@ari/contracts/common'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
@@ -36,6 +37,7 @@ import { startAgentRuntime } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
+import { AriaThread } from './aria-thread'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1598,6 +1600,37 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
+
+  const aria = new AriaThread({
+    ...sessionDeps,
+    listSessions: () => getSessionStore().listSessions(),
+    archive: async (sessionId) => {
+      const result = await engine.dispatch({ type: 'session.update', sessionId, archived: true })
+      if (!result.accepted) throw new Error(result.reason ?? 'Could not archive the topic.')
+    },
+    settings: async () => {
+      await settingsReady()
+      return getSettingsStore().current
+    },
+    defaults: async () => {
+      const settings = getSettingsStore().current
+      const detected = await probeAllDetections()
+      const driverKind = driverKindSchema.parse(
+        settings.sessions.defaultDriverKind ??
+          detected.find((row) => row.binaryPath !== null && row.kind !== 'ari-core')?.kind ??
+          'ari-core',
+      )
+      return {
+        driverKind,
+        modelId: agentDefaultModel(driverKind),
+        permissionMode: settings.sessions.defaultPermissionMode,
+        effort: null,
+      }
+    },
+  })
+  r.register('aria.open', (params) => aria.open(params))
+  r.register('aria.newTopic', (params) => aria.newTopic(params))
+  r.register('aria.topics', () => aria.topics())
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)

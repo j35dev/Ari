@@ -4,6 +4,7 @@ import type { RemoteConnectState, RemoteState, TailscaleState } from '@ari/contr
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import { rpc } from '../../lib/rpc'
+import { visibleProjects } from '../aria/visibility'
 
 const log = createLogger('settings:remote')
 
@@ -44,7 +45,7 @@ export function useRemoteAccess() {
           if (live.current) setTailscale(state)
         }),
         rpc.invoke('project.list').then((list) => {
-          if (live.current) setProjects(list)
+          if (live.current) setProjects(visibleProjects(list))
         }),
         rpc.invoke('remote.connect.status').then((state) => {
           if (live.current) setConnect(state)

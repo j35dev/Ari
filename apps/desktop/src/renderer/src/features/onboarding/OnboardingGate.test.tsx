@@ -35,6 +35,16 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('first-run gate', () => {
+  it('keeps first-run setup when the only project and session belong to Aria', async () => {
+    invoke.mockImplementation(async (method) => {
+      if (method === 'settings.get' || method === 'settings.update') return defaultSettings
+      if (method === 'project.list') return [{ id: 'helm' }]
+      if (method === 'session.list') return [{ id: 'aria', projectId: 'helm' }]
+      return []
+    })
+    mount()
+    expect(await screen.findByText('First setup')).toBeInTheDocument()
+  })
   it('waits for both lists and settings before deciding this is a new installation', async () => {
     let resolve!: (value: unknown[]) => void
     invoke.mockImplementation(async (method) => {

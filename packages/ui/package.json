@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./aria-mark": "./src/aria/AriaMark.tsx",
     "./tokens.css": "./src/tokens.css",
     "./surface-effects.css": "./src/surface-effects.css",
     "./wallpaper.css": "./src/wallpaper.css",
