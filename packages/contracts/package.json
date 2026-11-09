@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./visualization": "./src/visualization.ts",
     "./orchestration-presentation": "./src/orchestration-presentation.ts",
     "./coordination": "./src/coordination.ts",
     "./orchestration": "./src/orchestration.ts",
