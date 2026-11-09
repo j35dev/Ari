@@ -288,15 +288,6 @@ describe('needsWindowsShell', () => {
     expect(needsWindowsShell('C:\\bin\\claude')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.exe')).toBe(false)
   })
-
-  it('refuses piped stdin through a PowerShell-only launcher instead of rewriting prompt bytes', () => {
-    withPlatform('win32')
-    expect(() =>
-      spawnCli('C:\\missing\\agent.ps1', [], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }),
-    ).toThrow('CLI stdin requires a .cmd or native launcher')
-  })
 })
 
 describe('buildPowershellSpawnArgs', () => {
@@ -318,6 +309,16 @@ describe('buildPowershellSpawnArgs', () => {
     expect(wrapped.args[5]).toBe('C:\\Users\\u\\.pi\\agent\\bin\\pi.ps1')
     // Prompt text rides along unescaped: -File never re-parses metacharacters.
     expect(wrapped.args.slice(6)).toEqual(['--mode', 'json', '-p', 'fix the && bug > log | pipe'])
+  })
+
+  it('splats literal arguments when -File would reject the standalone stdin marker', () => {
+    const path = "C:\\owner's project\\agent.ps1"
+    const args = ['exec', 'resume', 'thread', '-']
+    const wrapped = buildPowershellSpawnArgs(path, args)
+    expect(wrapped.args[4]).toBe('-EncodedCommand')
+    const command = Buffer.from(wrapped.args[5]!, 'base64').toString('utf16le')
+    expect(command).toContain("@('exec', 'resume', 'thread', '-')")
+    expect(command).toContain("& 'C:\\owner''s project\\agent.ps1' @cliArgs")
   })
 })
 
@@ -350,6 +351,39 @@ describe.runIf(process.platform === 'win32')('spawnCli with a real .ps1', () => 
     expect(code).toBe(0)
     expect(stdout.trim().split(/\r?\n/)).toEqual(['-p', 'fix the && bug $env:USERNAME > log'])
   }, 30_000)
+
+  it('passes live JSON frames to a PowerShell-only script before stdin closes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari ps1 '))
+    try {
+      const script = join(dir, 'server.ps1')
+      await writeFile(
+        script,
+        '[Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput())',
+      )
+      const child = spawnCli(script, ['app-server'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      const frame = '{"prompt":"中文"}\n'
+      let output = ''
+      const first = new Promise<void>((resolve, reject) => {
+        child.on('error', reject)
+        child.stdout.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+          output += chunk
+          if (output === frame) resolve()
+        })
+      })
+      const closed = new Promise((resolve) => child.once('close', resolve))
+      child.stdin.write(frame)
+      await first
+      expect(child.stdin.writableEnded).toBe(false)
+      child.stdin.end()
+      expect(await closed).toBe(0)
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    }
+  }, 30_000)
 })
 
 describe.runIf(process.platform === 'win32')('long prompts through real Windows shims', () => {
@@ -372,18 +406,18 @@ describe.runIf(process.platform === 'win32')('long prompts through real Windows 
       }
       try {
         await writeFile(join(dir, 'echo.cjs'), 'process.stdin.pipe(process.stdout)')
-        await writeFile(join(dir, `${kind}.cmd`), '@echo off\r\nnode "%~dp0echo.cjs" %*\r\n')
+        await mkdir(join(dir, 'cmd'))
+        await mkdir(join(dir, 'ps1'))
         await writeFile(
-          join(dir, `${kind}.ps1`),
-          `if ($MyInvocation.ExpectingInput) {
-  $input | & node "$PSScriptRoot/echo.cjs" $args
-} else {
-  & node "$PSScriptRoot/echo.cjs" $args
-}
-exit $LASTEXITCODE`,
+          join(dir, 'cmd', `${kind}.cmd`),
+          '@echo off\r\nnode "%~dp0..\\echo.cjs" %*\r\n',
+        )
+        await writeFile(
+          join(dir, 'ps1', `${kind}.ps1`),
+          '[Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput())',
         )
         for (const extension of ['cmd', 'ps1']) {
-          const child = spawnCli(join(dir, `${kind}.${extension}`), buildArgs(session), {
+          const child = spawnCli(join(dir, extension, `${kind}.${extension}`), buildArgs(session), {
             cwd: dir,
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,

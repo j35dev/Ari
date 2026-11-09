@@ -15,12 +15,12 @@
  * builtins and @ari/providers source modules.
  */
 
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { buildClaudeArgs } from '../packages/providers/src/claude/claude-driver'
+import { pathToFileURL } from 'node:url'
+import { buildClaudeArgs, buildUserFrame } from '../packages/providers/src/claude/claude-driver'
 import { buildCodexArgs } from '../packages/providers/src/codex/codex-driver'
 import { buildGrokArgs } from '../packages/providers/src/grok/grok-driver'
 import { buildHermesArgs } from '../packages/providers/src/hermes/hermes-driver'
@@ -29,15 +29,21 @@ import { buildPiArgs } from '../packages/providers/src/pi/pi-driver'
 import type { AdapterSession } from '../packages/providers/src/driver'
 import { findBinary } from '../packages/providers/src/detector'
 import { realDetectEnvironment } from '../packages/providers/src/types'
+import {
+  argsWithWindowsHandoffBudget,
+  spawnCli,
+  writeCliPrompt,
+} from '../packages/providers/src/spawn-cli'
+import { createGrokPromptFile } from '../packages/providers/src/grok/prompt-file'
+import { promptWithAttachments } from '../packages/providers/src/attachments'
 
 const DRIVERS = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes'] as const
 type RecorderDriver = (typeof DRIVERS)[number]
 
-const BUILDERS: Record<RecorderDriver, (session: AdapterSession) => string[]> = {
+const BUILDERS: Record<Exclude<RecorderDriver, 'grok'>, (session: AdapterSession) => string[]> = {
   claude: buildClaudeArgs,
   codex: buildCodexArgs,
   opencode: buildOpencodeArgs,
-  grok: buildGrokArgs,
   pi: buildPiArgs,
   hermes: buildHermesArgs,
 }
@@ -97,15 +103,6 @@ function fail(message: string): never {
   process.exit(1)
 }
 
-/**
- * Best-effort quoting for Windows `.cmd`/`.bat` shims, which must be spawned
- * through cmd.exe. Prompts containing double quotes cannot round-trip through
- * cmd's quoting rules and are not supported.
- */
-function quoteForCmdShim(arg: string): string {
-  return `"${arg.replaceAll('"', '\\"')}"`
-}
-
 interface RecordResult {
   exitCode: number
   lineCount: number
@@ -118,25 +115,16 @@ async function record(
   args: string[],
   cwd: string,
   outPath: string,
+  stdin: string | null,
 ): Promise<RecordResult> {
   await mkdir(dirname(outPath), { recursive: true })
   const file = createWriteStream(outPath, { flags: 'wx' })
 
-  // Windows .cmd/.bat shims must run through cmd.exe; a single pre-quoted
-  // command string avoids Node's args+shell concatenation (DEP0190).
-  const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binaryPath)
-  const child = needsShell
-    ? spawn([binaryPath, ...args.map(quoteForCmdShim)].join(' '), {
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        shell: true,
-      })
-    : spawn(binaryPath, args, {
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      })
+  const child = spawnCli(binaryPath, args, {
+    cwd,
+    stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
 
   let lineCount = 0
   let byteCount = 0
@@ -160,18 +148,56 @@ async function record(
     stderrBytes += Buffer.byteLength(chunk)
   })
 
-  const exitCode = await new Promise<number>((resolveCode, rejectSpawn) => {
-    child.on('error', rejectSpawn)
-    child.on('close', (code) => resolveCode(code ?? 1))
-  })
-  await new Promise<void>((resolveClose, rejectClose) => {
-    file.end()
-    file.on('close', resolveClose)
-    file.on('error', rejectClose)
-  })
+  let processError: Error | null = null
+  let exitCode: number
+  try {
+    exitCode = await new Promise<number>((resolveCode, rejectSpawn) => {
+      child.on('error', (error) => {
+        processError = error
+      })
+      child.on('close', (code) =>
+        processError ? rejectSpawn(processError) : resolveCode(code ?? 1),
+      )
+      if (stdin !== null) writeCliPrompt(child.stdin, stdin)
+    })
+  } finally {
+    await new Promise<void>((resolveClose, rejectClose) => {
+      file.end()
+      file.on('close', resolveClose)
+      file.on('error', rejectClose)
+    })
+  }
 
   if (byteCount > 0 && !endsWithNewline) lineCount++
   return { exitCode, lineCount, byteCount, stderrBytes }
+}
+
+/** Record the same prompt transport as the driver, with a one-shot stdin EOF. */
+export async function recordFixture(
+  kind: RecorderDriver,
+  binaryPath: string,
+  session: AdapterSession,
+  outPath: string,
+): Promise<RecordResult> {
+  const file = kind === 'grok' ? await createGrokPromptFile(promptWithAttachments(session)) : null
+  try {
+    const args =
+      kind === 'grok'
+        ? buildGrokArgs(session, file!.path)
+        : kind === 'hermes'
+          ? argsWithWindowsHandoffBudget(binaryPath, session, BUILDERS.hermes)
+          : BUILDERS[kind](session)
+    const stdin =
+      kind === 'grok' || kind === 'hermes'
+        ? null
+        : kind === 'claude'
+          ? `${JSON.stringify(buildUserFrame(session.prompt))}\n`
+          : promptWithAttachments(session)
+    console.log(`recording ${kind}: ${binaryPath} ${args.join(' ')}`)
+    return await record(binaryPath, args, session.workspacePath, outPath, stdin)
+  } finally {
+    await file?.dispose()
+  }
 }
 
 async function main(): Promise<void> {
@@ -203,9 +229,7 @@ async function main(): Promise<void> {
     resumeOf: null,
   }
 
-  const driverArgs = BUILDERS[args.driver](session)
-  console.log(`recording ${args.driver}: ${binaryPath} ${driverArgs.join(' ')}`)
-  const result = await record(binaryPath, driverArgs, session.workspacePath, outPath)
+  const result = await recordFixture(args.driver, binaryPath, session, outPath)
 
   console.log(
     `wrote ${result.lineCount} stdout line(s), ${result.byteCount} byte(s) -> ${outPath}` +
@@ -214,7 +238,8 @@ async function main(): Promise<void> {
   process.exitCode = result.exitCode
 }
 
-await main().catch((error: unknown) => {
-  console.error('record-fixture:', error instanceof Error ? error.message : String(error))
-  process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
+  await main().catch((error: unknown) => {
+    console.error('record-fixture:', error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
