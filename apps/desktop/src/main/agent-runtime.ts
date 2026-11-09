@@ -34,31 +34,23 @@ export async function revokeArchivedSessions(
   ids: Iterable<string>,
   revoke: (id: string) => Promise<void>,
 ): Promise<void> {
-  const errors: unknown[] = []
   for (const id of ids) {
     try {
       await revoke(id)
     } catch (error) {
-      errors.push(error)
       log.warn('archived session cleanup failed', { sessionId: id, error: String(error) })
     }
   }
-  if (errors.length > 0) throw errors[0]
 }
 
 export async function closeControlTransport(
   closeServer: () => Promise<void>,
   socketDir: string | null,
-  abortCleanup: () => void,
 ): Promise<void> {
   try {
     await closeServer()
   } finally {
-    try {
-      if (socketDir) await rm(socketDir, { recursive: true, force: true })
-    } finally {
-      abortCleanup()
-    }
+    if (socketDir) await rm(socketDir, { recursive: true, force: true })
   }
 }
 
@@ -436,14 +428,11 @@ async function startControlTransport(
       }
     },
     close: async () => {
+      cleanupAbort.abort()
       unsubscribe()
       supervisor.close()
       approvals.close()
-      await closeControlTransport(
-        () => server.close(),
-        socketDir,
-        () => cleanupAbort.abort(),
-      )
+      await closeControlTransport(() => server.close(), socketDir)
     },
     environment: (session: Session): NodeJS.ProcessEnv => {
       const env = { ...(options.baseEnv ?? process.env) }
