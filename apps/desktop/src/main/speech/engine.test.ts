@@ -8,7 +8,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   ENGINE_HEADER_HASH,
   ENGINE_VERSION,
+  ENGINE_READ_ERROR,
   engineRelease,
+  engineStampMatches,
   verifyInstalledEngine,
   type EngineRelease,
   EngineIoError,
@@ -63,14 +65,19 @@ it('reports metadata changes in quick checks even when file sizes are unchanged'
   const verified = vi.fn()
   await verifyInstalledEngine(root, true, release, verified)
   const stamp = verified.mock.calls[0]![0]
+  expect(await engineStampMatches(root, stamp)).toBe(true)
   await writeFile(join(root, 'native/ggml.dll'), 'DEPENDENCY')
+  expect(await engineStampMatches(root, stamp)).toBe(false)
   await verifyInstalledEngine(root, false, release, verified)
   expect(verified.mock.calls[1]![0]).not.toBe(stamp)
 })
 
 it('detects missing dependencies and unexpected native files in cheap status checks', async () => {
   const { root, release } = await fixture()
+  const verified = vi.fn()
+  await verifyInstalledEngine(root, true, release, verified)
   await rm(join(root, 'native/ggml.dll'))
+  expect(await engineStampMatches(root, verified.mock.calls[0]![0])).toBe(false)
   expect(await verifyInstalledEngine(root, false, release)).toBeNull()
   const other = await fixture()
   await writeFile(join(other.root, 'native/extra.dll'), 'unexpected')
@@ -112,11 +119,17 @@ it('rejects unexpected dotfiles and folders instead of skipping their contents',
   expect(await verifyInstalledEngine(root, true, release)).toBeNull()
 })
 
-it('retries temporary read failures and distinguishes persistent I/O errors from mismatches', async () => {
+it('reports a read failure immediately without retrying or classifying it as a mismatch', async () => {
   const { root, release } = await fixture()
   io.lstat.mockRejectedValueOnce(Object.assign(new Error('busy'), { code: 'EBUSY' }))
-  expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+  await expect(verifyInstalledEngine(root, true, release)).rejects.toThrow(ENGINE_READ_ERROR)
+  expect(io.lstat).toHaveBeenCalledOnce()
   io.lstat.mockReset().mockRejectedValue(Object.assign(new Error('locked'), { code: 'EPERM' }))
   await expect(verifyInstalledEngine(root, true, release)).rejects.toBeInstanceOf(EngineIoError)
-  expect(io.lstat).toHaveBeenCalledTimes(3)
+  expect(io.lstat).toHaveBeenCalledOnce()
+  io.lstat.mockClear()
+  await expect(engineStampMatches(root, 'native/ggml.dll:10:0:0')).rejects.toThrow(
+    ENGINE_READ_ERROR,
+  )
+  expect(io.lstat).toHaveBeenCalledOnce()
 })

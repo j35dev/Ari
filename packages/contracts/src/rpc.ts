@@ -333,7 +333,11 @@ export interface SpeechModel {
 
 export interface SpeechStatus {
   engine: 'missing' | 'downloading' | 'ready' | 'error'
+  engineError?: string | null
+  /** An inspection must confirm missing or mismatched files before a download is offered. */
+  engineInstallable?: boolean
   model: SpeechModel | null
+  loading?: boolean
   ready: boolean
   error?: string | null
 }
