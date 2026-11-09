@@ -1287,10 +1287,12 @@ function fixtureLinesAfterHandshake(name: string): string[] {
 }
 
 function fakeLegacyChild(stdoutLines: string[]) {
+  const stdin = new PassThrough()
   const stdout = new PassThrough()
   const stderr = new PassThrough()
   let killed = false
   const child = {
+    stdin,
     stdout,
     stderr,
     pid: 4242,
@@ -1330,7 +1332,7 @@ describe('codex driver transport selection', () => {
     })
     const adapter = await driver.create(SESSION_BASE)
     expect(spawns.length).toBe(1)
-    expect(spawns[0]?.slice(0, 3)).toEqual(['exec', '--json', '--skip-git-repo-check'])
+    expect(spawns[0]?.slice(2, 5)).toEqual(['exec', '--json', '--skip-git-repo-check'])
     const events = await drain(adapter)
     expect(events[events.length - 1]?.type).toBe('done')
     expect(adapter.respondApproval === undefined).toBe(true)

@@ -1,6 +1,6 @@
 import type { PermissionMode } from '@ari/contracts/common'
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import { mapCodexLine, createAppServerMapper, appServerCorrelation } from './mapper'
@@ -13,7 +13,7 @@ import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter }
 import { UNKNOWN_PROVIDER_CAPABILITIES, ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
-import { argsWithWindowsHandoffBudget, spawnCli } from '../spawn-cli'
+import { spawnCli, writeCliPrompt } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
@@ -28,12 +28,13 @@ export function buildCodexArgs(session: AdapterSession): string[] {
   const args = ['--json', '--skip-git-repo-check']
   if (session.modelId) args.push('--model', session.modelId)
   if (hasEffort(session.effort)) args.push('-c', `model_reasoning_effort=${session.effort}`)
-  args.push(...sandboxFlags(session.permissionMode))
-  const prompt = promptWithAttachments(session)
+  // Policy flags belong to the top-level CLI, including when resuming a turn.
+  const policy = sandboxFlags(session.permissionMode)
   // `exec resume <id>` continues the thread a queued follow-up belongs to.
   // A fresh `exec` drops that thread and the agent starts over.
-  if (session.resumeOf) return ['exec', 'resume', session.resumeOf, ...args, prompt]
-  return ['exec', ...args, prompt]
+  // Both `exec` and `exec resume` document `-` as reading the prompt from stdin.
+  if (session.resumeOf) return [...policy, 'exec', 'resume', session.resumeOf, ...args, '-']
+  return [...policy, 'exec', ...args, '-']
 }
 
 /** True when the session picked a thought/reasoning level to apply. */
@@ -68,6 +69,7 @@ export interface CodexDriverOptions {
 
 /** Structural child surface the exec --json pump needs. */
 export interface LegacyChildProcess {
+  stdin: Writable
   stdout: Readable
   stderr: Readable
   readonly pid?: number | undefined
@@ -116,19 +118,20 @@ export class CodexDriver implements Driver {
     return this.createLegacy(session)
   }
 
-  /** One-shot `exec --json` transport; stdin is not writable in this mode. */
+  /** One-shot `exec --json` transport; stdin carries the prompt, then closes. */
   private createLegacy(session: AdapterSession): ProviderAdapter {
-    const args = argsWithWindowsHandoffBudget(this.binaryPath, session, buildCodexArgs)
+    const args = buildCodexArgs(session)
     const child =
       this.options.spawnLegacy !== undefined
         ? this.options.spawnLegacy(this.binaryPath, args)
         : spawnCli(this.binaryPath, args, {
             cwd: session.workspacePath,
             ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
-            stdio: ['ignore', 'pipe', 'pipe'],
+            stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
           })
     log.debug('codex spawned', { pid: child.pid })
+    writeCliPrompt(child.stdin, promptWithAttachments(session))
 
     const iterator = streamProcessEvents(child, mapCodexLine, {
       label: 'codex',
