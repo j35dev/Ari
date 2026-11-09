@@ -15,7 +15,7 @@ export interface Chord {
 }
 
 export function defaultShortcut(platform: string): string {
-  return platform === 'darwin' ? 'meta+shift+space' : 'ctrl+alt+space'
+  return platform === 'darwin' ? 'shift+meta+space' : 'ctrl+alt+space'
 }
 
 const modifiersByName: Record<string, Modifier> = {
@@ -60,7 +60,7 @@ export function shortcutError(shortcut: string, platform: string): string | null
   if (parts.some((part) => !names.includes(part)) || new Set(parts).size !== parts.length)
     return 'Use lowercase ctrl, alt, shift, and meta modifiers once each, before the key.'
   const ordered = [...parts].sort((a, b) => names.indexOf(a) - names.indexOf(b))
-  if (parts.join('+') !== ordered.join('+') && shortcut !== defaultShortcut('darwin'))
+  if (parts.join('+') !== ordered.join('+'))
     return 'Put modifiers in the order ctrl, alt, shift, meta.'
   return null
 }
