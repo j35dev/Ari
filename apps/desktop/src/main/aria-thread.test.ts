@@ -102,7 +102,7 @@ describe('AriaThread', () => {
       driverKind: 'codex',
       modelId: 'gpt-6',
       effort: 'high',
-      permissionMode: 'ask',
+      permissionMode: 'full',
     })
   })
 
@@ -164,7 +164,7 @@ describe('AriaThread', () => {
   it('creates from app defaults when there is no chat to replace', async () => {
     const next = await aria.newChat()
     expect(deps.destroySession).not.toHaveBeenCalled()
-    expect(saved.get(next.sessionId)).toMatchObject({ driverKind: 'codex', permissionMode: 'ask' })
+    expect(saved.get(next.sessionId)).toMatchObject({ driverKind: 'codex', permissionMode: 'full' })
   })
 
   it('preserves the chat when deletion is refused', async () => {
