@@ -140,13 +140,13 @@ async function capture(): Promise<void> {
     console.log('Native injected chord passed without activating the widget or main window')
     pill.webContents.forcefullyCrashRenderer()
     const recovered = await new Promise<BrowserWindow>((resolve, reject) => {
-      const deadline = Date.now() + 10_000
+      const deadline = performance.now() + 10_000
       const poll = (): void => {
         const next = BrowserWindow.getAllWindows().find(
           (candidate) => candidate !== main && candidate !== pill,
         )
         if (next) resolve(next)
-        else if (Date.now() >= deadline)
+        else if (performance.now() >= deadline)
           reject(new Error('Widget did not recover after renderer crash'))
         else setTimeout(poll, 50)
       }

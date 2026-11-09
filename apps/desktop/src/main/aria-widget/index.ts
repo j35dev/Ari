@@ -55,7 +55,7 @@ export class AriaWidget {
 
   private readonly resetInput = (): void => {
     this.tracker?.reset()
-    if (this.hold.state.phase === 'listening') {
+    if (this.hold.active) {
       this.hold.cancel()
       this.publish()
     }
@@ -65,15 +65,14 @@ export class AriaWidget {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     if (!Number.isFinite(this.hold.expiresAt) || this.disposed) return
-    const now = Date.now()
-    const revealAt = this.hold.showAt > now ? this.hold.showAt : Infinity
+    const now = performance.now()
     this.timer = setTimeout(
       () => {
         this.timer = null
-        this.hold.tick(Date.now())
+        this.hold.tick(performance.now())
         this.publish()
       },
-      Math.max(0, Math.min(this.hold.expiresAt, revealAt) - now),
+      Math.max(0, this.hold.expiresAt - now),
     )
     this.timer.unref()
   }
@@ -104,7 +103,7 @@ export class AriaWidget {
     const win = this.window
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
     win.webContents.send('ari:ariaWidget.state', this.snapshot())
-    if (!this.hold.visible(Date.now())) win.hide()
+    if (!this.hold.visible()) win.hide()
     else {
       win.setBounds(
         widgetBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea),
@@ -199,6 +198,9 @@ export class AriaWidget {
       this.hook = uIOhook
       uIOhook.on('keydown', this.keyDown)
       uIOhook.on('keyup', this.keyUp)
+      uIOhook.on('mousedown', this.mouseDown)
+      uIOhook.on('mouseup', this.mouseUp)
+      uIOhook.on('mousemove', this.mouseMove)
       uIOhook.start()
     } catch (error) {
       this.stopHook()
@@ -207,20 +209,39 @@ export class AriaWidget {
   }
 
   private readonly keyDown = (event: HookKey): void => {
-    const action = this.tracker?.down(event)
+    const now = performance.now()
+    const action = this.tracker?.down(event, now, this.hold.state.phase === 'hidden')
     if (action === 'down') {
-      if (this.hold.down(Date.now(), this.tracker?.modifierOnly ? MODIFIER_HOLD_MS : 0))
-        this.recoveryDelay = 1_000
-    } else if (action === 'cancel') this.hold.cancel()
-    else if (action === 'up') this.hold.up(Date.now())
+      if (!this.hold.down(now, this.tracker?.modifierOnly ? MODIFIER_HOLD_MS : 0)) return
+      this.recoveryDelay = 1_000
+    } else if (action === 'cancel' && this.hold.active) this.hold.cancel()
+    else if (action === 'up' && this.hold.active) this.hold.up(now)
     else return
     this.publish()
   }
 
   private readonly keyUp = (event: HookKey): void => {
-    if (this.tracker?.up(event) !== 'up') return
-    this.hold.up(Date.now())
+    if (this.tracker?.up(event) !== 'up' || !this.hold.active) return
+    this.hold.up(performance.now())
     this.publish()
+  }
+
+  private readonly mouseDown = (event: { button: unknown }): void => {
+    if (this.tracker?.mouseDown(event.button) && this.hold.active) {
+      this.hold.cancel()
+      this.publish()
+    }
+  }
+
+  private readonly mouseUp = (event: { button: unknown }): void => {
+    this.tracker?.mouseUp(event.button)
+  }
+
+  private readonly mouseMove = (): void => {
+    if (this.tracker?.mouseMove() && this.hold.active) {
+      this.hold.cancel()
+      this.publish()
+    }
   }
 
   private async handle(method: string, raw: unknown): Promise<unknown> {
@@ -246,7 +267,12 @@ export class AriaWidget {
     if (!params || typeof params.id !== 'number' || typeof params.text !== 'string')
       throw new Error('Invalid widget result')
     if (method === 'ariaWidget.error') {
-      this.hold.error(params.id, params.text.slice(0, 180), params.setup === true, Date.now())
+      this.hold.error(
+        params.id,
+        params.text.slice(0, 180),
+        params.setup === true,
+        performance.now(),
+      )
     } else if (
       params.id === this.hold.state.id &&
       this.hold.state.phase === 'transcribing' &&
@@ -273,13 +299,13 @@ export class AriaWidget {
             text,
           )
         }
-        this.hold.finish(id, text, Date.now())
+        this.hold.finish(id, text, performance.now())
       } catch (error) {
         this.hold.error(
           id,
           error instanceof Error ? error.message : 'Could not send to Aria.',
           false,
-          Date.now(),
+          performance.now(),
         )
       } finally {
         this.sending = null
@@ -292,6 +318,9 @@ export class AriaWidget {
   private stopHook(): void {
     this.hook?.removeListener('keydown', this.keyDown)
     this.hook?.removeListener('keyup', this.keyUp)
+    this.hook?.removeListener('mousedown', this.mouseDown)
+    this.hook?.removeListener('mouseup', this.mouseUp)
+    this.hook?.removeListener('mousemove', this.mouseMove)
     this.hook?.stop()
     this.hook = null
     this.tracker = null

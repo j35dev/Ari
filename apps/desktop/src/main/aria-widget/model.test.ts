@@ -9,12 +9,16 @@ import {
 } from './model'
 
 describe('hold to talk', () => {
-  it('records a modifier hold immediately, reveals after the delay and transcribes on release', () => {
+  it('arms a modifier hold without recording, then listens after the threshold', () => {
     const flow = new HoldToTalk()
     flow.down(0, MODIFIER_HOLD_MS)
+    expect(flow.state.phase).toBe('arming')
+    expect(flow.visible()).toBe(false)
+    flow.tick(MODIFIER_HOLD_MS - 1)
+    expect(flow.state.phase).toBe('arming')
+    flow.tick(MODIFIER_HOLD_MS)
     expect(flow.state.phase).toBe('listening')
-    expect(flow.visible(MODIFIER_HOLD_MS - 1)).toBe(false)
-    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(true)
+    expect(flow.visible()).toBe(true)
     flow.up(MODIFIER_HOLD_MS)
     expect(flow.state.phase).toBe('transcribing')
   })
@@ -24,20 +28,39 @@ describe('hold to talk', () => {
     flow.down(0, MODIFIER_HOLD_MS)
     flow.up(MODIFIER_HOLD_MS - 1)
     expect(flow.state.phase).toBe('hidden')
-    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(false)
+    expect(flow.visible()).toBe(false)
     flow.finish(1, 'Never send this', MODIFIER_HOLD_MS)
     expect(flow.state.phase).toBe('hidden')
   })
 
-  it('keeps recording failures hidden during the modifier grace period and cancels them on a tap', () => {
+  it('rejects renderer errors for a hold that has not opened the microphone', () => {
     const flow = new HoldToTalk()
     flow.down(0, MODIFIER_HOLD_MS)
     flow.error(1, 'Microphone unavailable', false, 10)
-    expect(flow.visible(10)).toBe(false)
+    expect(flow.state.phase).toBe('arming')
+    expect(flow.visible()).toBe(false)
     flow.up(20)
     expect(flow.state.phase).toBe('hidden')
-    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(false)
+    expect(flow.visible()).toBe(false)
   })
+
+  it.each(['transcribing', 'sent', 'error', 'setup'] as const)(
+    'ignores new holds and releases while %s is showing',
+    (phase) => {
+      const flow = new HoldToTalk()
+      flow.down(0)
+      if (phase === 'transcribing' || phase === 'sent') flow.up(1)
+      if (phase === 'sent') flow.finish(1, 'Keep this result', 2)
+      if (phase === 'error' || phase === 'setup')
+        flow.error(1, 'Keep this hint', phase === 'setup', 2)
+      const previous = flow.state
+      const deadline = flow.expiresAt
+      expect(flow.down(3, MODIFIER_HOLD_MS)).toBe(false)
+      flow.up(4)
+      expect(flow.state).toBe(previous)
+      expect(flow.expiresAt).toBe(deadline)
+    },
+  )
 
   it('listens once per hold, transcribes on release and hides after sent', () => {
     const flow = new HoldToTalk()

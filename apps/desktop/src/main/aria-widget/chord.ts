@@ -104,13 +104,20 @@ export function parseChord(
   return { keycode, modifierOnly, platform, modifiers, modifierCodes, releases }
 }
 
+/**
+ * Flags become authoritative per modifier after their first true value.
+ * Mixing physical and flag-less injected modifiers in one hook session is unsupported.
+ */
 export class ChordTracker {
   private held = false
   private primaryDown = false
   private blockedUntilUp = false
-  private readonly pressedModifiers = new Set<number>()
+  private readonly pressedKeys = new Set<number>()
+  private readonly pressedButtons = new Set<unknown>()
   private readonly authoritativeModifiers = new Set<Modifier>()
-  private previousDown: HookKey | null = null
+  private previousDown: { keycode: number; at: number } | null = null
+  private lastPrimaryAt = -Infinity
+  private afterReset = false
   private altGr = false
   constructor(
     private readonly chord: Chord,
@@ -122,10 +129,12 @@ export class ChordTracker {
   }
 
   reset(): void {
-    this.blockedUntilUp ||= this.held && this.primaryDown
+    this.blockedUntilUp = false
     this.primaryDown = false
     this.held = false
-    this.pressedModifiers.clear()
+    this.pressedKeys.clear()
+    this.pressedButtons.clear()
+    this.afterReset = true
     this.previousDown = null
     this.altGr = false
   }
@@ -134,7 +143,7 @@ export class ChordTracker {
     for (const modifier of Object.keys(this.chord.modifiers) as Modifier[]) {
       if (event[modifier] === true) this.authoritativeModifiers.add(modifier)
       else if (event[modifier] === false && this.authoritativeModifiers.has(modifier)) {
-        for (const code of this.chord.modifierCodes[modifier]) this.pressedModifiers.delete(code)
+        for (const code of this.chord.modifierCodes[modifier]) this.pressedKeys.delete(code)
       }
     }
   }
@@ -144,7 +153,7 @@ export class ChordTracker {
     if (modifier === 'ctrlKey' && this.altGr && !this.chord.modifiers.ctrlKey) return false
     if (this.authoritativeModifiers.has(modifier)) return event[modifier] === true
     for (const code of this.chord.modifierCodes[modifier]) {
-      if (this.pressedModifiers.has(code)) return true
+      if (this.pressedKeys.has(code)) return true
     }
     return false
   }
@@ -163,34 +172,60 @@ export class ChordTracker {
     return 'up'
   }
 
-  down(event: HookKey): 'down' | 'cancel' | 'up' | null {
+  private participates(keycode: number): boolean {
+    if (keycode === this.chord.keycode) return true
+    const [leftCtrl] = this.chord.modifierCodes.ctrlKey
+    if (this.altGr && !this.chord.modifiers.ctrlKey && keycode === leftCtrl) return true
+    return Object.entries(this.chord.modifierCodes).some(
+      ([modifier, codes]) =>
+        this.chord.modifiers[modifier as Modifier] &&
+        !codes.has(this.chord.keycode) &&
+        codes.has(keycode),
+    )
+  }
+
+  private otherKeysHeld(): boolean {
+    for (const code of this.pressedKeys) if (!this.participates(code)) return true
+    return false
+  }
+
+  down(event: HookKey, now = performance.now(), canStart = true): 'down' | 'cancel' | 'up' | null {
     this.reconcile(event)
     const [leftCtrl, rightCtrl] = this.chord.modifierCodes.ctrlKey
     const [, rightAlt] = this.chord.modifierCodes.altKey
     if (event.keycode === rightAlt) {
-      // Windows gives AltGr's synthetic Ctrl and Right Alt the same timestamp.
+      // AltGr's synthetic Left Ctrl is the event immediately before Right Alt.
       this.altGr =
         this.chord.platform === 'win32' &&
         this.previousDown !== null &&
         this.previousDown.keycode === leftCtrl &&
-        event.time !== undefined &&
-        event.time === this.previousDown.time &&
-        (rightCtrl === undefined || !this.pressedModifiers.has(rightCtrl))
+        now >= this.previousDown.at &&
+        now - this.previousDown.at <= 50 &&
+        (rightCtrl === undefined || !this.pressedKeys.has(rightCtrl))
     }
-    this.previousDown = event
-    if (Object.values(this.chord.modifierCodes).some((codes) => codes.has(event.keycode)))
-      this.pressedModifiers.add(event.keycode)
-    if (event.keycode === this.chord.keycode) this.primaryDown = true
+    this.previousDown = { keycode: event.keycode, at: now }
+    this.pressedKeys.add(event.keycode)
+    if (event.keycode === this.chord.keycode) {
+      this.primaryDown = true
+      const repeat = this.afterReset && now - this.lastPrimaryAt <= 120
+      this.lastPrimaryAt = now
+      if (repeat) return null
+      this.afterReset = false
+    }
     if (this.held) {
       if (event.keycode === this.escape) return 'cancel'
-      if (
-        this.chord.modifierOnly &&
-        !Object.values(this.chord.modifierCodes).some((codes) => codes.has(event.keycode))
-      )
-        return 'cancel'
+      if (this.chord.modifierOnly && event.keycode !== this.chord.keycode) return 'cancel'
       return this.lostRelease(event) ? this.release() : null
     }
     if (this.blockedUntilUp || event.keycode !== this.chord.keycode) return null
+    if (!canStart) {
+      this.blockedUntilUp = true
+      return null
+    }
+    if (this.chord.modifierOnly && (this.pressedButtons.size > 0 || this.otherKeysHeld())) {
+      this.blockedUntilUp = true
+      return null
+    }
     if (
       !Object.entries(this.chord.modifiers).every(([key, value]) => {
         const modifier = key as Modifier
@@ -203,7 +238,8 @@ export class ChordTracker {
   }
 
   up(event: HookKey): 'up' | null {
-    this.pressedModifiers.delete(event.keycode)
+    this.pressedKeys.delete(event.keycode)
+    this.previousDown = null
     this.reconcile(event)
     const [leftCtrl] = this.chord.modifierCodes.ctrlKey
     const [, rightAlt] = this.chord.modifierCodes.altKey
@@ -211,6 +247,7 @@ export class ChordTracker {
     if (event.keycode === this.chord.keycode) {
       this.primaryDown = false
       this.blockedUntilUp = false
+      this.afterReset = false
       return this.held ? this.release() : null
     }
     if (!this.held) return null
@@ -221,5 +258,21 @@ export class ChordTracker {
           codes.has(event.keycode) && !this.pressed(event, modifier as Modifier),
       )
     return modifierReleased || this.lostRelease(event) ? this.release() : null
+  }
+
+  mouseDown(button: unknown): boolean {
+    this.previousDown = null
+    this.pressedButtons.add(button)
+    return this.held && this.chord.modifierOnly
+  }
+
+  mouseUp(button: unknown): void {
+    this.previousDown = null
+    this.pressedButtons.delete(button)
+  }
+
+  mouseMove(): boolean {
+    this.previousDown = null
+    return this.held && this.chord.modifierOnly && this.pressedButtons.size > 0
   }
 }
