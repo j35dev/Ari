@@ -191,7 +191,9 @@ export async function installEngine(
       throw new Error('The speech engine files did not pass verification. Download it again.')
     await rm(destination, { recursive: true, force: true })
     await rename(staging, destination)
-    await rm(archive, { force: true })
+    await rm(archive, { force: true }).catch((error: unknown) =>
+      console.warn('Could not clean the speech engine archive:', archive, error),
+    )
     return join(destination, relative(staging, library))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOSPC')

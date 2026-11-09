@@ -4,9 +4,20 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { c } from 'tar'
-import { afterEach, expect, it, vi } from 'vitest'
+import type * as FsPromises from 'node:fs/promises'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ENGINE_HEADER_HASH, ENGINE_VERSION, installEngine, verifyInstalledEngine } from './engine'
 import * as download from './download'
+
+const io = vi.hoisted(() => ({ rm: vi.fn() }))
+vi.mock('node:fs/promises', async (original) => ({
+  ...(await original<typeof FsPromises>()),
+  rm: io.rm,
+}))
+beforeEach(async () => {
+  const actual = await vi.importActual<typeof FsPromises>('node:fs/promises')
+  io.rm.mockReset().mockImplementation(actual.rm)
+})
 
 const fixture = vi.hoisted(() => ({
   release: {
@@ -25,9 +36,13 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-it.each([true, false])(
-  'hashes each archive and staged library once (cached archive: %s)',
-  async (cached) => {
+it.each([
+  [true, false],
+  [false, false],
+  [true, true],
+])(
+  'hashes each archive and staged library once (cached: %s, cleanup fails: %s)',
+  async (cached, cleanupFails) => {
     const root = await mkdtemp(join(tmpdir(), 'ari-engine-install-'))
     roots.push(root)
     const source = join(root, 'source')
@@ -58,6 +73,14 @@ it.each([true, false])(
       await rm(archive)
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(bytes)))
     }
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    if (cleanupFails) {
+      const actual = await vi.importActual<typeof FsPromises>('node:fs/promises')
+      io.rm.mockImplementation(async (path, options) => {
+        if (path === archive) throw Object.assign(new Error('Archive locked'), { code: 'EPERM' })
+        return actual.rm(path, options)
+      })
+    }
     const hashes = vi.spyOn(download, 'verifyDownload')
     const verified = vi.fn()
     const library = await installEngine(engine, new AbortController().signal, vi.fn(), verified)
@@ -70,5 +93,7 @@ it.each([true, false])(
     ).toBe(false)
     await verifyInstalledEngine(join(engine, ENGINE_VERSION), false, undefined, verified)
     expect(verified.mock.calls[1]![0]).toBe(verified.mock.calls[0]![0])
+    expect(warning).toHaveBeenCalledTimes(cleanupFails ? 1 : 0)
+    if (cleanupFails) expect(await readFile(archive)).toEqual(bytes)
   },
 )
