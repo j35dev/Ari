@@ -203,7 +203,7 @@ export function PermissionsSettings() {
         </SettingsRow>
         <SettingsRow
           label="Run Ari's own commands without asking"
-          hint="Skip the permission prompt for `ari` commands that only read or delegate. Integrating a child's changes and deleting sessions still ask."
+          hint="Skip the permission prompt for `ari` commands. Installing the Ari skill still asks because it changes your agent configuration."
         >
           <Switch
             checked={delegation.autoApproveCli}
@@ -213,7 +213,7 @@ export function PermissionsSettings() {
         </SettingsRow>
         <SettingsRow
           label="Delegation approval"
-          hint="When Ari asks before a child session is created."
+          hint="When Ari asks before creating a child or project lead. No approval is the default."
         >
           <Select
             aria-label="Delegation approval"

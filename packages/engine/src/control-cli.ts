@@ -1,11 +1,10 @@
 import type { ApprovalOption } from '@ari/contracts/common'
 
 /**
- * `ari` subcommands that either only read, or act inside limits the control
- * service enforces on its own (scope, depth, concurrency, the delegation
- * approval). `integrate` writes into the parent's workspace, `destroy` deletes
- * sessions and `skill install` writes user configuration, so those keep their
- * permission prompt.
+ * `ari` subcommands act inside limits the control service enforces on its own
+ * (scope, depth, concurrency, the configured delegation approval). Only
+ * `skill install` keeps its permission prompt because it writes the user's
+ * agent configuration.
  */
 const TOP_LEVEL = new Set(['env', 'agents', 'providers', 'projects', 'sessions', '--skill'])
 const SESSION = new Set([
@@ -15,6 +14,7 @@ const SESSION = new Set([
   'spawn',
   'prompt',
   'message',
+  'answer',
   'delivery',
   'inbox',
   'ack',
@@ -22,12 +22,18 @@ const SESSION = new Set([
   'wait',
   'stop',
   'diff',
+  'integrate',
+  'destroy',
+  'delete',
 ])
+const ROUTINE = new Set(['add', 'list', 'ls', 'rm', 'remove'])
 const COMMAND_WORDS = new Set(['ari', 'ari.cmd', '$ARI_CLI', '"$ARI_CLI"'])
 const ORCHESTRATION = new Set([
   'view',
   'inbox',
   'routine.list',
+  'routine.add',
+  'routine.remove',
   'launch',
   'retry',
   'update',
@@ -36,14 +42,12 @@ const ORCHESTRATION = new Set([
   'context',
   'context.get',
   'diff',
+  'integrate',
   'verify',
   'answer',
   'stop',
   'compare',
 ])
-/** What agents habitually append to keep output short; neither can do harm. */
-const OUTPUT_TRIM = / \| (?:head|tail)(?: -n)?(?: -?\d+)?$/
-
 /** Splits one simple command into words, or null when it is not simple. */
 function words(segment: string): string[] | null {
   const out: string[] = []
@@ -77,10 +81,7 @@ function words(segment: string): string[] | null {
 }
 
 function isSafeInvocation(segment: string): boolean {
-  const trimmed = segment
-    .trim()
-    .replace(OUTPUT_TRIM, '')
-    .replace(/ 2>&1$/, '')
+  const trimmed = segment.trim()
   const space = trimmed.indexOf(' ')
   const head = space === -1 ? trimmed : trimmed.slice(0, space)
   if (!COMMAND_WORDS.has(head)) return false
@@ -90,23 +91,23 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'session') return second !== undefined && SESSION.has(second)
-  if (first === 'project') return second === 'ask'
+  if (first === 'project') return second === 'ask' || second === 'default'
+  if (first === 'routine') return second !== undefined && ROUTINE.has(second)
   if (first === 'task' || first === 'orchestration')
     return second !== undefined && ORCHESTRATION.has(second)
   return first === 'parent' && second === 'message'
 }
 
 /**
- * True when a shell command line is nothing but safe `ari` invocations,
- * optionally chained with `&&` or `||`. Anything it cannot fully account for
- * (redirections, pipes to other programs, substitutions, a second command) is
- * not safe, so the user is asked as usual.
+ * True when a shell command line is one safe `ari` invocation.
+ * Redirections, pipes, substitutions or a second command leave the permission
+ * request to the user as usual.
  */
 export function isSafeControlCommand(command: string): boolean {
   // A line break inside quotes is part of a prompt; outside them it starts
   // another command, which the word splitter refuses like any other separator.
   if (command.length === 0 || command.length > 70_000) return false
-  return command.split(/ (?:&&|\|\|) /).every(isSafeInvocation)
+  return isSafeInvocation(command)
 }
 
 /**

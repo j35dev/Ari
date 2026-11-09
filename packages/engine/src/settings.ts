@@ -93,13 +93,24 @@ export class SettingsStore {
       this.#loaded = true
       return this.#current
     }
+    let migrateDelegationApproval: boolean
     try {
       const parsed: unknown = JSON.parse(raw)
       this.#current = settingsSchema.parse(parsed)
+      // A disk-only marker lets users opt back into first-per-root after this
+      // one-time change without adding a migration flag to app preferences.
+      migrateDelegationApproval =
+        (parsed as { delegationApprovalMigrated?: unknown }).delegationApprovalMigrated !== true
+      if (migrateDelegationApproval && this.#current.delegation.approvalMode === 'first-per-root')
+        this.#current = {
+          ...this.#current,
+          delegation: { ...this.#current.delegation, approvalMode: 'never' },
+        }
     } catch (error) {
       log.warn('settings invalid; preserving file', { error: String(error) })
       throw error
     }
+    if (migrateDelegationApproval) await this.save(this.#current)
     this.#loaded = true
     return this.#current
   }
@@ -139,7 +150,11 @@ export class SettingsStore {
   async save(settings: Settings): Promise<void> {
     await mkdir(join(this.#path, '..'), { recursive: true })
     const tmp = `${this.#path}.tmp`
-    await writeFile(tmp, JSON.stringify(settings, null, 2), 'utf8')
+    await writeFile(
+      tmp,
+      JSON.stringify({ ...settings, delegationApprovalMigrated: true }, null, 2),
+      'utf8',
+    )
     // Atomic on same-volume rename; readers never see a torn file.
     await rename(tmp, this.#path)
   }

@@ -16,6 +16,48 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('migrates the saved delegation default once and preserves an explicit later choice', async () => {
+    const path = join(dir, 'settings.json')
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        delegation: {
+          approvalMode: 'first-per-root',
+          maxConcurrentChildren: 2,
+          autoApproveCli: false,
+        },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).delegation).toMatchObject({
+      approvalMode: 'never',
+      maxConcurrentChildren: 2,
+      autoApproveCli: false,
+    })
+    const persisted: unknown = JSON.parse(await readFile(path, 'utf8'))
+    expect(persisted).toMatchObject({
+      delegation: { approvalMode: 'never' },
+      delegationApprovalMigrated: true,
+    })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('never')
+
+    await store.update({ delegation: { approvalMode: 'first-per-root' } })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('first-per-root')
+  })
+
+  it.each(['always', 'never'] as const)(
+    'preserves the saved %s delegation policy',
+    async (approvalMode) => {
+      await writeFile(
+        join(dir, 'settings.json'),
+        JSON.stringify({ version: 1, delegation: { approvalMode } }),
+      )
+      expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe(approvalMode)
+      expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe(approvalMode)
+    },
+  )
+
   it('drops retired Aria preferences while preserving app session defaults', async () => {
     await writeFile(
       join(dir, 'settings.json'),
@@ -216,6 +258,9 @@ describe('SettingsStore', () => {
     expect(settings.appearance.mode).toBe('system')
     expect(settings.appearance).not.toHaveProperty('glass')
     expect(settings.sessions.defaultPermissionMode).toBe('ask')
+    expect(settings.delegation.approvalMode).toBe('never')
+    await store.update({ delegation: { approvalMode: 'first-per-root' } })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('first-per-root')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
   })

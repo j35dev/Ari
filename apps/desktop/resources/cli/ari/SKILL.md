@@ -52,6 +52,13 @@ Call it as `ari`. Only if `ari` is absent from PATH, invoke the executable in `A
 on Windows under Git Bash that path cannot take quoted arguments when it contains a space.
 Never print `ARI_CONTROL_TOKEN` or include it in prompts, files or messages.
 
+By default, delegation needs no approval and Ari's own commands run without a
+shell permission prompt, including integration, session deletion, answers,
+routines and project defaults. Settings → Permissions can change either policy.
+Use one command per shell call, without pipes, substitutions or command chains.
+`ari skill install` still asks because it writes your agent configuration.
+Provider tool approvals inside sessions still go to the user.
+
 You remain responsible for the user's task. Delegate independently useful work
 when it helps — parallelizable slices in different directories, long-pole
 subtasks, or work that benefits from another model. Do not invent a fixed team.
@@ -137,8 +144,7 @@ The agent is resolved from explicit arguments, the project's saved default,
 the most common provider/model in its ten latest user-started sessions, then
 the app's default provider and that provider's catalog default model. Only
 available providers and catalog models count. `agent: null` means ask the user
-which agent to use and save it with `project default`; never guess. Changing a
-project default requires the normal user permission prompt.
+which agent to use and save it with `project default`; never guess.
 
 A lead handles anything beyond a small single-file fix by splitting it across
 isolated workers with `session spawn`, inspecting every diff, integrating
