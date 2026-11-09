@@ -85,6 +85,10 @@ import {
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import { visibleProjects } from './features/aria/visibility'
+import { isHelmSession } from '@ari/contracts/helm'
+import { AriaRow } from './features/aria/AriaRow'
+import { ariaActivity, startedByAria } from './features/aria/aria-activity'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
 import { NewSessionLauncher } from './shell/NewSessionLauncher'
@@ -162,7 +166,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
-  const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
+  const { activityOf, attentionCountOf, acknowledge, forget } =
+    useSessionActivity(visibleSessionIds)
   // Every list refresh is a new array; the lookup changes identity only when
   // a title does, or each refresh would re-render every memoized transcript row.
   const sessionsRef = useRef(sessions)
@@ -247,6 +252,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // safe seed: it never depends on an installed CLI, and detection below
   // upgrades it to the first agent that is installed.
   const [lastPickAtBoot] = useState(loadLastPick)
+  const [providersReady, setProvidersReady] = useState(false)
   const [defaults, setDefaults] = useState<SessionDefaults>(() => ({
     driverKind: lastPickAtBoot?.driverKind ?? 'ari-core',
     modelId: lastPickAtBoot?.modelId ?? null,
@@ -536,7 +542,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     void rpc
       .invoke('project.list')
-      .then(setProjects)
+      .then((list) => setProjects(visibleProjects(list)))
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
@@ -559,6 +565,65 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [engineSettings.settings?.sourceControl.diffOpenMode],
   )
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
+  const ariaStatus = useMemo(
+    () => ariaActivity(sessions, activityOf, attentionCountOf),
+    [sessions, activityOf, attentionCountOf],
+  )
+  const ariaStartedIds = useMemo(
+    () =>
+      new Set(
+        sessions.filter((session) => startedByAria(session, sessions)).map((session) => session.id),
+      ),
+    [sessions],
+  )
+  const openAria = useCallback(
+    (newTopic = false): void => {
+      void rpc
+        .invoke(newTopic ? 'aria.newTopic' : 'aria.open', defaults)
+        .then(async ({ sessionId }) => {
+          await reloadSessions()
+          selectSessionRef.current(sessionId)
+        })
+        .catch((error: unknown) => {
+          log.warn('Aria could not open', error)
+          toast({
+            tone: 'danger',
+            title: 'Could not open Aria',
+            description: error instanceof Error ? error.message : String(error),
+          })
+        })
+    },
+    [defaults, reloadSessions, toast],
+  )
+  const openAriaRef = useRef(openAria)
+  openAriaRef.current = openAria
+  const landed = useRef(false)
+  useEffect(() => {
+    if (
+      landed.current ||
+      setupCovered ||
+      !sessionsLoadedRef.current ||
+      !providersReady ||
+      engineSettings.settings === null
+    )
+      return
+    if (onboardingOutcome?.sessionId != null) {
+      landed.current = true
+      return
+    }
+    if (activeSessionId !== null && !sessions.some((session) => session.id === activeSessionId))
+      return
+    landed.current = true
+    if (activeSessionId === null && leaves(layout.root).every(isBlankLeaf)) openAriaRef.current()
+  }, [
+    sessions,
+    setupCovered,
+    activeSessionId,
+    layout,
+    providersReady,
+    engineSettings.settings,
+    onboardingOutcome?.sessionId,
+  ])
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -590,9 +655,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         }
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))
+      .finally(() => setProvidersReady(true))
   }, [])
 
   const commands = useCommands({
+    onOpenAria: () => {
+      openAria()
+      setPaletteOpen(false)
+    },
     onNavigate: (view) => {
       if (view === 'settings') {
         setHubOpen(false)
@@ -670,7 +740,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const refreshProjects = useCallback((): void => {
     void rpc
       .invoke('project.list')
-      .then(setProjects)
+      .then((list) => setProjects(visibleProjects(list)))
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
@@ -734,6 +804,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
+        e.preventDefault()
+        openAriaRef.current()
+        return
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
@@ -1157,6 +1232,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 onSearch={() => sidebarSearchRef.current?.focus()}
                 onCollapse={toggleSidebar}
               />
+              <AriaRow
+                selected={isHelmSession(activeSession)}
+                activity={ariaStatus}
+                onOpen={() => openAria()}
+              />
               <SessionsUnderProjects
                 sessions={sessions}
                 projects={openProjects}
@@ -1198,6 +1278,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 }}
                 onLocateProject={openProjectViaDialog}
                 activeSessionId={activeSessionId}
+                startedByAria={(id) => ariaStartedIds.has(id)}
                 activityOf={activityOf}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
@@ -1351,6 +1432,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                             titleOf={(id) => {
                               const session = sessions.find((s) => s.id === id)
                               if (session === undefined) return null
+                              if (isHelmSession(session)) return 'Aria'
                               const projectName =
                                 session.projectId === UNFILED_GROUP_ID
                                   ? null
@@ -1397,6 +1479,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 render={(sessionId, hidden) => (
                                   <SessionView
                                     sessionId={sessionId}
+                                    aria={
+                                      isHelmSession(sessions.find((row) => row.id === sessionId))
+                                        ? {
+                                            state: ariaStatus.state,
+                                            onNewTopic: () => openAria(true),
+                                          }
+                                        : undefined
+                                    }
+                                    onOpenAria={() => openAria()}
+                                    startedByAria={ariaStartedIds.has(sessionId)}
                                     hidden={hidden}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}

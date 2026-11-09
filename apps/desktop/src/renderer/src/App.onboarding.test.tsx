@@ -4,7 +4,7 @@ import { settingsSchema, type Settings, type SettingsUpdate } from '@ari/contrac
 import { projectViewSchema, type Project } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { App } from './App'
-import { splitLayoutActions } from './features/split/use-split-layout'
+import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { loadLastPick } from './features/composer/last-pick'
 
 const { invoke, subscribe } = vi.hoisted(() => ({
@@ -69,6 +69,20 @@ beforeEach(() => {
         return project
       case 'session.list':
         return sessions
+      case 'aria.open': {
+        if (!sessions.some((session) => session.id === 'aria'))
+          sessions = [
+            ...sessions,
+            {
+              id: 'aria',
+              projectId: 'helm',
+              title: 'Aria',
+              messageCount: 0,
+              updatedAt: 1,
+            },
+          ]
+        return { sessionId: 'aria' }
+      }
       case 'session.create':
         sessions = [
           {
@@ -102,6 +116,47 @@ beforeEach(() => {
 })
 
 describe('App onboarding integration', () => {
+  it('opens Aria on startup when there is no session to restore', async () => {
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    projects = [project]
+    render(<App />)
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
+    expect(invoke).toHaveBeenCalledWith('aria.open', {
+      driverKind: 'claude',
+      modelId: null,
+      effort: null,
+      permissionMode: 'ask',
+    })
+    expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
+  it('keeps a restored session and opens Aria with its pinned row and Mod+0', async () => {
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    projects = [project]
+    sessions = [
+      {
+        id: 'restored',
+        projectId: project.id,
+        title: 'Restored session',
+        messageCount: 1,
+        updatedAt: 1,
+      },
+    ]
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
+    render(<App />)
+    expect(await screen.findByText('Opened session restored')).toBeVisible()
+    expect(invoke.mock.calls.some(([method]) => method === 'aria.open')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Aria' }))
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /^Restored session/ }))
+    fireEvent.keyDown(window, { key: '0', ctrlKey: true })
+    await waitFor(() =>
+      expect(invoke.mock.calls.filter(([method]) => method === 'aria.open')).toHaveLength(2),
+    )
+  })
   it('finishes first run into the selected agent’s empty session, then reopens setup without losing it', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Meet your coding agents.' })
@@ -164,21 +219,20 @@ describe('App onboarding integration', () => {
   it('remembers a skip across remounts without requiring an agent or project', async () => {
     const first = render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Skip setup' }))
-    await screen.findByRole('button', { name: 'Add a project to start' })
+    await screen.findByText('Opened session aria')
     first.unmount()
     render(<App />)
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Add a project to start' })).toBeVisible(),
-    )
+    await waitFor(() => expect(screen.getByText('Opened session aria')).toBeVisible())
     expect(screen.queryByRole('main', { name: 'Ari setup' })).not.toBeInTheDocument()
     expect(projects).toHaveLength(0)
-    expect(sessions).toHaveLength(0)
+    expect(sessions).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([method]) => method === 'aria.open')).toHaveLength(1)
   })
 
   it('bypasses the wizard for an existing workspace and records its migration', async () => {
     projects = [project]
     render(<App />)
-    await screen.findByRole('button', { name: 'Start a new session' })
+    await screen.findByText('Opened session aria')
     expect(screen.queryByRole('main', { name: 'Ari setup' })).not.toBeInTheDocument()
     await waitFor(() => expect(settings.onboarding?.completedAt).toBeGreaterThan(0))
     expect(invoke.mock.calls.some(([method]) => method === 'project.discover')).toBe(false)

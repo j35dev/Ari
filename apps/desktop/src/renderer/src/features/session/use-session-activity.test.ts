@@ -48,6 +48,16 @@ afterEach(() => {
 })
 
 describe('useSessionActivity', () => {
+  it('keeps a live count of approvals and questions, including simultaneous requests', () => {
+    const { api, fire } = renderActivity()
+    fire({ sessionId: 's1', event: { type: 'approval.requested', approvalId: 'a' } })
+    fire({ sessionId: 's1', event: { type: 'input.requested', inputId: 'q' } })
+    expect(api().attentionCountOf('s1')).toBe(2)
+    fire({ sessionId: 's1', event: { type: 'approval.responded', approvalId: 'a' } })
+    expect(api().attentionCountOf('s1')).toBe(1)
+    fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed' } })
+    expect(api().attentionCountOf('s1')).toBe(0)
+  })
   it('keeps the lookup identity until some activity changes', () => {
     const { api, fire, rerender } = renderActivity()
     const before = api().activityOf

@@ -86,6 +86,7 @@ export interface CommandsContext {
   onNavigate: (view: NavigableView) => void
   onOpenGallery: () => void
   onOpenSearch: () => void
+  onOpenAria?: () => void
   panes?: PaneCommands
   spaces?: SpaceCommands
 }
@@ -189,6 +190,9 @@ function spaceCommands(spaces: SpaceCommands): PaletteCommand[] {
 export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
   const { panes, spaces } = ctx
   return [
+    ...(ctx.onOpenAria
+      ? [{ id: 'nav.aria', label: 'Open Aria', hint: 'Mod+0', run: ctx.onOpenAria }]
+      : []),
     {
       id: 'nav.sessions',
       label: 'Go to Sessions',
@@ -264,9 +268,9 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery, onOpenSearch, panes, spaces } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, panes, spaces }),
-    [onNavigate, onOpenGallery, onOpenSearch, panes, spaces],
+    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces }),
+    [onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces],
   )
 }
