@@ -9,6 +9,7 @@ import {
   getWatcher,
   sameRoot,
   stopWatchingProject,
+  stopWatchingUnder,
   watchedFiles,
 } from './watcher-bridge'
 
@@ -62,6 +63,20 @@ describe('watcher bridge', () => {
     expect(getWatcher(dir)).not.toBe(stopped)
     expect(kept.rootCount).toBe(1)
     expect(getWatcher(other)).toBe(kept)
+  })
+
+  it('stops all watchers inside a workspace while preserving sibling prefixes', async () => {
+    const root = join(dir, 'work')
+    const nested = join(root, 'src')
+    const sibling = join(dir, 'work-other')
+    await mkdir(nested, { recursive: true })
+    await mkdir(sibling)
+    const watchers = [getWatcher(root), getWatcher(nested)]
+    const kept = getWatcher(sibling)
+    await stopWatchingUnder(root)
+    expect(watchers.map((watcher) => watcher.rootCount)).toEqual([0, 0])
+    expect(kept.rootCount).toBe(1)
+    await expect(stopWatchingUnder(root)).resolves.toBeUndefined()
   })
 
   it('drops the file index of a removed project', async () => {

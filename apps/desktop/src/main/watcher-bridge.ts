@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { pathKey, sameRoot, isWithinRoot } from '@ari/shared/paths'
 import { WorkspaceWatcher } from '@ari/engine/watcher'
 import { createLogger } from '@ari/shared/logger'
 import { ProjectFileIndex } from './file-index'
@@ -23,15 +23,7 @@ const indexes = new Map<string, ProjectFileIndex>()
 /** Each index's initial walk, settled once it is done (or failed). */
 const builds = new Map<string, Promise<void>>()
 
-function keyFor(projectPath: string): string {
-  const absolute = resolve(projectPath)
-  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
-}
-
-/** True when two paths name the same folder under the platform's case rules. */
-export function sameRoot(a: string, b: string): boolean {
-  return keyFor(a) === keyFor(b)
-}
+export { sameRoot }
 
 function handleChange(paths: string[]): void {
   for (const index of indexes.values()) void index.applyBatch(paths)
@@ -43,7 +35,7 @@ export interface WatcherOptions {
 }
 
 export function getWatcher(projectPath: string, options: WatcherOptions = {}): WorkspaceWatcher {
-  const key = keyFor(projectPath)
+  const key = pathKey(projectPath)
   const existing = watchers.get(key)
   if (existing) return existing
   const watcher = new WorkspaceWatcher({
@@ -106,11 +98,20 @@ export async function stopWatchingProject(projectPath: string, projectId?: strin
     indexes.delete(projectId)
     builds.delete(projectId)
   }
-  const watcher = watchers.get(keyFor(projectPath))
+  const watcher = watchers.get(pathKey(projectPath))
   if (!watcher) return
-  watchers.delete(keyFor(projectPath))
+  watchers.delete(pathKey(projectPath))
   await watcher.close()
   log.info('workspace watcher stopped', { projectPath })
+}
+
+/** Closes handles inside a workspace before its directory is removed. */
+export async function stopWatchingUnder(root: string): Promise<void> {
+  await Promise.all(
+    [...watchers.keys()]
+      .filter((path) => isWithinRoot(path, root))
+      .map((path) => stopWatchingProject(path)),
+  )
 }
 
 /** Shuts down every project watcher and clears all indexes. Idempotent. */

@@ -1,13 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { decideCommand } from './dispatcher'
 import { DelegationSupervisor, type SupervisorHost } from './delegation-supervisor'
 import { SessionStore } from './session-store'
-import { turnRequester, helmSnapshot } from './helm'
+import { turnRequester, helmSnapshot, helmReportRecipient } from './helm'
 
 let dir: string
 let store: SessionStore
@@ -73,7 +73,7 @@ async function settle(
       turnId,
       stopReason,
     })
-  const requester = turnRequester(model, turnId)
+  const requester = await helmReportRecipient(store, model, turnId)
   if (
     requester &&
     requester !== parentId &&
@@ -684,6 +684,39 @@ it('holds a top-level lead report through running workers and delivers only the 
   expect(JSON.stringify(reports[0]?.parts)).not.toContain('Handed out')
   expect(reports[0]?.origin).toMatchObject({ kind: 'completion', sessionIds: ['lead'] })
   expect((await store.load('helm1')).childCompletions?.worker).toBeUndefined()
+})
+
+it('bubbles a held project lead report to the current Aria after its requester is deleted', async () => {
+  await createAria()
+  await store.append('lead', {
+    type: 'session.created',
+    session: {
+      ...session('lead'),
+      lead: true,
+      createdBy: { kind: 'session', sessionId: 'helm1' },
+    },
+  })
+  await create('worker', 'lead')
+  await askByAria('lead')
+  await start('worker')
+  await store.destroy('helm1')
+  await store.append('helm2', {
+    type: 'session.created',
+    session: { ...session('helm2'), projectId: 'helm' },
+  })
+  await start('helm2')
+  await settle('helm2')
+  await settle('lead', 'completed', 'Lead report')
+  await supervisor.evaluate('helm2')
+  expect(await notices('helm2')).toHaveLength(0)
+  await settle('worker', 'interrupted')
+  const scheduled = vi.spyOn(supervisor, 'schedule')
+  await supervisor.evaluate('lead')
+  expect(scheduled).toHaveBeenCalledWith('helm2')
+  await supervisor.evaluate('helm2')
+  expect(await notices('helm2')).toHaveLength(1)
+  expect(JSON.stringify((await notices('helm2'))[0]?.parts)).toContain('Lead report')
+  scheduled.mockRestore()
 })
 
 it('marks a quiet Aria report handled, keeps it readable and visible, and never delivers it later', async () => {

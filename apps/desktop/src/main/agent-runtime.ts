@@ -58,8 +58,8 @@ export interface AgentRuntimeOptions {
    * read or race the shared root.
    */
   socketRoot?: string
-  /** Called whenever a session loses its access: destroyed, released, or archived. */
-  onDrop?: (id: string) => void | Promise<void>
+  /** Archives revoke access; only destruction and release close workspace handles. */
+  onDrop?: (id: string, reason: 'archive' | 'destroy' | 'release') => void | Promise<void>
 }
 
 /**
@@ -254,9 +254,9 @@ async function startControlTransport(
     },
     approve: (root) => approvals.request(root, options.policy().maxConcurrentChildren),
     quiesce: (id) => engine.quiesce(id),
-    revoke: (id) => dropSession(id),
+    revoke: (id) => dropSession(id, 'destroy'),
     release: async (child) => {
-      await dropSession(child.id)
+      await dropSession(child.id, 'release')
       await workspaces.release(child.id)
     },
     waitEnded: (callerId) => supervisor.schedule(callerId),
@@ -267,18 +267,22 @@ async function startControlTransport(
     invoke: (caller, method, params, signal) => service.invoke(caller, method, params, signal),
   })
   const dropping = new Map<string, Promise<void>>()
-  const dropSession = (id: string): Promise<void> => {
+  const dropSession = (id: string, reason: 'archive' | 'destroy' | 'release'): Promise<void> => {
     approvals.cancel(id)
     server.revoke(id)
-    const previous = dropping.get(id)
+    const key = `${reason}:${id}`
+    const previous = dropping.get(key)
     if (previous) return previous
     const task = Promise.resolve()
-      .then(() => options.onDrop?.(id))
+      .then(() => options.onDrop?.(id, reason))
+      .catch((error: unknown) => {
+        log.warn('session cleanup failed', { sessionId: id, reason, error: String(error) })
+      })
       .then(() => undefined)
-    dropping.set(id, task)
+    dropping.set(key, task)
     void task
       .finally(() => {
-        if (dropping.get(id) === task) dropping.delete(id)
+        if (dropping.get(key) === task) dropping.delete(key)
       })
       .catch(() => undefined)
     return task
@@ -296,12 +300,7 @@ async function startControlTransport(
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
     // Archives that bypass the desktop RPC (mobile) still have to drop access.
     if (event.type === 'session.updated' && event.archived === true)
-      void dropSession(event.sessionId).catch((error: unknown) =>
-        log.warn('archived session cleanup failed', {
-          sessionId: event.sessionId,
-          error: String(error),
-        }),
-      )
+      void dropSession(event.sessionId, 'archive')
     if (event.type === 'turn.settled') {
       void engine
         .quiesce(event.sessionId)
@@ -314,10 +313,11 @@ async function startControlTransport(
         .catch(() => undefined)
     }
   })
-  try {
-    await workspaces.retryReleases(dropSession)
+  supervisor.start()
+  const cleanup = (async () => {
+    await workspaces.retryReleases((id) => dropSession(id, 'release'))
     const rows = await store.listSessions()
-    const projects = (await options.projects?.()) ?? []
+    const projects = (await options.projects?.(rows)) ?? []
     const repositories = projects
       .filter((project) => project.available)
       .map((project) => project.path)
@@ -327,10 +327,9 @@ async function startControlTransport(
       if (cwd) repositories.push(cwd)
     }
     await workspaces.sweepOrphans(new Set(rows.map((row) => row.id)), repositories)
-  } catch (error) {
+  })().catch((error: unknown) => {
     log.warn('managed workspace startup cleanup failed', { error: String(error) })
-  }
-  supervisor.start()
+  })
   // Dependency waits have no queued provider message; explicitly recover them.
   void store
     .listSessions()
@@ -369,10 +368,10 @@ async function startControlTransport(
       }
       return null
     },
-    revoke: (id: string) => dropSession(id),
+    revoke: (id: string, reason: 'archive' | 'destroy' = 'archive') => dropSession(id, reason),
     release: async (id: string) => {
       try {
-        await dropSession(id)
+        await dropSession(id, 'release')
         await workspaces.release(id)
       } catch (error) {
         log.warn('released session workspace cleanup deferred', {
@@ -386,6 +385,7 @@ async function startControlTransport(
       supervisor.close()
       approvals.close()
       await server.close()
+      await cleanup
       if (socketDir) await rm(socketDir, { recursive: true, force: true })
     },
     environment: (session: Session): NodeJS.ProcessEnv => {

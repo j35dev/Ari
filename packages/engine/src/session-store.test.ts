@@ -81,7 +81,14 @@ describe('SessionStore', () => {
     await store.append(s2.id, { type: 'session.created', session: s2 })
     await store.append(s2.id, {
       type: 'user.message.added',
-      message: { id: 'm1', sessionId: s2.id, turnId: 'turn_1', role: 'user', parts: [{ type: 'text', text: 'hi' }], createdAt: 2001 },
+      message: {
+        id: 'm1',
+        sessionId: s2.id,
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'hi' }],
+        createdAt: 2001,
+      },
     })
 
     // Warm-up listing builds the sidecar indexes (may replay).
@@ -97,7 +104,13 @@ describe('SessionStore', () => {
     // Simulate a crash between journal append and index write: the journal
     // grows behind the sidecar's back.
     const j2 = await store.openJournal(s2.id)
-    await j2.append({ type: 'session.updated', title: 'Renamed', seq: 2, at: 2500, sessionId: s2.id })
+    await j2.append({
+      type: 'session.updated',
+      title: 'Renamed',
+      seq: 2,
+      at: 2500,
+      sessionId: s2.id,
+    })
 
     const list = await store.listSessions()
     expect(list.map((s) => s.title)).toEqual(['Renamed', 'Test session'])
@@ -263,9 +276,19 @@ describe('SessionStore', () => {
       updatedAt: 3000,
     }
     await store.append(session.id, { type: 'session.created', session })
-    await store.append(session.id, { type: 'usage.recorded', inputTokens: 100, outputTokens: 40, costUsd: 0.02 })
+    await store.append(session.id, {
+      type: 'usage.recorded',
+      inputTokens: 100,
+      outputTokens: 40,
+      costUsd: 0.02,
+    })
     await store.append(s2.id, { type: 'session.created', session: s2 })
-    await store.append(s2.id, { type: 'usage.recorded', inputTokens: 50, outputTokens: 10, costUsd: null })
+    await store.append(s2.id, {
+      type: 'usage.recorded',
+      inputTokens: 50,
+      outputTokens: 10,
+      costUsd: null,
+    })
 
     // Warm-up listing builds the sidecar indexes (may replay).
     expect(await store.listSessions()).toHaveLength(2)
@@ -301,7 +324,12 @@ describe('SessionStore', () => {
 
   it('migrates pre-M18.5 sidecar indexes via replay and rewrites them', async () => {
     await store.append(session.id, { type: 'session.created', session })
-    await store.append(session.id, { type: 'usage.recorded', inputTokens: 7, outputTokens: 3, costUsd: null })
+    await store.append(session.id, {
+      type: 'usage.recorded',
+      inputTokens: 7,
+      outputTokens: 3,
+      costUsd: null,
+    })
     expect(await store.listSessions()).toHaveLength(1)
 
     // Hand-rollback to the v1 shape (correct bytes, no usage fields).
@@ -323,9 +351,39 @@ describe('SessionStore', () => {
 
     // The repair persisted as a current index carrying the token pair.
     const migrated = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    expect(migrated['version']).toBe(5)
+    expect(migrated['version']).toBe(6)
     expect(migrated['inputTokens']).toBe(7)
     expect(migrated['outputTokens']).toBe(3)
+  })
+
+  it('lists agent choices and lead identity after repairing a v5 sidecar once', async () => {
+    const lead = {
+      ...session,
+      lead: true as const,
+      effort: 'high',
+      permissionMode: 'full' as const,
+      createdBy: { kind: 'session' as const, sessionId: 'old-aria' },
+    }
+    await store.append(lead.id, { type: 'session.created', session: lead })
+    await store.listSessions()
+    const { readFile, writeFile } = await import('node:fs/promises')
+    const path = join(rootDir, lead.id, 'index.json')
+    const old = JSON.parse(await readFile(path, 'utf8')) as {
+      version: number
+      hierarchy: Record<string, unknown>
+    }
+    old.version = 5
+    for (const key of ['createdAt', 'permissionMode', 'effort', 'lead']) delete old.hierarchy[key]
+    await writeFile(path, JSON.stringify(old))
+    const fresh = new SessionStore({ rootDir })
+    expect((await fresh.listSessions())[0]).toMatchObject({
+      createdAt: lead.createdAt,
+      permissionMode: 'full',
+      effort: 'high',
+      lead: true,
+      createdBy: { kind: 'session', sessionId: 'old-aria' },
+    })
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ version: 6 })
   })
 
   it('reads an index entry that still carries a removed Hive botId, and drops it', async () => {
@@ -359,9 +417,7 @@ describe('SessionStore', () => {
         { type: 'text', text: '\nand fixed it.' },
       ],
     })
-    expect((await store.listSessions())[0]?.lastMessagePreview).toBe(
-      'Read the file and fixed it.',
-    )
+    expect((await store.listSessions())[0]?.lastMessagePreview).toBe('Read the file and fixed it.')
 
     // A turn that adds only reasoning is not something the session "said".
     await store.append(session.id, {
@@ -369,16 +425,12 @@ describe('SessionStore', () => {
       messageId: 'msg_2',
       parts: [{ type: 'thinking', text: 'considering the failure' }],
     })
-    expect((await store.listSessions())[0]?.lastMessagePreview).toBe(
-      'Read the file and fixed it.',
-    )
+    expect((await store.listSessions())[0]?.lastMessagePreview).toBe('Read the file and fixed it.')
 
     // Cold reader: the preview lives in the index, so it survives a restart
     // without replaying the journal behind it.
     const cold = new SessionStore({ rootDir })
-    expect((await cold.listSessions())[0]?.lastMessagePreview).toBe(
-      'Read the file and fixed it.',
-    )
+    expect((await cold.listSessions())[0]?.lastMessagePreview).toBe('Read the file and fixed it.')
   })
 
   it('destroy removes the journal directory entirely', async () => {
@@ -479,7 +531,12 @@ describe('SessionStore', () => {
     await store.closeJournal(session.id)
     const reopened = await store.openJournal(session.id)
     const spy2 = vi.spyOn(reopened, 'readAll')
-    await store.append(session.id, { type: 'turn.settled', turnId: 'turn_0', stopReason: 'completed', errorMessage: null })
+    await store.append(session.id, {
+      type: 'turn.settled',
+      turnId: 'turn_0',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
     expect(spy2).toHaveBeenCalledTimes(1) // cache was dropped: one fresh replay
     expect(await store.nextSeq(session.id)).toBe(27) // then folds in memory
     expect(spy2).toHaveBeenCalledTimes(1)
@@ -517,7 +574,13 @@ describe('SessionStore', () => {
 
   it('caches the schema-parsed event so memory matches a replay', async () => {
     await store.append(session.id, { type: 'session.created', session })
-    const image = { type: 'image', attachmentId: 'att_1', name: 'a.png', mimeType: 'image/png', size: 2 }
+    const image = {
+      type: 'image',
+      attachmentId: 'att_1',
+      name: 'a.png',
+      mimeType: 'image/png',
+      size: 2,
+    }
     await store.append(session.id, {
       type: 'assistant.parts.appended',
       messageId: 'm1',

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Command } from '@ari/contracts/commands'
+import type { Session } from '@ari/contracts/session'
 import { DriverRegistry } from '@ari/providers/registry'
 import type {
   AdapterApprovalDecision,
@@ -77,6 +78,7 @@ async function seedSession(
   store: SessionStore,
   sessionId: string,
   projectId = 'proj_1',
+  fields: Partial<Session> = {},
 ): Promise<void> {
   await store.append(sessionId, {
     type: 'session.created',
@@ -90,6 +92,7 @@ async function seedSession(
       status: 'idle',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...fields,
     },
   })
 }
@@ -2148,6 +2151,54 @@ describe('session title source', () => {
     const routed = (await store.load('sess_helm')).childEvents ?? []
     expect(routed.filter((event) => event.type === 'child.session.settled')).toHaveLength(1)
   }, 10000)
+
+  it.each([
+    { lead: true, person: false, routed: true },
+    { lead: false, person: false, routed: false },
+    { lead: true, person: true, routed: false },
+  ])(
+    'routes an old Aria result only for project leads: %j',
+    async ({ lead, person, routed }) => {
+      let finish!: () => void
+      const gate = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      const driver: Driver = {
+        kind: 'claude',
+        create: async () => ({
+          start: () => ({
+            async *[Symbol.asyncIterator]() {
+              await gate
+              yield { type: 'text-delta' as const, text: 'Fixed and verified.' }
+              yield { type: 'done' as const }
+            },
+          }),
+          interrupt: () => finish(),
+          dispose: async () => undefined,
+        }),
+      }
+      const engine = engineFor(driver)
+      await seedSession(store, 'old_aria', 'helm')
+      await seedSession(store, 'project_lead', 'proj_1', {
+        ...(lead ? { lead: true } : {}),
+        createdBy: { kind: 'session', sessionId: 'old_aria' },
+      })
+      await engine.dispatch(
+        { type: 'turn.start', sessionId: 'project_lead', text: 'fix it', attachments: [] },
+        person ? undefined : { kind: 'session', sessionId: 'old_aria' },
+      )
+      await store.destroy('old_aria')
+      await seedSession(store, 'archived_aria', 'helm', { archived: true })
+      await seedSession(store, 'current_aria', 'helm')
+      finish()
+      await engine.quiesce('project_lead')
+      expect(Boolean((await store.load('current_aria')).childCompletions?.project_lead)).toBe(
+        routed,
+      )
+      expect((await store.load('archived_aria')).childCompletions?.project_lead).toBeUndefined()
+    },
+    10000,
+  )
 
   it('puts Aria turn context ahead of the provider prompt only', async () => {
     const prompts: string[] = []
