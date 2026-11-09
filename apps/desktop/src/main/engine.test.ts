@@ -465,10 +465,30 @@ describe('Aria provider switching', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const releaseConnection = vi.fn(() => gate)
-    const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+    const releaseConnection = vi.fn(async () => {
+      await gate
+      await writeFile(join(dir, 'late-write.txt'), 'Old process finished')
+    })
+    const captureCheckpoint = vi.fn(async () => {
+      if (created.length > 0) {
+        expect(await readFile(join(dir, 'late-write.txt'), 'utf8')).toBe('Old process finished')
+        expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('stopped')
+      }
+      return { ok: true as const, value: null }
+    })
+    const engine = engineWith(registry, {
+      releaseProviderConnection: releaseConnection,
+      git: { captureCheckpoint },
+    })
     await seedSession(store, 'aria', 'helm')
     await turn(engine, 'First.')
+    await store.append('aria', {
+      type: 'background.task.updated',
+      taskId: 'old-shell',
+      kind: 'shell',
+      label: 'Old shell',
+      status: 'running',
+    })
     expect(
       await engine.dispatch({
         type: 'session.provider.switch',
@@ -491,11 +511,67 @@ describe('Aria provider switching', () => {
       await engine.dispatch({ type: 'session.update', sessionId: 'aria', title: 'Responsive' }),
     ).toEqual({ accepted: true })
     expect(created).toHaveLength(1)
+    expect(captureCheckpoint).toHaveBeenCalledOnce()
+    expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('running')
     release()
     await engine.quiesce('aria')
     expect(created).toHaveLength(2)
     expect(created[1]!.resumeOf).toBeNull()
+    expect(
+      published
+        .filter(
+          ({ event }) => event.type === 'background.task.updated' && event.taskId === 'old-shell',
+        )
+        .map(({ event }) => event.type === 'background.task.updated' && event.status),
+    ).toEqual(['stopped'])
   })
+
+  it.each([false, true])(
+    'continues after a failed release and runs any queued release (queued: %s)',
+    async (queued) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created))
+      let fail!: (reason: Error) => void
+      const gate = new Promise<void>((_resolve, reject) => {
+        fail = reject
+      })
+      let releases = 0
+      const releaseConnection = vi.fn(() => (++releases === 1 ? gate : Promise.resolve()))
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember this work.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      if (queued)
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'claude',
+          modelId: null,
+          effort: null,
+        })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Continue.',
+        attachments: [],
+      })
+      fail(new Error('Release failed'))
+      await engine.quiesce('aria')
+      expect((await store.load('aria')).lastTurn?.stopReason).toBe('completed')
+      expect(created).toHaveLength(2)
+      expect(created[1]!.resumeOf).toBeNull()
+      expect(created[1]!.prompt).toContain('User: Remember this work.')
+      if (queued) expect(releaseConnection.mock.calls.length).toBeGreaterThanOrEqual(2)
+    },
+  )
 
   it.each(['running', 'idle'] as const)(
     'ends background tasks when switching away from a %s parked-capable provider',
@@ -701,7 +777,7 @@ describe('Aria provider switching', () => {
       attachments: [],
     })
     release()
-    await expect.poll(() => created.length).toBe(2)
+    await expect.poll(() => created.length, { timeout: 5_000 }).toBe(2)
     await engine.quiesce('aria')
     expect(created[1]!).toMatchObject({ resumeOf: null, modelId: 'next-model' })
     expect(created[1]!.prompt).toContain('Finished the old turn.')

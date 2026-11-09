@@ -351,6 +351,7 @@ export function SessionView({
       effort: defaults.effort,
     },
   })
+  const effortRevisionRef = useRef(0)
   const hiddenRef = useRef(hidden)
   hiddenRef.current = hidden
   const onDefaultsChangeRef = useRef(onDefaultsChange)
@@ -1169,6 +1170,16 @@ export function SessionView({
       if (switched && providerLocked) return
       const switchProvider = ariaSession && switched && hasProviderContext(providerContext)
       const effort = ariaSession && switched ? { effort: null } : {}
+      const before = {
+        driverKind: defaultsRef.current.driverKind,
+        modelId: defaultsRef.current.modelId,
+        effort: defaultsRef.current.effort,
+      }
+      const pick: Partial<typeof before> = { ...next, ...effort }
+      const changedFields = (Object.keys(pick) as (keyof typeof before)[]).filter(
+        (field) => pick[field] !== before[field],
+      )
+      const effortRevision = effortRevisionRef.current
       const picks = modelPicksRef.current
       if (picks.pending === 0)
         picks.confirmed = {
@@ -1189,14 +1200,31 @@ export function SessionView({
       ).then((accepted) => {
         if (modelPicksRef.current !== picks) return
         picks.pending--
+        const current = defaultsRef.current
+        const acceptedEffort =
+          effortRevision === effortRevisionRef.current &&
+          (current.effort === pick.effort || (switchProvider && current.effort === before.effort))
+            ? effort
+            : {}
         if (accepted) {
-          picks.confirmed = { ...picks.confirmed, ...next, ...effort }
-          onPick?.({ ...next, ...effort })
+          picks.confirmed = { ...picks.confirmed, ...next, ...acceptedEffort }
+          onPick?.({ ...next, ...acceptedEffort })
         }
         // An older rejection must not overwrite a more recent optimistic pick.
         if (sequence !== picks.sequence) return
-        if (!accepted || switchProvider)
-          onDefaultsChange({ ...defaultsRef.current, ...picks.confirmed })
+        if ((!accepted && !switchProvider) || (accepted && switchProvider)) {
+          const patch = Object.fromEntries(
+            changedFields
+              .filter(
+                (field) =>
+                  (field !== 'effort' || effortRevision === effortRevisionRef.current) &&
+                  (current[field] === pick[field] ||
+                    (accepted && current[field] === before[field])),
+              )
+              .map((field) => [field, accepted ? pick[field] : picks.confirmed[field]]),
+          ) as Partial<typeof before>
+          onDefaultsChange({ ...current, ...patch })
+        }
       })
     },
     [
@@ -1213,6 +1241,8 @@ export function SessionView({
 
   const changeEffort = useCallback(
     (effort: string | null) => {
+      effortRevisionRef.current++
+      modelPicksRef.current.confirmed.effort = effort
       onDefaultsChange({ ...defaults, effort })
       onPick?.({ effort })
       void rpc

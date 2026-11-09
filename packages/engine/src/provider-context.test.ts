@@ -153,7 +153,9 @@ describe('provider handoff', () => {
       { title: 'ari project ask proj_web "Fix it"' },
       { command: '$ARI_CLI project ask proj_web "Fix it"' },
       { command: '"$ARI_CLI" project ask proj_web "Fix it"' },
-      { command: '"C:\\npm\\ari.cmd" project ask proj_web "Fix it"' },
+      { command: '"ari.cmd" project ask proj_web "Fix it"' },
+      { command: 'bash -lc \'ari project ask proj_web "Fix it"\'' },
+      { command: '& $env:ARI_CLI project ask proj_web "Fix it"' },
     ].map((args) => ({ args })),
   )('recognises work launched through wrapped command $args', ({ args }) => {
     const assignment = message('assistant', '')
@@ -161,6 +163,42 @@ describe('provider handoff', () => {
       { type: 'tool-call', callId: 'work', name: 'execute', argsJson: JSON.stringify(args) },
     ]
     expect(conversationHandoff([assignment])).toContain('project ask proj_web "Fix it"')
+  })
+
+  it.each([
+    { command: 'echo "ari project ask proj_web Fix it"' },
+    { command: ['bash', '-lc', 'echo "ari project ask proj_web Fix it"'] },
+    { command: 'cat script-containing-ari-project-ask' },
+    { command: 'ARI project ask proj_web "Fix it"' },
+    { command: 'ari Project ask proj_web "Fix it"' },
+    { command: 'echo examples', title: 'ari project ask proj_web "Fix it"' },
+  ])('excludes command mentions that do not invoke work: $command', (args) => {
+    const assignment = message('assistant', '')
+    assignment.parts = [
+      {
+        type: 'tool-call',
+        callId: 'work',
+        name: 'orchestration.launch',
+        argsJson: JSON.stringify(args),
+      },
+    ]
+    expect(conversationHandoff([assignment])).toBeNull()
+  })
+
+  it('reserves Aria’s real reply rather than a later provider-only error notice', () => {
+    const reports = Array.from({ length: 6 }, (_, id) => ({
+      ...message('user', 'report detail '.repeat(3_000)),
+      origin: { kind: 'completion' as const, sessionIds: [`worker-${id}`] },
+    }))
+    const handoff = conversationHandoff([
+      message('user', 'Keep the current API.'),
+      message('assistant', 'I will keep the current API and add the missing checks.'),
+      ...reports,
+      message('assistant', `\n\n⚠ ${'Provider unavailable '.repeat(1_000)}`),
+    ])!
+    expect(handoff).toContain('Aria: I will keep the current API and add the missing checks.')
+    expect(handoff).toContain('Provider notice: ')
+    expect(handoff.length).toBeLessThanOrEqual(12_000)
   })
 
   it('reserves recent conversation when long reports arrive after it', () => {

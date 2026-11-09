@@ -394,15 +394,18 @@ export class Engine {
     const endTasks = staleContextSeq !== undefined || !this.#activeTurns.has(sessionId)
     const previous = this.#providerReleases.get(sessionId)
     const release = (async () => {
-      if (previous) await previous
-      await this.#deps.releaseProviderConnection?.(sessionId)
-      if (endTasks || !this.#activeTurns.has(sessionId))
-        await this.#endBackgroundTasks(
-          sessionId,
-          () => true,
-          'stopped',
-          'Provider connection released',
-        )
+      if (previous) await previous.catch(() => undefined)
+      try {
+        await this.#deps.releaseProviderConnection?.(sessionId)
+      } finally {
+        if (endTasks || !this.#activeTurns.has(sessionId))
+          await this.#endBackgroundTasks(
+            sessionId,
+            () => true,
+            'stopped',
+            'Provider connection released',
+          )
+      }
     })()
     this.#providerReleases.set(sessionId, release)
     try {
@@ -797,19 +800,32 @@ export class Engine {
     providerContext: ProviderTurnContext,
   ): Promise<void> {
     const { resumeOf, handoff, contextSeq } = providerContext
+    const pendingRelease = this.#providerReleases.get(session.id)
+    const needsRelease = pendingRelease !== undefined || providerContext.handoffPending
+    if (needsRelease) {
+      // An empty native thread can have been parked before a failed prompt.
+      await (pendingRelease ?? this.#releaseProviderConnection(session.id)).catch(
+        (error: unknown) =>
+          log.warn('provider connection release failed', {
+            sessionId: session.id,
+            error: String(error),
+          }),
+      )
+    }
     // Nothing reliably says when a background shell ends, so what earlier
     // turns left running is not tracked past the start of the next one.
-    await this.#endBackgroundTasks(
-      session.id,
-      () => true,
-      'completed',
-      'No longer tracked after the next turn started',
-    ).catch((error: unknown) =>
-      log.warn('background tasks could not be closed', {
-        sessionId: session.id,
-        error: String(error),
-      }),
-    )
+    if (!needsRelease)
+      await this.#endBackgroundTasks(
+        session.id,
+        () => true,
+        'completed',
+        'No longer tracked after the next turn started',
+      ).catch((error: unknown) =>
+        log.warn('background tasks could not be closed', {
+          sessionId: session.id,
+          error: String(error),
+        }),
+      )
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
       const reason = await this.#deps
@@ -886,9 +902,6 @@ export class Engine {
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
     try {
-      await this.#providerReleases.get(session.id)
-      // An empty native thread can have been parked before a failed prompt.
-      if (providerContext.handoffPending) await this.#releaseProviderConnection(session.id)
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
         await this.#captureTurnEnd(session.id, turnId)
         return
