@@ -7,7 +7,25 @@ import {
   completionNotice,
   finalAssistantText,
   pendingCompletions,
+  routineReport,
 } from './delegation-state'
+
+it.each([
+  ['Done.\n<!-- aria: fyi -->', true],
+  ['<!-- aria: fyi -->\nMore work.', false],
+  ['Done. <!-- aria: fyi -->', false],
+  ['Should I continue?\n<!-- aria: fyi -->', false],
+  ['Tests failed.\n<!-- aria: fyi -->', false],
+  ['An error occurred.\n<!-- aria: fyi -->', false],
+  ['Blocked on input.\n<!-- aria: fyi -->', false],
+  ['Cannot continue.\n<!-- aria: fyi -->', false],
+  ['Need your answer.\n<!-- aria: fyi -->', false],
+  ['Decide the scope.\n<!-- aria: fyi -->', false],
+])('classifies routine progress conservatively: %s', (text, quiet) => {
+  expect(routineReport({ stopReason: 'completed', errorMessage: null, text })).toBe(quiet)
+  expect(routineReport({ stopReason: 'error', errorMessage: null, text })).toBe(false)
+  expect(routineReport({ stopReason: 'completed', errorMessage: 'failed', text })).toBe(false)
+})
 
 let seq = 0
 const on = (event: Record<string, unknown>): JournalEvent =>

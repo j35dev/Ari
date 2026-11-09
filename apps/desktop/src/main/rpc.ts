@@ -1035,6 +1035,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       name: project.name,
       path: project.path,
       available: project.status === 'ok',
+      ...(project.defaultAgent === undefined ? {} : { defaultAgent: project.defaultAgent }),
     }))
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
@@ -1065,7 +1066,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     turnContext: async (session) => {
       if (!isHelmSession(session)) return null
-      const projects = await helmProjects()
+      const projects = await (await controlReady).service.projects(session)
       const names = new Map(projects.map((project) => [project.projectId, project.name]))
       return helmSnapshot(
         {
@@ -1163,11 +1164,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         onDrop: (id) => browserMcpHandle?.revoke(id),
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
+        projectAgentDefaults: () => ({
+          driverKind: getSettingsStore().current.sessions.defaultDriverKind,
+          permissionMode: getSettingsStore().current.sessions.defaultPermissionMode,
+        }),
+        setProjectDefault: async (id, agent) =>
+          (await getProjectStore().setDefaultAgent(id, agent)) !== null,
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
           return ALL_PROVIDER_KINDS.map((kind) => ({
             driverKind: kind,
+            defaultModelId:
+              agentDefaultModel(kind) ??
+              (modelsFor(kind).some((model) => model.id === 'default') ? 'default' : null),
             available:
               driverRegistry.get(kind) !== null &&
               (kind === 'ari-core'
@@ -1181,7 +1191,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                       label: `${endpoint.name} / ${model.label}`,
                     })),
                   )
-                : modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
+                : modelsFor(kind).map((model) => ({
+                    id: model.id,
+                    label: model.label,
+                    ...(model.aliases === undefined ? {} : { aliases: model.aliases }),
+                  })),
           }))
         },
       })
@@ -2088,6 +2102,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // being a trusted root and its sessions lose their workspace until the folder
   // is added back, which the store's tombstone lets them recover from.
   r.register('project.close', async (params) => getProjectStore().close(params.id))
+  r.register('project.setDefaultAgent', async (params) =>
+    getProjectStore().setDefaultAgent(params.id, params.value),
+  )
 
   r.register('project.remove', async (params) => {
     const project = getProjectStore().get(params.id)

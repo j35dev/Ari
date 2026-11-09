@@ -98,10 +98,13 @@ function parse(argv) {
     flags['prompt-file'] &&
     !(
       (group === 'parent' && verb === 'message') ||
+      (group === 'project' && verb === 'ask') ||
       (group === 'session' && ['spawn', 'prompt', 'message'].includes(verb))
     )
   )
-    throw new Error('--prompt-file is supported for spawn, prompt and coordination messages')
+    throw new Error(
+      '--prompt-file is supported for project ask, spawn, prompt and coordination messages',
+    )
   if (flags['params-file'] && !['task', 'orchestration'].includes(group))
     throw new Error('--params-file is supported for orchestration commands')
   let method
@@ -115,6 +118,32 @@ function parse(argv) {
   } else if (group === 'projects') {
     method = 'projects.list'
     params = {}
+  } else if (group === 'project') {
+    if (!target) throw new Error('project ask/default needs a project id')
+    if (verb === 'ask') {
+      method = 'projects.ask'
+      params = {
+        projectId: target,
+        text: promptText(rest.join(' ')),
+        idempotencyKey: key,
+        ...(flags.title ? { title: flags.title } : {}),
+        ...(flags.agent ? { driverKind: flags.agent } : {}),
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+        ...(flags.permission ? { permissionMode: flags.permission } : {}),
+      }
+    } else if (verb === 'default') {
+      if (!flags.agent) throw new Error('project default needs --agent')
+      method = 'projects.setDefault'
+      params = {
+        projectId: target,
+        driverKind: flags.agent,
+        idempotencyKey: key,
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+        ...(flags.permission ? { permissionMode: flags.permission } : {}),
+      }
+    } else throw new Error('Use ari project ask or ari project default')
   } else if (group === 'sessions') {
     const words = positional.slice(1).join(' ')
     if (words && flags.query) throw new Error('Use either query words or --query')
@@ -286,7 +315,7 @@ function parse(argv) {
     } else throw new Error('Unknown routine command')
   } else
     throw new Error(
-      'Use ari env, ari agents, ari projects, ari sessions, ari session <command>, ari routine <command>, or ari --skill',
+      'Use ari env, ari agents, ari projects, ari project <command>, ari sessions, ari session <command>, ari routine <command>, or ari --skill',
     )
   return { method, params, flags, timeoutMs }
 }
@@ -383,7 +412,7 @@ async function main(argv) {
   if (
     result.ok &&
     command.flags.wait &&
-    ['session.prompt', 'session.spawn'].includes(command.method)
+    ['session.prompt', 'session.spawn', 'projects.ask'].includes(command.method)
   ) {
     const id = result.result.sessionId || result.result.child.id
     const waited = await request(

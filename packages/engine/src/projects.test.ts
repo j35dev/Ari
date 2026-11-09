@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ProjectStore, canonicalizeFolder } from './projects'
+import { ProjectStore, canonicalizeFolder, resolveProjectAgent } from './projects'
+import type { ProjectAgent } from '@ari/contracts/project'
+import type { Session } from '@ari/contracts/session'
 
 let dir: string
 let existingFolder: string
@@ -19,6 +21,25 @@ afterEach(async () => {
 })
 
 describe('ProjectStore', () => {
+  it('persists, clears and restores a project default without changing old registries', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.add(existingFolder)
+    expect(project.defaultAgent).toBeUndefined()
+    const agent: ProjectAgent = {
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+    }
+    expect((await store.setDefaultAgent(project.id, agent))?.defaultAgent).toEqual(agent)
+    const reloaded = new ProjectStore({ dir })
+    await reloaded.load()
+    expect(reloaded.get(project.id)?.defaultAgent).toEqual(agent)
+    await reloaded.remove(project.id)
+    expect((await reloaded.add(existingFolder)).defaultAgent).toEqual(agent)
+    expect((await reloaded.setDefaultAgent(project.id, null))?.defaultAgent).toBeNull()
+    expect(await reloaded.setDefaultAgent('missing', agent)).toBeNull()
+  })
   it("seeds a built-in project once, first, and keeps the user's changes to it", async () => {
     const builtIn = { id: 'helm', path: existingFolder, name: 'Aria' }
     const first = new ProjectStore({ dir })
@@ -304,5 +325,142 @@ describe('ProjectStore', () => {
       projects: [{ id: 'proj_legacy' }, { path: await canonicalizeFolder(join(dir, 'second')) }],
       removed: [],
     })
+  })
+})
+
+describe('project agent resolution', () => {
+  const project = { projectId: 'p' }
+  const agent: ProjectAgent = {
+    driverKind: 'claude',
+    modelId: 'opus',
+    effort: 'high',
+    permissionMode: 'allow-edits',
+  }
+  const providers = [
+    {
+      driverKind: 'claude',
+      available: true,
+      models: [{ id: 'opus', aliases: ['latest'] }, { id: 'sonnet' }],
+      defaultModelId: 'sonnet',
+    },
+    { driverKind: 'codex', available: true, models: [{ id: 'gpt' }], defaultModelId: 'gpt' },
+  ]
+  const app = { driverKind: 'codex' as const, permissionMode: 'ask' as const }
+  const recent = (i: number, fields: Partial<Session> = {}): Session => ({
+    ...agent,
+    id: `s${i}`,
+    projectId: 'p',
+    title: 'User work',
+    status: 'idle',
+    createdAt: i,
+    updatedAt: i,
+    ...fields,
+  })
+  it('takes explicit arguments before the project, recent and app settings', () => {
+    expect(
+      resolveProjectAgent({
+        project: { ...project, defaultAgent: agent },
+        arguments: { driverKind: 'codex', effort: 'low' },
+        sessions: [recent(1)],
+        providers,
+        app,
+      }),
+    ).toEqual({
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'low',
+      permissionMode: 'ask',
+      source: 'arguments',
+    })
+    expect(
+      resolveProjectAgent({
+        project: { ...project, defaultAgent: agent },
+        sessions: [recent(1)],
+        providers,
+        app,
+      }),
+    ).toEqual({ ...agent, source: 'project' })
+    expect(
+      resolveProjectAgent({
+        project: { ...project, defaultAgent: agent },
+        arguments: { modelId: 'sonnet', effort: 'low' },
+        sessions: [],
+        providers,
+        app,
+      }),
+    ).toEqual({ ...agent, modelId: 'sonnet', effort: 'low', source: 'arguments' })
+    expect(
+      resolveProjectAgent({
+        project: { ...project, defaultAgent: { ...agent, modelId: 'latest' } },
+        sessions: [],
+        providers,
+        app,
+      })?.modelId,
+    ).toBe('opus')
+  })
+  it('counts only ten recent user-started sessions and breaks ties by recency', () => {
+    const sessions = [
+      ...Array.from({ length: 15 }, (_, i) => recent(i, { modelId: 'sonnet' })),
+      ...Array.from({ length: 6 }, (_, i) => recent(20 + i, { effort: 'low' })),
+      ...Array.from({ length: 15 }, (_, i) =>
+        recent(40 + i, {
+          driverKind: 'codex',
+          modelId: 'gpt',
+          createdBy: { kind: 'session', sessionId: 'helm1' },
+        }),
+      ),
+      recent(100, { projectId: 'helm' }),
+      recent(101, { projectId: 'other' }),
+    ]
+    expect(resolveProjectAgent({ project, sessions, providers, app })).toEqual({
+      ...agent,
+      effort: 'low',
+      source: 'recent',
+    })
+    expect(
+      resolveProjectAgent({
+        project,
+        sessions: [recent(1), recent(2, { modelId: 'sonnet', createdBy: { kind: 'human' } })],
+        providers,
+        app,
+      })?.modelId,
+    ).toBe('sonnet')
+    expect(sessions[0]?.id).toBe('s0')
+  })
+  it('skips unavailable providers and stale models, then uses only the catalog app default', () => {
+    const stale = { ...agent, modelId: 'removed' }
+    expect(
+      resolveProjectAgent({
+        project: { ...project, defaultAgent: stale },
+        sessions: [recent(1, stale)],
+        providers,
+        app,
+      }),
+    ).toEqual({
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: null,
+      permissionMode: 'ask',
+      source: 'app',
+    })
+    expect(
+      resolveProjectAgent({
+        project,
+        sessions: [],
+        providers: providers.map((p) => ({ ...p, available: false })),
+        app,
+      }),
+    ).toBeNull()
+    expect(
+      resolveProjectAgent({ project, sessions: [], providers, app: { ...app, driverKind: null } }),
+    ).toBeNull()
+    expect(
+      resolveProjectAgent({
+        project,
+        sessions: [],
+        providers: providers.map((p) => ({ ...p, defaultModelId: 'missing' })),
+        app,
+      }),
+    ).toBeNull()
   })
 })

@@ -1,8 +1,7 @@
 /**
- * Aria is the user's lead agent across every project. Its sessions live in a
- * project of their own, a home folder under Ari's data directory, so the
- * sidebar, new-chat flow and mobile list treat it like any other project.
- * Membership of that project is what makes a session Aria.
+ * Aria coordinates the user's projects through one long-lived lead per
+ * project. Its own sessions use a built-in home under Ari's data directory;
+ * membership of that home identifies Aria independently of its UI.
  *
  * In code it goes by its code name, Helm (`isHelmSession`, `HELM_PROJECT_ID`),
  * so a search for it never wades through the renderer's `aria-*` attributes.

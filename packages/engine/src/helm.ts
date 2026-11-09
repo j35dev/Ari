@@ -2,6 +2,7 @@ import { HELM_PROJECT_ID, type HelmSessionRow } from '@ari/contracts/helm'
 import type { SessionListEntry } from './session-store'
 import type { SessionReadModel } from './projection'
 import { finalAssistantText } from './delegation-state'
+import type { ResolvedProjectAgent } from '@ari/contracts/project'
 
 /**
  * The session whose instruction a turn answers, or null when a person asked.
@@ -127,7 +128,12 @@ const DAY_MS = 24 * 3_600_000
 export async function helmSnapshot(
   view: HelmView,
   helm: SessionReadModel,
-  projects: readonly { projectId: string; name: string; available: boolean }[],
+  projects: readonly {
+    projectId: string
+    name: string
+    available: boolean
+    agent?: ResolvedProjectAgent | null
+  }[],
   now = Date.now(),
 ): Promise<string> {
   const rows = reachable(view)
@@ -155,7 +161,20 @@ export async function helmSnapshot(
     others.length === 0
       ? 'Projects: none yet. Ask the user to add a project folder in Ari.'
       : `Projects: ${others
-          .map((p) => `${p.name} (${p.projectId}${p.available ? '' : ', folder missing'})`)
+          .map((p) => {
+            const source = {
+              arguments: 'explicit choice',
+              project: 'project setting',
+              recent: 'recent sessions',
+              app: 'app default',
+            } as const
+            const agent = p.agent
+              ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
+              : p.agent === null
+                ? ', agent unset'
+                : ''
+            return `${p.name} (${p.projectId}${agent}${p.available ? '' : ', folder missing'})`
+          })
           .join(', ')}`
   return [
     "[Ari now: the live state of the user's projects, added automatically by Ari for Aria. The user does not see this.]",

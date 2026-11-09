@@ -2,13 +2,112 @@ import { dirname } from 'node:path'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { projectSchema } from '@ari/contracts/project'
-import type { Project, ProjectStatus, StoredProject } from '@ari/contracts/project'
+import { projectSchema, projectAgentSchema } from '@ari/contracts/project'
+import type {
+  Project,
+  ProjectAgent,
+  ProjectStatus,
+  ResolvedProjectAgent,
+  StoredProject,
+} from '@ari/contracts/project'
+import type { Session } from '@ari/contracts/session'
+import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import { isHelmSession } from '@ari/contracts/helm'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('engine:projects')
+
+export interface ProjectAgentProvider {
+  driverKind: string
+  available: boolean
+  models: readonly { id: string; aliases?: readonly string[] }[]
+  defaultModelId?: string | null
+}
+
+export interface ProjectAgentDefaults {
+  driverKind: DriverKind | null
+  permissionMode: PermissionMode
+}
+
+/** Pick from known user choices only; an installed provider is not a preference. */
+export function resolveProjectAgent(input: {
+  project: { projectId: string; defaultAgent?: ProjectAgent | null }
+  arguments?: Partial<ProjectAgent>
+  sessions: readonly Session[]
+  providers: readonly ProjectAgentProvider[]
+  app: ProjectAgentDefaults
+}): ResolvedProjectAgent | null {
+  const resolve = (
+    candidate: Partial<ProjectAgent>,
+    source: ResolvedProjectAgent['source'],
+  ): ResolvedProjectAgent | null => {
+    const args = input.arguments
+    if (
+      source !== 'arguments' &&
+      !args?.driverKind &&
+      args &&
+      (args.modelId !== undefined || args.effort !== undefined || args.permissionMode !== undefined)
+    ) {
+      candidate = {
+        ...candidate,
+        ...(args.modelId === undefined ? {} : { modelId: args.modelId }),
+        ...(args.effort === undefined ? {} : { effort: args.effort }),
+        ...(args.permissionMode === undefined ? {} : { permissionMode: args.permissionMode }),
+      }
+      source = 'arguments'
+    }
+    if (!candidate.driverKind) return null
+    const provider = input.providers.find(
+      (p) => p.available && p.driverKind === candidate.driverKind,
+    )
+    if (!provider) return null
+    const selected = candidate.modelId ?? provider.defaultModelId
+    const model = provider.models.find(
+      (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
+    )
+    if (!model) return null
+    return {
+      driverKind: candidate.driverKind,
+      modelId: model.id,
+      effort: candidate.effort ?? null,
+      permissionMode: candidate.permissionMode ?? input.app.permissionMode,
+      source,
+    }
+  }
+  const explicit = input.arguments
+  if (explicit?.driverKind) {
+    const picked = resolve(explicit, 'arguments')
+    if (picked) return picked
+  }
+  if (input.project.defaultAgent) {
+    const picked = resolve(input.project.defaultAgent, 'project')
+    if (picked) return picked
+  }
+  const recent = input.sessions
+    .filter(
+      (s) =>
+        s.projectId === input.project.projectId &&
+        (!s.createdBy || s.createdBy.kind === 'human') &&
+        !isHelmSession(s),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 10)
+  const choices = new Map<string, { agent: ResolvedProjectAgent; count: number }>()
+  for (const session of recent) {
+    const agent = resolve(session, 'recent')
+    if (!agent) continue
+    const key = `${agent.driverKind}:${agent.modelId}`
+    const choice = choices.get(key)
+    if (choice) choice.count++
+    else choices.set(key, { agent, count: 1 })
+  }
+  // Map insertion order breaks a tie in favor of the most recent user choice.
+  const usual = [...choices.values()].sort((a, b) => b.count - a.count)[0]
+  if (usual) return usual.agent
+  return input.app.driverKind ? resolve({ driverKind: input.app.driverKind }, 'app') : null
+}
 
 export interface ProjectStoreOptions {
   /** Directory holding projects.json (typically <userData>). */
@@ -228,6 +327,12 @@ export class ProjectStore {
   /** Closes the sidebar group but keeps the project and its sessions. */
   async close(id: string): Promise<Project | null> {
     return this.#patch(id, { open: false })
+  }
+
+  async setDefaultAgent(id: string, value: ProjectAgent | null): Promise<Project | null> {
+    return this.#patch(id, {
+      defaultAgent: value === null ? null : projectAgentSchema.parse(value),
+    })
   }
 
   /**

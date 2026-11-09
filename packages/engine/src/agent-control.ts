@@ -24,9 +24,15 @@ import type { SessionStore } from './session-store'
 import type { UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
-import { childWorkState, finalAssistantText } from './delegation-state'
+import { childWorkState, finalAssistantText, pendingCompletions } from './delegation-state'
 import type { TreeSpend } from './tree-budget'
 import { findSessions, turnRequester, type HelmView } from './helm'
+import {
+  resolveProjectAgent,
+  type ProjectAgentDefaults,
+  type ProjectAgentProvider,
+} from './projects'
+import type { ProjectAgent, ResolvedProjectAgent } from '@ari/contracts/project'
 
 const log = createLogger('engine:control')
 
@@ -82,7 +88,9 @@ export interface ControlHost {
   version: string
   policy(): DelegationSettings
   providers(): Promise<
-    { driverKind: string; available: boolean; models: { id: string; label: string }[] }[]
+    (ProjectAgentProvider & {
+      models: { id: string; label: string; aliases?: readonly string[] }[]
+    })[]
   >
   create(session: Session): Promise<void>
   dispatch(
@@ -118,6 +126,8 @@ export interface ControlHost {
   treeSpend?(rootId: string): Promise<TreeSpend>
   /** The projects Aria can reach; a runtime without them has no Aria. */
   projects?(): Promise<HelmProject[]>
+  projectAgentDefaults?(): ProjectAgentDefaults
+  setProjectDefault?(id: string, agent: ProjectAgent): Promise<boolean>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
     add(input: {
@@ -238,6 +248,40 @@ export class AgentControlService {
     if (!this.host.projects)
       throw new ControlFailure('unsupported', 'Projects are unavailable in this runtime.')
     return (await this.host.projects()).filter((project) => project.projectId !== HELM_PROJECT_ID)
+  }
+
+  async #projectAgent(
+    project: HelmProject,
+    args?: Partial<ProjectAgent>,
+  ): Promise<ResolvedProjectAgent | null> {
+    const [rows, providers] = await Promise.all([
+      this.host.store.listSessions(),
+      this.host.providers(),
+    ])
+    const sessions: Session[] = []
+    for (const row of rows) {
+      if (row.projectId !== project.projectId) continue
+      const session = (await this.host.store.load(row.id)).session
+      if (session) sessions.push(session)
+    }
+    return resolveProjectAgent({
+      project,
+      ...(args === undefined ? {} : { arguments: args }),
+      sessions,
+      providers,
+      app: this.host.projectAgentDefaults?.() ?? { driverKind: null, permissionMode: 'ask' },
+    })
+  }
+
+  /** Shared with the live snapshot so it names the same agent as a launch. */
+  async projects(caller: Session): Promise<HelmProject[]> {
+    const projects = await this.#helmProjects(caller)
+    return Promise.all(
+      projects.map(async (project) => ({
+        ...project,
+        agent: await this.#projectAgent(project),
+      })),
+    )
   }
 
   /** Validates every request at the authoritative policy boundary. */
@@ -437,11 +481,13 @@ export class AgentControlService {
 
   async #chain(caller: Session, run: () => Promise<unknown>): Promise<unknown> {
     const root = (await this.#lineage(caller)).at(-1) as Session
-    const next = (this.#roots.get(root.id) ?? Promise.resolve()).catch(() => undefined).then(run)
-    this.#roots.set(root.id, next)
+    // Aria topics share project leads and one concurrency cap.
+    const key = isHelmSession(caller) ? HELM_PROJECT_ID : root.id
+    const next = (this.#roots.get(key) ?? Promise.resolve()).catch(() => undefined).then(run)
+    this.#roots.set(key, next)
     void next
       .finally(() => {
-        if (this.#roots.get(root.id) === next) this.#roots.delete(root.id)
+        if (this.#roots.get(key) === next) this.#roots.delete(key)
       })
       .catch(() => undefined)
     return next
@@ -512,7 +558,34 @@ export class AgentControlService {
       case 'providers.list':
         return this.host.providers()
       case 'projects.list':
-        return { projects: await this.#helmProjects(caller) }
+        return { projects: await this.projects(caller) }
+      case 'projects.setDefault': {
+        const p = raw as ControlParams<'projects.setDefault'>
+        const project = (await this.#helmProjects(caller)).find(
+          (entry) => entry.projectId === p.projectId,
+        )
+        if (!project) throw new ControlFailure('project_not_found', 'Project not found.')
+        if (!this.host.setProjectDefault)
+          throw new ControlFailure(
+            'unsupported',
+            'Project defaults are unavailable in this runtime.',
+          )
+        const agent = {
+          driverKind: p.driverKind,
+          modelId: p.modelId ?? null,
+          effort: p.effort ?? null,
+          permissionMode: p.permissionMode ?? 'ask',
+        }
+        if (!(await this.host.setProjectDefault(project.projectId, agent)))
+          throw new ControlFailure('project_not_found', 'Project not found.')
+        return {
+          projectId: project.projectId,
+          defaultAgent: agent,
+          agent: await this.#projectAgent({ ...project, defaultAgent: agent }),
+        }
+      }
+      case 'projects.ask':
+        return this.#askProject(caller, raw as ControlParams<'projects.ask'>, signal)
       case 'sessions.find': {
         const p = raw as ControlParams<'sessions.find'>
         const projects = await this.#helmProjects(caller)
@@ -814,8 +887,13 @@ export class AgentControlService {
     return raceApproval(pending, signal)
   }
 
-  async #spawnProgress(callerId: string, key: string, recovery: unknown): Promise<void> {
-    const operationId = `control_${createHash('sha256').update(`${callerId}:session.spawn:${key}`).digest('hex').slice(0, 32)}`
+  async #spawnProgress(
+    callerId: string,
+    key: string,
+    recovery: unknown,
+    method: 'session.spawn' | 'projects.ask' = 'session.spawn',
+  ): Promise<void> {
+    const operationId = `control_${createHash('sha256').update(`${callerId}:${method}:${key}`).digest('hex').slice(0, 32)}`
     const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
     if (operation?.status === 'started')
       await this.host.record(callerId, {
@@ -1000,6 +1078,7 @@ export class AgentControlService {
     caller: Session,
     p: ControlParams<'session.spawn'>,
     signal?: AbortSignal,
+    lead = false,
   ): Promise<unknown> {
     if (p.projectId === undefined)
       throw new ControlFailure(
@@ -1020,28 +1099,10 @@ export class AgentControlService {
       throw new ControlFailure('project_unavailable', 'That project folder is missing.')
     const policy = this.host.policy()
     checkDelegation(policy, 0, 0)
-    const provider = (await this.host.providers()).find(
-      (v) => v.driverKind === p.driverKind && v.available,
-    )
-    if (!provider)
-      throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
-    if (p.modelId && !provider.models.some((m) => m.id === p.modelId))
-      throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
     const modes = ['ask', 'allow-edits', 'full']
     const permissionMode = p.permissionMode ?? caller.permissionMode
-    if (modes.indexOf(permissionMode) > modes.indexOf(caller.permissionMode))
-      throw new ControlFailure(
-        'scope_denied',
-        'Session permissions cannot exceed Aria permissions.',
-      )
-    // Each session Aria starts is a root of its own, so the per-root cap never
-    // sees them. The same number caps how many Aria keeps working at once.
-    const working = await this.#launchedWorking(caller.id)
-    if (working >= policy.maxConcurrentChildren)
-      throw new ControlFailure(
-        'delegation_limit',
-        `${working} sessions you started are still working. Prompt one of them, or wait for one to finish.`,
-      )
+    const agent = { driverKind: p.driverKind, modelId: p.modelId ?? null, permissionMode }
+    await this.#checkLaunch(caller, agent)
     await this.#approveDelegation(caller, policy, signal)
     const current = await this.#get(caller.id)
     if (current.archived || modes.indexOf(permissionMode) > modes.indexOf(current.permissionMode))
@@ -1050,12 +1111,14 @@ export class AgentControlService {
         'Aria permissions changed while delegation was pending.',
       )
     checkDelegation(this.host.policy(), 0, 0)
+    await this.#checkLaunch(current, agent)
     const id = newTypedId('sess')
     const workspace = { kind: 'project' as const }
     const session: Session = {
       id,
       projectId: project.projectId,
       createdBy: { kind: 'session', sessionId: caller.id },
+      ...(lead ? { lead: true } : {}),
       ...(p.role ? { role: p.role } : {}),
       workspace,
       title: p.title,
@@ -1067,11 +1130,16 @@ export class AgentControlService {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await this.#spawnProgress(caller.id, p.idempotencyKey, {
-      childSessionId: id,
-      workspace,
-      stage: 'session_creating',
-    })
+    await this.#spawnProgress(
+      caller.id,
+      p.idempotencyKey,
+      {
+        childSessionId: id,
+        workspace,
+        stage: 'session_creating',
+      },
+      lead ? 'projects.ask' : 'session.spawn',
+    )
     let created = false
     try {
       await this.host.create(session)
@@ -1085,7 +1153,9 @@ export class AgentControlService {
         workspaceKind: 'project',
         branch: null,
         ...(p.role ? { role: p.role } : {}),
-        idempotencyKey: p.idempotencyKey,
+        idempotencyKey: lead
+          ? `project-ask_${createHash('sha256').update(p.idempotencyKey).digest('hex').slice(0, 32)}`
+          : p.idempotencyKey,
       })
       const initialTurn = p.prompt ? await this.#prompt(caller, session, p.prompt) : null
       return {
@@ -1104,19 +1174,128 @@ export class AgentControlService {
     }
   }
 
-  /** Sessions Aria started that are still working or have work queued. */
-  async #launchedWorking(helmId: string): Promise<number> {
-    let working = 0
+  /** Aria's mutation chain keeps different topics on one live project lead. */
+  async #askProject(
+    caller: Session,
+    p: ControlParams<'projects.ask'>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const project = (await this.#helmProjects(caller)).find(
+      (entry) => entry.projectId === p.projectId,
+    )
+    if (!project) throw new ControlFailure('project_not_found', 'Project not found.')
+    if (!project.available)
+      throw new ControlFailure('project_unavailable', 'That project folder is missing.')
+    if (caller.archived) throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
     for (const row of await this.host.store.listSessions()) {
-      if (row.parentSessionId || row.archived || row.projectId === HELM_PROJECT_ID) continue
+      if (row.projectId !== p.projectId || row.archived || row.parentSessionId) continue
+      const lead = (await this.host.store.load(row.id)).session
+      if (!lead?.lead || lead.createdBy?.kind !== 'session') continue
+      if (!isHelmSession((await this.host.store.load(lead.createdBy.sessionId)).session)) continue
+      await this.#checkLaunch(caller, lead)
+      await this.#approveDelegation(caller, this.host.policy(), signal)
+      const current = await this.#get(caller.id)
+      if (current.archived)
+        throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
+      const currentLead = await this.#get(lead.id)
+      await this.#checkLaunch(current, currentLead)
+      return this.#prompt(current, currentLead, p.text)
+    }
+    const agent = await this.#projectAgent(project, p)
+    if (!agent)
+      throw new ControlFailure(
+        'model_unavailable',
+        'No agent is configured for this project. Ask the user which agent to use, then run `ari project default <projectId> --agent <provider> --model <model>`.',
+      )
+    const launched = (await this.#launch(
+      caller,
+      {
+        ...agent,
+        title: p.title ?? `${project.name} lead`.slice(0, 120),
+        projectId: p.projectId,
+        prompt: p.text,
+        idempotencyKey: p.idempotencyKey,
+      },
+      signal,
+      true,
+    )) as { child: Session; initialTurn: object }
+    return { ...launched.initialTurn, sessionId: launched.child.id, lead: launched.child }
+  }
+
+  async #checkLaunch(
+    caller: Session,
+    session: Pick<Session, 'driverKind' | 'modelId' | 'permissionMode'> & { id?: string },
+  ): Promise<void> {
+    const policy = this.host.policy()
+    checkDelegation(policy, 0, 0)
+    const provider = (await this.host.providers()).find(
+      (p) => p.available && p.driverKind === session.driverKind,
+    )
+    if (!provider)
+      throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
+    if (
+      session.modelId &&
+      !provider.models.some(
+        (m) => m.id === session.modelId || m.aliases?.includes(session.modelId!),
+      )
+    )
+      throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
+    const modes = ['ask', 'allow-edits', 'full']
+    if (modes.indexOf(session.permissionMode) > modes.indexOf(caller.permissionMode))
+      throw new ControlFailure(
+        'scope_denied',
+        'Session permissions cannot exceed Aria permissions.',
+      )
+    const model = session.id ? await this.host.store.load(session.id) : null
+    if (
+      (!model || (model.activeTurnId === null && model.queuedMessages.length === 0)) &&
+      (await this.#launchedWorking(caller.id, session.id)) >= policy.maxConcurrentChildren
+    )
+      throw new ControlFailure(
+        'delegation_limit',
+        'Maximum concurrent project sessions reached. Wait for a lead to finish.',
+      )
+  }
+
+  /** Sessions Aria started that are still working or have work queued. */
+  async #launchedWorking(helmId: string, excludeId?: string): Promise<number> {
+    let working = 0
+    const rows = await this.host.store.listSessions()
+    for (const row of rows) {
+      if (
+        row.id === excludeId ||
+        row.parentSessionId ||
+        row.archived ||
+        row.projectId === HELM_PROJECT_ID
+      )
+        continue
       const model = await this.host.store.load(row.id)
       const creator = model.session?.createdBy
+      if (creator?.kind !== 'session') continue
       if (
-        creator?.kind === 'session' &&
-        creator.sessionId === helmId &&
-        (model.activeTurnId !== null || model.queuedMessages.length > 0)
+        creator.sessionId !== helmId &&
+        !(
+          model.session?.lead === true &&
+          isHelmSession((await this.host.store.load(creator.sessionId)).session)
+        )
       )
-        working++
+        continue
+      let live =
+        model.activeTurnId !== null ||
+        model.queuedMessages.length > 0 ||
+        pendingCompletions(model).some((entry) => entry.stopReason !== 'interrupted')
+      if (!live)
+        for (const id of descendantIds(rows, row.id)) {
+          const child = await this.host.store.load(id)
+          if (
+            !child.session?.archived &&
+            (child.activeTurnId !== null || child.queuedMessages.length > 0)
+          ) {
+            live = true
+            break
+          }
+        }
+      if (live) working++
     }
     return working
   }
@@ -1139,7 +1318,7 @@ export class AgentControlService {
       id === 'self'
         ? caller.id
         : id === 'parent'
-          ? (caller.parentSessionId ?? launcher ?? asker ?? '')
+          ? (asker ?? caller.parentSessionId ?? launcher ?? '')
           : id,
     )
     if (isHelmSession(caller) && !isHelmSession(target)) return target
