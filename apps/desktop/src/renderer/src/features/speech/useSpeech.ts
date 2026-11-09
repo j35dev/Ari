@@ -27,6 +27,8 @@ async function refresh(): Promise<void> {
       const status = await rpc.invoke('speech.status')
       if (currentGeneration !== generation) return
       if (readRevision !== revision) continue
+      // A missing reply keeps the last known status rather than crashing every composer.
+      if (!status) continue
       snapshot = { ...snapshot, status }
       emit()
     } while (revision !== readRevision)
