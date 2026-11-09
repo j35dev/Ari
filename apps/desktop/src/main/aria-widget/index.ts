@@ -6,7 +6,7 @@ import type { uIOhook } from 'uiohook-napi'
 import { createLogger } from '@ari/shared/logger'
 import { ChordTracker, defaultShortcut, parseChord, type HookKey } from './chord'
 import { sendToAria } from './handoff'
-import { HoldToTalk, type WidgetSnapshot } from './model'
+import { HoldToTalk, MODIFIER_HOLD_MS, type WidgetSnapshot } from './model'
 import { widgetBounds } from './position'
 
 const log = createLogger('desktop:aria-widget')
@@ -65,13 +65,15 @@ export class AriaWidget {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     if (!Number.isFinite(this.hold.expiresAt) || this.disposed) return
+    const now = Date.now()
+    const revealAt = this.hold.showAt > now ? this.hold.showAt : Infinity
     this.timer = setTimeout(
       () => {
         this.timer = null
         this.hold.tick(Date.now())
         this.publish()
       },
-      Math.max(0, this.hold.expiresAt - Date.now()),
+      Math.max(0, Math.min(this.hold.expiresAt, revealAt) - now),
     )
     this.timer.unref()
   }
@@ -102,7 +104,7 @@ export class AriaWidget {
     const win = this.window
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
     win.webContents.send('ari:ariaWidget.state', this.snapshot())
-    if (this.hold.state.phase === 'hidden') win.hide()
+    if (!this.hold.visible(Date.now())) win.hide()
     else {
       win.setBounds(
         widgetBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea),
@@ -207,7 +209,8 @@ export class AriaWidget {
   private readonly keyDown = (event: HookKey): void => {
     const action = this.tracker?.down(event)
     if (action === 'down') {
-      if (this.hold.down(Date.now())) this.recoveryDelay = 1_000
+      if (this.hold.down(Date.now(), this.tracker?.modifierOnly ? MODIFIER_HOLD_MS : 0))
+        this.recoveryDelay = 1_000
     } else if (action === 'cancel') this.hold.cancel()
     else if (action === 'up') this.hold.up(Date.now())
     else return

@@ -86,6 +86,64 @@ describe('speech chord', () => {
     expect(tracker.down(event(keys.Space))).toBeNull()
   })
 
+  it('clears a Ctrl or Shift key whose release was missed when flags report it up', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Ctrl, { ctrlKey: true }))
+    expect(tracker.down(event(keys.Space))).toBeNull()
+    tracker.down(event(keys.Shift, { shiftKey: true }))
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
+    tracker.up(event(keys.Space))
+    expect(tracker.down(event(keys.Space))).toBeNull()
+    expect(tracker.down(event(keys.Space))).toBeNull()
+    tracker.reset()
+    tracker.down(event(keys.Ctrl))
+    expect(tracker.down(event(keys.Space))).toBeNull()
+  })
+
+  it('learns flag authority separately for each modifier', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Alt, { altKey: true }))
+    tracker.up(event(keys.Alt))
+    tracker.down(event(keys.Ctrl))
+    expect(tracker.down(event(keys.Space))).toBe('down')
+  })
+
+  it.each(['left', 'right'])('accepts side-specific aliases on the %s', (side) => {
+    for (const [name, canonical] of [
+      ['option', 'alt'],
+      ['cmd', 'meta'],
+      ['command', 'meta'],
+      ['control', 'ctrl'],
+      ['super', 'meta'],
+    ]) {
+      expect(parseChord(`${name}-${side}`, keys, 'darwin')).toEqual(
+        parseChord(`${canonical}-${side}`, keys, 'darwin'),
+      )
+    }
+  })
+
+  it.each([false, true])('ignores AltGr synthetic left Ctrl with its flag set to %s', (ctrlKey) => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Ctrl, { ctrlKey, time: 10 }))
+    expect(tracker.down(event(keys.AltRight, { ctrlKey, altKey: true, time: 10 }))).toBe('down')
+    expect(tracker.down(event(keys.A, { ctrlKey, altKey: true, time: 11 }))).toBe('cancel')
+    tracker.up(event(keys.AltRight))
+    tracker.up(event(keys.Ctrl))
+  })
+
+  it('retains deliberately held Ctrl when it is not the AltGr synthetic event', () => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }))
+    expect(
+      tracker.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 100 })),
+    ).toBeNull()
+    const ctrlChord = new ChordTracker(parseChord('ctrl+alt-right', keys, 'win32')!, keys.Escape)
+    ctrlChord.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }))
+    expect(ctrlChord.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 10 }))).toBe(
+      'down',
+    )
+  })
+
   it.each(['down', 'up'] as const)(
     'recovers a missed modifier release on a later %s event',
     (kind) => {
@@ -113,6 +171,32 @@ describe('speech chord', () => {
     expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
   })
 
+  it('clears unmatched primary presses across lock then suspend without swallowing a fresh hold', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    expect(tracker.down(event(keys.Space))).toBeNull()
+    tracker.reset()
+    tracker.reset()
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
+  })
+
+  it('keeps repeat suppression through consecutive resets until the held key is released', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Space, { ctrlKey: true }))
+    tracker.reset()
+    tracker.reset()
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBeNull()
+    tracker.up(event(keys.Space))
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
+  })
+
+  it('silently cancels a modifier-only hold when a character key is pressed', () => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'darwin')!, keys.Escape)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }))).toBe('down')
+    expect(tracker.down(event(keys.A, { altKey: true }))).toBe('cancel')
+    expect(tracker.down(event(keys.AltRight, { altKey: true }))).toBeNull()
+    expect(tracker.up(event(keys.AltRight))).toBe('up')
+  })
+
   it('holds Right Option alone without accepting Left Option or other modifiers', () => {
     const chord = parseChord(defaultShortcut('darwin'), keys, 'darwin')!
     expect(chord.keycode).toBe(keys.AltRight)
@@ -126,7 +210,7 @@ describe('speech chord', () => {
     tracker.down(event(keys.Alt, { altKey: true }))
     expect(tracker.up(event(keys.Alt, { altKey: true }))).toBeNull()
     expect(tracker.up(event(keys.AltRight))).toBe('up')
-    expect(tracker.down(event(keys.AltRight))).toBe('down')
+    expect(tracker.down(event(keys.AltRight, { altKey: true }))).toBe('down')
     tracker.reset()
     expect(tracker.down(event(keys.AltRight, { altKey: true }))).toBeNull()
     tracker.up(event(keys.AltRight))

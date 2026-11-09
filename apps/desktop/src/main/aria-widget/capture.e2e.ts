@@ -6,6 +6,7 @@ import { uIOhook, UiohookKey } from 'uiohook-napi'
 import type { WidgetSnapshot } from './model'
 import type { Settings } from '@ari/contracts/settings'
 import { AriaWidget } from './index'
+import { withInjectedKeys } from './injected-keys'
 
 // Build the renderer first, then bundle this entry to out/e2e with Vite and
 // run with Electron. The fixture uses the production renderer and preload.
@@ -89,9 +90,9 @@ async function capture(): Promise<void> {
   uIOhook.start()
   try {
     await new Promise((resolve) => setTimeout(resolve, 200))
-    uIOhook.keyToggle(UiohookKey.F24, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
+    await withInjectedKeys(uIOhook, [UiohookKey.F24], async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
     await new Promise((resolve) => setTimeout(resolve, 200))
     assert.deepEqual(events, ['down', 'up'])
     assert.equal(win.isFocusable(), false)
@@ -99,7 +100,6 @@ async function capture(): Promise<void> {
       `Native hook down/up passed on Electron ${process.versions.electron}, Node-API ${process.versions.napi}`,
     )
   } finally {
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
     uIOhook.stop()
     uIOhook.removeListener('keydown', down)
     uIOhook.removeListener('keyup', up)
@@ -122,22 +122,19 @@ async function capture(): Promise<void> {
     assert.ok(pill, 'configured hook warms the widget renderer')
     await new Promise((resolve) => setTimeout(resolve, 200))
     // Generic SendInput modifiers exercise keycode tracking without mask bits.
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    uIOhook.keyToggle(UiohookKey.F24, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 250))
-    await pill.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    await withInjectedKeys(uIOhook, [UiohookKey.Ctrl, UiohookKey.F24], async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      await pill.webContents.executeJavaScript(`new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Listening did not appear')), 5000);
       const frame = () => document.querySelector('.aria-pill')?.dataset.phase === 'listening'
         ? (clearTimeout(timeout), resolve()) : requestAnimationFrame(frame);
       frame();
     })`)
-    assert.equal(main.isVisible(), false)
-    assert.equal(pill.isVisible(), true)
-    assert.equal(pill.isFocused(), false)
-    assert.equal(BrowserWindow.getFocusedWindow(), focus)
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
+      assert.equal(main.isVisible(), false)
+      assert.equal(pill.isVisible(), true)
+      assert.equal(pill.isFocused(), false)
+      assert.equal(BrowserWindow.getFocusedWindow(), focus)
+    })
     await new Promise((resolve) => setTimeout(resolve, 250))
     assert.equal(pill.isVisible(), false, 'silent release quietly hides the widget')
     console.log('Native injected chord passed without activating the widget or main window')
@@ -157,20 +154,15 @@ async function capture(): Promise<void> {
     })
     await recovered.webContents.executeJavaScript("window.ariaWidget.invoke('ariaWidget.ready')")
     await new Promise((resolve) => setTimeout(resolve, 250))
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    uIOhook.keyToggle(UiohookKey.F24, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 250))
-    assert.equal(recovered.isVisible(), true)
-    assert.equal(recovered.isFocused(), false)
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
+    await withInjectedKeys(uIOhook, [UiohookKey.Ctrl, UiohookKey.F24], async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      assert.equal(recovered.isVisible(), true)
+      assert.equal(recovered.isFocused(), false)
+    })
     await new Promise((resolve) => setTimeout(resolve, 250))
     assert.equal(recovered.isVisible(), false)
     console.log('Renderer crash recovery re-armed the widget successfully')
   } finally {
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
     widget.close()
     main.destroy()
   }

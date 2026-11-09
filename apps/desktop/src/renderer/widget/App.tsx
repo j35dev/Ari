@@ -49,10 +49,12 @@ export function WidgetApp(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    setLevel(0)
     if (state.phase !== 'listening') return
     const timer = setInterval(() => setLevel(flowRef.current?.level() ?? 0), 50)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      setLevel(0)
+    }
   }, [state.phase, state.id])
 
   return (

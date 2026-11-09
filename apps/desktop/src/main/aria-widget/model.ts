@@ -15,24 +15,32 @@ export interface WidgetSnapshot extends WidgetState {
 export const RECORDING_LIMIT_MS = 120_000
 export const TRANSCRIPTION_LIMIT_MS = 45_000
 export const SENT_MS = 1_500
+export const MODIFIER_HOLD_MS = 250
 
 /** The hook and recorder can finish in either order; only the current hold may publish. */
 export class HoldToTalk {
   state: WidgetState = { id: 0, phase: 'hidden', text: '', setup: false }
   private deadline = Infinity
+  showAt = 0
 
   get expiresAt(): number {
     return this.deadline
   }
 
-  down(now: number): boolean {
+  visible(now: number): boolean {
+    return this.state.phase !== 'hidden' && now >= this.showAt
+  }
+
+  down(now: number, revealDelay = 0): boolean {
     if (this.state.phase === 'listening' || this.state.phase === 'transcribing') return false
     this.state = { id: this.state.id + 1, phase: 'listening', text: '', setup: false }
     this.deadline = now + RECORDING_LIMIT_MS
+    this.showAt = now + revealDelay
     return true
   }
 
   up(now: number): void {
+    if (now < this.showAt) return this.cancel()
     if (this.state.phase !== 'listening') return
     this.state = { ...this.state, phase: 'transcribing' }
     this.deadline = now + TRANSCRIPTION_LIMIT_MS
