@@ -800,18 +800,26 @@ export class Engine {
     providerContext: ProviderTurnContext,
   ): Promise<void> {
     const { resumeOf, handoff, contextSeq } = providerContext
-    const pendingRelease = this.#providerReleases.get(session.id)
-    const needsRelease = pendingRelease !== undefined || providerContext.handoffPending
-    if (needsRelease) {
-      // An empty native thread can have been parked before a failed prompt.
-      await (pendingRelease ?? this.#releaseProviderConnection(session.id)).catch(
-        (error: unknown) =>
-          log.warn('provider connection release failed', {
-            sessionId: session.id,
-            error: String(error),
-          }),
-      )
+    const releaseError = (error: unknown): void =>
+      log.warn('provider connection release failed', {
+        sessionId: session.id,
+        error: String(error),
+      })
+    const waitForProviderRelease = async (): Promise<void> => {
+      let freshRequired = providerContext.handoffPending
+      let pending = this.#providerReleases.get(session.id)
+      while (pending || freshRequired) {
+        if (pending) await pending.catch(releaseError)
+        else {
+          // A finishing old turn may have parked another connection during shutdown.
+          freshRequired = false
+          await this.#releaseProviderConnection(session.id).catch(releaseError)
+        }
+        pending = this.#providerReleases.get(session.id)
+      }
     }
+    const needsRelease = this.#providerReleases.has(session.id) || providerContext.handoffPending
+    if (needsRelease) await waitForProviderRelease()
     // Nothing reliably says when a background shell ends, so what earlier
     // turns left running is not tracked past the start of the next one.
     if (!needsRelease)
@@ -934,6 +942,9 @@ export class Engine {
           )
         : null
       const body = [handoff, context, prompt].filter((part) => part !== null).join('\n\n')
+      const resolvedAttachments =
+        attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
+      await waitForProviderRelease()
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
@@ -945,9 +956,7 @@ export class Engine {
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
         resumeOf,
-        ...(attachments.length > 0
-          ? { attachments: await this.#resolveAttachments(attachments) }
-          : {}),
+        ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))

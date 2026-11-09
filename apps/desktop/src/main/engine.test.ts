@@ -526,6 +526,110 @@ describe('Aria provider switching', () => {
     ).toEqual(['stopped'])
   })
 
+  it('awaits a release queued during prompt preparation before creating the driver', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    let released = false
+    const driver = recordingDriver('claude', created)
+    registry.register({
+      ...driver,
+      create: async (session) => {
+        if (created.length > 0) expect(released).toBe(true)
+        return driver.create(session)
+      },
+    })
+    registry.register(recordingDriver('opencode', created))
+    let prepare!: () => void
+    const preparing = new Promise<void>((resolve) => {
+      prepare = resolve
+    })
+    let finishContext!: () => void
+    const contextGate = new Promise<void>((resolve) => {
+      finishContext = resolve
+    })
+    let finishRelease!: () => void
+    const releaseGate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const releaseConnection = vi.fn(async () => {
+      await releaseGate
+      released = true
+    })
+    const engine = engineWith(registry, {
+      releaseProviderConnection: releaseConnection,
+      turnContext: async () => {
+        if (created.length === 1) {
+          prepare()
+          await contextGate
+        }
+        return '[Ari now: test]'
+      },
+    })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text: 'Next.', attachments: [] })
+    await preparing
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: null,
+      effort: null,
+    })
+    finishContext()
+    await expect.poll(() => releaseConnection.mock.calls.length).toBe(1)
+    expect(created).toHaveLength(1)
+    finishRelease()
+    await engine.quiesce('aria')
+    expect(created).toHaveLength(2)
+    // The switch affects the following turn; this turn retains its frozen provider.
+    expect(created[1]!.resumeOf).toBe('claude-1')
+  })
+
+  it('releases a connection parked during pending shutdown before delivering the handoff', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    const nextDriver = recordingDriver('opencode', created)
+    let parked = false
+    registry.register({
+      ...nextDriver,
+      create: async (session) => {
+        expect(parked).toBe(false)
+        return nextDriver.create(session)
+      },
+    })
+    let finishRelease!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    let releases = 0
+    const releaseConnection = vi.fn(async () => {
+      if (++releases === 1) {
+        await gate
+        parked = true
+      } else parked = false
+    })
+    const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'Remember the work.')
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: null,
+      effort: null,
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text: 'Next.', attachments: [] })
+    expect(created).toHaveLength(1)
+    finishRelease()
+    await engine.quiesce('aria')
+    expect(releases).toBeGreaterThanOrEqual(2)
+    expect(created).toHaveLength(2)
+    expect(created[1]!.resumeOf).toBeNull()
+    expect(created[1]!.handoff).toContain('User: Remember the work.')
+  })
+
   it.each([false, true])(
     'continues after a failed release and runs any queued release (queued: %s)',
     async (queued) => {
