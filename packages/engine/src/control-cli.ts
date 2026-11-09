@@ -13,6 +13,7 @@ const SESSION = new Set([
   'status',
   'spawn',
   'prompt',
+  'switch',
   'message',
   'answer',
   'delivery',

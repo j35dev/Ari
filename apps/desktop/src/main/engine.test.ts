@@ -175,7 +175,7 @@ describe('Aria provider switching', () => {
     },
   )
 
-  it.each(['aria', 'lead'] as const)(
+  it.each(['aria', 'lead', 'session'] as const)(
     'consumes a ref-less %s handoff only after a completed turn',
     async (kind) => {
       const created: AdapterSession[] = []
@@ -200,7 +200,12 @@ describe('Aria provider switching', () => {
         store,
         'aria',
         kind === 'aria' ? 'helm' : 'project',
-        kind === 'lead' ? { lead: true, createdBy: { kind: 'session', sessionId: 'helm' } } : {},
+        kind !== 'aria'
+          ? {
+              ...(kind === 'lead' ? { lead: true as const } : {}),
+              createdBy: { kind: 'session', sessionId: 'helm' },
+            }
+          : {},
       )
       await turn(engine, 'Existing conversation.')
       expect(
@@ -842,7 +847,7 @@ describe('Aria provider switching', () => {
     },
   )
 
-  it.each(['aria', 'lead'] as const)(
+  it.each(['aria', 'lead', 'session'] as const)(
     'lets the running %s turn finish and switches its queued follow-up, ignoring late refs',
     async (kind) => {
       let release!: () => void
@@ -876,7 +881,12 @@ describe('Aria provider switching', () => {
         store,
         'aria',
         kind === 'aria' ? 'helm' : 'project',
-        kind === 'lead' ? { lead: true, createdBy: { kind: 'session', sessionId: 'helm' } } : {},
+        kind !== 'aria'
+          ? {
+              ...(kind === 'lead' ? { lead: true as const } : {}),
+              createdBy: { kind: 'session', sessionId: 'helm' },
+            }
+          : {},
       )
       await engine.dispatch({
         type: 'turn.start',
@@ -951,7 +961,7 @@ describe('Aria provider switching', () => {
       }),
     ).toMatchObject({
       accepted: false,
-      reason: 'provider switching is only available to Aria and its project leads',
+      reason: 'provider switching is only available to Aria and the project sessions it launched',
     })
     expect(published).toEqual([])
     expect((await store.load('ordinary')).session?.driverKind).toBe('claude')
@@ -3047,10 +3057,11 @@ describe('session title source', () => {
 
   it.each([
     { lead: true, person: false, routed: true },
-    { lead: false, person: false, routed: false },
+    { lead: false, person: false, routed: true },
     { lead: true, person: true, routed: false },
+    { lead: false, person: true, routed: false },
   ])(
-    'routes an old Aria result only for project leads: %j',
+    'routes an old Aria result for the project sessions it launched: %j',
     async ({ lead, person, routed }) => {
       let finish!: () => void
       const gate = new Promise<void>((resolve) => {

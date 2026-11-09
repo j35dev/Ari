@@ -43,19 +43,23 @@ describe('decideCommand', () => {
     )
     expect(result).toMatchObject({
       accepted: false,
-      reason: 'provider switching is only available to Aria and its project leads',
+      reason: 'provider switching is only available to Aria and the project sessions it launched',
       events: [],
     })
   })
 
-  it.each(['aria', 'lead'] as const)(
+  it.each(['aria', 'lead', 'session'] as const)(
     'records %s switches without interrupting the active turn',
     (kind) => {
       let model = modelWithSession()
       model.session =
         kind === 'aria'
           ? { ...session, projectId: 'helm' }
-          : { ...session, lead: true, createdBy: { kind: 'session', sessionId: 'aria' } }
+          : {
+              ...session,
+              ...(kind === 'lead' ? { lead: true as const } : {}),
+              createdBy: { kind: 'session', sessionId: 'aria' },
+            }
       model = previewDispatch(model, {
         accepted: true,
         events: [{ type: 'turn.started', turnId: 'running' }],
