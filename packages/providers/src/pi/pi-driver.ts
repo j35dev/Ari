@@ -5,7 +5,7 @@ import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
-import { argsWithWindowsHandoffBudget, spawnCli } from '../spawn-cli'
+import { spawnCli, writeCliPrompt } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:pi')
@@ -22,7 +22,7 @@ export function buildPiArgs(session: AdapterSession): string[] {
   args.push(...permissionFlags(session.permissionMode))
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)
-  args.push('-p', promptWithAttachments(session))
+  args.push('-p')
   return args
 }
 
@@ -46,17 +46,15 @@ export class PiDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawnCli(
-      this.binaryPath,
-      argsWithWindowsHandoffBudget(this.binaryPath, session, buildPiArgs),
-      {
-        cwd: session.workspacePath,
-        ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    )
+    const child = spawnCli(this.binaryPath, buildPiArgs(session), {
+      cwd: session.workspacePath,
+      ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
     log.debug('pi spawned', { pid: child.pid })
+    // pi reads piped stdin as its initial message before entering print mode.
+    writeCliPrompt(child.stdin, promptWithAttachments(session))
 
     const iterator = streamProcessEvents(child, mapPiLine, {
       label: 'pi',

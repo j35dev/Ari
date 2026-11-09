@@ -15,7 +15,8 @@ describe('buildCodexArgs', () => {
   it('uses exec --json with repo check skipped', () => {
     const args = buildCodexArgs(base)
     expect(args.slice(0, 3)).toEqual(['exec', '--json', '--skip-git-repo-check'])
-    expect(args[args.length - 1]).toBe('do the thing')
+    expect(args[args.length - 1]).toBe('-')
+    expect(args).not.toContain(base.prompt)
   })
 
   it('maps permission modes to sandbox/approval flags', () => {
@@ -40,7 +41,7 @@ describe('buildCodexArgs', () => {
     // itself exposes for it, before the trailing prompt.
     const args = buildCodexArgs({ ...base, effort: 'xhigh' })
     expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort=xhigh')
-    expect(args[args.length - 1]).toBe('do the thing')
+    expect(args[args.length - 1]).toBe('-')
   })
 
   it('omits the reasoning override when no level was picked', () => {
@@ -52,6 +53,6 @@ describe('buildCodexArgs', () => {
     const args = buildCodexArgs({ ...base, resumeOf: 'thr_old' })
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'thr_old'])
     expect(args).toContain('--json')
-    expect(args[args.length - 1]).toBe('do the thing')
+    expect(args[args.length - 1]).toBe('-')
   })
 })

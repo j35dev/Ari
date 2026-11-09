@@ -1287,10 +1287,12 @@ function fixtureLinesAfterHandshake(name: string): string[] {
 }
 
 function fakeLegacyChild(stdoutLines: string[]) {
+  const stdin = new PassThrough()
   const stdout = new PassThrough()
   const stderr = new PassThrough()
   let killed = false
   const child = {
+    stdin,
     stdout,
     stderr,
     pid: 4242,

@@ -4,7 +4,7 @@ import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
-import { argsWithWindowsHandoffBudget, spawnCli } from '../spawn-cli'
+import { spawnCli, writeCliPrompt } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:opencode')
@@ -20,7 +20,6 @@ export function buildOpencodeArgs(session: AdapterSession): string[] {
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)
   if (session.permissionMode === 'full') args.push('--auto')
-  args.push(promptWithAttachments(session))
   return args
 }
 
@@ -33,17 +32,15 @@ export class OpencodeDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawnCli(
-      this.binaryPath,
-      argsWithWindowsHandoffBudget(this.binaryPath, session, buildOpencodeArgs),
-      {
-        cwd: session.workspacePath,
-        ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    )
+    const child = spawnCli(this.binaryPath, buildOpencodeArgs(session), {
+      cwd: session.workspacePath,
+      ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
     log.debug('opencode spawned', { pid: child.pid })
+    // `run` appends piped stdin to its message, so leave the positional message empty.
+    writeCliPrompt(child.stdin, promptWithAttachments(session))
 
     const iterator = streamProcessEvents(child, mapOpencodeLine, {
       label: 'opencode',

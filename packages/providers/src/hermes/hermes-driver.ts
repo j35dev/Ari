@@ -13,8 +13,10 @@ const log = createLogger('providers:hermes')
 /**
  * Builds the argv for a one-shot `hermes` turn. Kept pure for tests; flag
  * drift is caught by fixture tests plus the diagnostics card (M4.15). Flags
- * mirror the documented stream-json mode; the CLI was unavailable locally so
+ * preserve Ari's stream-json fallback; the CLI was unavailable locally so
  * they must be probed against the real binary when it ships.
+ * The published Hermes Agent `chat --query-file` interface differs from this
+ * fallback's flags; keep argv budgeting until this interface is verified.
  */
 export function buildHermesArgs(session: AdapterSession): string[] {
   const args = ['-p', promptWithAttachments(session), '--output-format', 'stream-json', '--verbose']
