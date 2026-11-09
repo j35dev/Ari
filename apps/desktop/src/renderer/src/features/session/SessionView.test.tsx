@@ -171,11 +171,8 @@ describe('SessionView question panel', () => {
     expect(screen.queryByRole('button', { name: 'New topic' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Past topics' })).toBeNull()
     expect(screen.queryByText('Done today')).toBeNull()
-    const work = screen.getByRole('button', { name: 'Work' })
-    expect(work).toHaveClass('ml-auto')
-    await userEvent.click(work)
-    expect(work).toHaveAttribute('aria-expanded', 'true')
-    expect(await screen.findByLabelText('Work details')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Work' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Work details')).not.toBeInTheDocument()
   })
 
   it('centers only after history has replayed and keeps the editor when docking', async () => {

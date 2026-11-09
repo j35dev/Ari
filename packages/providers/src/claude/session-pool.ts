@@ -40,20 +40,20 @@ export class ClaudeSessionPool {
 
   put(sessionId: string, key: string, process: ClaudeControlProcess): boolean {
     if (process.closed) return false
-    this.release(sessionId)
+    void this.release(sessionId)
     const entry = { key, process }
     this.#idle.set(sessionId, entry)
     process.onEnded = () => {
       if (this.#idle.get(sessionId) !== entry) return
       this.#idle.delete(sessionId)
       this.#disarmWhenEmpty()
-      this.onEnded?.(sessionId)
+      void this.onEnded?.(sessionId)
     }
     process.onBackground = (events) => this.onBackground?.(sessionId, events)
     while (this.#idle.size > this.maxIdle) {
       const idle = [...this.#idle].find(([, entry]) => !entry.process.hasRunningTasks)
       if (!idle) break
-      this.release(idle[0])
+      void this.release(idle[0])
     }
     this.#timer ??= setInterval(() => this.reap(), 60_000)
     this.#timer.unref?.()
@@ -88,7 +88,7 @@ export class ClaudeSessionPool {
   reap(now = Date.now()): void {
     for (const [id, entry] of this.#idle) {
       if (!entry.process.hasRunningTasks && now - entry.process.lastActivity >= this.idleMs)
-        this.release(id)
+        void this.release(id)
     }
   }
 
