@@ -67,6 +67,9 @@ mac:
       arch:
         - universal
   category: public.app-category.developer-tools
+  # Signing is optional; signed builds use electron-builder's hardened runtime.
+  entitlements: packaging/entitlements.mac.plist
+  entitlementsInherit: packaging/entitlements.mac.plist
   artifactName: Ari-${version}-universal.${ext}
   # A universal app is packed as an x64 slice and an arm64 slice which are then
   # merged. Both slices carry every pty prebuild (they are plain dependencies, so

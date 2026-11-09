@@ -1,32 +1,350 @@
-﻿[
+[
   {
     "filename": "transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz",
     "size": 18137415,
     "sha256": "3671d8a07e256642d6bb38cc05ad8bbe88c76f814aeb704d1f8b57c61010db02",
-    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz"
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz",
+    "files": {
+      "transcribe-native-linux-aarch64-cpu-vulkan/contract.json": {
+        "size": 119,
+        "sha256": "d3e1678f1d234fd50b19c81a57a511e3ac083de63021f11f3020cf5db3cf6610"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-base.so": {
+        "size": 857880,
+        "sha256": "5a00e9f7de2c1b690da839463948e90a97b8992725f72961a6b915061aed26c6"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.0_1.so": {
+        "size": 921632,
+        "sha256": "9e0f57ac8b06f94391a2282a178f4d7c0fad7601fdb54488eedfd63b4bdfca90"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.2_1.so": {
+        "size": 987152,
+        "sha256": "8a72740674951c7656d74735d70a9bff6714b411adb781237f8f371cd8fd0bf7"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.2_2.so": {
+        "size": 987152,
+        "sha256": "79536aca2986b892cd782f7ca7ff3a2b0c14171849617f30eda69840cfea6a50"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.2_3.so": {
+        "size": 921608,
+        "sha256": "2d99bb9756f6c529299c4583aafa824221110b463b2a0b34bb64859d85e9f004"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.6_1.so": {
+        "size": 987144,
+        "sha256": "dac3964d885d26874e1964081fc1078c7d7a13c0f00864ae3bf4bacca7fe0c6a"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv8.6_2.so": {
+        "size": 987144,
+        "sha256": "173c38bf9f12ea6aefd0670236d0822ee42e92047f533906dca3b61bf3c3c778"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv9.2_1.so": {
+        "size": 987144,
+        "sha256": "c7460905fdb772bb7639843bf26749a68670bf35802495a3176ef9a836a9437b"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-cpu-armv9.2_2.so": {
+        "size": 987144,
+        "sha256": "b8208f38e86e1530f63df4873cb9c6fd9aa767d9288aa67935f987c4a48c6f46"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml-vulkan.so": {
+        "size": 43917104,
+        "sha256": "d6168f4d40fbd0d320761e7e453ba4859b82526d156af1b313fef0549c427684"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libggml.so": {
+        "size": 331560,
+        "sha256": "6a8cdbff4177ad10f676df23fb508f878563b3311127311a0f5a9b7331a7e8dd"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/libtranscribe.so": {
+        "size": 2102600,
+        "sha256": "652de0c2d41b99353885d25363cba2701dd54dadb296aae487da91207943378e"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/licenses/ggml/LICENSE": {
+        "size": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/licenses/LICENSE": {
+        "size": 1083,
+        "sha256": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/licenses/src/third_party/miniz/LICENSE": {
+        "size": 1162,
+        "sha256": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+      },
+      "transcribe-native-linux-aarch64-cpu-vulkan/licenses/src/third_party/silero_vad/LICENSE": {
+        "size": 1075,
+        "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b"
+      }
+    }
   },
   {
     "filename": "transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz",
     "size": 22561707,
     "sha256": "4b58e80c63d7f2b531b4e844b94c0703593f48a5be6afd829389cdda14a13edf",
-    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz"
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz",
+    "files": {
+      "transcribe-native-linux-x86_64-cpu-vulkan/contract.json": {
+        "size": 119,
+        "sha256": "d3e1678f1d234fd50b19c81a57a511e3ac083de63021f11f3020cf5db3cf6610"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-base.so": {
+        "size": 808688,
+        "sha256": "0bedc6858bb1e5aedda81b1f3bd7e7578fd5ab98a8a62c6afd53087ec11df41b"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-alderlake.so": {
+        "size": 1286184,
+        "sha256": "1aa14e362efd1b874b2c255b89b3bbeb259ae42f0bc6fff72118ca378a037682"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-cannonlake.so": {
+        "size": 1540136,
+        "sha256": "701352131b5a57dd9d462ceeee48fd4fb71c71634511e8320a52f968d48b2530"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-cascadelake.so": {
+        "size": 1548328,
+        "sha256": "131677a346d44542ed4b55c30324eb2a4abfd90067af1036dc141a9a3ba2c01d"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-cooperlake.so": {
+        "size": 1548328,
+        "sha256": "965aaaa59b1d0b66f867bda9d6442a49f8abcb0d180a8a00905fa3cbb61e1842"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-haswell.so": {
+        "size": 1290280,
+        "sha256": "5787b42303af149aeb18c05463d214e3a966c7630b5ee46cd1884091f8949394"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-icelake.so": {
+        "size": 1548328,
+        "sha256": "6e5fb33713b8f5549cb02f5a3d6e9dc07b354cbd953f8d315d0fb82c8175bc41"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-ivybridge.so": {
+        "size": 1220648,
+        "sha256": "204bad8545de1318ca5ce7d158c833acb570358e27ee75ab88418e31a2153595"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-piledriver.so": {
+        "size": 1216552,
+        "sha256": "c51b31018f9745a65b080a75897f9f3423fc70378c835f4240e1b0185d2e24c5"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-sandybridge.so": {
+        "size": 1204264,
+        "sha256": "f1f6865e9ff32a11f676050444459bf6a4e19240ffd323be3f5243eaee5c2f3b"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-sapphirerapids.so": {
+        "size": 1827080,
+        "sha256": "1d94e11beaf4b4957428308a3e48756947048f09b30b50d50cd53ce4bdd65a78"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-skylakex.so": {
+        "size": 1540136,
+        "sha256": "675a33e18fb2d476a6cbcfafcd6103ee2339d8eb371c0a99ffe196f8a84d13b7"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-sse42.so": {
+        "size": 897032,
+        "sha256": "8a80b29a97b3b3cd8766df9e5a10b760083b176e8e9f8ffb4b5668b5ad4cc37c"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-x64.so": {
+        "size": 872488,
+        "sha256": "485a6bff330680534dc050f7d0cec0f8d48589daafcd7c5708e9f2d77881f7d1"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-cpu-zen4.so": {
+        "size": 1548328,
+        "sha256": "88eb58aee7fe085a70c7ecfcfd749cd4102c27d367bb1b09c99f6c6422ee90eb"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml-vulkan.so": {
+        "size": 44039912,
+        "sha256": "4fdec8c3a4201fe9fbd8a24a48c43f32494d69aa943c82f3f299a727a04ac9c4"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libggml.so": {
+        "size": 220776,
+        "sha256": "0c5f5ca9beda5ec2ffcbc93f60dad3a029c768378c401e85284ce36b1a983ed6"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/libtranscribe.so": {
+        "size": 2434312,
+        "sha256": "78625ee207600f5cbf9a398cdbe03991d0720a41efd1019fd80e108279957cfe"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/licenses/ggml/LICENSE": {
+        "size": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/licenses/LICENSE": {
+        "size": 1083,
+        "sha256": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/licenses/src/third_party/miniz/LICENSE": {
+        "size": 1162,
+        "sha256": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+      },
+      "transcribe-native-linux-x86_64-cpu-vulkan/licenses/src/third_party/silero_vad/LICENSE": {
+        "size": 1075,
+        "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b"
+      }
+    }
   },
   {
     "filename": "transcribe-native-0.4.1-macos-arm64-metal.tar.gz",
     "size": 2491746,
     "sha256": "7369e36dc2a5fc5d52eee5766fa03ad22d3f533c8688bf1deccf3ffdc202ea24",
-    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-arm64-metal.tar.gz"
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-arm64-metal.tar.gz",
+    "files": {
+      "transcribe-native-macos-arm64-metal/contract.json": {
+        "size": 113,
+        "sha256": "70f7dfa2c12307ae387ad0d4e39f5c995b42f55a653acef471435aa77db3b384"
+      },
+      "transcribe-native-macos-arm64-metal/libggml-base.dylib": {
+        "size": 674384,
+        "sha256": "452eb1f18bb558e360bde5c7b75c58c33a113cb83f295755494f22d2a4d64715"
+      },
+      "transcribe-native-macos-arm64-metal/libggml-cpu.dylib": {
+        "size": 935952,
+        "sha256": "2ad4a2e99d86da15f2c0c2ef59de1b8fabcdd6e2655dd8822211d066e9a98eb2"
+      },
+      "transcribe-native-macos-arm64-metal/libggml-metal.dylib": {
+        "size": 5500096,
+        "sha256": "8970af35276eeace65cdb5bbc45b1a6f8e91cedf62b05f58840e8cde93ab10d0"
+      },
+      "transcribe-native-macos-arm64-metal/libggml.dylib": {
+        "size": 90976,
+        "sha256": "7548b3572a8e12a148d105480591c54c886a589aae3aa1d1647b99055ef5b8e0"
+      },
+      "transcribe-native-macos-arm64-metal/libtranscribe.dylib": {
+        "size": 1669520,
+        "sha256": "24a36922d21192a40dcbd4097fe8ac2b115991e14c94c9b4e98ba9493e987a60"
+      },
+      "transcribe-native-macos-arm64-metal/licenses/ggml/LICENSE": {
+        "size": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "transcribe-native-macos-arm64-metal/licenses/LICENSE": {
+        "size": 1083,
+        "sha256": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6"
+      },
+      "transcribe-native-macos-arm64-metal/licenses/src/third_party/miniz/LICENSE": {
+        "size": 1162,
+        "sha256": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+      },
+      "transcribe-native-macos-arm64-metal/licenses/src/third_party/silero_vad/LICENSE": {
+        "size": 1075,
+        "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b"
+      }
+    }
   },
   {
     "filename": "transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz",
     "size": 1619231,
     "sha256": "513a3976a2f0ebc0666c9670551e96c226e39ed14090a51f2efa0874f41258d8",
-    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz"
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz",
+    "files": {
+      "transcribe-native-macos-x86_64-cpu/contract.json": {
+        "size": 102,
+        "sha256": "268dad369fcce09e2df8a56b6ad59da66e2b95fe7e3889c7480bfafa367e52b9"
+      },
+      "transcribe-native-macos-x86_64-cpu/libggml-base.dylib": {
+        "size": 693896,
+        "sha256": "b9f73b2e2b608bf52ccb57e6a7b608f5cb101bec204046de9dba0af32307ca05"
+      },
+      "transcribe-native-macos-x86_64-cpu/libggml-cpu.dylib": {
+        "size": 999184,
+        "sha256": "3bda39e8d7236ef11665a51a82b62d119bc966ce8ed2ff508540756ce9768582"
+      },
+      "transcribe-native-macos-x86_64-cpu/libggml.dylib": {
+        "size": 62416,
+        "sha256": "28a77e4630f9fcfd9406aec6eac2c5b9c91834351cff017a22f5db200c2a9157"
+      },
+      "transcribe-native-macos-x86_64-cpu/libtranscribe.dylib": {
+        "size": 1949648,
+        "sha256": "893749dea47c75eff89930b648fb0211dfc8e531b1fa822ae387817806c32ff7"
+      },
+      "transcribe-native-macos-x86_64-cpu/licenses/ggml/LICENSE": {
+        "size": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "transcribe-native-macos-x86_64-cpu/licenses/LICENSE": {
+        "size": 1083,
+        "sha256": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6"
+      },
+      "transcribe-native-macos-x86_64-cpu/licenses/src/third_party/miniz/LICENSE": {
+        "size": 1162,
+        "sha256": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+      },
+      "transcribe-native-macos-x86_64-cpu/licenses/src/third_party/silero_vad/LICENSE": {
+        "size": 1075,
+        "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b"
+      }
+    }
   },
   {
     "filename": "transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz",
     "size": 18052295,
     "sha256": "272eb97795048ccb557c85bb9dd44c9e530e1c928443114c39816a8a5f76269d",
-    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz"
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz",
+    "files": {
+      "transcribe-native-windows-x86_64-cpu-vulkan/contract.json": {
+        "size": 125,
+        "sha256": "83669009a6eeb805ec735ee841ba59ef8b85c1f46949963fc4391418cc4965ae"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-base.dll": {
+        "size": 675328,
+        "sha256": "71050124f5ff1a7f023b5fa723c121acadfd54fd1301664c1077116313f9ce56"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-alderlake.dll": {
+        "size": 1103360,
+        "sha256": "62a689a925f8bac57d5caf59a396346f02059a130ae9bad05602439ce5c8d147"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-cannonlake.dll": {
+        "size": 1205760,
+        "sha256": "8f317c7ff706599a7a42de3686804996bd0441e8d84af461597c4f5753584231"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-cascadelake.dll": {
+        "size": 1205760,
+        "sha256": "8fb65624661e642123fe828d1d0db42a322cf7f23c2025bff5c2f5252130a00f"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-haswell.dll": {
+        "size": 1104896,
+        "sha256": "f9710a339d994501f7c87e3e7e10a8e982efd5e9f4cf33640bdcc5de912f830c"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-icelake.dll": {
+        "size": 1205760,
+        "sha256": "1f3a9560c7171f23a793c183e39267a8f493ab515e1720b848f21af25f91e090"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-sandybridge.dll": {
+        "size": 1075712,
+        "sha256": "79aaea87231ee1b1963835428d0b4fcdeca5b26d3aec37f4802a55a3fb4502f6"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-skylakex.dll": {
+        "size": 1205760,
+        "sha256": "c9531b4cf9981d4ecc7618d65dd55bdf20d53629b612a4028d39e0009a851957"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-sse42.dll": {
+        "size": 842240,
+        "sha256": "fac884a6903670eded6654e868226232139d37ec23ba8a7d7230be93ef3ff550"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-cpu-x64.dll": {
+        "size": 842752,
+        "sha256": "b6854388df7645e728a1273b69beeede414aa67fb5b7175cb96d580c397cf5c7"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml-vulkan.dll": {
+        "size": 43652608,
+        "sha256": "d4ef14886f4fd5a0850acc81ed4daf77e6c80f39db1bb7e8936ba95930b7e68d"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/ggml.dll": {
+        "size": 61952,
+        "sha256": "7f4312af8bf5728c72f342702f5674d4a40cc3964f01d67e8b01db7559a2b530"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/licenses/ggml/LICENSE": {
+        "size": 1099,
+        "sha256": "bcd8ec749126d45cb06737d0690295d73df4b6e7e194205bcf91190368f27285"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/licenses/LICENSE": {
+        "size": 1104,
+        "sha256": "acef7d1711847656cdeb0007784dbe19bd7fd069767b0b38bd62714c6a8f3159"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/licenses/src/third_party/miniz/LICENSE": {
+        "size": 1184,
+        "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/licenses/src/third_party/silero_vad/LICENSE": {
+        "size": 1095,
+        "sha256": "9cb98d261a9f2dfd347ee43b314343c68fe063ecc7f31514e24b248b1be727c6"
+      },
+      "transcribe-native-windows-x86_64-cpu-vulkan/transcribe.dll": {
+        "size": 2052096,
+        "sha256": "c00cbe50a845003f986d3ed0ee149c08f576d0f3cc54c5346033608185a000d5"
+      }
+    }
   }
 ]

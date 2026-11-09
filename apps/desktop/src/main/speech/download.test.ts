@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { downloadFile } from './download'
+import { downloadFile, prunePartialDownloads } from './download'
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -56,14 +56,12 @@ it('cancels safely and resumes a verified partial file', async () => {
 it('uses ranges for partial files and restarts if the server ignores them', async () => {
   const path = await target()
   await writeFile(`${path}.partial`, bytes.subarray(0, 5))
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(
-      new Response(bytes.subarray(5), {
-        status: 206,
-        headers: { 'content-range': `bytes 5-${bytes.length - 1}/${bytes.length}` },
-      }),
-    )
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(bytes.subarray(5), {
+      status: 206,
+      headers: { 'content-range': `bytes 5-${bytes.length - 1}/${bytes.length}` },
+    }),
+  )
   vi.stubGlobal('fetch', fetcher)
   await downloadFile(options(path))
   expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ headers: { Range: 'bytes=5-' } })
@@ -73,4 +71,24 @@ it('uses ranges for partial files and restarts if the server ignores them', asyn
   fetcher.mockResolvedValue(new Response(bytes))
   await downloadFile(options(path))
   expect(await readFile(path)).toEqual(bytes)
+})
+
+it('prunes expired partials, keeps active downloads, and discards other partials on model choice', async () => {
+  const path = await target()
+  const root = dirname(path)
+  const old = join(root, 'old.gguf.partial')
+  const active = join(root, 'active.gguf.partial')
+  const recent = `${path}.partial`
+  const legacy = join(root, 'other.bin.partial')
+  for (const file of [old, active, recent, legacy]) await writeFile(file, 'saved')
+  const expired = new Date(Date.now() - 8 * 24 * 60 * 60_000)
+  await utimes(old, expired, expired)
+  await utimes(active, expired, expired)
+  await prunePartialDownloads(root, new Set(['active.gguf.partial']))
+  await expect(readFile(old)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(active, 'utf8')).toBe('saved')
+  expect(await readFile(recent, 'utf8')).toBe('saved')
+  await prunePartialDownloads(root, new Set(['active.gguf.partial']), 0)
+  await expect(readFile(recent)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(legacy, 'utf8')).toBe('saved')
 })

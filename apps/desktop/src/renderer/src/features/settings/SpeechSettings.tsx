@@ -72,7 +72,7 @@ export function SpeechSettings() {
     .map((frame) => frame.error)
     .filter(Boolean)
   const shortcut =
-    settings?.speech.shortcut || (/Mac/.test(navigator.platform) ? 'alt+space' : 'ctrl+space')
+    settings?.speech.shortcut || (/Mac/.test(navigator.platform) ? 'ctrl+alt+space' : 'ctrl+space')
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
@@ -267,16 +267,58 @@ export function SpeechSettings() {
                     )}
                   </>
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={pending !== null || modelBusy}
-                    onClick={() =>
-                      void run(model.id, () => rpc.invoke('speech.download', { modelId: model.id }))
-                    }
-                  >
-                    Download
-                  </Button>
+                  <>
+                    {model.partial && (
+                      <span className="text-xs text-fg-muted">
+                        {sizeLabel(model.partial.size)} saved
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={pending !== null || modelBusy}
+                      onClick={() =>
+                        void run(model.id, () =>
+                          rpc.invoke('speech.download', { modelId: model.id }),
+                        )
+                      }
+                    >
+                      {model.partial ? 'Resume' : 'Download'}
+                    </Button>
+                    {model.partial && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending !== null}
+                        onClick={() =>
+                          void run(model.id, () =>
+                            rpc.invoke('speech.discard', { modelId: model.id }),
+                          )
+                        }
+                      >
+                        Discard
+                      </Button>
+                    )}
+                  </>
+                )}
+                {model.partial && model.installed && (
+                  <>
+                    <span className="text-xs text-fg-muted">
+                      {sizeLabel(model.partial.size)} saved
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending !== null}
+                      onClick={() =>
+                        void run(model.id, () =>
+                          rpc.invoke('speech.discard', { modelId: model.id }),
+                        )
+                      }
+                    >
+                      Discard
+                    </Button>
+                  </>
                 )}
               </SettingsRow>
             )

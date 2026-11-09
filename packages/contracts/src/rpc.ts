@@ -327,6 +327,7 @@ export interface SpeechModel {
   repository: string | null
   revision: string | null
   recommended?: boolean
+  partial?: { size: number; updatedAt: number }
   installed: false | { path: string; source: 'ari' | 'handy' | 'other' }
 }
 
@@ -924,6 +925,7 @@ export const rpcParams = {
     .object({ modelId: z.string().optional(), path: z.string().optional() })
     .refine((value) => Boolean(value.modelId) !== Boolean(value.path), 'Choose a model id or path'),
   'speech.remove': z.object({ modelId: z.string().min(1) }),
+  'speech.discard': z.object({ modelId: z.string().min(1) }),
   'speech.transcribe': z.object({
     pcm: z
       .union([z.instanceof(Float32Array), z.array(z.number().finite().min(-1).max(1))])
@@ -1385,6 +1387,7 @@ export interface RpcResults extends OrchestrationResults {
   'speech.cancel': { cancelled: boolean }
   'speech.select': SpeechStatus
   'speech.remove': { removed: boolean }
+  'speech.discard': { discarded: boolean }
   'speech.transcribe': { text: string }
   'settings.update': Settings
   'scm.summary': SourceControlResult<GitSummary>

@@ -62,6 +62,12 @@ export async function discoverModels(roots: ModelRoot[]): Promise<SpeechModel[]>
       if (++visited > 10_000) return
       if (entry.name.startsWith('.')) continue
       const path = join(directory, entry.name)
+      if (source === 'ari' && entry.isFile() && entry.name.endsWith('.gguf.partial')) {
+        const model = models.find((model) => `${model.filename}.partial` === entry.name)
+        const info = await stat(path).catch(() => null)
+        if (model && info?.size) model.partial = { size: info.size, updatedAt: info.mtimeMs }
+        continue
+      }
       if (entry.isDirectory()) {
         if (depth > 0) await walk(path, source, depth - 1)
         continue
