@@ -405,7 +405,6 @@ export function Composer({
     [refocus, setText],
   )
 
-  /** Inserts at a captured range. A file write resolves after the caret may have moved. */
   // A paste event does not carry Ctrl/Shift. Remember them from the keys
   // that are down so Ctrl/Cmd+Shift+V can stay inline.
   const forceInlinePasteRef = useRef(false)
@@ -429,11 +428,30 @@ export function Composer({
   const insertRange = useCallback(
     (at: number, end: number, insert: string) => {
       const nextCaret = at + insert.length
+      seedCaretRef.current = nextCaret
       setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
       setCaret(nextCaret)
-      refocus(nextCaret)
     },
-    [refocus, setText],
+    [setText],
+  )
+
+  const pasteSelectionRef = useRef<{ start: number; end: number } | null>(null)
+  useLayoutEffect(() => {
+    const selection = pasteSelectionRef.current
+    pasteSelectionRef.current = null
+    const el = textareaRef.current
+    if (selection && el) {
+      el.setSelectionRange(selection.start, selection.end)
+    }
+  }, [text])
+
+  // A completed write must not touch a different session or an unmounted editor.
+  const pasteGenerationRef = useRef(0)
+  useLayoutEffect(
+    () => () => {
+      pasteGenerationRef.current += 1
+    },
+    [sessionId],
   )
 
   const handlePaste = useCallback(
@@ -477,6 +495,11 @@ export function Composer({
         insertRange(start, end, pasted)
         return
       }
+      // Keep the content in the draft before starting IPC. Sending, typing,
+      // reloading, or leaving this session during the write must not lose it.
+      const inlineDraft = text.slice(0, start) + pasted + text.slice(end)
+      insertRange(start, end, pasted)
+      const generation = pasteGenerationRef.current
       const mention = `@${decision.path} `
       void rpc
         .invoke('fs.writeTextFile', {
@@ -484,10 +507,31 @@ export function Composer({
           path: decision.path,
           content: decision.content,
         })
-        .then(() => insertRange(start, end, mention))
-        .catch(() => insertRange(start, end, pasted))
+        .then(
+          () => {
+            // Only compact an untouched draft. A captured selection no longer
+            // names the same text after an edit, send, or replacement seed.
+            if (pasteGenerationRef.current !== generation) return
+            const el = textareaRef.current
+            if (el?.value !== inlineDraft) return
+            // Keep a moved caret/selection and do not reclaim focus on completion.
+            const remap = (index: number) =>
+              index <= start
+                ? index
+                : Math.max(start + mention.length, index - pasted.length + mention.length)
+            pasteSelectionRef.current = {
+              start: remap(el.selectionStart),
+              end: remap(el.selectionEnd),
+            }
+            setCaret(pasteSelectionRef.current.start)
+            setText(text.slice(0, start) + mention + text.slice(end))
+          },
+          () => {
+            // The inline fallback is already present, including any later edits.
+          },
+        )
     },
-    [addFiles, caret, insertAtCaret, insertRange, sessionId, text],
+    [addFiles, caret, insertAtCaret, insertRange, sessionId, setText, text],
   )
 
   const handleDrop = useCallback(
