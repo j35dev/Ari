@@ -4,16 +4,12 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useId,
   useRef,
   useState,
   useSyncExternalStore,
   type ComponentProps,
 } from 'react'
-import { WorkPanel } from './WorkPanel'
-import { WorkStatusLine } from './WorkStatusLine'
-import type { OrchestrationView } from '@ari/contracts/orchestration'
-import { invokeWork, workActionKey } from './work-actions'
+import { ChildSessionActivity } from './ChildSessionActivity'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
@@ -300,11 +296,7 @@ export function SessionView({
   // Null until the first snapshot lands: a card drawn before it would have
   // to guess, and reads as idle for the moment it takes to arrive.
   const [tasks, setTasks] = useState<ChildTask[] | null>(null)
-  const workPanelId = useId()
   const stopChildrenKeyRef = useRef<string | null>(null)
-  const [workOpen, setWorkOpen] = useState(false)
-  const [workView, setWorkView] = useState<OrchestrationView | null>(null)
-  const [workError, setWorkError] = useState<string | null>(null)
   const [stoppingChildren, setStoppingChildren] = useState(false)
   // The agent harness's own sub-agents and background shells, and whether it
   // is reporting back between turns right now (output with no turn live).
@@ -369,11 +361,8 @@ export function SessionView({
     setTurnDiffs({})
     setSpawns([])
     setTasks(null)
-    setWorkOpen(false)
     stopChildrenKeyRef.current = null
     setStoppingChildren(false)
-    setWorkView(null)
-    setWorkError(null)
     setBackground(EMPTY_BACKGROUND)
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
@@ -391,17 +380,6 @@ export function SessionView({
       tasksTimer = setTimeout(() => {
         tasksTimer = null
         const request = ++taskRequest
-        void invokeWork('orchestration.view', { sessionId })
-          .then((next) => {
-            if (!cancelled && request === taskRequest && next && Array.isArray(next.tasks)) {
-              setWorkView(next)
-              setWorkError(null)
-            }
-          })
-          .catch(() => {
-            if (!cancelled && request === taskRequest)
-              setWorkError('Work details could not be refreshed. The last known state is shown.')
-          })
         void rpc
           .invoke('session.tasks', { sessionId })
           .then((next) => {
@@ -1150,6 +1128,14 @@ export function SessionView({
 
   // A parent that ended its turn to wait has no Stop of its own, yet its
   // children may run for a long time. The rail offers one for all of them.
+  const delegatedWorkLive =
+    delegations.some(
+      (child) => !['idle', 'done', 'failed', 'stopped', 'removed'].includes(child.state),
+    ) ||
+    childSessions.some((child) => {
+      const phase = activityOf?.(child.id)?.phase
+      return phase === 'working' || phase === 'paused'
+    })
   const stopChildren = useCallback(() => {
     if (stoppingChildren) return
     setStoppingChildren(true)
@@ -1157,7 +1143,7 @@ export function SessionView({
       .invoke('orchestration.stop', {
         sessionId,
         tree: true,
-        idempotencyKey: (stopChildrenKeyRef.current ??= workActionKey()),
+        idempotencyKey: (stopChildrenKeyRef.current ??= `work_${crypto.randomUUID()}`),
       })
       .then(() => {
         stopChildrenKeyRef.current = null
@@ -1175,10 +1161,6 @@ export function SessionView({
     () => rpc.subscribe('orchestration.changed', { sessionId }, () => refreshTasksRef.current()),
     [sessionId],
   )
-
-  useEffect(() => {
-    if (workOpen) refreshTasksRef.current()
-  }, [workOpen])
 
   const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
 
@@ -1262,7 +1244,7 @@ export function SessionView({
           // A plan approval is answered in the side panel, so it mounts no
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
-          composerAttentionRequired || backgroundShown ? (
+          composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
             <>
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
@@ -1296,9 +1278,19 @@ export function SessionView({
                   ))}
                 </div>
               ) : null}
+              {childSessions.length > 0 ? (
+                <ChildSessionActivity
+                  sessions={childSessions}
+                  activityOf={activityOf}
+                  onOpen={onOpenSession}
+                  // While this session runs, its own Stop reaches the children.
+                  onStopAll={!running && delegatedWorkLive ? stopChildren : undefined}
+                  stopping={stoppingChildren}
+                />
+              ) : null}
               {backgroundShown ? (
                 <>
-                  {composerAttentionRequired ? (
+                  {composerAttentionRequired || childSessions.length > 0 ? (
                     <div className="mx-3 border-t border-border/60" />
                   ) : null}
                   <BackgroundWork
@@ -1357,7 +1349,9 @@ export function SessionView({
       respondApproval,
       activityOf,
       onOpenSession,
+      delegatedWorkLive,
       stopChildren,
+      stoppingChildren,
       backgroundShown,
       background,
       defaults.driverKind,
@@ -1385,18 +1379,7 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <div className="flex h-7 shrink-0 items-center pr-3">
-          <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
-          <button
-            type="button"
-            aria-expanded={workOpen}
-            aria-controls={workPanelId}
-            onClick={() => setWorkOpen((value) => !value)}
-            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            Work
-          </button>
-        </div>
+        <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
@@ -1413,21 +1396,7 @@ export function SessionView({
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
             onUndoTurn={undoTurn}
-            working={
-              running || (workView?.tasks.length ?? tasks?.length ?? 0) > 0 ? (
-                <>
-                  {running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
-                  <WorkStatusLine
-                    panelId={workPanelId}
-                    tasks={workView?.tasks ?? tasks ?? []}
-                    open={workOpen}
-                    onOpen={() => setWorkOpen((value) => !value)}
-                    onStopAll={stopChildren}
-                    stopping={stoppingChildren}
-                  />
-                </>
-              ) : null
-            }
+            working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
@@ -1499,18 +1468,6 @@ export function SessionView({
           {composer}
         </ComposerDock>
       </div>
-      {workOpen && pendingPlan === null ? (
-        <WorkPanel
-          panelId={workPanelId}
-          sessionId={sessionId}
-          view={workView}
-          loadError={workError}
-          defaults={defaults}
-          onClose={() => setWorkOpen(false)}
-          onOpen={onOpenSession}
-          onChanged={() => refreshTasksRef.current()}
-        />
-      ) : null}
       {pendingPlan !== null ? (
         <PlanReviewRail
           prompt={pendingPlan.prompt}
