@@ -22,7 +22,9 @@ $acl = Get-Acl -LiteralPath '${prompt.path.replaceAll("'", "''")}'
           '-EncodedCommand',
           Buffer.from(command, 'utf16le').toString('base64'),
         ],
-        { windowsHide: true },
+        // PowerShell 7's module path can prevent Windows PowerShell from loading
+        // its built-in Security module. Let the child rebuild its own defaults.
+        { windowsHide: true, env: { ...process.env, PSModulePath: undefined } },
       )
       const acl = JSON.parse(stdout) as { owner: string; current: string; rules: string[] }
       expect(acl.owner).toBe(acl.current)
