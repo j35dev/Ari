@@ -253,18 +253,18 @@ describe('turn diff failures with a checkpoint', () => {
     expect(git.diffForRef).not.toHaveBeenCalled()
   })
 
-  it('preserves a diff failure between captured snapshots', async () => {
+  it('preserves a Git command failure between captured snapshots', async () => {
     const git = service()
     git.diffForRef.mockResolvedValue({
       ok: false,
-      error: { code: 'diff_too_large', message: 'diff exceeds byte cap' },
+      error: { code: 'command_failed', message: 'could not read captured snapshots' },
     })
     expect(
       await queryTurnDiff(git, {
         ...params,
         checkpoints: [{ ...params.checkpoints[0]!, endRef: 'end' }],
       }),
-    ).toEqual({ diffText: null, error: 'diff exceeds byte cap' })
+    ).toEqual({ diffText: null, error: 'could not read captured snapshots' })
     expect(git.diffForRef).toHaveBeenCalledWith('/repo', 'start', 'end')
     expect(git.worktreeTree).not.toHaveBeenCalled()
   })
