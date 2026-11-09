@@ -26,10 +26,11 @@ export function delegatedChildState(
   destroyed: boolean,
 ): DelegatedChildState {
   if (destroyed) return 'removed'
-  if (task?.workState === 'queued') return 'queued'
   if (task?.workState === 'blocked_on_parent') return 'needs-lead'
   if (activity?.phase === 'paused') return 'needs-you'
+  if (activity?.phase === 'queued') return 'queued'
   if (activity?.phase === 'working') return 'working'
+  if (task?.workState === 'queued') return 'queued'
   if (task === undefined) {
     if (activity?.phase === 'done') return 'done'
     return activity?.phase === 'error' ? 'failed' : 'idle'

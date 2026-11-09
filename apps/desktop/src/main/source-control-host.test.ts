@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -8,6 +9,10 @@ import { initialReadModel } from '@ari/engine/projection'
 import type { StreamFrame } from '@ari/contracts/rpc'
 import { SourceControlHost } from './source-control-host'
 import { RpcRegistry } from './rpc-registry'
+import { HostingApi } from './hosting-api'
+import { HostingService } from './hosting-service'
+import { SourceControlConnections } from './source-control-connections'
+import { aesGcmSecretBox } from './secret-box'
 
 let root: string
 let hosts: SourceControlHost[]
@@ -67,6 +72,51 @@ function fixture(options: Partial<ConstructorParameters<typeof SourceControlHost
 }
 
 describe('scoped source-control RPC', { timeout: 30_000 }, () => {
+  it('loads GitHub requests from the scoped repository using the existing CLI login', async () => {
+    run('remote', 'add', 'origin', 'https://github.com/acme/demo.git')
+    const connections = new SourceControlConnections(
+      join(root, '.git', 'connections.json'),
+      aesGcmSecretBox(randomBytes(32)),
+    )
+    const hostCommand = vi.fn(async () => ({
+      stdout: JSON.stringify([
+        {
+          number: 4,
+          title: 'Fix the bug',
+          state: 'open',
+          head: { ref: 'feature', sha: 'a'.repeat(40) },
+          base: { ref: 'main' },
+          user: { login: 'sam' },
+          updated_at: '2026-11-06T00:00:00Z',
+        },
+      ]),
+    }))
+    const hosting = new HostingService(new HostingApi(connections, hostCommand))
+    const { registry } = fixture({ hosting })
+    expect(await registry.invoke('scm.summary', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: { canCreateRequest: true },
+    })
+    expect(await registry.invoke('scm.requests', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: {
+        repository: { provider: 'github', name: 'acme/demo' },
+        requests: [{ number: 4, title: 'Fix the bug' }],
+      },
+    })
+    expect(hostCommand).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        '--hostname',
+        'github.com',
+        'repos/acme/demo/pulls?state=open&per_page=30&limit=30',
+      ]),
+      expect.any(String),
+      expect.any(AbortSignal),
+      undefined,
+    )
+  })
+
   it('registers all operations, validates paths/scopes and reports unavailable workspaces explicitly', async () => {
     const { registry } = fixture()
     for (const method of [

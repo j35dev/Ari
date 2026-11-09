@@ -48,7 +48,7 @@ export async function openProviderSetupTerminal(deps: {
     }
     return { ok: true, id, cwd: deps.homeDir }
   } catch (error) {
-    if (id !== null) deps.terminals.kill(id)
+    if (id !== null) await deps.terminals.kill(id)
     log.warn('provider setup terminal failed', { error: String(error) })
     return {
       ok: false,

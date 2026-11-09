@@ -18,6 +18,7 @@ const ERROR_CELLS = new Set([0, 2, 4, 6, 8])
 const PAUSE_CELLS = new Set([0, 3, 6, 2, 5, 8])
 
 const TONE: Record<SessionActivityPhase, string> = {
+  queued: 'bg-fg-subtle',
   working: 'bg-busy',
   paused: 'bg-warning',
   done: 'bg-success',
@@ -30,7 +31,8 @@ export interface SessionActivityMarkProps {
 
 /**
  * Sidebar-scale signature mark: the same 3x3 forging matrix as WorkingGlyph,
- * compacted to a 10px slot so session rows do not jump. Working chases the
+ * compacted to a 10px slot so session rows do not jump. Queued holds a neutral
+ * matrix without animation. Working chases the
  * ring in the busy token (composer stop), pause holds two bars in warning,
  * settle locks a success check (or a danger X) then lingers.
  */
@@ -68,6 +70,13 @@ function Cell({
   phase: Exclude<SessionActivityPhase, 'paused'>
   tone: string
 }) {
+  if (phase === 'queued') {
+    return (
+      <span
+        className={`size-[2px] rounded-[0.5px] ${tone} ${cell === 4 ? 'opacity-100' : 'opacity-25'}`}
+      />
+    )
+  }
   if (phase === 'working') {
     const ringPosition = RING_ORDER.indexOf(cell)
     const chasing = ringPosition >= 0
@@ -75,7 +84,9 @@ function Cell({
       <span
         className={`size-[2px] rounded-[0.5px] ${tone} ${chasing ? 'ari-forge-cell' : 'opacity-25'}`}
         style={
-          chasing ? { animationDelay: `${ringPosition * (CHASE_DURATION_S / RING_ORDER.length)}s` } : undefined
+          chasing
+            ? { animationDelay: `${ringPosition * (CHASE_DURATION_S / RING_ORDER.length)}s` }
+            : undefined
         }
       />
     )

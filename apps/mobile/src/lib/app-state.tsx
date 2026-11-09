@@ -16,6 +16,16 @@ import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
 
 const ORIGIN_KEY = 'ari.remote.origin'
+const RECONNECT_DELAY_MS = 2000
+
+function canReconnect(state: ConnectionState): boolean {
+  return (
+    state === 'connected' ||
+    state === 'connecting' ||
+    state === 'reconnecting' ||
+    state === 'unreachable'
+  )
+}
 export interface AppValue {
   origin: string | null
   booted: boolean
@@ -87,13 +97,16 @@ export function AppProvider({
   const [managedComputerId, setManagedComputerId] = useState<string | null>(null)
   const [linked, setLinked] = useState<MobileSession | null>(null)
   const live = useRef<MobileSession | null>(null)
+  const connectionOwner = useRef<{ session: MobileSession; connect: () => Promise<void> } | null>(
+    null,
+  )
   const refreshingSession = useRef<MobileSession | null>(null)
   const keyring = useMemo(
     () => new DeviceKeyring(origin === null ? store : (store.forOrigin?.(origin) ?? store)),
     [origin, store],
   )
   const refreshWith = useCallback(async (session: MobileSession): Promise<void> => {
-    if (!session.usable || refreshingSession.current === session) return
+    if (live.current !== session || !session.usable || refreshingSession.current === session) return
     refreshingSession.current = session
     setRefreshing(true)
     try {
@@ -132,22 +145,41 @@ export function AppProvider({
     setCatalog(null)
     setLastSyncedAt(null)
     setPairingCode(null)
+    setError(null)
     if (origin === null) {
       live.current = null
+      setConnection('unpaired')
       setBooted(true)
       return
     }
     let cancelled = false
-    let connecting = false
+    let refused = false
+    let connecting: Promise<void> | null = null
+    let retry: ReturnType<typeof setTimeout> | null = null
+    const controller = new AbortController()
+    const cancelRetry = (): void => {
+      if (retry !== null) clearTimeout(retry)
+      retry = null
+    }
+    const scheduleReconnect = (): void => {
+      if (cancelled || retry !== null) return
+      retry = setTimeout(() => {
+        retry = null
+        void connect()
+      }, RECONNECT_DELAY_MS)
+    }
     const client = new GatewayClient({ origin })
     const session = new MobileSession({
       keyring,
       client,
       ...(managedComputerId === null ? {} : { managedComputerId }),
       onState: (state) => {
-        if (cancelled) return
+        if (cancelled || live.current !== session) return
+        refused = !canReconnect(state)
+        if (state === 'reconnecting') scheduleReconnect()
+        else cancelRetry()
         setConnection(state)
-        if (state === 'revoked' || state === 'unknown-device') {
+        if (!canReconnect(state)) {
           setCapabilities([])
           setProjects([])
           setSessions([])
@@ -162,35 +194,52 @@ export function AppProvider({
     })
     live.current = session
     setLinked(session)
-    const connect = async (): Promise<void> => {
-      if (connecting || cancelled) return
-      connecting = true
-      try {
-        const state = await session.connect()
-        if (cancelled) return
-        setConnection(state)
-        setCapabilities(session.usable ? session.capabilities : [])
-        if (state === 'connected') await refreshWith(session)
-      } catch (failure) {
-        if (!cancelled) {
-          setError(
-            failure instanceof Error ? failure.message : 'Could not read this device identity.',
-          )
-          setConnection('unreachable')
-        }
-      } finally {
-        connecting = false
-        if (!cancelled) setBooted(true)
-      }
-    }
-    void connect()
-    const visible = (): void => {
+    // One owner for startup, dropped streams, foreground, online and manual recovery.
+    // MobileSession bounds each connection cycle; an exhausted cycle stays unreachable.
+    const connect = (trigger: 'initial' | 'automatic' | 'manual' = 'automatic'): Promise<void> => {
+      const retryAfterUpdate = trigger === 'manual' && session.state === 'version-mismatch'
       if (
-        document.visibilityState === 'visible' &&
-        session.state !== 'revoked' &&
-        session.state !== 'unknown-device'
+        cancelled ||
+        live.current !== session ||
+        (trigger !== 'initial' && refused && !retryAfterUpdate)
       )
-        void connect()
+        return Promise.resolve()
+      cancelRetry()
+      if (connecting !== null) return connecting
+      setError(null)
+      connecting = (async () => {
+        let connected = false
+        try {
+          const state = await session.connect(controller.signal)
+          if (cancelled || live.current !== session) return
+          refused = !canReconnect(state)
+          connected = state === 'connected'
+          setConnection(state)
+          setCapabilities(session.usable ? session.capabilities : [])
+          if (state === 'connected') await refreshWith(session)
+        } catch (failure) {
+          if (!cancelled && live.current === session) {
+            cancelRetry()
+            setCapabilities([])
+            setError(
+              failure instanceof Error ? failure.message : 'Could not read this device identity.',
+            )
+            setConnection('unreachable')
+          }
+        } finally {
+          connecting = null
+          if (!cancelled && live.current === session) {
+            setBooted(true)
+            if (connected && session.state === 'reconnecting') scheduleReconnect()
+          }
+        }
+      })()
+      return connecting
+    }
+    connectionOwner.current = { session, connect: () => connect('manual') }
+    void connect('initial')
+    const visible = (): void => {
+      if (document.visibilityState === 'visible') void connect()
     }
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') void refreshWith(session)
@@ -199,7 +248,10 @@ export function AppProvider({
     window.addEventListener('online', visible)
     return () => {
       cancelled = true
+      controller.abort()
+      cancelRetry()
       if (live.current === session) live.current = null
+      if (connectionOwner.current?.session === session) connectionOwner.current = null
       clearInterval(interval)
       document.removeEventListener('visibilitychange', visible)
       window.removeEventListener('online', visible)
@@ -212,6 +264,7 @@ export function AppProvider({
     async (invitationId: string, displayName: string): Promise<void> => {
       if (linked === null) throw new Error('Choose a computer first.')
       await linked.pair(invitationId, displayName)
+      if (live.current !== linked) return
       setConnection(linked.state)
       setCapabilities(linked.capabilities)
       await refreshWith(linked)
@@ -219,12 +272,8 @@ export function AppProvider({
     [linked, refreshWith],
   )
   const reconnect = useCallback(async (): Promise<void> => {
-    if (linked === null) return
-    const state = await linked.connect()
-    setConnection(state)
-    setCapabilities(linked.usable ? linked.capabilities : [])
-    if (state === 'connected') await refreshWith(linked)
-  }, [linked, refreshWith])
+    await connectionOwner.current?.connect()
+  }, [])
   const forget = useCallback(async (): Promise<void> => {
     await keyring.forget()
     try {

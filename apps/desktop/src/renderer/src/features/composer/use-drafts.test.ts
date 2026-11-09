@@ -97,6 +97,34 @@ describe('useDrafts', () => {
     expect(stored()).toEqual({ s1: 'unsaved' })
   })
 
+  it.each(['pagehide', 'beforeunload'])(
+    'flushes the latest edit on %s before React unmounts',
+    (event) => {
+      vi.useFakeTimers()
+      const { result, unmount } = renderHook(() => useDrafts('s1'))
+      act(() => result.current.setDraft('latest edit'))
+      act(() => vi.advanceTimersByTime(299))
+      expect(localStorage.getItem(DRAFTS_STORAGE_KEY)).toBeNull()
+
+      act(() => window.dispatchEvent(new Event(event)))
+
+      expect(stored()).toEqual({ s1: 'latest edit' })
+      unmount()
+      expect(renderHook(() => useDrafts('s1')).result.current.draft).toBe('latest edit')
+    },
+  )
+
+  it('flushes a pending clear on pagehide so a sent draft does not return after reload', () => {
+    vi.useFakeTimers()
+    localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify({ s1: 'sent', s2: 'other draft' }))
+    const { result } = renderHook(() => useDrafts('s1'))
+    act(() => result.current.setDraft(''))
+
+    act(() => window.dispatchEvent(new Event('pagehide')))
+
+    expect(stored()).toEqual({ s2: 'other draft' })
+  })
+
   it('ignores corrupt stored payloads', () => {
     localStorage.setItem(DRAFTS_STORAGE_KEY, '{not json')
     const { result } = renderHook(() => useDrafts('s1'))

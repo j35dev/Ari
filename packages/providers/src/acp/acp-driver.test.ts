@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { defaultSettings } from '@ari/contracts/settings'
 import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from '../catalogs'
 import type { CatalogModel } from '../catalogs'
 import {
@@ -1188,7 +1189,7 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
-  it('auto-answers permission requests in full mode instead of asking', async () => {
+  it('auto-answers tool approvals with the default full permissions', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {
       if (method === 'session/prompt') {
@@ -1224,7 +1225,7 @@ describe('createAcpAdapter', () => {
 
     const adapter = await createAcpAdapter(
       LAUNCH,
-      { ...SESSION, permissionMode: 'full' },
+      { ...SESSION, permissionMode: defaultSettings.sessions.defaultPermissionMode },
       () => child,
     )
     const events = await collectEvents(adapter)

@@ -112,48 +112,32 @@ export function SessionScreen({
     if (session === null || !session.usable || !loaded || !session.supports('events.subscribe'))
       return
     let closed = false
-    let dispose: (() => void) | null = null
     let scheduled: ReturnType<typeof setTimeout> | null = null
-    let retry: ReturnType<typeof setTimeout> | null = null
-    const open = (): void => {
-      if (closed) return
-      dispose = session.subscribe(sessionId, {
-        ...(seq.current === null ? {} : { fromSeq: seq.current }),
-        onFrame: () => {
-          // A bounded throttle updates during continuous output; trailing debounce can starve forever.
-          if (scheduled !== null) return
-          scheduled = setTimeout(() => {
-            scheduled = null
-            void load()
-          }, 700)
-        },
-        onClose: (info) => {
-          if (
-            closed ||
-            info.code === 1000 ||
-            (info.code === 1008 && app.managedComputerId === null)
-          )
-            return
-          retry = setTimeout(() => {
-            void app.reconnect().then(() => {
-              if (!closed && session.usable) open()
-            })
-          }, 2000)
-        },
-      })
-    }
-    open()
+    const dispose = session.subscribe(sessionId, {
+      ...(seq.current === null ? {} : { fromSeq: seq.current }),
+      onFrame: () => {
+        // A bounded throttle updates during continuous output; trailing debounce can starve forever.
+        if (closed || scheduled !== null) return
+        scheduled = setTimeout(() => {
+          scheduled = null
+          void load()
+        }, 700)
+      },
+      onClose: () => {
+        // MobileSession reports the loss to AppProvider, which owns reconnect.
+        // The connected state opens one fresh stream after this effect cleans up.
+      },
+    })
     const poll = setInterval(() => {
       if (document.visibilityState === 'visible') void load()
     }, 5000)
     return () => {
       closed = true
-      dispose?.()
+      dispose()
       if (scheduled !== null) clearTimeout(scheduled)
-      if (retry !== null) clearTimeout(retry)
       clearInterval(poll)
     }
-  }, [app.session, app.connection, app.reconnect, app.managedComputerId, sessionId, load, loaded])
+  }, [app.session, app.connection, sessionId, load, loaded])
   useEffect(() => {
     if (follow.current && view === 'conversation')
       scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
@@ -361,7 +345,7 @@ export function SessionScreen({
         >
           <span className="flex-1">{failure}</span>
           <button type="button" className="min-h-11 shrink-0" onClick={() => void load()}>
-            Retry
+            Refresh session
           </button>
         </div>
       )}
