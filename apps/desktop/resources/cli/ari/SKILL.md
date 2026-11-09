@@ -109,6 +109,12 @@ projects and their resolved agents, running work and reports from the last day.
 Read it before asking for status. Aria sends all project work to one long-lived
 lead per project. The lead keeps context and coordinates isolated child workers.
 
+Pick a project only when the user named it or exactly one project clearly fits
+the snapshot or `ari sessions --query`. The snapshot includes descriptions,
+repositories, recent session titles and "you were last in" for requests such as
+"fix this". If two or more projects plausibly fit, ask the user one short question
+naming them; never guess.
+
 ```sh
 ari projects --json                                   # ids, folders, resolved agent and source
 ari sessions --query "login bug" --json               # find earlier work by title or last reply

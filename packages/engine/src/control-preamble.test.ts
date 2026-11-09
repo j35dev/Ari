@@ -91,6 +91,21 @@ it('briefs Aria as the lead across projects, with its own commands', () => {
   )
 })
 
+it('requires a clear project match and a short question when routing is ambiguous', () => {
+  for (const channel of ['prompt', 'system'] as const) {
+    const text = controlPreamble({ ...root, projectId: 'helm' }, null, channel)
+    expect(text).toContain(
+      'Pick a project only when the user named it or exactly one project clearly fits',
+    )
+    expect(text).toContain('snapshot or `ari sessions --query`')
+    expect(text).toContain('"you were last in"')
+    expect(text).toContain(
+      'If two or more projects plausibly fit, ask the user one short question naming them; never guess.',
+    )
+  }
+  expect(controlPreamble(root, null)).not.toContain('Pick a project only when')
+})
+
 it('tells a session Aria started that it reports to Aria and may delegate', () => {
   const started = { ...root, createdBy: { kind: 'session' as const, sessionId: 'helm1' } }
   const text = controlPreamble(started, null)

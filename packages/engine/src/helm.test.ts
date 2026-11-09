@@ -290,7 +290,7 @@ it('tells Aria what is running across projects and what finished lately', async 
   }
   const text = await helmSnapshot(view, await store.load('helm1'), projects)
   expect(text).toContain('[Ari now:')
-  expect(text).toContain('Projects: Web (web), API (api), Gone (gone, folder missing)')
+  expect(text).toContain('Projects:\n- Web (web)\n- API (api)\n- Gone (gone, folder missing)')
   expect(text).toContain('"Limiter tests" (api2) in API, child of "Rate limiter": working')
   expect(text).toContain('Finished in the last day, from work you asked for:')
   expect(text).toMatch(/"Login redirect bug" \(web1\) in Web: idle, \d+m ago/)
@@ -582,6 +582,69 @@ it('shows the resolved project agent and its source compactly in the snapshot', 
   }
   const text = await helmSnapshot(view, await store.load('helm1'), resolved)
   expect(text).toContain('Web (web, claude/model, recent sessions)')
+})
+
+it('formats routing clues on one project line and marks the last viewed project', async () => {
+  const view: HelmView = {
+    rows: [],
+    load: (id) => store.load(id),
+    projectName: () => null,
+  }
+  const text = await helmSnapshot(view, await store.load('helm1'), [
+    {
+      ...projects[1]!,
+      description: 'A shop\nfor gardeners.',
+      repository: 'team/garden',
+      recentSessionTitles: ['Fix checkout\nredirect', 'Stock alerts'],
+      lastViewed: true,
+    },
+    projects[3]!,
+  ])
+  expect(text).toContain(
+    '- Web (web) — A shop for gardeners.; repo: team/garden; recent: "Fix checkout redirect" / "Stock alerts"',
+  )
+  expect(text).toContain('\n- Gone (gone, folder missing)\n')
+  expect(text).toContain('You were last in Web (web).')
+  expect(text).not.toContain('repo: null')
+})
+
+it('caps projects, descriptions and recent titles, with open projects first', async () => {
+  const view: HelmView = { rows: [], load: (id) => store.load(id), projectName: () => null }
+  const many = Array.from({ length: 20 }, (_, index) => ({
+    projectId: `p${index}`,
+    name: `Project ${index}`,
+    available: true,
+    open: index >= 10,
+    lastOpenedAt: index,
+    description: 'd'.repeat(200),
+    recentSessionTitles: ['a'.repeat(200), 'Second', 'Third', 'Fourth'],
+  }))
+  const text = await helmSnapshot(view, await store.load('helm1'), [
+    { projectId: 'helm', name: 'Aria', available: true, open: true, lastViewed: true },
+    ...many,
+  ])
+  const lines = text.split('\n').filter((line) => line.startsWith('- Project'))
+  expect(lines).toHaveLength(15)
+  expect(lines[0]).toContain('Project 19')
+  expect(lines[9]).toContain('Project 10')
+  expect(lines[10]).toContain('Project 9')
+  expect(text).toContain('5 more; use ari projects to list all.')
+  expect(text).toContain(`${'d'.repeat(99)}…`)
+  expect(text).not.toContain('d'.repeat(100))
+  expect(text).toContain(`${'a'.repeat(79)}…`)
+  expect(text).not.toContain('Fourth')
+  expect(text).not.toContain('You were last in Aria')
+  expect(text).not.toContain('- Aria')
+})
+
+it('keeps the empty-project snapshot actionable', async () => {
+  const text = await helmSnapshot(
+    { rows: [], load: (id) => store.load(id), projectName: () => null },
+    await store.load('helm1'),
+    [projects[0]!],
+  )
+  expect(text).toContain('Projects: none yet. Ask the user to add a project folder in Ari.')
+  expect(text).not.toContain('You were last in')
 })
 
 it('lists who started a session, so the sidebar can mark what Aria began', async () => {
