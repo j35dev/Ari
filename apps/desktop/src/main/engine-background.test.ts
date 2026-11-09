@@ -50,7 +50,7 @@ const shell: AgentEvent = {
 }
 
 /** One turn per adapter: emits `events`, then reports whether it was parked. */
-function driverOf(turns: { events: AgentEvent[]; keeps: boolean }[]): Driver {
+function driverOf(turns: { events: AgentEvent[]; keeps: boolean; continues?: boolean }[]): Driver {
   return {
     kind: 'claude',
     create: () => {
@@ -65,6 +65,7 @@ function driverOf(turns: { events: AgentEvent[]; keeps: boolean }[]): Driver {
         interrupt: () => undefined,
         dispose: () => Promise.resolve(),
         keepsBackgroundWork: () => turn.keeps,
+        continuesBackgroundWork: () => turn.continues === true,
       }
       return Promise.resolve(adapter)
     },
@@ -91,6 +92,84 @@ async function runTurn(engine: Engine, text: string): Promise<void> {
 }
 
 describe('background output', () => {
+  it('closes stale native activity if the next adapter cannot be created', async () => {
+    const scripted = driverOf([{ events: [{ ...shell, kind: 'subagent' }], keeps: true }])
+    let created = false
+    const engine = engineWith({
+      kind: 'claude',
+      create: async (session) => {
+        if (created) throw new Error('process ended while resuming')
+        created = true
+        return scripted.create(session)
+      },
+    })
+    await runTurn(engine, 'start research')
+    await runTurn(engine, 'let me know when it is done')
+    expect((await store.load('sess_1')).backgroundTasks?.[0]).toMatchObject({
+      status: 'stopped',
+      detail: 'The agent could not continue',
+    })
+  })
+  it('keeps native agents running across a turn that reuses their process', async () => {
+    const native: AgentEvent = { ...shell, kind: 'subagent', label: 'Read orchestration' }
+    const engine = engineWith(
+      driverOf([
+        { events: [native], keeps: true },
+        { events: [], keeps: true, continues: true },
+      ]),
+    )
+    await runTurn(engine, 'start the research')
+    const startedAt = (await store.load('sess_1')).backgroundTasks?.[0]?.startedAt
+    await runTurn(engine, 'let me know when it is done')
+    expect((await store.load('sess_1')).backgroundTasks?.[0]).toMatchObject({
+      status: 'running',
+      startedAt,
+      endedAt: null,
+    })
+    engine.recordBackground('sess_1', [
+      { ...native, status: 'completed', detail: 'Research finished' },
+    ])
+    await waitForJournal(async () =>
+      expect((await store.load('sess_1')).backgroundTasks?.[0]?.status).toBe('completed'),
+    )
+  })
+
+  it('records a native completion report while disposal still fences the previous turn', async () => {
+    const engine: Engine = engineWith({
+      kind: 'claude',
+      create: async () => ({
+        start: async function* () {
+          yield shell
+          yield { type: 'done' } as AgentEvent
+        },
+        interrupt: () => undefined,
+        keepsBackgroundWork: () => true,
+        dispose: async () => {
+          engine.recordBackground('sess_1', [
+            { ...shell, status: 'completed', detail: 'Finished during disposal' },
+            { type: 'text-delta', text: 'The research finished.' },
+          ])
+        },
+      }),
+    })
+    await runTurn(engine, 'research')
+    await waitForJournal(async () => {
+      const model = await store.load('sess_1')
+      expect(model.backgroundTasks?.[0]).toMatchObject({
+        status: 'completed',
+        detail: 'Finished during disposal',
+      })
+      expect(
+        model.messages.some(
+          (message) =>
+            message.turnId === null &&
+            message.parts.some(
+              (part) => part.type === 'text' && part.text === 'The research finished.',
+            ),
+        ),
+      ).toBe(true)
+    })
+  })
   it('journals what an agent reports between turns as one agent message', async () => {
     const engine = engineWith()
     engine.recordBackground('sess_1', [
