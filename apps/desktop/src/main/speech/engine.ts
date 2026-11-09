@@ -1,6 +1,5 @@
 import { lstat, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
-import { setTimeout } from 'node:timers/promises'
 import { t, x } from 'tar'
 import type { SpeechProgress } from '@ari/contracts/rpc'
 import releaseData from './engine-releases.json'
@@ -15,6 +14,8 @@ import {
 
 export const ENGINE_VERSION = '0.4.1'
 export const ENGINE_HEADER_HASH = 'f99ad4169374b8f3'
+export const ENGINE_READ_ERROR =
+  "Couldn't read the speech engine files. Close apps that may be using them, then Retry."
 export interface EngineRelease {
   filename: string
   size: number
@@ -25,15 +26,6 @@ export interface EngineRelease {
 const releases = releaseData as unknown as EngineRelease[]
 export class EngineIoError extends Error {}
 class EngineMismatchError extends Error {}
-const TRANSIENT_IO_CODES = new Set([
-  'EBUSY',
-  'EPERM',
-  'EACCES',
-  'EMFILE',
-  'ENFILE',
-  'EIO',
-  'ETXTBSY',
-])
 export function engineRelease(platform = process.platform, arch = process.arch) {
   const host = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : platform
   const cpu =
@@ -52,76 +44,84 @@ export async function verifyInstalledEngine(
   verified?: (stamp: string) => void,
 ): Promise<string | null> {
   const expected = (release ?? engineRelease()).files
-  for (let attempt = 0; ; attempt++) {
-    try {
-      if (!(await lstat(directory)).isDirectory()) return null
-      const found = new Set<string>()
-      const stamps: string[] = []
-      const walk = async (relative = ''): Promise<void> => {
-        for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
-          const key = relative ? `${relative}/${entry.name}` : entry.name
-          if (
-            !expected[key] &&
-            entry.isFile() &&
-            (entry.name === '.DS_Store' ||
-              entry.name.startsWith('._') ||
-              ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
-          )
-            continue
-          if (entry.isDirectory()) {
-            if (!Object.keys(expected).some((path) => path.startsWith(`${key}/`)))
-              throw new EngineMismatchError('Unexpected engine directory.')
-            await walk(key)
-          } else {
-            const file = expected[key]
-            if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
-            const path = join(directory, key)
-            const info = await lstat(path)
-            if (info.size !== file.size) throw new EngineMismatchError('Incomplete engine file.')
-            stamps.push(`${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`)
-            if (full) await verifyDownload(path, file.sha256)
-            found.add(key)
-          }
+  try {
+    if (!(await lstat(directory)).isDirectory()) return null
+    const found = new Set<string>()
+    const stamps: string[] = []
+    const walk = async (relative = ''): Promise<void> => {
+      for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
+        const key = relative ? `${relative}/${entry.name}` : entry.name
+        if (
+          !expected[key] &&
+          entry.isFile() &&
+          (entry.name === '.DS_Store' ||
+            entry.name.startsWith('._') ||
+            ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
+        )
+          continue
+        if (entry.isDirectory()) {
+          if (!Object.keys(expected).some((path) => path.startsWith(`${key}/`)))
+            throw new EngineMismatchError('Unexpected engine directory.')
+          await walk(key)
+        } else {
+          const file = expected[key]
+          if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
+          const path = join(directory, key)
+          const info = await lstat(path)
+          if (info.size !== file.size) throw new EngineMismatchError('Incomplete engine file.')
+          stamps.push(`${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`)
+          if (full) await verifyDownload(path, file.sha256)
+          found.add(key)
         }
       }
-      await walk()
-      if (found.size !== Object.keys(expected).length) return null
-      const contractKey = [...found].find((key) => basename(key) === 'contract.json')
-      const libraryKey = [...found].find((key) =>
-        /^(transcribe\.dll|libtranscribe\.(dylib|so))$/.test(basename(key)),
-      )
-      if (!contractKey || !libraryKey) return null
-      const contract: unknown = JSON.parse(await readFile(join(directory, contractKey), 'utf8'))
-      if (
-        typeof contract !== 'object' ||
-        !contract ||
-        !('version' in contract) ||
-        !('header_hash' in contract) ||
-        contract.version !== ENGINE_VERSION ||
-        contract.header_hash !== ENGINE_HEADER_HASH
-      )
-        return null
-      verified?.(stamps.sort().join('\n'))
-      return join(directory, libraryKey)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (
-        code === 'ENOENT' ||
-        code === 'ENOTDIR' ||
-        error instanceof DownloadChecksumError ||
-        error instanceof EngineMismatchError ||
-        error instanceof SyntaxError
-      )
-        return null
-      if (code && TRANSIENT_IO_CODES.has(code) && attempt < 2) {
-        await setTimeout(100 * (attempt + 1))
-        continue
-      }
-      throw new EngineIoError(
-        'Could not read the speech engine files. Close apps using these files and retry.',
-        { cause: error },
-      )
     }
+    await walk()
+    if (found.size !== Object.keys(expected).length) return null
+    const contractKey = [...found].find((key) => basename(key) === 'contract.json')
+    const libraryKey = [...found].find((key) =>
+      /^(transcribe\.dll|libtranscribe\.(dylib|so))$/.test(basename(key)),
+    )
+    if (!contractKey || !libraryKey) return null
+    const contract: unknown = JSON.parse(await readFile(join(directory, contractKey), 'utf8'))
+    if (
+      typeof contract !== 'object' ||
+      !contract ||
+      !('version' in contract) ||
+      !('header_hash' in contract) ||
+      contract.version !== ENGINE_VERSION ||
+      contract.header_hash !== ENGINE_HEADER_HASH
+    )
+      return null
+    verified?.(stamps.sort().join('\n'))
+    return join(directory, libraryKey)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (
+      code === 'ENOENT' ||
+      code === 'ENOTDIR' ||
+      error instanceof DownloadChecksumError ||
+      error instanceof EngineMismatchError ||
+      error instanceof SyntaxError
+    )
+      return null
+    throw new EngineIoError(ENGINE_READ_ERROR, { cause: error })
+  }
+}
+
+export async function engineStampMatches(directory: string, stamp: string): Promise<boolean> {
+  try {
+    const current = await Promise.all(
+      stamp.split('\n').map(async (line) => {
+        const key = line.slice(0, line.indexOf(':'))
+        const info = await lstat(join(directory, key))
+        return info.isFile() ? `${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}` : ''
+      }),
+    )
+    return current.sort().join('\n') === stamp
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false
+    throw new EngineIoError(ENGINE_READ_ERROR, { cause: error })
   }
 }
 

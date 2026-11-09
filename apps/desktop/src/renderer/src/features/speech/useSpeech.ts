@@ -26,7 +26,7 @@ async function refresh(): Promise<void> {
       readRevision = revision
       const status = await rpc.invoke('speech.status')
       if (currentGeneration !== generation) return
-      if (readRevision !== revision) continue
+      if (readRevision !== revision && attempt === 0) continue
       snapshot = { ...snapshot, status }
       emit()
       if (revision === readRevision) break

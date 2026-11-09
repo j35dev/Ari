@@ -108,6 +108,6 @@ it('lets refresh settle after at most one rerun while status frames keep arrivin
   })
   expect(settled).toBe(true)
   expect(mocks.invoke).toHaveBeenCalledTimes(2)
-  expect(hook.result.current.status.ready).toBe(true)
+  expect(hook.result.current.status).toMatchObject({ engine: 'missing', ready: false })
   hook.unmount()
 })
