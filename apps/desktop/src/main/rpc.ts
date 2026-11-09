@@ -33,7 +33,7 @@ import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
-import { startAgentRuntime } from './agent-runtime'
+import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
@@ -54,6 +54,7 @@ import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { helmSnapshot } from '@ari/engine/helm'
+import type { SessionListEntry } from '@ari/engine/session-store'
 import { isHelmSession } from '@ari/contracts/helm'
 import type { HelmProject } from '@ari/contracts/agent-control'
 import { RpcRegistry } from './rpc-registry'
@@ -92,8 +93,8 @@ import {
   getIndexedFiles,
   sameRoot,
   stopWatchingProject,
+  stopWatchingUnder,
   watchedFiles,
-  watchers,
 } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
@@ -1053,7 +1054,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   projectContextTimer.unref()
   contents.once('destroyed', () => clearInterval(projectContextTimer))
   // Every project the user has added, as Aria reaches them.
-  const helmProjects = async (): Promise<HelmProject[]> => {
+  const helmProjects = async (rows?: readonly SessionListEntry[]): Promise<HelmProject[]> => {
     const projects = (await getProjectStore().load()).map((project) => ({
       projectId: project.id,
       name: project.name,
@@ -1064,7 +1065,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...projectContext.get(project.id),
       ...(project.defaultAgent === undefined ? {} : { defaultAgent: project.defaultAgent }),
     }))
-    return projectSelection.withHistory(projects, await getSessionStore().listSessions())
+    return projectSelection.withHistory(projects, rows ?? (await getSessionStore().listSessions()))
   }
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
@@ -1095,11 +1096,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     turnContext: async (session) => {
       if (!isHelmSession(session)) return null
-      const projects = await (await controlReady).service.projects(session)
+      const rows = await getSessionStore().listSessions()
+      const projects = await (await controlReady).service.projects(session, rows)
       const names = new Map(projects.map((project) => [project.projectId, project.name]))
       return helmSnapshot(
         {
-          rows: await getSessionStore().listSessions(),
+          rows,
           load: (id) => getSessionStore().load(id),
           projectName: (id) => names.get(id) ?? null,
         },
@@ -1158,10 +1160,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (archived) {
-      for (const id of parents) {
+      await revokeArchivedSessions(parents, async (id) => {
         if (runtime) await runtime.revoke(id)
-        else await acpSessionPool.release(id)
-      }
+        else browserMcpHandle?.revoke(id)
+        if (!runtime) await acpSessionPool.release(id)
+      })
     }
   }
   // Timed prompts outlive a session turn and a restart: they are journaled in
@@ -1190,28 +1193,37 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
-        onDrop: async (id) => {
+        onDrop: async (id, reason) => {
           browserMcpHandle?.revoke(id)
-          await acpSessionPool.release(id)
-          const session = (await getSessionStore().load(id)).session
-          const roots: string[] = []
-          if (session?.workspace?.kind === 'managed-worktree') roots.push(session.workspace.path)
-          // A startup retry has no session sidecar left to name its workspace.
-          const managedRoot = join(app.getPath('userData'), 'worktrees')
-          for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
-            () => [],
-          )) {
-            if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
-          }
-          for (const root of new Set(roots)) {
-            await terminals.killInWorkspace(root)
-            const key = process.platform === 'win32' ? resolve(root).toLowerCase() : resolve(root)
-            for (const watched of [...watchers.keys()]) {
-              if (watched === key || watched.startsWith(key + sep))
-                await stopWatchingProject(watched)
-            }
-          }
-          await sourceControlLive.dropSession(id, roots)
+          await dropSessionResources(
+            id,
+            reason,
+            (id) => acpSessionPool.release(id),
+            async (id) => {
+              const session = (await getSessionStore().loadExisting(id))?.session
+              const roots: string[] = []
+              if (session?.workspace?.kind === 'managed-worktree')
+                roots.push(session.workspace.path)
+              // A startup retry has no session sidecar left to name its workspace.
+              const managedRoot = join(app.getPath('userData'), 'worktrees')
+              for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
+                () => [],
+              )) {
+                if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
+              }
+              for (const root of new Set(roots)) {
+                await terminals
+                  .killInWorkspace(root)
+                  .catch((error: unknown) =>
+                    log.warn('workspace terminal cleanup failed', { root, error: String(error) }),
+                  )
+                await stopWatchingUnder(root).catch((error: unknown) =>
+                  log.warn('workspace watcher cleanup failed', { root, error: String(error) }),
+                )
+              }
+              await sourceControlLive.dropSession(id, roots)
+            },
+          )
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
@@ -1749,12 +1761,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const parentId = (await store.load(sessionId)).session?.parentSessionId
     for (const id of ids) {
       const model = await store.load(id)
-      if (model.activeTurnId || engine.hasLiveTurn(id)) {
-        await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
-        await engine.quiesce(id)
+      try {
+        if (model.activeTurnId || engine.hasLiveTurn(id)) {
+          await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+          await engine.quiesce(id)
+        }
+      } catch (error) {
+        log.warn('session interrupt before deletion failed', {
+          sessionId: id,
+          error: String(error),
+        })
       }
-      if (runtime) await runtime.revoke(id)
-      else await acpSessionPool.release(id)
+      try {
+        if (runtime) await runtime.revoke(id, 'destroy')
+        else await acpSessionPool.release(id)
+      } catch (error) {
+        log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
+      }
       await store.destroy(id)
       await runtime?.release(id)
     }

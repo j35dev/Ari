@@ -398,6 +398,28 @@ describe('project agent resolution', () => {
       })?.modelId,
     ).toBe('opus')
   })
+  it('caps saved, recent and app permissions without hiding explicit elevation', () => {
+    const input = {
+      project,
+      providers,
+      app: { ...app, permissionMode: 'full' as const },
+      maxPermissionMode: 'ask' as const,
+    }
+    for (const choice of [
+      {
+        project: { ...project, defaultAgent: { ...agent, permissionMode: 'full' as const } },
+        sessions: [],
+      },
+      { sessions: [recent(1, { permissionMode: 'full' })] },
+      { sessions: [] },
+    ]) {
+      expect(resolveProjectAgent({ ...input, ...choice })?.permissionMode).toBe('ask')
+    }
+    expect(
+      resolveProjectAgent({ ...input, sessions: [], arguments: { permissionMode: 'full' } })
+        ?.permissionMode,
+    ).toBe('full')
+  })
   it('counts only ten recent user-started sessions and breaks ties by recency', () => {
     const sessions = [
       ...Array.from({ length: 15 }, (_, i) => recent(i, { modelId: 'sonnet' })),

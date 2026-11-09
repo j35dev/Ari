@@ -496,6 +496,36 @@ it('logs failed workspace removal without failing session destroy', async () => 
   }
 })
 
+it('still destroys and releases a child when interruption or parked-process cleanup fails', async () => {
+  await host.create({ ...root, id: 'cleanup-child', parentSessionId: root.id })
+  host.isRunning = () => true
+  host.quiesce = async () => {
+    throw new Error('quiesce failed')
+  }
+  const revoke = vi.fn<NonNullable<ControlHost['revoke']>>(async () => {
+    throw new Error('parked process failed')
+  })
+  const release = vi.fn<ControlHost['release']>(async (session) => {
+    expect((await store.load(session.id)).session).toBeNull()
+  })
+  host.revoke = revoke
+  host.release = release
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    expect(
+      await service.invoke('root', 'session.destroy', {
+        targetSessionId: 'cleanup-child',
+        idempotencyKey: 'cleanup-failed',
+      }),
+    ).toMatchObject({ ok: true, result: { destroyed: true } })
+    expect(revoke).toHaveBeenCalledWith('cleanup-child')
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ id: 'cleanup-child' }))
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
+})
+
 it('retries the same spawn key after a transient provider failure', async () => {
   let once = true
   host.providers = async () => {

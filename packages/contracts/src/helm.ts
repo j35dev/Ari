@@ -27,6 +27,36 @@ export function isHelmSession(session: { projectId: string } | null | undefined)
   return session?.projectId === HELM_PROJECT_ID
 }
 
+/** Project leads survive the Aria chat that created them. */
+export function isHelmProjectLead(
+  session:
+    | {
+        projectId: string
+        parentSessionId?: string | null
+        lead?: boolean
+        createdBy?: { kind: string } | null
+      }
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    session &&
+    !isHelmSession(session) &&
+    !session.parentSessionId &&
+    session.lead &&
+    session.createdBy?.kind === 'session',
+  )
+}
+
+/** Aria has its own entry point, outside the project's navigation surfaces. */
+export function visibleProjects<T extends { id: string }>(projects: readonly T[]): T[] {
+  return projects.filter((project) => project.id !== HELM_PROJECT_ID)
+}
+
+export function visibleSessions<T extends { projectId: string }>(sessions: readonly T[]): T[] {
+  return sessions.filter((session) => !isHelmSession(session))
+}
+
 /** One session as Aria's `sessions find` reports it. */
 export interface HelmSessionRow {
   sessionId: string

@@ -3,6 +3,10 @@ import { z } from 'zod'
 export const permissionModeSchema = z.enum(['ask', 'allow-edits', 'full'])
 export type PermissionMode = z.infer<typeof permissionModeSchema>
 
+export function exceedsPermission(mode: PermissionMode, ceiling: PermissionMode): boolean {
+  return permissionModeSchema.options.indexOf(mode) > permissionModeSchema.options.indexOf(ceiling)
+}
+
 export const driverKindSchema = z.enum([
   'claude',
   'codex',

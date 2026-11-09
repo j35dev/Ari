@@ -17,6 +17,43 @@ import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:agent-runtime')
 
+/** Archives end provider processes while preserving the reusable workspace. */
+export async function dropSessionResources(
+  id: string,
+  reason: 'archive' | 'destroy' | 'release',
+  releaseAgent: (id: string) => Promise<void>,
+  releaseWorkspace: (id: string) => Promise<void>,
+): Promise<void> {
+  await releaseAgent(id).catch((error: unknown) =>
+    log.warn('parked session cleanup failed', { sessionId: id, error: String(error) }),
+  )
+  if (reason !== 'archive') await releaseWorkspace(id)
+}
+
+export async function revokeArchivedSessions(
+  ids: Iterable<string>,
+  revoke: (id: string) => Promise<void>,
+): Promise<void> {
+  for (const id of ids) {
+    try {
+      await revoke(id)
+    } catch (error) {
+      log.warn('archived session cleanup failed', { sessionId: id, error: String(error) })
+    }
+  }
+}
+
+export async function closeControlTransport(
+  closeServer: () => Promise<void>,
+  socketDir: string | null,
+): Promise<void> {
+  try {
+    await closeServer()
+  } finally {
+    if (socketDir) await rm(socketDir, { recursive: true, force: true })
+  }
+}
+
 const scopedKeys = [
   'ARI_ENV',
   'ARI_SESSION_ID',
@@ -58,8 +95,8 @@ export interface AgentRuntimeOptions {
    * read or race the shared root.
    */
   socketRoot?: string
-  /** Called whenever a session loses its access: destroyed, released, or archived. */
-  onDrop?: (id: string) => void | Promise<void>
+  /** Archives revoke access; only destruction and release close workspace handles. */
+  onDrop?: (id: string, reason: 'archive' | 'destroy' | 'release') => void | Promise<void>
 }
 
 /**
@@ -254,9 +291,9 @@ async function startControlTransport(
     },
     approve: (root) => approvals.request(root, options.policy().maxConcurrentChildren),
     quiesce: (id) => engine.quiesce(id),
-    revoke: (id) => dropSession(id),
+    revoke: (id) => dropSession(id, 'destroy'),
     release: async (child) => {
-      await dropSession(child.id)
+      await dropSession(child.id, 'release')
       await workspaces.release(child.id)
     },
     waitEnded: (callerId) => supervisor.schedule(callerId),
@@ -267,18 +304,22 @@ async function startControlTransport(
     invoke: (caller, method, params, signal) => service.invoke(caller, method, params, signal),
   })
   const dropping = new Map<string, Promise<void>>()
-  const dropSession = (id: string): Promise<void> => {
+  const dropSession = (id: string, reason: 'archive' | 'destroy' | 'release'): Promise<void> => {
     approvals.cancel(id)
     server.revoke(id)
-    const previous = dropping.get(id)
+    const key = `${reason}:${id}`
+    const previous = dropping.get(key)
     if (previous) return previous
     const task = Promise.resolve()
-      .then(() => options.onDrop?.(id))
+      .then(() => options.onDrop?.(id, reason))
+      .catch((error: unknown) => {
+        log.warn('session cleanup failed', { sessionId: id, reason, error: String(error) })
+      })
       .then(() => undefined)
-    dropping.set(id, task)
+    dropping.set(key, task)
     void task
       .finally(() => {
-        if (dropping.get(id) === task) dropping.delete(id)
+        if (dropping.get(key) === task) dropping.delete(key)
       })
       .catch(() => undefined)
     return task
@@ -296,48 +337,53 @@ async function startControlTransport(
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
     // Archives that bypass the desktop RPC (mobile) still have to drop access.
     if (event.type === 'session.updated' && event.archived === true)
-      void dropSession(event.sessionId).catch((error: unknown) =>
-        log.warn('archived session cleanup failed', {
-          sessionId: event.sessionId,
-          error: String(error),
-        }),
-      )
+      void dropSession(event.sessionId, 'archive')
     if (event.type === 'turn.settled') {
       void engine
         .quiesce(event.sessionId)
-        .then(() => store.load(event.sessionId))
+        .then(() => store.loadExisting(event.sessionId))
         .then((model) => {
-          if (model.session?.parentSessionId)
+          if (model?.session?.parentSessionId)
             return orchestration.schedule(model.session.parentSessionId)
           return undefined
         })
         .catch(() => undefined)
     }
   })
-  try {
-    await workspaces.retryReleases(dropSession)
+  supervisor.start()
+  const cleanupAbort = new AbortController()
+  void (async () => {
+    await workspaces.retryReleases((id) => dropSession(id, 'release'), cleanupAbort.signal)
+    if (cleanupAbort.signal.aborted) return
     const rows = await store.listSessions()
-    const projects = (await options.projects?.()) ?? []
+    if (cleanupAbort.signal.aborted) return
+    const projects = (await options.projects?.(rows)) ?? []
+    if (cleanupAbort.signal.aborted) return
     const repositories = projects
       .filter((project) => project.available)
       .map((project) => project.path)
     for (const row of rows) {
-      const session = (await store.load(row.id)).session
+      if (cleanupAbort.signal.aborted) return
+      const session = (await store.loadExisting(row.id))?.session
+      if (cleanupAbort.signal.aborted) return
       const cwd = session ? await engine.workspace(session) : null
+      if (cleanupAbort.signal.aborted) return
       if (cwd) repositories.push(cwd)
     }
-    await workspaces.sweepOrphans(new Set(rows.map((row) => row.id)), repositories)
-  } catch (error) {
+    await workspaces.sweepOrphans((id) => store.exists(id), repositories, cleanupAbort.signal)
+  })().catch((error: unknown) => {
+    if (cleanupAbort.signal.aborted) return
     log.warn('managed workspace startup cleanup failed', { error: String(error) })
-  }
-  supervisor.start()
+  })
   // Dependency waits have no queued provider message; explicitly recover them.
   void store
     .listSessions()
     .then(async (rows) => {
       for (const row of rows) {
-        if ((await store.load(row.id)).orchestration)
-          await orchestration.schedule(row.id).catch(() => undefined)
+        if (cleanupAbort.signal.aborted) return
+        const model = await store.loadExisting(row.id)
+        if (cleanupAbort.signal.aborted) return
+        if (model?.orchestration) await orchestration.schedule(row.id).catch(() => undefined)
       }
     })
     .catch(() => undefined)
@@ -369,10 +415,10 @@ async function startControlTransport(
       }
       return null
     },
-    revoke: (id: string) => dropSession(id),
+    revoke: (id: string, reason: 'archive' | 'destroy' = 'archive') => dropSession(id, reason),
     release: async (id: string) => {
       try {
-        await dropSession(id)
+        await dropSession(id, 'release')
         await workspaces.release(id)
       } catch (error) {
         log.warn('released session workspace cleanup deferred', {
@@ -382,11 +428,11 @@ async function startControlTransport(
       }
     },
     close: async () => {
+      cleanupAbort.abort()
       unsubscribe()
       supervisor.close()
       approvals.close()
-      await server.close()
-      if (socketDir) await rm(socketDir, { recursive: true, force: true })
+      await closeControlTransport(() => server.close(), socketDir)
     },
     environment: (session: Session): NodeJS.ProcessEnv => {
       const env = { ...(options.baseEnv ?? process.env) }
