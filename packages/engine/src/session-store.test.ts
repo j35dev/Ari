@@ -575,19 +575,19 @@ describe('SessionStore', () => {
     }
     const fresh = new SessionStore({ rootDir })
     await fresh.listSessions()
-    const listing = vi
-      .spyOn(fresh, 'listSessions')
-      .mockRejectedValue(new Error('Unexpected listing'))
-    expect(fresh.currentHelmSession()).toBe('aria2')
+    const listing = vi.spyOn(fresh, 'listSessions')
+    expect(await fresh.currentHelmSession()).toBe('aria2')
     await fresh.append('aria2', { type: 'session.updated', archived: true })
-    expect(fresh.currentHelmSession()).toBe('aria1')
-    await fresh.destroy('aria1')
-    expect(fresh.currentHelmSession()).toBeNull()
+    expect(await fresh.currentHelmSession()).toBe('aria1')
     expect(listing).not.toHaveBeenCalled()
+    await fresh.destroy('aria1')
+    expect(await fresh.currentHelmSession()).toBeNull()
+    expect(await fresh.currentHelmSession()).toBeNull()
+    expect(listing).toHaveBeenCalledTimes(1)
     await fresh.closeJournal('aria2')
   })
 
-  it.each(['invalid-head', 'read-error'])(
+  it.each(['invalid-head', 'EBUSY', 'EPERM', 'EMFILE'])(
     'keeps an indexed session with unknown lead identity after %s',
     async (failure) => {
       await store.append(session.id, { type: 'session.created', session })
@@ -607,8 +607,8 @@ describe('SessionStore', () => {
       }
       await writeFile(path, JSON.stringify(index))
       const open = vi.spyOn(fs, 'open')
-      if (failure === 'read-error')
-        open.mockRejectedValueOnce(Object.assign(new Error('Busy head'), { code: 'EACCES' }))
+      if (failure !== 'invalid-head')
+        open.mockRejectedValueOnce(Object.assign(new Error('Busy head'), { code: failure }))
       const fresh = new SessionStore({ rootDir })
       const [row] = await fresh.listSessions()
       expect(row).toMatchObject({ id: session.id, title: session.title })
@@ -616,17 +616,24 @@ describe('SessionStore', () => {
       expect(row).not.toHaveProperty('createdBy')
       expect(await fresh.exists(session.id)).toBe(true)
       expect(open).toHaveBeenCalledTimes(1)
+      let finalRow = row
+      if (failure !== 'invalid-head') {
+        expect(JSON.parse(await fs.readFile(path, 'utf8'))).toEqual(index)
+        finalRow = (await fresh.listSessions())[0]
+        expect(finalRow).toMatchObject({ lead: false, createdBy: { kind: 'human' } })
+        expect(open).toHaveBeenCalledTimes(2)
+      }
       expect(JSON.parse(await fs.readFile(path, 'utf8'))).toMatchObject({
         version: 5,
         leadIdentityRead: true,
       })
       open.mockClear()
-      expect(await new SessionStore({ rootDir }).listSessions()).toEqual([row])
+      expect(await new SessionStore({ rootDir }).listSessions()).toEqual([finalRow])
       expect(open).not.toHaveBeenCalled()
     },
   )
 
-  it('replays a session behind an invalid first line when its index needs repair', async () => {
+  it('skips uncreated journal heads across repeated listings without replay or quarantine', async () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.closeJournal(session.id)
     const journal = join(rootDir, session.id, 'journal.0000.jsonl')
@@ -634,9 +641,13 @@ describe('SessionStore', () => {
     await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
     const fresh = new SessionStore({ rootDir })
     const open = vi.spyOn(fresh, 'openJournal')
-    expect((await fresh.listSessions())[0]).toMatchObject({ id: session.id, title: session.title })
-    expect(await fresh.exists(session.id)).toBe(true)
+    const replay = vi.spyOn(Journal.prototype, 'readAll')
+    expect(await fresh.listSessions()).toEqual([])
+    expect(await fresh.listSessions()).toEqual([])
+    expect(await fresh.exists(session.id)).toBe(false)
     expect(open).not.toHaveBeenCalled()
+    expect(replay).not.toHaveBeenCalled()
+    expect(await fs.readdir(join(rootDir, session.id))).not.toContain('journal.rejected.jsonl')
   })
 
   it('reports transient session-directory read errors instead of silently dropping the row', async () => {

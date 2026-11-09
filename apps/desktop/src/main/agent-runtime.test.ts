@@ -12,6 +12,7 @@ import type { Session } from '@ari/contracts/session'
 import type { OrchestrationView, ResultPackage } from '@ari/contracts/orchestration'
 import type { StreamFrame } from '@ari/contracts/rpc'
 import { SessionStore } from '@ari/engine/session-store'
+import { AgentControlServer } from '@ari/engine/control-server'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
@@ -684,9 +685,24 @@ it('closes without waiting for a stuck retry and starts no cleanup after cancell
     providers: async () => [],
     projects,
   })
+  const closeSupervisor = runtime.supervisor.close.bind(runtime.supervisor)
+  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(() => {
+    expect(retrySignal?.aborted).toBe(true)
+    closeSupervisor()
+  })
+  const closeApprovals = runtime.approvals.close.bind(runtime.approvals)
+  const approvals = vi.spyOn(runtime.approvals, 'close').mockImplementation(() => {
+    expect(retrySignal?.aborted).toBe(true)
+    closeApprovals()
+  })
+  const server = vi.spyOn(AgentControlServer.prototype, 'close')
   try {
     await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
     await runtime.close()
+    expect(supervisor.mock.invocationCallOrder[0]).toBeLessThan(
+      approvals.mock.invocationCallOrder[0]!,
+    )
+    expect(approvals.mock.invocationCallOrder[0]).toBeLessThan(server.mock.invocationCallOrder[0]!)
     expect(retrySignal?.aborted).toBe(true)
     finish()
     await gate
@@ -695,27 +711,92 @@ it('closes without waiting for a stuck retry and starts no cleanup after cancell
   } finally {
     finish()
     await runtime.close()
+    supervisor.mockRestore()
+    approvals.mockRestore()
+    server.mockRestore()
     retry.mockRestore()
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
   }
 })
 
-it('closes the server and removes the socket directory before aborting cleanup', async () => {
+it('does not schedule recovered orchestration after shutdown interrupts its session read', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-recovery-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  await store.append('root', {
+    type: 'session.created',
+    session: {
+      id: 'root',
+      projectId: 'project',
+      title: 'Root',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  })
+  await store.append('root', {
+    type: 'orchestration.operation.updated',
+    operation: {
+      operationId: 'old-op',
+      method: 'task.view',
+      fingerprint: '{}',
+      status: 'completed',
+      startedAt: 1,
+      completedAt: 2,
+      detail: null,
+    },
+  })
+  const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const load = store.loadExisting.bind(store)
+  const reading = vi.spyOn(store, 'loadExisting').mockImplementation(async (id) => {
+    const model = await load(id)
+    await gate
+    return model
+  })
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+  })
+  const schedule = vi.spyOn(runtime.orchestration, 'schedule')
+  try {
+    await vi.waitFor(() => expect(reading.mock.calls.length).toBeGreaterThanOrEqual(2))
+    await runtime.close()
+    finish()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(schedule).not.toHaveBeenCalled()
+  } finally {
+    finish()
+    await runtime.close()
+    reading.mockRestore()
+    schedule.mockRestore()
+    await store.closeJournal('root')
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('closes the server before removing the socket directory', async () => {
   const socketDir = await mkdtemp(join(tmpdir(), 'ari-close-socket-'))
   await writeFile(join(socketDir, 'socket'), 'fixture')
   const events: string[] = []
   try {
-    await closeControlTransport(
-      async () => {
-        events.push('server closed')
-      },
-      socketDir,
-      () => {
-        expect(existsSync(socketDir)).toBe(false)
-        events.push('cleanup aborted')
-      },
-    )
-    expect(events).toEqual(['server closed', 'cleanup aborted'])
+    await closeControlTransport(async () => {
+      expect(existsSync(socketDir)).toBe(true)
+      events.push('server closed')
+    }, socketDir)
+    expect(events).toEqual(['server closed'])
+    expect(existsSync(socketDir)).toBe(false)
   } finally {
     await rm(socketDir, { recursive: true, force: true })
   }
@@ -729,9 +810,9 @@ it('continues revoking archived sessions when one parked process fails to releas
   })
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   try {
-    await expect(revokeArchivedSessions(['first', 'child', 'grandchild'], revoke)).rejects.toBe(
-      firstError,
-    )
+    await expect(
+      revokeArchivedSessions(['first', 'child', 'grandchild'], revoke),
+    ).resolves.toBeUndefined()
     expect(revoke.mock.calls.map(([id]) => id)).toEqual(['first', 'child', 'grandchild'])
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('archived session cleanup failed'),

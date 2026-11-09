@@ -265,6 +265,7 @@ export class SessionStore {
   readonly #knownSessions = new Set<string>()
   readonly #createdSessions = new Map<string, Promise<Session | null>>()
   readonly #helmSessions = new Map<string, { updatedAt: number; archived: boolean }>()
+  #findingHelmSession: Promise<void> | null = null
   /** Last replay diagnostic per session, surfaced to the UI. */
   readonly #diagnostics = new Map<string, ReplayDiagnostics>()
   /** Raw lines already quarantined this process, so replays never duplicate. */
@@ -365,8 +366,21 @@ export class SessionStore {
     )
   }
 
-  /** Listings and session writes maintain this small cache; report routing never scans the registry. */
-  currentHelmSession(): string | null {
+  /** Cold report routing discovers Aria once; listings and writes keep the answer current. */
+  async currentHelmSession(): Promise<string | null> {
+    const current = this.#cachedHelmSession()
+    if (current) return current
+    const finding = (this.#findingHelmSession ??= this.listSessions().then(() => undefined))
+    try {
+      await finding
+    } catch (error) {
+      if (this.#findingHelmSession === finding) this.#findingHelmSession = null
+      throw error
+    }
+    return this.#cachedHelmSession()
+  }
+
+  #cachedHelmSession(): string | null {
     let current: string | null = null
     let updatedAt = -1
     for (const [id, session] of this.#helmSessions) {
@@ -702,6 +716,7 @@ export class SessionStore {
         if (this.#rebuildingIndexes.get(id) === rebuilding) this.#rebuildingIndexes.delete(id)
       }
     }
+    if (!(await this.#createdSession(id))) return null
     // Stale, missing, corrupt, or old-version index: one replay, then repair.
     // A size mismatch means the journal changed behind this process, so the
     // cached model cannot be trusted either.
@@ -728,10 +743,13 @@ export class SessionStore {
       (entry.hierarchy.lead !== undefined && entry.hierarchy.createdBy !== undefined)
     )
       return entry
-    const session = await this.#createdSession(id).catch((error: unknown) => {
+    let session: Session | null
+    try {
+      session = await this.#createdSession(id)
+    } catch (error) {
       log.warn('session lead identity could not be read', { sessionId: id, error: String(error) })
-      return null
-    })
+      return entry
+    }
     const enriched = {
       ...entry,
       leadIdentityRead: true as const,

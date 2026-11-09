@@ -1035,6 +1035,40 @@ it('routes live and orphaned lead reports with targeted lookups and no registry 
   }
 })
 
+it.each(['empty', 'archived'])(
+  'discovers the current Aria once for orphaned reports with an %s startup cache',
+  async (cache) => {
+    const first = await service.invoke('helm1', 'projects.ask', {
+      projectId: 'web',
+      text: 'Work',
+      idempotencyKey: 'cold-recipient',
+    })
+    const id = (first as { result: { sessionId: string } }).result.sessionId
+    const turn = await startTurn(id, 'Work', { kind: 'session', sessionId: 'helm1' })
+    const model = await store.load(id)
+    await store.destroy('helm1')
+    for (const [aria, updatedAt, archived] of [
+      ['helm2', 2, true],
+      ['helm3', 3, false],
+    ] as const)
+      await store.append(aria, {
+        type: 'session.created',
+        session: { ...helm, id: aria, updatedAt, archived },
+      })
+    for (const row of await store.listSessions()) await store.closeJournal(row.id)
+    const cold = new SessionStore({ rootDir: dir })
+    if (cache === 'archived') {
+      await cold.loadExisting('helm2')
+      await cold.closeJournal('helm2')
+    }
+    const listing = vi.spyOn(cold, 'listSessions')
+    expect(await helmReportRecipient(cold, model, turn)).toBe('helm3')
+    expect(await helmReportRecipient(cold, model, turn)).toBe('helm3')
+    expect(listing).toHaveBeenCalledTimes(1)
+    listing.mockRestore()
+  },
+)
+
 it('accepts model aliases consistently when creating and reusing a lead', async () => {
   const first = await service.invoke('helm1', 'projects.ask', {
     projectId: 'web',
