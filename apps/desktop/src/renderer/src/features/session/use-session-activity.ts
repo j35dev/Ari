@@ -28,6 +28,11 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   const [byId, setById] = useState<ReadonlyMap<string, SessionActivity>>(() => new Map())
   const byIdRef = useRef(byId)
   byIdRef.current = byId
+  /** Keep the turn's own phase separate from the native agents that outlive it. */
+  const ownActivityRef = useRef(new Map<string, SessionActivity>())
+  const nativeAgentsRef = useRef(
+    new Map<string, { running: Map<string, number>; failed: boolean }>(),
+  )
   const visibleRef = useRef<ReadonlySet<string>>(new Set())
   visibleRef.current = new Set(visibleSessionIds)
   /** One fade timer per visible session, so two panes settling together both play out. */
@@ -43,6 +48,8 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   const remove = useCallback(
     (sessionId: string): void => {
       clearFade(sessionId)
+      ownActivityRef.current.delete(sessionId)
+      nativeAgentsRef.current.delete(sessionId)
       if (!byIdRef.current.has(sessionId)) return
       const next = new Map(byIdRef.current)
       next.delete(sessionId)
@@ -60,7 +67,9 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       if (current.queuedCount) {
         clearFade(sessionId)
         const next = new Map(byIdRef.current)
-        next.set(sessionId, { phase: 'queued', startedAt: null, queuedCount: current.queuedCount })
+        const queued: SessionActivity = { phase: 'queued', startedAt: null, queuedCount: current.queuedCount }
+        next.set(sessionId, queued)
+        ownActivityRef.current.set(sessionId, queued)
         byIdRef.current = next
         setById(next)
         return
@@ -86,9 +95,49 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       const event = frame?.event as ActivityEvent | undefined
       if (sessionId === undefined || event?.type === undefined) return
 
-      const prev = byIdRef.current.get(sessionId)
-      const nextActivity = reduceSessionActivity(prev, event, Date.now())
-      if (nextActivity === prev) return
+      const now = Date.now()
+      const prevOwn = ownActivityRef.current.get(sessionId)
+      let nextOwn = reduceSessionActivity(prevOwn, event, now)
+      let agents = nativeAgentsRef.current.get(sessionId)
+      let nativeChanged = false
+      if (event.type === 'background.task.updated' && event.kind === 'subagent' && event.taskId) {
+        if (event.status === 'running') {
+          agents ??= { running: new Map(), failed: false }
+          nativeAgentsRef.current.set(sessionId, agents)
+          if (!agents.running.has(event.taskId)) {
+            agents.running.set(event.taskId, event.at ?? now)
+            nativeChanged = true
+          }
+        } else if (
+          ['completed', 'failed', 'stopped'].includes(event.status ?? '') &&
+          agents?.running.delete(event.taskId)
+        ) {
+          nativeChanged = true
+          agents.failed ||= event.status === 'failed'
+          if (agents.running.size === 0) {
+            if (
+              nextOwn?.phase !== 'working' &&
+              nextOwn?.phase !== 'paused' &&
+              event.status !== 'stopped'
+            ) {
+              nextOwn = {
+                phase: agents.failed ? 'error' : 'done',
+                startedAt: null,
+                settledAt: event.at ?? now,
+              }
+            }
+            nativeAgentsRef.current.delete(sessionId)
+            agents = undefined
+          }
+        }
+      }
+      if (nextOwn === prevOwn && !nativeChanged) return
+      if (nextOwn) ownActivityRef.current.set(sessionId, nextOwn)
+      else ownActivityRef.current.delete(sessionId)
+      const nextActivity =
+        agents?.running.size && nextOwn?.phase !== 'working' && nextOwn?.phase !== 'paused'
+          ? { phase: 'working' as const, startedAt: Math.min(...agents.running.values()) }
+          : nextOwn
 
       const next = new Map(byIdRef.current)
       if (nextActivity === undefined) next.delete(sessionId)

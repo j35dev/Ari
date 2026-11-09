@@ -111,6 +111,8 @@ export interface ProviderAdapter {
    * Absent or false means they ended with the turn.
    */
   keepsBackgroundWork?(): boolean
+  /** This turn reused the process and native tasks of the preceding turn. */
+  continuesBackgroundWork?(): boolean
   /**
    * Answers a pending in-band approval request (M16.8). Optional: one-shot
    * CLIs without an approval channel cannot act on decisions.
@@ -148,6 +150,8 @@ export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow' | { opti
 
 export interface Driver {
   kind: DriverKind
+  /** A parked native process should keep its transport on the next turn. */
+  hasLiveSession?(sessionId: string): boolean
   /** Preflight discovery may be unknown until create selects a transport. */
   capabilities?(): Readonly<ProviderCapabilities>
   /** True when {@link AdapterSession.instructions} reaches the provider's system prompt. */

@@ -35,6 +35,26 @@ const SESSION: AdapterSession = {
 }
 
 describe('provider capability discovery', () => {
+  it('keeps the native fallback transport while its session still owns background work', async () => {
+    const adapter: ProviderAdapter = {
+      start: async function* () {},
+      interrupt: () => undefined,
+      dispose: async () => undefined,
+    }
+    const create = vi.fn(async () => adapter)
+    const fallback: Driver = {
+      kind: 'claude',
+      hasLiveSession: (id) => id === SESSION.sessionId,
+      create,
+    }
+    const driver = new AcpDriver(
+      'claude',
+      { label: 'ACP', command: 'must-not-launch', args: [] },
+      fallback,
+    )
+    expect(await driver.create(SESSION)).toBe(adapter)
+    expect(create).toHaveBeenCalledWith(SESSION)
+  })
   it('does not infer support from optional control method names', () => {
     const adapter: ProviderAdapter = {
       start: async function* () {},
@@ -71,17 +91,17 @@ describe('provider capability discovery', () => {
     expect(adapter.respondInput === undefined).toBe(true)
   })
 
-  it('reports Claude stream controls and no native child or continuity controls', async () => {
+  it('reports Claude native child visibility and process continuity without unsupported controls', async () => {
     const driver = new ClaudeDriver('/bin/claude')
     const adapter = await driver.create(SESSION)
     expect(getProviderCapabilities(adapter)).toMatchObject({
       steering: 'live',
       liveResponses: 'approvals',
       responsesAfterReconnect: false,
-      processContinuity: 'turn-only',
+      processContinuity: 'between-turns',
       nativeFork: false,
       nativeHandoff: false,
-      nativeChildren: { visibility: false, inspect: false, message: false, stop: false },
+      nativeChildren: { visibility: 'lifecycle', inspect: false, message: false, stop: false },
     })
     expect(getProviderCapabilities(driver)).toEqual(getProviderCapabilities(adapter))
     expect(typeof adapter.steer).toBe('function')

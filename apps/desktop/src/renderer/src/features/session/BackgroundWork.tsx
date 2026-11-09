@@ -38,12 +38,14 @@ export function BackgroundWork({
   tasks,
   reporting = false,
   since = null,
+  providerLabel,
 }: {
   tasks: readonly BackgroundTask[]
   /** The agent is producing output between turns right now. */
   reporting?: boolean
   /** Finished tasks that started before this (the latest turn's start) are left out. */
   since?: number | null
+  providerLabel?: string
 }) {
   const [open, setOpen] = useState(false)
   const summary = backgroundSummary(tasks, reporting)
@@ -86,7 +88,10 @@ export function BackgroundWork({
         className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-2xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:hover:text-fg-muted"
       >
         <SessionActivityMark activity={WORKING} />
-        <span className="min-w-0 truncate font-medium text-fg">{summary}</span>
+        <span className="min-w-0 truncate font-medium text-fg">
+          {providerLabel ? `${providerLabel} · ` : ''}
+          {summary}
+        </span>
         {oldest !== null ? <ElapsedSeconds startedAt={oldest} /> : null}
         {rows.length > 0 ? (
           <ChevronUp

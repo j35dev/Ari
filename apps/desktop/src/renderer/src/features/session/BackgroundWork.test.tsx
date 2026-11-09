@@ -83,3 +83,10 @@ it('says the agent is reporting back while its output arrives between turns', ()
   expect(rail).toHaveTextContent('Working in background')
   expect(rail).toBeDisabled()
 })
+
+it('identifies Claude as the owner of its native agents', () => {
+  render(<BackgroundWork providerLabel="Claude" tasks={[task({ id: 'a' }), task({ id: 'b' })]} />)
+  expect(screen.getByRole('button', { name: 'Background work' })).toHaveTextContent(
+    'Claude · 2 agents working',
+  )
+})
