@@ -210,6 +210,83 @@ it('saves full within the cap and validates explicit model effort before writing
   expect(saveDefault).toHaveBeenCalledTimes(1)
 })
 
+it.each([
+  ['permissions', undefined],
+  ['permissions', 'full'],
+  ['archive', undefined],
+  ['archive', 'full'],
+] as const)(
+  'refuses saving a default after delayed discovery when Aria changes %s (permission override: %s)',
+  async (change, permissionMode) => {
+    const previous: ProjectAgent = {
+      driverKind: 'codex',
+      modelId: 'sol',
+      effort: 'low',
+      permissionMode: 'ask',
+    }
+    project.defaultAgent = previous
+    let started!: () => void
+    let release!: () => void
+    const discovering = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    host.effortsForModel = async () => {
+      started()
+      await waiting
+      return levels
+    }
+    const saving = service.invoke('aria', 'projects.setDefault', {
+      projectId: 'project',
+      driverKind: 'codex',
+      modelId: 'sol',
+      effort: 'high',
+      ...(permissionMode === undefined ? {} : { permissionMode }),
+      idempotencyKey: 'delayed-default',
+    })
+    try {
+      await discovering
+      expect(saveDefault).not.toHaveBeenCalled()
+      await store.append('aria', {
+        type: 'session.updated',
+        ...(change === 'permissions' ? { permissionMode: 'ask' as const } : { archived: true }),
+      })
+    } finally {
+      release()
+    }
+    expect(await saving).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+    expect(saveDefault).not.toHaveBeenCalled()
+    expect(project.defaultAgent).toEqual(previous)
+  },
+)
+
+it('resolves the saved-default response against fresh caller permissions after persistence', async () => {
+  saveDefault.mockImplementation(async (_id: string, agent: ProjectAgent) => {
+    project.defaultAgent = agent
+    // The default was authorized and saved; the caller changes before the response is resolved.
+    await store.append('aria', { type: 'session.updated', permissionMode: 'ask' })
+    return true
+  })
+  expect(
+    await service.invoke('aria', 'projects.setDefault', {
+      projectId: 'project',
+      driverKind: 'codex',
+      modelId: 'sol',
+      effort: 'high',
+      idempotencyKey: 'fresh-default-result',
+    }),
+  ).toMatchObject({
+    ok: true,
+    result: {
+      defaultAgent: { permissionMode: 'full' },
+      agent: { permissionMode: 'ask', source: 'project' },
+    },
+  })
+  expect(saveDefault).toHaveBeenCalledOnce()
+})
+
 it('reuses a lead and applies requested effort, provider and permissions without losing messages or workers', async () => {
   const first = await service.invoke('aria', 'projects.ask', {
     ...ask,
