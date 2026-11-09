@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { Writable } from 'node:stream'
+import { createLogger } from '@ari/shared/logger'
 import type { AdapterSession } from './driver'
+
+const log = createLogger('providers:spawn-cli')
 
 /**
  * Windows CLI spawn support.
@@ -14,7 +18,7 @@ import type { AdapterSession } from './driver'
  *
  * PowerShell scripts (`.ps1`, e.g. the Pi agent's Windows installer layout)
  * cannot run through cmd.exe at all, so they are spawned via
- * `powershell.exe -File` instead — argv stays literal, never re-parsed.
+ * powershell.exe instead — argv stays literal, never re-parsed.
  */
 
 // See http://www.robvanderwoude.com/escapechars.php
@@ -67,7 +71,7 @@ function escapeArgument(arg: string, doubleEscapeMetaChars: boolean): string {
 
 /**
  * True when the binary is a PowerShell script: cmd.exe cannot execute it, so
- * it must go through powershell.exe -File rather than the cmd wrapper.
+ * it must go through powershell.exe rather than the cmd wrapper.
  */
 export function isPowershellScript(binaryPath: string): boolean {
   return /\.ps1$/i.test(binaryPath)
@@ -82,14 +86,31 @@ export function needsWindowsShell(binaryPath: string): boolean {
 }
 
 /**
- * Builds the argv for spawning a `.ps1` script via powershell.exe:
- * `-File` passes every later arg through literally, so prompt text with
- * cmd metacharacters (`&`, `|`, `>`) is never re-parsed as a command line.
+ * PowerShell script arguments stay literal. Piped stdin must bypass -File's
+ * text pipeline, which decodes bytes and normalizes newlines in npm shims.
  */
 export function buildPowershellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[] } {
+  if (pipedStdin || args.includes('-')) {
+    // Windows PowerShell's -File parser rejects a standalone dash before the
+    // script sees it. Splat literal strings so Codex's stdin marker survives.
+    const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
+    const command = `$ErrorActionPreference = 'Stop'; try { $LASTEXITCODE = $null; $cliArgs = @(${args.map(literal).join(', ')}); & ${literal(binaryPath)} @cliArgs; if ($null -eq $LASTEXITCODE) { exit 0 }; exit $LASTEXITCODE } catch { [Console]::Error.WriteLine($_); exit 1 }`
+    return {
+      file: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(command, 'utf16le').toString('base64'),
+      ],
+    }
+  }
   return {
     file: 'powershell.exe',
     args: [
@@ -117,9 +138,13 @@ export function buildPowershellSpawnArgs(
 export function buildShellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[]; windowsVerbatimArguments: boolean } {
   if (isPowershellScript(binaryPath)) {
-    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: false }
+    return {
+      ...buildPowershellSpawnArgs(binaryPath, args, pipedStdin),
+      windowsVerbatimArguments: false,
+    }
   }
   return buildCmdSpawnArgs(binaryPath, args)
 }
@@ -144,7 +169,7 @@ export function buildCmdSpawnArgs(
   }
 }
 
-/** Keep a carried conversation from exceeding cmd.exe's 8,191-character limit. */
+/** Only argv-only CLIs need to budget history against cmd.exe's length limit. */
 export function argsWithWindowsHandoffBudget(
   binaryPath: string,
   session: AdapterSession,
@@ -189,7 +214,7 @@ export function argsWithWindowsHandoffBudget(
 /**
  * Spawns an external CLI safely on every platform: direct argv elsewhere,
  * a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows, and
- * powershell.exe -File for .ps1 scripts — so arbitrary prompt text can
+ * powershell.exe for .ps1 scripts — so arbitrary prompt text can
  * never be parsed as a command line.
  *
  * Returns the non-null-stream shape every driver uses (callers pass pipe
@@ -204,9 +229,19 @@ export function spawnCli(
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams
   }
-  const wrapped = buildShellSpawnArgs(binaryPath, args)
+  const stdin = Array.isArray(options.stdio) ? options.stdio[0] : options.stdio
+  const pipedStdin = stdin == null || stdin === 'pipe' || stdin === 'overlapped'
+  const wrapped = buildShellSpawnArgs(binaryPath, args, pipedStdin)
   return spawn(wrapped.file, wrapped.args, {
     ...options,
     windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams
+}
+
+/** One-shot CLIs read through EOF; no shell ever parses these prompt bytes. */
+export function writeCliPrompt(stdin: Writable, prompt: string): void {
+  // A CLI may exit for login or argument errors before accepting the prompt.
+  // Its exit/stderr pump reports that failure; EPIPE must not crash the host.
+  stdin.on('error', (error: Error) => log.debug('CLI stdin error', { message: error.message }))
+  stdin.end(prompt, 'utf8')
 }

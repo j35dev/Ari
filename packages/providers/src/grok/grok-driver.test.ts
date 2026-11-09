@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AdapterSession } from '../driver'
-import { buildGrokArgs } from './grok-driver'
+import { buildGrokArgs as grokArgs } from './grok-driver'
 
 const base: AdapterSession = {
   sessionId: 'sess_1',
@@ -11,10 +11,14 @@ const base: AdapterSession = {
   resumeOf: null,
 }
 
+const promptFile = 'C:\\temp\\prompt.txt'
+const buildGrokArgs = (session: AdapterSession): string[] => grokArgs(session, promptFile)
+
 describe('buildGrokArgs', () => {
   it('uses single-turn headless mode with streaming messages json', () => {
     const args = buildGrokArgs(base)
-    expect(args.slice(0, 2)).toEqual(['-p', 'do the thing'])
+    expect(args.slice(0, 2)).toEqual(['--prompt-file', promptFile])
+    expect(args).not.toContain(base.prompt)
     expect(args).toEqual(
       expect.arrayContaining([
         '--output-format',
