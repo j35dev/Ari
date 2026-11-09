@@ -62,6 +62,8 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   }),
   eventBase.extend({
     type: z.literal('child.session.settled'),
+    /** Source settlement time, retained when a missed mirror is recovered later. */
+    settledAt: timestampSchema.optional(),
     childSessionId: z.string().min(1),
     turnId: z.string().min(1),
     stopReason: z.enum(['completed', 'interrupted', 'error']),

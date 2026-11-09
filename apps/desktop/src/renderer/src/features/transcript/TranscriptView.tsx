@@ -83,7 +83,7 @@ function estimateUncached(row: TranscriptRow): number {
  */
 function isAgentWake(message: Message): boolean {
   const kind = message.origin?.kind
-  return kind === 'completion' || kind === 'question'
+  return kind === 'completion' || kind === 'question' || kind === 'coordination'
 }
 
 /** Hover preview text for a rail entry: prompt text, or image filenames. */

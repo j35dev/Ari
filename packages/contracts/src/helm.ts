@@ -1,3 +1,5 @@
+import type { ChildWorkState } from './agent-control'
+
 /**
  * Aria runs sessions in the user's projects, with leads available on request.
  * Its own sessions use a built-in home under Ari's data directory;
@@ -75,7 +77,12 @@ export interface HelmSessionRow {
   parentSessionId: string | null
   driverKind: string
   modelId: string | null
-  state: 'working' | 'queued' | 'needs_user' | 'idle'
+  state: 'working' | 'queued' | 'needs_user' | 'needs_agent' | 'idle'
+  workState?: ChildWorkState
+  lastSeq?: number
+  questionOwnerSessionId?: string | null
+  pendingInputs?: { inputId: string; prompt: string; choicesJson: string | null }[]
+  pendingApprovals?: { approvalId: string; toolName: string; summaryJson: string }[]
   /** Started by Aria, so its reports come back to Aria. */
   startedByAria: boolean
   updatedAt: number

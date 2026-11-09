@@ -95,6 +95,10 @@ export interface ChildTask {
   modelId: string | null
   workState: ChildWorkState
   blockedOn: 'approval' | 'input' | null
+  lastSeq?: number
+  questionOwnerSessionId?: string | null
+  pendingInputs?: { inputId: string; prompt: string; choicesJson: string | null }[]
+  pendingApprovals?: { approvalId: string; toolName: string; summaryJson: string }[]
   queuedMessages: number
   latestTurn: {
     turnId: string

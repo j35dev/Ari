@@ -20,7 +20,11 @@ import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
 import { helmReportRecipient } from '@ari/engine/helm'
-import { providerTurnContext, type ProviderTurnContext } from '@ari/engine/provider-context'
+import {
+  coordinationContext,
+  providerTurnContext,
+  type ProviderTurnContext,
+} from '@ari/engine/provider-context'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -232,6 +236,7 @@ export class Engine {
   readonly #commands = new Map<string, Promise<unknown>>()
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
+  readonly #liveTurnListeners = new Set<(sessionId: string) => void>()
   readonly #turnTasks = new Map<string, Promise<void>>()
   readonly #providerReleases = new Map<string, Promise<void>>()
   readonly #executingTurnIds = new Map<string, string>()
@@ -281,6 +286,12 @@ export class Engine {
   /** Includes providers still disposing after a durable settle. */
   hasLiveTurn(sessionId: string): boolean {
     return this.#turnTasks.has(sessionId)
+  }
+
+  /** A created adapter can now receive live coordination accepted during startup. */
+  subscribeLiveTurnReady(listener: (sessionId: string) => void): () => void {
+    this.#liveTurnListeners.add(listener)
+    return () => this.#liveTurnListeners.delete(listener)
   }
 
   /** Current execution only; excludes journal history and provider disposal. */
@@ -805,6 +816,7 @@ export class Engine {
         childSessionId: sessionId,
         turnId: event.turnId,
         stopReason: event.stopReason,
+        settledAt: stamped.at,
       }
       if (parentId) await this.#append(parentId, settled)
       // Aria hears about every turn it asked for, in any project.
@@ -954,6 +966,7 @@ export class Engine {
     let adapter
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
+    let inboxMessageIds: string[] = []
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
         await this.#captureTurnEnd(session.id, turnId)
@@ -990,7 +1003,11 @@ export class Engine {
             },
           )
         : null
-      const body = [handoff, context, prompt].filter((part) => part !== null).join('\n\n')
+      const inbox = hasControl ? coordinationContext(await this.#deps.store.load(session.id)) : null
+      inboxMessageIds = inbox?.messageIds ?? []
+      const body = [handoff, context, inbox?.text ?? null, prompt]
+        .filter((part) => part !== null)
+        .join('\n\n')
       const resolvedAttachments =
         attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
       await waitForProviderRelease()
@@ -1007,7 +1024,30 @@ export class Engine {
         resumeOf,
         ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
       })
+      // Adapter creation accepted the prompt. Consumption still requires the recipient's ack.
+      for (const id of inboxMessageIds) {
+        const message = (await this.#deps.store.load(session.id)).inbox?.[id]
+        if (message && (message.status === 'pending' || message.status === 'delivering'))
+          await this.#append(session.id, {
+            type: 'coordination.updated',
+            message: { ...message, status: 'delivered', turnId },
+          }).catch((error: unknown) =>
+            log.warn('coordination delivery receipt could not be recorded', {
+              sessionId: session.id,
+              messageId: id,
+              error: String(error),
+            }),
+          )
+      }
     } catch (e) {
+      for (const id of inboxMessageIds) {
+        const message = (await this.#deps.store.load(session.id)).inbox?.[id]
+        if (message && (message.status === 'pending' || message.status === 'delivering'))
+          await this.#append(session.id, {
+            type: 'coordination.updated',
+            message: { ...message, status: 'uncertain', turnId },
+          }).catch(() => undefined)
+      }
       // A failed reuse can have closed the process that owned earlier tasks.
       // There is no adapter stream left to publish their terminal state.
       await this.#endBackgroundTasks(
@@ -1105,6 +1145,10 @@ export class Engine {
         messageId = newTypedId('msg')
         return flushed
       },
+    })
+    queueMicrotask(() => {
+      if (this.#activeTurns.get(session.id)?.turnId !== turnId) return
+      for (const listener of this.#liveTurnListeners) listener(session.id)
     })
 
     // Coalesced part buffer: text/thinking flush every TEXT_FLUSH_MS or on
