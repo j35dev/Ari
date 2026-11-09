@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { AdapterSession } from './driver'
 
@@ -21,6 +22,18 @@ const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g
 
 /** npm-style cmd shims re-parse arguments through a second cmd layer. */
 const isCmdShimRegExp = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i
+
+function isNpmCmdShim(binaryPath: string): boolean {
+  if (!/\.cmd$/i.test(binaryPath)) return false
+  try {
+    const source = readFileSync(binaryPath, 'utf8')
+    return (
+      /%\*/.test(source) && /\bnode(?:\.exe)?\b/i.test(source) && /%(?:~dp0|dp0%)/i.test(source)
+    )
+  } catch {
+    return false
+  }
+}
 
 function escapeCommand(command: string): string {
   return command.replace(metaCharsRegExp, '^$1')
@@ -141,12 +154,10 @@ export function argsWithWindowsHandoffBudget(
   const handoff = session.handoff
   if (!handoff || !needsWindowsShell(binaryPath) || isPowershellScript(binaryPath)) return original
   // Generated npm shims prepend node and script paths when expanding %*.
-  const shimMargin = isCmdShimRegExp.test(binaryPath)
-    ? Math.max(512, binaryPath.length * 2 + 128)
-    : 0
-  const fits = (args: string[], margin = shimMargin): boolean => {
+  const shimMargin = isNpmCmdShim(binaryPath) ? Math.max(512, binaryPath.length * 2 + 128) : 0
+  const fits = (args: string[]): boolean => {
     const wrapped = buildCmdSpawnArgs(binaryPath, args)
-    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191 - margin
+    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191 - shimMargin
   }
   if (fits(original)) return original
   const header = handoff.split('\n\n', 1)[0] ?? ''
@@ -161,20 +172,18 @@ export function argsWithWindowsHandoffBudget(
   let low = 0
   let high = handoff.length
   let best = argsAt(0)
-  let bestBudget = 0
   // The user's prompt, preamble and live state are preserved. If they alone
   // exceed the limit, adding carried history must not make that worse.
-  if (!fits(best)) return fits(original, 0) ? original : best
+  if (!fits(best)) return best
   while (low <= high) {
     const middle = Math.floor((low + high) / 2)
     const candidate = argsAt(middle)
     if (fits(candidate)) {
       best = candidate
-      bestBudget = middle
       low = middle + 1
     } else high = middle - 1
   }
-  return bestBudget <= header.length + 2 && fits(original, 0) ? original : best
+  return best
 }
 
 /**

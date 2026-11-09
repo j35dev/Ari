@@ -1212,14 +1212,14 @@ export function SessionView({
         }
         // An older rejection must not overwrite a more recent optimistic pick.
         if (sequence !== picks.sequence) return
-        if ((!accepted && !switchProvider) || (accepted && switchProvider)) {
+        if (!accepted || switchProvider) {
           const patch = Object.fromEntries(
             changedFields
               .filter(
                 (field) =>
                   (field !== 'effort' || effortRevision === effortRevisionRef.current) &&
                   (current[field] === pick[field] ||
-                    (accepted && current[field] === before[field])),
+                    (switchProvider && current[field] === before[field])),
               )
               .map((field) => [field, accepted ? pick[field] : picks.confirmed[field]]),
           ) as Partial<typeof before>

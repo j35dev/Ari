@@ -1,7 +1,7 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildCmdSpawnArgs,
   buildPowershellSpawnArgs,
@@ -19,7 +19,28 @@ import { buildHermesArgs } from './hermes/hermes-driver'
 
 describe('Windows handoff budget', () => {
   const realPlatform = process.platform
-  afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
+  let scratch: string
+  const shimSource = `@IF EXIST "%~dp0\\node.exe" (
+  "%~dp0\\node.exe" "%~dp0\\node_modules\\agent\\cli.js" %*
+) ELSE (
+  node "%~dp0\\node_modules\\agent\\cli.js" %*
+)`
+  beforeEach(async () => {
+    scratch = await mkdtemp(join(tmpdir(), 'ari-handoff-shim-'))
+    await mkdir(join(scratch, 'node_modules', '.bin'), { recursive: true })
+    await mkdir(join(scratch, 'npm'))
+    await Promise.all(
+      ['codex', 'opencode', 'pi', 'grok', 'hermes', 'agent'].map((kind) =>
+        writeFile(join(scratch, 'node_modules', '.bin', `${kind}.cmd`), shimSource),
+      ),
+    )
+    await writeFile(join(scratch, 'npm', 'agent.cmd'), shimSource)
+    await writeFile(join(scratch, 'npm', 'plain.cmd'), '@echo %*')
+  })
+  afterEach(async () => {
+    Object.defineProperty(process, 'platform', { value: realPlatform })
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
   const handoff =
     '[Conversation so far]\n\n' + 'older & % report '.repeat(800) + '\nAria: latest work'
   const session: AdapterSession = {
@@ -42,7 +63,7 @@ describe('Windows handoff budget', () => {
     'fits %s fallback argv after Windows escaping and keeps the newest history',
     (kind, buildArgs) => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
-      const binary = `C:\\project\\node_modules\\.bin\\${kind}.cmd`
+      const binary = join(scratch, 'node_modules', '.bin', `${kind}.cmd`)
       const args = argsWithWindowsHandoffBudget(binary, session, buildArgs)
       const wrapped = buildCmdSpawnArgs(binary, args)
       expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(
@@ -75,21 +96,29 @@ describe('Windows handoff budget', () => {
     expect(prompt.match(/Current request/g)).toHaveLength(1)
   })
 
-  it('leaves room for a shim prefix even when the outer command alone fits', () => {
-    Object.defineProperty(process, 'platform', { value: 'win32' })
-    const binary = 'C:\\project\\node_modules\\.bin\\agent.cmd'
-    const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
-    const bounded = { ...session, handoff: carried, prompt: carried }
-    const original = buildCmdSpawnArgs(binary, buildPiArgs(bounded))
-    const originalLength = original.file.length + 1 + original.args.join(' ').length
-    expect(originalLength).toBeLessThanOrEqual(8_191)
-    expect(originalLength).toBeGreaterThan(8_191 - 512)
-    const wrapped = buildCmdSpawnArgs(
-      binary,
-      argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs),
-    )
-    expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191 - 512)
-  })
+  it.each(['local', 'global'])(
+    'leaves room for a %s npm shim prefix even when the outer command alone fits',
+    (layout) => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      const binary =
+        layout === 'local'
+          ? join(scratch, 'node_modules', '.bin', 'agent.cmd')
+          : join(scratch, 'npm', 'agent.cmd')
+      const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
+      const bounded = { ...session, handoff: carried, prompt: carried }
+      const original = buildCmdSpawnArgs(binary, buildPiArgs(bounded))
+      const originalLength = original.file.length + 1 + original.args.join(' ').length
+      expect(originalLength).toBeLessThanOrEqual(8_191)
+      expect(originalLength).toBeGreaterThan(8_191 - 512)
+      const wrapped = buildCmdSpawnArgs(
+        binary,
+        argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs),
+      )
+      expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(
+        8_191 - 512,
+      )
+    },
+  )
 
   it.each(['agent.cmd', 'agent.bat'])(
     'preserves history that fits %s without a shim margin',
@@ -107,11 +136,32 @@ describe('Windows handoff budget', () => {
     },
   )
 
-  it.each([7_678, 7_700])(
-    'keeps a fitting handoff when the margin leaves no history room (baseline: %s)',
-    (length) => {
+  it('does not reserve npm margin for an ordinary cmd script in a global npm folder', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const binary = join(scratch, 'npm', 'plain.cmd')
+    const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
+    const bounded = { ...session, handoff: carried, prompt: carried }
+    const original = buildPiArgs(bounded)
+    const wrapped = buildCmdSpawnArgs(binary, original)
+    const length = wrapped.file.length + 1 + wrapped.args.join(' ').length
+    expect(length).toBeGreaterThan(8_191 - 512)
+    expect(length).toBeLessThanOrEqual(8_191)
+    expect(argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)).toEqual(original)
+  })
+
+  it.each([
+    { layout: 'local', length: 7_678 },
+    { layout: 'global', length: 7_678 },
+    { layout: 'local', length: 7_700 },
+    { layout: 'global', length: 7_700 },
+  ])(
+    'honours the $layout shim margin with no history room (baseline: $length)',
+    ({ layout, length }) => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
-      const binary = 'C:\\project\\node_modules\\.bin\\agent.cmd'
+      const binary =
+        layout === 'local'
+          ? join(scratch, 'node_modules', '.bin', 'agent.cmd')
+          : join(scratch, 'npm', 'agent.cmd')
       const empty = buildCmdSpawnArgs(binary, buildPiArgs({ ...session, prompt: '\n\n' }))
       const overhead = empty.file.length + 1 + empty.args.join(' ').length
       const carried = '[Conversation so far]\n\nAria: Latest work'
@@ -123,7 +173,13 @@ describe('Windows handoff budget', () => {
       const original = buildPiArgs(bounded)
       const wrapped = buildCmdSpawnArgs(binary, original)
       expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191)
-      expect(argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)).toEqual(original)
+      const args = argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)
+      expect(args.at(-1)).not.toContain('[Conversation so far]')
+      expect(args).not.toEqual(original)
+      const reduced = buildCmdSpawnArgs(binary, args)
+      const reducedLength = reduced.file.length + 1 + reduced.args.join(' ').length
+      if (length <= 8_191 - 512) expect(reducedLength).toBeLessThanOrEqual(8_191 - 512)
+      else expect(reducedLength).toBeLessThanOrEqual(length)
     },
   )
 

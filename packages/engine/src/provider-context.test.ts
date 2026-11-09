@@ -156,13 +156,48 @@ describe('provider handoff', () => {
       { command: '"ari.cmd" project ask proj_web "Fix it"' },
       { command: 'bash -lc \'ari project ask proj_web "Fix it"\'' },
       { command: '& $env:ARI_CLI project ask proj_web "Fix it"' },
+      { command: '"C:\\npm\\ari.cmd" project ask proj_web "Fix it"' },
+      { command: 'C:\\NPM\\ARI.CMD project ask proj_web "Fix it"' },
+      { command: '.\\bin\\ARI.EXE project ask proj_web "Fix it"' },
+      { command: '/usr/local/bin/ari project ask proj_web "Fix it"' },
+      { command: 'zsh -lc \'echo ready; ari project ask proj_web "Fix it"\'' },
+      { command: ['sh', '-lc', 'bash -lc \'ari project ask proj_web "Fix it"\''] },
+      { command: 'powershell -Command \'& $env:ARI_CLI project ask proj_web "Fix it"\'' },
+      { command: ['pwsh', '-Command', 'ari project ask proj_web "Fix it"'] },
+      { command: 'cmd /c \'echo ready && ari project ask proj_web "Fix it"\'' },
+      { command: 'cmd /c "C:\\Program Files\\npm\\ari.cmd" project ask proj_web "Fix it"' },
+      {
+        command: [
+          'pwsh',
+          '-Command',
+          '&',
+          'C:\\Program Files\\npm\\ARI.EXE',
+          'project',
+          'ask',
+          'proj_web',
+          'Fix it',
+        ],
+      },
+      { command: 'echo ready && ari project ask proj_web "Fix it"' },
+      { command: 'echo ready; ari project ask proj_web "Fix it"; echo done' },
+      { command: 'echo ready | ari project ask proj_web "Fix it"' },
+      { command: 'ari --json project ask proj_web "Fix it"' },
+      { command: 'ari --project proj_web project --json ask proj_web "Fix it"' },
+      { title: '`ari project ask proj_web "Fix it"`' },
+      { command: 'echo examples', title: 'Run `ari project ask proj_web "Fix it"`' },
+      { command: 'echo examples', input: 'ari project ask proj_web "Fix it"' },
+      { command: 'echo examples', name: 'ari project ask proj_web "Fix it"' },
+      { input: { command: 'echo examples', title: 'ari project ask proj_web "Fix it"' } },
     ].map((args) => ({ args })),
   )('recognises work launched through wrapped command $args', ({ args }) => {
     const assignment = message('assistant', '')
     assignment.parts = [
       { type: 'tool-call', callId: 'work', name: 'execute', argsJson: JSON.stringify(args) },
     ]
-    expect(conversationHandoff([assignment])).toContain('project ask proj_web "Fix it"')
+    const handoff = conversationHandoff([assignment])
+    expect(handoff).toContain('Work: ')
+    expect(handoff).toContain('ask proj_web')
+    expect(handoff).toContain('Fix it')
   })
 
   it.each([
@@ -171,7 +206,8 @@ describe('provider handoff', () => {
     { command: 'cat script-containing-ari-project-ask' },
     { command: 'ARI project ask proj_web "Fix it"' },
     { command: 'ari Project ask proj_web "Fix it"' },
-    { command: 'echo examples', title: 'ari project ask proj_web "Fix it"' },
+    { command: 'not-ari project ask proj_web "Fix it"' },
+    { command: 'echo ready; echo "ari project ask proj_web Fix it"' },
   ])('excludes command mentions that do not invoke work: $command', (args) => {
     const assignment = message('assistant', '')
     assignment.parts = [
@@ -185,16 +221,33 @@ describe('provider handoff', () => {
     expect(conversationHandoff([assignment])).toBeNull()
   })
 
+  it('checks the tool name even when arguments do not contain a work command', () => {
+    const assignment = message('assistant', '')
+    assignment.parts = [
+      {
+        type: 'tool-call',
+        callId: 'work',
+        name: '`ari session --json prompt sess_worker "Continue"`',
+        argsJson: 'unavailable',
+      },
+    ]
+    expect(conversationHandoff([assignment])).toContain(
+      'Work: ari session --json prompt sess_worker',
+    )
+  })
+
   it('reserves Aria’s real reply rather than a later provider-only error notice', () => {
     const reports = Array.from({ length: 6 }, (_, id) => ({
       ...message('user', 'report detail '.repeat(3_000)),
       origin: { kind: 'completion' as const, sessionIds: [`worker-${id}`] },
     }))
+    const notice = message('assistant', `\n\n⚠ ${'Provider unavailable '.repeat(1_000)}`)
+    notice.parts.push({ type: 'tool-call', callId: 'failed', name: 'Bash', argsJson: '{}' })
     const handoff = conversationHandoff([
       message('user', 'Keep the current API.'),
       message('assistant', 'I will keep the current API and add the missing checks.'),
       ...reports,
-      message('assistant', `\n\n⚠ ${'Provider unavailable '.repeat(1_000)}`),
+      notice,
     ])!
     expect(handoff).toContain('Aria: I will keep the current API and add the missing checks.')
     expect(handoff).toContain('Provider notice: ')

@@ -60,33 +60,87 @@ function workReferences(json: string): string {
   return found.join(', ')
 }
 
+function binaryName(path: string): string {
+  const name = path.split(/[\\/]/).at(-1) ?? ''
+  return /\\|^[a-z]:|\.(?:cmd|exe)$/i.test(path) ? name.toLowerCase().replace(/\.exe$/, '') : name
+}
+
+function workArgs(args: string[]): string | true | null {
+  const offset = args[0] === '&' ? 1 : 0
+  const executable = args[offset] ?? ''
+  const name = binaryName(executable)
+  const rest = args.slice(offset + 1)
+  if (['bash', 'zsh', 'sh'].includes(name)) {
+    const flag = rest.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg))
+    return flag < 0 ? null : workInvocation(rest[flag + 1])
+  }
+  if (['powershell', 'pwsh', 'cmd'].includes(name)) {
+    const flag = rest.findIndex((arg) => /^(?:-command|-c|\/c)$/i.test(arg))
+    if (flag < 0) return null
+    const command = rest.slice(flag + 1)
+    const found = workArgs(command) ?? workInvocation(command.join(' '))
+    return found === true ? command.join(' ') : found
+  }
+  if (
+    name !== 'ari' &&
+    name !== 'ari.cmd' &&
+    executable !== '$ARI_CLI' &&
+    !(offset === 1 && executable.toLowerCase() === '$env:ari_cli')
+  )
+    return null
+  const commands = ['session', 'project', 'task', 'orchestration']
+  const verbs = ['spawn', 'prompt', 'ask', 'launch', 'retry', 'compare']
+  const skipFlags = (start: number): number => {
+    let index = start
+    while (rest[index]?.startsWith('-')) {
+      const flag = rest[index++]!
+      if (
+        !flag.includes('=') &&
+        rest[index] &&
+        !rest[index]!.startsWith('-') &&
+        ![...commands, ...verbs].includes(rest[index]!)
+      )
+        index++
+    }
+    return index
+  }
+  const index = skipFlags(0)
+  const verb = rest[skipFlags(index + 1)]
+  return (rest[index] === 'session' && ['spawn', 'prompt'].includes(verb ?? '')) ||
+    (rest[index] === 'project' && verb === 'ask') ||
+    (['task', 'orchestration'].includes(rest[index] ?? '') &&
+      ['launch', 'retry', 'compare'].includes(verb ?? ''))
+    ? true
+    : null
+}
+
+/** Operators inside quotes are arguments, rather than new commands. */
 function workInvocation(value: unknown): string | null {
   if (Array.isArray(value)) {
-    if (value[0] === 'bash' && value[1] === '-lc') return workInvocation(value[2])
     if (!value.every((arg) => typeof arg === 'string')) return null
-    value = value.join(' ')
+    const found = workArgs(value)
+    return found === true ? value.join(' ') : found
   }
   if (typeof value !== 'string') return null
-  const command = value.trim()
-  const shell = /^bash\s+-lc\s+(['"])([\s\S]*)\1$/.exec(command)
-  if (shell) return workInvocation(shell[2])
-  const token = /^(?:"([^"]*)"|'([^']*)'|(\S+))\s+([\s\S]*)$/
-  let match = token.exec(command)
-  if (!match) return null
-  let first = match[1] ?? match[2] ?? match[3]
-  let rest = match[4]!
-  if (first === '&') {
-    match = token.exec(rest)
-    if (!match || (match[1] ?? match[2] ?? match[3]) !== '$env:ARI_CLI') return null
-    first = '$ARI_CLI'
-    rest = match[4]!
+  const command = value.trim().replace(/^`([\s\S]*)`$/, '$1')
+  const tokens = /"((?:\\.|[^"\\])*)"|'([^']*)'|(&&|\|\||[;|\n])|(&|[^\s;&|]+)/g
+  let args: string[] = []
+  let start = 0
+  for (const token of command.matchAll(tokens)) {
+    if (token[3]) {
+      const found = workArgs(args)
+      if (found) return found === true ? command.slice(start, token.index).trim() : found
+      args = []
+      start = token.index + token[0].length
+    } else args.push(token[1]?.replace(/\\(["\\])/g, '$1') ?? token[2] ?? token[4]!)
   }
-  if (first !== 'ari' && first !== 'ari.cmd' && first !== '$ARI_CLI') return null
-  return /^(?:session\s+(?:spawn|prompt)|project\s+ask|(?:task|orchestration)\s+(?:launch|retry|compare))\b/.test(
-    rest,
-  )
-    ? command
-    : null
+  const found = workArgs(args)
+  if (found) return found === true ? command.slice(start).trim() : found
+  for (const title of command.matchAll(/`([^`]+)`/g)) {
+    const nested = workInvocation(title[1])
+    if (nested) return nested
+  }
+  return null
 }
 
 function workCall(part: MessagePart, results: ReadonlyMap<string, string>): string {
@@ -95,14 +149,25 @@ function workCall(part: MessagePart, results: ReadonlyMap<string, string>): stri
   try {
     parsed = JSON.parse(part.argsJson) as unknown
   } catch {
-    return ''
+    parsed = null
   }
   const args = record(parsed) ?? {}
   const input = record(args.input) ?? args
-  const command = [input.command, input.cmd, args.input, parsed, args.title, part.name].find(
-    (value) => (typeof value === 'string' && value.trim() !== '') || Array.isArray(value),
-  )
-  const workCommand = workInvocation(command)
+  const workCommand = [
+    input.command,
+    input.cmd,
+    args.command,
+    args.cmd,
+    args.input,
+    parsed,
+    input.title,
+    input.name,
+    args.title,
+    args.name,
+    part.name,
+  ]
+    .map(workInvocation)
+    .find((command) => command !== null)
   if (!workCommand) return ''
   const invocation = compact(workCommand, 600)
   const identities = [
@@ -137,10 +202,9 @@ export function conversationHandoff(
     const origin = message.origin
     const errorNotice =
       message.role === 'assistant' &&
-      message.parts.every(
-        (part) =>
-          part.type === 'thinking' || (part.type === 'text' && part.text.startsWith('\n\n⚠ ')),
-      )
+      message.parts
+        .filter((part) => part.type === 'text')
+        .every((part) => part.text.startsWith('\n\n⚠ '))
     const label = errorNotice
       ? 'Provider notice: '
       : message.role === 'assistant'

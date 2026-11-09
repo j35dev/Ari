@@ -268,6 +268,34 @@ describe('Aria model picker', () => {
     })
   })
 
+  it('restores confirmed defaults when an overlapping model pick and provider switch are rejected', async () => {
+    const { onPick } = setup('helm')
+    const implementation = rpcMocks.invoke.getMockImplementation()!
+    const pending: ((result: unknown) => void)[] = []
+    rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
+      method === 'command.dispatch'
+        ? new Promise((resolve) => pending.push(resolve))
+        : implementation(method, params),
+    )
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Other model'),
+    )
+    await user.click(screen.getByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Claude'),
+    )
+    await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
+    await act(async () => pending[0]!({ accepted: false, reason: 'Model rejected' }))
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Other model/ })).toBeVisible()
+    await act(async () => pending[1]!({ accepted: false, reason: 'Switch rejected' }))
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Current model/ })).toBeVisible()
+    expect(onPick).not.toHaveBeenCalled()
+    expect(screen.queryByRole('separator')).toBeNull()
+  })
+
   it.each([
     { pick: 'model', accepted: false, effort: 'medium' },
     { pick: 'initial', accepted: false, effort: 'medium' },
