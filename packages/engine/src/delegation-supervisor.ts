@@ -14,8 +14,10 @@ import {
   finalAssistantText,
   pendingCompletions,
   questionNotice,
+  routineReport,
   type CompletionReport,
 } from './delegation-state'
+import { turnRequester } from './helm'
 
 const log = createLogger('engine:delegation')
 
@@ -32,6 +34,17 @@ const RETRY_DELAY_MS = 15_000
 const REPORT_CHARS = 4_000
 /** The most children one notice names; the message origin schema allows no more. */
 const MAX_BATCH = 32
+const MAX_ARIA_AUTOMATIC_TURNS = 8
+
+function automaticTurns(model: SessionReadModel): number {
+  let count = 0
+  for (const message of [...model.messages].reverse()) {
+    if (message.role !== 'user') continue
+    if (!message.origin || message.origin.kind === 'human') break
+    if (message.origin.kind === 'completion') count++
+  }
+  return count
+}
 
 export interface SupervisorHost {
   store: Pick<SessionStore, 'load' | 'listSessions'>
@@ -141,7 +154,21 @@ export class DelegationSupervisor {
 
   #observe(event: JournalEvent): void {
     if (this.#recovering) return
-    if (event.type === 'child.session.settled' || event.type === 'child.session.acknowledged')
+    if (
+      event.type === 'user.message.added' &&
+      (!event.message.origin || event.message.origin.kind === 'human')
+    ) {
+      if ([...this.#historical].some((key) => key.startsWith(`${event.sessionId}:`)))
+        void this.#serial(event.sessionId, async () => {
+          if (!isHelmSession((await this.host.store.load(event.sessionId)).session)) return
+          // A human return also releases reports held through a restart.
+          for (const key of this.#historical)
+            if (key.startsWith(`${event.sessionId}:`)) this.#historical.delete(key)
+        })
+    } else if (
+      event.type === 'child.session.settled' ||
+      event.type === 'child.session.acknowledged'
+    )
       this.schedule(event.sessionId)
     else if (event.type === 'input.requested')
       void this.#serial(event.sessionId, () => this.#askParent(event.sessionId, event))
@@ -330,7 +357,12 @@ export class DelegationSupervisor {
    */
   async #bubble(sessionId: string): Promise<void> {
     const model = await this.host.store.load(sessionId)
-    const parentId = model.session?.parentSessionId
+    const requester = model.lastTurn ? turnRequester(model, model.lastTurn.turnId) : null
+    const parentId =
+      model.session?.parentSessionId ??
+      (requester && isHelmSession((await this.host.store.load(requester)).session)
+        ? requester
+        : null)
     if (!parentId || model.activeTurnId !== null) return
     const parent = await this.host.store.load(parentId)
     if (pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
@@ -410,12 +442,12 @@ export class DelegationSupervisor {
       models.set(id, known)
       return known
     }
-    /** The sessions at or below `id` that are mid-turn. */
+    /** The sessions at or below `id` that are working or have work queued. */
     const liveWithin = async (id: string): Promise<SessionReadModel[]> => {
       const live: SessionReadModel[] = []
       for (const member of [id, ...subtree(rows, id).map((row) => row.id)]) {
         const model = await load(member)
-        if (model.activeTurnId !== null) live.push(model)
+        if (model.activeTurnId !== null || model.queuedMessages.length > 0) live.push(model)
       }
       return live
     }
@@ -468,12 +500,22 @@ export class DelegationSupervisor {
       )
         continue
       if (child.activeTurnId !== null) continue
+      const errorMessage =
+        child.lastTurn?.turnId === entry.turnId ? (child.lastTurn.errorMessage ?? null) : null
+      // Inspect the whole report: a marker or question can be beyond the notice's excerpt.
+      const report = finalAssistantText(child, entry.turnId, Number.POSITIVE_INFINITY, true)
+      if (
+        isHelmSession(parent.session) &&
+        routineReport({ stopReason: entry.stopReason, errorMessage, text: report.text })
+      ) {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
       reports.push({
         sessionId: entry.childSessionId,
         title: child.session.title,
         stopReason: entry.stopReason,
-        errorMessage:
-          child.lastTurn?.turnId === entry.turnId ? (child.lastTurn.errorMessage ?? null) : null,
+        errorMessage,
         report: finalAssistantText(child, entry.turnId, REPORT_CHARS),
       })
       delivered.push({ childSessionId: entry.childSessionId, turnId: entry.turnId })
@@ -509,6 +551,9 @@ export class DelegationSupervisor {
       current.lastTurn?.turnId !== parent.lastTurn.turnId ||
       current.queuedMessages.length > 0
     )
+      return
+    // Retain results until a human starts a fresh conversation turn.
+    if (isHelmSession(current.session) && automaticTurns(current) >= MAX_ARIA_AUTOMATIC_TURNS)
       return
     // `turn.start` rather than an enqueue: refused outright if a turn began
     // after that check, instead of parking a notice behind it.

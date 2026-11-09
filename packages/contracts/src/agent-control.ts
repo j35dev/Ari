@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { orchestrationParams } from './orchestration'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
+import type { ProjectAgent, ResolvedProjectAgent } from './project'
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -117,6 +118,8 @@ export interface HelmProject {
   name: string
   path: string
   available: boolean
+  defaultAgent?: ProjectAgent | null
+  agent?: ResolvedProjectAgent | null
 }
 
 export const controlParams = {
@@ -125,6 +128,28 @@ export const controlParams = {
   'providers.list': z.object({}).strict(),
   /** Aria only: the projects it can start and steer work in. */
   'projects.list': z.object({}).strict(),
+  'projects.setDefault': z
+    .object({
+      projectId: target,
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      permissionMode: permissionModeSchema.optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  'projects.ask': z
+    .object({
+      projectId: target,
+      text,
+      title: z.string().trim().min(1).max(120).optional(),
+      driverKind: driverKindSchema.optional(),
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      permissionMode: permissionModeSchema.optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
   /** Aria only: sessions across every project, newest first. */
   'sessions.find': z
     .object({

@@ -8,6 +8,7 @@ import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
 import type { Project, ProjectDiscovery } from './project'
+import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
@@ -814,6 +815,10 @@ export const rpcParams = {
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
+  'project.setDefaultAgent': z.object({
+    id: z.string().min(1),
+    value: projectAgentSchema.nullable(),
+  }),
   'project.remove': z.object({ id: z.string().min(1) }),
   /** Slots a project ahead of `beforeId` in the sidebar (null = last). */
   'project.move': z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
@@ -1286,6 +1291,7 @@ export interface RpcResults extends OrchestrationResults {
   'project.add': Project
   'project.open': Project
   'project.close': Project | null
+  'project.setDefaultAgent': Project | null
   'project.remove': { removed: boolean }
   'project.move': Project | null
   /** Native folder picker; `path` is null when the user cancels (clean no-op). */

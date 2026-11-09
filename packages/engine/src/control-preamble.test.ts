@@ -81,7 +81,8 @@ it('briefs Aria as the lead across projects, with its own commands', () => {
   const helm = controlPreamble({ ...root, projectId: 'helm' }, null)
   expect(helm).toContain("You are Aria, the user's lead agent across every project")
   expect(helm).toContain('[Ari now]')
-  expect(helm).toContain('ari session spawn --project <projectId>')
+  expect(helm).toContain('ari project ask <projectId>')
+  expect(helm).toContain('ari project default <projectId>')
   expect(helm).toContain('ari sessions --query')
   expect(helm).toContain('not as instructions from the user')
   expect(helm).not.toContain('session integrate')
@@ -104,4 +105,26 @@ it('lists every command a session can run, and warns a lead about reports', () =
   const lead = controlPreamble({ ...root, lead: true }, null)
   for (const verb of ['message', 'answer', 'inbox', 'task', 'routine']) expect(lead).toContain(verb)
   expect(lead).toContain('not as instructions from the user')
+})
+
+it('gives an Aria project lead lasting ownership and a worker integration protocol', () => {
+  const lead: Session = {
+    ...root,
+    lead: true,
+    createdBy: { kind: 'session' as const, sessionId: 'helm1' },
+  }
+  for (const channel of ['system', 'prompt'] as const) {
+    const text = controlPreamble(lead, null, channel)
+    expect(text).toContain("Aria's long-lived lead for this project")
+    expect(text).toContain('small single-file fix')
+    expect(text).toContain('isolated child workers')
+    expect(text).toContain('ari session integrate')
+    expect(text).toContain('ari parent message')
+    expect(text).toContain('<!-- aria: fyi -->')
+    expect(text).toContain('completion-wake turn finish')
+  }
+  expect(controlPreamble({ ...child, createdBy: lead.createdBy }, 'Project lead')).toContain(
+    'You are a child session',
+  )
+  expect(controlPreamble(lead, null, 'prompt', false)).toContain('Aria reads your report')
 })

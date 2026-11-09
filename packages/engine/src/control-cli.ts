@@ -90,6 +90,7 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'session') return second !== undefined && SESSION.has(second)
+  if (first === 'project') return second === 'ask'
   if (first === 'task' || first === 'orchestration')
     return second !== undefined && ORCHESTRATION.has(second)
   return first === 'parent' && second === 'message'

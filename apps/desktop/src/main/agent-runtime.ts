@@ -37,6 +37,8 @@ export interface AgentRuntimeOptions {
   routines?: ControlHost['routines']
   /** The projects Aria reaches; a runtime started without them has no Aria. */
   projects?: ControlHost['projects']
+  projectAgentDefaults?: ControlHost['projectAgentDefaults']
+  setProjectDefault?: ControlHost['setProjectDefault']
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
   deliveryDelayMs?: number
@@ -176,6 +178,12 @@ async function startControlTransport(
     providers: options.providers,
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
+    ...(options.projectAgentDefaults === undefined
+      ? {}
+      : { projectAgentDefaults: options.projectAgentDefaults }),
+    ...(options.setProjectDefault === undefined
+      ? {}
+      : { setProjectDefault: options.setProjectDefault }),
     create: (session) => engine.createSession(session),
     dispatch: (command, origin) => engine.dispatch(command, origin),
     record: (id, event) => engine.record(id, event),

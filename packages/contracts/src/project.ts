@@ -1,4 +1,17 @@
 import { z } from 'zod'
+import { driverKindSchema, permissionModeSchema } from './common'
+
+export const projectAgentSchema = z.object({
+  driverKind: driverKindSchema,
+  modelId: z.string().min(1).nullable(),
+  effort: z.string().min(1).nullable(),
+  permissionMode: permissionModeSchema,
+})
+export type ProjectAgent = z.infer<typeof projectAgentSchema>
+
+export interface ResolvedProjectAgent extends ProjectAgent {
+  source: 'arguments' | 'project' | 'recent' | 'app'
+}
 
 /**
  * Whether the project's folder still resolves on disk. Derived at read time
@@ -21,6 +34,7 @@ export const projectSchema = z.object({
   lastOpenedAt: z.number().int().nonnegative().default(0),
   /** True while the project occupies a sidebar group; false = known but closed. */
   open: z.boolean().default(false),
+  defaultAgent: projectAgentSchema.nullable().optional(),
 })
 export type StoredProject = z.infer<typeof projectSchema>
 

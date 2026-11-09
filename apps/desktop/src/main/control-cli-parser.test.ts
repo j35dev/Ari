@@ -42,6 +42,7 @@ it('preserves multiline file input for assignment and coordination without shell
       ['session', 'prompt', 'worker'],
       ['session', 'message', 'worker'],
       ['parent', 'message'],
+      ['project', 'ask', 'proj_1'],
       ['session', 'spawn', '--title', 'Search', '--agent', 'codex'],
     ]) {
       const parsed = cli.parse([...args, '--prompt-file', file, '--key', 'exact'])
@@ -64,6 +65,41 @@ it('preserves multiline file input for assignment and coordination without shell
 })
 
 it('parses the Aria commands', () => {
+  expect(
+    cli.parse(['project', 'ask', 'proj_1', 'Fix login', '--title', 'Web lead', '--key', 'fix']),
+  ).toMatchObject({
+    method: 'projects.ask',
+    params: { projectId: 'proj_1', text: 'Fix login', title: 'Web lead', idempotencyKey: 'fix' },
+  })
+  expect(
+    cli.parse([
+      'project',
+      'default',
+      'proj_1',
+      '--agent',
+      'claude',
+      '--model',
+      'opus',
+      '--effort',
+      'high',
+      '--permission',
+      'allow-edits',
+      '--key',
+      'default',
+    ]),
+  ).toMatchObject({
+    method: 'projects.setDefault',
+    params: {
+      projectId: 'proj_1',
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+      idempotencyKey: 'default',
+    },
+  })
+  expect(() => cli.parse(['project', 'default', 'proj_1'])).toThrow('--agent')
+  expect(() => cli.parse(['project', 'ask'])).toThrow('project id')
   expect(cli.parse(['projects'])).toMatchObject({ method: 'projects.list', params: {} })
   expect(cli.parse(['sessions', 'login', 'bug', '--active', '--project', 'proj_1'])).toEqual(
     expect.objectContaining({

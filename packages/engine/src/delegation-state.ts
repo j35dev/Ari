@@ -60,6 +60,20 @@ export interface TurnReport {
   truncated: boolean
 }
 
+/** A quiet marker is never allowed to hide a question or a failed turn. */
+export function routineReport(report: {
+  stopReason: string
+  errorMessage: string | null
+  text: string
+}): boolean {
+  return (
+    report.stopReason === 'completed' &&
+    !report.errorMessage &&
+    report.text.split(/\r?\n/).at(-1) === '<!-- aria: fyi -->' &&
+    !/\?|\b(?:failed|failure|error|blocked|cannot|need your|decide|decision)\b/i.test(report.text)
+  )
+}
+
 /**
  * The report a turn ended on: the text after its last tool activity, not the
  * narration streamed before it. Streamed deltas are separate parts and are
@@ -70,6 +84,8 @@ export function finalAssistantText(
   model: SessionReadModel,
   turnId: string | null | undefined,
   maxChars = 8000,
+  /** Quiet markers require an exact final line, including its spaces. */
+  preserveWhitespace = false,
 ): TurnReport {
   const message = [...model.messages]
     .reverse()
@@ -86,7 +102,7 @@ export function finalAssistantText(
     if (run.trim().length > 0) break
     run = ''
   }
-  const text = run.trim()
+  const text = preserveWhitespace ? run.replace(/\r?\n$/, '') : run.trim()
   return text.length > maxChars
     ? { text: text.slice(0, maxChars), truncated: true }
     : { text, truncated: false }
