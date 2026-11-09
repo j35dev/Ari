@@ -224,7 +224,14 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
-  'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  'session.prompt': z
+    .object({
+      targetSessionId: target,
+      text,
+      effort: z.string().min(1).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
   /** Aria only: switch a top-level project session it launched. */
   'session.switch': z
     .object({

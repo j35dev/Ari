@@ -21,6 +21,7 @@ export function buildPiArgs(session: AdapterSession): string[] {
   const args = ['--mode', 'json']
   args.push(...permissionFlags(session.permissionMode))
   if (session.modelId) args.push('--model', session.modelId)
+  if (session.effort) args.push('--thinking', session.effort)
   if (session.resumeOf) args.push('--session', session.resumeOf)
   args.push('-p')
   return args
