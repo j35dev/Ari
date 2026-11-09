@@ -1269,17 +1269,7 @@ export class AgentControlService {
       if (!lead || !isHelmProjectLead(lead)) continue
       // Only Aria creates top-level sessions with a session creator. Its chat
       // may have been deleted; the project's lead keeps its context.
-      const provider = providers.find(
-        (provider) => provider.available && provider.driverKind === lead.driverKind,
-      )
-      if (
-        !provider ||
-        (lead.modelId &&
-          !provider.models.some(
-            (model) => model.id === lead.modelId || model.aliases?.includes(lead.modelId!),
-          ))
-      )
-        continue
+      if (leadUsable(lead, providers) !== true) continue
       await this.#checkLaunch(caller, lead, true, providers)
       await this.#approveDelegation(caller, this.host.policy(), signal)
       const current = await this.#get(caller.id)
@@ -1329,18 +1319,14 @@ export class AgentControlService {
   ): Promise<void> {
     const policy = this.host.policy()
     checkDelegation(policy, 0, 0)
-    const provider = (providers ?? (await this.host.providers())).find(
-      (p) => p.available && p.driverKind === session.driverKind,
-    )
-    if (!provider)
-      throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
-    if (
-      session.modelId &&
-      !provider.models.some(
-        (m) => m.id === session.modelId || m.aliases?.includes(session.modelId!),
+    const usable = leadUsable(session, providers ?? (await this.host.providers()))
+    if (usable !== true)
+      throw new ControlFailure(
+        usable,
+        usable === 'provider_unavailable'
+          ? 'Requested provider is unavailable.'
+          : 'Requested model is unavailable.',
       )
-    )
-      throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
     if (exceedsPermission(session.permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
@@ -1744,6 +1730,11 @@ export class AgentControlService {
       if (
         aria &&
         isHelmProjectLead(model.session) &&
+        !launched.has(row.id) &&
+        !(
+          model.session.createdBy?.kind === 'session' &&
+          model.session.createdBy.sessionId === parentId
+        ) &&
         (await helmTaskRecipient(this.host.store, model, rows)) !== parentId
       )
         continue
@@ -1807,6 +1798,24 @@ export class AgentControlService {
     }
     return tasks
   }
+}
+
+function leadUsable(
+  lead: Pick<Session, 'driverKind' | 'modelId'>,
+  providers: readonly ProjectAgentProvider[],
+): true | 'provider_unavailable' | 'model_unavailable' {
+  const provider = providers.find(
+    (provider) => provider.available && provider.driverKind === lead.driverKind,
+  )
+  if (!provider) return 'provider_unavailable'
+  if (
+    lead.modelId &&
+    !provider.models.some(
+      (model) => model.id === lead.modelId || model.aliases?.includes(lead.modelId!),
+    )
+  )
+    return 'model_unavailable'
+  return true
 }
 
 /** Streamed text deltas are separate parts; rejoin each run before separating runs. */

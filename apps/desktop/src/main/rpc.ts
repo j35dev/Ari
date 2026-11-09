@@ -33,7 +33,7 @@ import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
-import { startAgentRuntime, dropSessionResources } from './agent-runtime'
+import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
@@ -1160,11 +1160,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (archived) {
-      for (const id of parents) {
+      await revokeArchivedSessions(parents, async (id) => {
         if (runtime) await runtime.revoke(id)
         else browserMcpHandle?.revoke(id)
         if (!runtime) await acpSessionPool.release(id)
-      }
+      })
     }
   }
   // Timed prompts outlive a session turn and a restart: they are journaled in
