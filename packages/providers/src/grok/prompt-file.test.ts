@@ -27,10 +27,12 @@ $acl = [System.IO.File]::GetAccessControl('${prompt.path.replaceAll("'", "''")}'
         { windowsHide: true },
       )
       const acl = JSON.parse(stdout) as { owner: string; current: string; rules: string[] }
-      expect(acl.owner).toBe(acl.current)
+      // Elevated accounts create files owned by Administrators on Windows.
+      const administrators = 'S-1-5-32-544'
+      expect([acl.current, administrators]).toContain(acl.owner)
       // The per-user TEMP ACL: the user, SYSTEM and Administrators only. No
       // Everyone, Users or Authenticated Users entry may grant access.
-      expect(acl.rules).toContain(acl.current)
+      expect(acl.rules.some((sid) => sid === acl.current || sid === administrators)).toBe(true)
       for (const broad of ['S-1-1-0', 'S-1-5-32-545', 'S-1-5-11'])
         expect(acl.rules).not.toContain(broad)
     } else {
