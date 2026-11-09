@@ -7,6 +7,7 @@ import { ToastProvider } from '@ari/ui/toast'
 import { commandSchema } from '@ari/contracts/commands'
 import { journalEventSchema } from '@ari/contracts/events'
 import { sessionSchema } from '@ari/contracts/session'
+import type { AttachmentRef } from '@ari/contracts/attachments'
 import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
@@ -16,7 +17,13 @@ import {
   contextTokensFromHint,
   type SessionDefaults,
 } from './SessionView'
-import { dropReviewDraftMemory, rememberReviewRange } from '../changes/review-drafts'
+import {
+  dropReviewDraftMemory,
+  readReviewDrafts,
+  rememberReviewRange,
+  writeReviewDrafts,
+} from '../changes/review-drafts'
+import { addBrowserPick, browserPicksState, takeBrowserPicks } from '../browser/browser-picks'
 import { ContextMeter, formatCompactTokens, formatTurnDuration } from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
@@ -660,7 +667,11 @@ describe('SessionView regenerate and retry', () => {
     vi.clearAllMocks()
   })
 
-  function emitTurn(stopReason: 'completed' | 'error', errorMessage: string | null): void {
+  function emitTurn(
+    stopReason: 'completed' | 'error',
+    errorMessage: string | null,
+    images: AttachmentRef[] = [],
+  ): void {
     emitSessionEvent({
       seq: 1,
       at: 1,
@@ -671,7 +682,16 @@ describe('SessionView regenerate and retry', () => {
         sessionId: 'sess_1',
         turnId: 'turn_1',
         role: 'user',
-        parts: [{ type: 'text', text: 'run the test suite' }],
+        parts: [
+          ...images.map((image) => ({
+            type: 'image',
+            attachmentId: image.id,
+            name: image.name,
+            mimeType: image.mimeType,
+            size: image.size,
+          })),
+          { type: 'text', text: 'run the test suite' },
+        ],
         createdAt: 1,
       },
     })
@@ -785,6 +805,59 @@ describe('SessionView regenerate and retry', () => {
         },
       })
     })
+  })
+
+  it('keeps the current draft and retry action after a delayed retry rejection', async () => {
+    localStorage.clear()
+    sessionStorage.clear()
+    dropReviewDraftMemory()
+    const user = userEvent.setup()
+    const image = { id: 'att_retry', name: 'retry.png', mimeType: 'image/png', size: 8 }
+    let finish!: (result: unknown) => void
+    const pending = new Promise((resolve) => {
+      finish = resolve
+    })
+    const original = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'command.dispatch') return pending
+      if (method === 'attachments.read') return { attachment: { ...image, dataBase64: 'aGk=' } }
+      return original(method, params)
+    })
+    renderView()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
+    emitTurn('error', 'provider exploded', [image])
+    act(() =>
+      rememberReviewRange('sess_1', {
+        path: 'next.ts',
+        comparisonId: 'a'.repeat(64),
+        side: 'new',
+        startLine: 1,
+        endLine: 1,
+        context: 'next code',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry last message' }))
+    await user.type(input, 'new draft')
+    expect(screen.getByRole('button', { name: 'Retry last message' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry last message' }))
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
+      1,
+    )
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'turn.start',
+        sessionId: 'sess_1',
+        text: 'run the test suite',
+        attachments: [image],
+      },
+    })
+
+    await act(async () => finish({ accepted: false, reason: 'over capacity' }))
+
+    expect(input).toHaveValue('new draft')
+    expect(readReviewDrafts('sess_1')[0]?.path).toBe('next.ts')
+    expect(screen.getByRole('button', { name: 'Retry last message' })).toBeEnabled()
+    act(() => writeReviewDrafts('sess_1', []))
   })
 
   it('hides the retry control when the failed turn has no user prompt to resend', async () => {
@@ -1762,6 +1835,50 @@ describe('SessionView queued messages', () => {
     expect(screen.getByLabelText('Message')).toHaveValue('keep me')
   })
 
+  it('keeps a new draft when a queued edit finishes late', async () => {
+    const user = userEvent.setup()
+    let finish!: (result: unknown) => void
+    const pending = new Promise((resolve) => {
+      finish = resolve
+    })
+    const original = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'command.dispatch') return pending
+      return original(method, params)
+    })
+    renderView()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
+    startTurn()
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'queued prompt',
+      attachments: [],
+    })
+    await user.click(screen.getByRole('button', { name: 'Edit queued message 1' }))
+    await user.type(input, 'new draft')
+
+    await act(async () => finish({ accepted: true }))
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'message.dequeued',
+      text: 'queued prompt',
+      attachments: [],
+    })
+
+    expect(input).toHaveValue('new draft')
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+    await waitFor(() => expect(input).toHaveValue('queued prompt'))
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
+      1,
+    )
+  })
+
   it('does not offer edit for a queued message carrying images', async () => {
     renderView()
     await screen.findByLabelText('Message')
@@ -1814,6 +1931,16 @@ describe('SessionView queued messages', () => {
 describe('SessionView image attachments', () => {
   const REF = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
 
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (error: Error) => void
+    const promise = new Promise<T>((done, fail) => {
+      resolve = done
+      reject = fail
+    })
+    return { promise, resolve, reject }
+  }
+
   function fakeFileList(files: File[]): FileList {
     return Object.assign([...files], {
       item: (index: number) => files[index] ?? null,
@@ -1824,6 +1951,9 @@ describe('SessionView image attachments', () => {
     // Composer drafts persist to localStorage, so a draft left behind by an
     // earlier test would be pre-loaded into this one's textarea.
     localStorage.clear()
+    sessionStorage.clear()
+    dropReviewDraftMemory()
+    takeBrowserPicks()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
@@ -1856,8 +1986,248 @@ describe('SessionView image attachments', () => {
 
   afterEach(() => {
     sessionListener = null
+    act(() => {
+      takeBrowserPicks()
+    })
     vi.clearAllMocks()
   })
+
+  it('snapshots pending context and swaps it back without duplicating browser images', async () => {
+    const user = userEvent.setup()
+    const pending = deferred<unknown>()
+    const original = invokeMock.getMockImplementation()!
+    let accepting = false
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'attachments.stage') return pending.promise
+      if (method === 'command.dispatch') return { accepted: accepting, reason: 'over capacity' }
+      return original(method, params)
+    })
+    const element = {
+      url: 'https://example.com/',
+      selector: 'button',
+      tag: 'button',
+      text: 'old button',
+      role: null,
+      ariaLabel: null,
+      html: '<button>old</button>',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+    }
+    const oldPick = addBrowserPick(
+      element,
+      new File(['old pick'], 'picked.png', { type: 'image/png' }),
+    )
+    rememberReviewRange('sess_1', {
+      path: 'old.ts',
+      comparisonId: 'a'.repeat(64),
+      side: 'new',
+      startLine: 1,
+      endLine: 1,
+      context: 'old code',
+    })
+    renderView()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
+    fireEvent.paste(input, {
+      clipboardData: {
+        files: fakeFileList([new File(['old'], 'shot.png', { type: 'image/png' })]),
+      },
+    })
+    await user.type(input, 'failed message{Enter}')
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some(([method]) => method === 'attachments.stage')).toBe(true),
+    )
+    expect(browserPicksState()).toEqual([])
+    let nextPick!: ReturnType<typeof addBrowserPick>
+    act(() => {
+      nextPick = addBrowserPick(
+        { ...element, text: 'new button' },
+        new File(['new pick'], 'new-pick.png', { type: 'image/png' }),
+      )
+      rememberReviewRange('sess_1', {
+        path: 'new.ts',
+        comparisonId: 'b'.repeat(64),
+        side: 'new',
+        startLine: 1,
+        endLine: 1,
+        context: 'new code',
+      })
+    })
+    await user.type(input, 'new draft')
+
+    await act(async () => pending.resolve({ attachments: [REF] }))
+
+    const command = invokeMock.mock.calls.find(
+      ([method]) => method === 'command.dispatch',
+    )?.[1] as { command: { text: string } }
+    expect(command.command.text).toContain('old button')
+    expect(command.command.text).toContain('old.ts')
+    expect(command.command.text).not.toContain('new button')
+    expect(browserPicksState()).toEqual([nextPick])
+    expect(readReviewDrafts('sess_1')[0]?.path).toBe('new.ts')
+    expect(input).toHaveValue('new draft')
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+    await waitFor(() => expect(input).toHaveValue('failed message'))
+    expect(browserPicksState()).toEqual([oldPick])
+    expect(readReviewDrafts('sess_1')[0]?.path).toBe('old.ts')
+    accepting = true
+    await user.type(input, '{Enter}')
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([method]) => method === 'attachments.stage'),
+      ).toHaveLength(2),
+    )
+    const staged = invokeMock.mock.calls.filter(
+      ([method]) => method === 'attachments.stage',
+    )[1]?.[1] as { files: { name: string }[] }
+    expect(staged.files.map((file) => file.name)).toEqual(['picked.png', 'shot.png'])
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+    await waitFor(() => expect(input).toHaveValue('new draft'))
+    expect(browserPicksState()).toEqual([nextPick])
+    expect(readReviewDrafts('sess_1')[0]?.path).toBe('new.ts')
+  })
+
+  it.each(['preparation', 'send', 'queue'] as const)(
+    'preserves both drafts and their images after a delayed %s failure',
+    async (failure) => {
+      const user = userEvent.setup()
+      const pending = deferred<unknown>()
+      const original = invokeMock.getMockImplementation()!
+      const method = failure === 'preparation' ? 'attachments.stage' : 'command.dispatch'
+      invokeMock.mockImplementation(async (name, params) => {
+        if (name === method) return pending.promise
+        return original(name, params)
+      })
+      renderView()
+      const input = await screen.findByRole('textbox', { name: 'Message' })
+      if (failure === 'queue') {
+        emitSessionEvent({
+          seq: 1,
+          at: 1,
+          sessionId: 'sess_1',
+          type: 'turn.started',
+          turnId: 'turn_1',
+        })
+      }
+      fireEvent.paste(input, {
+        clipboardData: {
+          files: fakeFileList([new File(['old'], 'shot.png', { type: 'image/png' })]),
+        },
+      })
+      await user.type(input, 'failed message{Enter}')
+      await waitFor(() =>
+        expect(invokeMock.mock.calls.some(([name]) => name === method)).toBe(true),
+      )
+      await user.type(input, 'new draft')
+      const newImages = Array.from(
+        { length: 4 },
+        (_, i) => new File(['new'], `new-${i}.png`, { type: 'image/png' }),
+      )
+      fireEvent.paste(input, { clipboardData: { files: fakeFileList(newImages) } })
+      await user.keyboard('{Enter}')
+      expect(input).toHaveValue('new draft')
+      expect(invokeMock.mock.calls.filter(([name]) => name === method)).toHaveLength(1)
+
+      await act(async () => {
+        if (failure === 'send') pending.resolve({ accepted: false, reason: 'over capacity' })
+        else pending.reject(new Error('disk full'))
+      })
+
+      expect(input).toHaveValue('new draft')
+      expect(screen.queryByAltText('shot.png')).toBeNull()
+      expect(screen.getByAltText('new-3.png')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+      await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+      await waitFor(() => expect(input).toHaveValue('failed message'))
+      expect(screen.getByAltText('shot.png')).toBeInTheDocument()
+      expect(screen.queryByAltText('new-0.png')).toBeNull()
+
+      invokeMock.mockImplementation(original)
+      await user.type(input, '{Enter}')
+      await waitFor(() => expect(input).toHaveValue(''))
+      await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+      await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+      await waitFor(() => expect(input).toHaveValue('new draft'))
+      expect(screen.getByAltText('new-3.png')).toBeInTheDocument()
+      expect(screen.queryByAltText('shot.png')).toBeNull()
+    },
+  )
+
+  it.each(['switched', 'hidden'] as const)(
+    'keeps a delayed failure with its original session while it is %s',
+    async (mode) => {
+      const user = userEvent.setup()
+      const pending = deferred<unknown>()
+      const original = invokeMock.getMockImplementation()!
+      invokeMock.mockImplementation(async (method, params) =>
+        method === 'attachments.stage' ? pending.promise : original(method, params),
+      )
+      rpcMocks.subscribe.mockImplementation(
+        (name: string, params: { sessionId: string }, onEvent: (payload: unknown) => void) => {
+          if (name === 'session.events') onEvent({ sessionId: params.sessionId, replayDone: true })
+          return () => undefined
+        },
+      )
+      const view = (second: boolean) => (
+        <ToastProvider>
+          {mode === 'hidden' ? (
+            <>
+              <SessionView
+                key="first"
+                sessionId="sess_1"
+                hidden={second}
+                defaults={DEFAULTS}
+                onDefaultsChange={() => undefined}
+              />
+              <SessionView
+                key="second"
+                sessionId="sess_2"
+                hidden={!second}
+                defaults={DEFAULTS}
+                onDefaultsChange={() => undefined}
+              />
+            </>
+          ) : (
+            <SessionView
+              sessionId={second ? 'sess_2' : 'sess_1'}
+              defaults={DEFAULTS}
+              onDefaultsChange={() => undefined}
+            />
+          )}
+        </ToastProvider>
+      )
+      const { rerender } = render(view(false))
+      const first = await screen.findByRole('textbox', { name: 'Message' })
+      fireEvent.paste(first, {
+        clipboardData: {
+          files: fakeFileList([new File(['old'], 'shot.png', { type: 'image/png' })]),
+        },
+      })
+      await user.type(first, 'failed message{Enter}')
+      await waitFor(() =>
+        expect(invokeMock.mock.calls.some(([name]) => name === 'attachments.stage')).toBe(true),
+      )
+      await user.type(first, 'first session draft')
+      rerender(view(true))
+      const second = await screen.findByRole('textbox', { name: 'Message' })
+      await user.type(second, 'second session draft')
+
+      await act(async () => pending.reject(new Error('disk full')))
+
+      expect(second).toHaveValue('second session draft')
+      expect(screen.queryByText('Couldn’t attach images')).toBeNull()
+      rerender(view(false))
+      const restored = await screen.findByRole('textbox', { name: 'Message' })
+      expect(restored).toHaveValue('first session draft')
+      await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+      await user.click(screen.getByRole('menuitem', { name: 'Restore unsent message 1' }))
+      await waitFor(() => expect(restored).toHaveValue('failed message'))
+      expect(screen.getByAltText('shot.png')).toBeInTheDocument()
+    },
+  )
 
   it('stages pasted images and dispatches turn.start with refs', async () => {
     const user = userEvent.setup()
