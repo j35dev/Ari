@@ -1,4 +1,6 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { Visualization } from '@ari/ui/visualization'
+import { splitVisualizations } from '@ari/ui/visualization-markdown'
 import { createCodeStream, type CodeStream } from './code-stream'
 import { highlightCode, highlightCodeSync, shikiInner } from './highlight'
 import { createMarkdownStream, type MarkdownStream } from './markdown-stream'
@@ -130,7 +132,7 @@ function parseBlock(html: string): Node {
  * Memoized on its props: every settled block above the live one skips the
  * pipeline entirely.
  */
-export const MarkdownBlock = memo(function MarkdownBlock({
+const MarkdownText = memo(function MarkdownText({
   text,
   streaming = false,
 }: {
@@ -203,4 +205,28 @@ export const MarkdownBlock = memo(function MarkdownBlock({
   )
 
   return <div ref={ref} className="ari-md" data-streaming={streaming ? '' : undefined} />
+})
+
+/** Visual fences are React-owned; ordinary Markdown retains its incremental DOM renderer. */
+export const MarkdownBlock = memo(function MarkdownBlock({
+  text,
+  streaming = false,
+}: {
+  text: string
+  streaming?: boolean
+}) {
+  const parts = useMemo(() => splitVisualizations(text), [text])
+  if (parts.length === 1 && parts[0]?.kind === 'markdown')
+    return <MarkdownText text={text} streaming={streaming} />
+  return (
+    <div className="ari-visual-reply">
+      {parts.map((part, i) =>
+        part.kind === 'markdown' ? (
+          <MarkdownText key={i} text={part.text} streaming={streaming} />
+        ) : (
+          <Visualization key={i} source={part.source} pending={streaming && !part.complete} />
+        ),
+      )}
+    </div>
+  )
 })

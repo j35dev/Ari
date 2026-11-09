@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { exec } from 'node:child_process'
+import type * as ChildProcess from 'node:child_process'
 import type { RemoteCommand } from '@ari/contracts/remote'
 import { RemoteTerminals } from './remote-terminals'
 import type { PtySpawnOptions } from './terminal-service'
@@ -6,8 +9,22 @@ import type { PtySpawnOptions } from './terminal-service'
 const caller = { deviceId: 'phone', projectIds: ['p'], allowTerminal: true }
 const envelope = { sessionId: 's', clientCommandId: 'cmd', idempotencyKey: 'unique-command-key' }
 const managers: RemoteTerminals[] = []
-afterEach(() => {
-  for (const manager of managers.splice(0)) manager.close()
+// These PTYs are fakes; no test owns a host PID.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  exec: vi.fn(),
+}))
+beforeEach(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => true)
+  vi.mocked(exec).mockImplementation((...args) => {
+    const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+    callback(null, '', '')
+    return {} as ReturnType<typeof exec>
+  })
+})
+afterEach(async () => {
+  for (const manager of managers.splice(0)) await manager.close()
+  vi.restoreAllMocks()
   vi.useRealTimers()
   vi.unstubAllEnvs()
 })
@@ -123,7 +140,7 @@ describe('remote terminals', () => {
     expect(manager.read(caller, 's', id, 200_000)).toMatchObject({ data: '', exited: true })
   })
 
-  it('kills revoked device shells and removes control credentials from child environments', () => {
+  it('kills revoked device shells and removes control credentials from child environments', async () => {
     vi.useFakeTimers()
     vi.stubEnv('ARI_CONTROL_TOKEN', 'secret')
     vi.stubEnv('ARI_CLI', 'private-launcher')
@@ -134,12 +151,12 @@ describe('remote terminals', () => {
     expect(spawned[0]?.env['ARI_CONTROL_TOKEN']).toBeUndefined()
     expect(spawned[0]?.env['ARI_CLI']).toBeUndefined()
     allowed = false
-    vi.advanceTimersByTime(1000)
+    await vi.advanceTimersByTimeAsync(1000)
     expect(shells[0]?.kill).toHaveBeenCalledOnce()
     expect(manager.read(caller, 's', id, 0)).toBeNull()
   })
 
-  it('kills device shells when the session project is no longer granted', () => {
+  it('kills device shells when the session project is no longer granted', async () => {
     vi.useFakeTimers()
     let granted = ['p']
     const { shells, create } = setup((_deviceId, projectId) => granted.includes(projectId))
@@ -147,7 +164,7 @@ describe('remote terminals', () => {
     vi.advanceTimersByTime(1000)
     expect(shells[0]?.kill).not.toHaveBeenCalled()
     granted = []
-    vi.advanceTimersByTime(1000)
+    await vi.advanceTimersByTimeAsync(1000)
     expect(shells[0]?.kill).toHaveBeenCalledOnce()
   })
 })

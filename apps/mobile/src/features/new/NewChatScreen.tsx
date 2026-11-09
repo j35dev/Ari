@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowUp, ChevronDown, ChevronLeft, Folder, LoaderCircle } from 'lucide-react'
 import type { PermissionMode } from '@ari/contracts/common'
+import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { EmptyState } from '../../components/EmptyState'
 import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { OptionSheet } from '../../components/OptionSheet'
@@ -210,7 +211,9 @@ export function NewChatScreen({
                   model,
                 )}
                 effort={effort}
-                permissionMode={mode ?? app.catalog?.defaults?.permissionMode ?? 'ask'}
+                permissionMode={
+                  mode ?? app.catalog?.defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE
+                }
                 disabled={locked}
                 onPickModel={() => setPicking('model')}
                 onEffort={setEffort}

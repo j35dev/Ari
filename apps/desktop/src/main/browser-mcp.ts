@@ -317,13 +317,62 @@ export async function dispatchBrowserMcpTool(
     }
     if (name === 'browser_type') {
       const selector = typeof args['selector'] === 'string' ? args['selector'] : ''
-      const text = typeof args['text'] === 'string' ? args['text'] : ''
       if (!selector) return textResult('selector is required', true)
+      if (typeof args['text'] !== 'string') return textResult('text must be a string', true)
+      const text = args['text']
       const typed = await browsers.runScript(
         tabId,
-        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); if ('value' in el) el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true })()`,
+        `(() => {
+          const selector = ${JSON.stringify(selector)}
+          const text = ${JSON.stringify(text)}
+          const el = document.querySelector(selector)
+          if (!el) return 'no element for ' + selector
+          if (!(el instanceof HTMLElement)) return 'unsupported element for ' + selector
+          if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') {
+            return 'element is disabled for ' + selector
+          }
+          if (el.getAttribute('aria-readonly') === 'true') return 'element is read-only for ' + selector
+          const input = el instanceof HTMLInputElement
+          const textarea = el instanceof HTMLTextAreaElement
+          if (input || textarea) {
+            if (el.readOnly) return 'element is read-only for ' + selector
+            if (input && !['text', 'search', 'tel', 'url', 'email', 'password'].includes(el.type)) {
+              return 'unsupported input type ' + el.type + ' for ' + selector
+            }
+            el.focus()
+            // Bypass React's own value setter so its input handler sees the change.
+            const prototype = input ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
+            const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set
+            const previous = el.value
+            setter.call(el, text)
+            if (el.value !== text) {
+              setter.call(el, previous)
+              return 'element rejected the text for ' + selector
+            }
+          } else {
+            let editable = false
+            for (let node = el; node; node = node.parentElement) {
+              const value = node.getAttribute('contenteditable')
+              if (value === null) continue
+              const mode = value.toLowerCase()
+              if (!['', 'true', 'false', 'plaintext-only'].includes(mode)) continue
+              editable = mode !== 'false'
+              break
+            }
+            if (!editable) return 'element is not editable for ' + selector
+            el.focus()
+            el.textContent = text
+          }
+          el.dispatchEvent(new InputEvent('input', {
+            bubbles: true, composed: true, inputType: 'insertReplacementText', data: text,
+          }))
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+          return true
+        })()`,
       )
-      return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
+      return typed === true
+        ? textResult('typed')
+        : textResult(typeof typed === 'string' ? typed : `could not fill ${selector}`, true)
     }
     if (name === 'browser_state') {
       const state = await withTimeout(

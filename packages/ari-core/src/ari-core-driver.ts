@@ -4,6 +4,7 @@ import type {
   AdapterSession,
   Driver,
   ProviderAdapter,
+  ProviderCapabilities,
 } from '@ari/providers/driver'
 import { runAgentLoop, type ApprovalRequest } from './agent-loop'
 import { streamChatCompletion, type ChatImage, type ChatMessage } from './protocols/openai-chat'
@@ -45,6 +46,31 @@ import { MemoryConversationStore, type ConversationStore } from './conversation-
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
+
+/**
+ * Controls are in-process closures retained across renderer reloads by the live
+ * Engine. Restarting the Engine/provider loses them. Conversation replay
+ * preserves history, never pending response callbacks.
+ * Approval/input discovery depends on the selected protocol's tool-call codec.
+ * The loop emits done without an explicit stop reason and owns no native child
+ * control channel or process that survives disposal between turns.
+ */
+const ARI_CORE_CAPABILITIES: Readonly<ProviderCapabilities> = Object.freeze({
+  steering: 'live',
+  liveResponses: 'unknown',
+  responsesAfterReconnect: false,
+  nativeChildren: Object.freeze({
+    visibility: false,
+    inspect: false,
+    message: false,
+    stop: false,
+    approvals: false,
+  }),
+  nativeFork: false,
+  nativeHandoff: false,
+  processContinuity: 'turn-only',
+  terminalStatus: 'inferred',
+})
 
 /** Protocol client overrides; tests inject fakes, production uses the real streamers. */
 export interface AriCoreDriverClients {
@@ -327,6 +353,10 @@ function ollamaRequest(
 export class AriCoreDriver implements Driver {
   readonly kind = 'ari-core' as const
 
+  capabilities(): Readonly<ProviderCapabilities> {
+    return ARI_CORE_CAPABILITIES
+  }
+
   readonly #endpoints: EndpointStore
   readonly #clients: AriCoreDriverClients
   readonly #contextCharLimit: number
@@ -368,6 +398,15 @@ export class AriCoreDriver implements Driver {
     }
     const apiKey = this.#endpoints.apiKeyFor(endpointId)
     const endpoint = this.#endpoints.list().find((e) => e.id === endpointId)
+    // Ollama's current codec streams text only: it cannot surface a tool call
+    // that parks for approval/input. Methods alone must not promise controls.
+    const capabilities: Readonly<ProviderCapabilities> = Object.freeze({
+      ...ARI_CORE_CAPABILITIES,
+      liveResponses:
+        endpoint?.flavor === 'openai-chat' || endpoint?.flavor === 'anthropic-messages'
+          ? 'approvals-and-input'
+          : false,
+    })
     const clients = this.#clients
     const contextCharLimit = this.#contextCharLimit
     const allowlist = this.#allowlist
@@ -513,7 +552,15 @@ export class AriCoreDriver implements Driver {
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, model, apiKey, effective, signalForRound, effort, advertised),
+              anthropicRequest(
+                endpoint,
+                model,
+                apiKey,
+                effective,
+                signalForRound,
+                effort,
+                advertised,
+              ),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
@@ -640,6 +687,7 @@ export class AriCoreDriver implements Driver {
     const iterator = start()[Symbol.asyncIterator]()
 
     return Promise.resolve({
+      capabilities: () => capabilities,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
       respondApproval: (approvalId, decision) => {
         const resolve = pendingApprovals.get(approvalId)

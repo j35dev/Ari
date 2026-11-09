@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangeRequests } from './ChangeRequests'
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn() }))
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc: mocks }))
 
 const connection = {
@@ -44,8 +44,11 @@ const connection = {
   },
 }
 
+afterEach(() => vi.restoreAllMocks())
+
 beforeEach(() => {
   mocks.invoke.mockReset()
+  mocks.subscribe.mockReset().mockReturnValue(() => undefined)
   mocks.invoke.mockImplementation(async (method: string) =>
     method === 'scm.requests'
       ? connection
@@ -59,6 +62,30 @@ beforeEach(() => {
 })
 
 describe('ChangeRequests', () => {
+  it('reloads a previously unrecognized remote when hosting connections change', async () => {
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    mocks.invoke.mockResolvedValueOnce({
+      ok: true,
+      value: { repository: null, requests: [], detail: 'Remote not recognized.' },
+    })
+    const off = vi.fn()
+    mocks.subscribe.mockReturnValue(off)
+    const { unmount } = render(<ChangeRequests scope={{ projectId: 'p' }} />)
+    expect(await screen.findByText('Repository remote unavailable')).toBeInTheDocument()
+    expect(screen.getAllByText('Remote not recognized.')).toHaveLength(2)
+    expect(screen.queryByText('Connect your hosting service')).not.toBeInTheDocument()
+    expect(mocks.subscribe).toHaveBeenCalledWith(
+      'scm.changed',
+      { projectId: 'p' },
+      expect.any(Function),
+    )
+    const changed = mocks.subscribe.mock.calls[0]![2] as () => void
+    act(() => changed())
+    expect(await screen.findByRole('button', { name: /Fix the bug/ })).toBeInTheDocument()
+    unmount()
+    expect(off).toHaveBeenCalledOnce()
+  })
+
   it('shows the recognized host and opens the request', async () => {
     const user = userEvent.setup()
     render(<ChangeRequests scope={{ projectId: 'p' }} />)
