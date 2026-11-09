@@ -212,6 +212,8 @@ function activityStatus(activity: SessionActivity): {
   tone: string
 } {
   switch (activity.phase) {
+    case 'queued':
+      return { label: 'Queued', hint: 'Queued', tone: 'text-fg-subtle' }
     case 'working':
       return { label: 'Working', hint: 'Working', tone: 'text-busy' }
     case 'paused':

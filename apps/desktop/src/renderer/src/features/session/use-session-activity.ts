@@ -70,9 +70,17 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
     (sessionId: string): void => {
       const current = byIdRef.current.get(sessionId)
       if (current?.phase !== 'done' && current?.phase !== 'error') return
+      if (current.queuedCount) {
+        clearFade(sessionId)
+        const next = new Map(byIdRef.current)
+        next.set(sessionId, { phase: 'queued', startedAt: null, queuedCount: current.queuedCount })
+        byIdRef.current = next
+        setById(next)
+        return
+      }
       remove(sessionId)
     },
-    [remove],
+    [clearFade, remove],
   )
 
   /** Dropping a session (delete) clears whatever mark it held. */
@@ -130,12 +138,7 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
             sessionId,
             setTimeout(() => {
               fadeTimersRef.current.delete(sessionId)
-              const current = byIdRef.current.get(sessionId)
-              if (current?.phase !== 'done' && current?.phase !== 'error') return
-              const cleared = new Map(byIdRef.current)
-              cleared.delete(sessionId)
-              byIdRef.current = cleared
-              setById(cleared)
+              acknowledge(sessionId)
             }, ACTIVE_SETTLE_LINGER_MS),
           )
         }
@@ -150,7 +153,7 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       for (const timer of fadeTimersRef.current.values()) clearTimeout(timer)
       fadeTimersRef.current.clear()
     }
-  }, [clearFade])
+  }, [acknowledge, clearFade])
 
   // Changes identity only when some session's activity does, so memoized
   // consumers (the transcript's delegation cards) skip unrelated renders.

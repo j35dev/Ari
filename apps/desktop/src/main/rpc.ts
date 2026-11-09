@@ -58,10 +58,11 @@ import type { SessionListEntry } from '@ari/engine/session-store'
 import { isHelmSession } from '@ari/contracts/helm'
 import type { HelmProject } from '@ari/contracts/agent-control'
 import { RpcRegistry } from './rpc-registry'
+import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
-import { queryTurnDiff } from './turn-diff'
+import { queryTurnDiff, queryTurnDiffFile } from './turn-diff'
 import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
@@ -2566,6 +2567,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     })
   })
 
+  r.register('git.turnDiffFile', async (params) => {
+    const { session } = await getSessionStore().load(params.sessionId)
+    if (!session) return { diffText: null, error: 'unknown session' }
+    const workspace = await engine.workspace(session)
+    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
+    return queryTurnDiffFile(workspace, params)
+  })
+
   // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing
   // directory and maps every failure into a `{ ok: false, error }` result so
   // nothing throws across IPC. The scope check first pins that directory to
@@ -2747,13 +2756,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // serializes and hands the renderer a jank-sized clone in one go.
         // Frame order plus the final sentinel preserve the burst contract the
         // renderer already relies on (seq-ordered, terminated by replayDone).
-        const sendChunk = (events: JournalEvent[]): void => {
-          rpcRegistry.sendTo(params.id, {
-            sessionId,
-            events,
-            replay: true,
-          } satisfies SessionEventFrame)
-        }
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
         const settled = acpSessionPool.has(sessionId)
@@ -2766,19 +2768,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                   error: String(error),
                 }),
               )
-        void settled
-          .then(() => engine.replaySessionChunks(sessionId, sendChunk))
-          // The sentinel still goes out: the renderer holds live frames, and
-          // its loading state, until it arrives.
-          .catch((error: unknown) => {
-            log.warn('journal replay failed', { sessionId, error: String(error) })
-          })
-          .finally(() => {
-            rpcRegistry.sendTo(params.id, {
-              sessionId,
-              replayDone: true,
-            } satisfies SessionEventFrame)
-          })
+        void streamSessionReplay(
+          sessionId,
+          async (sendChunk) => {
+            await settled
+            await engine.replaySessionChunks(sessionId, sendChunk)
+          },
+          (frame) => rpcRegistry.sendTo(params.id, frame),
+          (error) => log.warn('journal replay failed', { sessionId, error: String(error) }),
+          () => engine.liveTurnId(sessionId),
+        )
       }
     }
     if (params.name === 'scm.changed') sourceControlLive.watch(params.id, params.params)

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { visibleProjects } from '../aria/visibility'
 import type { GitComparison, GitScope } from '@ari/contracts/rpc'
+import type { Project } from '@ari/contracts/project'
 import { createLogger } from '@ari/shared/logger'
+import { Select } from '@ari/ui/select'
 import { rpc } from '../../lib/rpc'
 import { CheckpointList } from './CheckpointList'
 import { ReviewWorkspace, type ReviewWorkspaceProps } from './ReviewWorkspace'
@@ -38,6 +40,7 @@ export function ChangesView({
   onClose,
 }: ChangesViewProps) {
   const [fallback, setFallback] = useState<string | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [checkpoints, setCheckpoints] = useState(false)
@@ -65,7 +68,15 @@ export function ChangesView({
     void rpc
       .invoke('project.list')
       .then((projects) => {
-        if (!cancelled) setFallback(visibleProjects(projects)[0]?.id ?? null)
+        if (!cancelled) {
+          projects = visibleProjects(projects)
+          setProjects(projects)
+          setFallback((current) =>
+            projects.some((project) => project.id === current)
+              ? current
+              : (projects[0]?.id ?? null),
+          )
+        }
       })
       .catch((error: unknown) => {
         log.warn('Project scope unavailable', { error: String(error) })
@@ -111,6 +122,15 @@ export function ChangesView({
           ))}
         </div>
         <div className="flex-1" />
+        {!sessionId && !projectId && projects.length ? (
+          <Select
+            aria-label="Source control project"
+            value={fallback ?? ''}
+            options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            onValueChange={setFallback}
+            className="max-w-48"
+          />
+        ) : null}
         {onExpand ? (
           <button
             type="button"

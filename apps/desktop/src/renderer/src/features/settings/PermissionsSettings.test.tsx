@@ -101,6 +101,20 @@ describe('PermissionsSettings', () => {
     )
   })
 
+  it.each([
+    { name: 'before settings load', settings: null },
+    { name: 'on first run', settings: defaultSettings },
+  ])('selects Full access $name', ({ settings }) => {
+    mocks.holder.settings = settings
+    render(<PermissionsSettings />)
+
+    expect(screen.getByRole('radio', { name: /Full access/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByRole('radio', { name: /Ask/ })).toHaveAttribute('aria-checked', 'false')
+  })
+
   it('moves permission mode selection with arrow keys and wraps at the ends', async () => {
     const user = userEvent.setup()
     render(<PermissionsSettings />)

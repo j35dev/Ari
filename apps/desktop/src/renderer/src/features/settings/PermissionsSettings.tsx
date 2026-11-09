@@ -10,6 +10,7 @@ import { SettingsRow } from './SettingsRow'
 import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
+import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 
 const log = createLogger('settings:permissions')
 
@@ -40,7 +41,7 @@ export function PermissionsSettings() {
   const [draft, setDraft] = useState('')
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([])
   const entries = settings?.permissions.allowlist ?? []
-  const mode = settings?.sessions.defaultPermissionMode ?? 'ask'
+  const mode = settings?.sessions.defaultPermissionMode ?? DEFAULT_PERMISSION_MODE
   const delegation = settings?.delegation ?? delegationSettingsSchema.parse({})
   // Keeps one tab stop in the group if the stored mode is not one we render.
   const knownMode = PERMISSION_MODES.some((m) => m.value === mode)
