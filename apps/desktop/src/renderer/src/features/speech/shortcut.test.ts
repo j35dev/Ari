@@ -1,77 +1,67 @@
 // @vitest-environment node
 import { expect, it } from 'vitest'
-import { ModifierShortcutCapture } from './shortcut'
+import { shortcutFromKey } from './shortcut'
 
 const key = (code: string, flags: Partial<KeyboardEvent> = {}) => ({
   code,
+  key: code,
   ctrlKey: false,
   altKey: false,
   metaKey: false,
   shiftKey: false,
-  timeStamp: 100,
-  getModifierState: () => false,
   ...flags,
 })
 
-it('captures Windows AltGr without its synthetic left Ctrl', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('ControlLeft', { ctrlKey: true }), true)
-  capture.press(
-    key('AltRight', {
-      ctrlKey: true,
-      altKey: true,
-      timeStamp: 130,
-    }),
-    true,
-  )
-  expect(capture.release(key('AltRight', { ctrlKey: true }))).toBe('alt-right')
-  expect(capture.release(key('ControlLeft'))).toBeNull()
+it('records function keys alone and keys with modifiers', () => {
+  expect(shortcutFromKey(key('F8'), 'win32')).toEqual({ shortcut: 'f8' })
+  expect(shortcutFromKey(key('KeyD', { ctrlKey: true, shiftKey: true }), 'linux')).toEqual({
+    shortcut: 'ctrl+shift+d',
+  })
+  expect(
+    shortcutFromKey(key('Digit1', { key: '!', altKey: true, shiftKey: true }), 'win32'),
+  ).toEqual({ shortcut: 'alt+shift+1' })
+  expect(
+    shortcutFromKey(
+      key('Enter', { ctrlKey: true, altKey: true, shiftKey: true, metaKey: true }),
+      'darwin',
+    ),
+  ).toEqual({ shortcut: 'ctrl+alt+shift+meta+enter' })
 })
 
-it('captures Linux Right Alt through AltGraph when altKey is false', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('AltRight', { getModifierState: (name) => name === 'AltGraph' }), false)
-  expect(capture.release(key('AltRight'))).toBe('alt-right')
+it.each([
+  ['Comma', 'comma'],
+  ['Period', 'period'],
+  ['Slash', 'slash'],
+  ['Semicolon', 'semicolon'],
+  ['Quote', 'quote'],
+  ['Backquote', 'backquote'],
+  ['Minus', 'minus'],
+  ['Equal', 'equal'],
+  ['BracketLeft', 'bracketleft'],
+  ['BracketRight', 'bracketright'],
+  ['Backslash', 'backslash'],
+])('uses the uiohook name for %s regardless of shifted text', (code, name) => {
+  expect(shortcutFromKey(key(code, { key: ':', ctrlKey: true, shiftKey: true }), 'win32')).toEqual({
+    shortcut: `ctrl+shift+${name}`,
+  })
 })
 
-it('requires the synthetic Windows Ctrl and Right Alt to be consecutive key events', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('ControlLeft', { ctrlKey: true }), true)
-  capture.press(key('KeyA', { ctrlKey: true, timeStamp: 110 }), true)
-  capture.press(key('AltRight', { ctrlKey: true, altKey: true, timeStamp: 130 }), true)
-  expect(capture.release(key('AltRight', { ctrlKey: true }))).toBeNull()
-  capture.reset()
-  capture.press(key('ControlLeft', { ctrlKey: true }), true)
-  capture.release(key('KeyA', { ctrlKey: true, timeStamp: 110 }))
-  capture.press(key('AltRight', { ctrlKey: true, altKey: true, timeStamp: 130 }), true)
-  expect(capture.release(key('AltRight', { ctrlKey: true }))).toBeNull()
+it('waits for a key after a modifier and rejects unsupported keys and unmodified letters', () => {
+  expect(shortcutFromKey(key('ControlLeft', { key: 'Control', ctrlKey: true }), 'win32')).toBeNull()
+  expect(shortcutFromKey(key('AltRight', { key: 'AltGraph', altKey: true }), 'linux')).toBeNull()
+  expect(shortcutFromKey(key('KeyA'), 'win32')).toHaveProperty('error')
+  expect(shortcutFromKey(key('Numpad0', { ctrlKey: true }), 'win32')).toHaveProperty('error')
+  expect(shortcutFromKey(key('Tab', { ctrlKey: true }), 'win32')).toHaveProperty('error')
 })
 
-it('does not mistake a physical Ctrl held before AltGr for synthetic Ctrl', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('ControlLeft', { ctrlKey: true, timeStamp: 1 }), true)
-  capture.press(
-    key('AltRight', { ctrlKey: true, altKey: true, timeStamp: 100, getModifierState: () => true }),
-    true,
-  )
-  expect(capture.release(key('AltRight', { ctrlKey: true }))).toBeNull()
-})
-
-it('rejects both physical sides of the same modifier and unseen held modifiers', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('ControlLeft', { ctrlKey: true }), false)
-  capture.press(key('ControlRight', { ctrlKey: true }), false)
-  expect(capture.release(key('ControlRight', { ctrlKey: true }))).toBeNull()
-  expect(capture.release(key('ControlLeft'))).toBeNull()
-  capture.press(key('AltRight', { altKey: true }), false)
-  expect(capture.release(key('AltRight', { altKey: true }))).toBeNull()
-})
-
-it('requires the matching modifier flag and clears captured keys on blur', () => {
-  const capture = new ModifierShortcutCapture()
-  capture.press(key('ControlRight'), false)
-  expect(capture.release(key('ControlRight'))).toBeNull()
-  capture.press(key('AltRight', { altKey: true }), false)
-  capture.reset()
-  expect(capture.release(key('AltRight'))).toBeNull()
+it('refuses reserved combinations before saving them', () => {
+  expect(shortcutFromKey(key('F4', { altKey: true }), 'win32')).toEqual({
+    error: expect.stringContaining('reserved'),
+  })
+  expect(shortcutFromKey(key('Space', { ctrlKey: true }), 'darwin')).toEqual({
+    error: expect.stringContaining('reserved'),
+  })
+  expect(shortcutFromKey(key('Delete', { ctrlKey: true, altKey: true }), 'win32')).toEqual({
+    error: expect.stringContaining('reserved'),
+  })
 })

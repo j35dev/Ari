@@ -1,7 +1,7 @@
-import { render, screen, fireEvent, createEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechSettings } from './SpeechSettings'
-import { defaultSettings, MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
+import { defaultSettings } from '@ari/contracts/settings'
 import type { SpeechModel } from '@ari/contracts/rpc'
 
 const mocks = vi.hoisted(() => ({
@@ -70,7 +70,8 @@ it('downloads the chosen model and saves a lowercase hold-to-talk chord', async 
   await waitFor(() =>
     expect(mocks.invoke).toHaveBeenCalledWith('speech.download', { modelId: 'tiny' }),
   )
-  fireEvent.keyDown(screen.getByLabelText('Hold-to-talk shortcut'), {
+  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.keyDown(window, {
     key: ' ',
     code: 'Space',
     ctrlKey: true,
@@ -105,56 +106,61 @@ it('uses the agreed macOS hold-to-talk chord', () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)
   expect(screen.getByRole('textbox', { name: 'Hold-to-talk shortcut' })).toHaveValue(
-    MAC_SPEECH_SHORTCUT,
+    'shift+meta+space',
   )
 })
 
-it('accepts Right Option alone and saves it on release', async () => {
+it('refuses the macOS input-source shortcut and records Cmd+Shift+Space in canonical order', async () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)
-  const picker = screen.getByLabelText('Hold-to-talk shortcut')
-  fireEvent.keyDown(picker, { key: 'Alt', code: 'AltRight', altKey: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.keyDown(window, { key: ' ', code: 'Space', ctrlKey: true })
+  expect(screen.getByRole('alert')).toHaveTextContent('reserved')
   expect(mocks.update).not.toHaveBeenCalled()
-  fireEvent.keyUp(picker, { key: 'Alt', code: 'AltRight' })
+  fireEvent.keyDown(window, { key: ' ', code: 'Space', metaKey: true, shiftKey: true })
   await waitFor(() =>
-    expect(mocks.update).toHaveBeenCalledWith({ speech: { shortcut: 'alt-right' } }),
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({
+      speech: { shortcut: 'shift+meta+space' },
+    }),
   )
 })
 
-it('does not save a modifier alone when it is part of a chord', async () => {
+it('requires Record shortcut, saves the next valid key, and stops recording', async () => {
   render(<SpeechSettings />)
-  const picker = screen.getByLabelText('Hold-to-talk shortcut')
-  fireEvent.keyDown(picker, { key: 'Control', code: 'ControlLeft', ctrlKey: true })
-  fireEvent.keyDown(picker, { key: ' ', code: 'Space', ctrlKey: true })
-  fireEvent.keyUp(picker, { key: ' ', code: 'Space', ctrlKey: true })
-  fireEvent.keyUp(picker, { key: 'Control', code: 'ControlLeft' })
+  fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
+  expect(mocks.update).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
   await waitFor(() =>
-    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'ctrl+space' } }),
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'f8' } }),
+  )
+  fireEvent.keyDown(window, { key: 'F9', code: 'F9' })
+  expect(mocks.update).toHaveBeenCalledOnce()
+  expect(screen.getByRole('button', { name: 'Record shortcut' })).toBeInTheDocument()
+})
+
+it('explains invalid and reserved keys, then accepts another shortcut', async () => {
+  render(<SpeechSettings />)
+  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.keyDown(window, { key: 'a', code: 'KeyA' })
+  expect(screen.getByRole('alert')).toHaveTextContent('modifier')
+  fireEvent.keyDown(window, { key: 'F4', code: 'F4', altKey: true })
+  expect(screen.getByRole('alert')).toHaveTextContent('reserved')
+  expect(mocks.update).not.toHaveBeenCalled()
+  fireEvent.keyDown(window, { key: 'D', code: 'KeyD', ctrlKey: true, shiftKey: true })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'ctrl+shift+d' } }),
   )
 })
 
-it('saves Windows AltGr as Right Alt and ignores the synthetic Ctrl release', async () => {
-  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+it('rejects a modifier alone and allows Esc to cancel without saving', () => {
   render(<SpeechSettings />)
-  const picker = screen.getByLabelText('Hold-to-talk shortcut')
-  const control = createEvent.keyDown(picker, {
-    key: 'Control',
-    code: 'ControlLeft',
-    ctrlKey: true,
-  })
-  Object.defineProperty(control, 'timeStamp', { value: 100 })
-  fireEvent(picker, control)
-  const alt = createEvent.keyDown(picker, {
-    key: 'AltGraph',
-    code: 'AltRight',
-    ctrlKey: true,
-    altKey: true,
-  })
-  Object.defineProperty(alt, 'timeStamp', { value: 100 })
-  Object.defineProperty(alt, 'getModifierState', { value: (name: string) => name === 'AltGraph' })
-  fireEvent(picker, alt)
-  fireEvent.keyUp(picker, { key: 'AltGraph', code: 'AltRight', ctrlKey: true })
-  fireEvent.keyUp(picker, { key: 'Control', code: 'ControlLeft' })
-  await waitFor(() =>
-    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'alt-right' } }),
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.keyDown(window, { key: 'Alt', code: 'AltRight', altKey: true })
+  fireEvent.keyUp(window, { key: 'Alt', code: 'AltRight' })
+  expect(screen.getByRole('alert')).toHaveTextContent('modifier')
+  fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+  fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Record shortcut' })).toBeInTheDocument()
 })
