@@ -207,6 +207,8 @@ describe('pooled ACP sessions', () => {
   it('awaits a parked process shutdown on release, including concurrent releases', async () => {
     const pool = new AcpSessionPool()
     const ended = vi.fn()
+    const background = vi.fn()
+    pool.onBackground = background
     pool.onEnded = ended
     const child = agent(standard)
     const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
@@ -226,6 +228,11 @@ describe('pooled ACP sessions', () => {
     await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
     expect(finished).toBe(false)
     expect(child.killed).toBe(false)
+    child.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'agent_1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old agent output' } } } })}\n`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(background).not.toHaveBeenCalled()
     finish()
     await Promise.all([released, again])
     expect(child.killed).toBe(true)

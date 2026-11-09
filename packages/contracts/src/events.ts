@@ -196,9 +196,23 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     pinned: z.boolean().optional(),
   }),
   eventBase.extend({
+    type: z.literal('session.provider.switched'),
+    driverKind: driverKindSchema,
+    modelId: z.string().nullable(),
+    effort: z.string().min(1).nullable(),
+    afterTurnId: z.string().nullable(),
+    afterMessageId: z.string().nullable(),
+  }),
+  eventBase.extend({
+    type: z.literal('session.provider.context.started'),
+    contextSeq: z.number().int().nonnegative(),
+  }),
+  eventBase.extend({
     type: z.literal('session.ref.observed'),
     /** Provider-native session/thread id reported by the adapter. */
     ref: z.string().min(1),
+    /** Switch generation of the turn that observed it; absent on older journals. */
+    contextSeq: z.number().int().nonnegative().optional(),
   }),
   /**
    * A sub-agent or background shell of the agent's harness opened, changed or

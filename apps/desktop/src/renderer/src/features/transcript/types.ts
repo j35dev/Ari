@@ -1,4 +1,5 @@
 import type { Message } from '@ari/contracts/message'
+import type { JournalEvent } from '@ari/contracts/events'
 
 /** The visual row kinds the transcript renders. */
 export type TranscriptBlockKind =
@@ -13,7 +14,15 @@ export interface TranscriptImage {
 }
 
 /** Rows the virtualizer renders: plain blocks, collapsed tool runs, turn diffs, delegated work. */
-export type TranscriptRow = GroupedRow | DelegationRow
+export type TranscriptRow = GroupedRow | DelegationRow | ProviderSwitchRow
+
+export type ProviderSwitch = Extract<JournalEvent, { type: 'session.provider.switched' }>
+
+export interface ProviderSwitchRow {
+  kind: 'provider-switch'
+  key: string
+  switch: ProviderSwitch
+}
 
 /** What grouping a message list yields, before delegated work is placed among it. */
 export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow

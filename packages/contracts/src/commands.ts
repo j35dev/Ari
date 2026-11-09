@@ -103,6 +103,13 @@ export const commandSchema = z.discriminatedUnion('type', [
     turnId: z.string(),
   }),
   z.object({
+    type: z.literal('session.provider.switch'),
+    sessionId: z.string(),
+    driverKind: driverKindSchema,
+    modelId: z.string().nullable(),
+    effort: z.string().min(1).nullable(),
+  }),
+  z.object({
     type: z.literal('session.update'),
     sessionId: z.string(),
     driverKind: driverKindSchema.optional(),

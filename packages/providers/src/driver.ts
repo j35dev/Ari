@@ -75,6 +75,8 @@ export interface AdapterSession {
   /** Complete per-session process environment; never mutate process.env. */
   runtimeEnv?: Record<string, string | undefined>
   prompt: string
+  /** Hidden conversation history inside prompt; argv fallbacks may trim only this portion. */
+  handoff?: string
   modelId: string | null
   permissionMode: PermissionMode
   /**
