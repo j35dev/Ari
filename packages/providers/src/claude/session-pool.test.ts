@@ -276,7 +276,7 @@ describe('Claude process continuity', () => {
     finish(children[1]!)
     await secondEvents
     await second.dispose()
-    pool.release('ari')
+    await pool.release('ari')
     expect(pool.has('ari')).toBe(false)
     expect(children[1]!.stdin.writableEnded).toBe(true)
   })

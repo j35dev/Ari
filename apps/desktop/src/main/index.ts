@@ -179,7 +179,7 @@ if (!gotLock) {
         .then(() => {
           if (!quitting) {
             presence.setEnabled(getSettingsStore().current.notifications.discordPresence)
-            return widget?.configure(getSettingsStore().current)
+            void widget?.configure(getSettingsStore().current)
           }
         })
     })
