@@ -130,6 +130,8 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
     hierarchy: {
       parentSessionId: model.session?.parentSessionId ?? null,
       rootSessionId: model.session?.rootSessionId ?? model.session?.id ?? null,
+      // Says who started a session, so the sidebar can show what Aria began.
+      ...(model.session?.createdBy ? { createdBy: model.session.createdBy } : {}),
       ...(model.session
         ? { driverKind: model.session.driverKind, status: model.session.status }
         : {}),

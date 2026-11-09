@@ -76,15 +76,19 @@ export const sessionSchema = z.object({
 })
 export type Session = z.infer<typeof sessionSchema>
 
-export const sessionHierarchySummarySchema = sessionSchema.pick({
-  parentSessionId: true,
-  rootSessionId: true,
-  driverKind: true,
-  modelId: true,
-  status: true,
-  role: true,
-}).partial().extend({
-  workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
-  branch: z.string().nullable().optional(),
-})
+export const sessionHierarchySummarySchema = sessionSchema
+  .pick({
+    parentSessionId: true,
+    rootSessionId: true,
+    createdBy: true,
+    driverKind: true,
+    modelId: true,
+    status: true,
+    role: true,
+  })
+  .partial()
+  .extend({
+    workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
+    branch: z.string().nullable().optional(),
+  })
 export type SessionHierarchySummary = z.infer<typeof sessionHierarchySummarySchema>
