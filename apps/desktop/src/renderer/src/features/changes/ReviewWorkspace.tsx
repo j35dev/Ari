@@ -78,10 +78,10 @@ function ScopedReview({
   const [retry, setRetry] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [selection, setSelection] = useState<string[]>([])
-  const [viewed, setViewed] = useState<{ id: string; paths: Set<string> }>({
-    id: '',
-    paths: new Set(),
-  })
+  const viewed = preferences.viewedPaths(manifest)
+  useEffect(() => {
+    if (manifest) preferences.reconcileViewed(manifest)
+  }, [manifest])
   useEffect(() => {
     if (initialComparison) preferences.change({ comparison: initialComparison })
   }, [JSON.stringify(initialComparison)])
@@ -281,13 +281,10 @@ function ScopedReview({
                   <input
                     type="checkbox"
                     aria-label={`Mark ${file.path} viewed`}
-                    checked={viewed.id === manifest.id && viewed.paths.has(file.path)}
-                    onChange={(event) => {
-                      const next = new Set(viewed.id === manifest.id ? viewed.paths : [])
-                      if (event.target.checked) next.add(file.path)
-                      else next.delete(file.path)
-                      setViewed({ id: manifest.id, paths: next })
-                    }}
+                    checked={viewed.has(file.path)}
+                    onChange={(event) =>
+                      preferences.markViewed(manifest, file, event.target.checked)
+                    }
                   />
                   Viewed
                 </label>
@@ -416,9 +413,9 @@ function ScopedReview({
         <div className="flex-1" />
         {notice ? <span role="status">{notice}</span> : null}
         {manifest?.truncated ? <span className="text-warning">File list truncated</span> : null}
-        {manifest && viewed.id === manifest.id && viewed.paths.size ? (
+        {manifest && viewed.size ? (
           <span>
-            {viewed.paths.size}/{manifest.files.length} viewed
+            {viewed.size}/{manifest.files.length} viewed
           </span>
         ) : null}
       </div>
