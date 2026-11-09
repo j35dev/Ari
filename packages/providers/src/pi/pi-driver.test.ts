@@ -16,8 +16,8 @@ describe('buildPiArgs', () => {
     const args = buildPiArgs(base)
     expect(args.slice(0, 2)).toEqual(['--mode', 'json'])
     expect(args).not.toContain('--no-session')
-    expect(args[args.length - 1]).toBe('do the thing')
-    expect(args[args.length - 2]).toBe('-p')
+    expect(args[args.length - 1]).toBe('-p')
+    expect(args).not.toContain(base.prompt)
   })
 
   it('maps permission modes to tool capability flags', () => {

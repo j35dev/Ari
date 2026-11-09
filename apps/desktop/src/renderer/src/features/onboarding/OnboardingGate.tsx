@@ -5,6 +5,7 @@ import { Button } from '@ari/ui/button'
 import { Skeleton } from '@ari/ui/skeleton'
 import { rpc } from '../../lib/rpc'
 import { saveLastPick } from '../composer/last-pick'
+import { visibleProjects, visibleSessions } from '../aria/visibility'
 import { OnboardingFrame } from './OnboardingFrame'
 import { OnboardingWizard } from './OnboardingWizard'
 import type { OnboardingOutcome } from './onboarding-completion'
@@ -52,7 +53,8 @@ export function OnboardingGate({
         setState({ status: 'setup', settings, returning: true, createFirstSession: false })
       else if (
         settings.onboarding?.completedAt != null ||
-        (settings.onboarding === undefined && (projects.length > 0 || sessions.length > 0))
+        (settings.onboarding === undefined &&
+          (visibleProjects(projects).length > 0 || visibleSessions(sessions).length > 0))
       ) {
         setMounted(true)
         setState({ status: 'closed' })
@@ -74,7 +76,7 @@ export function OnboardingGate({
             status: 'setup',
             settings: prepared,
             returning: false,
-            createFirstSession: sessions.length === 0,
+            createFirstSession: visibleSessions(sessions).length === 0,
           })
       }
     } catch (error) {

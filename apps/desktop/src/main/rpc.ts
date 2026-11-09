@@ -15,6 +15,7 @@ import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
 import { cliKindSchema } from '@ari/contracts/settings'
+import { driverKindSchema } from '@ari/contracts/common'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
@@ -32,10 +33,13 @@ import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
-import { startAgentRuntime } from './agent-runtime'
+import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
+import { createProject } from './project-create'
+import { AriaThread } from './aria-thread'
+import { ProjectContextCache, ProjectSelection } from './project-context'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -49,6 +53,10 @@ import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
+import { helmSnapshot } from '@ari/engine/helm'
+import type { SessionListEntry } from '@ari/engine/session-store'
+import { isHelmSession } from '@ari/contracts/helm'
+import type { HelmProject } from '@ari/contracts/agent-control'
 import { RpcRegistry } from './rpc-registry'
 import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
@@ -59,6 +67,8 @@ import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
+import { SpeechService } from './speech/service'
+import { grantSpeechMicrophone } from './speech/permissions'
 import { createPullRequest } from './gh-pr'
 import { listHubItems, viewHubItem } from './github-hub'
 import {
@@ -86,6 +96,7 @@ import {
   getIndexedFiles,
   sameRoot,
   stopWatchingProject,
+  stopWatchingUnder,
   watchedFiles,
 } from './watcher-bridge'
 import { createAppUpdater } from './updater'
@@ -162,6 +173,7 @@ import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
 import { todoFilenameFor } from '@ari/ari-core/todo'
 
 const log = createLogger('desktop:rpc')
+let speechService: SpeechService | null = null
 
 /**
  * Kinds whose ACP server is probed for the agent's own model list. Adapters
@@ -857,6 +869,16 @@ export interface EngineHandle {
   engine: Engine
   registry: DriverRegistry
   shutdown(): Promise<void>
+  invoke: (method: string, params?: unknown) => Promise<unknown>
+}
+
+export function openSpeechSettings(contents: WebContents): void {
+  if (contents.isDestroyed()) return
+  const win = BrowserWindow.fromWebContents(contents)
+  if (win?.isMinimized()) win.restore()
+  win?.show()
+  win?.focus()
+  rpcRegistryRef?.publish('app.navigate', { settingsSection: 'speech' } satisfies NavigateFrame)
 }
 
 export interface RegisterRpcOptions {
@@ -930,6 +952,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   rpcRegistryRef = rpcRegistry
+  const speech = (speechService ??= new SpeechService(app.getPath('userData'), getSettingsStore()))
+  speech.publish = (frame) => {
+    rpcRegistryRef?.publish('speech.progress', frame)
+    // Automatic setup writes the store directly; the global shortcut host
+    // must hear when that model becomes usable, too.
+    if (frame.phase === 'complete' || frame.phase === 'error' || frame.phase === 'cancelled') {
+      options.onSettingsChanged?.(getSettingsStore().current)
+    }
+  }
+  grantSpeechMicrophone(contents.session)
+  app.once('will-quit', () => speech.dispose())
   appUpdaterRef ??= createAppUpdater((frame) => rpcRegistryRef?.publish('app.updates', frame))
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
@@ -1045,13 +1078,50 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  const projectContext = new ProjectContextCache()
+  const projectSelection = new ProjectSelection()
+  const refreshProjectContext = async (): Promise<void> => {
+    try {
+      await projectContext.refresh(
+        (await getProjectStore().load()).map((project) => ({
+          projectId: project.id,
+          path: project.path,
+        })),
+      )
+    } catch (error) {
+      log.warn('project context refresh failed', { error: String(error) })
+    }
+  }
+  // Turns use the last completed read; an unmounted folder never holds up Aria.
+  void refreshProjectContext()
+  const projectContextTimer = setInterval(() => void refreshProjectContext(), 30_000)
+  projectContextTimer.unref()
+  contents.once('destroyed', () => clearInterval(projectContextTimer))
+  // Every project the user has added, as Aria reaches them.
+  const helmProjects = async (rows?: readonly SessionListEntry[]): Promise<HelmProject[]> => {
+    const projects = (await getProjectStore().load()).map((project) => ({
+      projectId: project.id,
+      name: project.name,
+      path: project.path,
+      available: project.status === 'ok',
+      open: project.open,
+      lastOpenedAt: project.lastOpenedAt,
+      ...projectContext.get(project.id),
+      ...(project.defaultAgent === undefined ? {} : { defaultAgent: project.defaultAgent }),
+    }))
+    return projectSelection.withHistory(projects, rows ?? (await getSessionStore().listSessions()))
+  }
   let controlStarting = false
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
+  const releaseProviderConnections = async (sessionId: string): Promise<void> => {
+    await Promise.all([acpSessionPool.release(sessionId), claudeSessionPool.release(sessionId)])
+  }
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
     publish: publishSessionEvent,
+    releaseProviderConnection: releaseProviderConnections,
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
@@ -1073,6 +1143,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    turnContext: async (session) => {
+      if (!isHelmSession(session)) return null
+      const rows = await getSessionStore().listSessions()
+      const projects = await (await controlReady).service.projects(session, rows)
+      const names = new Map(projects.map((project) => [project.projectId, project.name]))
+      return helmSnapshot(
+        {
+          rows,
+          load: (id) => getSessionStore().load(id),
+          projectName: (id) => names.get(id) ?? null,
+        },
+        await getSessionStore().load(session.id),
+        projects,
+      )
+    },
     deliversResults: () => {
       const { enabled, autoDeliverResults } = getSettingsStore().current.delegation
       return enabled && autoDeliverResults
@@ -1097,7 +1182,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     pool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
     // A parked process that ends takes its background shells and sub-agents along.
     pool.onEnded = (sessionId) => {
-      void engine
+      return engine
         .releaseBackgroundTasks(sessionId, 'The agent process ended')
         .catch((error: unknown) =>
           log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
@@ -1132,11 +1217,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (archived) {
-      for (const id of parents) {
-        runtime?.revoke(id)
-        acpSessionPool.release(id)
-        claudeSessionPool.release(id)
-      }
+      await revokeArchivedSessions(parents, async (id) => {
+        if (runtime) await runtime.revoke(id)
+        else browserMcpHandle?.revoke(id)
+        if (!runtime) await releaseProviderConnections(id)
+      })
     }
   }
   // Timed prompts outlive a session turn and a restart: they are journaled in
@@ -1172,13 +1257,62 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
-        onDrop: (id) => browserMcpHandle?.revoke(id),
+        onDrop: async (id, reason) => {
+          browserMcpHandle?.revoke(id)
+          await dropSessionResources(id, reason, releaseProviderConnections, async (id) => {
+            const session = (await getSessionStore().loadExisting(id))?.session
+            const roots: string[] = []
+            if (session?.workspace?.kind === 'managed-worktree') roots.push(session.workspace.path)
+            // A startup retry has no session sidecar left to name its workspace.
+            const managedRoot = join(app.getPath('userData'), 'worktrees')
+            for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
+              () => [],
+            )) {
+              if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
+            }
+            for (const root of new Set(roots)) {
+              await terminals
+                .killInWorkspace(root)
+                .catch((error: unknown) =>
+                  log.warn('workspace terminal cleanup failed', { root, error: String(error) }),
+                )
+              await stopWatchingUnder(root).catch((error: unknown) =>
+                log.warn('workspace watcher cleanup failed', { root, error: String(error) }),
+              )
+            }
+            await sourceControlLive.dropSession(id, roots)
+          })
+        },
         routines: routineHost(resumeSchedule),
+        projects: helmProjects,
+        createProject: async (input) => {
+          const result = await createProject(
+            {
+              projects: getProjectStore(),
+              home: homedir(),
+              userData: app.getPath('userData'),
+            },
+            input,
+          )
+          const project = getProjectStore().get(result.projectId)
+          if (project?.status === 'ok') void ensureProjectWatched(project)
+          void refreshProjectContext()
+          rpcRegistry.publish('projects.changed', {})
+          return result
+        },
+        projectAgentDefaults: () => ({
+          permissionMode: getSettingsStore().current.sessions.defaultPermissionMode,
+        }),
+        setProjectDefault: async (id, agent) =>
+          (await getProjectStore().setDefaultAgent(id, agent)) !== null,
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
           return ALL_PROVIDER_KINDS.map((kind) => ({
             driverKind: kind,
+            defaultModelId:
+              agentDefaultModel(kind) ??
+              (modelsFor(kind).some((model) => model.id === 'default') ? 'default' : null),
             available:
               driverRegistry.get(kind) !== null &&
               (kind === 'ari-core'
@@ -1192,7 +1326,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                       label: `${endpoint.name} / ${model.label}`,
                     })),
                   )
-                : modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
+                : modelsFor(kind).map((model) => ({
+                    id: model.id,
+                    label: model.label,
+                    ...(model.aliases === undefined ? {} : { aliases: model.aliases }),
+                  })),
           }))
         },
       })
@@ -1396,6 +1534,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return store.current
   })
 
+  r.register('speech.status', () => speech.status())
+  r.register('speech.models', () => speech.models())
+  r.register('speech.engine.download', () => speech.install())
+  r.register('speech.engine.check', () => speech.check())
+  r.register('speech.engine.reinstall', () => speech.reinstall())
+  r.register('speech.engine.cancel', () => speech.cancel('engine'))
+  r.register('speech.download', ({ modelId }) => speech.download(modelId))
+  r.register('speech.cancel', ({ modelId }) => speech.cancel(modelId))
+  r.register('speech.select', (choice) => speech.select(choice))
+  r.register('speech.remove', ({ modelId }) => speech.remove(modelId))
+  r.register('speech.discard', ({ modelId }) => speech.discard(modelId))
+  r.register('speech.transcribe', ({ pcm, language }) =>
+    speech.transcribe(new Float32Array(pcm), language),
+  )
+
   r.register('settings.update', async (params) => {
     const settings = await getSettingsStore().update(params)
     if (params.providers !== undefined) {
@@ -1411,6 +1564,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         .catch((error: unknown) => log.warn('provider redetect failed', { error: String(error) }))
     }
     options.onSettingsChanged?.(settings)
+    if (params.speech)
+      rpcRegistry.publish('speech.progress', {
+        id: 'configuration',
+        phase: 'complete',
+        received: 0,
+        total: 0,
+      })
     return settings
   })
 
@@ -1648,13 +1808,44 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
 
+  const aria = new AriaThread({
+    ...sessionDeps,
+    listSessions: () => getSessionStore().listSessions(),
+    loadSession: async (sessionId) => (await getSessionStore().load(sessionId)).session,
+    destroySession,
+    settings: async () => {
+      await settingsReady()
+      return getSettingsStore().current
+    },
+    defaults: async () => {
+      const settings = getSettingsStore().current
+      const detected = await probeAllDetections()
+      const driverKind = driverKindSchema.parse(
+        settings.sessions.defaultDriverKind ??
+          detected.find((row) => row.binaryPath !== null && row.kind !== 'ari-core')?.kind ??
+          'ari-core',
+      )
+      return {
+        driverKind,
+        modelId: agentDefaultModel(driverKind),
+        permissionMode: settings.sessions.defaultPermissionMode,
+        effort: null,
+      }
+    },
+  })
+  r.register('aria.open', (params) => aria.open(params))
+  r.register('aria.newChat', () => aria.newChat())
+
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
     return model.session ? model : null
   })
 
   r.register('session.workspace', async ({ sessionId }) => {
+    const viewedAt = Date.now()
     const { session } = await getSessionStore().load(sessionId)
+    // The shell requests this when its selected session changes, including restored panes.
+    if (session) projectSelection.record(session.projectId, viewedAt)
     return { path: session ? await engine.workspace(session) : null }
   })
 
@@ -1682,18 +1873,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { at: await resumeSchedule.get(sessionId) }
   })
 
-  r.register('session.destroy', async (params) => {
+  async function destroySession(sessionId: string) {
     const store = getSessionStore()
-    const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
-    const parentId = (await store.load(params.sessionId)).session?.parentSessionId
+    const ids = [...descendantIds(await store.listSessions(), sessionId), sessionId]
+    const parentId = (await store.load(sessionId)).session?.parentSessionId
     for (const id of ids) {
       const model = await store.load(id)
-      if (model.activeTurnId || engine.hasLiveTurn(id)) {
-        await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
-        await engine.quiesce(id)
+      try {
+        if (model.activeTurnId || engine.hasLiveTurn(id)) {
+          await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+          await engine.quiesce(id)
+        }
+      } catch (error) {
+        log.warn('session interrupt before deletion failed', {
+          sessionId: id,
+          error: String(error),
+        })
       }
-      acpSessionPool.release(id)
-      claudeSessionPool.release(id)
+      try {
+        if (runtime) await runtime.revoke(id, 'destroy')
+        else await releaseProviderConnections(id)
+      } catch (error) {
+        log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
+      }
       await store.destroy(id)
       await runtime?.release(id)
     }
@@ -1703,10 +1905,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (parentId && (await store.load(parentId)).session)
       await engine.record(parentId, {
         type: 'child.session.destroyed',
-        childSessionId: params.sessionId,
+        childSessionId: sessionId,
       })
     return { destroyed: true }
-  })
+  }
+  r.register('session.destroy', ({ sessionId }) => destroySession(sessionId))
 
   // Sessions the user already has in pi, replayed into Ari's own journal. Read
   // only: pi's file stays where it is and stays resumable in pi afterwards.
@@ -2101,6 +2304,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Warm the watcher + mentions file index in the background; the index
     // walk is awaited lazily on the first `files.index` call instead.
     if (project.status === 'ok') void ensureProjectWatched(project)
+    void refreshProjectContext()
     return project
   })
 
@@ -2109,6 +2313,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('project.open', async (params) => {
     const project = await getProjectStore().open(params.path, params.name)
     if (project.status === 'ok') void ensureProjectWatched(project)
+    void refreshProjectContext()
     return project
   })
 
@@ -2117,6 +2322,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // being a trusted root and its sessions lose their workspace until the folder
   // is added back, which the store's tombstone lets them recover from.
   r.register('project.close', async (params) => getProjectStore().close(params.id))
+  r.register('project.setDefaultAgent', async (params) =>
+    getProjectStore().setDefaultAgent(params.id, params.value),
+  )
 
   r.register('project.remove', async (params) => {
     const project = getProjectStore().get(params.id)
@@ -2581,6 +2789,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       name: params.name,
       params: params.params,
     })
+    if (params.name === 'speech.progress') {
+      for (const frame of speech.snapshot()) rpcRegistry.sendTo(params.id, frame)
+    }
     // Replay the journal so late subscribers get full history first. Frames
     // are tagged `replay` and terminated by a `replayDone` sentinel so the
     // renderer can order the burst against live events that arrive while the
@@ -2596,16 +2807,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // renderer already relies on (seq-ordered, terminated by replayDone).
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
-        const settled = acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
-          ? Promise.resolve()
-          : engine
-              .releaseBackgroundTasks(sessionId, 'The agent process ended')
-              .catch((error: unknown) =>
-                log.warn('background tasks could not be closed', {
-                  sessionId,
-                  error: String(error),
-                }),
-              )
+        const settled =
+          acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
+            ? Promise.resolve()
+            : engine
+                .releaseBackgroundTasks(sessionId, 'The agent process ended')
+                .catch((error: unknown) =>
+                  log.warn('background tasks could not be closed', {
+                    sessionId,
+                    error: String(error),
+                  }),
+                )
         void streamSessionReplay(
           sessionId,
           async (sendChunk) => {
@@ -2658,8 +2870,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { subscribed: true }
   })
 
-  r.register('stream.unsubscribe', (params) => {
-    sourceControlLive.unwatch(params.id)
+  r.register('stream.unsubscribe', async (params) => {
+    await sourceControlLive.unwatch(params.id)
     rpcRegistry.unsubscribe(params.id)
     return { unsubscribed: true }
   })
@@ -2677,5 +2889,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     })
   }
 
-  return { engine, registry: driverRegistry, shutdown }
+  return {
+    engine,
+    registry: driverRegistry,
+    shutdown,
+    invoke: async (method, params) => {
+      // Merge-time speech fallbacks; the speech worker owns the real RPC handlers.
+      if (!(IPC_METHODS as readonly string[]).includes(method)) {
+        if (method === 'speech.status') return { ready: false }
+        if (method === 'speech.transcribe') return { text: '' }
+      }
+      return rpcRegistry.invoke(method, params)
+    },
+  }
 }

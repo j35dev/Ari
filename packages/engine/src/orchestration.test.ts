@@ -1169,7 +1169,7 @@ it('coalesces child journal bursts for ancestor families and cleans up its obser
   }
 })
 
-it('preserves delegation approvals for user launch and each comparison spawn, and keeps integration out of CLI auto-approval', async () => {
+it('preserves delegation approvals for user launch and each comparison spawn, and auto-approves CLI integration', async () => {
   host.policy = () => delegationSettingsSchema.parse({ approvalMode: 'always' })
   const approve = vi.fn(async () => false)
   host.approve = approve
@@ -1206,7 +1206,7 @@ it('preserves delegation approvals for user launch and each comparison spawn, an
     isSafeControlCommand(
       'ari task integrate --params \'{"taskId":"task","resultId":"result","snapshotCommit":"a"}\'',
     ),
-  ).toBe(false)
+  ).toBe(true)
 })
 
 it('allows the human to dismiss a question with empty input while preserving request ownership', async () => {

@@ -25,6 +25,7 @@ import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-
 import { promptHistory, stepPromptHistory } from './prompt-history'
 import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
+import { SpeechButton } from './SpeechButton'
 import {
   useSessionDraftIntent,
   updateSessionDraftIntent,
@@ -83,6 +84,8 @@ export interface QueuedMessageView {
 }
 
 export interface ComposerProps {
+  /** Announces a mounted, enabled editor; the owner decides whether to focus it. */
+  onReady?: (input: HTMLTextAreaElement) => void
   /** Called with the message text and pending image files when the user sends. */
   onSend: (text: string, files: File[], images?: DraftImage[]) => boolean | void
   /** Waiting for preparation/dispatch; typing and Stop remain available. */
@@ -179,6 +182,7 @@ export function Composer({
   attentionRequired = false,
   centered = false,
   history,
+  onReady,
   sendPending = false,
   recoveries = NO_RECOVERIES,
   onRecover,
@@ -195,6 +199,10 @@ export function Composer({
   const [stashAnchor, setStashAnchor] = useState<HTMLDivElement | null>(null)
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const input = textareaRef.current
+    if (onReady && input && !disabled) onReady(input)
+  }, [onReady, disabled])
   const overlayRef = useRef<HTMLDivElement>(null)
   const { images, intents, addFiles, removeAt, removeIntentAt, replace, clear } =
     useImageAttachments(sessionId)
@@ -906,7 +914,7 @@ export function Composer({
               resting
                 ? // Symmetric padding centres the single line, and the right
                   // inset keeps the placeholder clear of the overlaid send.
-                  'pb-3 pl-4 pr-12 pt-3.5'
+                  'pb-3 pl-4 pr-20 pt-3.5'
                 : 'px-4 pt-3.5 pb-2'
             }`}
           />
@@ -948,6 +956,11 @@ export function Composer({
               resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
             }
           >
+            <SpeechButton
+              key={sessionId ?? ''}
+              disabled={disabled}
+              onTranscript={(transcript) => insertAtCaret(textareaRef.current, caret, transcript)}
+            />
             <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}

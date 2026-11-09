@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -16,6 +16,68 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('migrates the saved delegation default once and preserves an explicit later choice', async () => {
+    const path = join(dir, 'settings.json')
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        delegation: {
+          approvalMode: 'first-per-root',
+          maxConcurrentChildren: 2,
+          autoApproveCli: false,
+        },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).delegation).toMatchObject({
+      approvalMode: 'never',
+      maxConcurrentChildren: 2,
+      autoApproveCli: false,
+    })
+    const persisted: unknown = JSON.parse(await readFile(path, 'utf8'))
+    expect(persisted).toMatchObject({
+      delegation: { approvalMode: 'never' },
+      delegationApprovalMigrated: true,
+    })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('never')
+
+    await store.update({ delegation: { approvalMode: 'first-per-root' } })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('first-per-root')
+  })
+
+  it.each(['always', 'never'] as const)(
+    'preserves the saved %s delegation policy',
+    async (approvalMode) => {
+      await writeFile(
+        join(dir, 'settings.json'),
+        JSON.stringify({ version: 1, delegation: { approvalMode } }),
+      )
+      expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe(approvalMode)
+      expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe(approvalMode)
+    },
+  )
+
+  it('drops retired Aria preferences while preserving app session defaults', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        aria: { driverKind: 'codex', modelId: 'gpt-6' },
+        sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'allow-edits' },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    expect(await store.load()).not.toHaveProperty('aria')
+    await store.update({ notifications: { desktop: false } })
+    expect((await new SettingsStore({ dir }).load()).sessions).toEqual({
+      defaultDriverKind: 'claude',
+      defaultPermissionMode: 'allow-edits',
+    })
+    expect(JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))).not.toHaveProperty(
+      'aria',
+    )
+  })
   it('caps retired oversized text preferences and rejects new oversized choices', async () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(
@@ -196,6 +258,9 @@ describe('SettingsStore', () => {
     expect(settings.appearance.mode).toBe('system')
     expect(settings.appearance).not.toHaveProperty('glass')
     expect(settings.sessions.defaultPermissionMode).toBe('full')
+    expect(settings.delegation.approvalMode).toBe('never')
+    await store.update({ delegation: { approvalMode: 'first-per-root' } })
+    expect((await new SettingsStore({ dir }).load()).delegation.approvalMode).toBe('first-per-root')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
     expect((await new SettingsStore({ dir }).load()).sessions.defaultPermissionMode).toBe('full')

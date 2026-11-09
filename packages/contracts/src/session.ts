@@ -76,15 +76,32 @@ export const sessionSchema = z.object({
 })
 export type Session = z.infer<typeof sessionSchema>
 
-export const sessionHierarchySummarySchema = sessionSchema.pick({
-  parentSessionId: true,
-  rootSessionId: true,
-  driverKind: true,
-  modelId: true,
-  status: true,
-  role: true,
-}).partial().extend({
-  workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
-  branch: z.string().nullable().optional(),
-})
+/** A native thread or journalled conversation binds an ordinary session to its provider. */
+export function hasProviderContext(context: {
+  hasMessages: boolean
+  hasTurns: boolean
+  providerSessionId: string | null
+}): boolean {
+  return context.hasMessages || context.hasTurns || context.providerSessionId !== null
+}
+
+export const sessionHierarchySummarySchema = sessionSchema
+  .pick({
+    parentSessionId: true,
+    rootSessionId: true,
+    createdBy: true,
+    createdAt: true,
+    permissionMode: true,
+    effort: true,
+    driverKind: true,
+    modelId: true,
+    status: true,
+    role: true,
+  })
+  .partial()
+  .extend({
+    lead: z.boolean().optional(),
+    workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
+    branch: z.string().nullable().optional(),
+  })
 export type SessionHierarchySummary = z.infer<typeof sessionHierarchySummarySchema>

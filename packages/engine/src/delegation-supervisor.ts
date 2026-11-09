@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { HELM_PROJECT_ID, isHelmSession } from '@ari/contracts/helm'
 import type { OperationReceipt } from '@ari/contracts/orchestration'
 import { createLogger } from '@ari/shared/logger'
 import type { DelegationSettings } from '@ari/contracts/agent-control'
@@ -6,15 +7,17 @@ import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { MessageOrigin } from '@ari/contracts/message'
 import type { SessionListEntry, SessionStore } from './session-store'
-import type { SessionReadModel, UnstampedEvent } from './projection'
+import { initialReadModel, type SessionReadModel, type UnstampedEvent } from './projection'
 import { budgetLine, type TreeSpend } from './tree-budget'
 import {
   completionNotice,
   finalAssistantText,
   pendingCompletions,
   questionNotice,
+  routineReport,
   type CompletionReport,
 } from './delegation-state'
+import { helmReportRecipient } from './helm'
 
 const log = createLogger('engine:delegation')
 
@@ -31,9 +34,23 @@ const RETRY_DELAY_MS = 15_000
 const REPORT_CHARS = 4_000
 /** The most children one notice names; the message origin schema allows no more. */
 const MAX_BATCH = 32
+const MAX_ARIA_AUTOMATIC_TURNS = 8
+
+function automaticTurns(model: SessionReadModel): number {
+  let count = 0
+  for (const message of [...model.messages].reverse()) {
+    if (message.role !== 'user') continue
+    if (!message.origin || message.origin.kind === 'human') break
+    if (message.origin.kind === 'completion') count++
+  }
+  return count
+}
 
 export interface SupervisorHost {
-  store: Pick<SessionStore, 'load' | 'listSessions'>
+  store: Pick<
+    SessionStore,
+    'load' | 'loadExisting' | 'exists' | 'listSessions' | 'currentHelmSession'
+  >
   policy(): DelegationSettings
   dispatch(
     command: Command,
@@ -140,7 +157,21 @@ export class DelegationSupervisor {
 
   #observe(event: JournalEvent): void {
     if (this.#recovering) return
-    if (event.type === 'child.session.settled' || event.type === 'child.session.acknowledged')
+    if (
+      event.type === 'user.message.added' &&
+      (!event.message.origin || event.message.origin.kind === 'human')
+    ) {
+      if ([...this.#historical].some((key) => key.startsWith(`${event.sessionId}:`)))
+        void this.#serial(event.sessionId, async () => {
+          if (!isHelmSession((await this.host.store.load(event.sessionId)).session)) return
+          // A human return also releases reports held through a restart.
+          for (const key of this.#historical)
+            if (key.startsWith(`${event.sessionId}:`)) this.#historical.delete(key)
+        })
+    } else if (
+      event.type === 'child.session.settled' ||
+      event.type === 'child.session.acknowledged'
+    )
       this.schedule(event.sessionId)
     else if (event.type === 'input.requested')
       void this.#serial(event.sessionId, () => this.#askParent(event.sessionId, event))
@@ -161,14 +192,18 @@ export class DelegationSupervisor {
     event: { inputId: string; prompt: string; choicesJson: string | null },
   ): Promise<void> {
     const child = await this.host.store.load(childId)
-    const parentId = child.session?.parentSessionId
-    if (!parentId) return
     // A question on a turn a person started is theirs to answer; only work the
-    // parent delegated routes back to the parent.
+    // parent delegated, or Aria asked for, routes back to whoever asked.
     const asked = child.messages.find(
       (message) => message.role === 'user' && message.turnId === child.activeTurnId,
     )
-    if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== parentId) return
+    if (asked?.origin?.kind !== 'session') return
+    const parentId = asked.origin.sessionId
+    if (
+      parentId !== child.session?.parentSessionId &&
+      !isHelmSession((await this.host.store.load(parentId)).session)
+    )
+      return
     const key = `${childId}:${event.inputId}`
     if (this.#asked.has(key)) return
     this.#asked.add(key)
@@ -252,7 +287,11 @@ export class DelegationSupervisor {
     const rows = await this.host.store.listSessions()
     this.#recovering = true
     try {
-      for (const parentId of new Set(rows.flatMap((row) => row.parentSessionId ?? []))) {
+      const receivers = [
+        ...rows.flatMap((row) => row.parentSessionId ?? []),
+        ...rows.filter((row) => row.projectId === HELM_PROJECT_ID).map((row) => row.id),
+      ]
+      for (const parentId of new Set(receivers)) {
         const parent = await this.host.store.load(parentId)
         await this.#reconcileDeliveries(parentId)
         // Historical reports remain readable, without starting unattended provider turns.
@@ -320,16 +359,22 @@ export class DelegationSupervisor {
    * delegated was unfinished) has that parent look again once it goes quiet.
    */
   async #bubble(sessionId: string): Promise<void> {
-    const model = await this.host.store.load(sessionId)
-    const parentId = model.session?.parentSessionId
+    const model = await this.host.store.loadExisting(sessionId)
+    if (!model) return
+    const parentId =
+      model.session?.parentSessionId ??
+      (model.lastTurn
+        ? await helmReportRecipient(this.host.store, model, model.lastTurn.turnId)
+        : null)
     if (!parentId || model.activeTurnId !== null) return
-    const parent = await this.host.store.load(parentId)
-    if (pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
+    const parent = await this.host.store.loadExisting(parentId)
+    if (parent && pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
       this.schedule(parentId)
   }
 
   async #reconcileDeliveries(parentId: string): Promise<void> {
-    const parent = await this.host.store.load(parentId)
+    const parent = await this.host.store.loadExisting(parentId)
+    if (!parent) return
     for (const operation of Object.values(parent.orchestration?.operations ?? {})) {
       if (operation.method !== 'child.result.delivery') continue
       const accepted = parent.messages.some(
@@ -380,8 +425,8 @@ export class DelegationSupervisor {
     await this.#reconcileDeliveries(parentId)
     const policy = this.host.policy()
     if (!policy.enabled || !policy.autoDeliverResults) return
-    const parent = await this.host.store.load(parentId)
-    if (!parent.session || parent.session.archived) {
+    const parent = await this.host.store.loadExisting(parentId)
+    if (!parent?.session || parent.session.archived) {
       this.#refused.delete(parentId)
       return
     }
@@ -397,16 +442,16 @@ export class DelegationSupervisor {
     const rows = await this.host.store.listSessions()
     const models = new Map<string, SessionReadModel>()
     const load = async (id: string): Promise<SessionReadModel> => {
-      const known = models.get(id) ?? (await this.host.store.load(id))
+      const known = models.get(id) ?? (await this.host.store.loadExisting(id)) ?? initialReadModel()
       models.set(id, known)
       return known
     }
-    /** The sessions at or below `id` that are mid-turn. */
+    /** The sessions at or below `id` that are working or have work queued. */
     const liveWithin = async (id: string): Promise<SessionReadModel[]> => {
       const live: SessionReadModel[] = []
       for (const member of [id, ...subtree(rows, id).map((row) => row.id)]) {
         const model = await load(member)
-        if (model.activeTurnId !== null) live.push(model)
+        if (model.activeTurnId !== null || model.queuedMessages.length > 0) live.push(model)
       }
       return live
     }
@@ -436,7 +481,17 @@ export class DelegationSupervisor {
       const asked = child.messages.find(
         (message) => message.role === 'user' && message.turnId === entry.turnId,
       )
+      const asker = asked?.origin?.kind === 'session' ? asked.origin.sessionId : null
       if (asked !== undefined && (asked.origin === undefined || asked.origin.kind === 'human')) {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
+      // Aria asked for this turn and hears about it itself; the parent did not.
+      if (
+        asker !== null &&
+        asker !== parentId &&
+        rows.some((row) => row.id === asker && isHelmSession(row))
+      ) {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
         continue
       }
@@ -450,12 +505,22 @@ export class DelegationSupervisor {
       )
         continue
       if (child.activeTurnId !== null) continue
+      const errorMessage =
+        child.lastTurn?.turnId === entry.turnId ? (child.lastTurn.errorMessage ?? null) : null
+      // Inspect the whole report: a marker or question can be beyond the notice's excerpt.
+      const report = finalAssistantText(child, entry.turnId, Number.POSITIVE_INFINITY, true)
+      if (
+        isHelmSession(parent.session) &&
+        routineReport({ stopReason: entry.stopReason, errorMessage, text: report.text })
+      ) {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
       reports.push({
         sessionId: entry.childSessionId,
         title: child.session.title,
         stopReason: entry.stopReason,
-        errorMessage:
-          child.lastTurn?.turnId === entry.turnId ? (child.lastTurn.errorMessage ?? null) : null,
+        errorMessage,
         report: finalAssistantText(child, entry.turnId, REPORT_CHARS),
       })
       delivered.push({ childSessionId: entry.childSessionId, turnId: entry.turnId })
@@ -485,12 +550,16 @@ export class DelegationSupervisor {
 
     // Everything above took time. If the parent moved on in the meantime —
     // most of all if it was started and stopped — the wake-up no longer applies.
-    const current = await this.host.store.load(parentId)
+    const current = await this.host.store.loadExisting(parentId)
     if (
+      !current ||
       current.activeTurnId !== null ||
       current.lastTurn?.turnId !== parent.lastTurn.turnId ||
       current.queuedMessages.length > 0
     )
+      return
+    // Retain results until a human starts a fresh conversation turn.
+    if (isHelmSession(current.session) && automaticTurns(current) >= MAX_ARIA_AUTOMATIC_TURNS)
       return
     // `turn.start` rather than an enqueue: refused outright if a turn began
     // after that check, instead of parking a notice behind it.
@@ -524,6 +593,7 @@ export class DelegationSupervisor {
           reports,
           working,
           spend === null ? null : budgetLine(spend, this.host.policy()),
+          isHelmSession(parent.session) ? 'helm' : 'parent',
         ),
         attachments: [],
       },

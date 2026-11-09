@@ -1,4 +1,6 @@
 import { exec } from 'node:child_process'
+import { resolve } from 'node:path'
+import { isWithinRoot } from '@ari/shared/paths'
 
 const MAX_SCROLLBACK = 1024 * 1024
 /**
@@ -54,7 +56,7 @@ function killTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
     return new Promise((resolve) => {
       try {
-        exec(`taskkill /PID ${pid} /T /F`, () => resolve())
+        exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, () => resolve())
       } catch {
         // Still release the native handle if the cleanup process cannot start.
         resolve()
@@ -78,6 +80,7 @@ interface Session {
   pty: PtyLike
   scrollback: string
   exited: boolean
+  cwd: string
 }
 
 /**
@@ -121,7 +124,7 @@ export class TerminalService {
       env,
       windowsHide: true,
     })
-    const session: Session = { pty, scrollback: '', exited: false }
+    const session: Session = { pty, scrollback: '', exited: false, cwd: resolve(cwd) }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -146,6 +149,14 @@ export class TerminalService {
     } catch {
       // resizing a dead session is a no-op
     }
+  }
+
+  /** Waits for shells inside a workspace before that directory is removed. */
+  async killInWorkspace(root: string): Promise<void> {
+    const ids = [...this.#sessions]
+      .filter(([, session]) => isWithinRoot(session.cwd, root))
+      .map(([id]) => id)
+    await Promise.all(ids.map((id) => this.kill(id)))
   }
 
   kill(id: string): Promise<void> {

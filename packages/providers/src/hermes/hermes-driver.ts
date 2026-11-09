@@ -5,7 +5,7 @@ import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
-import { spawnCli } from '../spawn-cli'
+import { argsWithWindowsHandoffBudget, spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:hermes')
@@ -13,8 +13,10 @@ const log = createLogger('providers:hermes')
 /**
  * Builds the argv for a one-shot `hermes` turn. Kept pure for tests; flag
  * drift is caught by fixture tests plus the diagnostics card (M4.15). Flags
- * mirror the documented stream-json mode; the CLI was unavailable locally so
+ * preserve Ari's stream-json fallback; the CLI was unavailable locally so
  * they must be probed against the real binary when it ships.
+ * The published Hermes Agent `chat --query-file` interface differs from this
+ * fallback's flags; keep argv budgeting until this interface is verified.
  */
 export function buildHermesArgs(session: AdapterSession): string[] {
   const args = ['-p', promptWithAttachments(session), '--output-format', 'stream-json', '--verbose']
@@ -44,12 +46,16 @@ export class HermesDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawnCli(this.binaryPath, buildHermesArgs(session), {
-      cwd: session.workspacePath,
-      ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
+    const child = spawnCli(
+      this.binaryPath,
+      argsWithWindowsHandoffBudget(this.binaryPath, session, buildHermesArgs),
+      {
+        cwd: session.workspacePath,
+        ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
+    )
     log.debug('hermes spawned', { pid: child.pid })
 
     const iterator = streamProcessEvents(child, mapHermesLine, {

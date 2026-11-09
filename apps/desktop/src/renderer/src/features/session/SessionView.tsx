@@ -21,6 +21,9 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
+import { hasProviderContext } from '@ari/contracts/session'
+import { canSwitchProvider } from '@ari/contracts/helm'
+import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
@@ -191,6 +194,11 @@ function StoreTranscript({
 }
 
 const EMPTY_BACKGROUND = { tasks: [] as BackgroundTask[], reporting: false, since: null }
+const EMPTY_PROVIDER_CONTEXT = {
+  hasMessages: false,
+  hasTurns: false,
+  providerSessionId: null as string | null,
+}
 /** How long the rail keeps saying the agent reports back after its last output. */
 const REPORTING_LINGER_MS = 4000
 
@@ -245,7 +253,10 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
+  startedByAria = false,
+  onOpenAria,
   hidden = false,
+  onComposerReady,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -259,6 +270,8 @@ export function SessionView({
   sessionTitle?: (id: string) => string | undefined
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
+  startedByAria?: boolean
+  onOpenAria?: () => void
   /**
    * Kept mounted behind the pane's current session. The journal subscription
    * stays live so the view is current when it returns, but its subtree's
@@ -266,10 +279,13 @@ export function SessionView({
    * as it did when switching away unmounted it.
    */
   hidden?: boolean
+  /** Used only by the shell's explicit session-start handoff. */
+  onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
   const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
@@ -282,6 +298,10 @@ export function SessionView({
   const historyJournalRef = useRef<HistoryJournal | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
+  const [providerSwitchable, setProviderSwitchable] = useState(false)
+  const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
+  const [providerContext, setProviderContext] = useState(EMPTY_PROVIDER_CONTEXT)
+  const providerLocked = !providerSwitchable && hasProviderContext(providerContext)
   const [queued, setQueued] = useState<QueuedMessageView[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
@@ -358,6 +378,16 @@ export function SessionView({
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
   const defaultsRef = useRef(defaults)
   defaultsRef.current = defaults
+  const modelPicksRef = useRef({
+    sequence: 0,
+    pending: 0,
+    confirmed: {
+      driverKind: defaults.driverKind,
+      modelId: defaults.modelId,
+      effort: defaults.effort,
+    },
+  })
+  const effortRevisionRef = useRef(0)
   const hiddenRef = useRef(hidden)
   hiddenRef.current = hidden
   const onDefaultsChangeRef = useRef(onDefaultsChange)
@@ -388,6 +418,13 @@ export function SessionView({
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
   const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
+  const modelLabel = useCallback(
+    (kind: DriverKind, id: string) =>
+      catalogModels
+        .find((row) => row.kind === kind)
+        ?.models.find((model) => model.id === id || model.aliases?.includes(id))?.label,
+    [catalogModels],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -400,6 +437,18 @@ export function SessionView({
     setMetadataFailureSession(null)
     setMetadataRetrying(false)
     setRunning(false)
+    setProviderSwitchable(false)
+    setProviderSwitches([])
+    setProviderContext(EMPTY_PROVIDER_CONTEXT)
+    modelPicksRef.current = {
+      sequence: 0,
+      pending: 0,
+      confirmed: {
+        driverKind: defaultsRef.current.driverKind,
+        modelId: defaultsRef.current.modelId,
+        effort: defaultsRef.current.effort,
+      },
+    }
     setQueued([])
     setApprovals([])
     setPendingQuestion(null)
@@ -625,9 +674,19 @@ export function SessionView({
           const m = model as {
             session: Session
             activeTurnId: string | null
+            messages?: Message[]
+            lastTurn?: unknown
+            providerSessionId?: string | null
           }
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
           setMetadataFailureSession(null)
+          setProviderSwitchable(canSwitchProvider(m.session))
+          setProviderContext((previous) => ({
+            hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
+            hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
+            providerSessionId: m.providerSessionId ?? previous.providerSessionId,
+          }))
+          setMetadataReadySession(sessionId)
           onDefaultsChange({
             driverKind: m.session.driverKind,
             modelId: m.session.modelId,
@@ -662,6 +721,19 @@ export function SessionView({
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
+      case 'session.created':
+        setProviderSwitchable(canSwitchProvider(event.session))
+        break
+      case 'session.provider.switched':
+        setProviderSwitches((prev) => [...prev, event])
+        if (live)
+          onDefaultsChangeRef.current({
+            ...defaultsRef.current,
+            driverKind: event.driverKind,
+            modelId: event.modelId,
+            effort: event.effort,
+          })
+        break
       case 'child.session.spawned': {
         // The card sits where the spawn happened: after whatever part of the
         // conversation was last on screen when this event was journaled.
@@ -698,9 +770,15 @@ export function SessionView({
         refreshTasksRef.current()
         break
       case 'user.message.added':
+        setProviderContext((previous) =>
+          previous.hasMessages ? previous : { ...previous, hasMessages: true },
+        )
         lastPartRef.current = historyJournalRef.current?.lastPart ?? null
         break
       case 'assistant.parts.appended': {
+        setProviderContext((previous) =>
+          previous.hasMessages ? previous : { ...previous, hasMessages: true },
+        )
         // Counted per message: a steered user message lands in the middle of
         // a turn, and the assistant message it interrupts keeps growing after.
         lastPartRef.current = historyJournalRef.current?.lastPart ?? null
@@ -724,6 +802,9 @@ export function SessionView({
         }))
         break
       case 'turn.started':
+        setProviderContext((previous) =>
+          previous.hasTurns ? previous : { ...previous, hasTurns: true },
+        )
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
         errorTurnIdRef.current = null
@@ -839,6 +920,9 @@ export function SessionView({
             permissionMode: event.permissionMode,
           })
         }
+        break
+      case 'session.ref.observed':
+        setProviderContext((previous) => ({ ...previous, providerSessionId: event.ref }))
         break
       case 'usage.recorded':
         setTelemetry((t) => ({
@@ -1433,28 +1517,83 @@ export function SessionView({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
-      // A session that already ran turns stays on its harness: the provider
-      // thread (resume id) belongs to that CLI, and switching would fork the
-      // context silently. The picker is locked too; this guards other paths.
-      if (telemetry.turnCount > 0 && next.driverKind !== defaults.driverKind) return
-      onDefaultsChange({ ...defaults, ...next })
-      onPick?.(next)
-      void rpc
-        .invoke('command.dispatch', {
-          command: {
-            type: 'session.update',
-            sessionId,
-            driverKind: next.driverKind,
-            modelId: next.modelId,
-          },
-        })
-        .catch(() => undefined)
+      const switched = next.driverKind !== defaults.driverKind
+      if (switched && providerLocked) return
+      const switchProvider = providerSwitchable && switched && hasProviderContext(providerContext)
+      const effort = providerSwitchable && switched ? { effort: null } : {}
+      const before = {
+        driverKind: defaultsRef.current.driverKind,
+        modelId: defaultsRef.current.modelId,
+        effort: defaultsRef.current.effort,
+      }
+      const pick: Partial<typeof before> = { ...next, ...effort }
+      const changedFields = (Object.keys(pick) as (keyof typeof before)[]).filter(
+        (field) => pick[field] !== before[field],
+      )
+      const effortRevision = effortRevisionRef.current
+      const picks = modelPicksRef.current
+      if (picks.pending === 0)
+        picks.confirmed = {
+          driverKind: defaultsRef.current.driverKind,
+          modelId: defaultsRef.current.modelId,
+          effort: defaultsRef.current.effort,
+        }
+      const sequence = ++picks.sequence
+      picks.pending++
+      if (!switchProvider) {
+        onDefaultsChange({ ...defaultsRef.current, ...next, ...effort })
+      }
+      void dispatch(
+        switchProvider
+          ? { type: 'session.provider.switch', sessionId, ...next, effort: null }
+          : { type: 'session.update', sessionId, ...next, ...effort },
+        'Couldn’t change model',
+      ).then((accepted) => {
+        if (modelPicksRef.current !== picks) return
+        picks.pending--
+        const current = defaultsRef.current
+        const acceptedEffort =
+          effortRevision === effortRevisionRef.current &&
+          (current.effort === pick.effort || (switchProvider && current.effort === before.effort))
+            ? effort
+            : {}
+        if (accepted) {
+          picks.confirmed = { ...picks.confirmed, ...next, ...acceptedEffort }
+          onPick?.({ ...next, ...acceptedEffort })
+        }
+        // An older rejection must not overwrite a more recent optimistic pick.
+        if (sequence !== picks.sequence) return
+        if (!accepted || switchProvider) {
+          const patch = Object.fromEntries(
+            changedFields
+              .filter(
+                (field) =>
+                  (field !== 'effort' || effortRevision === effortRevisionRef.current) &&
+                  (current[field] === pick[field] ||
+                    (switchProvider && current[field] === before[field])),
+              )
+              .map((field) => [field, accepted ? pick[field] : picks.confirmed[field]]),
+          ) as Partial<typeof before>
+          onDefaultsChange({ ...current, ...patch })
+        }
+      })
     },
-    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults],
+    [
+      sessionId,
+      onDefaultsChange,
+      onPick,
+      defaults,
+      providerSwitchable,
+      providerContext,
+      providerLocked,
+      dispatch,
+    ],
   )
 
   const changeEffort = useCallback(
     (effort: string | null) => {
+      effortRevisionRef.current++
+      modelPicksRef.current.confirmed.effort = effort
       onDefaultsChange({ ...defaults, effort })
       onPick?.({ effort })
       void rpc
@@ -1595,6 +1734,9 @@ export function SessionView({
     () => (
       <Composer
         centered={centered}
+        onReady={
+          !hidden && centered && metadataReadySession === sessionId ? onComposerReady : undefined
+        }
         sessionId={sessionId}
         onSend={handleSend}
         sendPending={sendPending}
@@ -1680,7 +1822,7 @@ export function SessionView({
               driverKind={defaults.driverKind}
               modelId={defaults.modelId}
               onChange={changeModel}
-              lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
+              lockedTo={providerLocked ? defaults.driverKind : null}
             />
             <EffortChip
               driverKind={defaults.driverKind}
@@ -1699,6 +1841,9 @@ export function SessionView({
     ),
     [
       centered,
+      hidden,
+      metadataReadySession,
+      onComposerReady,
       sessionId,
       handleSend,
       sendPending,
@@ -1736,6 +1881,8 @@ export function SessionView({
       changeEffort,
       changePermissionMode,
       telemetry.turnCount,
+      providerSwitchable,
+      providerLocked,
     ],
   )
   const startFromStarter = useCallback(
@@ -1757,6 +1904,15 @@ export function SessionView({
           aria-hidden
         />
         <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+        {startedByAria ? (
+          <button
+            type="button"
+            onClick={onOpenAria}
+            className="shrink-0 px-4 py-1 text-left text-xs text-fg-subtle hover:text-fg"
+          >
+            Started by Aria
+          </button>
+        ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
@@ -1775,6 +1931,8 @@ export function SessionView({
             onUndoTurn={undoTurn}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
+            providerSwitches={providerSwitches}
+            modelLabel={modelLabel}
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
             onTurnInView={handleTurnInView}

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exec } from 'node:child_process'
+import { join, resolve } from 'node:path'
 import type * as ChildProcess from 'node:child_process'
 import {
   TerminalService,
@@ -127,6 +128,19 @@ describe('TerminalService', () => {
     expect(exits).toEqual(['t4'])
   })
 
+  it('closes only terminals opened inside the released workspace', async () => {
+    const { service, ptys } = makeService()
+    const root = resolve('worktrees', 'child')
+    service.create('root', root)
+    service.create('nested', join(root, 'packages'))
+    service.create('sibling', root + '-other')
+    await service.killInWorkspace(root)
+    expect(ptys[0]?.kill).toHaveBeenCalledOnce()
+    expect(ptys[1]?.kill).toHaveBeenCalledOnce()
+    expect(ptys[2]?.kill).not.toHaveBeenCalled()
+    expect(service.has('sibling')).toBe(true)
+  })
+
   it('closes all native handles and child trees exactly once and refuses late creation', async () => {
     vi.stubGlobal('process', { ...process, platform: 'win32' })
     vi.mocked(exec).mockClear()
@@ -137,7 +151,11 @@ describe('TerminalService', () => {
     await service.close()
     expect(ptys.map((pty) => pty.kill.mock.calls.length)).toEqual([1, 1])
     expect(exec).toHaveBeenCalledTimes(2)
-    expect(exec).toHaveBeenCalledWith('taskkill /PID 1234 /T /F', expect.any(Function))
+    expect(exec).toHaveBeenCalledWith(
+      'taskkill /PID 1234 /T /F',
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    )
     expect(service.has('one')).toBe(false)
     expect(service.has('two')).toBe(false)
     expect(() => service.create('late', '.')).toThrow('Ari is shutting down')
@@ -170,7 +188,11 @@ describe('TerminalService', () => {
     // Like ConPTY, a backend can provide its PID after asynchronous startup.
     ptys[0]!.pid = 5678
     const killing = service.kill('tree')
-    expect(exec).toHaveBeenLastCalledWith('taskkill /PID 5678 /T /F', expect.any(Function))
+    expect(exec).toHaveBeenLastCalledWith(
+      'taskkill /PID 5678 /T /F',
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    )
     expect(ptys[0]!.kill).not.toHaveBeenCalled()
     expect(service.has('tree')).toBe(false)
     let closed = false

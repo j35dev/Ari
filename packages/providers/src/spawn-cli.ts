@@ -1,5 +1,11 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { Writable } from 'node:stream'
+import { createLogger } from '@ari/shared/logger'
+import type { AdapterSession } from './driver'
+
+const log = createLogger('providers:spawn-cli')
 
 /**
  * Windows CLI spawn support.
@@ -12,7 +18,7 @@ import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_pr
  *
  * PowerShell scripts (`.ps1`, e.g. the Pi agent's Windows installer layout)
  * cannot run through cmd.exe at all, so they are spawned via
- * `powershell.exe -File` instead — argv stays literal, never re-parsed.
+ * powershell.exe instead — argv stays literal, never re-parsed.
  */
 
 // See http://www.robvanderwoude.com/escapechars.php
@@ -20,6 +26,18 @@ const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g
 
 /** npm-style cmd shims re-parse arguments through a second cmd layer. */
 const isCmdShimRegExp = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i
+
+function isNpmCmdShim(binaryPath: string): boolean {
+  if (!/\.cmd$/i.test(binaryPath)) return false
+  try {
+    const source = readFileSync(binaryPath, 'utf8')
+    return (
+      /%\*/.test(source) && /\bnode(?:\.exe)?\b/i.test(source) && /%(?:~dp0|dp0%)/i.test(source)
+    )
+  } catch {
+    return false
+  }
+}
 
 function escapeCommand(command: string): string {
   return command.replace(metaCharsRegExp, '^$1')
@@ -53,7 +71,7 @@ function escapeArgument(arg: string, doubleEscapeMetaChars: boolean): string {
 
 /**
  * True when the binary is a PowerShell script: cmd.exe cannot execute it, so
- * it must go through powershell.exe -File rather than the cmd wrapper.
+ * it must go through powershell.exe rather than the cmd wrapper.
  */
 export function isPowershellScript(binaryPath: string): boolean {
   return /\.ps1$/i.test(binaryPath)
@@ -68,17 +86,42 @@ export function needsWindowsShell(binaryPath: string): boolean {
 }
 
 /**
- * Builds the argv for spawning a `.ps1` script via powershell.exe:
- * `-File` passes every later arg through literally, so prompt text with
- * cmd metacharacters (`&`, `|`, `>`) is never re-parsed as a command line.
+ * PowerShell script arguments stay literal. Piped stdin must bypass -File's
+ * text pipeline, which decodes bytes and normalizes newlines in npm shims.
  */
 export function buildPowershellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[] } {
+  if (pipedStdin || args.includes('-')) {
+    // Windows PowerShell's -File parser rejects a standalone dash before the
+    // script sees it. Splat literal strings so Codex's stdin marker survives.
+    const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
+    const command = `$ErrorActionPreference = 'Stop'; try { $LASTEXITCODE = $null; $cliArgs = @(${args.map(literal).join(', ')}); & ${literal(binaryPath)} @cliArgs; if ($null -eq $LASTEXITCODE) { exit 0 }; exit $LASTEXITCODE } catch { [Console]::Error.WriteLine($_); exit 1 }`
+    return {
+      file: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(command, 'utf16le').toString('base64'),
+      ],
+    }
+  }
   return {
     file: 'powershell.exe',
-    args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', binaryPath, ...args],
+    args: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      binaryPath,
+      ...args,
+    ],
   }
 }
 
@@ -95,9 +138,13 @@ export function buildPowershellSpawnArgs(
 export function buildShellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[]; windowsVerbatimArguments: boolean } {
   if (isPowershellScript(binaryPath)) {
-    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: false }
+    return {
+      ...buildPowershellSpawnArgs(binaryPath, args, pipedStdin),
+      windowsVerbatimArguments: false,
+    }
   }
   return buildCmdSpawnArgs(binaryPath, args)
 }
@@ -111,9 +158,10 @@ export function buildCmdSpawnArgs(
   args: string[],
 ): { file: string; args: string[]; windowsVerbatimArguments: true } {
   const doubleEscapeMetaChars = isCmdShimRegExp.test(binaryPath)
-  const shellCommand = [escapeCommand(binaryPath), ...args.map((a) => escapeArgument(a, doubleEscapeMetaChars))].join(
-    ' ',
-  )
+  const shellCommand = [
+    escapeCommand(binaryPath),
+    ...args.map((a) => escapeArgument(a, doubleEscapeMetaChars)),
+  ].join(' ')
   return {
     file: process.env['ComSpec'] ?? 'cmd.exe',
     args: ['/d', '/s', '/c', `"${shellCommand}"`],
@@ -121,10 +169,52 @@ export function buildCmdSpawnArgs(
   }
 }
 
+/** Only argv-only CLIs need to budget history against cmd.exe's length limit. */
+export function argsWithWindowsHandoffBudget(
+  binaryPath: string,
+  session: AdapterSession,
+  buildArgs: (session: AdapterSession) => string[],
+): string[] {
+  const original = buildArgs(session)
+  const handoff = session.handoff
+  if (!handoff || !needsWindowsShell(binaryPath) || isPowershellScript(binaryPath)) return original
+  // Generated npm shims prepend node and script paths when expanding %*.
+  const shimMargin = isNpmCmdShim(binaryPath) ? Math.max(512, binaryPath.length * 2 + 128) : 0
+  const fits = (args: string[]): boolean => {
+    const wrapped = buildCmdSpawnArgs(binaryPath, args)
+    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191 - shimMargin
+  }
+  if (fits(original)) return original
+  const header = handoff.split('\n\n', 1)[0] ?? ''
+  const argsAt = (budget: number): string[] => {
+    const bodyChars = budget - header.length - 2
+    const reduced = bodyChars > 0 ? `${header}\n\n${handoff.slice(-bodyChars)}` : ''
+    const prompt = reduced
+      ? session.prompt.replace(handoff, () => reduced)
+      : session.prompt.replace(`${handoff}\n\n`, '').replace(handoff, '')
+    return buildArgs({ ...session, prompt })
+  }
+  let low = 0
+  let high = handoff.length
+  let best = argsAt(0)
+  // The user's prompt, preamble and live state are preserved. If they alone
+  // exceed the limit, adding carried history must not make that worse.
+  if (!fits(best)) return best
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const candidate = argsAt(middle)
+    if (fits(candidate)) {
+      best = candidate
+      low = middle + 1
+    } else high = middle - 1
+  }
+  return best
+}
+
 /**
  * Spawns an external CLI safely on every platform: direct argv elsewhere,
  * a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows, and
- * powershell.exe -File for .ps1 scripts — so arbitrary prompt text can
+ * powershell.exe for .ps1 scripts — so arbitrary prompt text can
  * never be parsed as a command line.
  *
  * Returns the non-null-stream shape every driver uses (callers pass pipe
@@ -139,9 +229,19 @@ export function spawnCli(
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams
   }
-  const wrapped = buildShellSpawnArgs(binaryPath, args)
+  const stdin = Array.isArray(options.stdio) ? options.stdio[0] : options.stdio
+  const pipedStdin = stdin == null || stdin === 'pipe' || stdin === 'overlapped'
+  const wrapped = buildShellSpawnArgs(binaryPath, args, pipedStdin)
   return spawn(wrapped.file, wrapped.args, {
     ...options,
     windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams
+}
+
+/** One-shot CLIs read through EOF; no shell ever parses these prompt bytes. */
+export function writeCliPrompt(stdin: Writable, prompt: string): void {
+  // A CLI may exit for login or argument errors before accepting the prompt.
+  // Its exit/stderr pump reports that failure; EPIPE must not crash the host.
+  stdin.on('error', (error: Error) => log.debug('CLI stdin error', { message: error.message }))
+  stdin.end(prompt, 'utf8')
 }

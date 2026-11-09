@@ -159,6 +159,22 @@ describe('SessionView question panel', () => {
     vi.clearAllMocks()
   })
 
+  it('uses the shared chat controls for Aria and keeps its Work panel available', async () => {
+    const implementation = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.load'
+        ? { session: { ...SESSION, projectId: 'helm', title: 'Aria' }, activeTurnId: null }
+        : implementation(method, params),
+    )
+    renderView()
+    await screen.findByLabelText('Message')
+    expect(screen.queryByRole('button', { name: 'New topic' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Past topics' })).toBeNull()
+    expect(screen.queryByText('Done today')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Work' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Work details')).not.toBeInTheDocument()
+  })
+
   it('centers only after history has replayed and keeps the editor when docking', async () => {
     rpcMocks.subscribe.mockImplementation(
       (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {

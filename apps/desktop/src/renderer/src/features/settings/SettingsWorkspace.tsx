@@ -6,6 +6,7 @@ import {
   FileCog,
   GitBranch,
   Keyboard,
+  Mic,
   Palette,
   Plug,
   Shield,
@@ -20,6 +21,7 @@ import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
+import { SpeechSettings } from './SpeechSettings'
 import { SourceControlSettings } from './SourceControlSettings'
 import { SettingsPage } from './SettingsPage'
 import { SettingsSearch } from './SettingsSearch'
@@ -31,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette, group: null },
   { id: 'notifications', label: 'Notifications', icon: Bell, group: null },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard, group: null },
+  { id: 'speech', label: 'Speech to text', icon: Mic, group: null },
   { id: 'providers', label: 'Providers', icon: Cpu, group: 'AI' },
   { id: 'agents', label: 'Agents', icon: FileCog, group: 'AI' },
   { id: 'endpoints', label: 'Endpoints', icon: Plug, group: 'AI' },
@@ -231,6 +234,7 @@ export function SettingsWorkspace({
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
+          {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
         </div>
       </section>

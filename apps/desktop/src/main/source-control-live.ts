@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { GitMutationService, ship, watchGitChanges } from '@ari/engine/git'
 import { currentPullRequest, forget as forgetPullRequest, openPullRequest } from './pull-request'
 import { sourceControlEnvironment } from './source-control-environment'
@@ -20,6 +20,8 @@ interface Watched {
 interface Subscription {
   watched?: Watched
   key?: string
+  sessionId?: string
+  pending?: Promise<void>
 }
 interface LiveDeps {
   busy(root: string): Promise<boolean>
@@ -175,10 +177,12 @@ export class SourceControlLive {
   watch(id: string, raw: Record<string, unknown>): void {
     const scope = gitScopeSchema.safeParse(raw)
     if (!scope.success || this.#closed) return
-    this.unwatch(id)
-    const subscription: Subscription = {}
+    void this.unwatch(id)
+    const subscription: Subscription = {
+      ...(scope.data.sessionId ? { sessionId: scope.data.sessionId } : {}),
+    }
     this.#subscriptions.set(id, subscription)
-    void this.host
+    subscription.pending = this.host
       .withReview(scope.data, (review) => Promise.resolve(ok(review)))
       .then((result) => {
         if (this.#subscriptions.get(id) !== subscription || this.#closed) return
@@ -215,7 +219,7 @@ export class SourceControlLive {
       )
   }
 
-  unwatch(id: string): void {
+  async unwatch(id: string): Promise<void> {
     const subscription = this.#subscriptions.get(id)
     this.#subscriptions.delete(id)
     const watched = subscription?.watched
@@ -223,16 +227,31 @@ export class SourceControlLive {
     watched.ids.delete(id)
     if (watched.ids.size) return
     this.#watched.delete(subscription.key!)
-    void watched.task
+    await watched.task
       .then(async (result) => {
         if (result.ok) await result.value()
       })
       .catch((error: unknown) => log.warn('Git watch cleanup failed', { error: String(error) }))
   }
 
+  /** Cancels pending subscriptions and awaits Git handles on a released workspace. */
+  async dropSession(sessionId: string, roots: readonly string[]): Promise<void> {
+    const targets = roots.map((root) => keyFor(resolve(root)))
+    for (const [id, subscription] of [...this.#subscriptions]) {
+      if (subscription.sessionId === sessionId) {
+        await this.unwatch(id)
+        continue
+      }
+      await subscription.pending
+      const key = subscription.key
+      if (key && targets.some((root) => key === root || key.startsWith(root + sep)))
+        await this.unwatch(id)
+    }
+  }
+
   /** Releases subscriptions even when watcher startup is still pending. */
   close(): void {
     this.#closed = true
-    for (const id of this.#subscriptions.keys()) this.unwatch(id)
+    for (const id of this.#subscriptions.keys()) void this.unwatch(id)
   }
 }

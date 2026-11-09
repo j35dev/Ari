@@ -1,20 +1,21 @@
 import type { ApprovalOption } from '@ari/contracts/common'
 
 /**
- * `ari` subcommands that either only read, or act inside limits the control
- * service enforces on its own (scope, depth, concurrency, the delegation
- * approval). `integrate` writes into the parent's workspace, `destroy` deletes
- * sessions and `skill install` writes user configuration, so those keep their
- * permission prompt.
+ * `ari` subcommands act inside limits the control service enforces on its own
+ * (scope, depth, concurrency, the configured delegation approval). Only
+ * `skill install` keeps its permission prompt because it writes the user's
+ * agent configuration.
  */
-const TOP_LEVEL = new Set(['env', 'agents', 'providers', '--skill'])
+const TOP_LEVEL = new Set(['env', 'agents', 'providers', 'projects', 'sessions', '--skill'])
 const SESSION = new Set([
   'get',
   'children',
   'status',
   'spawn',
   'prompt',
+  'switch',
   'message',
+  'answer',
   'delivery',
   'inbox',
   'ack',
@@ -22,12 +23,18 @@ const SESSION = new Set([
   'wait',
   'stop',
   'diff',
+  'integrate',
+  'destroy',
+  'delete',
 ])
+const ROUTINE = new Set(['add', 'list', 'ls', 'rm', 'remove'])
 const COMMAND_WORDS = new Set(['ari', 'ari.cmd', '$ARI_CLI', '"$ARI_CLI"'])
 const ORCHESTRATION = new Set([
   'view',
   'inbox',
   'routine.list',
+  'routine.add',
+  'routine.remove',
   'launch',
   'retry',
   'update',
@@ -36,6 +43,7 @@ const ORCHESTRATION = new Set([
   'context',
   'context.get',
   'diff',
+  'integrate',
   'verify',
   'answer',
   'stop',
@@ -90,6 +98,8 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'session') return second !== undefined && SESSION.has(second)
+  if (first === 'project') return ['ask', 'create', 'default', 'lead'].includes(second ?? '')
+  if (first === 'routine') return second !== undefined && ROUTINE.has(second)
   if (first === 'task' || first === 'orchestration')
     return second !== undefined && ORCHESTRATION.has(second)
   return first === 'parent' && second === 'message'

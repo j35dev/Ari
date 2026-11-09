@@ -3,7 +3,8 @@ import type { BrowserWindow } from 'electron'
 import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { DiscordPresence } from './discord-presence'
-import { registerRpc, startAppUpdateChecks } from './rpc'
+import { openSpeechSettings, registerRpc, startAppUpdateChecks } from './rpc'
+import { AriaWidget } from './aria-widget'
 import type { EngineHandle } from './rpc'
 import { afterFirstPaint } from './startup-gate'
 import { getSettingsStore } from './store'
@@ -30,6 +31,7 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null
   let tray: TrayHandle | null = null
+  let widget: AriaWidget | null = null
   let runtime: EngineHandle | null = null
   let quitting = false
   let shutdownStarted = false
@@ -65,6 +67,7 @@ if (!gotLock) {
   app.on('activate', showMainWindow)
   app.on('before-quit', (event) => {
     quitting = true
+    widget?.close()
     if (!runtime || shutdownComplete) return
     event.preventDefault()
     if (shutdownStarted) return
@@ -157,16 +160,27 @@ if (!gotLock) {
           refreshTray((handle) => updateTrayStatus(handle, count))
           presence.setRunningCount(count)
         },
-        onSettingsChanged: (settings) =>
-          presence.setEnabled(settings.notifications.discordPresence),
+        onSettingsChanged: (settings) => {
+          presence.setEnabled(settings.notifications.discordPresence)
+          void widget?.configure(settings)
+        },
         backgroundReady: firstPaint,
       })
+      widget = new AriaWidget({
+        invoke: runtime.invoke,
+        openSettings: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) openSpeechSettings(mainWindow.webContents)
+        },
+      })
+      void widget.configure(getSettingsStore().current)
       void getSettingsStore()
         .load()
         .catch((error: unknown) => log.warn('settings load failed', { error }))
         .then(() => {
-          if (!quitting)
+          if (!quitting) {
             presence.setEnabled(getSettingsStore().current.notifications.discordPresence)
+            void widget?.configure(getSettingsStore().current)
+          }
         })
     })
     .catch((error: unknown) => {

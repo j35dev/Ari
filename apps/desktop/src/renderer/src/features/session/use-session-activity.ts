@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { reduceSessionAttention } from './session-attention'
 import {
   ACTIVE_SETTLE_LINGER_MS,
   reduceSessionActivity,
@@ -22,11 +23,17 @@ import {
  */
 export function useSessionActivity(visibleSessionIds: readonly string[]): {
   activityOf: (sessionId: string) => SessionActivity | undefined
+  attentionCountOf: (sessionId: string) => number
   acknowledge: (sessionId: string) => void
   forget: (sessionId: string) => void
 } {
   const [byId, setById] = useState<ReadonlyMap<string, SessionActivity>>(() => new Map())
   const byIdRef = useRef(byId)
+  const [attention, setAttention] = useState<ReadonlyMap<string, ReadonlySet<string>>>(
+    () => new Map(),
+  )
+  const attentionRef = useRef(attention)
+  attentionRef.current = attention
   byIdRef.current = byId
   /** Keep the turn's own phase separate from the native agents that outlive it. */
   const ownActivityRef = useRef(new Map<string, SessionActivity>())
@@ -48,6 +55,12 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   const remove = useCallback(
     (sessionId: string): void => {
       clearFade(sessionId)
+      if (attentionRef.current.has(sessionId)) {
+        const next = new Map(attentionRef.current)
+        next.delete(sessionId)
+        attentionRef.current = next
+        setAttention(next)
+      }
       ownActivityRef.current.delete(sessionId)
       nativeAgentsRef.current.delete(sessionId)
       if (!byIdRef.current.has(sessionId)) return
@@ -67,7 +80,11 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       if (current.queuedCount) {
         clearFade(sessionId)
         const next = new Map(byIdRef.current)
-        const queued: SessionActivity = { phase: 'queued', startedAt: null, queuedCount: current.queuedCount }
+        const queued: SessionActivity = {
+          phase: 'queued',
+          startedAt: null,
+          queuedCount: current.queuedCount,
+        }
         next.set(sessionId, queued)
         ownActivityRef.current.set(sessionId, queued)
         byIdRef.current = next
@@ -94,6 +111,16 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       const sessionId = frame?.sessionId
       const event = frame?.event as ActivityEvent | undefined
       if (sessionId === undefined || event?.type === undefined) return
+
+      const pending = attentionRef.current.get(sessionId) ?? new Set<string>()
+      const requests = reduceSessionAttention(pending, event)
+      if (requests !== pending) {
+        const next = new Map(attentionRef.current)
+        if (requests.size > 0) next.set(sessionId, requests)
+        else next.delete(sessionId)
+        attentionRef.current = next
+        setAttention(next)
+      }
 
       const now = Date.now()
       const prevOwn = ownActivityRef.current.get(sessionId)
@@ -129,6 +156,15 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
             nativeAgentsRef.current.delete(sessionId)
             agents = undefined
           }
+        }
+      }
+      if (requests.size > 0 && nextOwn?.phase !== 'paused') {
+        nextOwn = {
+          phase: 'paused',
+          startedAt: nextOwn?.startedAt ?? null,
+          pauseReason: [...requests].some((key) => key.startsWith('approval:'))
+            ? 'approval'
+            : 'input',
         }
       }
       if (nextOwn === prevOwn && !nativeChanged) return
@@ -174,9 +210,14 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
   // Changes identity only when some session's activity does, so memoized
   // consumers (the transcript's delegation cards) skip unrelated renders.
   const activityOf = useCallback((sessionId: string) => byId.get(sessionId), [byId])
+  const attentionCountOf = useCallback(
+    (sessionId: string) => attention.get(sessionId)?.size ?? 0,
+    [attention],
+  )
 
   return {
     activityOf,
+    attentionCountOf,
     acknowledge,
     forget,
   }

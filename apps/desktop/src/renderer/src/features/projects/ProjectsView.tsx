@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { visibleProjects } from '../aria/visibility'
 import type { FormEvent } from 'react'
 import type { Project } from '@ari/contracts/project'
 import { Button } from '@ari/ui/button'
@@ -167,7 +168,7 @@ export function ProjectsView({ onOpenTerminal }: { onOpenTerminal?: () => void }
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   const refresh = async (): Promise<void> => {
-    setProjects(await rpc.invoke('project.list'))
+    setProjects(visibleProjects(await rpc.invoke('project.list')))
   }
 
   useEffect(() => {

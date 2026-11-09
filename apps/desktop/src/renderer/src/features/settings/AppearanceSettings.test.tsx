@@ -17,6 +17,7 @@ vi.mock('./useEngineSettings', () => ({
 }))
 
 const engineSettings: Settings = {
+  speech: defaultSettings.speech,
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {

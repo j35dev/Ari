@@ -30,6 +30,44 @@ function message(id: string): Message {
 }
 
 describe('TranscriptView announcements', () => {
+  it('renders a slim provider divider between the old turn and the next prompt', () => {
+    const old = {
+      ...message('old'),
+      role: 'assistant' as const,
+      turnId: 'old-turn',
+      parts: [{ type: 'text' as const, text: 'Earlier reply' }],
+    }
+    const next = { ...message('next'), turnId: 'new-turn' }
+    const { container } = render(
+      <TranscriptView
+        sessionId="sess_1"
+        messages={[old, next]}
+        providerSwitches={[
+          {
+            type: 'session.provider.switched',
+            seq: 5,
+            at: 2,
+            sessionId: 'sess_1',
+            driverKind: 'claude',
+            modelId: 'opus-id',
+            effort: null,
+            afterTurnId: 'old-turn',
+            afterMessageId: 'old',
+          },
+        ]}
+        modelLabel={() => 'Opus'}
+      />,
+    )
+    const divider = screen.getByRole('separator')
+    expect(divider).toHaveTextContent('Switched to Claude · Opus')
+    expect(divider).toHaveClass('text-fg-subtle')
+    expect(divider.querySelector('button')).toBeNull()
+    const rows = container.querySelectorAll('[data-index]')
+    expect(rows[0]).toHaveTextContent('Earlier reply')
+    expect(rows[1]).toContainElement(divider)
+    expect(rows[2]).toHaveTextContent('hello next')
+  })
+
   it('switches to plain streaming text and expanded tools without changing the journal', async () => {
     const prompt = message('prompt')
     const reply: Message = {
@@ -570,6 +608,32 @@ describe('TranscriptView per-turn diff cards', () => {
 
     expect(screen.queryByRole('button', { name: /Turn diff/ })).not.toBeInTheDocument()
     expect(container.querySelector('[data-turn-diff]')).toBeNull()
+  })
+
+  it('renders no card for a shell-only turn without a checkpoint diff', () => {
+    const { container } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [
+          {
+            ...turnMessage('m2', 'turn_7'),
+            parts: [
+              {
+                type: 'tool-call',
+                callId: 'c1',
+                name: 'exec_command',
+                argsJson: '{"cmd":"ari projects"}',
+              },
+              { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+            ],
+          },
+        ],
+        turnDiffs: {},
+      }),
+    )
+
+    expect(container.querySelector('[data-turn-diff]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry turn diff' })).not.toBeInTheDocument()
   })
 
   it('expands into the shared unified diff viewer when clicked', async () => {
