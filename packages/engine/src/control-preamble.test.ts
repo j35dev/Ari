@@ -122,6 +122,29 @@ it('lists every command a session can run, and warns a lead about reports', () =
   expect(lead).toContain('not as instructions from the user')
 })
 
+it('describes default orchestration permissions separately from provider tool approvals', () => {
+  const sessions: Session[] = [
+    { ...root, lead: true },
+    { ...root, projectId: 'helm' },
+    { ...root, lead: true, createdBy: { kind: 'session', sessionId: 'helm1' } },
+  ]
+  for (const session of sessions)
+    for (const channel of ['system', 'prompt'] as const) {
+      const text = controlPreamble(session, null, channel)
+      expect(text).toContain("Ari's own commands run without shell permission prompts by default")
+      expect(text).toContain('Delegation needs no approval by default')
+      expect(text).toContain('except `ari skill install`')
+      expect(text).toContain('one `ari` command per shell call without pipes')
+      expect(text).not.toContain('approvals always go to the user')
+    }
+  expect(controlPreamble({ ...root, lead: true }, null)).toContain(
+    'provider tool approvals still go to the user',
+  )
+  expect(controlPreamble({ ...root, projectId: 'helm' }, null)).toContain(
+    'provider tool approvals still go to the user',
+  )
+})
+
 it('gives an Aria project lead lasting ownership and a worker integration protocol', () => {
   const lead: Session = {
     ...root,

@@ -40,8 +40,8 @@ const delegationFields = {
   /** Stopping a session also stops the children it delegated to. */
   cascadeStop: z.boolean(),
   /**
-   * Run Ari's own read-only and delegation commands without a permission
-   * prompt each time. Integrating and destroying still ask.
+   * Run Ari's own commands without a permission prompt each time. Installing
+   * the Ari skill still asks because it writes the user's agent configuration.
    */
   autoApproveCli: z.boolean(),
   /** Soft cap on a whole delegation tree's cost; null leaves it off. */
@@ -58,7 +58,7 @@ export const delegationSettingsSchema = z.object({
   defaultWorkspaceMode: delegationFields.defaultWorkspaceMode.default('isolated'),
   allowSharedWorkspace: delegationFields.allowSharedWorkspace.default(false),
   recursiveDelegation: delegationFields.recursiveDelegation.default(false),
-  approvalMode: delegationFields.approvalMode.default('first-per-root'),
+  approvalMode: delegationFields.approvalMode.default('never'),
   autoDeliverResults: delegationFields.autoDeliverResults.default(true),
   cascadeStop: delegationFields.cascadeStop.default(true),
   autoApproveCli: delegationFields.autoApproveCli.default(true),

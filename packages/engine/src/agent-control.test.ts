@@ -141,6 +141,20 @@ it('deduplicates concurrent spawn retries and sends the assignment exactly once'
   ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
 })
 
+it('spawns workers without a delegation approval under the default policy', async () => {
+  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.approve = async () => {
+    throw new Error('The default policy must not ask for delegation approval')
+  }
+  expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({ ok: true })
+  expect(
+    await service.invoke('root', 'session.spawn', { ...spawn, idempotencyKey: 'two' }),
+  ).toMatchObject({ ok: true })
+  expect((await store.listSessions()).filter((row) => row.parentSessionId === 'root')).toHaveLength(
+    2,
+  )
+})
+
 it('queues delegated work at the cap and prevents recursion and escalation', async () => {
   drainHeld = false
   host.policy = () =>
@@ -200,7 +214,8 @@ it('refuses a spawn once the tree is over its budget', async () => {
 })
 
 it('reports approval-pending distinctly and never mints an orphan child', async () => {
-  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.policy = () =>
+    delegationSettingsSchema.parse({ approvalMode: 'first-per-root', allowSharedWorkspace: true })
   let resolveApproval!: (allowed: boolean) => void
   let approvals = 0
   host.approve = async () => {
@@ -248,7 +263,8 @@ it('denies unrelated transcripts, forged senders and unavailable models', async 
 })
 
 it('requires approval, rechecks changed policy and denies sibling/cross-project access', async () => {
-  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.policy = () =>
+    delegationSettingsSchema.parse({ approvalMode: 'first-per-root', allowSharedWorkspace: true })
   host.approve = async () => false
   expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({
     error: { code: 'delegation_approval_required' },
