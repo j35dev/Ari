@@ -84,3 +84,15 @@ describe('controlCliApproval', () => {
     ).toBeNull()
   })
 })
+
+describe('Aria commands', () => {
+  it('runs project and session lookups without a prompt', () => {
+    expect(isSafeControlCommand('ari projects --json')).toBe(true)
+    expect(isSafeControlCommand('ari sessions --query "login bug" --active --json')).toBe(true)
+    expect(
+      isSafeControlCommand(
+        'ari session spawn --project proj_1 --title "Fix login" --agent claude --prompt "Fix it" --json',
+      ),
+    ).toBe(true)
+  })
+})

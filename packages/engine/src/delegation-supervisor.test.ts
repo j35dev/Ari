@@ -592,3 +592,34 @@ it('retries a refused wake-up instead of acknowledging it', async () => {
   await supervisor.evaluate('root')
   expect(await notices('root')).toHaveLength(1)
 })
+
+it('wakes Aria with the report of a turn it asked for in another project', async () => {
+  await store.append('helm1', {
+    type: 'session.created',
+    session: { ...session('helm1'), projectId: 'helm' },
+  })
+  await start('helm1')
+  await settle('helm1')
+  // Aria prompted a child of another session; the turn is Aria's to hear about.
+  await host.dispatch(
+    { type: 'turn.start', sessionId: 'a', text: 'Check the limiter', attachments: [] },
+    { kind: 'session', sessionId: 'helm1' },
+  )
+  const turnId = await settle('a', 'completed', 'Limiter checked')
+  await store.append('helm1', {
+    type: 'child.session.settled',
+    childSessionId: 'a',
+    turnId,
+    stopReason: 'completed',
+  })
+  await start('root')
+  await settle('root')
+  await supervisor.evaluate('root')
+  await supervisor.evaluate('helm1')
+  const helmNotices = await notices('helm1')
+  expect(helmNotices).toHaveLength(1)
+  expect(JSON.stringify(helmNotices[0]?.parts)).toContain('Limiter checked')
+  // The parent did not ask, so it is not woken.
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).childCompletions?.['a']?.acknowledged).toBe(true)
+})

@@ -62,3 +62,34 @@ it('preserves multiline file input for assignment and coordination without shell
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+it('parses the Aria commands', () => {
+  expect(cli.parse(['projects'])).toMatchObject({ method: 'projects.list', params: {} })
+  expect(cli.parse(['sessions', 'login', 'bug', '--active', '--project', 'proj_1'])).toEqual(
+    expect.objectContaining({
+      method: 'sessions.find',
+      params: { scope: 'active', query: 'login bug', projectId: 'proj_1' },
+    }),
+  )
+  expect(cli.parse(['sessions', '--query', 'limiter', '--limit', '5']).params).toEqual({
+    scope: 'all',
+    query: 'limiter',
+    limit: 5,
+  })
+  expect(() => cli.parse(['sessions', 'a', '--query', 'b'])).toThrow('Use either')
+  expect(() => cli.parse(['sessions', '--limit', '0'])).toThrow('--limit')
+  expect(
+    cli.parse([
+      'session',
+      'spawn',
+      '--project',
+      'proj_1',
+      '--title',
+      'Fix login',
+      '--agent',
+      'claude',
+      '--key',
+      'k',
+    ]).params,
+  ).toEqual({ title: 'Fix login', driverKind: 'claude', idempotencyKey: 'k', projectId: 'proj_1' })
+})

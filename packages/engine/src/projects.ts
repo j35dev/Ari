@@ -13,6 +13,12 @@ const log = createLogger('engine:projects')
 export interface ProjectStoreOptions {
   /** Directory holding projects.json (typically <userData>). */
   dir: string
+  /**
+   * A project Ari owns under a fixed id, present from the first load on. It
+   * goes at the top of the sidebar once; after that the user's order, name
+   * and open state stand, and only its folder follows `path`.
+   */
+  builtIn?: { id: string; path: string; name: string }
 }
 
 /**
@@ -90,8 +96,11 @@ export class ProjectStore {
   #loaded = false
   #loading: Promise<Project[]> | null = null
 
+  readonly #builtIn: ProjectStoreOptions['builtIn']
+
   constructor(options: ProjectStoreOptions) {
     this.#path = join(options.dir, 'projects.json')
+    this.#builtIn = options.builtIn
   }
 
   load(): Promise<Project[]> {
@@ -123,7 +132,31 @@ export class ProjectStore {
       this.#removed = []
     }
     this.#loaded = true
+    await this.#seed()
     return this.list()
+  }
+
+  async #seed(): Promise<void> {
+    const spec = this.#builtIn
+    if (!spec) return
+    const existing = this.#projects.find((project) => project.id === spec.id)
+    if (existing?.path === spec.path) return
+    if (existing) {
+      this.#projects = this.#projects.map((p) => (p.id === spec.id ? { ...p, path: spec.path } : p))
+    } else {
+      const project = projectSchema.parse({
+        id: spec.id,
+        name: spec.name,
+        path: spec.path,
+        colorIndex: 0,
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+        open: true,
+      })
+      this.#projects = [project, ...this.#projects]
+      this.#removed = this.#removed.filter((removed) => removed.project.id !== spec.id)
+    }
+    await this.#persist()
   }
 
   /** All known projects, each stamped with its live on-disk status. */

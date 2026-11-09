@@ -1,4 +1,6 @@
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { HELM_NAME, HELM_PROJECT_ID } from '@ari/contracts/helm'
 import { app, safeStorage } from 'electron'
 import { EndpointStore } from '@ari/ari-core/endpoints'
 import type { Project } from '@ari/contracts/project'
@@ -63,7 +65,13 @@ export function getSettingsStore(): SettingsStore {
 
 export function getProjectStore(): ProjectStore {
   if (!projectStore) {
-    projectStore = new ProjectStore({ dir: app.getPath('userData') })
+    // Aria's home: a folder of its own, so it never runs inside a repository.
+    const helm = join(app.getPath('userData'), 'aria')
+    mkdirSync(helm, { recursive: true })
+    projectStore = new ProjectStore({
+      dir: app.getPath('userData'),
+      builtIn: { id: HELM_PROJECT_ID, path: helm, name: HELM_NAME },
+    })
   }
   return projectStore
 }

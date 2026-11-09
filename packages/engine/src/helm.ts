@@ -1,0 +1,174 @@
+import { HELM_PROJECT_ID, type HelmSessionRow } from '@ari/contracts/helm'
+import type { SessionListEntry } from './session-store'
+import type { SessionReadModel } from './projection'
+import { finalAssistantText } from './delegation-state'
+
+/**
+ * The session whose instruction a turn answers, or null when a person asked.
+ * A wake-up with children's results continues whatever started the work, so
+ * Ari-written turns are walked past to the instruction behind them.
+ */
+export function turnRequester(model: SessionReadModel, turnId: string): string | null {
+  const asks = model.messages.filter((message) => message.role === 'user')
+  const start = asks.findIndex((message) => message.turnId === turnId)
+  for (let i = start; i >= 0; i--) {
+    const origin = asks[i]?.origin
+    if (origin?.kind === 'session') return origin.sessionId
+    if (origin?.kind !== 'completion' && origin?.kind !== 'question') return null
+  }
+  return null
+}
+
+/** Where a session stands, from its journal. */
+export function sessionState(model: SessionReadModel): HelmSessionRow['state'] {
+  if (model.activeTurnId !== null)
+    return model.pendingApprovals.length > 0 || model.pendingInputs.length > 0
+      ? 'needs_user'
+      : 'working'
+  return model.queuedMessages.length > 0 ? 'queued' : 'idle'
+}
+
+/** Listing statuses that mean a turn is running or about to; cheap to read for every session. */
+const ACTIVE = new Set(['queued', 'running', 'waiting-approval', 'waiting-input'])
+
+export interface HelmView {
+  rows: readonly SessionListEntry[]
+  load(id: string): Promise<SessionReadModel>
+  projectName(id: string): string | null
+}
+
+/** A session as Aria is shown it. */
+export async function helmRow(view: HelmView, row: SessionListEntry): Promise<HelmSessionRow> {
+  const model = await view.load(row.id)
+  const session = model.session
+  const preview = finalAssistantText(model, model.lastTurn?.turnId, 240).text
+  return {
+    sessionId: row.id,
+    title: row.title,
+    projectId: row.projectId,
+    projectName: view.projectName(row.projectId),
+    parentSessionId: row.parentSessionId ?? null,
+    driverKind: row.driverKind ?? session?.driverKind ?? 'unknown',
+    modelId: row.modelId ?? session?.modelId ?? null,
+    state: sessionState(model),
+    startedByAria: Boolean(
+      session && !session.parentSessionId && session.createdBy?.kind === 'session',
+    ),
+    updatedAt: model.lastTurn?.settledAt ?? row.updatedAt,
+    preview: preview.length > 0 ? preview : null,
+  }
+}
+
+/** Sessions outside Aria's own project that are not archived. */
+function reachable(view: HelmView): SessionListEntry[] {
+  return view.rows.filter((row) => !row.archived && row.projectId !== HELM_PROJECT_ID)
+}
+
+export interface FindSessions {
+  query?: string | undefined
+  projectId?: string | undefined
+  scope: 'active' | 'all'
+  limit: number
+}
+
+/**
+ * Sessions across every project for Aria to find work again. Words match the
+ * title or the last reply. Only the sessions that pass are loaded.
+ */
+export async function findSessions(view: HelmView, find: FindSessions): Promise<HelmSessionRow[]> {
+  const words = (find.query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+  const out: HelmSessionRow[] = []
+  for (const row of reachable(view)) {
+    if (out.length >= find.limit) break
+    if (find.projectId !== undefined && row.projectId !== find.projectId) continue
+    if (find.scope === 'active' && !ACTIVE.has(row.status ?? 'idle')) continue
+    const haystack = `${row.title} ${row.lastMessagePreview ?? ''}`.toLowerCase()
+    if (!words.every((word) => haystack.includes(word))) continue
+    const entry = await helmRow(view, row)
+    // The listing can trail the journal by a turn; the journal decides.
+    if (find.scope === 'active' && entry.state === 'idle') continue
+    out.push(entry)
+  }
+  return out
+}
+
+const STATE = {
+  working: 'working',
+  queued: 'queued',
+  needs_user: 'waiting on the user',
+  idle: 'idle',
+} as const
+
+function ago(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
+}
+
+function line(entry: HelmSessionRow, titles: ReadonlyMap<string, string>): string {
+  const where = entry.projectName ?? entry.projectId
+  const parent = entry.parentSessionId ? titles.get(entry.parentSessionId) : undefined
+  const under = parent ? `, child of "${parent}"` : ''
+  const mine = entry.startedByAria ? ', started by you' : ''
+  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${STATE[entry.state]}`
+}
+
+const MAX_ACTIVE = 25
+const MAX_FINISHED = 8
+const DAY_MS = 24 * 3_600_000
+
+/**
+ * What Aria is told at the start of every turn: the projects it can reach,
+ * what is running across them, and which of the sessions it asked for work
+ * finished in the last day. It saves a status call on every turn and keeps
+ * Aria from starting work that already exists.
+ */
+export async function helmSnapshot(
+  view: HelmView,
+  helm: SessionReadModel,
+  projects: readonly { projectId: string; name: string; available: boolean }[],
+  now = Date.now(),
+): Promise<string> {
+  const rows = reachable(view)
+  const titles = new Map(rows.map((row) => [row.id, row.title]))
+  const active: HelmSessionRow[] = []
+  for (const row of rows) {
+    if (active.length >= MAX_ACTIVE) break
+    if (!ACTIVE.has(row.status ?? 'idle')) continue
+    const entry = await helmRow(view, row)
+    if (entry.state !== 'idle') active.push(entry)
+  }
+  const reported = Object.entries(helm.childCompletions ?? {})
+    .filter(([, completion]) => now - (completion.settledAt ?? 0) < DAY_MS)
+    .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0))
+  const finished: HelmSessionRow[] = []
+  for (const [id] of reported) {
+    if (finished.length >= MAX_FINISHED) break
+    const row = rows.find((candidate) => candidate.id === id)
+    if (!row) continue
+    const entry = await helmRow(view, row)
+    if (entry.state === 'idle') finished.push(entry)
+  }
+  const others = projects.filter((project) => project.projectId !== HELM_PROJECT_ID)
+  const projectLine =
+    others.length === 0
+      ? 'Projects: none yet. Ask the user to add a project folder in Ari.'
+      : `Projects: ${others
+          .map((p) => `${p.name} (${p.projectId}${p.available ? '' : ', folder missing'})`)
+          .join(', ')}`
+  return [
+    "[Ari now: the live state of the user's projects, added automatically by Ari for Aria. The user does not see this.]",
+    projectLine,
+    active.length === 0
+      ? 'Nothing is running.'
+      : `Running now:\n${active.map((entry) => line(entry, titles)).join('\n')}`,
+    ...(finished.length === 0
+      ? []
+      : [
+          `Finished in the last day, from work you asked for:\n${finished
+            .map((entry) => `${line(entry, titles)}, ${ago(now - entry.updatedAt)}`)
+            .join('\n')}`,
+        ]),
+  ].join('\n\n')
+}

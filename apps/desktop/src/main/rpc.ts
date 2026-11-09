@@ -49,6 +49,9 @@ import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
+import { helmSnapshot } from '@ari/engine/helm'
+import { isHelmSession } from '@ari/contracts/helm'
+import type { HelmProject } from '@ari/contracts/agent-control'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -1025,6 +1028,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  // Every project the user has added, as Aria reaches them.
+  const helmProjects = async (): Promise<HelmProject[]> =>
+    (await getProjectStore().load()).map((project) => ({
+      projectId: project.id,
+      name: project.name,
+      path: project.path,
+      available: project.status === 'ok',
+    }))
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
   const engine = new Engine({
@@ -1052,6 +1063,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    turnContext: async (session) => {
+      if (!isHelmSession(session)) return null
+      const projects = await helmProjects()
+      const names = new Map(projects.map((project) => [project.projectId, project.name]))
+      return helmSnapshot(
+        {
+          rows: await getSessionStore().listSessions(),
+          load: (id) => getSessionStore().load(id),
+          projectName: (id) => names.get(id) ?? null,
+        },
+        await getSessionStore().load(session.id),
+        projects,
+      )
+    },
     deliversResults: () => {
       const { enabled, autoDeliverResults } = getSettingsStore().current.delegation
       return enabled && autoDeliverResults
@@ -1137,6 +1162,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         recover: firstRuntime,
         onDrop: (id) => browserMcpHandle?.revoke(id),
         routines: routineHost(resumeSchedule),
+        projects: helmProjects,
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()

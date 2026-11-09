@@ -19,6 +19,21 @@ afterEach(async () => {
 })
 
 describe('ProjectStore', () => {
+  it("seeds a built-in project once, first, and keeps the user's changes to it", async () => {
+    const builtIn = { id: 'helm', path: existingFolder, name: 'Aria' }
+    const first = new ProjectStore({ dir })
+    await first.open(join(dir))
+    const seeded = new ProjectStore({ dir, builtIn })
+    const listed = await seeded.load()
+    expect(listed.map((project) => project.id)[0]).toBe('helm')
+    expect(listed[0]).toMatchObject({ name: 'Aria', path: existingFolder, open: true })
+    await seeded.close('helm')
+    const reloaded = await new ProjectStore({ dir, builtIn }).load()
+    expect(reloaded.filter((project) => project.id === 'helm')).toEqual([
+      expect.objectContaining({ name: 'Aria', open: false }),
+    ])
+  })
+
   it.each(['{corrupt', '{"projects":false}'])(
     'preserves a failed registry read and permits retry: %s',
     async (raw) => {
