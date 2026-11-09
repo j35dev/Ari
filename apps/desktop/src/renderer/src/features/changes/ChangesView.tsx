@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { visibleProjects } from '../aria/visibility'
 import type { GitComparison, GitScope } from '@ari/contracts/rpc'
 import type { Project } from '@ari/contracts/project'
 import { createLogger } from '@ari/shared/logger'
@@ -68,6 +69,7 @@ export function ChangesView({
       .invoke('project.list')
       .then((projects) => {
         if (!cancelled) {
+          projects = visibleProjects(projects)
           setProjects(projects)
           setFallback((current) =>
             projects.some((project) => project.id === current)

@@ -1,12 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { decideCommand } from './dispatcher'
 import { DelegationSupervisor, type SupervisorHost } from './delegation-supervisor'
 import { SessionStore } from './session-store'
+import { turnRequester, helmSnapshot, helmReportRecipient } from './helm'
 
 let dir: string
 let store: SessionStore
@@ -67,6 +68,18 @@ async function settle(
   const parentId = model.session?.parentSessionId
   if (parentId)
     await store.append(parentId, {
+      type: 'child.session.settled',
+      childSessionId: id,
+      turnId,
+      stopReason,
+    })
+  const requester = await helmReportRecipient(store, model, turnId)
+  if (
+    requester &&
+    requester !== parentId &&
+    (await store.load(requester)).session?.projectId === 'helm'
+  )
+    await store.append(requester, {
       type: 'child.session.settled',
       childSessionId: id,
       turnId,
@@ -591,4 +604,192 @@ it('retries a refused wake-up instead of acknowledging it', async () => {
   refuse.clear()
   await supervisor.evaluate('root')
   expect(await notices('root')).toHaveLength(1)
+})
+
+it('wakes Aria with the report of a turn it asked for in another project', async () => {
+  await store.append('helm1', {
+    type: 'session.created',
+    session: { ...session('helm1'), projectId: 'helm' },
+  })
+  await start('helm1')
+  await settle('helm1')
+  // Aria prompted a child of another session; the turn is Aria's to hear about.
+  await host.dispatch(
+    { type: 'turn.start', sessionId: 'a', text: 'Check the limiter', attachments: [] },
+    { kind: 'session', sessionId: 'helm1' },
+  )
+  const turnId = await settle('a', 'completed', 'Limiter checked')
+  await store.append('helm1', {
+    type: 'child.session.settled',
+    childSessionId: 'a',
+    turnId,
+    stopReason: 'completed',
+  })
+  await start('root')
+  await settle('root')
+  await supervisor.evaluate('root')
+  await supervisor.evaluate('helm1')
+  const helmNotices = await notices('helm1')
+  expect(helmNotices).toHaveLength(1)
+  expect(JSON.stringify(helmNotices[0]?.parts)).toContain('Limiter checked')
+  // The parent did not ask, so it is not woken.
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).childCompletions?.['a']?.acknowledged).toBe(true)
+})
+
+async function createAria(): Promise<void> {
+  await store.append('helm1', {
+    type: 'session.created',
+    session: { ...session('helm1'), projectId: 'helm' },
+  })
+  await start('helm1')
+  await settle('helm1')
+}
+
+async function askByAria(id: string): Promise<void> {
+  await host.dispatch(
+    { type: 'turn.start', sessionId: id, text: 'Project work', attachments: [] },
+    { kind: 'session', sessionId: 'helm1' },
+  )
+}
+
+it('holds a top-level lead report through running workers and delivers only the lead completion-wake result', async () => {
+  await createAria()
+  await store.append('lead', {
+    type: 'session.created',
+    session: { ...session('lead'), lead: true, createdBy: { kind: 'session', sessionId: 'helm1' } },
+  })
+  await create('worker', 'lead')
+  await askByAria('lead')
+  await start('worker')
+  await settle('lead', 'completed', 'Handed out the work.')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  await settle('worker', 'completed', 'Implemented and tested.')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  await supervisor.evaluate('lead')
+  expect(await notices('lead')).toHaveLength(1)
+  expect((await store.load('lead')).activeTurnId).not.toBeNull()
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  const wakeTurn = (await store.load('lead')).activeTurnId!
+  expect(turnRequester(await store.load('lead'), wakeTurn)).toBe('helm1')
+  await settle('lead', 'completed', 'Integrated worker changes and verified the project.')
+  await supervisor.evaluate('lead')
+  await supervisor.evaluate('helm1')
+  const reports = await notices('helm1')
+  expect(reports).toHaveLength(1)
+  expect(JSON.stringify(reports[0]?.parts)).toContain('Integrated worker changes')
+  expect(JSON.stringify(reports[0]?.parts)).not.toContain('Handed out')
+  expect(reports[0]?.origin).toMatchObject({ kind: 'completion', sessionIds: ['lead'] })
+  expect((await store.load('helm1')).childCompletions?.worker).toBeUndefined()
+})
+
+it('bubbles a held project lead report to the current Aria after its requester is deleted', async () => {
+  await createAria()
+  await store.append('lead', {
+    type: 'session.created',
+    session: {
+      ...session('lead'),
+      lead: true,
+      createdBy: { kind: 'session', sessionId: 'helm1' },
+    },
+  })
+  await create('worker', 'lead')
+  await askByAria('lead')
+  await start('worker')
+  await store.destroy('helm1')
+  await store.append('helm2', {
+    type: 'session.created',
+    session: { ...session('helm2'), projectId: 'helm' },
+  })
+  await start('helm2')
+  await settle('helm2')
+  await settle('lead', 'completed', 'Lead report')
+  await supervisor.evaluate('helm2')
+  expect(await notices('helm2')).toHaveLength(0)
+  await settle('worker', 'interrupted')
+  const scheduled = vi.spyOn(supervisor, 'schedule')
+  await supervisor.evaluate('lead')
+  expect(scheduled).toHaveBeenCalledWith('helm2')
+  await supervisor.evaluate('helm2')
+  expect(await notices('helm2')).toHaveLength(1)
+  expect(JSON.stringify((await notices('helm2'))[0]?.parts)).toContain('Lead report')
+  scheduled.mockRestore()
+})
+
+it('marks a quiet Aria report handled, keeps it readable and visible, and never delivers it later', async () => {
+  await createAria()
+  await askByAria('a')
+  await settle('a', 'completed', 'Checks passed.\n<!-- aria: fyi -->')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  expect((await store.load('helm1')).childCompletions?.a?.acknowledged).toBe(true)
+  const snapshot = await helmSnapshot(
+    {
+      rows: await store.listSessions(),
+      load: (id) => store.load(id),
+      projectName: () => 'Project',
+    },
+    await store.load('helm1'),
+    [],
+  )
+  expect(snapshot).toContain('Finished in the last day')
+  expect(snapshot).toContain('"A"')
+  expect(JSON.stringify((await store.load('a')).messages)).toContain('Checks passed.')
+  await start('helm1')
+  await settle('helm1')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  // The marker only suppresses an Aria receiver, never the worker's lead.
+  await start('root')
+  await settle('root')
+  await start('b')
+  await settle('b', 'completed', 'Worker done.\n<!-- aria: fyi -->')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(1)
+})
+
+it.each([
+  ['completed', 'Need your decision.\n<!-- aria: fyi -->'],
+  ['completed', 'Which path?\n<!-- aria: fyi -->'],
+  ['completed', 'Done.\n<!-- aria: fyi --> '],
+  ['error', 'Routine report.\n<!-- aria: fyi -->'],
+  ['completed', `${'Routine output. '.repeat(400)}\nQuestion?\n<!-- aria: fyi -->`],
+] as const)('wakes Aria for a wrongly marked report: %s', async (reason, report) => {
+  await createAria()
+  await askByAria('a')
+  await settle('a', reason, report)
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(1)
+})
+
+it('allows eight automatic Aria turns, holds the ninth report across restart, and releases it after a human message', async () => {
+  await createAria()
+  for (let i = 0; i < 8; i++) {
+    await askByAria('a')
+    await settle('a', 'completed', `Result ${i}`)
+    await supervisor.evaluate('helm1')
+    expect(await notices('helm1')).toHaveLength(i + 1)
+    await settle('helm1')
+  }
+  await askByAria('a')
+  await settle('a', 'completed', 'Ninth result')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(8)
+  expect((await store.load('helm1')).childCompletions?.a?.acknowledged).toBe(false)
+  supervisor.close()
+  supervisor = new DelegationSupervisor(host)
+  host.isRunning = () => false
+  supervisor.start()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(8)
+  await start('helm1', 'Continue', 'person')
+  await settle('helm1')
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(9)
+  expect(JSON.stringify((await notices('helm1'))[8]?.parts)).toContain('Ninth result')
+  expect((await store.load('helm1')).childCompletions?.a?.acknowledged).toBe(true)
 })

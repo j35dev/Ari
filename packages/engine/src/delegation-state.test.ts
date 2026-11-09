@@ -7,7 +7,25 @@ import {
   completionNotice,
   finalAssistantText,
   pendingCompletions,
+  routineReport,
 } from './delegation-state'
+
+it.each([
+  ['Done.\n<!-- aria: fyi -->', true],
+  ['<!-- aria: fyi -->\nMore work.', false],
+  ['Done. <!-- aria: fyi -->', false],
+  ['Should I continue?\n<!-- aria: fyi -->', false],
+  ['Tests failed.\n<!-- aria: fyi -->', false],
+  ['An error occurred.\n<!-- aria: fyi -->', false],
+  ['Blocked on input.\n<!-- aria: fyi -->', false],
+  ['Cannot continue.\n<!-- aria: fyi -->', false],
+  ['Need your answer.\n<!-- aria: fyi -->', false],
+  ['Decide the scope.\n<!-- aria: fyi -->', false],
+])('classifies routine progress conservatively: %s', (text, quiet) => {
+  expect(routineReport({ stopReason: 'completed', errorMessage: null, text })).toBe(quiet)
+  expect(routineReport({ stopReason: 'error', errorMessage: null, text })).toBe(false)
+  expect(routineReport({ stopReason: 'completed', errorMessage: 'failed', text })).toBe(false)
+})
 
 let seq = 0
 const on = (event: Record<string, unknown>): JournalEvent =>
@@ -181,4 +199,25 @@ it('writes one notice covering every report and what is still running', () => {
   expect(notice).toContain('Do not quote this update')
   expect(completionNotice([], [])).toContain('No other children are working.')
   expect(completionNotice([], [], 'Tree spend: 10 tokens.')).toContain('Tree spend: 10 tokens.')
+})
+
+it('words Aria updates for sessions that work in their own folders', () => {
+  const text = completionNotice(
+    [
+      {
+        sessionId: 's1',
+        title: 'Fix login',
+        stopReason: 'completed',
+        errorMessage: null,
+        report: { text: 'Done.', truncated: false },
+      },
+    ],
+    [],
+    null,
+    'helm',
+  )
+  expect(text).toContain('[Ari update for Aria')
+  expect(text).toContain('Fix login (s1) finished its turn.')
+  expect(text).not.toContain('session diff')
+  expect(text).not.toContain('integrat')
 })

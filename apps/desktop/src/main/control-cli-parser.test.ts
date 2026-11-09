@@ -9,6 +9,34 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
 }
 
+it('parses project creation with an optional absolute folder and retry key', () => {
+  expect(
+    cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),
+  ).toMatchObject({
+    method: 'projects.create',
+    params: { name: 'Garden planner', idempotencyKey: 'garden' },
+  })
+  expect(
+    cli.parse([
+      'project',
+      'create',
+      '--name',
+      'Garden',
+      '--path',
+      'D:\\Projects\\garden',
+      '--key',
+      'adopt',
+    ]).params,
+  ).toEqual({
+    name: 'Garden',
+    path: 'D:\\Projects\\garden',
+    idempotencyKey: 'adopt',
+  })
+  expect(() => cli.parse(['project', 'create'])).toThrow('needs --name')
+  expect(() => cli.parse(['project', 'create', '--name', '  '])).toThrow('needs --name')
+  expect(() => cli.parse(['project', 'create', 'folder', '--name', 'Garden'])).toThrow('Use --path')
+})
+
 it('exposes recipient inbox acknowledgement and sender delivery inspection with exact identities', () => {
   expect(cli.parse(['session', 'inbox', '--include-consumed']).params).toEqual({
     includeConsumed: true,
@@ -42,6 +70,7 @@ it('preserves multiline file input for assignment and coordination without shell
       ['session', 'prompt', 'worker'],
       ['session', 'message', 'worker'],
       ['parent', 'message'],
+      ['project', 'ask', 'proj_1'],
       ['session', 'spawn', '--title', 'Search', '--agent', 'codex'],
     ]) {
       const parsed = cli.parse([...args, '--prompt-file', file, '--key', 'exact'])
@@ -61,4 +90,162 @@ it('preserves multiline file input for assignment and coordination without shell
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+it('parses lead switches and resets, refusing ambiguous or incomplete choices', () => {
+  expect(
+    cli.parse([
+      'project',
+      'lead',
+      'proj_1',
+      '--agent',
+      'codex',
+      '--model',
+      'gpt',
+      '--effort',
+      'high',
+      '--key',
+      'switch',
+    ]),
+  ).toMatchObject({
+    method: 'projects.lead',
+    params: {
+      projectId: 'proj_1',
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'high',
+      idempotencyKey: 'switch',
+    },
+  })
+  expect(cli.parse(['project', 'lead', 'proj_1', '--reset', '--key', 'reset'])).toMatchObject({
+    method: 'projects.lead',
+    params: { projectId: 'proj_1', reset: true, idempotencyKey: 'reset' },
+  })
+  expect(() => cli.parse(['project', 'lead', '--reset'])).toThrow('project id')
+  expect(() => cli.parse(['project', 'lead', 'proj_1'])).toThrow('--agent or --reset')
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--agent', 'codex'])).toThrow('--model')
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--reset', '--agent', 'codex'])).toThrow(
+    'either',
+  )
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--reset', '--model', 'gpt'])).toThrow(
+    'either',
+  )
+  expect(() =>
+    cli.parse(['project', 'lead', 'proj_1', '--agent', 'codex', '--permission', 'full']),
+  ).toThrow('permissions')
+})
+
+it('parses direct project sessions without an agent and session switching', () => {
+  expect(
+    cli.parse([
+      'session',
+      'spawn',
+      '--project',
+      'proj_1',
+      '--title',
+      'Research',
+      '--key',
+      'research',
+    ]),
+  ).toMatchObject({
+    method: 'session.spawn',
+    params: { projectId: 'proj_1', title: 'Research', idempotencyKey: 'research' },
+  })
+  expect(
+    cli.parse([
+      'session',
+      'switch',
+      'session_1',
+      '--agent',
+      'codex',
+      '--model',
+      'gpt',
+      '--effort',
+      'high',
+      '--key',
+      'switch',
+    ]),
+  ).toMatchObject({
+    method: 'session.switch',
+    params: {
+      targetSessionId: 'session_1',
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'high',
+      idempotencyKey: 'switch',
+    },
+  })
+  expect(() => cli.parse(['session', 'switch', '--agent', 'codex'])).toThrow('session id')
+  expect(() => cli.parse(['session', 'switch', 'session_1'])).toThrow('--agent')
+  expect(() => cli.parse(['session', 'switch', 'session_1', '--agent', 'codex'])).toThrow('--model')
+  expect(() =>
+    cli.parse(['session', 'spawn', '--project', 'proj_1', '--read-only', 'true']),
+  ).toThrow('Unknown option')
+})
+
+it('parses the Aria commands', () => {
+  expect(
+    cli.parse(['project', 'ask', 'proj_1', 'Fix login', '--title', 'Web lead', '--key', 'fix']),
+  ).toMatchObject({
+    method: 'projects.ask',
+    params: { projectId: 'proj_1', text: 'Fix login', title: 'Web lead', idempotencyKey: 'fix' },
+  })
+  expect(
+    cli.parse([
+      'project',
+      'default',
+      'proj_1',
+      '--agent',
+      'claude',
+      '--model',
+      'opus',
+      '--effort',
+      'high',
+      '--permission',
+      'allow-edits',
+      '--key',
+      'default',
+    ]),
+  ).toMatchObject({
+    method: 'projects.setDefault',
+    params: {
+      projectId: 'proj_1',
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+      idempotencyKey: 'default',
+    },
+  })
+  expect(() => cli.parse(['project', 'default', 'proj_1'])).toThrow('--agent')
+  expect(() => cli.parse(['project', 'default', 'proj_1', '--agent', 'claude'])).toThrow('--model')
+  expect(() => cli.parse(['project', 'ask'])).toThrow('project id')
+  expect(cli.parse(['projects'])).toMatchObject({ method: 'projects.list', params: {} })
+  expect(cli.parse(['sessions', 'login', 'bug', '--active', '--project', 'proj_1'])).toEqual(
+    expect.objectContaining({
+      method: 'sessions.find',
+      params: { scope: 'active', query: 'login bug', projectId: 'proj_1' },
+    }),
+  )
+  expect(cli.parse(['sessions', '--query', 'limiter', '--limit', '5']).params).toEqual({
+    scope: 'all',
+    query: 'limiter',
+    limit: 5,
+  })
+  expect(() => cli.parse(['sessions', 'a', '--query', 'b'])).toThrow('Use either')
+  expect(() => cli.parse(['sessions', '--limit', '0'])).toThrow('--limit')
+  expect(
+    cli.parse([
+      'session',
+      'spawn',
+      '--project',
+      'proj_1',
+      '--title',
+      'Fix login',
+      '--agent',
+      'claude',
+      '--key',
+      'k',
+    ]).params,
+  ).toEqual({ title: 'Fix login', driverKind: 'claude', idempotencyKey: 'k', projectId: 'proj_1' })
 })

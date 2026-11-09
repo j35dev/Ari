@@ -9,6 +9,7 @@
     "./coordination": "./src/coordination.ts",
     "./orchestration": "./src/orchestration.ts",
     "./agent-control": "./src/agent-control.ts",
+    "./helm": "./src/helm.ts",
     "./common": "./src/common.ts",
     "./session": "./src/session.ts",
     "./message": "./src/message.ts",

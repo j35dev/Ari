@@ -22,12 +22,16 @@ export interface TurnDiffResult {
  * that later work belongs to the turn.
  */
 export async function queryTurnDiff(
-  git: Pick<GitService, 'diffForRef' | 'worktreeTree'>,
+  git: Pick<GitService, 'isRepo' | 'diffForRef' | 'worktreeTree'>,
   params: TurnDiffParams,
 ): Promise<TurnDiffResult> {
   const at = params.checkpoints.findIndex((c) => c.turnId === params.turnId)
   const start = params.checkpoints[at]
-  if (start === undefined) return { diffText: null, error: 'no checkpoint for that turn' }
+  if (start === undefined) return { diffText: null }
+  // A workspace can stop being a repository after a checkpoint was captured.
+  const inside = await git.isRepo(params.path)
+  if (!inside.ok) return { diffText: null, error: inside.error.message }
+  if (!inside.value) return { diffText: null }
   if (start.endError) return { diffText: null, error: start.endError }
   let end = start.endRef ?? params.checkpoints[at + 1]?.gitRef
   if (end === undefined) {

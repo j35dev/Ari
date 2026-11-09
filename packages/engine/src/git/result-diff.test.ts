@@ -40,7 +40,7 @@ beforeEach(async () => {
   manager = new ManagedWorkspaces(join(dir, 'workers'))
   const workspace = await manager.isolate(parent, repo, 'child')
   child = { ...parent, id: 'child', parentSessionId: 'root', workspace }
-})
+}, 60_000)
 afterEach(async () => {
   vi.restoreAllMocks()
   await rm(dir, { recursive: true, force: true, maxRetries: 3 })

@@ -2,17 +2,132 @@ import { dirname } from 'node:path'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { projectSchema } from '@ari/contracts/project'
-import type { Project, ProjectStatus, StoredProject } from '@ari/contracts/project'
+import { projectSchema, projectAgentSchema } from '@ari/contracts/project'
+import type {
+  Project,
+  ProjectAgent,
+  ProjectStatus,
+  ResolvedProjectAgent,
+  StoredProject,
+} from '@ari/contracts/project'
+import { exceedsPermission, type PermissionMode } from '@ari/contracts/common'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('engine:projects')
 
+export interface ProjectAgentProvider {
+  driverKind: string
+  available: boolean
+  models: readonly { id: string; aliases?: readonly string[] }[]
+  defaultModelId?: string | null
+}
+
+export interface ProjectAgentDefaults {
+  permissionMode: PermissionMode
+}
+
+/** Project work requires a user choice or a saved project default. */
+export function resolveProjectAgent(input: {
+  project: { projectId: string; defaultAgent?: ProjectAgent | null }
+  arguments?: Partial<ProjectAgent>
+  providers: readonly ProjectAgentProvider[]
+  app: ProjectAgentDefaults
+  maxPermissionMode?: PermissionMode
+}): ResolvedProjectAgent | null {
+  const sameModel = (
+    driverKind: string | undefined,
+    first: string | null | undefined,
+    second: string | null | undefined,
+  ): boolean => {
+    if (!first || !second) return first === second
+    const models = input.providers.find((provider) => provider.driverKind === driverKind)?.models
+    const canonical = (id: string) =>
+      models?.find((model) => model.id === id || model.aliases?.includes(id))?.id ?? id
+    return canonical(first) === canonical(second)
+  }
+  const resolve = (
+    candidate: Partial<ProjectAgent>,
+    source: ResolvedProjectAgent['source'],
+  ): ResolvedProjectAgent | null => {
+    const args = input.arguments
+    if (
+      source !== 'arguments' &&
+      !args?.driverKind &&
+      args &&
+      (args.modelId !== undefined || args.effort !== undefined || args.permissionMode !== undefined)
+    ) {
+      candidate = {
+        ...candidate,
+        ...(args.modelId !== undefined &&
+        !sameModel(candidate.driverKind, args.modelId, candidate.modelId)
+          ? { effort: null }
+          : {}),
+        ...(args.modelId === undefined ? {} : { modelId: args.modelId }),
+        ...(args.effort === undefined ? {} : { effort: args.effort }),
+        ...(args.permissionMode === undefined ? {} : { permissionMode: args.permissionMode }),
+      }
+      source = 'arguments'
+    }
+    if (!candidate.driverKind) return null
+    const provider = input.providers.find(
+      (p) => p.available && p.driverKind === candidate.driverKind,
+    )
+    if (!provider) return null
+    const selected = candidate.modelId
+    const model = provider.models.find(
+      (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
+    )
+    if (!model) return null
+    const permission = candidate.permissionMode ?? input.app.permissionMode
+    const permissionMode =
+      input.maxPermissionMode &&
+      input.arguments?.permissionMode === undefined &&
+      exceedsPermission(permission, input.maxPermissionMode)
+        ? input.maxPermissionMode
+        : permission
+    return {
+      driverKind: candidate.driverKind,
+      modelId: model.id,
+      effort: candidate.effort ?? null,
+      permissionMode,
+      source,
+    }
+  }
+  const explicit = input.arguments
+  if (explicit?.driverKind) {
+    const saved = input.project.defaultAgent
+    return resolve(
+      saved?.driverKind === explicit.driverKind
+        ? {
+            ...saved,
+            ...(explicit.modelId !== undefined &&
+            !sameModel(explicit.driverKind, explicit.modelId, saved.modelId)
+              ? { effort: null }
+              : {}),
+            ...explicit,
+          }
+        : explicit,
+      'arguments',
+    )
+  }
+  if (input.project.defaultAgent) {
+    const picked = resolve(input.project.defaultAgent, 'project')
+    if (picked) return picked
+  }
+  return null
+}
+
 export interface ProjectStoreOptions {
   /** Directory holding projects.json (typically <userData>). */
   dir: string
+  /**
+   * A project Ari owns under a fixed id, present from the first load on. It
+   * goes at the top of the sidebar once; after that the user's order, name
+   * and open state stand, and only its folder follows `path`.
+   */
+  builtIn?: { id: string; path: string; name: string }
 }
 
 /**
@@ -90,8 +205,11 @@ export class ProjectStore {
   #loaded = false
   #loading: Promise<Project[]> | null = null
 
+  readonly #builtIn: ProjectStoreOptions['builtIn']
+
   constructor(options: ProjectStoreOptions) {
     this.#path = join(options.dir, 'projects.json')
+    this.#builtIn = options.builtIn
   }
 
   load(): Promise<Project[]> {
@@ -123,7 +241,31 @@ export class ProjectStore {
       this.#removed = []
     }
     this.#loaded = true
+    await this.#seed()
     return this.list()
+  }
+
+  async #seed(): Promise<void> {
+    const spec = this.#builtIn
+    if (!spec) return
+    const existing = this.#projects.find((project) => project.id === spec.id)
+    if (existing?.path === spec.path) return
+    if (existing) {
+      this.#projects = this.#projects.map((p) => (p.id === spec.id ? { ...p, path: spec.path } : p))
+    } else {
+      const project = projectSchema.parse({
+        id: spec.id,
+        name: spec.name,
+        path: spec.path,
+        colorIndex: 0,
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+        open: true,
+      })
+      this.#projects = [project, ...this.#projects]
+      this.#removed = this.#removed.filter((removed) => removed.project.id !== spec.id)
+    }
+    await this.#persist()
   }
 
   /** All known projects, each stamped with its live on-disk status. */
@@ -195,6 +337,12 @@ export class ProjectStore {
   /** Closes the sidebar group but keeps the project and its sessions. */
   async close(id: string): Promise<Project | null> {
     return this.#patch(id, { open: false })
+  }
+
+  async setDefaultAgent(id: string, value: ProjectAgent | null): Promise<Project | null> {
+    return this.#patch(id, {
+      defaultAgent: value === null ? null : projectAgentSchema.parse(value),
+    })
   }
 
   /**

@@ -1,6 +1,6 @@
 {
   "name": "@ari/desktop",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.29.3",
@@ -28,11 +28,19 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron-updater": "^6.8.9",
+    "koffi": "3.0.2",
+    "transcribe-cpp": "0.4.1",
+    "@koromix/koffi-win32-x64": "3.0.2",
+    "@koromix/koffi-darwin-x64": "3.0.2",
+    "@koromix/koffi-darwin-arm64": "3.0.2",
+    "@koromix/koffi-linux-x64": "3.0.2",
+    "@koromix/koffi-linux-arm64": "3.0.2",
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "uiohook-napi": "1.5.5"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",
@@ -42,6 +50,7 @@
     "@ari/remote-gateway": "workspace:*",
     "@ari/shared": "workspace:*",
     "@ari/ui": "workspace:*",
+    "tar": "^7.5.7",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.18",

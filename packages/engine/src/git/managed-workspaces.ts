@@ -1,8 +1,22 @@
-import { mkdtemp, mkdir, readdir, rm, realpath, stat, lstat, unlink } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  rm,
+  writeFile,
+  realpath,
+  stat,
+  lstat,
+  unlink,
+  readFile,
+  rename,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import { createLogger } from '@ari/shared/logger'
+import { pathKey } from '@ari/shared/paths'
 import type { ResultDiffContents, ResultDiffSelection } from '@ari/contracts/orchestration'
 import { GitService } from './git-service'
 import { RepositoryGit } from './repository-git'
@@ -11,9 +25,13 @@ import { branchBelongsToSession, orchestrationBranch } from './orchestration-bra
 
 const oid = /^[a-f0-9]{40,64}$/
 const component = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+const log = createLogger('engine:managed-workspaces')
+const removalOptions = { recursive: true, force: true, maxRetries: 6, retryDelay: 200 } as const
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
 export class ManagedWorkspaces {
+  readonly #releases = new Map<string, Promise<void>>()
+  #cleanupTail: Promise<unknown> = Promise.resolve()
   constructor(
     readonly rootDir: string,
     readonly git = new GitService({ timeoutMs: 60_000 }),
@@ -103,40 +121,64 @@ export class ManagedWorkspaces {
    * Missing pieces are success, so destroy paths can call it unconditionally
    * and repeat it safely.
    */
-  async release(sessionId: string): Promise<void> {
+  async release(sessionId: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
+    this.#ref(sessionId)
+    const previous = this.#releases.get(sessionId)
+    if (previous) return previous
+    const task = this.#release(sessionId, signal)
+    this.#releases.set(sessionId, task)
+    try {
+      await task
+    } finally {
+      if (this.#releases.get(sessionId) === task) this.#releases.delete(sessionId)
+    }
+  }
+
+  async #release(sessionId: string, signal?: AbortSignal): Promise<void> {
     const prefix = this.#ref(sessionId)
+    const repos = (await this.#pendingReleases())[sessionId] ?? []
+    signal?.throwIfAborted()
+    await this.#savePending(sessionId, repos)
+    signal?.throwIfAborted()
     const paths = await this.#sessionPaths(sessionId)
-    const repos: string[] = []
     for (const path of paths) {
+      signal?.throwIfAborted()
+      if ((await lstat(path)).isSymbolicLink()) continue
+      await this.#assertOwned(path)
+      const repo = await this.#mainRepo(path)
+      signal?.throwIfAborted()
+      if (repo && !repos.includes(repo)) repos.push(repo)
+    }
+    // Keep the repository even if Git removes .git before directory removal
+    // fails. A later retry must still prune its registration, branch and refs.
+    signal?.throwIfAborted()
+    await this.#savePending(sessionId, repos)
+    for (const path of paths) {
+      signal?.throwIfAborted()
       if ((await lstat(path)).isSymbolicLink()) {
+        signal?.throwIfAborted()
         await unlink(path)
         continue
       }
-      const root = await realpath(this.rootDir)
-      const target = await realpath(path)
-      const inside = relative(root, target)
-      if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside))
-        throw new ControlFailure(
-          'invalid_request',
-          'Managed workspace is outside its cleanup root.',
-        )
+      await this.#assertOwned(path)
       const repo = await this.#mainRepo(path)
-      if (repo && !repos.includes(repo)) repos.push(repo)
       // Git for Windows can descend through junctions while removing a worktree.
       // Unlink them first without walking targets such as shared dependencies.
-      await this.#detachLinks(path)
-      if (repo) {
-        const removed = await this.git.removeWorktree(repo, path)
-        if (!removed.ok) {
-          await rm(path, { recursive: true, force: true })
-          await this.git.runPlumbing(repo, ['worktree', 'prune'])
-        }
-      } else {
-        await rm(path, { recursive: true, force: true })
-      }
+      await this.#detachLinks(path, signal)
+      signal?.throwIfAborted()
+      if (repo) await this.git.removeWorktree(repo, path)
+      // Git can report success after dropping its registration while leaving
+      // files behind. Always finish removing the directory with lock retries.
+      signal?.throwIfAborted()
+      await rm(path, removalOptions)
     }
     for (const repo of repos) {
-      await this.#deleteSessionBranches(repo, sessionId)
+      signal?.throwIfAborted()
+      await this.git.runPlumbing(repo, ['worktree', 'prune'])
+      signal?.throwIfAborted()
+      await this.#deleteSessionBranches(repo, sessionId, signal)
+      signal?.throwIfAborted()
       const refs = await this.git.runPlumbing(repo, [
         'for-each-ref',
         '--format=%(refname)',
@@ -144,19 +186,167 @@ export class ManagedWorkspaces {
       ])
       if (!refs.ok) continue
       for (const line of refs.value.stdout.split('\n')) {
+        signal?.throwIfAborted()
         const name = line.trim()
         if (!name.startsWith(`${prefix}/`)) continue
         await this.git.runPlumbing(repo, ['update-ref', '-d', name])
       }
     }
+    signal?.throwIfAborted()
+    await this.#savePending(sessionId, null)
   }
 
-  async #detachLinks(path: string): Promise<void> {
+  async #assertOwned(path: string): Promise<void> {
+    const root = await realpath(this.rootDir)
+    const target = await realpath(path)
+    const inside = relative(root, target)
+    if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside))
+      throw new ControlFailure('invalid_request', 'Managed workspace is outside its cleanup root.')
+  }
+
+  async #pendingReleases(): Promise<Record<string, string[]>> {
+    await this.#cleanupTail
+    return this.#readPending()
+  }
+
+  async #readPending(): Promise<Record<string, string[]>> {
+    const raw = await readFile(join(this.rootDir, '.pending-releases.json'), 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return '{}'
+        throw error
+      },
+    )
+    const entries: unknown = JSON.parse(raw)
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries))
+      throw new Error('Invalid managed workspace cleanup queue.')
+    for (const [id, repos] of Object.entries(entries)) {
+      if (
+        !component.test(id) ||
+        !Array.isArray(repos) ||
+        !repos.every((repo) => typeof repo === 'string')
+      )
+        throw new Error('Invalid managed workspace cleanup queue entry.')
+    }
+    return entries as Record<string, string[]>
+  }
+
+  async #savePending(sessionId: string, repos: string[] | null): Promise<void> {
+    const task = this.#cleanupTail
+      .catch(() => undefined)
+      .then(async () => {
+        const pending = await this.#readPending()
+        if (repos === null) delete pending[sessionId]
+        else pending[sessionId] = repos
+        if (Object.keys(pending).length === 0) {
+          await rm(join(this.rootDir, '.pending-releases.json'), { force: true })
+          return
+        }
+        await mkdir(this.rootDir, { recursive: true })
+        const temporary = join(this.rootDir, '.pending-releases.json.tmp')
+        await writeFile(temporary, JSON.stringify(pending), 'utf8')
+        await rename(temporary, join(this.rootDir, '.pending-releases.json'))
+      })
+    this.#cleanupTail = task
+    await task
+  }
+
+  /** Retries cleanup interrupted by locks or a previous process exit. */
+  async retryReleases(
+    beforeRelease?: (id: string) => Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) return
+    for (const id of Object.keys(await this.#pendingReleases())) {
+      if (signal?.aborted) return
+      try {
+        await beforeRelease?.(id)
+        if (signal?.aborted) return
+        await this.release(id, signal)
+      } catch (error) {
+        if (signal?.aborted) return
+        log.warn('managed workspace cleanup will retry on startup', {
+          sessionId: id,
+          error: String(error),
+        })
+      }
+    }
+  }
+
+  /** Removes only abandoned directories; registered Git worktrees remain inspectable. */
+  async sweepOrphans(
+    sessionExists: (id: string) => Promise<boolean>,
+    repositories: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const registered = new Set<string>()
+    for (const repo of new Set(repositories)) {
+      if (signal?.aborted) return
+      const inside = await this.git.isRepo(repo)
+      if (signal?.aborted) return
+      if (!inside.ok) {
+        log.warn('orphan sweep skipped repository', { repo, error: inside.error.message })
+        continue
+      }
+      if (!inside.value) continue
+      const list = await this.git.listWorktrees(repo)
+      if (signal?.aborted) return
+      if (!list.ok) {
+        log.warn('orphan sweep skipped repository', { repo, error: list.error.message })
+        continue
+      }
+      for (const worktree of list.value) registered.add(pathKey(worktree.path))
+    }
+    if (signal?.aborted) return
+    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return []
+        throw error
+      },
+    )
+    for (const project of projects) {
+      if (signal?.aborted) return
+      if (!project.isDirectory()) continue
+      const projectPath = join(this.rootDir, project.name)
+      await this.#assertOwned(projectPath)
+      for (const entry of await readdir(projectPath, { withFileTypes: true })) {
+        if (signal?.aborted) return
+        if (!entry.isDirectory() || !component.test(entry.name)) continue
+        const path = join(projectPath, entry.name)
+        if (registered.has(pathKey(path))) continue
+        // A removed project's repository may not be in the supplied list.
+        // A surviving .git marker keeps it inspectable even when Git fails.
+        if (await lstat(join(path, '.git')).catch(() => null)) continue
+        try {
+          await this.#assertOwned(path)
+          const info = await lstat(path)
+          // A spawn can create its workspace before it journals the session.
+          if (Date.now() - info.mtimeMs < 5 * 60_000 || (await sessionExists(entry.name))) continue
+          if (signal?.aborted) return
+          if (await sessionExists(entry.name)) continue
+          if (signal?.aborted) return
+          await this.#detachLinks(path, signal)
+          if (signal?.aborted) return
+          await rm(path, removalOptions)
+        } catch (error) {
+          if (signal?.aborted) return
+          log.warn('orphaned workspace cleanup will retry on startup', {
+            path,
+            error: String(error),
+          })
+        }
+      }
+    }
+  }
+
+  async #detachLinks(path: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
     for (const entry of await readdir(path, { withFileTypes: true })) {
+      signal?.throwIfAborted()
       const child = join(path, entry.name)
       const info = await lstat(child)
+      signal?.throwIfAborted()
       if (info.isSymbolicLink()) await unlink(child)
-      else if (info.isDirectory()) await this.#detachLinks(child)
+      else if (info.isDirectory()) await this.#detachLinks(child, signal)
     }
   }
 
@@ -192,13 +382,21 @@ export class ManagedWorkspaces {
 
   /** Worktree directories owned by a session under the managed root. */
   async #sessionPaths(sessionId: string): Promise<string[]> {
-    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(() => null)
-    if (!projects) return []
+    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return []
+        throw error
+      },
+    )
     const paths: string[] = []
     for (const entry of projects) {
       if (!entry.isDirectory()) continue
       const candidate = join(this.rootDir, entry.name, sessionId)
-      if (await stat(candidate).catch(() => null)) paths.push(candidate)
+      const info = await lstat(candidate).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      if (info) paths.push(candidate)
     }
     return paths
   }
@@ -207,11 +405,7 @@ export class ManagedWorkspaces {
   async #mainRepo(worktreePath: string): Promise<string | null> {
     const list = await this.git.listWorktrees(worktreePath)
     if (!list.ok) return null
-    const comparable = (path: string) =>
-      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
-    const others = list.value.filter(
-      (worktree) => comparable(worktree.path) !== comparable(worktreePath),
-    )
+    const others = list.value.filter((worktree) => pathKey(worktree.path) !== pathKey(worktreePath))
     return (others[0] ?? list.value[0])?.path ?? null
   }
 
@@ -231,7 +425,11 @@ export class ManagedWorkspaces {
   }
 
   /** Deletes this session's `ari/…` branch, including the older id-suffixed form. */
-  async #deleteSessionBranches(repo: string, sessionId: string): Promise<void> {
+  async #deleteSessionBranches(
+    repo: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const refs = await this.git.runPlumbing(repo, [
       'for-each-ref',
       '--format=%(refname)',
@@ -239,6 +437,7 @@ export class ManagedWorkspaces {
     ])
     if (!refs.ok) return
     for (const line of refs.value.stdout.split('\n')) {
+      signal?.throwIfAborted()
       const name = line.trim()
       const short = name.startsWith('refs/heads/') ? name.slice('refs/heads/'.length) : ''
       if (
@@ -269,14 +468,10 @@ export class ManagedWorkspaces {
         'Managed worktree is missing or relocated.',
       )
     const list = await this.git.listWorktrees(actual)
-    const comparable = (path: string) =>
-      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
     if (
       !list.ok ||
       !list.value.some(
-        (w) =>
-          comparable(w.path) === comparable(actual) &&
-          w.branch === `refs/heads/${workspace.branch}`,
+        (w) => pathKey(w.path) === pathKey(actual) && w.branch === `refs/heads/${workspace.branch}`,
       )
     ) {
       throw new ControlFailure(

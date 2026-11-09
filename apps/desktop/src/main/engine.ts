@@ -19,6 +19,8 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
+import { helmReportRecipient } from '@ari/engine/helm'
+import { providerTurnContext, type ProviderTurnContext } from '@ari/engine/provider-context'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -134,6 +136,13 @@ export interface EngineDeps {
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** Detaches a parked provider connection before awaiting its shutdown. */
+  releaseProviderConnection?: (sessionId: string) => Promise<void>
+  /**
+   * Live state put ahead of a turn's prompt for the provider only, never in
+   * the transcript. Aria reads the state of every project this way.
+   */
+  turnContext?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
   deliversResults?: () => boolean
   /**
@@ -224,6 +233,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #providerReleases = new Map<string, Promise<void>>()
   readonly #executingTurnIds = new Map<string, string>()
   readonly #capacityBlockedQueues = new Map<string, Set<string>>()
   #closing = false
@@ -417,6 +427,38 @@ export class Engine {
     await this.#endBackgroundTasks(sessionId, () => true, 'stopped', detail)
   }
 
+  /** A new turn waits for shutdown outside the root's command chain. */
+  async #releaseProviderConnection(sessionId: string, staleContextSeq?: number): Promise<void> {
+    if (
+      staleContextSeq !== undefined &&
+      ((await this.#deps.store.load(sessionId)).providerContextSeq ?? 0) === staleContextSeq
+    )
+      return
+    const endTasks = staleContextSeq !== undefined || !this.#activeTurns.has(sessionId)
+    const previous = this.#providerReleases.get(sessionId)
+    const release = (async () => {
+      if (previous) await previous.catch(() => undefined)
+      try {
+        await this.#deps.releaseProviderConnection?.(sessionId)
+      } finally {
+        if (endTasks || !this.#activeTurns.has(sessionId))
+          await this.#endBackgroundTasks(
+            sessionId,
+            () => true,
+            'stopped',
+            'Provider connection released',
+          )
+      }
+    })()
+    this.#providerReleases.set(sessionId, release)
+    try {
+      await release
+    } finally {
+      if (this.#providerReleases.get(sessionId) === release)
+        this.#providerReleases.delete(sessionId)
+    }
+  }
+
   /** Journals an end for every running task `which` selects. */
   async #endBackgroundTasks(
     sessionId: string,
@@ -570,7 +612,7 @@ export class Engine {
                 attributedInput(startRequest.text, origin),
                 startRequest.attachments,
                 ids.turnId,
-                model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+                providerTurnContext(model),
               )
             : undefined,
         )
@@ -597,6 +639,14 @@ export class Engine {
       throw error
     }
     releaseTurn?.(true)
+
+    if (decision.events.some((event) => event.type === 'session.provider.switched'))
+      void this.#releaseProviderConnection(command.sessionId).catch((error: unknown) =>
+        log.warn('provider connection release failed', {
+          sessionId: command.sessionId,
+          error: String(error),
+        }),
+      )
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
@@ -748,14 +798,20 @@ export class Engine {
       this.#executingTurnIds.delete(sessionId)
     this.#deps.publish(sessionId, stamped)
     if (event.type === 'turn.settled') {
-      const parentId = (await this.#deps.store.load(sessionId)).session?.parentSessionId
-      if (parentId)
-        await this.#append(parentId, {
-          type: 'child.session.settled',
-          childSessionId: sessionId,
-          turnId: event.turnId,
-          stopReason: event.stopReason,
-        })
+      const model = await this.#deps.store.load(sessionId)
+      const parentId = model.session?.parentSessionId
+      const settled = {
+        type: 'child.session.settled' as const,
+        childSessionId: sessionId,
+        turnId: event.turnId,
+        stopReason: event.stopReason,
+      }
+      if (parentId) await this.#append(parentId, settled)
+      // Aria hears about every turn it asked for, in any project.
+      const asker = await helmReportRecipient(this.#deps.store, model, event.turnId)
+      if (asker !== null && asker !== parentId && asker !== sessionId) {
+        await this.#append(asker, settled)
+      }
     }
     return stamped
   }
@@ -787,21 +843,42 @@ export class Engine {
 
   /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
-   * into journal parts (coalescing text), and settles the turn. `resumeOf`
-   * carries the provider-native session/thread id observed on a previous
-   * turn, so follow-up prompts continue the same provider thread.
+   * into journal parts (coalescing text), and settles the turn. Context is
+   * frozen when the turn starts: a provider switch affects the following
+   * turn even if this adapter is still starting or reporting its thread id.
    */
   async #runTurn(
     session: Session,
     prompt: string,
     attachments: AttachmentRef[],
     turnId: string,
-    resumeOf: string | null,
+    providerContext: ProviderTurnContext,
   ): Promise<void> {
     if (this.#closing) {
       await this.#settle(session.id, turnId, 'interrupted', null)
       return
     }
+    const { resumeOf, handoff, contextSeq } = providerContext
+    const releaseError = (error: unknown): void =>
+      log.warn('provider connection release failed', {
+        sessionId: session.id,
+        error: String(error),
+      })
+    const waitForProviderRelease = async (): Promise<void> => {
+      let freshRequired = providerContext.handoffPending
+      let pending = this.#providerReleases.get(session.id)
+      while (pending || freshRequired) {
+        if (pending) await pending.catch(releaseError)
+        else {
+          // A finishing old turn may have parked another connection during shutdown.
+          freshRequired = false
+          await this.#releaseProviderConnection(session.id).catch(releaseError)
+        }
+        pending = this.#providerReleases.get(session.id)
+      }
+    }
+    const needsRelease = this.#providerReleases.has(session.id) || providerContext.handoffPending
+    if (needsRelease) await waitForProviderRelease()
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
       const reason = await this.#deps
@@ -905,19 +982,30 @@ export class Engine {
               this.#deps.deliversResults?.() ?? true,
             )
           : null
+      const context = hasControl
+        ? await (this.#deps.turnContext?.(session) ?? Promise.resolve(null)).catch(
+            (error: unknown) => {
+              log.warn('turn context could not be built', { error: String(error) })
+              return null
+            },
+          )
+        : null
+      const body = [handoff, context, prompt].filter((part) => part !== null).join('\n\n')
+      const resolvedAttachments =
+        attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
+      await waitForProviderRelease()
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt: preamble === null || viaSystem ? prompt : `${preamble}\n\n${prompt}`,
+        prompt: preamble === null || viaSystem ? body : `${preamble}\n\n${body}`,
+        ...(handoff ? { handoff } : {}),
         ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
         resumeOf,
-        ...(attachments.length > 0
-          ? { attachments: await this.#resolveAttachments(attachments) }
-          : {}),
+        ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
       })
     } catch (e) {
       // A failed reuse can have closed the process that owned earlier tasks.
@@ -961,6 +1049,7 @@ export class Engine {
         log.warn('provider cancellation failed before startup completed', { error })
       }
       await adapter.dispose()
+      await this.#releaseProviderConnection(session.id, contextSeq)
       if (this.#closing) await this.#settle(session.id, turnId, 'interrupted', null)
       await this.#captureTurnEnd(session.id, turnId)
       return
@@ -1097,17 +1186,24 @@ export class Engine {
       }
     }
 
+    let handoffPending = providerContext.handoffPending
+    const acceptContext = async (): Promise<void> => {
+      if (!handoffPending) return
+      await append({ type: 'session.provider.context.started', contextSeq })
+      handoffPending = false
+    }
     let stopReason: 'completed' | 'interrupted' | 'error'
     let providerStopReason: 'completed' | 'interrupted' | 'error' | undefined
     let errorMessage: string | null
     try {
       let firstErrorMessage: string | null = null
-      for await (const event of adapter.start()) {
+      for await (const event of interrupted ? [] : adapter.start()) {
         // A timed flush that could not journal fails the turn like any other.
         if (timedFlush.error !== null) throw timedFlush.error
         switch (event.type) {
           case 'text-delta':
           case 'thinking-delta': {
+            if (event.type === 'text-delta' && event.text.length > 0) await acceptContext()
             const type = event.type === 'text-delta' ? 'text' : 'thinking'
             const last = buffer[buffer.length - 1]
             if (last?.type === type) last.text += event.text
@@ -1117,10 +1213,12 @@ export class Engine {
             break
           }
           case 'image-output': {
+            await acceptContext()
             await stageProviderImage(event, () => Promise.resolve(event.dataBase64))
             break
           }
           case 'image-output-path': {
+            await acceptContext()
             await stageProviderImage(event, async () => {
               const info = await stat(event.path)
               if (!info.isFile() || info.size === 0 || info.size > MAX_ATTACHMENT_BYTES) {
@@ -1131,6 +1229,7 @@ export class Engine {
             break
           }
           case 'tool-started': {
+            await acceptContext()
             await flush()
             // Tool calls attach to the same streaming assistant message. A
             // repeat (refined args) goes to the message holding the call.
@@ -1238,7 +1337,7 @@ export class Engine {
           case 'session-ref':
             // Persist the provider-native thread id so the next turn resumes
             // it instead of re-prompting cold.
-            await append({ type: 'session.ref.observed', ref: event.ref })
+            await append({ type: 'session.ref.observed', ref: event.ref, contextSeq })
             break
           case 'permission-mode':
             await append({ type: 'session.updated', permissionMode: event.mode })
@@ -1292,14 +1391,28 @@ export class Engine {
     // snapshot follow. Disposal still fences the snapshot against late provider
     // writes, and the next turn on this session waits for both (#turnTasks).
     try {
+      // Opening a thread does not prove the prompt reached the provider.
+      // Output or a completed turn acknowledges delivery, including ref-less CLIs.
+      if (!interrupted && stopReason === 'completed') {
+        try {
+          await acceptContext()
+        } catch (error) {
+          stopReason = 'error'
+          errorMessage = String(error)
+        }
+      }
       if (!interrupted) await this.#settle(session.id, turnId, stopReason, errorMessage)
     } finally {
       try {
-        await dispose()
+        try {
+          await dispose()
+        } finally {
+          this.#activeTurns.delete(session.id)
+        }
+        await this.#releaseProviderConnection(session.id, contextSeq)
       } catch (error) {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
       }
-      this.#activeTurns.delete(session.id)
     }
     // Background work outlives the turn only in a process kept for the next
     // one. A stop ends the turn's sub-agents with it; its shells run on.
@@ -1481,7 +1594,7 @@ export class Engine {
               attributedInput(next.text, next.origin),
               next.attachments,
               ids.turnId,
-              fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
+              providerTurnContext(fresh),
             )
           : undefined,
       )

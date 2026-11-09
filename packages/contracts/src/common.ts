@@ -3,6 +3,9 @@ import { z } from 'zod'
 export const permissionModeSchema = z.enum(['ask', 'allow-edits', 'full'])
 export type PermissionMode = z.infer<typeof permissionModeSchema>
 
+export function exceedsPermission(mode: PermissionMode, ceiling: PermissionMode): boolean {
+  return permissionModeSchema.options.indexOf(mode) > permissionModeSchema.options.indexOf(ceiling)
+}
 /** New sessions use each harness's unrestricted tool mode by default. */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'full'
 

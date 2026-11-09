@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ProjectStore, canonicalizeFolder } from './projects'
+import { ProjectStore, canonicalizeFolder, resolveProjectAgent } from './projects'
+import type { ProjectAgent } from '@ari/contracts/project'
 
 let dir: string
 let existingFolder: string
@@ -19,6 +20,40 @@ afterEach(async () => {
 })
 
 describe('ProjectStore', () => {
+  it('persists, clears and restores a project default without changing old registries', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.add(existingFolder)
+    expect(project.defaultAgent).toBeUndefined()
+    const agent: ProjectAgent = {
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+    }
+    expect((await store.setDefaultAgent(project.id, agent))?.defaultAgent).toEqual(agent)
+    const reloaded = new ProjectStore({ dir })
+    await reloaded.load()
+    expect(reloaded.get(project.id)?.defaultAgent).toEqual(agent)
+    await reloaded.remove(project.id)
+    expect((await reloaded.add(existingFolder)).defaultAgent).toEqual(agent)
+    expect((await reloaded.setDefaultAgent(project.id, null))?.defaultAgent).toBeNull()
+    expect(await reloaded.setDefaultAgent('missing', agent)).toBeNull()
+  })
+  it("seeds a built-in project once, first, and keeps the user's changes to it", async () => {
+    const builtIn = { id: 'helm', path: existingFolder, name: 'Aria' }
+    const first = new ProjectStore({ dir })
+    await first.open(join(dir))
+    const seeded = new ProjectStore({ dir, builtIn })
+    const listed = await seeded.load()
+    expect(listed.map((project) => project.id)[0]).toBe('helm')
+    expect(listed[0]).toMatchObject({ name: 'Aria', path: existingFolder, open: true })
+    await seeded.close('helm')
+    const reloaded = await new ProjectStore({ dir, builtIn }).load()
+    expect(reloaded.filter((project) => project.id === 'helm')).toEqual([
+      expect.objectContaining({ name: 'Aria', open: false }),
+    ])
+  })
+
   it.each(['{corrupt', '{"projects":false}'])(
     'preserves a failed registry read and permits retry: %s',
     async (raw) => {
@@ -289,5 +324,128 @@ describe('ProjectStore', () => {
       projects: [{ id: 'proj_legacy' }, { path: await canonicalizeFolder(join(dir, 'second')) }],
       removed: [],
     })
+  })
+})
+
+describe('project agent resolution', () => {
+  const project = { projectId: 'p' }
+  const saved = {
+    driverKind: 'claude' as const,
+    modelId: 'opus',
+    effort: 'high',
+    permissionMode: 'allow-edits' as const,
+  }
+  const providers = [
+    {
+      driverKind: 'claude',
+      available: true,
+      models: [{ id: 'opus', aliases: ['latest'] }, { id: 'sonnet' }],
+      defaultModelId: 'sonnet',
+    },
+    { driverKind: 'codex', available: true, models: [{ id: 'gpt' }], defaultModelId: 'gpt' },
+  ]
+  const input = {
+    project,
+    providers,
+    app: { permissionMode: 'ask' as const },
+    maxPermissionMode: 'allow-edits' as const,
+  }
+
+  it('uses explicit choices before the saved project default and otherwise requires a user choice', () => {
+    expect(
+      resolveProjectAgent({
+        ...input,
+        project: { ...project, defaultAgent: saved },
+        arguments: { driverKind: 'codex', modelId: 'gpt', effort: 'low' },
+      }),
+    ).toEqual({
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'low',
+      permissionMode: 'ask',
+      source: 'arguments',
+    })
+    expect(resolveProjectAgent({ ...input, project: { ...project, defaultAgent: saved } })).toEqual(
+      { ...saved, source: 'project' },
+    )
+    expect(resolveProjectAgent(input)).toBeNull()
+    expect(resolveProjectAgent({ ...input, arguments: { driverKind: 'codex' } })).toBeNull()
+  })
+
+  it('uses partial options only with a matching saved provider and normalizes model aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
+    expect(
+      resolveProjectAgent({ ...configured, arguments: { modelId: 'sonnet', effort: 'low' } }),
+    ).toEqual({ ...saved, modelId: 'sonnet', effort: 'low', source: 'arguments' })
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'claude' } })).toEqual({
+      ...saved,
+      source: 'arguments',
+    })
+    expect(resolveProjectAgent({ ...input, arguments: { effort: 'high' } })).toBeNull()
+    expect(
+      resolveProjectAgent({
+        ...configured,
+        arguments: { driverKind: 'codex', modelId: 'removed' },
+      }),
+    ).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'codex' } })).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { modelId: 'latest' } })?.modelId).toBe(
+      'opus',
+    )
+  })
+
+  it('caps saved permissions while leaving explicit elevation visible for refusal', () => {
+    const capped = {
+      ...input,
+      project: { ...project, defaultAgent: { ...saved, permissionMode: 'full' as const } },
+      maxPermissionMode: 'ask' as const,
+    }
+    expect(resolveProjectAgent(capped)?.permissionMode).toBe('ask')
+    expect(
+      resolveProjectAgent({ ...capped, arguments: { permissionMode: 'full' } })?.permissionMode,
+    ).toBe('full')
+  })
+
+  it('carries saved effort only onto the same model, including aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
+    for (const provider of [{ driverKind: 'claude' as const }, {}]) {
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'sonnet' } })
+          ?.effort,
+      ).toBeNull()
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'sonnet', effort: 'low' },
+        })?.effort,
+      ).toBe('low')
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'latest' } })
+          ?.effort,
+      ).toBe('high')
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'opus', effort: null },
+        })?.effort,
+      ).toBeNull()
+    }
+  })
+
+  it('refuses stale or unset defaults instead of choosing another installed or catalog-default model', () => {
+    for (const modelId of ['removed', null])
+      expect(
+        resolveProjectAgent({
+          ...input,
+          project: { ...project, defaultAgent: { ...saved, modelId } },
+        }),
+      ).toBeNull()
+    expect(
+      resolveProjectAgent({
+        ...input,
+        project: { ...project, defaultAgent: saved },
+        providers: providers.map((p) => ({ ...p, available: p.driverKind === 'codex' })),
+      }),
+    ).toBeNull()
   })
 })

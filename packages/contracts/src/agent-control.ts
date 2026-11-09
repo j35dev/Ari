@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { orchestrationParams } from './orchestration'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
+import type { ProjectAgent, ResolvedProjectAgent } from './project'
+import type { HelmProjectContext } from './helm'
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -38,8 +40,8 @@ const delegationFields = {
   /** Stopping a session also stops the children it delegated to. */
   cascadeStop: z.boolean(),
   /**
-   * Run Ari's own read-only and delegation commands without a permission
-   * prompt each time. Integrating and destroying still ask.
+   * Run Ari's own commands without a permission prompt each time. Installing
+   * the Ari skill still asks because it writes the user's agent configuration.
    */
   autoApproveCli: z.boolean(),
   /** Soft cap on a whole delegation tree's cost; null leaves it off. */
@@ -56,7 +58,7 @@ export const delegationSettingsSchema = z.object({
   defaultWorkspaceMode: delegationFields.defaultWorkspaceMode.default('isolated'),
   allowSharedWorkspace: delegationFields.allowSharedWorkspace.default(false),
   recursiveDelegation: delegationFields.recursiveDelegation.default(false),
-  approvalMode: delegationFields.approvalMode.default('first-per-root'),
+  approvalMode: delegationFields.approvalMode.default('never'),
   autoDeliverResults: delegationFields.autoDeliverResults.default(true),
   cascadeStop: delegationFields.cascadeStop.default(true),
   autoApproveCli: delegationFields.autoApproveCli.default(true),
@@ -111,10 +113,90 @@ export interface ChildTask {
   branch: string | null
 }
 
+/** A project as Aria sees it. */
+export interface HelmProject extends HelmProjectContext {
+  projectId: string
+  name: string
+  path: string
+  available: boolean
+  defaultAgent?: ProjectAgent | null
+  agent?: ResolvedProjectAgent | null
+  agentError?: string
+}
+
+export interface CreatedProject {
+  projectId: string
+  name: string
+  path: string
+  created: boolean
+}
+
 export const controlParams = {
   ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
   'providers.list': z.object({}).strict(),
+  /** Aria only: the projects it can start and steer work in. */
+  'projects.list': z.object({}).strict(),
+  /** Aria only: create a workspace or adopt a folder the user named. */
+  'projects.create': z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      path: z.string().trim().min(1).max(4096).optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  'projects.setDefault': z
+    .object({
+      projectId: target,
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1),
+      effort: z.string().min(1).nullish(),
+      permissionMode: permissionModeSchema.optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  'projects.ask': z
+    .object({
+      projectId: target,
+      text,
+      title: z.string().trim().min(1).max(120).optional(),
+      driverKind: driverKindSchema.optional(),
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      permissionMode: permissionModeSchema.optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  /** Aria only: change the most recently asked lead's agent, or delete its live project leads. */
+  'projects.lead': z
+    .object({
+      projectId: target,
+      driverKind: driverKindSchema.optional(),
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      reset: z.boolean().default(false),
+      idempotencyKey: key,
+    })
+    .strict()
+    .refine((p) =>
+      p.reset
+        ? p.driverKind === undefined && p.modelId === undefined && p.effort === undefined
+        : p.driverKind !== undefined,
+    )
+    .refine((p) => p.reset || typeof p.modelId === 'string', {
+      path: ['modelId'],
+      message: 'Switching needs --model. Ask the user which model to use.',
+    }),
+  /** Aria only: sessions across every project, newest first. */
+  'sessions.find': z
+    .object({
+      query: z.string().trim().max(200).optional(),
+      projectId: target.optional(),
+      /** `active` is working, queued or waiting on the user; `all` adds idle sessions. */
+      scope: z.enum(['active', 'all']).default('all'),
+      limit: z.number().int().min(1).max(100).default(20),
+    })
+    .strict(),
   'session.get': z.object({ targetSessionId: target.default('self') }).strict(),
   'session.children': z
     .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
@@ -125,8 +207,11 @@ export const controlParams = {
   'session.spawn': z
     .object({
       title: z.string().trim().min(1).max(120),
+      /** Aria only: the project the new session works in. */
+      projectId: target.optional(),
       role: delegationRoleSchema.optional(),
-      driverKind: driverKindSchema,
+      /** Aria may use the project's saved agent; child sessions require an explicit provider. */
+      driverKind: driverKindSchema.optional(),
       modelId: z.string().min(1).nullish(),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
@@ -140,6 +225,16 @@ export const controlParams = {
     })
     .strict(),
   'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  /** Aria only: switch a top-level project session it launched. */
+  'session.switch': z
+    .object({
+      targetSessionId: target,
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1),
+      effort: z.string().min(1).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
   'session.message': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
   'session.delivery': z.object({ targetSessionId: target, messageId: target }).strict(),
   'session.inbox': z.object({ includeConsumed: z.boolean().default(false) }).strict(),

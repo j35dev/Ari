@@ -9,9 +9,10 @@ interface Entry {
 /** Park native stream-json processes so Claude's built-in agents survive replies. */
 export class ClaudeSessionPool {
   readonly #idle = new Map<string, Entry>()
+  readonly #releases = new Set<Promise<void>>()
   #timer: ReturnType<typeof setInterval> | null = null
   onBackground: ((sessionId: string, events: AgentEvent[]) => void) | null = null
-  onEnded: ((sessionId: string) => void) | null = null
+  onEnded: ((sessionId: string) => void | Promise<void>) | null = null
 
   constructor(
     private readonly idleMs = 30 * 60_000,
@@ -39,20 +40,20 @@ export class ClaudeSessionPool {
 
   put(sessionId: string, key: string, process: ClaudeControlProcess): boolean {
     if (process.closed) return false
-    this.release(sessionId)
+    void this.release(sessionId)
     const entry = { key, process }
     this.#idle.set(sessionId, entry)
     process.onEnded = () => {
       if (this.#idle.get(sessionId) !== entry) return
       this.#idle.delete(sessionId)
       this.#disarmWhenEmpty()
-      this.onEnded?.(sessionId)
+      void this.onEnded?.(sessionId)
     }
     process.onBackground = (events) => this.onBackground?.(sessionId, events)
     while (this.#idle.size > this.maxIdle) {
       const idle = [...this.#idle].find(([, entry]) => !entry.process.hasRunningTasks)
       if (!idle) break
-      this.release(idle[0])
+      void this.release(idle[0])
     }
     this.#timer ??= setInterval(() => this.reap(), 60_000)
     this.#timer.unref?.()
@@ -63,15 +64,18 @@ export class ClaudeSessionPool {
     return this.#idle.get(sessionId)?.process.closed === false
   }
 
-  release(sessionId: string): void {
+  release(sessionId: string): Promise<void> {
     const entry = this.#idle.get(sessionId)
-    if (!entry) return
+    if (!entry) return Promise.resolve()
     this.#idle.delete(sessionId)
     entry.process.onBackground = null
     entry.process.onEnded = null
-    void entry.process.shutdown()
-    this.onEnded?.(sessionId)
+    const ended = this.onEnded?.(sessionId)
+    const release = Promise.all([entry.process.shutdown(), ended]).then(() => undefined)
+    this.#releases.add(release)
+    void release.finally(() => this.#releases.delete(release))
     this.#disarmWhenEmpty()
+    return release
   }
 
   #disarmWhenEmpty(): void {
@@ -84,7 +88,7 @@ export class ClaudeSessionPool {
   reap(now = Date.now()): void {
     for (const [id, entry] of this.#idle) {
       if (!entry.process.hasRunningTasks && now - entry.process.lastActivity >= this.idleMs)
-        this.release(id)
+        void this.release(id)
     }
   }
 
@@ -100,6 +104,7 @@ export class ClaudeSessionPool {
         return process.shutdown()
       }),
     )
+    await Promise.all(this.#releases)
   }
 }
 

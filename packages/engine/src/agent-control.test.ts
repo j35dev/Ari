@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema, type ScheduledRoutine } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
@@ -126,6 +126,55 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+it('creates projects for Aria only and persists idempotent results across runtime restarts', async () => {
+  const aria = { ...root, id: 'aria', projectId: 'helm' }
+  await store.append(aria.id, { type: 'session.created', session: aria })
+  let calls = 0
+  host.createProject = async (input) => {
+    calls++
+    return { projectId: 'new-project', name: input.name, path: input.path ?? dir, created: true }
+  }
+  const params = { name: 'Garden', path: dir, idempotencyKey: 'garden' }
+  expect(await service.invoke('root', 'projects.create', params)).toMatchObject({
+    ok: false,
+    error: { code: 'scope_denied' },
+  })
+  expect(calls).toBe(0)
+  const results = await Promise.all(
+    Array.from({ length: 3 }, () => service.invoke('aria', 'projects.create', params)),
+  )
+  expect(results[0]).toEqual({
+    ok: true,
+    result: { projectId: 'new-project', name: 'Garden', path: dir, created: true },
+  })
+  expect(results.every((result) => JSON.stringify(result) === JSON.stringify(results[0]))).toBe(
+    true,
+  )
+  expect(await new AgentControlService(host).invoke('aria', 'projects.create', params)).toEqual(
+    results[0],
+  )
+  expect(calls).toBe(1)
+  expect(
+    await service.invoke('aria', 'projects.create', { ...params, name: 'Other' }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+})
+
+it('rejects invalid project creation input and reports hosts without project creation support', async () => {
+  await store.append('aria', {
+    type: 'session.created',
+    session: { ...root, id: 'aria', projectId: 'helm' },
+  })
+  expect(
+    await service.invoke('aria', 'projects.create', { name: ' ', idempotencyKey: 'empty' }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+  expect(
+    await service.invoke('aria', 'projects.create', {
+      name: 'Garden',
+      idempotencyKey: 'unsupported',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+})
+
 it('deduplicates concurrent spawn retries and sends the assignment exactly once', async () => {
   const replies = await Promise.all(
     Array.from({ length: 5 }, () => service.invoke('root', 'session.spawn', spawn)),
@@ -139,6 +188,20 @@ it('deduplicates concurrent spawn retries and sends the assignment exactly once'
   expect(
     await service.invoke('root', 'session.spawn', { ...spawn, title: 'Different' }),
   ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+})
+
+it('spawns workers without a delegation approval under the default policy', async () => {
+  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.approve = async () => {
+    throw new Error('The default policy must not ask for delegation approval')
+  }
+  expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({ ok: true })
+  expect(
+    await service.invoke('root', 'session.spawn', { ...spawn, idempotencyKey: 'two' }),
+  ).toMatchObject({ ok: true })
+  expect((await store.listSessions()).filter((row) => row.parentSessionId === 'root')).toHaveLength(
+    2,
+  )
 })
 
 it('queues delegated work at the cap and prevents recursion and escalation', async () => {
@@ -200,7 +263,8 @@ it('refuses a spawn once the tree is over its budget', async () => {
 })
 
 it('reports approval-pending distinctly and never mints an orphan child', async () => {
-  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.policy = () =>
+    delegationSettingsSchema.parse({ approvalMode: 'first-per-root', allowSharedWorkspace: true })
   let resolveApproval!: (allowed: boolean) => void
   let approvals = 0
   host.approve = async () => {
@@ -248,7 +312,8 @@ it('denies unrelated transcripts, forged senders and unavailable models', async 
 })
 
 it('requires approval, rechecks changed policy and denies sibling/cross-project access', async () => {
-  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  host.policy = () =>
+    delegationSettingsSchema.parse({ approvalMode: 'first-per-root', allowSharedWorkspace: true })
   host.approve = async () => false
   expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({
     error: { code: 'delegation_approval_required' },
@@ -380,6 +445,85 @@ it('preserves an isolated orphan for inspection when session create outcome is u
   ).toMatchObject({ ok: false, error: { code: 'internal_error' } })
   expect(released).toHaveLength(0)
   expect((await store.listSessions()).map((s) => s.id)).toEqual(['root'])
+})
+
+it('awaits the host stopping a parked child before destroying its session and releasing its workspace', async () => {
+  await host.create({ ...root, id: 'parked-child', parentSessionId: root.id })
+  const effects: string[] = []
+  let finish!: () => void
+  host.revoke = async (id) => {
+    expect((await store.load(id)).session?.id).toBe(id)
+    effects.push('stopping')
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    effects.push('stopped')
+  }
+  host.release = async (session) => {
+    expect((await store.load(session.id)).session).toBeNull()
+    effects.push('released')
+  }
+  const destroyed = service.invoke('root', 'session.destroy', {
+    targetSessionId: 'parked-child',
+    idempotencyKey: 'parked',
+  })
+  await vi.waitFor(() => expect(effects).toEqual(['stopping']))
+  finish()
+  expect(await destroyed).toMatchObject({ ok: true, result: { destroyed: true } })
+  expect(effects).toEqual(['stopping', 'stopped', 'released'])
+})
+
+it('logs failed workspace removal without failing session destroy', async () => {
+  await host.create({ ...root, id: 'locked-child', parentSessionId: root.id })
+  host.release = async () => {
+    throw new Error('workspace locked')
+  }
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    expect(
+      await service.invoke('root', 'session.destroy', {
+        targetSessionId: 'locked-child',
+        idempotencyKey: 'locked',
+      }),
+    ).toMatchObject({ ok: true, result: { destroyed: true } })
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('cleanup deferred'),
+      expect.objectContaining({ sessionId: 'locked-child', error: 'Error: workspace locked' }),
+    )
+    expect((await store.load('locked-child')).session).toBeNull()
+  } finally {
+    warn.mockRestore()
+  }
+})
+
+it('still destroys and releases a child when interruption or parked-process cleanup fails', async () => {
+  await host.create({ ...root, id: 'cleanup-child', parentSessionId: root.id })
+  host.isRunning = () => true
+  host.quiesce = async () => {
+    throw new Error('quiesce failed')
+  }
+  const revoke = vi.fn<NonNullable<ControlHost['revoke']>>(async () => {
+    throw new Error('parked process failed')
+  })
+  const release = vi.fn<ControlHost['release']>(async (session) => {
+    expect((await store.load(session.id)).session).toBeNull()
+  })
+  host.revoke = revoke
+  host.release = release
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    expect(
+      await service.invoke('root', 'session.destroy', {
+        targetSessionId: 'cleanup-child',
+        idempotencyKey: 'cleanup-failed',
+      }),
+    ).toMatchObject({ ok: true, result: { destroyed: true } })
+    expect(revoke).toHaveBeenCalledWith('cleanup-child')
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ id: 'cleanup-child' }))
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
 })
 
 it('retries the same spawn key after a transient provider failure', async () => {

@@ -25,6 +25,8 @@ function parse(argv) {
     'any',
     'tools',
     'include-consumed',
+    'active',
+    'reset',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -44,13 +46,14 @@ function parse(argv) {
   const allowed = new Set([
     ...boolean,
     'title',
+    'name',
+    'path',
     'role',
     'agent',
     'model',
     'effort',
     'permission',
     'workspace',
-    'prompt',
     'key',
     'tail',
     'turns',
@@ -69,6 +72,9 @@ function parse(argv) {
     'params',
     'params-file',
     'prompt-file',
+    'project',
+    'query',
+    'limit',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -95,10 +101,13 @@ function parse(argv) {
     flags['prompt-file'] &&
     !(
       (group === 'parent' && verb === 'message') ||
+      (group === 'project' && verb === 'ask') ||
       (group === 'session' && ['spawn', 'prompt', 'message'].includes(verb))
     )
   )
-    throw new Error('--prompt-file is supported for spawn, prompt and coordination messages')
+    throw new Error(
+      '--prompt-file is supported for project ask, spawn, prompt and coordination messages',
+    )
   if (flags['params-file'] && !['task', 'orchestration'].includes(group))
     throw new Error('--params-file is supported for orchestration commands')
   let method
@@ -109,6 +118,81 @@ function parse(argv) {
   } else if (group === 'agents' || group === 'providers') {
     method = 'providers.list'
     params = {}
+  } else if (group === 'projects') {
+    method = 'projects.list'
+    params = {}
+  } else if (group === 'project') {
+    if (verb === 'create') {
+      if (!flags.name || !flags.name.trim()) throw new Error('project create needs --name')
+      if (target) throw new Error('Use --path to name a project folder')
+      method = 'projects.create'
+      params = {
+        name: flags.name,
+        ...(flags.path ? { path: flags.path } : {}),
+        idempotencyKey: key,
+      }
+    } else if (verb === 'ask') {
+      if (!target) throw new Error('project ask needs a project id')
+      method = 'projects.ask'
+      params = {
+        projectId: target,
+        text: promptText(rest.join(' ')),
+        idempotencyKey: key,
+        ...(flags.title ? { title: flags.title } : {}),
+        ...(flags.agent ? { driverKind: flags.agent } : {}),
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+        ...(flags.permission ? { permissionMode: flags.permission } : {}),
+      }
+    } else if (verb === 'default') {
+      if (!target) throw new Error('project default needs a project id')
+      if (!flags.agent) throw new Error('project default needs --agent')
+      if (!flags.model)
+        throw new Error('project default needs --model. Ask the user which model to use.')
+      method = 'projects.setDefault'
+      params = {
+        projectId: target,
+        driverKind: flags.agent,
+        idempotencyKey: key,
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+        ...(flags.permission ? { permissionMode: flags.permission } : {}),
+      }
+    } else if (verb === 'lead') {
+      if (!target) throw new Error('project lead needs a project id')
+      if (rest.length) throw new Error('project lead does not accept prompt text')
+      if (flags.reset && (flags.agent || flags.model || flags.effort))
+        throw new Error('Use either --reset or --agent with --model and optional --effort')
+      if (!flags.reset && !flags.agent) throw new Error('project lead needs --agent or --reset')
+      if (flags.permission) throw new Error('project lead keeps the lead permissions')
+      if (!flags.reset && !flags.model)
+        throw new Error('project lead needs --model. Ask the user which model to use.')
+      method = 'projects.lead'
+      params = {
+        projectId: target,
+        idempotencyKey: key,
+        ...(flags.reset ? { reset: true } : { driverKind: flags.agent }),
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+      }
+    } else
+      throw new Error(
+        'Use ari project create, ari project ask, ari project default or ari project lead',
+      )
+  } else if (group === 'sessions') {
+    const words = positional.slice(1).join(' ')
+    if (words && flags.query) throw new Error('Use either query words or --query')
+    const query = flags.query || words
+    const limit = flags.limit === undefined ? undefined : Number(flags.limit)
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
+      throw new Error('--limit must be between 1 and 100')
+    method = 'sessions.find'
+    params = {
+      scope: flags.active ? 'active' : 'all',
+      ...(query ? { query } : {}),
+      ...(flags.project ? { projectId: flags.project } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    }
   } else if (group === 'parent' && verb === 'message') {
     method = 'session.message'
     params = {
@@ -175,12 +259,26 @@ function parse(argv) {
           title: flags.title,
           driverKind: flags.agent,
           idempotencyKey: key,
+          ...(flags.project ? { projectId: flags.project } : {}),
           ...(flags.role ? { role: flags.role } : {}),
           ...(flags.model ? { modelId: flags.model } : {}),
           ...(flags.effort ? { effort: flags.effort } : {}),
           ...(flags.permission ? { permissionMode: flags.permission } : {}),
           ...(flags.workspace ? { workspaceMode: flags.workspace } : {}),
           ...(flags.prompt || flags['prompt-file'] ? { prompt: promptText(flags.prompt) } : {}),
+        }
+        break
+      case 'switch':
+        if (!target) throw new Error('session switch needs a session id')
+        if (!flags.agent) throw new Error('session switch needs --agent')
+        if (!flags.model)
+          throw new Error('session switch needs --model. Ask the user which model to use.')
+        params = {
+          targetSessionId: target,
+          driverKind: flags.agent,
+          idempotencyKey: key,
+          ...(flags.model ? { modelId: flags.model } : {}),
+          ...(flags.effort ? { effort: flags.effort } : {}),
         }
         break
       case 'prompt':
@@ -265,7 +363,7 @@ function parse(argv) {
     } else throw new Error('Unknown routine command')
   } else
     throw new Error(
-      'Use ari env, ari agents, ari session <command>, ari routine <command>, or ari --skill',
+      'Use ari env, ari agents, ari projects, ari project <command>, ari sessions, ari session <command>, ari routine <command>, or ari --skill',
     )
   return { method, params, flags, timeoutMs }
 }
@@ -362,7 +460,7 @@ async function main(argv) {
   if (
     result.ok &&
     command.flags.wait &&
-    ['session.prompt', 'session.spawn'].includes(command.method)
+    ['session.prompt', 'session.spawn', 'projects.ask'].includes(command.method)
   ) {
     const id = result.result.sessionId || result.result.child.id
     const waited = await request(

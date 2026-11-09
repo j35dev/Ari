@@ -14,6 +14,7 @@ import { DeviceKeyring, type DeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
 import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
+import { visibleProjects, visibleSessions } from './visibility'
 
 const ORIGIN_KEY = 'ari.remote.origin'
 const RECONNECT_DELAY_MS = 2000
@@ -118,8 +119,8 @@ export function AppProvider({
           : Promise.resolve(null),
       ])
       if (live.current !== session || !session.usable) return
-      setProjects(nextProjects)
-      setSessions(nextSessions)
+      setProjects(visibleProjects(nextProjects))
+      setSessions(visibleSessions(nextSessions))
       setCatalog(nextCatalog)
       setLastSyncedAt(Date.now())
       setError(null)

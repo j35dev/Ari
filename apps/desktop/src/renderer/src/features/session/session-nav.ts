@@ -1,6 +1,7 @@
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { sessionTree } from './session-tree'
 import { collapsedSessions } from '../../shell/use-session-collapse'
+import { visibleProjects, visibleSessions } from '../aria/visibility'
 
 /**
  * The ad-hoc project id, doubling as the sidebar's Unfiled group: it collects
@@ -74,10 +75,14 @@ function byRecency(a: SessionSummary, b: SessionSummary): number {
  * excluded — they live in the global shelf.
  */
 export function sidebarGroups(sessions: SessionSummary[], projects: NavProject[]): SidebarGroup[] {
-  const groups: SidebarGroup[] = projects.map((p) => ({ id: p.id, name: p.name, sessions: [] }))
+  const groups: SidebarGroup[] = visibleProjects(projects).map((p) => ({
+    id: p.id,
+    name: p.name,
+    sessions: [],
+  }))
   const byId = new Map(groups.map((g) => [g.id, g]))
   const unfiled: SidebarGroup = { id: UNFILED_GROUP_ID, name: 'Unfiled', sessions: [] }
-  for (const session of sessions) {
+  for (const session of visibleSessions(sessions)) {
     if (session.archived) continue
     ;(byId.get(session.projectId) ?? unfiled).sessions.push(session)
   }
@@ -102,7 +107,7 @@ export interface SessionInboxSplit {
 export function inboxSplit(sessions: SessionSummary[]): SessionInboxSplit {
   const pinned: SessionSummary[] = []
   const active: SessionSummary[] = []
-  for (const session of sessions) {
+  for (const session of visibleSessions(sessions)) {
     if (session.archived || session.parentSessionId) continue
     if (session.pinned) pinned.push(session)
     else active.push(session)
@@ -134,7 +139,9 @@ export function sidebarOrder(
 ): SessionSummary[] {
   if (projects.length === 0) {
     return sessionTree(
-      [...sessions].filter((s) => !s.archived).sort(byPinnedThenRecency),
+      visibleSessions(sessions)
+        .filter((s) => !s.archived)
+        .sort(byPinnedThenRecency),
       collapsedSessions(),
     ).map((row) => row.session)
   }

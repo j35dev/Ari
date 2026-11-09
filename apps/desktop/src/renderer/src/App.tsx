@@ -66,12 +66,17 @@ import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
 import { formatPaneTitle } from './features/split/pane-title'
 import { SplitView } from './features/split/SplitView'
-import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
+import {
+  splitLayoutActions,
+  splitLayoutSnapshot,
+  useSplitLayout,
+} from './features/split/use-split-layout'
 import {
   MAX_SPACES,
   SpaceTabs,
   recentSpaces,
   spaceActions,
+  spaceStoreSnapshot,
   spaceStatus,
   useSpaces,
   useSpaceSwipe,
@@ -89,9 +94,15 @@ import {
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import { visibleProjects } from './features/aria/visibility'
+import { isHelmSession } from '@ari/contracts/helm'
+import { AriaRow } from './features/aria/AriaRow'
+import { ariaActivity, startedByAria } from './features/aria/aria-activity'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
 import { NewSessionLauncher } from './shell/NewSessionLauncher'
+import { useSessionStart } from './shell/use-session-start'
+import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
   applyPatches,
@@ -166,7 +177,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
-  const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
+  const { activityOf, attentionCountOf, acknowledge, forget } =
+    useSessionActivity(visibleSessionIds)
   // Every list refresh is a new array; the lookup changes identity only when
   // a title does, or each refresh would re-render every memoized transcript row.
   const sessionsRef = useRef(sessions)
@@ -208,6 +220,42 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
+  const [composerFocusRequest, setComposerFocusRequest] = useState<{
+    sessionId: string
+    intent: SessionStartIntent
+  } | null>(null)
+  const startIntentsRef = useRef(new Set<SessionStartIntent>())
+  const panesVisibleRef = useRef(panesVisible)
+  panesVisibleRef.current = panesVisible
+  const captureStartIntent = useCallback((): SessionStartIntent => {
+    for (const previous of startIntentsRef.current) previous.cancel()
+    const intent: SessionStartIntent = captureSessionStartIntent(
+      () => {
+        const current = splitLayoutSnapshot()
+        return {
+          spaceId: spaceStoreSnapshot().activeSpaceId,
+          paneId: activePaneOf(current),
+          sessionId: activeSessionOf(current),
+        }
+      },
+      () => panesVisibleRef.current,
+      () => {
+        startIntentsRef.current.delete(intent)
+        setComposerFocusRequest((previous) => (previous?.intent === intent ? null : previous))
+      },
+    )
+    startIntentsRef.current.add(intent)
+    return intent
+  }, [])
+  useEffect(() => {
+    for (const intent of startIntentsRef.current) intent.validate()
+  }, [layout, spaceStore.activeSpaceId, panesVisible])
+  useEffect(() => {
+    const intents = startIntentsRef.current
+    return () => {
+      for (const intent of intents) intent.cancel()
+    }
+  }, [])
   const [recentSpaceIds, setRecentSpaceIds] = useState<readonly string[]>([])
   const nextRecentSpaceIds = recentSpaces(
     recentSpaceIds,
@@ -251,6 +299,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // safe seed: it never depends on an installed CLI, and detection below
   // upgrades it to the first agent that is installed.
   const [lastPickAtBoot] = useState(loadLastPick)
+  const [providersReady, setProvidersReady] = useState(false)
   const [defaults, setDefaults] = useState<SessionDefaults>(() => ({
     driverKind: lastPickAtBoot?.driverKind ?? 'ari-core',
     modelId: lastPickAtBoot?.modelId ?? null,
@@ -356,8 +405,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(
     () =>
       rpc.subscribe('app.navigate', {}, (payload) => {
-        const sessionId = (payload as Partial<NavigateFrame> | null)?.sessionId
-        if (typeof sessionId === 'string') selectSessionRef.current(sessionId)
+        const frame = payload as NavigateFrame | null
+        if (frame && 'settingsSection' in frame && frame.settingsSection === 'speech') {
+          setHubOpen(false)
+          setSettingsSection('speech')
+          setSettingsOpen(true)
+        } else if (frame && 'sessionId' in frame && typeof frame.sessionId === 'string') {
+          selectSessionRef.current(frame.sessionId)
+        }
       }),
     [],
   )
@@ -518,6 +573,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         !event ||
         (event.type !== 'user.message.added' &&
           event.type !== 'session.updated' &&
+          event.type !== 'session.provider.switched' &&
           event.type !== 'turn.settled' &&
           event.type !== 'session.created' &&
           !event.type?.startsWith('child.session.'))
@@ -540,7 +596,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     void rpc
       .invoke('project.list')
-      .then(setProjects)
+      .then((list) => setProjects(visibleProjects(list)))
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
@@ -563,6 +619,65 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [engineSettings.settings?.sourceControl.diffOpenMode],
   )
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
+  const ariaStatus = useMemo(
+    () => ariaActivity(sessions, activityOf, attentionCountOf),
+    [sessions, activityOf, attentionCountOf],
+  )
+  const ariaStartedIds = useMemo(
+    () => new Set(sessions.filter(startedByAria).map((session) => session.id)),
+    [sessions],
+  )
+  const openAria = useCallback(
+    (newChat = false): void => {
+      const request = newChat ? rpc.invoke('aria.newChat') : rpc.invoke('aria.open', defaults)
+      void request
+        .then(async ({ sessionId }) => {
+          if (newChat)
+            for (const session of sessions)
+              if (isHelmSession(session) && !session.archived) forget(session.id)
+          await reloadSessions()
+          selectSessionRef.current(sessionId)
+        })
+        .catch((error: unknown) => {
+          log.warn('Aria could not open', error)
+          toast({
+            tone: 'danger',
+            title: 'Could not open Aria',
+            description: error instanceof Error ? error.message : String(error),
+          })
+        })
+    },
+    [defaults, reloadSessions, toast, sessions, forget],
+  )
+  const openAriaRef = useRef(openAria)
+  openAriaRef.current = openAria
+  const landed = useRef(false)
+  useEffect(() => {
+    if (
+      landed.current ||
+      setupCovered ||
+      !sessionsLoadedRef.current ||
+      !providersReady ||
+      engineSettings.settings === null
+    )
+      return
+    if (onboardingOutcome?.sessionId != null) {
+      landed.current = true
+      return
+    }
+    if (activeSessionId !== null && !sessions.some((session) => session.id === activeSessionId))
+      return
+    landed.current = true
+    if (activeSessionId === null && leaves(layout.root).every(isBlankLeaf)) openAriaRef.current()
+  }, [
+    sessions,
+    setupCovered,
+    activeSessionId,
+    layout,
+    providersReady,
+    engineSettings.settings,
+    onboardingOutcome?.sessionId,
+  ])
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -594,9 +709,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         }
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))
+      .finally(() => setProvidersReady(true))
   }, [])
 
   const commands = useCommands({
+    onOpenAria: () => {
+      openAria()
+      setPaletteOpen(false)
+    },
     onNavigate: (view) => {
       if (view === 'settings') {
         setHubOpen(false)
@@ -674,9 +794,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const refreshProjects = useCallback((): void => {
     void rpc
       .invoke('project.list')
-      .then(setProjects)
+      .then((list) => setProjects(visibleProjects(list)))
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  useEffect(() => rpc.subscribe('projects.changed', {}, refreshProjects), [refreshProjects])
 
   useEffect(() => {
     if (onboardingOutcome === null) return
@@ -738,6 +860,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
+        e.preventDefault()
+        openAriaRef.current()
+        return
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
@@ -868,70 +995,27 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     layout,
   ])
 
-  const createSession = useCallback(
-    (projectId: string, overrides?: Partial<SessionDefaults>): void => {
-      const effective = { ...defaults, ...overrides }
-      // Reuse the newest pristine (zero-message) session when its config is
-      // compatible — spamming ✎ must not pile up empty chats. A lead is a
-      // different kind of session, so it never borrows an ordinary one.
-      const reusable = effective.lead
-        ? undefined
-        : sessions.find(
-            (s) =>
-              s.projectId === projectId &&
-              s.messageCount === 0 &&
-              (overrides === undefined || overrides.driverKind === undefined),
-          )
-      if (reusable) {
-        if (overrides) setDefaults(effective)
-        const open = (): void => {
-          splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
-          clearTransientInspector()
-        }
-        // Already on screen: its chips are the user's to set, nothing starts.
-        if (reusable.id === activeSessionId) {
-          open()
-          return
-        }
-        // It was created under the default of its day; an empty session picked
-        // up as "new" has to start the way a new one would. The update goes out
-        // first and the pane opens in the same frame: whichever lands first, the
-        // load or the journal's `session.updated`, the chip ends on this mode.
-        void rpc
-          .invoke('command.dispatch', {
-            command: {
-              type: 'session.update',
-              sessionId: reusable.id,
-              driverKind: effective.driverKind,
-              modelId: effective.modelId,
-              permissionMode: effective.permissionMode,
-              effort: effective.effort,
-            },
-          })
-          .catch((error: unknown) => log.warn('rpc call failed', error))
-        open()
+  const sessionStart = useSessionStart({
+    defaults,
+    sessions,
+    captureIntent: captureStartIntent,
+    refreshProjects,
+    refreshSessions,
+    checkSessions: reloadSessions,
+    onStarted: (sessionId, effective, intent) => {
+      if (effective !== null) writeDefaults(sessionId, effective)
+      if (!intent.select(sessionId)) {
+        intent.dispose()
         return
       }
-      void rpc
-        .invoke('session.create', {
-          projectId,
-          title: 'New session',
-          driverKind: effective.driverKind,
-          modelId: effective.modelId,
-          permissionMode: effective.permissionMode,
-          effort: effective.effort,
-          ...(effective.lead ? { lead: true } : {}),
-        })
-        .then(({ sessionId }) => {
-          if (overrides) setDefaults(effective)
-          splitLayoutActions.assign(layout.focusedPaneId, sessionId)
-          clearTransientInspector()
-          refreshSessions()
-        })
-        .catch((error: unknown) => log.warn('rpc call failed', error))
+      splitLayoutActions.assign(intent.scope.paneId, sessionId)
+      if (intent.wantsFocus) {
+        clearTransientInspector()
+        setComposerFocusRequest({ sessionId, intent })
+      } else intent.dispose()
     },
-    [defaults, sessions, layout, activeSessionId, refreshSessions, clearTransientInspector],
-  )
+  })
+  const createSession = sessionStart.create
 
   /**
    * Single door for every "new session" affordance. A session always belongs
@@ -941,20 +1025,24 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * every session now has a real one.
    */
   const beginNewSession = useCallback(
-    (anchor: MenuAnchor, overrides?: Partial<SessionDefaults>): void => {
-      if (projects.length === 0) {
-        void openProjectViaPicker()
-          .then((project) => {
-            if (project === null) return // cancelled picker stays put
-            refreshProjects()
-            createSession(project.id, overrides)
-          })
-          .catch((error: unknown) => log.warn('project open failed', error))
+    (
+      anchor: MenuAnchor,
+      overrides?: Partial<SessionDefaults>,
+      intent?: SessionStartIntent,
+    ): void => {
+      if (!sessionStart.canStart() || (intent && !intent.isCurrent())) {
+        intent?.dispose()
         return
       }
+      if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
+      if (projects.length === 0) {
+        sessionStart.pickProject(overrides, intent)
+        return
+      }
+      intent?.dispose() // The chooser owns the next explicit pick and its focus.
       setNewSessionRequest({ anchor, overrides })
     },
-    [projects.length, refreshProjects, createSession],
+    [projects.length, sessionStart.canStart, sessionStart.pickProject],
   )
 
   /**
@@ -973,15 +1061,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const addProjectAndStart = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
       setNewSessionRequest(null)
-      void openProjectViaPicker()
-        .then((project) => {
-          if (project === null) return // cancelled picker stays put
-          refreshProjects()
-          createSession(project.id, overrides)
-        })
-        .catch((error: unknown) => log.warn('project open failed', error))
+      sessionStart.pickProject(overrides)
     },
-    [createSession, refreshProjects],
+    [sessionStart.pickProject],
   )
 
   const selectWorkspaceTool = useCallback(
@@ -1161,6 +1243,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 onSearch={() => sidebarSearchRef.current?.focus()}
                 onCollapse={toggleSidebar}
               />
+              <AriaRow
+                selected={isHelmSession(activeSession)}
+                activity={ariaStatus}
+                onOpen={() => openAria()}
+                onNewChat={() => openAria(true)}
+              />
               <SessionsUnderProjects
                 sessions={sessions}
                 projects={openProjects}
@@ -1202,6 +1290,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 }}
                 onLocateProject={openProjectViaDialog}
                 activeSessionId={activeSessionId}
+                startedByAria={(id) => ariaStartedIds.has(id)}
                 activityOf={activityOf}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
@@ -1351,12 +1440,20 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         <ErrorBoundary label="Welcome">
                           <WelcomePanel
                             hasProjects={projects.length > 0}
+                            startPending={sessionStart.pending}
+                            onStartIntent={() =>
+                              sessionStart.canStart() ? captureStartIntent() : null
+                            }
                             onCreateSession={beginNewSession}
-                            onConnect={(endpointId, anchor) =>
-                              beginNewSession(anchor, {
-                                driverKind: 'ari-core',
-                                modelId: `ep:${endpointId}`,
-                              })
+                            onConnect={(endpointId, anchor, intent) =>
+                              beginNewSession(
+                                anchor,
+                                {
+                                  driverKind: 'ari-core',
+                                  modelId: `ep:${endpointId}`,
+                                },
+                                intent,
+                              )
                             }
                           />
                         </ErrorBoundary>
@@ -1367,6 +1464,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                             titleOf={(id) => {
                               const session = sessions.find((s) => s.id === id)
                               if (session === undefined) return null
+                              if (isHelmSession(session)) return 'Aria'
                               const projectName =
                                 session.projectId === UNFILED_GROUP_ID
                                   ? null
@@ -1413,7 +1511,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 render={(sessionId, hidden) => (
                                   <SessionView
                                     sessionId={sessionId}
+                                    onOpenAria={() => openAria()}
+                                    startedByAria={ariaStartedIds.has(sessionId)}
                                     hidden={hidden}
+                                    onComposerReady={
+                                      composerFocusRequest?.sessionId === sessionId &&
+                                      composerFocusRequest.intent.scope.spaceId === space.id &&
+                                      composerFocusRequest.intent.scope.paneId === paneId
+                                        ? composerFocusRequest.intent.ready
+                                        : undefined
+                                    }
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}

@@ -60,6 +60,20 @@ export interface TurnReport {
   truncated: boolean
 }
 
+/** A quiet marker is never allowed to hide a question or a failed turn. */
+export function routineReport(report: {
+  stopReason: string
+  errorMessage: string | null
+  text: string
+}): boolean {
+  return (
+    report.stopReason === 'completed' &&
+    !report.errorMessage &&
+    report.text.split(/\r?\n/).at(-1) === '<!-- aria: fyi -->' &&
+    !/\?|\b(?:failed|failure|error|blocked|cannot|need your|decide|decision)\b/i.test(report.text)
+  )
+}
+
 /**
  * The report a turn ended on: the text after its last tool activity, not the
  * narration streamed before it. Streamed deltas are separate parts and are
@@ -70,6 +84,8 @@ export function finalAssistantText(
   model: SessionReadModel,
   turnId: string | null | undefined,
   maxChars = 8000,
+  /** Quiet markers require an exact final line, including its spaces. */
+  preserveWhitespace = false,
 ): TurnReport {
   const message = [...model.messages]
     .reverse()
@@ -86,7 +102,7 @@ export function finalAssistantText(
     if (run.trim().length > 0) break
     run = ''
   }
-  const text = run.trim()
+  const text = preserveWhitespace ? run.replace(/\r?\n$/, '') : run.trim()
   return text.length > maxChars
     ? { text: text.slice(0, maxChars), truncated: true }
     : { text, truncated: false }
@@ -134,6 +150,21 @@ const OUTCOME = {
   error: 'failed',
 } as const
 
+function section(entry: CompletionReport): string {
+  const head = `${entry.title} (${entry.sessionId}) ${OUTCOME[entry.stopReason]}.`
+  const error =
+    entry.stopReason === 'error' && entry.errorMessage ? `\nError: ${entry.errorMessage}` : ''
+  const body =
+    entry.report.text.length === 0
+      ? '\nIt left no final message.'
+      : `\nReport:\n${entry.report.text}${
+          entry.report.truncated
+            ? `\n[Report truncated. Full text: ari session read ${entry.sessionId} --json]`
+            : ''
+        }`
+  return head + error + body
+}
+
 /**
  * The message a parent is woken with. It carries the reports themselves so
  * the common case needs no follow-up read, and says what is still running so
@@ -143,21 +174,16 @@ export function completionNotice(
   reports: readonly CompletionReport[],
   stillWorking: readonly { sessionId: string; title: string }[],
   budget?: string | null,
+  /** Aria's sessions work in their own project folders; there is nothing to integrate. */
+  audience: 'parent' | 'helm' = 'parent',
 ): string {
-  const sections = reports.map((entry) => {
-    const head = `${entry.title} (${entry.sessionId}) ${OUTCOME[entry.stopReason]}.`
-    const error =
-      entry.stopReason === 'error' && entry.errorMessage ? `\nError: ${entry.errorMessage}` : ''
-    const body =
-      entry.report.text.length === 0
-        ? '\nIt left no final message.'
-        : `\nReport:\n${entry.report.text}${
-            entry.report.truncated
-              ? `\n[Report truncated. Full text: ari session read ${entry.sessionId} --json]`
-              : ''
-          }`
-    return head + error + body
-  })
+  if (audience === 'helm')
+    return [
+      '[Ari update for Aria: added automatically by Ari, not written by the user. The user does not see this message.]',
+      ...reports.map(section),
+      "Their changes are already in their project folders; a finished turn is not proof the work is correct. The [Ari now] block above shows what is still running. Tell the user the outcome in your own words, using each session's title. Do not quote this update or paste session ids into the chat.",
+    ].join('\n\n')
+  const sections = reports.map(section)
   const waiting =
     stillWorking.length === 0
       ? 'No other children are working.'

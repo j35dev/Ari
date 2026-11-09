@@ -13,8 +13,10 @@ import { OpencodeDriver } from './opencode/opencode-driver'
 import { GrokDriver } from './grok/grok-driver'
 import { HermesDriver } from './hermes/hermes-driver'
 import { AcpDriver } from './acp/acp-driver'
+import type * as SpawnCliModule from './spawn-cli'
 
-vi.mock('./spawn-cli', () => ({
+vi.mock('./spawn-cli', async (importOriginal) => ({
+  ...(await importOriginal<typeof SpawnCliModule>()),
   spawnCli: () => ({
     stdout: new PassThrough(),
     stderr: new PassThrough(),
@@ -22,6 +24,7 @@ vi.mock('./spawn-cli', () => ({
     killed: false,
     kill: () => true,
     on: () => undefined,
+    once: () => undefined,
   }),
 }))
 

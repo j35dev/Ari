@@ -2,7 +2,8 @@ import type { DelegatedChild, DelegationRow, TranscriptRow } from './types'
 
 /** The message a row belongs to and the first part it covers, read off its key. */
 function rowPosition(row: TranscriptRow): { messageId: string; partIndex: number } | null {
-  if (row.kind === 'turn-diff' || row.kind === 'delegation') return null
+  if (row.kind === 'turn-diff' || row.kind === 'delegation' || row.kind === 'provider-switch')
+    return null
   const key = row.kind === 'tool-group' ? row.blocks[0]?.key : row.key
   if (key === undefined) return null
   const split = key.lastIndexOf('#')

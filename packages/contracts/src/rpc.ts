@@ -8,9 +8,10 @@ import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
 import type { Project, ProjectDiscovery } from './project'
+import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
-import { sessionHierarchySummarySchema } from './session'
+import { sessionHierarchySummarySchema, sessionCreatorSchema } from './session'
 import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
@@ -57,6 +58,7 @@ export type {
  */
 
 export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
+  createdBy: sessionCreatorSchema.nullish(),
   id: z.string(),
   projectId: z.string(),
   title: z.string(),
@@ -308,6 +310,8 @@ export type PickedElement = z.infer<typeof pickedElementSchema>
 
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
+  'projects.changed',
+  'speech.progress',
   'orchestration.changed',
   'session.events',
   'terminal.data',
@@ -320,10 +324,44 @@ export const streamNames = [
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
-/** Payload delivered on the app.navigate stream: the main process asking to show a session. */
-export interface NavigateFrame {
-  sessionId: string
+export interface SpeechModel {
+  id: string
+  name: string
+  description: string
+  languages: string[]
+  filename: string
+  size: number
+  sha256: string | null
+  repository: string | null
+  revision: string | null
+  recommended?: boolean
+  partial?: { size: number; updatedAt: number }
+  installed: false | { path: string; source: 'ari' | 'handy' | 'other' }
 }
+
+export interface SpeechStatus {
+  engine: 'missing' | 'downloading' | 'ready' | 'error'
+  engineError?: string | null
+  /** An inspection must confirm missing or mismatched files before a download is offered. */
+  engineInstallable?: boolean
+  engineReinstallable?: boolean
+  model: SpeechModel | null
+  loading?: boolean
+  ready: boolean
+  error?: string | null
+}
+
+export interface SpeechProgress {
+  id: string
+  phase: 'downloading' | 'verifying' | 'installing' | 'complete' | 'cancelled' | 'error'
+  received: number
+  total: number
+  error?: string
+  status?: SpeechStatus
+}
+
+/** The main process asking to show a session or open speech configuration. */
+export type NavigateFrame = { sessionId: string } | { settingsSection: 'speech' }
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
@@ -658,6 +696,10 @@ export const rpcParams = {
   /** Quit and relaunch into a release already staged by `download`. */
   'app.update.install': z.undefined(),
   'session.list': z.undefined(),
+  'aria.open': sessionCreateParamsSchema
+    .omit({ projectId: true, title: true, lead: true })
+    .optional(),
+  'aria.newChat': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
@@ -825,6 +867,10 @@ export const rpcParams = {
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
+  'project.setDefaultAgent': z.object({
+    id: z.string().min(1),
+    value: projectAgentSchema.nullable(),
+  }),
   'project.remove': z.object({ id: z.string().min(1) }),
   /** Slots a project ahead of `beforeId` in the sidebar (null = last). */
   'project.move': z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
@@ -885,6 +931,25 @@ export const rpcParams = {
     defaultModel: z.string().min(1).optional(),
   }),
   'settings.get': z.undefined(),
+  'speech.status': z.undefined(),
+  'speech.models': z.undefined(),
+  'speech.engine.download': z.undefined(),
+  'speech.engine.check': z.undefined(),
+  'speech.engine.reinstall': z.undefined(),
+  'speech.engine.cancel': z.undefined(),
+  'speech.download': z.object({ modelId: z.string().min(1) }),
+  'speech.cancel': z.object({ modelId: z.string().min(1) }),
+  'speech.select': z
+    .object({ modelId: z.string().optional(), path: z.string().optional() })
+    .refine((value) => Boolean(value.modelId) !== Boolean(value.path), 'Choose a model id or path'),
+  'speech.remove': z.object({ modelId: z.string().min(1) }),
+  'speech.discard': z.object({ modelId: z.string().min(1) }),
+  'speech.transcribe': z.object({
+    pcm: z
+      .union([z.instanceof(Float32Array), z.array(z.number().finite().min(-1).max(1))])
+      .refine((pcm) => pcm.length > 0 && pcm.length <= 16_000 * 300, 'Record up to five minutes'),
+    language: z.string().max(20).optional(),
+  }),
   'settings.update': settingsUpdateSchema,
   'git.status': gitScopeSchema,
   'scm.summary': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
@@ -1042,6 +1107,8 @@ export interface RpcResults extends OrchestrationResults {
   'app.update.download': UpdateStart
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
+  'aria.open': { sessionId: string }
+  'aria.newChat': { sessionId: string }
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }
@@ -1304,6 +1371,7 @@ export interface RpcResults extends OrchestrationResults {
   'project.add': Project
   'project.open': Project
   'project.close': Project | null
+  'project.setDefaultAgent': Project | null
   'project.remove': { removed: boolean }
   'project.move': Project | null
   /** Native folder picker; `path` is null when the user cancels (clean no-op). */
@@ -1336,6 +1404,18 @@ export interface RpcResults extends OrchestrationResults {
   }
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
+  'speech.status': SpeechStatus
+  'speech.models': SpeechModel[]
+  'speech.engine.download': { started: boolean }
+  'speech.engine.check': SpeechStatus
+  'speech.engine.reinstall': { started: boolean }
+  'speech.engine.cancel': { cancelled: boolean }
+  'speech.download': { started: boolean }
+  'speech.cancel': { cancelled: boolean }
+  'speech.select': SpeechStatus
+  'speech.remove': { removed: boolean }
+  'speech.discard': { discarded: boolean }
+  'speech.transcribe': { text: string }
   'settings.update': Settings
   'scm.summary': SourceControlResult<GitSummary>
   'scm.requests': SourceControlResult<HostConnection>

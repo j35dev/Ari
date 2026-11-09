@@ -16,6 +16,7 @@ vi.mock('./useEngineSettings', () => ({
 }))
 
 const engineSettings: Settings = {
+  speech: defaultSettings.speech,
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
@@ -157,7 +158,15 @@ describe('PermissionsSettings', () => {
       expect(mocks.update).toHaveBeenCalledWith({ delegation: { maxConcurrentChildren: 6 } }),
     )
 
+    expect(screen.getByRole('button', { name: 'Delegation approval' })).toHaveTextContent(
+      'No approval',
+    )
+    await user.click(screen.getByRole('switch', { name: "Run Ari's own commands without asking" }))
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ delegation: { autoApproveCli: false } }),
+    )
     await user.click(screen.getByRole('button', { name: 'Delegation approval' }))
+    expect(screen.getByRole('option', { name: 'First request per root' })).toBeInTheDocument()
     await user.click(screen.getByRole('option', { name: 'Every request' }))
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ delegation: { approvalMode: 'always' } }),

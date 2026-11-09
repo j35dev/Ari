@@ -1,6 +1,13 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { activeAccountId, defaultSettings, settingsSchema } from '@ari/contracts/settings'
+import {
+  activeAccountId,
+  defaultSettings,
+  settingsSchema,
+  defaultSpeechShortcut,
+  migrateSpeechShortcut,
+  speechShortcutError,
+} from '@ari/contracts/settings'
 import type { CliKind, ProviderConnection, Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 
@@ -27,6 +34,7 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  speech?: Partial<Settings['speech']>
   onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
@@ -57,6 +65,10 @@ export class SettingsStore {
 
   constructor(options: SettingsStoreOptions) {
     this.#path = join(options.dir, 'settings.json')
+    this.#current = {
+      ...defaultSettings,
+      speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+    }
   }
 
   get current(): Settings {
@@ -88,18 +100,36 @@ export class SettingsStore {
         log.warn('settings read failed; preserving file', { error: String(error) })
         throw error
       }
-      await this.save(defaultSettings)
-      this.#current = defaultSettings
+      this.#current = {
+        ...defaultSettings,
+        speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+      }
+      await this.save(this.#current)
       this.#loaded = true
       return this.#current
     }
+    let migrateDelegationApproval: boolean
     try {
       const parsed: unknown = JSON.parse(raw)
       this.#current = settingsSchema.parse(parsed)
+      // A disk-only marker lets users opt back into first-per-root after this
+      // one-time change without adding a migration flag to app preferences.
+      migrateDelegationApproval =
+        (parsed as { delegationApprovalMigrated?: unknown }).delegationApprovalMigrated !== true
+      if (migrateDelegationApproval && this.#current.delegation.approvalMode === 'first-per-root')
+        this.#current = {
+          ...this.#current,
+          delegation: { ...this.#current.delegation, approvalMode: 'never' },
+        }
     } catch (error) {
       log.warn('settings invalid; preserving file', { error: String(error) })
       throw error
     }
+    const shortcut = migrateSpeechShortcut(this.#current.speech.shortcut, process.platform)
+    const migrateShortcut = shortcut !== this.#current.speech.shortcut
+    if (migrateShortcut)
+      this.#current = { ...this.#current, speech: { ...this.#current.speech, shortcut } }
+    if (migrateDelegationApproval || migrateShortcut) await this.save(this.#current)
     this.#loaded = true
     return this.#current
   }
@@ -117,7 +147,12 @@ export class SettingsStore {
   async #apply(patch: SettingsPatch): Promise<Settings> {
     // Window geometry can save before boot has loaded the user's preferences.
     if (!this.#loaded) await this.#read()
+    if (patch.speech?.shortcut !== undefined) {
+      const error = speechShortcutError(patch.speech.shortcut, process.platform)
+      if (error) throw new Error(error)
+    }
     const next: Settings = {
+      speech: { ...this.#current.speech, ...patch.speech },
       onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },
       version: 1,
@@ -139,7 +174,11 @@ export class SettingsStore {
   async save(settings: Settings): Promise<void> {
     await mkdir(join(this.#path, '..'), { recursive: true })
     const tmp = `${this.#path}.tmp`
-    await writeFile(tmp, JSON.stringify(settings, null, 2), 'utf8')
+    await writeFile(
+      tmp,
+      JSON.stringify({ ...settings, delegationApprovalMigrated: true }, null, 2),
+      'utf8',
+    )
     // Atomic on same-volume rename; readers never see a torn file.
     await rename(tmp, this.#path)
   }

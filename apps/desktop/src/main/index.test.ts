@@ -89,6 +89,8 @@ const fixture = await vi.hoisted(async () => {
     shutdown,
     powerMonitor,
     firstPaint,
+    widgetClose: vi.fn(),
+    widgetConfigure: vi.fn(async () => undefined),
     startUpdates: vi.fn(),
     presenceStop: vi.fn(),
   }
@@ -111,7 +113,14 @@ vi.mock('./discord-presence', () => ({
     stop = fixture.presenceStop
   },
 }))
+vi.mock('./aria-widget', () => ({
+  AriaWidget: class {
+    close = fixture.widgetClose
+    configure = fixture.widgetConfigure
+  },
+}))
 vi.mock('./rpc', () => ({
+  openSpeechSettings: vi.fn(),
   registerRpc: fixture.registerRpc,
   startAppUpdateChecks: fixture.startUpdates,
 }))
@@ -189,6 +198,7 @@ describe('main window lifetime', () => {
       expect(window.draft).toBe('unfinished prompt')
       expect(fixture.app.quit).not.toHaveBeenCalled()
       expect(fixture.shutdown).not.toHaveBeenCalled()
+      expect(fixture.widgetClose).not.toHaveBeenCalled()
       expect(fixture.tray.setBackgrounded).toHaveBeenLastCalledWith(true)
     },
   )
@@ -226,6 +236,7 @@ describe('main window lifetime', () => {
     expect(fixture.shutdown).toHaveBeenCalledOnce()
     expect(fixture.tray.destroy).toHaveBeenCalledOnce()
     expect(fixture.presenceStop).toHaveBeenCalledOnce()
+    expect(fixture.widgetClose).toHaveBeenCalled()
   })
 
   it('keeps startup usable when the tray cannot be created, and close quits', async () => {

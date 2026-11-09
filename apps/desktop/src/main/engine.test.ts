@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Command } from '@ari/contracts/commands'
+import type { Session } from '@ari/contracts/session'
 import { DriverRegistry } from '@ari/providers/registry'
 import type {
   AdapterApprovalDecision,
@@ -21,7 +22,7 @@ import {
   type TitleRequest,
   type TitleStrategy,
 } from '@ari/engine/title'
-import { Engine } from './engine'
+import { Engine, type EngineDeps } from './engine'
 
 let dir: string
 let store: SessionStore
@@ -77,6 +78,7 @@ async function seedSession(
   store: SessionStore,
   sessionId: string,
   projectId = 'proj_1',
+  fields: Partial<Session> = {},
 ): Promise<void> {
   await store.append(sessionId, {
     type: 'session.created',
@@ -90,9 +92,913 @@ async function seedSession(
       status: 'idle',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...fields,
     },
   })
 }
+
+describe('Aria provider switching', () => {
+  it.each([
+    { failure: 'throw', hasRef: false },
+    { failure: 'error', hasRef: false },
+    { failure: 'stop', hasRef: false },
+    { failure: 'throw', hasRef: true },
+    { failure: 'error', hasRef: true },
+    { failure: 'stop', hasRef: true },
+  ] as const)(
+    'retries the handoff after $failure before delivery (has ref: $hasRef)',
+    async ({ failure, hasRef }) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      let retry = false
+      let started = false
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                started = true
+                if (!retry) {
+                  if (hasRef) yield { type: 'session-ref', ref: 'empty-thread' }
+                  if (failure === 'throw') throw new Error('Start failed')
+                  if (failure === 'error') {
+                    yield { type: 'error', message: 'Start failed', rawJson: null }
+                    return
+                  }
+                  await gate
+                  return
+                }
+                yield { type: 'session-ref', ref: 'new-thread' }
+                yield { type: 'done' }
+              })(),
+            interrupt: release,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const releaseConnection = vi.fn(async () => undefined)
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember the existing work.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: 'chosen',
+        effort: null,
+      })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Continue.',
+        attachments: [],
+      })
+      await expect.poll(() => started).toBe(true)
+      if (failure === 'stop') await engine.dispatch({ type: 'turn.interrupt', sessionId: 'aria' })
+      await engine.quiesce('aria')
+      expect((await store.load('aria')).providerSessionId).toBe(hasRef ? 'empty-thread' : null)
+      expect((await store.load('aria')).providerHandoffPending).toBe(true)
+      releaseConnection.mockClear()
+      retry = true
+      await turn(engine, 'Try again.')
+      expect(created.at(-1)!.resumeOf).toBeNull()
+      expect(created.at(-1)!.prompt).toContain('User: Remember the existing work.')
+      expect(releaseConnection).toHaveBeenCalledWith('aria')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+    },
+  )
+
+  it.each(['aria', 'lead', 'session'] as const)(
+    'consumes a ref-less %s handoff only after a completed turn',
+    async (kind) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'done' }
+              })(),
+            interrupt: () => undefined,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(
+        store,
+        'aria',
+        kind === 'aria' ? 'helm' : 'project',
+        kind !== 'aria'
+          ? {
+              ...(kind === 'lead' ? { lead: true as const } : {}),
+              createdBy: { kind: 'session', sessionId: 'helm' },
+            }
+          : {},
+      )
+      await turn(engine, 'Existing conversation.')
+      expect(
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'opencode',
+          modelId: null,
+          effort: null,
+        }),
+      ).toMatchObject({ accepted: true })
+      await turn(engine, 'Continue.')
+      expect(created.at(-1)!.prompt).toContain('User: Existing conversation.')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+      await turn(engine, 'Next.')
+      expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+    },
+  )
+
+  it('serializes a provider switch behind turn authorization and journals the same provider the turn uses', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    registry.register(recordingDriver('opencode', created))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const authorize = vi.fn(async () => {
+      await gate
+      return null
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      authorizeTurn: authorize,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    await seedSession(store, 'aria', 'helm')
+    const starting = engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'aria',
+      text: 'First.',
+      attachments: [],
+    })
+    await expect.poll(() => authorize.mock.calls.length).toBe(1)
+    const switching = engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: 'chosen',
+      effort: null,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(published).toEqual([])
+    release()
+    expect(await starting).toEqual({ accepted: true })
+    expect(await switching).toEqual({ accepted: true })
+    await engine.quiesce('aria')
+    expect(created[0]!.modelId).toBeNull()
+    expect(published.findIndex((entry) => entry.event.type === 'turn.started')).toBeLessThan(
+      published.findIndex((entry) => entry.event.type === 'session.provider.switched'),
+    )
+    await turn(engine, 'Second.')
+    expect(created[1]!.modelId).toBe('chosen')
+    expect(created[1]!.resumeOf).toBeNull()
+  })
+
+  it('releases a parked connection on switching and releases one parked by the finishing old turn', async () => {
+    const releasePool = vi.fn(async () => undefined)
+    try {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created))
+      const engine = engineWith(registry, { releaseProviderConnection: releasePool })
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'First.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      expect(releasePool).toHaveBeenCalledWith('aria')
+      await turn(engine, 'Second.')
+      releasePool.mockClear()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let started = false
+      registry.register({
+        kind: 'opencode',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              started = true
+              await gate
+              yield { type: 'done' }
+            })(),
+          interrupt: release,
+          dispose: async () => undefined,
+          keepsBackgroundWork: () => true,
+        }),
+      })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Working.',
+        attachments: [],
+      })
+      await expect.poll(() => started).toBe(true)
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'claude',
+        modelId: null,
+        effort: null,
+      })
+      release()
+      await engine.quiesce('aria')
+      expect(releasePool).toHaveBeenCalledTimes(2)
+    } finally {
+      releasePool.mockRestore()
+    }
+  })
+
+  it('releases the old connection when Stop and a switch arrive during adapter creation', async () => {
+    const releasePool = vi.fn(async () => undefined)
+    try {
+      const registry = new DriverRegistry()
+      let creating = false
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const dispose = vi.fn(async () => undefined)
+      registry.register({
+        kind: 'claude',
+        create: async () => {
+          creating = true
+          await gate
+          return {
+            start: () => (async function* (): AsyncGenerator<AgentEvent> {})(),
+            interrupt: () => undefined,
+            dispose,
+          }
+        },
+      })
+      const engine = engineWith(registry, { releaseProviderConnection: releasePool })
+      await seedSession(store, 'aria', 'helm')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'First.',
+        attachments: [],
+      })
+      await expect.poll(() => creating).toBe(true)
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      await engine.dispatch({ type: 'turn.interrupt', sessionId: 'aria' })
+      release()
+      await engine.quiesce('aria')
+      expect(dispose).toHaveBeenCalledOnce()
+      expect(releasePool).toHaveBeenCalledTimes(2)
+    } finally {
+      releasePool.mockRestore()
+    }
+  })
+
+  it.each(['text', 'tool'] as const)(
+    'acknowledges delivery on the first agent %s despite a later error',
+    async (output) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'session-ref', ref: 'accepted-thread' }
+                if (output === 'text') yield { type: 'text-delta', text: 'Working on the request.' }
+                else yield { type: 'tool-started', callId: 'work', name: 'Bash', argsJson: '{}' }
+                yield { type: 'error', message: 'Later failure', rawJson: null }
+              })(),
+            interrupt: () => undefined,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember the request.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      await turn(engine, 'Continue.')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+      expect((await store.load('aria')).lastTurn?.stopReason).toBe('error')
+      await turn(engine, 'Retry.')
+      expect(created.at(-1)!.resumeOf).toBe('accepted-thread')
+      expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+    },
+  )
+
+  it.each(['output', 'completion'] as const)(
+    'settles as an error if delivery acknowledgement cannot be journaled at %s',
+    async (at) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register({
+        kind: 'opencode',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              if (at === 'output') yield { type: 'text-delta', text: 'Reply' }
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: async () => undefined,
+        }),
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Existing context.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      const originalAppend = store.append.bind(store)
+      const appendSpy = vi.spyOn(store, 'append').mockImplementation(async (id, event) => {
+        if (event.type === 'session.provider.context.started')
+          throw new Error('acknowledgement write failed')
+        return originalAppend(id, event)
+      })
+      try {
+        await turn(engine, 'Continue.')
+        const model = await store.load('aria')
+        expect(model.activeTurnId).toBeNull()
+        expect(model.lastTurn).toMatchObject({
+          stopReason: 'error',
+          errorMessage: expect.stringContaining('acknowledgement write failed'),
+        })
+        expect(model.providerHandoffPending).toBe(true)
+      } finally {
+        appendSpy.mockRestore()
+      }
+    },
+  )
+
+  it('keeps root commands responsive during shutdown and fences the next provider turn', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    registry.register(recordingDriver('opencode', created))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const releaseConnection = vi.fn(async () => {
+      await gate
+      await writeFile(join(dir, 'late-write.txt'), 'Old process finished')
+    })
+    const captureCheckpoint = vi.fn(async () => {
+      if (created.length > 0) {
+        expect(await readFile(join(dir, 'late-write.txt'), 'utf8')).toBe('Old process finished')
+        expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('stopped')
+      }
+      return { ok: true as const, value: null }
+    })
+    const engine = engineWith(registry, {
+      releaseProviderConnection: releaseConnection,
+      git: { captureCheckpoint },
+    })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    await store.append('aria', {
+      type: 'background.task.updated',
+      taskId: 'old-shell',
+      kind: 'shell',
+      label: 'Old shell',
+      status: 'running',
+    })
+    expect(
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      }),
+    ).toEqual({ accepted: true })
+    expect(releaseConnection).toHaveBeenCalledWith('aria')
+    expect(
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Next.',
+        attachments: [],
+      }),
+    ).toEqual({ accepted: true })
+    expect(
+      await engine.dispatch({ type: 'session.update', sessionId: 'aria', title: 'Responsive' }),
+    ).toEqual({ accepted: true })
+    expect(created).toHaveLength(1)
+    expect(captureCheckpoint).toHaveBeenCalledOnce()
+    expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('running')
+    release()
+    await engine.quiesce('aria')
+    expect(created).toHaveLength(2)
+    expect(created[1]!.resumeOf).toBeNull()
+    expect(
+      published
+        .filter(
+          ({ event }) => event.type === 'background.task.updated' && event.taskId === 'old-shell',
+        )
+        .map(({ event }) => event.type === 'background.task.updated' && event.status),
+    ).toEqual(['stopped'])
+  })
+
+  it('awaits a release queued during prompt preparation before creating the driver', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    let released = false
+    const driver = recordingDriver('claude', created)
+    registry.register({
+      ...driver,
+      create: async (session) => {
+        if (created.length > 0) expect(released).toBe(true)
+        return driver.create(session)
+      },
+    })
+    registry.register(recordingDriver('opencode', created))
+    let prepare!: () => void
+    const preparing = new Promise<void>((resolve) => {
+      prepare = resolve
+    })
+    let finishContext!: () => void
+    const contextGate = new Promise<void>((resolve) => {
+      finishContext = resolve
+    })
+    let finishRelease!: () => void
+    const releaseGate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const releaseConnection = vi.fn(async () => {
+      await releaseGate
+      released = true
+    })
+    const engine = engineWith(registry, {
+      releaseProviderConnection: releaseConnection,
+      turnContext: async () => {
+        if (created.length === 1) {
+          prepare()
+          await contextGate
+        }
+        return '[Ari now: test]'
+      },
+    })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text: 'Next.', attachments: [] })
+    await preparing
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: null,
+      effort: null,
+    })
+    finishContext()
+    await expect.poll(() => releaseConnection.mock.calls.length).toBe(1)
+    expect(created).toHaveLength(1)
+    finishRelease()
+    await engine.quiesce('aria')
+    expect(created).toHaveLength(2)
+    // The switch affects the following turn; this turn retains its frozen provider.
+    expect(created[1]!.resumeOf).toBe('claude-1')
+  })
+
+  it('releases a connection parked during pending shutdown before delivering the handoff', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    const nextDriver = recordingDriver('opencode', created)
+    let parked = false
+    registry.register({
+      ...nextDriver,
+      create: async (session) => {
+        expect(parked).toBe(false)
+        return nextDriver.create(session)
+      },
+    })
+    let finishRelease!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    let releases = 0
+    const releaseConnection = vi.fn(async () => {
+      if (++releases === 1) {
+        await gate
+        parked = true
+      } else parked = false
+    })
+    const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'Remember the work.')
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: null,
+      effort: null,
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text: 'Next.', attachments: [] })
+    expect(created).toHaveLength(1)
+    finishRelease()
+    await engine.quiesce('aria')
+    expect(releases).toBeGreaterThanOrEqual(2)
+    expect(created).toHaveLength(2)
+    expect(created[1]!.resumeOf).toBeNull()
+    expect(created[1]!.handoff).toContain('User: Remember the work.')
+  })
+
+  it.each([false, true])(
+    'continues after a failed release and runs any queued release (queued: %s)',
+    async (queued) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created))
+      let fail!: (reason: Error) => void
+      const gate = new Promise<void>((_resolve, reject) => {
+        fail = reject
+      })
+      let releases = 0
+      const releaseConnection = vi.fn(() => (++releases === 1 ? gate : Promise.resolve()))
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember this work.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      if (queued)
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'claude',
+          modelId: null,
+          effort: null,
+        })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Continue.',
+        attachments: [],
+      })
+      fail(new Error('Release failed'))
+      await engine.quiesce('aria')
+      expect((await store.load('aria')).lastTurn?.stopReason).toBe('completed')
+      expect(created).toHaveLength(2)
+      expect(created[1]!.resumeOf).toBeNull()
+      expect(created[1]!.prompt).toContain('User: Remember this work.')
+      if (queued) expect(releaseConnection.mock.calls.length).toBeGreaterThanOrEqual(2)
+    },
+  )
+
+  it.each(['running', 'idle'] as const)(
+    'ends background tasks when switching away from a %s parked-capable provider',
+    async (state) => {
+      const registry = new DriverRegistry()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      registry.register({
+        kind: 'claude',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'session-ref', ref: 'old-thread' }
+              yield {
+                type: 'background-task',
+                id: 'shell',
+                kind: 'shell',
+                label: 'Old shell',
+                status: 'running',
+              }
+              if (state === 'running') await gate
+              yield { type: 'done' }
+            })(),
+          interrupt: release,
+          dispose: async () => undefined,
+          keepsBackgroundWork: () => true,
+        }),
+      })
+      const releaseConnection = vi.fn(async () => {
+        await engine.releaseBackgroundTasks('aria', 'Process ended')
+      })
+      const engine = engineWith(registry, { releaseProviderConnection: releaseConnection })
+      await seedSession(store, 'aria', 'helm')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Work.',
+        attachments: [],
+      })
+      await expect
+        .poll(async () => (await store.load('aria')).backgroundTasks?.[0]?.status)
+        .toBe('running')
+      if (state === 'idle') await engine.quiesce('aria')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      if (state === 'running') {
+        expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('running')
+        release()
+        await engine.quiesce('aria')
+      }
+      await expect
+        .poll(async () => (await store.load('aria')).backgroundTasks?.[0]?.status)
+        .toBe('stopped')
+    },
+  )
+
+  function recordingDriver(
+    kind: 'claude' | 'opencode',
+    created: AdapterSession[],
+    systemInstructions = false,
+  ): Driver {
+    return {
+      kind,
+      systemInstructions,
+      create: async (session) => {
+        created.push(session)
+        const ref = `${kind}-${created.length}`
+        return {
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'session-ref', ref }
+              yield { type: 'text-delta', text: `Aria replied on ${ref}.` }
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: async () => undefined,
+        }
+      },
+    }
+  }
+
+  function engineWith(registry: DriverRegistry, deps: Partial<EngineDeps> = {}): Engine {
+    return new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+      turnContext: async () => '[Ari now: test]',
+      ...deps,
+    })
+  }
+
+  async function turn(engine: Engine, text: string): Promise<void> {
+    expect(
+      await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text, attachments: [] }),
+    ).toEqual({ accepted: true })
+    await engine.quiesce('aria')
+  }
+
+  it.each([false, true])(
+    'starts a fresh context with hidden history and the preamble (system channel: %s)',
+    async (systemInstructions) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created, systemInstructions))
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Please fix the redirect.')
+      expect(
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'opencode',
+          modelId: 'opus',
+          effort: 'high',
+        }),
+      ).toEqual({ accepted: true })
+      await turn(engine, 'Continue the work.')
+      const fresh = created[1]!
+      expect(fresh).toMatchObject({ resumeOf: null, modelId: 'opus', effort: 'high' })
+      expect(fresh.prompt).toContain('Conversation so far')
+      expect(fresh.prompt).toContain('User: Please fix the redirect.')
+      expect(fresh.prompt).toContain('Aria: Aria replied on claude-1.')
+      expect(fresh.prompt).toContain('[Ari now: test]\n\nContinue the work.')
+      expect(systemInstructions ? fresh.instructions : fresh.prompt).toContain('You are Aria')
+      if (systemInstructions) expect(fresh.prompt).not.toContain('You are Aria')
+      const model = await store.load('aria')
+      expect(
+        model.messages.filter((message) => message.role === 'user').map((message) => message.parts),
+      ).toEqual([
+        [{ type: 'text', text: 'Please fix the redirect.' }],
+        [{ type: 'text', text: 'Continue the work.' }],
+      ])
+      expect(JSON.stringify(model.messages)).not.toContain('Conversation so far')
+      expect(JSON.stringify(model.messages)).not.toContain('[Ari now:')
+      expect(JSON.stringify(model.messages)).not.toContain('You are Aria')
+      await turn(engine, 'One more detail.')
+      expect(created[2]!.resumeOf).toBe('opencode-2')
+      expect(created[2]!.prompt).not.toContain('Conversation so far')
+      if (!systemInstructions) expect(created[2]!.prompt).not.toContain('You are Aria')
+    },
+  )
+
+  it.each(['aria', 'lead', 'session'] as const)(
+    'lets the running %s turn finish and switches its queued follow-up, ignoring late refs',
+    async (kind) => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const created: AdapterSession[] = []
+      const interrupt = vi.fn()
+      const registry = new DriverRegistry()
+      registry.register({
+        kind: 'claude',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                yield { type: 'text-delta', text: 'Working. ' }
+                await gate
+                yield { type: 'session-ref', ref: 'late-claude-thread' }
+                yield { type: 'text-delta', text: 'Finished the old turn.' }
+                yield { type: 'done' }
+              })(),
+            interrupt,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      registry.register(recordingDriver('opencode', created))
+      const engine = engineWith(registry)
+      await seedSession(
+        store,
+        'aria',
+        kind === 'aria' ? 'helm' : 'project',
+        kind !== 'aria'
+          ? {
+              ...(kind === 'lead' ? { lead: true as const } : {}),
+              createdBy: { kind: 'session', sessionId: 'helm' },
+            }
+          : {},
+      )
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Start work.',
+        attachments: [],
+      })
+      await expect.poll(() => created.length).toBe(1)
+      const running = (await store.load('aria')).activeTurnId
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: 'next-model',
+        effort: null,
+      })
+      expect((await store.load('aria')).activeTurnId).toBe(running)
+      expect(interrupt).not.toHaveBeenCalled()
+      await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId: 'aria',
+        text: 'Next turn.',
+        attachments: [],
+      })
+      release()
+      await expect.poll(() => created.length, { timeout: 5_000 }).toBe(2)
+      await engine.quiesce('aria')
+      expect(created[1]!).toMatchObject({ resumeOf: null, modelId: 'next-model' })
+      expect(created[1]!.prompt).toContain('Finished the old turn.')
+      expect(created[1]!.prompt).toContain('User: Start work.')
+      expect(created[1]!.prompt).toContain('[Ari now: test]\n\nNext turn.')
+      expect((await store.load('aria')).providerSessionId).toBe('opencode-2')
+    },
+  )
+
+  it('starts fresh each time Aria switches back and forth, even when returning to a known provider', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created, true))
+    registry.register(recordingDriver('opencode', created))
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    for (const driverKind of ['opencode', 'claude', 'opencode', 'claude'] as const) {
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind,
+        modelId: 'chosen',
+        effort: null,
+      })
+      expect((await store.load('aria')).providerSessionId).toBeNull()
+      await turn(engine, `Continue on ${driverKind}.`)
+      expect(created.at(-1)!.resumeOf).toBeNull()
+      expect(created.at(-1)!.prompt).toContain('Conversation so far')
+    }
+    await turn(engine, 'Stay on Claude.')
+    expect(created.at(-1)!.resumeOf).toBe('claude-5')
+    expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+  })
+
+  it('rejects switching an ordinary session without journaling a change', async () => {
+    await seedSession(store, 'ordinary')
+    const engine = engineWith(new DriverRegistry())
+    expect(
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'ordinary',
+        driverKind: 'opencode',
+        modelId: 'model',
+        effort: null,
+      }),
+    ).toMatchObject({
+      accepted: false,
+      reason: 'provider switching is only available to Aria and the project sessions it launched',
+    })
+    expect(published).toEqual([])
+    expect((await store.load('ordinary')).session?.driverKind).toBe('claude')
+  })
+
+  it('keeps the handoff for a retry when the new provider fails to start', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    const provider = recordingDriver('opencode', created)
+    let fail = true
+    registry.register({
+      ...provider,
+      create: async (session) => {
+        if (fail) throw new Error('Startup failed')
+        return provider.create(session)
+      },
+    })
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'Keep this context.')
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: 'chosen',
+      effort: null,
+    })
+    await turn(engine, 'Use the new provider.')
+    expect((await store.load('aria')).providerHandoffPending).toBe(true)
+    fail = false
+    await turn(engine, 'Try again.')
+    expect(created.at(-1)!.resumeOf).toBeNull()
+    expect(created.at(-1)!.prompt).toContain('User: Keep this context.')
+    expect((await store.load('aria')).providerHandoffPending).toBe(false)
+  })
+})
 
 describe('engine end-to-end with scripted driver', () => {
   it.each(['live', 'follow-up', 'unknown', false] as const)(
@@ -2121,6 +3027,119 @@ describe('session title source', () => {
     await until('settle', () => settles(sessionId) > 0)
     await new Promise((resolve) => setTimeout(resolve, 400))
     expect(await titleOf(sessionId)).toBe('fix it')
+  }, 10000)
+
+  it('tells Aria when a turn it asked for settles, in any project', async () => {
+    const engine = engineFor(turnsDriver([[{ type: 'text-delta', text: 'Fixed the redirect.' }]]))
+    await seedSession(store, 'sess_helm', 'helm')
+    await seedSession(store, 'sess_work', 'proj_1')
+    await engine.dispatch(
+      { type: 'turn.start', sessionId: 'sess_work', text: 'fix the redirect', attachments: [] },
+      { kind: 'session', sessionId: 'sess_helm' },
+    )
+    await until('settle', () => settles('sess_work') > 0)
+    await until(
+      'routed',
+      async () =>
+        (await store.load('sess_helm')).childCompletions?.['sess_work']?.stopReason === 'completed',
+    )
+    // A turn a person started in that session is not Aria's.
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_work',
+      text: 'thanks',
+      attachments: [],
+    })
+    await until('second settle', () => settles('sess_work') > 1)
+    const routed = (await store.load('sess_helm')).childEvents ?? []
+    expect(routed.filter((event) => event.type === 'child.session.settled')).toHaveLength(1)
+  }, 10000)
+
+  it.each([
+    { lead: true, person: false, routed: true },
+    { lead: false, person: false, routed: true },
+    { lead: true, person: true, routed: false },
+    { lead: false, person: true, routed: false },
+  ])(
+    'routes an old Aria result for the project sessions it launched: %j',
+    async ({ lead, person, routed }) => {
+      let finish!: () => void
+      const gate = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      const driver: Driver = {
+        kind: 'claude',
+        create: async () => ({
+          start: () => ({
+            async *[Symbol.asyncIterator]() {
+              await gate
+              yield { type: 'text-delta' as const, text: 'Fixed and verified.' }
+              yield { type: 'done' as const }
+            },
+          }),
+          interrupt: () => finish(),
+          dispose: async () => undefined,
+        }),
+      }
+      const engine = engineFor(driver)
+      await seedSession(store, 'old_aria', 'helm')
+      await seedSession(store, 'project_lead', 'proj_1', {
+        ...(lead ? { lead: true } : {}),
+        createdBy: { kind: 'session', sessionId: 'old_aria' },
+      })
+      await engine.dispatch(
+        { type: 'turn.start', sessionId: 'project_lead', text: 'fix it', attachments: [] },
+        person ? undefined : { kind: 'session', sessionId: 'old_aria' },
+      )
+      await store.destroy('old_aria')
+      await seedSession(store, 'archived_aria', 'helm', { archived: true })
+      await seedSession(store, 'current_aria', 'helm')
+      finish()
+      await engine.quiesce('project_lead')
+      expect(Boolean((await store.load('current_aria')).childCompletions?.project_lead)).toBe(
+        routed,
+      )
+      expect((await store.load('archived_aria')).childCompletions?.project_lead).toBeUndefined()
+    },
+    10000,
+  )
+
+  it('puts Aria turn context ahead of the provider prompt only', async () => {
+    const prompts: string[] = []
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: (session) => {
+        prompts.push(session.prompt)
+        return Promise.resolve({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        })
+      },
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+      turnContext: async (session) => (session.projectId === 'helm' ? '[Ari now: test]' : null),
+    })
+    await seedSession(store, 'sess_helm', 'helm')
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_helm',
+      text: 'what is running',
+      attachments: [],
+    })
+    await until('settle', () => settles('sess_helm') > 0)
+    expect(prompts[0]).toContain('[Ari now: test]\n\nwhat is running')
+    const asked = (await store.load('sess_helm')).messages.find((m) => m.role === 'user')
+    expect(JSON.stringify(asked?.parts)).not.toContain('Ari now')
   }, 10000)
 
   it('skips a notice banner that opens the first reply', async () => {
