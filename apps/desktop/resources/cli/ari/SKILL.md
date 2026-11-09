@@ -7,6 +7,74 @@ metadata:
 
 # Ari session control
 
+## Inline visualizations
+
+When a visualization makes an answer easier to understand, place an `ari-viz`
+fenced JSON block directly in your reply. Ari renders it in the conversation on
+desktop and mobile, with the user's current theme, font, and surface colors.
+Keep the surrounding explanation useful, use accurate data, and state units,
+sources and assumptions. Do not make up measurements to fill a chart.
+
+Every object has `version: 1`, `type`, and `title`. Optional common fields are
+`description` (plain text) and `source` (plain text attribution).
+
+| Type | Required data | Optional fields |
+| --- | --- | --- |
+| `bar`, `line`, `area`, `radar` | `labels: string[]`, `series: {name, values: number[]}[]` | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
+| `scatter` | `series: {name, points: {x: number, y: number, label?: string}[]}[]` | `xLabel`, `yLabel` |
+| `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]` | `unit` |
+| `heatmap` | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]` | `unit` |
+| `graph` | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"` |
+| `timeline` | `events: {label, date?: string, description?: string, tone?: string}[]` | — |
+| `gantt` | `tasks: {label, start: number, end: number}[]` | `unit` |
+| `metrics` | `items: {label, value: string or number, detail?: string, tone?: string}[]` | — |
+| `comparison` | `columns: string[]`, `rows: {label, values: string[]}[]` | — |
+
+All names and labels are strings. `tone` is `accent`, `info`, `success`,
+`warning`, or `danger` and defaults to `accent`. Never provide CSS colors,
+HTML, JavaScript, URLs for assets, or extra keys; visuals are declarative data.
+Each series needs one value per label. Radar charts need 3–12 nonnegative
+axes. Pie, donut, funnel and treemap values must be nonnegative and have a
+positive total. Heatmap rows match `yLabels`, columns match `xLabels`.
+Graph IDs are unique and edges reference those IDs; graphs support flows,
+architecture, dependencies and concept maps. Graph direction defaults to
+`right`; use `down` for vertical flows. Node shapes are `process` (default),
+`decision`, `start`, or `end`; optional node tones use the same theme roles.
+Use horizontal bars for long category names. Gantt endpoints use a shared
+numeric scale (for example days from the project start); end is at least start.
+Comparison rows need one string per column. Keep charts legible: at most 64
+categories, 8 series, 32 heatmap rows/columns, 40 diagram nodes/events/tasks,
+80 edges, and 12 metric cards. Blocks are limited to 64,000 characters.
+
+For example, a comparison of hypothetical timings (explicitly labeled):
+
+````markdown
+The following timings are illustrative, in milliseconds.
+
+```ari-viz
+{"version":1,"type":"bar","title":"Illustrative response time","unit":"ms","labels":["Before","After"],"series":[{"name":"Response time","values":[240,120]}]}
+```
+````
+
+For relationships rather than measurements:
+
+````markdown
+```ari-viz
+{"version":1,"type":"graph","title":"Request flow","nodes":[{"id":"user","label":"User prompt"},{"id":"agent","label":"Agent"},{"id":"answer","label":"Answer + visual"}],"edges":[{"from":"user","to":"agent"},{"from":"agent","to":"answer","label":"Responds"}]}
+```
+````
+
+Close the fence when finished. Use top-level fences, outside lists, quotes, or
+other code examples. The user can hover or focus marks for full data tooltips,
+click/tap or press Enter to pin an inspection, toggle or Shift-click to isolate
+series, filter and copy data tables, and expand a visualization. Graphs and
+schedules have two-axis scrolling, drag panning, zoom, actual-size and fit
+controls. Users can also change graph direction and bar orientation.
+Ordinary code blocks remain ordinary code. Prefer a table for exact lookup,
+a chart for numeric patterns, a graph for connections, and a timeline or
+schedule for sequence. Scientific/exportable figures can still be generated
+as standalone files when the user needs them.
+
 ## Typed tasks and reviewable results
 
 `ari orchestration view --json` (also `ari task view`) reports assignments,

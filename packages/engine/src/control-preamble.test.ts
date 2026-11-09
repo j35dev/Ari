@@ -76,3 +76,15 @@ it('does not promise a wake-up when automatic delivery is switched off', () => {
   expect(delegate).not.toContain('Ari delivers that report')
   expect(delegate).toContain('The parent reads that report')
 })
+
+it('teaches roots, leads and workers to use the same themed visualization format', () => {
+  for (const session of [root, child, { ...root, lead: true as const }]) {
+    for (const channel of ['prompt', 'system'] as const) {
+      const text = controlPreamble(session, null, channel)
+      expect(text).toContain('`ari-viz` fenced code block')
+      expect(text).toContain('matches the active theme automatically')
+      expect(text).toContain('Do not include HTML, scripts, or custom colors')
+      expect(text).toContain('exact data fields and examples')
+    }
+  }
+})
