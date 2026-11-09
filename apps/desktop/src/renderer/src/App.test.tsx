@@ -159,6 +159,33 @@ describe('Shell session navigation keys', () => {
     })
   })
 
+  it('refreshes sidebar projects when main creates a project', async () => {
+    const start = rpcMocks.subscribe.mock.calls.length
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    const subscriptions = rpcMocks.subscribe.mock.calls.slice(start) as unknown as Array<
+      [string, unknown, (payload: unknown) => void]
+    >
+    const changed = subscriptions.find(([name]) => name === 'projects.changed')
+    expect(changed).toBeDefined()
+    const base = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'project.list'
+        ? [
+            {
+              id: 'garden',
+              name: 'Garden planner',
+              path: 'D:/Projects/garden',
+              status: 'ok',
+              open: true,
+            },
+          ]
+        : base(method, params),
+    )
+    act(() => changed![2]({}))
+    expect(await screen.findByText('Garden planner')).toBeInTheDocument()
+  })
+
   it('Mod+2 opens the second session in sidebar order', async () => {
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })

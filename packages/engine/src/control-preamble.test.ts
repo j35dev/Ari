@@ -106,6 +106,20 @@ it('requires a clear project match and a short question when routing is ambiguou
   expect(controlPreamble(root, null)).not.toContain('Pick a project only when')
 })
 
+it('tells only Aria to create a project for new code work with no existing match', () => {
+  for (const channel of ['prompt', 'system'] as const) {
+    const text = controlPreamble({ ...root, projectId: 'helm' }, null, channel)
+    expect(text).toContain('no existing project fits')
+    expect(text).toContain('nothing in the snapshot or `ari sessions --query` matches')
+    expect(text).toContain('ari project create --name "<short, clear name>"')
+    expect(text).toContain('then send the work with `ari project ask`')
+    expect(text).toContain('where it lives')
+    expect(text).toContain('existing project or a new one, ask one short question')
+    expect(text).toContain('Do not create projects for questions or small tasks that need no code')
+  }
+  expect(controlPreamble(root, null)).not.toContain('ari project create')
+})
+
 it('tells a session Aria started that it reports to Aria and may delegate', () => {
   const started = { ...root, createdBy: { kind: 'session' as const, sessionId: 'helm1' } }
   const text = controlPreamble(started, null)

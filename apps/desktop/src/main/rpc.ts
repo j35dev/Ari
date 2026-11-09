@@ -37,6 +37,7 @@ import { startAgentRuntime } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
+import { createProject } from './project-create'
 import { AriaThread } from './aria-thread'
 import { ProjectContextCache, ProjectSelection } from './project-context'
 import { WalkCache } from './file-index'
@@ -1214,6 +1215,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
+        createProject: async (input) => {
+          const result = await createProject(
+            {
+              projects: getProjectStore(),
+              home: homedir(),
+              userData: app.getPath('userData'),
+            },
+            input,
+          )
+          const project = getProjectStore().get(result.projectId)
+          if (project?.status === 'ok') void ensureProjectWatched(project)
+          void refreshProjectContext()
+          rpcRegistry.publish('projects.changed', {})
+          return result
+        },
         projectAgentDefaults: () => ({
           driverKind: getSettingsStore().current.sessions.defaultDriverKind,
           permissionMode: getSettingsStore().current.sessions.defaultPermissionMode,

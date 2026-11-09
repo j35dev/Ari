@@ -8,6 +8,7 @@ import {
   ControlFailure,
   controlParams,
   type ChildTask,
+  type CreatedProject,
   type ControlMethod,
   type ControlParams,
   type ControlResult,
@@ -127,6 +128,7 @@ export interface ControlHost {
   treeSpend?(rootId: string): Promise<TreeSpend>
   /** The projects Aria can reach; a runtime without them has no Aria. */
   projects?(): Promise<HelmProject[]>
+  createProject?(input: { name: string; path?: string }): Promise<CreatedProject>
   projectAgentDefaults?(): ProjectAgentDefaults
   setProjectDefault?(id: string, agent: ProjectAgent): Promise<boolean>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
@@ -560,6 +562,20 @@ export class AgentControlService {
         return this.host.providers()
       case 'projects.list':
         return { projects: await this.projects(caller) }
+      case 'projects.create': {
+        if (!isHelmSession(caller))
+          throw new ControlFailure('scope_denied', 'Only Aria creates projects.')
+        if (!this.host.createProject)
+          throw new ControlFailure(
+            'unsupported',
+            'Project creation is unavailable in this runtime.',
+          )
+        const p = raw as ControlParams<'projects.create'>
+        return this.host.createProject({
+          name: p.name,
+          ...(p.path === undefined ? {} : { path: p.path }),
+        })
+      }
       case 'projects.setDefault': {
         const p = raw as ControlParams<'projects.setDefault'>
         const project = (await this.#helmProjects(caller)).find(
