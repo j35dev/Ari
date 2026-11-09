@@ -21,6 +21,10 @@ export class HoldToTalk {
   state: WidgetState = { id: 0, phase: 'hidden', text: '', setup: false }
   private deadline = Infinity
 
+  get expiresAt(): number {
+    return this.deadline
+  }
+
   down(now: number): boolean {
     if (this.state.phase === 'listening' || this.state.phase === 'transcribing') return false
     this.state = { id: this.state.id + 1, phase: 'listening', text: '', setup: false }

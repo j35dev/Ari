@@ -1,9 +1,9 @@
 export interface HookKey {
   keycode: number
-  ctrlKey: boolean
-  altKey: boolean
-  shiftKey: boolean
-  metaKey: boolean
+  ctrlKey?: boolean
+  altKey?: boolean
+  shiftKey?: boolean
+  metaKey?: boolean
 }
 
 type Modifier = 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'
@@ -15,7 +15,7 @@ export interface Chord {
 }
 
 export function defaultShortcut(platform: string): string {
-  return platform === 'darwin' ? 'alt+space' : 'ctrl+space'
+  return platform === 'darwin' ? 'ctrl+alt+space' : 'ctrl+space'
 }
 
 const aliases: Record<string, Modifier> = {
@@ -97,18 +97,31 @@ export class ChordTracker {
     private readonly escape: number,
   ) {}
 
+  reset(): void {
+    this.held = false
+    this.pressedModifiers.clear()
+  }
+
+  private reconcile(event: HookKey): void {
+    for (const modifier of Object.keys(this.chord.modifiers) as Modifier[]) {
+      if (event[modifier] !== false) continue
+      for (const code of this.chord.modifierCodes[modifier]) this.pressedModifiers.delete(code)
+    }
+  }
+
   down(event: HookKey): 'down' | 'cancel' | null {
+    this.reconcile(event)
     if (Object.values(this.chord.modifierCodes).some((codes) => codes.has(event.keycode)))
       this.pressedModifiers.add(event.keycode)
     if (this.held) return event.keycode === this.escape ? 'cancel' : null
     if (event.keycode !== this.chord.keycode) return null
-    // Native modifier masks can lag injected input. Flags also cover modifiers
-    // already held when the hook starts, before a keydown was observed.
+    // Flags reconcile releases missed while Windows locks or changes privilege.
+    // Tracking is only a fallback for event sources that omit modifier flags.
     if (
       !Object.entries(this.chord.modifiers).every(([key, value]) => {
         const modifier = key as Modifier
         const pressed =
-          event[modifier] ||
+          event[modifier] ??
           [...this.chord.modifierCodes[modifier]].some((code) => this.pressedModifiers.has(code))
         return pressed === value
       })
@@ -119,13 +132,16 @@ export class ChordTracker {
   }
 
   up(event: HookKey): 'up' | null {
+    this.reconcile(event)
     this.pressedModifiers.delete(event.keycode)
     if (!this.held || !this.chord.releases.has(event.keycode)) return null
     if (
       event.keycode !== this.chord.keycode &&
-      Object.values(this.chord.modifierCodes).some(
-        (codes) =>
-          codes.has(event.keycode) && [...codes].some((code) => this.pressedModifiers.has(code)),
+      Object.entries(this.chord.modifierCodes).some(
+        ([modifier, codes]) =>
+          codes.has(event.keycode) &&
+          (event[modifier as Modifier] ??
+            [...codes].some((code) => this.pressedModifiers.has(code))),
       )
     )
       return null

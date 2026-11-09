@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { Session } from '@ari/contracts/session'
+import type { Command } from '@ari/contracts/commands'
+import { initialReadModel, applyEvent, type SessionReadModel } from '@ari/engine/projection'
+import { decideCommand, previewDispatch } from '@ari/engine/dispatcher'
 import { defaultSettings } from '@ari/contracts/settings'
 import { AriaThread, type AriaThreadDeps } from './aria-thread'
+import { RpcRegistry } from './rpc-registry'
+import { sendToAria } from './aria-widget/handoff'
 
 let rows: SessionSummary[]
 let saved: Map<string, Session>
@@ -36,6 +41,56 @@ beforeEach(() => {
 })
 
 describe('AriaThread', () => {
+  it('validates no-params widget dictation through the real RPC registry and reuses app defaults', async () => {
+    deps.settings = async () => ({
+      ...defaultSettings,
+      sessions: { defaultDriverKind: 'codex', defaultPermissionMode: 'allow-edits' },
+    })
+    const registry = new RpcRegistry({ send: vi.fn() })
+    const models = new Map<string, SessionReadModel>()
+    const dispatch = vi.fn((command: Command) => {
+      if (command.type !== 'message.enqueue') throw new Error('Widget must enqueue')
+      const session = saved.get(command.sessionId)!
+      const model =
+        models.get(session.id) ??
+        applyEvent(initialReadModel(), {
+          type: 'session.created',
+          seq: 0,
+          at: 0,
+          sessionId: session.id,
+          session,
+        })
+      const decision = decideCommand(model, command, { turnId: 'turn_1', messageId: 'message_1' })
+      models.set(session.id, previewDispatch(model, decision))
+      return {
+        accepted: decision.accepted,
+        ...(decision.reason ? { reason: decision.reason } : {}),
+      }
+    })
+    registry.register('aria.open', (params) => aria.open(params))
+    registry.register('command.dispatch', ({ command }) => dispatch(command))
+    const handoff = {
+      current: () => true,
+      open: async () => (await registry.invoke('aria.open', undefined)) as { sessionId: string },
+      dispatch: async (command: Command) =>
+        (await registry.invoke('command.dispatch', { command })) as { accepted: boolean },
+    }
+    await sendToAria(handoff, 'Fix the build')
+    await sendToAria(handoff, 'Run the tests')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      driverKind: 'codex',
+      modelId: 'gpt-6',
+      permissionMode: 'allow-edits',
+    })
+    expect(deps.defaults).toHaveBeenCalledOnce()
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'message.enqueue', text: 'Fix the build' }),
+    )
+    expect(models.get(rows[0]!.id)).toMatchObject({ activeTurnId: 'turn_1' })
+    expect(models.get(rows[0]!.id)?.queuedMessages).toHaveLength(1)
+    await expect(registry.invoke('aria.open', {})).rejects.toThrow('invalid params for aria.open')
+  })
   it('creates once across concurrent opens and windows, then reuses the current chat', async () => {
     const [first, second] = await Promise.all([aria.open(), new AriaThread(deps).open()])
     expect(first).toEqual(second)

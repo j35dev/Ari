@@ -29,7 +29,7 @@ describe('speech chord', () => {
   it('uses platform defaults and accepts settings aliases', () => {
     expect(defaultShortcut('win32')).toBe('ctrl+space')
     expect(defaultShortcut('linux')).toBe('ctrl+space')
-    expect(defaultShortcut('darwin')).toBe('alt+space')
+    expect(defaultShortcut('darwin')).toBe('ctrl+alt+space')
     expect(parseChord(' Option + Space ', keys, 'darwin')?.modifiers.altKey).toBe(true)
     expect(parseChord('CommandOrControl+F24', keys, 'darwin')?.modifiers.metaKey).toBe(true)
     expect(parseChord('CmdOrCtrl+A', keys, 'win32')?.modifiers.ctrlKey).toBe(true)
@@ -71,13 +71,30 @@ describe('speech chord', () => {
     expect(tracker.down(event(keys.Space, { altKey: true }))).toBe('down')
   })
 
-  it('tracks modifier events when native masks lag and retains either pressed side', () => {
+  it('tracks modifiers only when flags are absent and retains either pressed side', () => {
     const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
-    tracker.down(event(keys.Ctrl))
-    tracker.down(event(keys.CtrlRight))
-    expect(tracker.down(event(keys.Space))).toBe('down')
-    expect(tracker.up(event(keys.Ctrl))).toBeNull()
-    expect(tracker.up(event(keys.CtrlRight))).toBe('up')
+    tracker.down({ keycode: keys.Ctrl })
+    tracker.down({ keycode: keys.CtrlRight })
+    expect(tracker.down({ keycode: keys.Space })).toBe('down')
+    expect(tracker.up({ keycode: keys.Ctrl })).toBeNull()
+    expect(tracker.up({ keycode: keys.CtrlRight })).toBe('up')
     expect(tracker.down(event(keys.Space))).toBeNull()
+  })
+
+  it('clears a Ctrl or Shift key whose release was missed when flags report it up', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    tracker.down(event(keys.Ctrl, { ctrlKey: true }))
+    expect(tracker.down(event(keys.Space))).toBeNull()
+    tracker.down(event(keys.Shift, { shiftKey: true }))
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
+  })
+
+  it('reset discards a hold and fallback modifiers after lock or suspend', () => {
+    const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
+    tracker.down({ keycode: keys.Ctrl })
+    tracker.down({ keycode: keys.Space })
+    tracker.reset()
+    expect(tracker.down({ keycode: keys.Space })).toBeNull()
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
   })
 })

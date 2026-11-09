@@ -1,7 +1,7 @@
 import { join } from 'node:path'
-import { BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, powerMonitor, screen } from 'electron'
+import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
-import type { SessionReadModel } from '@ari/engine/projection'
 import type { uIOhook } from 'uiohook-napi'
 import { createLogger } from '@ari/shared/logger'
 import { ChordTracker, defaultShortcut, parseChord, type HookKey } from './chord'
@@ -23,14 +23,18 @@ export interface AriaWidgetDeps {
   openSettings(): void
 }
 
+type WidgetSettings = Settings & { speech?: { enabled: boolean; shortcut: string } }
+
 export class AriaWidget {
   private window: BrowserWindow | null = null
   private readonly hold = new HoldToTalk()
   private hook: typeof uIOhook | null = null
   private tracker: ChordTracker | null = null
   private revision = 0
-  private settings: Settings | null = null
-  private timer: ReturnType<typeof setInterval>
+  private settings: WidgetSettings | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null
+  private recoveryDelay = 1_000
   private ready: (() => void) | null = null
   private boot: Promise<void> | null = null
   private sending: number | null = null
@@ -45,32 +49,55 @@ export class AriaWidget {
         return this.handle(method, params)
       })
     }
-    this.timer = setInterval(() => {
-      const before = this.hold.state
-      this.hold.tick(Date.now())
-      if (before !== this.hold.state) this.publish()
-    }, 100)
-    this.timer.unref()
-    nativeTheme.on('updated', this.themeChanged)
+    powerMonitor.on('lock-screen', this.resetInput)
+    powerMonitor.on('suspend', this.resetInput)
+    app.on('browser-window-blur', this.resetInput)
   }
 
-  private readonly themeChanged = (): void => this.publish()
+  private readonly resetInput = (): void => {
+    this.tracker?.reset()
+    this.hold.cancel()
+    this.publish()
+  }
+
+  private scheduleDeadline(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    if (!Number.isFinite(this.hold.expiresAt) || this.disposed) return
+    this.timer = setTimeout(
+      () => {
+        this.timer = null
+        this.hold.tick(Date.now())
+        this.publish()
+      },
+      Math.max(0, this.hold.expiresAt - Date.now()),
+    )
+    this.timer.unref()
+  }
+
+  private recoverWindow(): void {
+    this.destroyWindow()
+    const speech = this.settings?.speech
+    if (this.disposed || !speech?.enabled || this.recoveryTimer) return
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null
+      if (this.settings) void this.configure(this.settings)
+    }, this.recoveryDelay)
+    this.recoveryDelay = Math.min(30_000, this.recoveryDelay * 2)
+    this.recoveryTimer.unref()
+  }
 
   private snapshot(): WidgetSnapshot {
     const appearance = this.settings?.appearance
     return {
       ...this.hold.state,
-      theme:
-        appearance?.mode === 'system'
-          ? nativeTheme.shouldUseDarkColors
-            ? 'obsidian'
-            : 'porcelain'
-          : (appearance?.themeId ?? 'obsidian'),
+      theme: appearance?.themeId ?? defaultThemeId,
       reducedMotion: appearance?.reducedMotion ?? false,
     }
   }
 
   private publish(): void {
+    this.scheduleDeadline()
     const win = this.window
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
     win.webContents.send('ari:ariaWidget.state', this.snapshot())
@@ -115,10 +142,7 @@ export class AriaWidget {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     win.webContents.on('will-navigate', (event) => event.preventDefault())
     win.webContents.on('will-redirect', (event) => event.preventDefault())
-    win.webContents.on('render-process-gone', () => {
-      this.stopHook()
-      this.destroyWindow()
-    })
+    win.webContents.on('render-process-gone', () => this.recoverWindow())
     win.once('closed', () => {
       if (this.window === win) this.window = null
       this.ready?.()
@@ -131,17 +155,18 @@ export class AriaWidget {
       : win.loadFile(join(import.meta.dirname, '../renderer/widget/index.html'))
     void loaded.catch((error: unknown) => {
       log.warn('widget failed to load', { error: String(error) })
-      this.destroyWindow()
+      this.recoverWindow()
     })
     return this.boot
   }
 
   async configure(settings: Settings): Promise<void> {
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
     this.settings = settings
     this.publish()
     // Optional until the concurrently-built speech settings contract is merged.
-    const speech = (settings as Settings & { speech?: { enabled: boolean; shortcut: string } })
-      .speech
+    const speech = this.settings.speech
     const configuration = JSON.stringify(speech) ?? ''
     if (configuration === this.configuration && this.hook) return
     this.configuration = configuration
@@ -174,8 +199,9 @@ export class AriaWidget {
 
   private readonly keyDown = (event: HookKey): void => {
     const action = this.tracker?.down(event)
-    if (action === 'down') this.hold.down(Date.now())
-    else if (action === 'cancel') this.hold.cancel()
+    if (action === 'down') {
+      if (this.hold.down(Date.now())) this.recoveryDelay = 1_000
+    } else if (action === 'cancel') this.hold.cancel()
     else return
     this.publish()
   }
@@ -227,8 +253,6 @@ export class AriaWidget {
                 this.hold.state.phase === 'transcribing' &&
                 !this.disposed,
               open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
-              load: async (sessionId) =>
-                (await this.deps.invoke('session.load', { sessionId })) as SessionReadModel | null,
               dispatch: async (command) =>
                 (await this.deps.invoke('command.dispatch', { command })) as {
                   accepted: boolean
@@ -265,15 +289,21 @@ export class AriaWidget {
   }
 
   destroyWindow(): void {
+    const window = this.window
+    this.window = null
     this.stopHook()
-    this.window?.destroy()
+    window?.destroy()
   }
 
   close(): void {
     this.disposed = true
     ++this.revision
-    clearInterval(this.timer)
-    nativeTheme.removeListener('updated', this.themeChanged)
+    if (this.timer) clearTimeout(this.timer)
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
+    powerMonitor.removeListener('lock-screen', this.resetInput)
+    powerMonitor.removeListener('suspend', this.resetInput)
+    app.removeListener('browser-window-blur', this.resetInput)
     this.destroyWindow()
     for (const method of METHODS) ipcMain.removeHandler(`ari:${method}`)
   }

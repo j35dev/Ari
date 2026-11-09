@@ -57,9 +57,6 @@ export class RecordingFlow {
 
   private async begin(id: number): Promise<Recording> {
     try {
-      const status = (await this.deps.invoke('speech.status')) as { ready: boolean }
-      if (!status.ready) throw new Error('Set up speech to text in Settings')
-      if (!this.active(id)) throw new Error('Recording cancelled')
       const recording = await this.deps.record()
       if (!this.active(id)) recording.cancel()
       else this.meter = recording
@@ -70,7 +67,7 @@ export class RecordingFlow {
         await this.deps.invoke('ariaWidget.error', {
           id,
           text,
-          setup: text === 'Set up speech to text in Settings',
+          setup: false,
         })
       }
       throw error
@@ -95,11 +92,21 @@ export class RecordingFlow {
       const result = (await this.deps.invoke('speech.transcribe', { pcm })) as { text: string }
       if (this.active(id)) await this.deps.invoke('ariaWidget.complete', { id, text: result.text })
     } catch (error) {
-      if (this.active(id))
+      if (this.active(id)) {
+        const status = (await this.deps.invoke('speech.status').catch(() => ({ ready: true }))) as {
+          ready: boolean
+        }
+        if (!this.active(id)) return
         await this.deps.invoke('ariaWidget.error', {
           id,
-          text: error instanceof Error ? error.message : 'Could not transcribe speech.',
+          text: !status.ready
+            ? 'Set up speech to text in Settings'
+            : error instanceof Error
+              ? error.message
+              : 'Could not transcribe speech.',
+          setup: !status.ready,
         })
+      }
     }
   }
 
