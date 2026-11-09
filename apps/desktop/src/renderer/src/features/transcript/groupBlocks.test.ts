@@ -241,15 +241,15 @@ describe('turn diff cards', () => {
     expect(rows.map((r) => r.kind)).toEqual(['tool-group', 'turn-diff', 'markdown'])
   })
 
-  it('keeps an unavailable turn visible instead of treating it as clean', () => {
+  it('keeps a failed comparison visible instead of treating it as clean', () => {
     const blocks = splitBlocks([
       { ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 'turn_1' },
     ])
-    const rows = groupBlocks(blocks, { turn_1: { error: 'checkpoint missing' } })
+    const rows = groupBlocks(blocks, { turn_1: { error: 'could not read checkpoint' } })
     expect(rows.at(-1)).toMatchObject({
       kind: 'turn-diff',
       turnId: 'turn_1',
-      error: 'checkpoint missing',
+      error: 'could not read checkpoint',
       diffText: '',
     })
     expect(groupBlocks(blocks, { turn_1: '' })).toHaveLength(1)

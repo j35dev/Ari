@@ -17,6 +17,20 @@ function fileDiff(path: string, added: number, removed: number): string {
 const TWO_FILES = [fileDiff('src/a.ts', 3, 1), fileDiff('b.ts', 2, 0)].join('\n')
 
 describe('TurnDiffCard', () => {
+  it.each(['diff exceeds byte cap', 'end capture failed'])(
+    'keeps a real failure visible with retry: %s',
+    async (error) => {
+      const user = userEvent.setup()
+      const onRetry = vi.fn()
+      render(<TurnDiffCard turnId="t1" diffText="" error={error} onRetry={onRetry} />)
+
+      expect(screen.getByRole('status')).toHaveTextContent(error)
+      expect(screen.queryByRole('button', { name: /Turn diff:/ })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Retry turn diff' }))
+      expect(onRetry).toHaveBeenCalledOnce()
+    },
+  )
+
   it('sums the turn in one row and opens the diff', async () => {
     const user = userEvent.setup()
     render(<TurnDiffCard turnId="t1" diffText={TWO_FILES} />)
