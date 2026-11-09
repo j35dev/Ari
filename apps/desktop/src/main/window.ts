@@ -1,11 +1,32 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import type { WebContents } from 'electron'
 import { oklchToHex } from '@ari/ui/color'
 import { themeOf } from '@ari/ui/themes'
 import type { Theme } from '@ari/ui/themes'
 import { appDisplayName } from './dev-instance'
 import { attachAppShellNavigationGuard } from './app-shell-guard'
 import { getSettingsStore } from './store'
+import type { RpcRegistry } from './rpc-registry'
+
+/** Native chrome and the renderer Close button use the same window lifecycle. */
+export function registerWindowControls(contents: WebContents, registry: RpcRegistry): void {
+  registry.register('window.minimize', () => {
+    BrowserWindow.fromWebContents(contents)?.minimize()
+    return { done: true }
+  })
+  registry.register('window.toggleMaximize', () => {
+    const win = BrowserWindow.fromWebContents(contents)
+    if (!win) return { maximized: false }
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+    return { maximized: win.isMaximized() }
+  })
+  registry.register('window.close', () => {
+    BrowserWindow.fromWebContents(contents)?.close()
+    return { done: true }
+  })
+}
 
 /**
  * The native window always uses a solid `backgroundColor` from the active
@@ -128,11 +149,12 @@ export function createMainWindow(): BrowserWindow {
   attachAppShellNavigationGuard(win.webContents)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void win.loadURL(process.env['ELECTRON_RENDERER_URL']).catch(() => undefined)
   } else {
-    void win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+    void win.loadFile(join(import.meta.dirname, '../renderer/index.html')).catch(() => undefined)
   }
 
-  win.once('ready-to-show', () => win.show())
+  // The main lifecycle decides whether the first paint should reveal this
+  // window: a Close received during startup must remain hidden.
   return win
 }

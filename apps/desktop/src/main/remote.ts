@@ -176,7 +176,7 @@ export class RemoteService {
       })
       log.info('remote access listening', { port: this.#gateway.port })
     } catch (error) {
-      this.#terminals?.close()
+      await this.#terminals?.close()
       this.#terminals = undefined
       this.#error = error instanceof Error ? error.message : String(error)
       log.error('remote access failed to start', { error: this.#error })
@@ -186,7 +186,7 @@ export class RemoteService {
   }
 
   async stop(): Promise<void> {
-    this.#terminals?.close()
+    await this.#terminals?.close()
     this.#terminals = undefined
     await this.stopManaged()
     const gateway = this.#gateway
