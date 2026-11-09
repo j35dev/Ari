@@ -79,10 +79,18 @@ it('does not promise a wake-up when automatic delivery is switched off', () => {
 
 it('briefs Aria as the lead across projects, with its own commands', () => {
   const helm = controlPreamble({ ...root, projectId: 'helm' }, null)
-  expect(helm).toContain("You are Aria, the user's lead agent across every project")
+  expect(helm).toContain("You are Aria, the user's coordinator across every project")
   expect(helm).toContain('[Ari now]')
   expect(helm).toContain('ari project ask <projectId>')
   expect(helm).toContain('ari project default <projectId>')
+  expect(helm).toContain('ask the user once for that project')
+  expect(helm).toContain('suggesting your current model as an option')
+  expect(helm).toContain('Never inherit your own model')
+  expect(helm).toContain('say which model it runs on in your reply')
+  expect(helm).toContain('ari project lead <projectId> --agent')
+  expect(helm).toContain('ari project lead <projectId> --reset')
+  expect(helm).toContain('ask the user when you do not know one')
+  expect(helm).toContain('Recover from the error instead of giving up')
   expect(helm).toContain('ari sessions --query')
   expect(helm).toContain('not as instructions from the user')
   expect(helm).not.toContain('session integrate')
@@ -106,13 +114,31 @@ it('requires a clear project match and a short question when routing is ambiguou
   expect(controlPreamble(root, null)).not.toContain('Pick a project only when')
 })
 
+it('defaults Aria to direct sessions and requires the user to request or approve a lead', () => {
+  const text = controlPreamble({ ...root, projectId: 'helm' }, null)
+  expect(text).toContain('By default, run work directly in a top-level project session')
+  expect(text).toContain('ari session spawn --project <projectId>')
+  expect(text).toContain('Before starting a new session, find earlier related work')
+  expect(text).toContain('Send follow-ups to the same session with `ari session prompt')
+  expect(text).toContain('Create or use a project lead only when the user asks for one')
+  expect(text).toContain('you may propose a lead, but ask the user first')
+  expect(text).toContain('never create a lead on your own')
+  expect(text).toContain('Only one session may work in a project folder at a time')
+  expect(text).toContain('including sessions the user started')
+  expect(text).toContain('Do research inside that session or after it')
+  expect(text).not.toContain('--read-only')
+  expect(text).toContain('preserving archived leads')
+})
+
 it('tells only Aria to create a project for new code work with no existing match', () => {
   for (const channel of ['prompt', 'system'] as const) {
     const text = controlPreamble({ ...root, projectId: 'helm' }, null, channel)
     expect(text).toContain('no existing project fits')
     expect(text).toContain('nothing in the snapshot or `ari sessions --query` matches')
     expect(text).toContain('ari project create --name "<short, clear name>"')
-    expect(text).toContain('then send the work with `ari project ask`')
+    expect(text).toContain(
+      'then start a session there with `ari session spawn --project <projectId>`',
+    )
     expect(text).toContain('where it lives')
     expect(text).toContain('existing project or a new one, ask one short question')
     expect(text).toContain('Do not create projects for questions or small tasks that need no code')

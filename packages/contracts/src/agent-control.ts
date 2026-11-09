@@ -121,6 +121,7 @@ export interface HelmProject extends HelmProjectContext {
   available: boolean
   defaultAgent?: ProjectAgent | null
   agent?: ResolvedProjectAgent | null
+  agentError?: string
 }
 
 export interface CreatedProject {
@@ -148,7 +149,7 @@ export const controlParams = {
     .object({
       projectId: target,
       driverKind: driverKindSchema,
-      modelId: z.string().min(1).nullish(),
+      modelId: z.string().min(1),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
       idempotencyKey: key,
@@ -166,6 +167,26 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
+  /** Aria only: change the most recently asked lead's agent, or delete its live project leads. */
+  'projects.lead': z
+    .object({
+      projectId: target,
+      driverKind: driverKindSchema.optional(),
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      reset: z.boolean().default(false),
+      idempotencyKey: key,
+    })
+    .strict()
+    .refine((p) =>
+      p.reset
+        ? p.driverKind === undefined && p.modelId === undefined && p.effort === undefined
+        : p.driverKind !== undefined,
+    )
+    .refine((p) => p.reset || typeof p.modelId === 'string', {
+      path: ['modelId'],
+      message: 'Switching needs --model. Ask the user which model to use.',
+    }),
   /** Aria only: sessions across every project, newest first. */
   'sessions.find': z
     .object({
@@ -189,7 +210,8 @@ export const controlParams = {
       /** Aria only: the project the new session works in. */
       projectId: target.optional(),
       role: delegationRoleSchema.optional(),
-      driverKind: driverKindSchema,
+      /** Aria may use the project's saved agent; child sessions require an explicit provider. */
+      driverKind: driverKindSchema.optional(),
       modelId: z.string().min(1).nullish(),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
@@ -203,6 +225,16 @@ export const controlParams = {
     })
     .strict(),
   'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  /** Aria only: switch a top-level project session it launched. */
+  'session.switch': z
+    .object({
+      targetSessionId: target,
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1),
+      effort: z.string().min(1).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
   'session.message': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
   'session.delivery': z.object({ targetSessionId: target, messageId: target }).strict(),
   'session.inbox': z.object({ includeConsumed: z.boolean().default(false) }).strict(),

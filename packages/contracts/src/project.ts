@@ -10,7 +10,7 @@ export const projectAgentSchema = z.object({
 export type ProjectAgent = z.infer<typeof projectAgentSchema>
 
 export interface ResolvedProjectAgent extends ProjectAgent {
-  source: 'arguments' | 'project' | 'recent' | 'app'
+  source: 'arguments' | 'project' | 'lead'
 }
 
 /**

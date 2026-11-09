@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProjectStore, canonicalizeFolder, resolveProjectAgent } from './projects'
 import type { ProjectAgent } from '@ari/contracts/project'
-import type { Session } from '@ari/contracts/session'
 
 let dir: string
 let existingFolder: string
@@ -330,11 +329,11 @@ describe('ProjectStore', () => {
 
 describe('project agent resolution', () => {
   const project = { projectId: 'p' }
-  const agent: ProjectAgent = {
-    driverKind: 'claude',
+  const saved = {
+    driverKind: 'claude' as const,
     modelId: 'opus',
     effort: 'high',
-    permissionMode: 'allow-edits',
+    permissionMode: 'allow-edits' as const,
   }
   const providers = [
     {
@@ -345,25 +344,19 @@ describe('project agent resolution', () => {
     },
     { driverKind: 'codex', available: true, models: [{ id: 'gpt' }], defaultModelId: 'gpt' },
   ]
-  const app = { driverKind: 'codex' as const, permissionMode: 'ask' as const }
-  const recent = (i: number, fields: Partial<Session> = {}): Session => ({
-    ...agent,
-    id: `s${i}`,
-    projectId: 'p',
-    title: 'User work',
-    status: 'idle',
-    createdAt: i,
-    updatedAt: i,
-    ...fields,
-  })
-  it('takes explicit arguments before the project, recent and app settings', () => {
+  const input = {
+    project,
+    providers,
+    app: { permissionMode: 'ask' as const },
+    maxPermissionMode: 'allow-edits' as const,
+  }
+
+  it('uses explicit choices before the saved project default and otherwise requires a user choice', () => {
     expect(
       resolveProjectAgent({
-        project: { ...project, defaultAgent: agent },
-        arguments: { driverKind: 'codex', effort: 'low' },
-        sessions: [recent(1)],
-        providers,
-        app,
+        ...input,
+        project: { ...project, defaultAgent: saved },
+        arguments: { driverKind: 'codex', modelId: 'gpt', effort: 'low' },
       }),
     ).toEqual({
       driverKind: 'codex',
@@ -372,116 +365,86 @@ describe('project agent resolution', () => {
       permissionMode: 'ask',
       source: 'arguments',
     })
-    expect(
-      resolveProjectAgent({
-        project: { ...project, defaultAgent: agent },
-        sessions: [recent(1)],
-        providers,
-        app,
-      }),
-    ).toEqual({ ...agent, source: 'project' })
-    expect(
-      resolveProjectAgent({
-        project: { ...project, defaultAgent: agent },
-        arguments: { modelId: 'sonnet', effort: 'low' },
-        sessions: [],
-        providers,
-        app,
-      }),
-    ).toEqual({ ...agent, modelId: 'sonnet', effort: 'low', source: 'arguments' })
-    expect(
-      resolveProjectAgent({
-        project: { ...project, defaultAgent: { ...agent, modelId: 'latest' } },
-        sessions: [],
-        providers,
-        app,
-      })?.modelId,
-    ).toBe('opus')
+    expect(resolveProjectAgent({ ...input, project: { ...project, defaultAgent: saved } })).toEqual(
+      { ...saved, source: 'project' },
+    )
+    expect(resolveProjectAgent(input)).toBeNull()
+    expect(resolveProjectAgent({ ...input, arguments: { driverKind: 'codex' } })).toBeNull()
   })
-  it('caps saved, recent and app permissions without hiding explicit elevation', () => {
-    const input = {
-      project,
-      providers,
-      app: { ...app, permissionMode: 'full' as const },
+
+  it('uses partial options only with a matching saved provider and normalizes model aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
+    expect(
+      resolveProjectAgent({ ...configured, arguments: { modelId: 'sonnet', effort: 'low' } }),
+    ).toEqual({ ...saved, modelId: 'sonnet', effort: 'low', source: 'arguments' })
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'claude' } })).toEqual({
+      ...saved,
+      source: 'arguments',
+    })
+    expect(resolveProjectAgent({ ...input, arguments: { effort: 'high' } })).toBeNull()
+    expect(
+      resolveProjectAgent({
+        ...configured,
+        arguments: { driverKind: 'codex', modelId: 'removed' },
+      }),
+    ).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'codex' } })).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { modelId: 'latest' } })?.modelId).toBe(
+      'opus',
+    )
+  })
+
+  it('caps saved permissions while leaving explicit elevation visible for refusal', () => {
+    const capped = {
+      ...input,
+      project: { ...project, defaultAgent: { ...saved, permissionMode: 'full' as const } },
       maxPermissionMode: 'ask' as const,
     }
-    for (const choice of [
-      {
-        project: { ...project, defaultAgent: { ...agent, permissionMode: 'full' as const } },
-        sessions: [],
-      },
-      { sessions: [recent(1, { permissionMode: 'full' })] },
-      { sessions: [] },
-    ]) {
-      expect(resolveProjectAgent({ ...input, ...choice })?.permissionMode).toBe('ask')
-    }
+    expect(resolveProjectAgent(capped)?.permissionMode).toBe('ask')
     expect(
-      resolveProjectAgent({ ...input, sessions: [], arguments: { permissionMode: 'full' } })
-        ?.permissionMode,
+      resolveProjectAgent({ ...capped, arguments: { permissionMode: 'full' } })?.permissionMode,
     ).toBe('full')
   })
-  it('counts only ten recent user-started sessions and breaks ties by recency', () => {
-    const sessions = [
-      ...Array.from({ length: 15 }, (_, i) => recent(i, { modelId: 'sonnet' })),
-      ...Array.from({ length: 6 }, (_, i) => recent(20 + i, { effort: 'low' })),
-      ...Array.from({ length: 15 }, (_, i) =>
-        recent(40 + i, {
-          driverKind: 'codex',
-          modelId: 'gpt',
-          createdBy: { kind: 'session', sessionId: 'helm1' },
-        }),
-      ),
-      recent(100, { projectId: 'helm' }),
-      recent(101, { projectId: 'other' }),
-    ]
-    expect(resolveProjectAgent({ project, sessions, providers, app })).toEqual({
-      ...agent,
-      effort: 'low',
-      source: 'recent',
-    })
-    expect(
-      resolveProjectAgent({
-        project,
-        sessions: [recent(1), recent(2, { modelId: 'sonnet', createdBy: { kind: 'human' } })],
-        providers,
-        app,
-      })?.modelId,
-    ).toBe('sonnet')
-    expect(sessions[0]?.id).toBe('s0')
+
+  it('carries saved effort only onto the same model, including aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
+    for (const provider of [{ driverKind: 'claude' as const }, {}]) {
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'sonnet' } })
+          ?.effort,
+      ).toBeNull()
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'sonnet', effort: 'low' },
+        })?.effort,
+      ).toBe('low')
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'latest' } })
+          ?.effort,
+      ).toBe('high')
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'opus', effort: null },
+        })?.effort,
+      ).toBeNull()
+    }
   })
-  it('skips unavailable providers and stale models, then uses only the catalog app default', () => {
-    const stale = { ...agent, modelId: 'removed' }
+
+  it('refuses stale or unset defaults instead of choosing another installed or catalog-default model', () => {
+    for (const modelId of ['removed', null])
+      expect(
+        resolveProjectAgent({
+          ...input,
+          project: { ...project, defaultAgent: { ...saved, modelId } },
+        }),
+      ).toBeNull()
     expect(
       resolveProjectAgent({
-        project: { ...project, defaultAgent: stale },
-        sessions: [recent(1, stale)],
-        providers,
-        app,
-      }),
-    ).toEqual({
-      driverKind: 'codex',
-      modelId: 'gpt',
-      effort: null,
-      permissionMode: 'ask',
-      source: 'app',
-    })
-    expect(
-      resolveProjectAgent({
-        project,
-        sessions: [],
-        providers: providers.map((p) => ({ ...p, available: false })),
-        app,
-      }),
-    ).toBeNull()
-    expect(
-      resolveProjectAgent({ project, sessions: [], providers, app: { ...app, driverKind: null } }),
-    ).toBeNull()
-    expect(
-      resolveProjectAgent({
-        project,
-        sessions: [],
-        providers: providers.map((p) => ({ ...p, defaultModelId: 'missing' })),
-        app,
+        ...input,
+        project: { ...project, defaultAgent: saved },
+        providers: providers.map((p) => ({ ...p, available: p.driverKind === 'codex' })),
       }),
     ).toBeNull()
   })

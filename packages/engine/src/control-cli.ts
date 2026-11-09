@@ -13,6 +13,7 @@ const SESSION = new Set([
   'status',
   'spawn',
   'prompt',
+  'switch',
   'message',
   'answer',
   'delivery',
@@ -97,7 +98,7 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'session') return second !== undefined && SESSION.has(second)
-  if (first === 'project') return ['ask', 'create', 'default'].includes(second ?? '')
+  if (first === 'project') return ['ask', 'create', 'default', 'lead'].includes(second ?? '')
   if (first === 'routine') return second !== undefined && ROUTINE.has(second)
   if (first === 'task' || first === 'orchestration')
     return second !== undefined && ORCHESTRATION.has(second)
