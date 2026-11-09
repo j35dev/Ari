@@ -12,6 +12,8 @@ export interface PumpableProcess {
 }
 
 export interface StreamProcessOptions {
+  /** Persistent stream-json processes emit one done per reply and keep reading stdin. */
+  continueAfterDone?: boolean
   /** Human-facing CLI name used in error messages. */
   label?: string
   stderrLog?: (text: string) => void
@@ -111,8 +113,7 @@ export function streamProcessEvents(
       if (code !== 0 && code !== null) {
         push({
           type: 'error',
-          message:
-            `${options.label} exited with code ${code}` + tailReport(),
+          message: `${options.label} exited with code ${code}` + tailReport(),
           rawJson: null,
         })
       }
@@ -125,7 +126,7 @@ export function streamProcessEvents(
       while (queue.length > 0) {
         const event = queue.shift()
         if (event) yield event
-        if (event?.type === 'done') return
+        if (event?.type === 'done' && !options.continueAfterDone) return
       }
       if (closed && queue.length === 0) return
       await new Promise<void>((resolve) => {

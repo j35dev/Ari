@@ -48,6 +48,87 @@ afterEach(() => {
 })
 
 describe('useSessionActivity', () => {
+  it('keeps the sidebar working after a reply ends until all native agents finish', () => {
+    vi.useFakeTimers()
+    const { api, fire } = renderActivity(['s1'])
+    const native = (taskId: string, status: string, at: number) =>
+      fire({
+        sessionId: 's1',
+        event: {
+          type: 'background.task.updated',
+          kind: 'subagent',
+          taskId,
+          status,
+          at,
+        },
+      })
+    fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
+    native('a', 'running', 11)
+    native('b', 'running', 12)
+    fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
+    expect(api().activityOf('s1')).toEqual({ phase: 'working', startedAt: 11 })
+    act(() => vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS * 2))
+    expect(api().activityOf('s1')?.phase).toBe('working')
+    native('a', 'completed', 21)
+    expect(api().activityOf('s1')?.phase).toBe('working')
+    native('b', 'completed', 22)
+    expect(api().activityOf('s1')).toEqual({ phase: 'done', startedAt: null, settledAt: 22 })
+    act(() => vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS))
+    expect(api().activityOf('s1')).toBeUndefined()
+  })
+
+  it('keeps approvals visible and does not settle a live main turn when an agent finishes', () => {
+    const { api, fire } = renderActivity()
+    fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
+    fire({
+      sessionId: 's1',
+      event: {
+        type: 'background.task.updated',
+        kind: 'subagent',
+        taskId: 'a',
+        status: 'running',
+        at: 11,
+      },
+    })
+    fire({ sessionId: 's1', event: { type: 'approval.requested' } })
+    expect(api().activityOf('s1')?.phase).toBe('paused')
+    fire({
+      sessionId: 's1',
+      event: {
+        type: 'background.task.updated',
+        kind: 'subagent',
+        taskId: 'a',
+        status: 'completed',
+        at: 12,
+      },
+    })
+    expect(api().activityOf('s1')?.phase).toBe('paused')
+    fire({ sessionId: 's1', event: { type: 'approval.responded' } })
+    expect(api().activityOf('s1')?.phase).toBe('working')
+  })
+
+  it('shows a native failure after the group finishes and clears it when visited', () => {
+    const { api, fire } = renderActivity()
+    const native = (taskId: string, status: string) =>
+      fire({
+        sessionId: 's1',
+        event: {
+          type: 'background.task.updated',
+          kind: 'subagent',
+          taskId,
+          status,
+        },
+      })
+    native('a', 'running')
+    native('b', 'running')
+    native('a', 'failed')
+    expect(api().activityOf('s1')?.phase).toBe('working')
+    native('b', 'completed')
+    expect(api().activityOf('s1')?.phase).toBe('error')
+    act(() => api().acknowledge('s1'))
+    expect(api().activityOf('s1')).toBeUndefined()
+  })
+
   it('keeps queued work through acknowledgement and settle fades until it runs or is removed', () => {
     vi.useFakeTimers()
     const { api, fire } = renderActivity(['s1'])

@@ -93,7 +93,7 @@ import type { UpdateController } from './update-controller'
 import { applyThemeToWindow, registerWindowControls } from './window'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
-import { ClaudeDriver } from '@ari/providers/claude'
+import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
 import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
@@ -1093,19 +1093,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   engineRef = engine
   // Agent connections outlive their turn so background shells and sub-agents
   // keep running; what they report between turns lands in the transcript.
-  acpSessionPool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
-  // A parked process that ends takes its background shells and sub-agents along.
-  acpSessionPool.onEnded = (sessionId) => {
-    void engine
-      .releaseBackgroundTasks(sessionId, 'The agent process ended')
-      .catch((error: unknown) =>
-        log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
-      )
+  for (const pool of [acpSessionPool, claudeSessionPool]) {
+    pool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
+    // A parked process that ends takes its background shells and sub-agents along.
+    pool.onEnded = (sessionId) => {
+      void engine
+        .releaseBackgroundTasks(sessionId, 'The agent process ended')
+        .catch((error: unknown) =>
+          log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
+        )
+    }
   }
   shutdownTasks.push(async () => {
     // ACP dispose parks its transport; the process owner closes it before
     // waiting for the cancelled turn's stream and again after late startup.
-    await engine.shutdown(() => acpSessionPool.shutdownAll())
+    await engine.shutdown(async () => {
+      await Promise.all([acpSessionPool.shutdownAll(), claudeSessionPool.shutdownAll()])
+    })
   })
   const sessionDeps: SessionCreateDeps = {
     loadProject,
@@ -1131,6 +1135,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       for (const id of parents) {
         runtime?.revoke(id)
         acpSessionPool.release(id)
+        claudeSessionPool.release(id)
       }
     }
   }
@@ -1688,6 +1693,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await engine.quiesce(id)
       }
       acpSessionPool.release(id)
+      claudeSessionPool.release(id)
       await store.destroy(id)
       await runtime?.release(id)
     }
@@ -2590,7 +2596,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // renderer already relies on (seq-ordered, terminated by replayDone).
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
-        const settled = acpSessionPool.has(sessionId)
+        const settled = acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
           ? Promise.resolve()
           : engine
               .releaseBackgroundTasks(sessionId, 'The agent process ended')
