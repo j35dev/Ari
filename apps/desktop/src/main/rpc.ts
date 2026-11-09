@@ -1416,6 +1416,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('speech.cancel', ({ modelId }) => speech.cancel(modelId))
   r.register('speech.select', (choice) => speech.select(choice))
   r.register('speech.remove', ({ modelId }) => speech.remove(modelId))
+  r.register('speech.discard', ({ modelId }) => speech.discard(modelId))
   r.register('speech.transcribe', ({ pcm, language }) =>
     speech.transcribe(new Float32Array(pcm), language),
   )

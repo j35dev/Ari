@@ -4,8 +4,15 @@ import { utilityProcess, type UtilityProcess } from 'electron'
 import type { SettingsStore } from '@ari/engine/settings'
 import type { SpeechModel, SpeechProgress, SpeechStatus } from '@ari/contracts/rpc'
 import { catalog, discoverModels, modelRoots } from './discovery'
-import { downloadFile } from './download'
-import { ENGINE_VERSION, findLibrary, installEngine } from './engine'
+import { downloadFile, prunePartialDownloads } from './download'
+import { ENGINE_VERSION, verifyInstalledEngine, installEngine } from './engine'
+
+export function speechRequestTimeout(kind: string, samples = 0, modelSize = 0): number {
+  if (kind !== 'transcribe') return 15 * 60_000
+  // CPU-only machines can take many times the recording length on larger models.
+  const factor = modelSize >= 1_000_000_000 ? 60 : 30
+  return 10 * 60_000 + (samples / 16_000) * factor * 1000
+}
 
 export class SpeechService {
   readonly #root: string
@@ -23,10 +30,12 @@ export class SpeechService {
     {
       resolve: (result: { text: string }) => void
       reject: (error: Error) => void
-      timeout: ReturnType<typeof setTimeout>
+      worker: UtilityProcess
+      budget: number
+      timeout?: ReturnType<typeof setTimeout>
     }
   >()
-  #downloads = new Map<string, AbortController>()
+  #downloads = new Map<string, { controller: AbortController; done: Promise<void> }>()
   #progress = new Map<string, SpeechProgress>()
   #models: { at: number; value: SpeechModel[] } | null = null
   publish: (frame: SpeechProgress) => void = () => undefined
@@ -50,16 +59,51 @@ export class SpeechService {
       await this.#settings.load()
       if (!this.#settings.current.speech.shortcut)
         await this.#settings.update({
-          speech: { shortcut: process.platform === 'darwin' ? 'alt+space' : 'ctrl+space' },
+          speech: { shortcut: process.platform === 'darwin' ? 'ctrl+alt+space' : 'ctrl+space' },
         })
-      this.#library = await findLibrary(join(this.#root, 'engine', ENGINE_VERSION))
-      if (this.#library) this.#engine = 'ready'
+      await this.#checkEngine(true)
     })()
     return this.#initialized
   }
 
+  async #checkEngine(full = false): Promise<void> {
+    if (this.#engine === 'downloading') return
+    const library = await verifyInstalledEngine(
+      join(this.#root, 'engine', ENGINE_VERSION),
+      full || this.#engine !== 'ready',
+    )
+    if (library) {
+      this.#library = library
+      this.#engine = 'ready'
+    } else {
+      const wasInstalled = this.#library !== null
+      this.#library = null
+      this.#engine = 'missing'
+      this.#validated = null
+      this.#worker?.kill()
+      if (wasInstalled) {
+        this.#error = 'The speech engine is missing or changed. Download it again.'
+        this.#emit({
+          id: 'configuration',
+          phase: 'error',
+          received: 0,
+          total: 0,
+          error: this.#error,
+        })
+      }
+    }
+  }
+
   async models(refresh = true): Promise<SpeechModel[]> {
     if (!refresh && this.#models && Date.now() - this.#models.at < 10_000) return this.#models.value
+    await prunePartialDownloads(
+      join(this.#root, 'models'),
+      new Set(
+        catalog
+          .filter((model) => this.#downloads.has(model.id))
+          .map((model) => `${model.filename}.partial`),
+      ),
+    )
     const value = await discoverModels(await modelRoots(join(this.#root, 'models')))
     this.#models = { at: Date.now(), value }
     return value
@@ -90,6 +134,7 @@ export class SpeechService {
 
   async status(): Promise<SpeechStatus> {
     await this.#init()
+    await this.#checkEngine()
     const model = await this.#selected()
     if (
       this.#engine === 'ready' &&
@@ -118,11 +163,14 @@ export class SpeechService {
     if (this.#preparing) return this.#preparing
     this.#preparing = (async () => {
       try {
+        await this.#checkEngine(true)
+        if (this.#engine !== 'ready') throw new Error('Download the speech engine in Settings.')
         await this.#request('load', path)
         this.#validated = path
         this.#error = null
         this.#emit({ id: 'configuration', phase: 'complete', received: 0, total: 0 })
       } catch (error) {
+        await this.#checkEngine(true)
         this.#validated = null
         this.#error = error instanceof Error ? error.message : String(error)
         this.#emit({
@@ -142,6 +190,7 @@ export class SpeechService {
 
   async install(): Promise<{ started: boolean }> {
     await this.#init()
+    await this.#checkEngine(true)
     if (this.#engine === 'downloading' || this.#engine === 'ready') return { started: false }
     this.#engine = 'downloading'
     this.#error = null
@@ -159,10 +208,11 @@ export class SpeechService {
 
   #start(id: string, run: (signal: AbortSignal) => Promise<void>): void {
     const controller = new AbortController()
-    this.#downloads.set(id, controller)
     this.#emit({ id, phase: 'downloading', received: 0, total: 0 })
-    void run(controller.signal)
+    const done = Promise.resolve()
+      .then(() => run(controller.signal))
       .then(() => {
+        this.#models = null
         const prior = this.#progress.get(id)!
         this.#emit({ ...prior, phase: 'complete' })
       })
@@ -173,6 +223,7 @@ export class SpeechService {
           this.#engine = cancelled ? 'missing' : 'error'
           this.#error = cancelled ? null : message
         }
+        this.#models = null
         this.#emit({
           ...this.#progress.get(id)!,
           phase: cancelled ? 'cancelled' : 'error',
@@ -183,14 +234,17 @@ export class SpeechService {
         this.#downloads.delete(id)
         this.#models = null
       })
+    this.#downloads.set(id, { controller, done })
   }
 
   async download(modelId: string): Promise<{ started: boolean }> {
     await this.#init()
     const model = catalog.find((entry) => entry.id === modelId)
     if (!model) throw new Error('Unknown speech model.')
+    if (this.#downloads.has(modelId)) return { started: false }
     if ([...this.#downloads.keys()].some((id) => id !== 'engine'))
       throw new Error('Wait for the current model download or cancel it first.')
+    await this.#discardOtherPartials(modelId)
     const existing = (await this.models()).find((entry) => entry.id === modelId && entry.installed)
     if (existing) {
       await this.select({ modelId })
@@ -215,8 +269,36 @@ export class SpeechService {
 
   cancel(id: string): { cancelled: boolean } {
     const download = this.#downloads.get(id)
-    download?.abort()
+    download?.controller.abort()
     return { cancelled: Boolean(download) }
+  }
+
+  async #discardOtherPartials(keepId?: string): Promise<void> {
+    for (const [id, task] of this.#downloads) {
+      if (id === 'engine' || id === keepId) continue
+      task.controller.abort()
+      await task.done
+    }
+    const keep = new Set(
+      catalog.filter((model) => model.id === keepId).map((model) => `${model.filename}.partial`),
+    )
+    await prunePartialDownloads(join(this.#root, 'models'), keep, 0)
+    this.#models = null
+  }
+
+  async discard(modelId: string): Promise<{ discarded: boolean }> {
+    const model = catalog.find((model) => model.id === modelId)
+    if (!model) throw new Error('Unknown speech model.')
+    const task = this.#downloads.get(modelId)
+    if (task) {
+      task.controller.abort()
+      await task.done
+    }
+    const path = join(this.#root, 'models', `${model.filename}.partial`)
+    const exists = Boolean(await stat(path).catch(() => null))
+    await rm(path, { force: true })
+    this.#models = null
+    return { discarded: exists }
   }
 
   async select(choice: { modelId?: string; path?: string }): Promise<SpeechStatus> {
@@ -233,6 +315,7 @@ export class SpeechService {
       !(await stat(path).catch(() => null))?.isFile()
     )
       throw new Error('Choose an installed GGUF model.')
+    await this.#discardOtherPartials(entry?.id)
     if (this.#preparing) await this.#preparing.catch(() => undefined)
     this.#error = null
     this.#validated = null
@@ -283,6 +366,7 @@ export class SpeechService {
       throw new Error('Invalid recording. Record up to five minutes.')
     const status = await this.status()
     if (this.#preparing) await this.#preparing
+    await this.#checkEngine(true)
     if (
       !this.#settings.current.speech.enabled ||
       !status.model?.installed ||
@@ -291,7 +375,13 @@ export class SpeechService {
       this.#error
     )
       throw new Error(this.#error ?? 'Set up speech to text in Settings.')
-    return this.#request('transcribe', status.model.installed.path, pcm, language)
+    return this.#request(
+      'transcribe',
+      status.model.installed.path,
+      pcm,
+      language,
+      status.model.size,
+    )
   }
 
   #request(
@@ -299,6 +389,7 @@ export class SpeechService {
     path: string,
     pcm?: Float32Array,
     language?: string,
+    modelSize?: number,
   ): Promise<{ text: string }> {
     if (!this.#worker) {
       if (!this.#library)
@@ -308,42 +399,59 @@ export class SpeechService {
         env: { ...process.env, TRANSCRIBE_LIBRARY: this.#library },
       })
       this.#worker = child
-      child.on('message', (message: { id: number; result?: { text: string }; error?: string }) => {
-        const pending = this.#pending.get(message.id)
-        if (!pending) return
-        clearTimeout(pending.timeout)
-        this.#pending.delete(message.id)
-        if (message.error) pending.reject(new Error(message.error))
-        else pending.resolve(message.result ?? { text: '' })
-      })
-      child.on('exit', () => {
-        if (this.#worker === child) this.#worker = null
-        this.#validated = null
-        for (const pending of this.#pending.values()) {
+      child.on(
+        'message',
+        (message: { id: number; started?: boolean; result?: { text: string }; error?: string }) => {
+          const pending = this.#pending.get(message.id)
+          if (!pending || pending.worker !== child) return
+          if (message.started) {
+            if (pending.timeout) return
+            // A queued request gets its own budget only after inference dequeues it.
+            pending.timeout = setTimeout(() => {
+              this.#pending.delete(message.id)
+              pending.reject(
+                new Error(
+                  'Speech to text took too long. Try a smaller model or a shorter recording.',
+                ),
+              )
+              child.kill()
+            }, pending.budget)
+            return
+          }
           clearTimeout(pending.timeout)
-          pending.reject(
-            new Error(
-              process.platform === 'win32'
-                ? 'The speech engine stopped. Check that Microsoft Visual C++ 2015–2022 Redistributable 14.40 or newer is installed, then retry.'
-                : 'The speech engine stopped. Please retry.',
-            ),
-          )
+          this.#pending.delete(message.id)
+          if (message.error) pending.reject(new Error(message.error))
+          else pending.resolve(message.result ?? { text: '' })
+        },
+      )
+      child.on('exit', () => {
+        if (this.#worker === child) {
+          this.#worker = null
+          this.#validated = null
         }
-        this.#pending.clear()
+        for (const [id, pending] of this.#pending) {
+          if (pending.worker !== child) continue
+          clearTimeout(pending.timeout)
+          pending.reject(new Error('The speech engine stopped. Please retry.'))
+          this.#pending.delete(id)
+        }
       })
     }
     const id = ++this.#nextId
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.#worker?.kill()
-      }, 5 * 60_000)
-      this.#pending.set(id, { resolve, reject, timeout })
-      this.#worker!.postMessage({ id, kind, path, pcm, language })
+      const worker = this.#worker!
+      this.#pending.set(id, {
+        resolve,
+        reject,
+        worker,
+        budget: speechRequestTimeout(kind, pcm?.length, modelSize),
+      })
+      worker.postMessage({ id, kind, path, pcm, language })
     })
   }
 
   dispose(): void {
-    for (const controller of this.#downloads.values()) controller.abort()
+    for (const { controller } of this.#downloads.values()) controller.abort()
     this.#worker?.kill()
   }
 }

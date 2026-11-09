@@ -73,6 +73,20 @@ describe('speech discovery', () => {
     expect(models[1]?.name).toBe('custom.gguf')
     expect(catalog[0]).not.toHaveProperty('installed')
   })
+  it('reports saved catalog downloads from Ari without exposing Handy partial files', async () => {
+    const own = await folder()
+    const handy = await folder()
+    await writeFile(join(own, 'small.gguf.partial'), 'gg')
+    await writeFile(join(handy, 'small.gguf.partial'), 'ggg')
+    const models = await discoverModels([
+      { path: own, source: 'ari' },
+      { path: handy, source: 'handy' },
+    ])
+    expect(models[0]).toMatchObject({
+      installed: false,
+      partial: { size: 2, updatedAt: expect.any(Number) },
+    })
+  })
   it('prefers Ari copies, finds HF snapshots, and rejects truncated catalog files', async () => {
     const own = await folder()
     const cache = await folder()

@@ -1,8 +1,21 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, open, rename, rm, stat, statfs } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { mkdir, open, readdir, rename, rm, stat, statfs } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { SpeechProgress } from '@ari/contracts/rpc'
+
+export async function prunePartialDownloads(
+  directory: string,
+  keep: Set<string>,
+  maxAge = 7 * 24 * 60 * 60_000,
+): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isFile() || !entry.name.endsWith('.gguf.partial') || keep.has(entry.name)) continue
+    const path = join(directory, entry.name)
+    const file = await stat(path).catch(() => null)
+    if (file && Date.now() - file.mtimeMs >= maxAge) await rm(path, { force: true })
+  }
+}
 
 export async function verifyDownload(path: string, expected: string): Promise<void> {
   const hash = createHash('sha256')
