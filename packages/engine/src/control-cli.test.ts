@@ -18,9 +18,23 @@ const orchestrationCommands = [
   'ari orchestration routine.remove --params \'{"routineId":"routine_1"}\' --key r',
 ]
 
+const outputAndChainCommands = [
+  'ari env && ari agents --json',
+  'ari session spawn --title A --agent codex --key a --json || ari session spawn --help',
+  'ari session diff sess_1 --stat --json | tail -n 20',
+  '"$ARI_CLI" --skill 2>&1 | head -100',
+  'ari env 2>&1',
+  'ari env | head',
+  'ari env | head -n 20',
+  'ari env | tail',
+  'ari env | tail -20',
+  'ari session integrate sess_1 --snapshot abc --key i --json 2>&1 | head -n 20 && ari session destroy sess_1 --key d --json',
+]
+
 describe('isSafeControlCommand', () => {
   it.each([
     ...orchestrationCommands,
+    ...outputAndChainCommands,
     'ari env --json',
     'ari agents --json',
     'ari --skill',
@@ -41,20 +55,20 @@ describe('isSafeControlCommand', () => {
     // Not Ari, or Ari doing something that still deserves a prompt.
     'git status',
     'ari skill install claude',
+    'ari skill install claude | head -n 20',
+    'ari env && ari skill install claude',
     'ari',
     'ari session',
     'ari routine unknown',
     'ari project unknown',
     'ari task unknown',
-    // A second command, however it is attached.
+    // Other commands, however they are attached.
     'ari env; rm -rf .',
     'ari env && rm -rf .',
-    'ari env && ari agents --json',
-    'ari session spawn --title A --agent codex --key a --json || ari session spawn --help',
+    'ari env || rm -rf .',
     'ari env | sh',
-    'ari session diff sess_1 --stat --json | tail -n 20',
-    '"$ARI_CLI" --skill 2>&1 | head -100',
-    'ari env 2>&1',
+    'ari env | head -n 20 /etc/passwd',
+    'ari env | head -n 20 | tail -n 10',
     'ari env & calc',
     'ari env\nrm -rf .',
     'ari session prompt sess_1 "first line\nsecond" --key k\nrm -rf .',
@@ -92,7 +106,7 @@ describe('controlCliApproval', () => {
     expect(controlCliApproval(request())).toBe('once')
   })
 
-  it.each(orchestrationCommands)('auto-approves the orchestration command %s', (command) => {
+  it.each([...orchestrationCommands, ...outputAndChainCommands])('auto-approves %s', (command) => {
     expect(controlCliApproval(request({ summaryJson: JSON.stringify({ command }) }))).toBe('once')
   })
 

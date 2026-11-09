@@ -55,7 +55,8 @@ Never print `ARI_CONTROL_TOKEN` or include it in prompts, files or messages.
 By default, delegation needs no approval and Ari's own commands run without a
 shell permission prompt, including integration, session deletion, answers,
 routines and project defaults. Settings → Permissions can change either policy.
-Use one command per shell call, without pipes, substitutions or command chains.
+Safe `ari` invocations may be chained with `&&` or `||`. Trailing `2>&1` and
+`| head` or `| tail` (including `-n N`) are supported.
 `ari skill install` still asks because it writes your agent configuration.
 Provider tool approvals inside sessions still go to the user.
 

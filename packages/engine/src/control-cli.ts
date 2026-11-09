@@ -48,6 +48,9 @@ const ORCHESTRATION = new Set([
   'stop',
   'compare',
 ])
+/** What agents habitually append to keep output short; neither can do harm. */
+const OUTPUT_TRIM = / \| (?:head|tail)(?: -n)?(?: -?\d+)?$/
+
 /** Splits one simple command into words, or null when it is not simple. */
 function words(segment: string): string[] | null {
   const out: string[] = []
@@ -81,7 +84,10 @@ function words(segment: string): string[] | null {
 }
 
 function isSafeInvocation(segment: string): boolean {
-  const trimmed = segment.trim()
+  const trimmed = segment
+    .trim()
+    .replace(OUTPUT_TRIM, '')
+    .replace(/ 2>&1$/, '')
   const space = trimmed.indexOf(' ')
   const head = space === -1 ? trimmed : trimmed.slice(0, space)
   if (!COMMAND_WORDS.has(head)) return false
@@ -99,15 +105,16 @@ function isSafeInvocation(segment: string): boolean {
 }
 
 /**
- * True when a shell command line is one safe `ari` invocation.
- * Redirections, pipes, substitutions or a second command leave the permission
- * request to the user as usual.
+ * True when a shell command line is nothing but safe `ari` invocations,
+ * optionally chained with `&&` or `||`. Anything it cannot fully account for
+ * (redirections, pipes to other programs, substitutions, a second command) is
+ * not safe, so the user is asked as usual.
  */
 export function isSafeControlCommand(command: string): boolean {
   // A line break inside quotes is part of a prompt; outside them it starts
   // another command, which the word splitter refuses like any other separator.
   if (command.length === 0 || command.length > 70_000) return false
-  return isSafeInvocation(command)
+  return command.split(/ (?:&&|\|\|) /).every(isSafeInvocation)
 }
 
 /**
