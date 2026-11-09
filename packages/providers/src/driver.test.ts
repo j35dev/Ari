@@ -24,6 +24,7 @@ vi.mock('./spawn-cli', async (importOriginal) => ({
     killed: false,
     kill: () => true,
     on: () => undefined,
+    once: () => undefined,
   }),
 }))
 
