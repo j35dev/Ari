@@ -11,8 +11,6 @@ import {
   type ComponentProps,
 } from 'react'
 import { WorkPanel } from './WorkPanel'
-import { AriaHeader } from '../aria/AriaHeader'
-import { AriaOverview } from '../aria/AriaOverview'
 import { WorkStatusLine } from './WorkStatusLine'
 import type { OrchestrationView } from '@ari/contracts/orchestration'
 import { invokeWork, workActionKey } from './work-actions'
@@ -231,7 +229,6 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
-  aria,
   startedByAria = false,
   onOpenAria,
   hidden = false,
@@ -248,7 +245,6 @@ export function SessionView({
   sessionTitle?: (id: string) => string | undefined
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
-  aria?: { state: 'idle' | 'thinking' | 'working' | 'attention'; onNewTopic: () => void }
   startedByAria?: boolean
   onOpenAria?: () => void
   /**
@@ -1391,27 +1387,17 @@ export function SessionView({
           aria-hidden
         />
         <div className="flex h-7 shrink-0 items-center pr-3">
-          {aria ? (
-            <AriaHeader
-              state={aria.state}
-              onNewTopic={aria.onNewTopic}
-              onOpenSession={onOpenSession ?? (() => {})}
-            />
-          ) : null}
           <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
           <button
             type="button"
             aria-expanded={workOpen}
             aria-controls={workPanelId}
             onClick={() => setWorkOpen((value) => !value)}
-            className={`${aria ? '' : 'ml-auto'} rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring`}
+            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             Work
           </button>
         </div>
-        {aria ? (
-          <AriaOverview sessionId={sessionId} onOpenSession={onOpenSession ?? (() => {})} />
-        ) : null}
         {startedByAria ? (
           <button
             type="button"

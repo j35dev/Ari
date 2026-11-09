@@ -18,7 +18,6 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  aria: null,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
     ...defaultSettings.appearance,

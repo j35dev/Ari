@@ -70,6 +70,10 @@ beforeEach(() => {
       case 'session.list':
         return sessions
       case 'aria.open': {
+        const current = sessions.find(
+          (session) => session.projectId === 'helm' && !session.archived,
+        )
+        if (current) return { sessionId: current.id }
         if (!sessions.some((session) => session.id === 'aria'))
           sessions = [
             ...sessions,
@@ -82,6 +86,13 @@ beforeEach(() => {
             },
           ]
         return { sessionId: 'aria' }
+      }
+      case 'aria.newChat': {
+        sessions = [
+          ...sessions.filter((session) => session.id !== 'aria'),
+          { id: 'fresh-aria', projectId: 'helm', title: 'Aria', messageCount: 0, updatedAt: 2 },
+        ]
+        return { sessionId: 'fresh-aria' }
       }
       case 'session.create':
         sessions = [
@@ -131,6 +142,21 @@ describe('App onboarding integration', () => {
       'aria-current',
       'page',
     )
+  })
+
+  it('opens a fresh Aria chat only after its sidebar confirmation', async () => {
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    projects = [project]
+    render(<App />)
+    await screen.findByText('Opened session aria')
+    fireEvent.click(screen.getByRole('button', { name: 'Aria actions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New chat' }))
+    expect(invoke.mock.calls.some(([method]) => method === 'aria.newChat')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm new Aria chat' }))
+    expect(await screen.findByText('Opened session fresh-aria')).toBeVisible()
+    expect(invoke).toHaveBeenCalledWith('aria.newChat')
+    expect(sessions.filter((session) => session.projectId === 'helm')).toHaveLength(1)
+    expect(screen.queryByText('Opened session aria')).not.toBeInTheDocument()
   })
 
   it('keeps a restored session and opens Aria with its pinned row and Mod+0', async () => {

@@ -13,7 +13,6 @@ import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema, sessionCreatorSchema } from './session'
 import type { ChildTask } from './agent-control'
-import type { HelmSessionRow } from './helm'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
 import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
@@ -653,11 +652,7 @@ export const rpcParams = {
   'aria.open': sessionCreateParamsSchema
     .omit({ projectId: true, title: true, lead: true })
     .optional(),
-  'aria.newTopic': sessionCreateParamsSchema
-    .omit({ projectId: true, title: true, lead: true })
-    .optional(),
-  'aria.topics': z.undefined(),
-  'aria.overview': z.object({ sessionId: z.string().min(1) }),
+  'aria.newChat': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
@@ -1040,33 +1035,7 @@ export interface RpcResults extends OrchestrationResults {
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'aria.open': { sessionId: string }
-  'aria.newTopic': { sessionId: string }
-  'aria.topics': SessionSummary[]
-  'aria.overview': {
-    needsYou: (Pick<
-      HelmSessionRow,
-      'sessionId' | 'title' | 'projectId' | 'projectName' | 'updatedAt'
-    > & {
-      requestId: string
-      kind: 'approval' | 'question'
-      summary: string
-    })[]
-    running: (Pick<
-      HelmSessionRow,
-      'sessionId' | 'title' | 'projectId' | 'projectName' | 'updatedAt' | 'startedByAria'
-    > & {
-      state: 'working' | 'queued'
-      startedAt: number | null
-    })[]
-    doneToday: (Pick<
-      HelmSessionRow,
-      'sessionId' | 'title' | 'projectId' | 'projectName' | 'updatedAt'
-    > & {
-      report: string
-      settledAt: number
-    })[]
-    more: { needsYou: number; running: number; doneToday: number }
-  }
+  'aria.newChat': { sessionId: string }
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }
