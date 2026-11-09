@@ -123,11 +123,12 @@ it('defaults Aria to direct sessions and requires the user to request or approve
   expect(text).toContain('Create or use a project lead only when the user asks for one')
   expect(text).toContain('you may propose a lead, but ask the user first')
   expect(text).toContain('never create a lead on your own')
-  expect(text).toContain('Only one code session may work in a project at a time')
+  expect(text).toContain('Only one code session may work in a project folder at a time')
+  expect(text).toContain('including sessions the user started')
   expect(text).toContain('Pass --read-only explicitly for parallel research')
 })
 
-it('states the read-only constraint for project sessions and their children', () => {
+it('states enforced read-only permissions and forbids delegation and integration', () => {
   for (const session of [
     {
       ...root,
@@ -139,7 +140,9 @@ it('states the read-only constraint for project sessions and their children', ()
     const text = controlPreamble(session, null)
     expect(text).toContain('explicitly requested read-only session')
     expect(text).toContain('do not edit project files')
-    expect(text).toContain('Any children you start inherit this read-only constraint')
+    expect(text).toContain('without the user approving them')
+    expect(text).toContain('ask permissions and cannot spawn children or integrate changes')
+    expect(text).not.toContain('run without a permission prompt')
   }
 })
 

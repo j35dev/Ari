@@ -121,6 +121,7 @@ export interface HelmProject extends HelmProjectContext {
   available: boolean
   defaultAgent?: ProjectAgent | null
   agent?: ResolvedProjectAgent | null
+  agentError?: string
 }
 
 export interface CreatedProject {
@@ -148,7 +149,7 @@ export const controlParams = {
     .object({
       projectId: target,
       driverKind: driverKindSchema,
-      modelId: z.string().min(1).nullish(),
+      modelId: z.string().min(1),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
       idempotencyKey: key,
@@ -166,7 +167,7 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
-  /** Aria only: change the current lead's agent, or delete it and its workers. */
+  /** Aria only: change the most recently asked lead's agent, or delete all its project leads. */
   'projects.lead': z
     .object({
       projectId: target,
@@ -181,7 +182,11 @@ export const controlParams = {
       p.reset
         ? p.driverKind === undefined && p.modelId === undefined && p.effort === undefined
         : p.driverKind !== undefined,
-    ),
+    )
+    .refine((p) => p.reset || typeof p.modelId === 'string', {
+      path: ['modelId'],
+      message: 'Switching needs --model. Ask the user which model to use.',
+    }),
   /** Aria only: sessions across every project, newest first. */
   'sessions.find': z
     .object({
@@ -226,7 +231,7 @@ export const controlParams = {
     .object({
       targetSessionId: target,
       driverKind: driverKindSchema,
-      modelId: z.string().min(1).nullish(),
+      modelId: z.string().min(1),
       effort: z.string().min(1).nullish(),
       idempotencyKey: key,
     })

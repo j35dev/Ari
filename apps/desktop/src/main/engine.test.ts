@@ -1744,53 +1744,140 @@ describe('engine end-to-end with scripted driver', () => {
     expect(text).toContain('hello')
   }, 10000)
 
-  it('keeps a permission mode the adapter reports for the turns that follow', async () => {
-    const created: AdapterSession[] = []
-    const wideningDriver: Driver = {
-      kind: 'claude',
-      create: (session) => {
-        created.push(session)
-        return Promise.resolve({
+  it.each([false, true])(
+    'keeps adapter permission changes only outside read-only sessions (readOnly=%s)',
+    async (readOnly) => {
+      const created: AdapterSession[] = []
+      const wideningDriver: Driver = {
+        kind: 'claude',
+        create: (session) => {
+          created.push(session)
+          return Promise.resolve({
+            capabilities: () => ({
+              ...UNKNOWN_PROVIDER_CAPABILITIES,
+              steering: 'live',
+              liveResponses: 'approvals-and-input',
+            }),
+            start: () => ({
+              async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+                yield { type: 'permission-mode', mode: 'full' }
+                yield { type: 'done' }
+              },
+            }),
+            interrupt: () => undefined,
+            dispose: () => Promise.resolve(),
+          })
+        },
+      }
+      const registry = new DriverRegistry()
+      registry.register(wideningDriver)
+      const engine = new Engine({
+        store,
+        registry,
+        publish: (sessionId, event) => published.push({ sessionId, event }),
+        git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      })
+      const sessionId = 'sess_widened'
+      await seedSession(
+        store,
+        sessionId,
+        'proj_1',
+        readOnly ? { readOnly: true, permissionMode: 'full' } : {},
+      )
+
+      for (const text of ['first', 'second']) {
+        await engine.dispatch({ type: 'turn.start', sessionId, text } as Command)
+        for (let i = 0; i < 150; i++) {
+          const model = await store.load(sessionId)
+          if (model.activeTurnId === null) break
+          if (i === 149) throw new Error(`${text} turn never settled`)
+          await new Promise((r) => setTimeout(r, 20))
+        }
+      }
+
+      expect(created.map((session) => session.permissionMode)).toEqual(
+        readOnly ? ['ask', 'ask'] : ['ask', 'full'],
+      )
+      expect((await store.load(sessionId)).session?.permissionMode).toBe(readOnly ? 'ask' : 'full')
+    },
+    10000,
+  )
+
+  it.each([false, true])(
+    'auto-approves Ari commands only outside read-only sessions (readOnly=%s)',
+    async (readOnly) => {
+      let release!: () => void
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const respond = vi.fn((_approvalId: string, _decision: AdapterApprovalDecision) => release())
+      const registry = new DriverRegistry()
+      registry.register({
+        kind: 'claude',
+        create: async () => ({
           capabilities: () => ({
             ...UNKNOWN_PROVIDER_CAPABILITIES,
-            steering: 'live',
             liveResponses: 'approvals-and-input',
           }),
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
-              yield { type: 'permission-mode', mode: 'full' }
+              yield {
+                type: 'approval-requested',
+                approvalId: 'control-edit',
+                toolName: 'Bash',
+                summaryJson: JSON.stringify({ command: 'ari session destroy worker' }),
+                options: [
+                  { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+                  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+                ],
+              }
+              await waiting
               yield { type: 'done' }
             },
           }),
-          interrupt: () => undefined,
-          dispose: () => Promise.resolve(),
+          respondApproval: respond,
+          interrupt: release,
+          dispose: async () => undefined,
+        }),
+      })
+      const autoApprove = vi.fn(() => 'allow')
+      const engine = new Engine({
+        store,
+        registry,
+        autoApprove,
+        runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+        publish: (sessionId, event) => published.push({ sessionId, event }),
+        git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      })
+      await seedSession(store, 'readonly-approval', 'proj_1', readOnly ? { readOnly: true } : {})
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'readonly-approval',
+        text: 'Inspect',
+        attachments: [],
+      })
+      if (readOnly) {
+        await vi.waitFor(async () =>
+          expect((await store.load('readonly-approval')).pendingApprovals).toHaveLength(1),
+        )
+        expect(autoApprove).not.toHaveBeenCalled()
+        expect(respond).not.toHaveBeenCalled()
+        await engine.dispatch({
+          type: 'approval.respond',
+          sessionId: 'readonly-approval',
+          approvalId: 'control-edit',
+          optionId: 'deny',
         })
-      },
-    }
-    const registry = new DriverRegistry()
-    registry.register(wideningDriver)
-    const engine = new Engine({
-      store,
-      registry,
-      publish: (sessionId, event) => published.push({ sessionId, event }),
-      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
-    })
-    const sessionId = 'sess_widened'
-    await seedSession(store, sessionId)
-
-    for (const text of ['first', 'second']) {
-      await engine.dispatch({ type: 'turn.start', sessionId, text } as Command)
-      for (let i = 0; i < 150; i++) {
-        const model = await store.load(sessionId)
-        if (model.activeTurnId === null) break
-        if (i === 149) throw new Error(`${text} turn never settled`)
-        await new Promise((r) => setTimeout(r, 20))
-      }
-    }
-
-    expect(created.map((session) => session.permissionMode)).toEqual(['ask', 'full'])
-    expect((await store.load(sessionId)).session?.permissionMode).toBe('full')
-  }, 10000)
+        expect(respond).toHaveBeenCalledWith('control-edit', { optionId: 'deny' })
+      } else
+        await vi.waitFor(() =>
+          expect(respond).toHaveBeenCalledWith('control-edit', { optionId: 'allow' }),
+        )
+      await vi.waitFor(async () =>
+        expect((await store.load('readonly-approval')).activeTurnId).toBeNull(),
+      )
+    },
+  )
 
   it('passes the observed provider ref as resumeOf on the next turn only', async () => {
     const created: AdapterSession[] = []

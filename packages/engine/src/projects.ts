@@ -36,6 +36,17 @@ export function resolveProjectAgent(input: {
   app: ProjectAgentDefaults
   maxPermissionMode?: PermissionMode
 }): ResolvedProjectAgent | null {
+  const sameModel = (
+    driverKind: string | undefined,
+    first: string | null | undefined,
+    second: string | null | undefined,
+  ): boolean => {
+    if (!first || !second) return first === second
+    const models = input.providers.find((provider) => provider.driverKind === driverKind)?.models
+    const canonical = (id: string) =>
+      models?.find((model) => model.id === id || model.aliases?.includes(id))?.id ?? id
+    return canonical(first) === canonical(second)
+  }
   const resolve = (
     candidate: Partial<ProjectAgent>,
     source: ResolvedProjectAgent['source'],
@@ -49,6 +60,10 @@ export function resolveProjectAgent(input: {
     ) {
       candidate = {
         ...candidate,
+        ...(args.modelId !== undefined &&
+        !sameModel(candidate.driverKind, args.modelId, candidate.modelId)
+          ? { effort: null }
+          : {}),
         ...(args.modelId === undefined ? {} : { modelId: args.modelId }),
         ...(args.effort === undefined ? {} : { effort: args.effort }),
         ...(args.permissionMode === undefined ? {} : { permissionMode: args.permissionMode }),
@@ -84,7 +99,16 @@ export function resolveProjectAgent(input: {
   if (explicit?.driverKind) {
     const saved = input.project.defaultAgent
     return resolve(
-      saved?.driverKind === explicit.driverKind ? { ...saved, ...explicit } : explicit,
+      saved?.driverKind === explicit.driverKind
+        ? {
+            ...saved,
+            ...(explicit.modelId !== undefined &&
+            !sameModel(explicit.driverKind, explicit.modelId, saved.modelId)
+              ? { effort: null }
+              : {}),
+            ...explicit,
+          }
+        : explicit,
       'arguments',
     )
   }
