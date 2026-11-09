@@ -406,6 +406,32 @@ describe('project agent resolution', () => {
     ).toBe('full')
   })
 
+  it('carries saved effort only onto the same model, including aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
+    for (const provider of [{ driverKind: 'claude' as const }, {}]) {
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'sonnet' } })
+          ?.effort,
+      ).toBeNull()
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'sonnet', effort: 'low' },
+        })?.effort,
+      ).toBe('low')
+      expect(
+        resolveProjectAgent({ ...configured, arguments: { ...provider, modelId: 'latest' } })
+          ?.effort,
+      ).toBe('high')
+      expect(
+        resolveProjectAgent({
+          ...configured,
+          arguments: { ...provider, modelId: 'opus', effort: null },
+        })?.effort,
+      ).toBeNull()
+    }
+  })
+
   it('refuses stale or unset defaults instead of choosing another installed or catalog-default model', () => {
     for (const modelId of ['removed', null])
       expect(

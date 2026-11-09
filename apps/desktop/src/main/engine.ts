@@ -951,7 +951,7 @@ export class Engine {
         ...(handoff ? { handoff } : {}),
         ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
-        permissionMode: session.permissionMode,
+        permissionMode: session.readOnly ? 'ask' : session.permissionMode,
         effort: session.effort ?? null,
         resumeOf,
         ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
@@ -1205,7 +1205,8 @@ export class Engine {
           case 'approval-requested': {
             // Ari's own control commands are governed by its delegation
             // policy, not by a click on every one of them.
-            const grant = hasControl ? (this.#deps.autoApprove?.(event) ?? null) : null
+            const grant =
+              hasControl && !session.readOnly ? (this.#deps.autoApprove?.(event) ?? null) : null
             if (
               grant !== null &&
               this.liveCapabilities(session.id).approval &&
@@ -1248,7 +1249,10 @@ export class Engine {
             await append({ type: 'session.ref.observed', ref: event.ref, contextSeq })
             break
           case 'permission-mode':
-            await append({ type: 'session.updated', permissionMode: event.mode })
+            await append({
+              type: 'session.updated',
+              permissionMode: session.readOnly ? 'ask' : event.mode,
+            })
             break
           case 'background-task':
             await append(backgroundTaskUpdated(event))

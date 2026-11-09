@@ -7,7 +7,6 @@ import {
   type HelmProjectContext,
   type HelmSessionRow,
   isHelmSession,
-  isHelmProjectLead,
   isHelmProjectSession,
 } from '@ari/contracts/helm'
 import type { SessionListEntry, SessionStore } from './session-store'
@@ -38,11 +37,6 @@ export async function helmReportRecipient(
   turnId: string,
 ): Promise<string | null> {
   return helmRecipient(store, model, turnRequester(model, turnId))
-}
-
-/** Listing identity is filled from the creation event without replaying a journal. */
-export function isProjectLeadCandidate(row: SessionListEntry): boolean {
-  return !row.archived && isHelmProjectLead(row)
 }
 
 export async function helmTaskRecipient(
@@ -196,6 +190,7 @@ function projectLine(
     name: string
     available: boolean
     agent?: ResolvedProjectAgent | null
+    agentError?: string
   },
 ): string {
   const source = {
@@ -203,11 +198,13 @@ function projectLine(
     project: 'project setting',
     lead: 'current lead',
   } as const
-  const agent = p.agent
-    ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
-    : p.agent === null
-      ? ', agent unset'
-      : ''
+  const agent = p.agentError
+    ? ', saved default is missing a model; ask the user'
+    : p.agent
+      ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
+      : p.agent === null
+        ? ', agent unset'
+        : ''
   const clues = [
     ...(p.description ? [compact(p.description, HELM_DESCRIPTION_CHARS)] : []),
     ...(p.repository ? [`repo: ${compact(p.repository, 100)}`] : []),
@@ -237,6 +234,7 @@ export async function helmSnapshot(
     name: string
     available: boolean
     agent?: ResolvedProjectAgent | null
+    agentError?: string
   })[],
   now = Date.now(),
 ): Promise<string> {

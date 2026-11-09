@@ -123,6 +123,7 @@ it('parses lead switches and resets, refusing ambiguous or incomplete choices', 
   })
   expect(() => cli.parse(['project', 'lead', '--reset'])).toThrow('project id')
   expect(() => cli.parse(['project', 'lead', 'proj_1'])).toThrow('--agent or --reset')
+  expect(() => cli.parse(['project', 'lead', 'proj_1', '--agent', 'codex'])).toThrow('--model')
   expect(() => cli.parse(['project', 'lead', 'proj_1', '--reset', '--agent', 'codex'])).toThrow(
     'either',
   )
@@ -177,6 +178,7 @@ it('parses direct project sessions without an agent, read-only research and sess
   })
   expect(() => cli.parse(['session', 'switch', '--agent', 'codex'])).toThrow('session id')
   expect(() => cli.parse(['session', 'switch', 'session_1'])).toThrow('--agent')
+  expect(() => cli.parse(['session', 'switch', 'session_1', '--agent', 'codex'])).toThrow('--model')
 })
 
 it('parses the Aria commands', () => {
@@ -214,6 +216,7 @@ it('parses the Aria commands', () => {
     },
   })
   expect(() => cli.parse(['project', 'default', 'proj_1'])).toThrow('--agent')
+  expect(() => cli.parse(['project', 'default', 'proj_1', '--agent', 'claude'])).toThrow('--model')
   expect(() => cli.parse(['project', 'ask'])).toThrow('project id')
   expect(cli.parse(['projects'])).toMatchObject({ method: 'projects.list', params: {} })
   expect(cli.parse(['sessions', 'login', 'bug', '--active', '--project', 'proj_1'])).toEqual(

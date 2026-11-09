@@ -123,12 +123,13 @@ Reuse a related session when appropriate and send follow-ups to the same session
 with `ari session prompt`. Sessions report back to Aria, which reports outcomes
 to the user.
 
-Only one code session Aria launched may work in a project at a time, including
-while its workers are running or its reports are pending. A new code spawn or
+Only one code session may work in a project folder at a time, including human
+sessions running there, and while Aria's workers are running or its reports are pending. A new code spawn or
 restart of a different session is refused: prompt the working session or wait
 for it to finish. Research may run alongside it only with an explicit
-`--read-only` flag. That session's brief forbids project edits and coding work;
-its children inherit the constraint. Read-only sessions still count toward the
+`--read-only` flag. That session always runs with `ask` permissions: edits and
+mutating commands need the user's approval. It cannot spawn children or integrate
+changes. Read-only sessions still count toward the
 overall concurrency cap.
 
 Create or use a project lead only when the user asks for one, such as "set up a
@@ -152,10 +153,13 @@ current model as an option. Save the answer with `ari project default` and use
 that default for future sessions. Never inherit Aria's model, choose from recent
 sessions, or use the app default. An unavailable or missing model is unresolved;
 `project ask` and `session spawn --project` refuse to start until the user chooses
-one. `agent: null` in the snapshot means the project needs that choice. Partial
+one. Saving a project default requires `--model`; an older saved default missing
+a model is reported as an error and needs the user's choice. `agent: null` in the
+snapshot means the project needs that choice. Partial
 options use the saved default only when they match its provider. Tell the user
 which model a newly created session or lead runs on; the result includes its
-actual agent and source.
+actual agent and source. When an explicit model differs from the saved model,
+its effort is the explicit choice or none, rather than the saved model's effort.
 
 When the user asks to build something new and no existing project fits (none
 named and nothing in the snapshot or `ari sessions --query` matches), create a
@@ -196,7 +200,9 @@ worktrees. These commands run without shell permission prompts by default.
 An active turn finishes on its original provider before the following turn uses
 the new provider with a conversation handoff and transcript divider. The composer
 provider picker unlocks for sessions Aria launched too. Switching preserves the
-session's permissions.
+session's permissions. Both switch commands require `--model`; never choose a
+provider's default model when no model was given. Destruction and lead resets
+also refuse a target above Aria's permissions or an archived Aria caller.
 
 Inherited permissions are capped at Aria's; an explicit higher permission is
 refused when starting work or saving a project default. Reusing, prompting,
@@ -207,8 +213,9 @@ start work in its own project.
 For requested leads, `project ask` options `--agent`, `--model`, `--effort`,
 `--permission` and `--title` apply only when creating a lead. The result includes
 `reused`, `lead` and `agent`. Send lead follow-ups through `project ask`.
-`project lead --reset` destroys the lead and its workers, including their
-worktrees; the next `project ask` creates a fresh lead. Both lead management
+`project lead --agent` switches the lead most recently assigned work for Aria.
+`project lead --reset` destroys every Aria lead in the project, including archived
+leads and all their workers and worktrees; the next `project ask` creates a fresh lead. Both lead management
 commands are Aria only.
 
 When a session or lead fails with a provider or model error, recover instead of

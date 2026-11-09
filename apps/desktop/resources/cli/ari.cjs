@@ -148,6 +148,8 @@ function parse(argv) {
     } else if (verb === 'default') {
       if (!target) throw new Error('project default needs a project id')
       if (!flags.agent) throw new Error('project default needs --agent')
+      if (!flags.model)
+        throw new Error('project default needs --model. Ask the user which model to use.')
       method = 'projects.setDefault'
       params = {
         projectId: target,
@@ -161,9 +163,11 @@ function parse(argv) {
       if (!target) throw new Error('project lead needs a project id')
       if (rest.length) throw new Error('project lead does not accept prompt text')
       if (flags.reset && (flags.agent || flags.model || flags.effort))
-        throw new Error('Use either --reset or --agent with optional --model and --effort')
+        throw new Error('Use either --reset or --agent with --model and optional --effort')
       if (!flags.reset && !flags.agent) throw new Error('project lead needs --agent or --reset')
       if (flags.permission) throw new Error('project lead keeps the lead permissions')
+      if (!flags.reset && !flags.model)
+        throw new Error('project lead needs --model. Ask the user which model to use.')
       method = 'projects.lead'
       params = {
         projectId: target,
@@ -269,6 +273,8 @@ function parse(argv) {
       case 'switch':
         if (!target) throw new Error('session switch needs a session id')
         if (!flags.agent) throw new Error('session switch needs --agent')
+        if (!flags.model)
+          throw new Error('session switch needs --model. Ask the user which model to use.')
         params = {
           targetSessionId: target,
           driverKind: flags.agent,
