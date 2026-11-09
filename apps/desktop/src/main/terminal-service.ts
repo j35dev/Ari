@@ -26,11 +26,7 @@ export interface PtySpawnOptions {
   windowsHide: boolean
 }
 
-export type PtyFactory = (
-  file: string,
-  args: string[],
-  options: PtySpawnOptions,
-) => PtyLike
+export type PtyFactory = (file: string, args: string[], options: PtySpawnOptions) => PtyLike
 
 export interface TerminalEvents {
   onData: (id: string, data: string) => void
@@ -54,9 +50,16 @@ export function ptyUnavailableReason(loadError: string | null): string {
     : 'terminal backend still loading'
 }
 
-function killTree(pid: number): void {
+function killTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
-    exec(`taskkill /PID ${pid} /T /F`, () => undefined)
+    return new Promise((resolve) => {
+      try {
+        exec(`taskkill /PID ${pid} /T /F`, () => resolve())
+      } catch {
+        // Still release the native handle if the cleanup process cannot start.
+        resolve()
+      }
+    })
   } else {
     try {
       process.kill(-pid)
@@ -68,11 +71,13 @@ function killTree(pid: number): void {
       }
     }
   }
+  return Promise.resolve()
 }
 
 interface Session {
   pty: PtyLike
   scrollback: string
+  exited: boolean
 }
 
 /**
@@ -85,6 +90,8 @@ export class TerminalService {
   readonly #sessions = new Map<string, Session>()
   readonly #events: TerminalEvents
   readonly #spawnPty: PtyFactory
+  readonly #pendingKills = new Set<Promise<void>>()
+  #closed = false
 
   constructor(events: TerminalEvents, spawnPty: PtyFactory) {
     this.#events = events
@@ -105,13 +112,8 @@ export class TerminalService {
    * A specific program, not a shell. Sign-in uses this so keystrokes are
    * stdin for that program and cannot start another command.
    */
-  spawn(
-    id: string,
-    file: string,
-    args: string[],
-    cwd: string,
-    env: Record<string, string>,
-  ): void {
+  spawn(id: string, file: string, args: string[], cwd: string, env: Record<string, string>): void {
+    if (this.#closed) throw new Error('Ari is shutting down')
     if (this.#sessions.has(id)) return
     const pty = this.#spawnPty(file, args, {
       name: 'xterm-256color',
@@ -119,7 +121,7 @@ export class TerminalService {
       env,
       windowsHide: true,
     })
-    const session: Session = { pty, scrollback: '' }
+    const session: Session = { pty, scrollback: '', exited: false }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -128,7 +130,10 @@ export class TerminalService {
       }
       this.#events.onData(id, data)
     })
-    pty.onExit(() => this.#events.onExit(id))
+    pty.onExit(() => {
+      session.exited = true
+      this.#events.onExit(id)
+    })
   }
 
   write(id: string, data: string): void {
@@ -143,18 +148,35 @@ export class TerminalService {
     }
   }
 
-  kill(id: string): void {
+  kill(id: string): Promise<void> {
     const session = this.#sessions.get(id)
-    if (!session) return
+    if (!session) return Promise.resolve()
     this.#sessions.delete(id)
-    // Release the native handle first; the tree kill is the backstop for
-    // orphaned children (killTree alone leaks the ConPTY/file descriptor).
-    try {
-      session.pty.kill()
-    } catch {
-      // already gone
-    }
-    killTree(session.pty.pid)
+    const cleanup = (async () => {
+      try {
+        // Keep the shell alive until taskkill has enumerated its descendants.
+        // Closing ConPTY first can orphan detached children before /T runs.
+        // An exited shell's PID may already belong to another process.
+        if (!session.exited && session.pty.pid > 0) await killTree(session.pty.pid)
+      } finally {
+        // Tree termination does not release the native ConPTY/file descriptor.
+        try {
+          session.pty.kill()
+        } catch {
+          // already gone
+        }
+      }
+    })()
+    this.#pendingKills.add(cleanup)
+    void cleanup.finally(() => this.#pendingKills.delete(cleanup))
+    return cleanup
+  }
+
+  /** Release every native handle and its child process tree on app shutdown. */
+  async close(): Promise<void> {
+    this.#closed = true
+    for (const id of this.#sessions.keys()) void this.kill(id)
+    await Promise.all(this.#pendingKills)
   }
 
   replay(id: string): string {

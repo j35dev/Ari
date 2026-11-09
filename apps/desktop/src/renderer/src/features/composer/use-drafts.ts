@@ -148,7 +148,8 @@ export function useDrafts(sessionId: string): UseDraftsResult {
 
   useEffect(() => window.clearTimeout(timerRef.current), [])
 
-  // Compatible with #473: reload does not unmount React before discarding it.
+  // Reloading or closing the window does not unmount React first. Persist the
+  // latest edit (or a sent draft's clear) before the document is discarded.
   useEffect(() => {
     window.addEventListener('beforeunload', flush)
     window.addEventListener('pagehide', flush)

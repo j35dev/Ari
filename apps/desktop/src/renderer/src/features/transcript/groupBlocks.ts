@@ -48,10 +48,15 @@ export function insertTurnDiffRows(
   const flushCard = (): void => {
     if (openTurnId === null) return
     const value = turnDiffs[openTurnId]
-    const error = typeof value === 'object' ? value.error : undefined
+    const error = typeof value === 'object' && 'error' in value ? value.error : undefined
+    const summary = typeof value === 'object' && 'summary' in value ? value.summary : undefined
+    const sessionId =
+      typeof value === 'object' && 'sessionId' in value ? value.sessionId : undefined
     const diffText = typeof value === 'string' ? value : ''
     if (
-      (diffText.length > 0 || (error !== undefined && error.length > 0)) &&
+      (diffText.length > 0 ||
+        (summary?.files.length ?? 0) > 0 ||
+        (error !== undefined && error.length > 0)) &&
       !emitted.has(openTurnId)
     ) {
       emitted.add(openTurnId)
@@ -60,6 +65,7 @@ export function insertTurnDiffRows(
         key: `turn-diff:${openTurnId}`,
         turnId: openTurnId,
         diffText,
+        ...(summary ? { summary, sessionId } : {}),
         ...(error !== undefined && error.length > 0 ? { error } : {}),
       }
       out.push(row)
@@ -120,7 +126,12 @@ function sameRow(a: GroupedRow, b: GroupedRow): boolean {
     )
   }
   if (a.kind === 'turn-diff' && b.kind === 'turn-diff') {
-    return a.diffText === b.diffText && a.error === b.error
+    return (
+      a.diffText === b.diffText &&
+      a.error === b.error &&
+      a.summary === b.summary &&
+      a.sessionId === b.sessionId
+    )
   }
   return false
 }

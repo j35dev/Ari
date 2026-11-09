@@ -1,19 +1,24 @@
 import { useMemo, useState } from 'react'
 import { ChevronRight, FileDiff } from 'lucide-react'
+import type { GitTurnDiffSummary } from '@ari/contracts/rpc'
 import { DiffViewer, parseDiff } from '../diffs'
 import type { DiffComment } from '../diffs'
+import { TurnDiffFiles } from './TurnDiffFiles'
 
 type UndoState = 'idle' | 'confirming' | 'pending' | 'done'
 
 /**
- * Collapsed-by-default row for one settled turn's git changes: file count and
- * line totals, expanding to the shared diff viewer (with line notes when
- * `onComment` is set). A quiet Undo restores the workspace to the checkpoint
- * taken when the turn began, after an inline confirm.
+ * Collapsed-by-default row for one settled turn's git changes. The header
+ * summarizes files and line counts from the patch or a large turn's metadata;
+ * expanding loads large turns one file at a time. With `onComment` present the
+ * viewer accepts inline line notes that flow back to the composer. Undo restores
+ * the workspace to the checkpoint taken when the turn began, after confirmation.
  */
 export function TurnDiffCard({
   turnId,
   diffText,
+  summary,
+  sessionId,
   error,
   onRetry,
   onComment,
@@ -22,6 +27,8 @@ export function TurnDiffCard({
 }: {
   turnId: string
   diffText: string
+  summary?: GitTurnDiffSummary
+  sessionId?: string
   error?: string
   onRetry?: () => void
   onComment?: (comment: DiffComment) => void
@@ -32,6 +39,13 @@ export function TurnDiffCard({
   const [open, setOpen] = useState(false)
   const [undo, setUndo] = useState<UndoState>('idle')
   const stats = useMemo(() => {
+    if (summary) {
+      return {
+        fileCount: summary.files.length,
+        added: summary.files.reduce((sum, file) => sum + file.additions, 0),
+        removed: summary.files.reduce((sum, file) => sum + file.deletions, 0),
+      }
+    }
     const { files } = parseDiff(diffText)
     let added = 0
     let removed = 0
@@ -44,7 +58,7 @@ export function TurnDiffCard({
       }
     }
     return { fileCount: files.length, added, removed }
-  }, [diffText])
+  }, [diffText, summary])
 
   if (error !== undefined && error.length > 0) {
     return (
@@ -152,7 +166,14 @@ export function TurnDiffCard({
         }`}
       >
         <div className="overflow-hidden">
-          {open ? (
+          {summary && sessionId ? (
+            <TurnDiffFiles
+              active={open}
+              sessionId={sessionId}
+              summary={summary}
+              onComment={onComment}
+            />
+          ) : open ? (
             <div className="ari-enter-rise pt-2">
               <DiffViewer diffText={diffText} onLineComment={onComment} />
             </div>

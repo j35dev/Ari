@@ -101,8 +101,9 @@ export class HostingService {
       return ok({
         repository: null,
         requests: [],
-        detail:
-          'Connect a self-hosted instance in Source control settings to identify this remote.',
+        detail: remotes.length
+          ? 'This repository’s remote is not recognized. For a self-hosted service, add its instance in Settings → Source control.'
+          : 'This repository has no Git remote. Add a remote for its hosted repository to load pull or merge requests.',
       })
     const result = await this.#result(async () =>
       requestItems(host, await this.api.request(host, listPath(host, branch), { signal })),
