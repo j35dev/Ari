@@ -26,6 +26,8 @@ import {
   X,
 } from 'lucide-react'
 import { Kbd } from '@ari/ui/kbd'
+import { AriaMark } from '@ari/ui/aria-mark'
+import { visibleProjects, visibleSessions } from '../features/aria/visibility'
 import { transitions } from '@ari/ui/motion'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -286,6 +288,7 @@ function SessionRow({
   projectName,
   isActive,
   activity,
+  startedByAria = false,
   onSelect,
   onRename,
   onDelete,
@@ -305,6 +308,7 @@ function SessionRow({
   projectName: string | null
   isActive: boolean
   activity?: SessionActivity
+  startedByAria?: boolean
   /** `card` is the Sessions inbox row; compact stays the tree/shelf row. */
   variant?: 'compact' | 'card'
   onSelect: (id: string) => void
@@ -394,23 +398,35 @@ function SessionRow({
     )
   }
 
-  const mark =
-    activity !== undefined ? (
-      <SessionActivityMark activity={activity} />
-    ) : variant !== 'card' && hasChildren ? (
-      <GitBranch size={11} aria-hidden className={isActive ? 'text-accent' : 'text-fg-muted'} />
-    ) : session.pinned ? (
-      <Pin size={10} aria-hidden className="text-accent" />
-    ) : (
-      <span
-        data-session-mark="idle"
-        className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
-        style={{
-          background: 'var(--ari-fg-subtle)',
-          opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
-        }}
-      />
-    )
+  const mark = startedByAria ? (
+    <AriaMark
+      size={12}
+      state={
+        activity?.phase === 'paused'
+          ? 'attention'
+          : activity?.phase === 'working'
+            ? 'working'
+            : 'idle'
+      }
+      className="text-accent"
+      title="Started by Aria"
+    />
+  ) : activity !== undefined ? (
+    <SessionActivityMark activity={activity} />
+  ) : variant !== 'card' && hasChildren ? (
+    <GitBranch size={11} aria-hidden className={isActive ? 'text-accent' : 'text-fg-muted'} />
+  ) : session.pinned ? (
+    <Pin size={10} aria-hidden className="text-accent" />
+  ) : (
+    <span
+      data-session-mark="idle"
+      className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
+      style={{
+        background: 'var(--ari-fg-subtle)',
+        opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
+      }}
+    />
+  )
 
   return (
     <div
@@ -613,6 +629,7 @@ function SessionRow({
 
 /** Handlers every session row needs; passed down unchanged through groups. */
 interface SessionRowHandlers {
+  startedByAria?: (id: string) => boolean
   activeSessionId: string | null
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -713,6 +730,7 @@ function SessionList({
               <div className="min-w-0 flex-1">
                 <SessionRow
                   session={s}
+                  startedByAria={handlers.startedByAria?.(s.id)}
                   hasChildren={childCount > 0}
                   childCount={childCount}
                   nested={!flat && lastAtDepth.length > 0}
@@ -1313,8 +1331,8 @@ export function SessionsUnderProjects(props: SessionsUnderProjectsProps) {
 }
 
 const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
-  sessions,
-  projects,
+  sessions: allSessions,
+  projects: allProjects,
   activeSessionId,
   onSelect,
   onRename,
@@ -1325,6 +1343,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onDeleteMany,
   onOpenInSplit,
   activityOf,
+  startedByAria,
   onOpenProject,
   onNewSession,
   searchInputRef,
@@ -1333,6 +1352,8 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   knownProjectNames,
   ...actions
 }: SessionsUnderProjectsProps) {
+  const sessions = useMemo(() => visibleSessions(allSessions), [allSessions])
+  const projects = useMemo(() => visibleProjects(allProjects), [allProjects])
   const [localQuery, setLocalQuery] = useState('')
   const query = searchQuery ?? localQuery
   const setQuery = onSearchQueryChange ?? setLocalQuery
@@ -1355,6 +1376,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const handlers: SessionRowHandlers = {
+    startedByAria,
     activeSessionId,
     onSelect,
     onRename,

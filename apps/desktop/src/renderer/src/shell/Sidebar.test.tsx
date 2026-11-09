@@ -35,6 +35,17 @@ const projects: SidebarProject[] = [
   { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok' },
 ]
 
+it('hides Aria project groups and threads from the sidebar and its search', async () => {
+  renderSidebar([session('helm-topic', 0, 'helm'), session('normal', 1, 'proj-1')], null, {}, [
+    { id: 'helm', name: 'Aria', path: '/aria', status: 'ok' },
+    ...projects,
+  ])
+  expect(screen.queryByText('Aria')).toBeNull()
+  expect(screen.queryByText('Session helm-topic')).toBeNull()
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Search sessions' }), 'helm-topic')
+  expect(screen.queryByText('Session helm-topic')).toBeNull()
+})
+
 type Handlers = Partial<{
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
@@ -383,10 +394,7 @@ describe('SessionsUnderProjects', () => {
   it('animates the parent card while a child agent works, without listing the child', async () => {
     const user = userEvent.setup()
     renderSidebar(
-      [
-        session('root', 0, 'proj-1'),
-        { ...session('child', 1, 'proj-1'), parentSessionId: 'root' },
-      ],
+      [session('root', 0, 'proj-1'), { ...session('child', 1, 'proj-1'), parentSessionId: 'root' }],
       null,
       {
         activityOf: (id) =>

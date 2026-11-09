@@ -28,6 +28,19 @@ const projects = [
   { id: 'p2', name: 'Sketch' },
 ]
 
+it('excludes Aria from groups and both keyboard navigation orders, including legacy topics', () => {
+  const sessions = [
+    row('aria', 4, { projectId: 'helm' }),
+    row('topic', 3, { projectId: 'helm', archived: true }),
+    row('normal', 1, { projectId: 'p1' }),
+  ]
+  const allProjects = [{ id: 'helm', name: 'Aria' }, ...projects]
+  expect(sidebarGroups(sessions, allProjects).map((group) => group.id)).toEqual(['p1', 'p2'])
+  expect(sidebarOrder(sessions, allProjects).map((session) => session.id)).toEqual(['normal'])
+  expect(sidebarOrder(sessions, []).map((session) => session.id)).toEqual(['normal'])
+  expect(sessionsViewOrder(sessions).map((session) => session.id)).toEqual(['normal'])
+})
+
 describe('projectMoveFromOrder', () => {
   it('slots the dragged project ahead of its new successor', () => {
     expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'c', 'b'], 'b')).toEqual({
