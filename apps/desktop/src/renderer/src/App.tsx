@@ -361,7 +361,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         const frame = payload as NavigateFrame | null
         if (frame && 'settingsSection' in frame && frame.settingsSection === 'speech') {
           setHubOpen(false)
-          setSettingsSection('speech' as SettingsSectionId)
+          setSettingsSection('speech')
           setSettingsOpen(true)
         } else if (frame && 'sessionId' in frame && typeof frame.sessionId === 'string') {
           selectSessionRef.current(frame.sessionId)
