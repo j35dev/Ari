@@ -39,6 +39,7 @@ export async function startRecording(): Promise<{
   let amplitude = 0
   const chunks: Float32Array[] = []
   const cleanup = (): void => {
+    if (ended) return
     ended = true
     amplitude = 0
     if (node) node.port.onmessage = null
@@ -61,12 +62,8 @@ export async function startRecording(): Promise<{
     const sampleRate = context.sampleRate
     node.port.onmessage = (event: MessageEvent<Float32Array>) => {
       if (ended) return
-      const remaining = sampleRate * 300 - samples
-      if (remaining <= 0) {
-        cleanup()
-        return
-      }
-      const chunk = event.data.length > remaining ? event.data.slice(0, remaining) : event.data
+      const chunk = event.data
+      if (!chunk.length) return
       chunks.push(chunk)
       samples += chunk.length
       const power = chunk.reduce((sum, value) => sum + value * value, 0) / chunk.length

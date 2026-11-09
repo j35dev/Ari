@@ -684,12 +684,8 @@ export class SpeechService {
   }
 
   async transcribe(pcm: Float32Array, language?: string): Promise<{ text: string }> {
-    if (
-      !pcm.length ||
-      pcm.length > 16_000 * 300 ||
-      pcm.some((value) => !Number.isFinite(value) || Math.abs(value) > 1)
-    )
-      throw new Error('Invalid recording. Record up to five minutes.')
+    if (!pcm.length || pcm.some((value) => !Number.isFinite(value) || Math.abs(value) > 1))
+      throw new Error('Invalid recording.')
     await this.#init()
     if (this.#selecting) await this.#selecting.catch(() => undefined)
     const model = await this.#selected()

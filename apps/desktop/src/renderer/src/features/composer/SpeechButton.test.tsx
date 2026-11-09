@@ -150,3 +150,89 @@ it('discards empty transcription without inserting whitespace', async () => {
   await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled())
   expect(insert).not.toHaveBeenCalled()
 })
+
+it('keeps long composer dictation active until Enter stops it', async () => {
+  mocks.ready = true
+  vi.useFakeTimers()
+  const insert = vi.fn()
+  render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  act(() => vi.advanceTimersByTime(10 * 60_000))
+  expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled()
+  expect(mocks.stop).not.toHaveBeenCalled()
+  expect(mocks.cancel).not.toHaveBeenCalled()
+  expect(mocks.invoke).not.toHaveBeenCalled()
+  await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
+  expect(insert).toHaveBeenCalledWith('Dictated text')
+  expect(mocks.stop).toHaveBeenCalledOnce()
+})
+
+it('cancels with Escape and discards the recording', async () => {
+  mocks.ready = true
+  render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(mocks.cancel).toHaveBeenCalledOnce()
+  expect(mocks.stop).not.toHaveBeenCalled()
+  expect(mocks.invoke).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
+})
+
+it('does not start transcription if unmounted while the recording is stopping', async () => {
+  mocks.ready = true
+  let finishStop!: (pcm: Float32Array) => void
+  mocks.stop.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finishStop = resolve
+      }),
+  )
+  const view = render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  fireEvent.keyDown(window, { key: 'Enter' })
+  view.unmount()
+  await act(async () => finishStop(new Float32Array([0.1])))
+  expect(mocks.invoke).not.toHaveBeenCalled()
+})
+
+it.each(['result', 'error'] as const)(
+  'ignores a stale transcription %s after disabling and starting a newer recording',
+  async (outcome) => {
+    mocks.ready = true
+    let finish!: (result: { text: string }) => void
+    let fail!: (reason: Error) => void
+    mocks.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve
+          fail = reject
+        }),
+    )
+    const insert = vi.fn()
+    const view = render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+    await act(async () => fireEvent.click(screen.getByRole('button')))
+    await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
+    view.rerender(<SpeechButton disabled captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+    view.rerender(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+    await act(async () => fireEvent.click(screen.getByRole('button')))
+    await act(async () => {
+      if (outcome === 'result') finish({ text: 'Old dictation' })
+      else fail(new Error('Old transcription failed'))
+    })
+    expect(insert).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled()
+    await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
+    expect(insert).toHaveBeenCalledWith('Dictated text')
+  },
+)
+
+it('reports a genuine transcription failure and lets the user retry', async () => {
+  mocks.ready = true
+  mocks.invoke.mockRejectedValueOnce(new Error('Speech engine stopped'))
+  render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('Speech engine stopped')
+  expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
+})

@@ -436,9 +436,8 @@ it.each(['sent', 'error', 'setup'] as const)(
 )
 
 it.each([
-  ['listening', 120000],
-  ['transcribing', 45000],
   ['sent', 1500],
+  ['error', 6000],
 ] as const)('uses monotonic time despite wall-clock jumps during %s', async (phase, timeout) => {
   widget = new AriaWidget({
     invoke: async (method) =>
@@ -448,9 +447,11 @@ it.each([
   await widget.configure({ ...configured, speech: { enabled: true, shortcut: 'f8' } } as Settings)
   mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
   const sender = mock.windows[0]!.webContents
-  if (phase !== 'listening') mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
+  mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
   if (phase === 'sent')
     await mock.handlers.get('ari:ariaWidget.complete')!({ sender }, { id: 1, text: 'Done' })
+  else
+    await mock.handlers.get('ari:ariaWidget.error')!({ sender }, { id: 1, text: 'Engine failed' })
   vi.setSystemTime(Date.now() + 3600000)
   await vi.advanceTimersByTimeAsync(timeout - 1)
   expect(sender.send).toHaveBeenLastCalledWith(
@@ -461,7 +462,7 @@ it.each([
   await vi.advanceTimersByTimeAsync(1)
   expect(sender.send).toHaveBeenLastCalledWith(
     'ari:ariaWidget.state',
-    expect.objectContaining({ phase: phase === 'sent' ? 'hidden' : 'error' }),
+    expect.objectContaining({ phase: 'hidden' }),
   )
 })
 
@@ -543,22 +544,51 @@ it('recreates and re-arms after crashes with increasing backoff, then cancels re
   expect(mock.windows).toHaveLength(3)
 })
 
-it('arms one deadline only while active and removes all timers and signals on close', async () => {
-  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+it('keeps long dictation and transcription usable, then expires the sent pill', async () => {
+  const dispatch = vi.fn(async () => ({ accepted: true }))
+  widget = new AriaWidget({
+    invoke: async (method) => {
+      if (method === 'speech.status') return { ready: true }
+      if (method === 'aria.open') return { sessionId: 'aria' }
+      return dispatch()
+    },
+    openSettings: vi.fn(),
+  })
   expect(vi.getTimerCount()).toBe(0)
   await widget.configure(configured)
   expect(vi.getTimerCount()).toBe(0)
   mock.keys.get('keydown')?.(key(57))
-  expect(vi.getTimerCount()).toBe(1)
-  await vi.advanceTimersByTimeAsync(120_000)
-  expect(vi.getTimerCount()).toBe(1)
-  expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
-    'ari:ariaWidget.state',
-    expect.objectContaining({ phase: 'error' }),
-  )
-  await vi.advanceTimersByTimeAsync(6_000)
   expect(vi.getTimerCount()).toBe(0)
+  await vi.advanceTimersByTimeAsync(10 * 60_000)
+  const sender = mock.windows[0]!.webContents
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'listening' }),
+  )
+  mock.keys.get('keyup')?.(key(57))
+  await vi.advanceTimersByTimeAsync(10 * 60_000)
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'transcribing' }),
+  )
+  expect(vi.getTimerCount()).toBe(0)
+  await mock.handlers.get('ari:ariaWidget.complete')!({ sender }, { id: 1, text: 'Long dictation' })
+  expect(dispatch).toHaveBeenCalledOnce()
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'sent', text: 'Long dictation' }),
+  )
+  expect(vi.getTimerCount()).toBe(1)
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(vi.getTimerCount()).toBe(0)
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'hidden' }),
+  )
+  mock.keys.get('keydown')?.(key(57))
   widget.close()
+  expect(vi.getTimerCount()).toBe(0)
+  expect(mock.keys.size).toBe(0)
   expect(mock.powerEvents.size).toBe(0)
   expect(mock.appEvents.size).toBe(0)
 })
