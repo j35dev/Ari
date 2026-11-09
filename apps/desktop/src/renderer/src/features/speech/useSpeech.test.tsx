@@ -53,3 +53,26 @@ it('ignores an old status response after the last subscriber unmounts', async ()
   expect(second.result.current.status.engine).toBe('missing')
   second.unmount()
 })
+
+it('applies status frames immediately without another RPC read', async () => {
+  let publish: (frame: SpeechProgress) => void = () => undefined
+  mocks.invoke.mockResolvedValue({ engine: 'missing', model: null, ready: false })
+  mocks.subscribe.mockImplementation((_name, _params, callback) => {
+    publish = callback
+    return mocks.off
+  })
+  const hook = renderHook(() => useSpeech())
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledOnce())
+  await act(async () =>
+    publish({
+      id: 'configuration',
+      phase: 'complete',
+      received: 0,
+      total: 0,
+      status: { engine: 'ready', model: null, ready: true },
+    }),
+  )
+  expect(hook.result.current.status.ready).toBe(true)
+  expect(mocks.invoke).toHaveBeenCalledOnce()
+  hook.unmount()
+})

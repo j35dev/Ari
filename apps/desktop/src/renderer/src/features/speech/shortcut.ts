@@ -16,6 +16,8 @@ export class ModifierShortcutCapture {
   #syntheticControl = false
 
   press(event: ShortcutKey, windows: boolean): boolean {
+    const leftControlAt = this.#leftControlAt
+    this.#leftControlAt = event.code === 'ControlLeft' ? event.timeStamp : null
     const chord = modifierChord(event.code)
     if (!chord) {
       this.#candidate = null
@@ -23,7 +25,6 @@ export class ModifierShortcutCapture {
     }
     this.#held.add(event.code)
     if (event.code === 'ControlLeft') {
-      this.#leftControlAt = event.timeStamp
       this.#syntheticControl = false
     }
     // Windows emits AltGr's virtual left Ctrl immediately before Right Alt.
@@ -31,10 +32,9 @@ export class ModifierShortcutCapture {
     if (
       windows &&
       event.code === 'AltRight' &&
-      event.getModifierState('AltGraph') &&
-      this.#leftControlAt !== null &&
-      event.timeStamp - this.#leftControlAt >= 0 &&
-      event.timeStamp - this.#leftControlAt <= 1 &&
+      leftControlAt !== null &&
+      event.timeStamp - leftControlAt >= 0 &&
+      event.timeStamp - leftControlAt <= 50 &&
       this.#held.has('ControlLeft')
     ) {
       this.#held.delete('ControlLeft')
@@ -42,7 +42,7 @@ export class ModifierShortcutCapture {
     }
     const flags = [
       event.ctrlKey && !this.#syntheticControl,
-      event.altKey,
+      event.altKey || (event.code === 'AltRight' && event.getModifierState('AltGraph')),
       event.metaKey,
       event.shiftKey,
     ]
@@ -61,6 +61,7 @@ export class ModifierShortcutCapture {
   }
 
   release(event: ShortcutKey): string | null {
+    this.#leftControlAt = null
     const remaining =
       event.altKey || event.metaKey || event.shiftKey || (event.ctrlKey && !this.#syntheticControl)
     const result =

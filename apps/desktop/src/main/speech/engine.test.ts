@@ -58,6 +58,16 @@ it('verifies every installed library against shipped hashes before loading', asy
   expect(await verifyInstalledEngine(root, true, release)).toBeNull()
 })
 
+it('reports metadata changes in quick checks even when file sizes are unchanged', async () => {
+  const { root, release } = await fixture()
+  const verified = vi.fn()
+  await verifyInstalledEngine(root, true, release, verified)
+  const stamp = verified.mock.calls[0]![0]
+  await writeFile(join(root, 'native/ggml.dll'), 'DEPENDENCY')
+  await verifyInstalledEngine(root, false, release, verified)
+  expect(verified.mock.calls[1]![0]).not.toBe(stamp)
+})
+
 it('detects missing dependencies and unexpected native files in cheap status checks', async () => {
   const { root, release } = await fixture()
   await rm(join(root, 'native/ggml.dll'))

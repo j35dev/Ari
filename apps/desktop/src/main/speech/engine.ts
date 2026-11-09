@@ -49,12 +49,14 @@ export async function verifyInstalledEngine(
   directory: string,
   full = true,
   release?: EngineRelease,
+  verified?: (stamp: string) => void,
 ): Promise<string | null> {
   const expected = (release ?? engineRelease()).files
   for (let attempt = 0; ; attempt++) {
     try {
       if (!(await lstat(directory)).isDirectory()) return null
       const found = new Set<string>()
+      const stamps: string[] = []
       const walk = async (relative = ''): Promise<void> => {
         for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
           const key = relative ? `${relative}/${entry.name}` : entry.name
@@ -74,8 +76,9 @@ export async function verifyInstalledEngine(
             const file = expected[key]
             if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
             const path = join(directory, key)
-            if ((await lstat(path)).size !== file.size)
-              throw new EngineMismatchError('Incomplete engine file.')
+            const info = await lstat(path)
+            if (info.size !== file.size) throw new EngineMismatchError('Incomplete engine file.')
+            stamps.push(`${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`)
             if (full) await verifyDownload(path, file.sha256)
             found.add(key)
           }
@@ -98,6 +101,7 @@ export async function verifyInstalledEngine(
         contract.header_hash !== ENGINE_HEADER_HASH
       )
         return null
+      verified?.(stamps.sort().join('\n'))
       return join(directory, libraryKey)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
@@ -125,6 +129,7 @@ export async function installEngine(
   root: string,
   signal: AbortSignal,
   progress: (frame: SpeechProgress) => void,
+  verified?: (stamp: string) => void,
 ): Promise<string> {
   const release = engineRelease()
   const archive = join(root, release.filename)
@@ -181,7 +186,7 @@ export async function installEngine(
         'type' in entry && (entry.type === 'File' || entry.type === 'Directory'),
     })
     signal.throwIfAborted()
-    const library = await verifyInstalledEngine(staging)
+    const library = await verifyInstalledEngine(staging, true, undefined, verified)
     if (!library)
       throw new Error('The speech engine files did not pass verification. Download it again.')
     await rm(destination, { recursive: true, force: true })
