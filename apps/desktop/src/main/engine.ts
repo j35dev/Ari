@@ -223,6 +223,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #executingTurnIds = new Map<string, string>()
   readonly #capacityBlockedQueues = new Map<string, Set<string>>()
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
@@ -233,6 +234,11 @@ export class Engine {
   /** Includes providers still disposing after a durable settle. */
   hasLiveTurn(sessionId: string): boolean {
     return this.#turnTasks.has(sessionId)
+  }
+
+  /** Current execution only; excludes journal history and provider disposal. */
+  liveTurnId(sessionId: string): string | null {
+    return this.#executingTurnIds.get(sessionId) ?? null
   }
 
   /** Live methods, never inferred from a replayed request or provider name. */
@@ -532,6 +538,8 @@ export class Engine {
       void task.then(() => {
         if (this.#turnTasks.get(command.sessionId) === task) {
           this.#turnTasks.delete(command.sessionId)
+          if (this.#executingTurnIds.get(command.sessionId) === ids.turnId)
+            this.#executingTurnIds.delete(command.sessionId)
           this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
         }
       })
@@ -689,6 +697,12 @@ export class Engine {
 
   async #append(sessionId: string, event: UnstampedEvent): Promise<JournalEvent> {
     const stamped = await this.#deps.store.append(sessionId, event)
+    // Only starts owned by this engine establish execution. Clear at durable
+    // settlement, before publishing; transport and disposal may outlive it.
+    if (event.type === 'turn.started' && this.#turnTasks.has(sessionId))
+      this.#executingTurnIds.set(sessionId, event.turnId)
+    if (event.type === 'turn.settled' && this.#executingTurnIds.get(sessionId) === event.turnId)
+      this.#executingTurnIds.delete(sessionId)
     this.#deps.publish(sessionId, stamped)
     if (event.type === 'turn.settled') {
       const parentId = (await this.#deps.store.load(sessionId)).session?.parentSessionId
