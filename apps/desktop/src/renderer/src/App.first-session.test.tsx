@@ -614,7 +614,7 @@ describe('explicit first-session focus handoff', () => {
         else metadata.resolve(null)
         replayDone()
       })
-      await screen.findByRole('heading', { name: 'Make room for your next idea.' })
+      await screen.findByRole('button', { name: 'Retry session details' })
       await settleFocus()
       expect(input).not.toHaveFocus()
       expect(calls('session.create')).toHaveLength(1)
@@ -622,6 +622,7 @@ describe('explicit first-session focus handoff', () => {
   )
 
   it('does not hand off focus when successful metadata keeps the composer running', async () => {
+    replayAutomatically = false
     const original = rpcMocks.invoke.getMockImplementation()!
     rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
       method === 'session.load'
@@ -631,6 +632,13 @@ describe('explicit first-session focus handoff', () => {
     await welcome()
     await connectModel()
     const input = await screen.findByRole('textbox', { name: 'Message' })
+    act(() => {
+      replayListeners.get('session-first')?.({
+        sessionId: 'session-first',
+        replayDone: true,
+        liveTurnId: 'running-turn',
+      })
+    })
     await screen.findByRole('button', { name: 'Stop' })
     await settleFocus()
     expect(input).not.toHaveFocus()
