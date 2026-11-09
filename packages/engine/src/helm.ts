@@ -200,8 +200,8 @@ function projectLine(
   const source = {
     arguments: 'explicit choice',
     project: 'project setting',
-    recent: 'recent sessions',
-    app: 'app default',
+    aria: 'your current agent',
+    lead: 'current lead',
   } as const
   const agent = p.agent
     ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`

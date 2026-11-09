@@ -118,7 +118,7 @@ Read it before asking for status. Aria sends all project work to one long-lived
 lead per project. The lead keeps context and coordinates isolated child workers.
 Each lead cleans up its own finished workers. These project leads are long-lived
 and are never destroyed by worker cleanup; Aria does not destroy them unless the
-user asks.
+user asks or a provider/model failure requires a reset.
 
 Pick a project only when the user named it or exactly one project clearly fits
 the snapshot or `ari sessions --query`. The snapshot includes descriptions,
@@ -151,17 +151,22 @@ ari sessions --active --project PROJECT_ID --json     # what is running in one p
 ari project ask PROJECT_ID "Fix the login redirect and verify it" --key login-1 --json
 ari project ask PROJECT_ID --prompt-file assignment.txt --title "Web lead" --key login-2
 ari project default PROJECT_ID --agent claude --model MODEL_ID --effort high --permission allow-edits
+ari project lead PROJECT_ID --agent codex --model MODEL_ID --effort high
+ari project lead PROJECT_ID --reset
 ```
 
 Aria reaches every session outside its own project: `get`, `read`, `prompt`,
 `message`, `wait`, `stop` and `answer` (questions only, on turns Aria
-started). `destroy`, `diff` and `integrate` stay with each session's own
-parent. `project ask` creates or reuses the live Aria-created lead in the project
-folder. Send follow-ups through `project ask` so that lead keeps its context.
+started). `diff` and `integrate` stay with each session's own parent. Aria can also
+`session destroy` its project leads, including their descendants and worktrees.
+`project ask` creates or reuses the live Aria-created lead in the project folder.
+Send follow-ups through `project ask` so that lead keeps its context.
 `--agent`, `--model`, `--effort`, `--permission` and `--title` apply only when
-creating a lead. The result includes `reused` and `lead`, with the lead's actual
-agent and permissions. An unavailable provider or model gets a new lead; the old lead is
-kept. Inherited permissions are capped at Aria's; an explicit higher permission
+creating a lead. The result includes `reused`, `lead` and `agent`, with the
+lead's actual provider, model, effort, permissions and agent source. When creating
+a lead, tell the user which model it runs on in your reply. An unavailable
+provider or model gets a new lead; the old lead is kept. Inherited permissions
+are capped at Aria's; an explicit higher permission
 is refused when creating a lead or saving a project default. Reusing, prompting,
 messaging or answering a lead or session with higher permissions is refused;
 ask the user to send the instruction or raise Aria's permissions.
@@ -170,10 +175,22 @@ Aria cannot start work in its own project; the concurrency cap counts working
 project leads, including leads waiting on their workers.
 
 The agent is resolved from explicit arguments, the project's saved default,
-the most common provider/model in its ten latest user-started sessions, then
-the app's default provider and that provider's catalog default model. Only
-available providers and catalog models count. `agent: null` means ask the user
-which agent to use and save it with `project default`; never guess.
+then the asking Aria session's current provider, model and effort. Only available
+providers and catalog models count. Recent sessions and the app default do not
+choose a lead's model. `agent: null` means ask the user which agent to use and
+save it with `project default`.
+
+`project lead --agent` switches the current lead using the same conversation
+handoff and transcript divider as Aria. A running turn finishes on its original
+provider; the next turn uses the new one. It preserves the lead's permissions
+and cannot steer a lead with higher permissions than Aria. `project lead --reset`
+destroys that lead and its workers, including their worktrees; the next
+`project ask` creates a fresh lead. Both commands are Aria only and run without
+a shell permission prompt by default.
+
+When a lead fails with a provider or model error, recover instead of giving up:
+switch it to a known working provider/model, asking the user when you do not
+know one, or reset the broken lead and send the assignment to a fresh lead.
 
 A lead handles anything beyond a small single-file fix by splitting it across
 isolated workers with `session spawn`, inspecting every diff, integrating

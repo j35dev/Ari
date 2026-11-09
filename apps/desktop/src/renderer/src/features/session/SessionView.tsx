@@ -27,7 +27,7 @@ import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import { hasProviderContext } from '@ari/contracts/session'
-import { isHelmSession } from '@ari/contracts/helm'
+import { canSwitchProvider } from '@ari/contracts/helm'
 import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
@@ -271,10 +271,10 @@ export function SessionView({
   const messageFoldRef = useRef(createMessageFold())
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
-  const [ariaSession, setAriaSession] = useState(false)
+  const [providerSwitchable, setProviderSwitchable] = useState(false)
   const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
   const [providerContext, setProviderContext] = useState(EMPTY_PROVIDER_CONTEXT)
-  const providerLocked = !ariaSession && hasProviderContext(providerContext)
+  const providerLocked = !providerSwitchable && hasProviderContext(providerContext)
   const [queued, setQueued] = useState<QueuedMessageView[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
@@ -394,7 +394,7 @@ export function SessionView({
     let cancelled = false
     messageFoldRef.current = store.begin()
     setRunning(false)
-    setAriaSession(false)
+    setProviderSwitchable(false)
     setProviderSwitches([])
     setProviderContext(EMPTY_PROVIDER_CONTEXT)
     modelPicksRef.current = {
@@ -565,7 +565,7 @@ export function SessionView({
           providerSessionId?: string | null
         }
         if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
-        setAriaSession(isHelmSession(m.session))
+        setProviderSwitchable(canSwitchProvider(m.session))
         setRunning(m.activeTurnId !== null)
         setProviderContext((previous) => ({
           hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
@@ -595,7 +595,7 @@ export function SessionView({
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
       case 'session.created':
-        setAriaSession(isHelmSession(event.session))
+        setProviderSwitchable(canSwitchProvider(event.session))
         break
       case 'session.provider.switched':
         setProviderSwitches((prev) => [...prev, event])
@@ -1168,8 +1168,8 @@ export function SessionView({
     (next: { driverKind: DriverKind; modelId: string | null }) => {
       const switched = next.driverKind !== defaults.driverKind
       if (switched && providerLocked) return
-      const switchProvider = ariaSession && switched && hasProviderContext(providerContext)
-      const effort = ariaSession && switched ? { effort: null } : {}
+      const switchProvider = providerSwitchable && switched && hasProviderContext(providerContext)
+      const effort = providerSwitchable && switched ? { effort: null } : {}
       const before = {
         driverKind: defaultsRef.current.driverKind,
         modelId: defaultsRef.current.modelId,
@@ -1232,7 +1232,7 @@ export function SessionView({
       onDefaultsChange,
       onPick,
       defaults,
-      ariaSession,
+      providerSwitchable,
       providerContext,
       providerLocked,
       dispatch,
@@ -1499,7 +1499,7 @@ export function SessionView({
       changeEffort,
       changePermissionMode,
       telemetry.turnCount,
-      ariaSession,
+      providerSwitchable,
       providerLocked,
     ],
   )

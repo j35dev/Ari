@@ -229,8 +229,8 @@ export class AgentControlService {
 
   /**
    * Like `#target`, but Aria reaches every session outside its own project:
-   * it may look at, prompt, message, wait on and stop them. Deleting,
-   * integrating and answering approvals stay with the subtree or the user.
+   * it may look at, prompt, message, wait on and stop them. Integrating and
+   * answering approvals stay with the subtree or the user.
    */
   async #reach(caller: Session, id: string, ancestors = false, steering = false): Promise<Session> {
     if (!isHelmSession(caller) || id === 'self' || id === caller.id || id === 'parent')
@@ -274,22 +274,17 @@ export class AgentControlService {
 
   async #projectAgent(
     project: HelmProject,
+    caller: Session,
     args?: Partial<ProjectAgent>,
-    maxPermissionMode?: Session['permissionMode'],
     providers?: readonly ProjectAgentProvider[],
-    rows?: readonly SessionListEntry[],
   ): Promise<ResolvedProjectAgent | null> {
-    const [sessions, catalog] = await Promise.all([
-      rows ?? this.host.store.listSessions(),
-      providers ?? this.host.providers(),
-    ])
     return resolveProjectAgent({
       project,
       ...(args === undefined ? {} : { arguments: args }),
-      sessions,
-      providers: catalog,
-      ...(maxPermissionMode === undefined ? {} : { maxPermissionMode }),
-      app: this.host.projectAgentDefaults?.() ?? { driverKind: null, permissionMode: 'ask' },
+      aria: caller,
+      providers: providers ?? (await this.host.providers()),
+      maxPermissionMode: caller.permissionMode,
+      app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
     })
   }
 
@@ -307,9 +302,9 @@ export class AgentControlService {
       ...project,
       agent: resolveProjectAgent({
         project,
-        sessions,
+        aria: caller,
         providers,
-        app: this.host.projectAgentDefaults?.() ?? { driverKind: null, permissionMode: 'ask' },
+        app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
         maxPermissionMode: caller.permissionMode,
       }),
     }))
@@ -631,15 +626,13 @@ export class AgentControlService {
         return {
           projectId: project.projectId,
           defaultAgent: agent,
-          agent: await this.#projectAgent(
-            { ...project, defaultAgent: agent },
-            undefined,
-            caller.permissionMode,
-          ),
+          agent: await this.#projectAgent({ ...project, defaultAgent: agent }, caller),
         }
       }
       case 'projects.ask':
         return this.#askProject(caller, raw as ControlParams<'projects.ask'>, signal)
+      case 'projects.lead':
+        return this.#changeProjectLead(caller, raw as ControlParams<'projects.lead'>)
       case 'sessions.find': {
         const p = raw as ControlParams<'sessions.find'>
         const projects = await this.#helmProjects(caller)
@@ -802,56 +795,16 @@ export class AgentControlService {
         return { sessionId: target.id, stopped: state.activeTurnId !== null }
       }
       case 'session.destroy': {
-        const target = await this.#target(
-          caller,
-          (raw as ControlParams<'session.destroy'>).targetSessionId,
-        )
-        if (target.id === caller.id)
-          throw new ControlFailure('scope_denied', 'A session cannot destroy itself.')
-        const rows = await this.host.store.listSessions()
-        const ids = [...descendantIds(rows, target.id), target.id]
-        for (const id of ids) {
-          const state = await this.host.store.load(id).catch(() => null)
-          try {
-            if (state?.activeTurnId || this.host.isRunning?.(id)) {
-              await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })
-              await this.host.quiesce?.(id)
-            }
-          } catch (error) {
-            log.warn('session interrupt before deletion failed', {
-              sessionId: id,
-              error: String(error),
-            })
-          }
-          try {
-            await this.host.revoke?.(id)
-          } catch (error) {
-            log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
-          }
-          try {
-            await this.host.store.destroy(id)
-          } catch (error) {
-            if (!(
-              error &&
-              typeof error === 'object' &&
-              'code' in error &&
-              error.code === 'session_not_found'
-            ))
-              throw error
-          }
-          await this.host.release(state?.session ?? { ...target, id }).catch((error: unknown) =>
-            log.warn('destroyed session workspace cleanup deferred', {
-              sessionId: id,
-              error: String(error),
-            }),
-          )
-          this.#notifyGone(id)
-        }
-        await this.host.record(caller.id, {
-          type: 'child.session.destroyed',
-          childSessionId: target.id,
-        })
-        return { sessionId: target.id, destroyed: true, count: ids.length }
+        const id = (raw as ControlParams<'session.destroy'>).targetSessionId
+        const candidate =
+          isHelmSession(caller) && id !== 'self' && id !== 'parent'
+            ? await this.#get(id)
+            : await this.#target(caller, id)
+        const target =
+          isHelmSession(caller) && isHelmProjectLead(candidate)
+            ? candidate
+            : await this.#target(caller, id)
+        return this.#destroy(caller, target)
       }
       case 'session.diff':
       case 'session.integrate': {
@@ -1245,6 +1198,58 @@ export class AgentControlService {
     }
   }
 
+  async #destroy(
+    caller: Session,
+    target: Session,
+  ): Promise<{ sessionId: string; destroyed: boolean; count: number }> {
+    if (target.id === caller.id)
+      throw new ControlFailure('scope_denied', 'A session cannot destroy itself.')
+    const rows = await this.host.store.listSessions()
+    const ids = [...descendantIds(rows, target.id), target.id]
+    for (const id of ids) {
+      const state = await this.host.store.load(id).catch(() => null)
+      try {
+        if (state?.activeTurnId || this.host.isRunning?.(id)) {
+          await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })
+          await this.host.quiesce?.(id)
+        }
+      } catch (error) {
+        log.warn('session interrupt before deletion failed', {
+          sessionId: id,
+          error: String(error),
+        })
+      }
+      try {
+        await this.host.revoke?.(id)
+      } catch (error) {
+        log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
+      }
+      try {
+        await this.host.store.destroy(id)
+      } catch (error) {
+        if (!(
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          error.code === 'session_not_found'
+        ))
+          throw error
+      }
+      await this.host.release(state?.session ?? { ...target, id }).catch((error: unknown) =>
+        log.warn('destroyed session workspace cleanup deferred', {
+          sessionId: id,
+          error: String(error),
+        }),
+      )
+      this.#notifyGone(id)
+    }
+    await this.host.record(caller.id, {
+      type: 'child.session.destroyed',
+      childSessionId: target.id,
+    })
+    return { sessionId: target.id, destroyed: true, count: ids.length }
+  }
+
   /** Aria's mutation chain keeps fresh chats on one live project lead. */
   async #askProject(
     caller: Session,
@@ -1278,14 +1283,14 @@ export class AgentControlService {
       const currentLead = await this.#get(lead.id)
       await this.#checkLaunch(current, currentLead, true)
       const prompted = await this.#prompt(current, currentLead, p.text)
-      return { ...prompted, reused: true, lead: currentLead }
+      return { ...prompted, reused: true, lead: currentLead, agent: leadAgent(currentLead) }
     }
     if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const agent = await this.#projectAgent(project, p, caller.permissionMode, providers, rows)
+    const agent = await this.#projectAgent(project, caller, p, providers)
     if (!agent)
       throw new ControlFailure(
         'model_unavailable',
@@ -1308,6 +1313,62 @@ export class AgentControlService {
       sessionId: launched.child.id,
       reused: false,
       lead: launched.child,
+      agent,
+    }
+  }
+
+  async #changeProjectLead(caller: Session, p: ControlParams<'projects.lead'>): Promise<unknown> {
+    const rows = await this.host.store.listSessions()
+    const project = (await this.#helmProjects(caller, rows)).find(
+      (entry) => entry.projectId === p.projectId,
+    )
+    if (!project) throw new ControlFailure('project_not_found', 'Project not found.')
+    const row = rows.find((row) => row.projectId === p.projectId && isProjectLeadCandidate(row))
+    const lead = row ? (await this.host.store.loadExisting(row.id))?.session : null
+    if (!lead || !isHelmProjectLead(lead))
+      throw new ControlFailure('session_not_found', 'This project has no live Aria lead.')
+    if (p.reset) return { ...(await this.#destroy(caller, lead)), projectId: p.projectId }
+    if (caller.archived)
+      throw new ControlFailure('scope_denied', 'Restore Aria before switching a lead.')
+    this.#checkReachPermission(caller, lead)
+    if (!p.driverKind)
+      throw new ControlFailure('invalid_request', 'Select a provider for the lead.')
+    const providers = await this.host.providers()
+    const provider = providers.find((entry) => entry.driverKind === p.driverKind && entry.available)
+    if (!provider)
+      throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
+    const selected = p.modelId ?? provider.defaultModelId
+    const model = provider.models.find(
+      (entry) => entry.id === selected || (selected != null && entry.aliases?.includes(selected)),
+    )
+    if (!model) throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
+    const current = await this.#get(caller.id)
+    const currentLead = await this.#get(lead.id)
+    if (current.archived)
+      throw new ControlFailure('scope_denied', 'Restore Aria before switching a lead.')
+    this.#checkReachPermission(current, currentLead)
+    const agent: ResolvedProjectAgent = {
+      driverKind: p.driverKind,
+      modelId: model.id,
+      effort: p.effort ?? null,
+      permissionMode: currentLead.permissionMode,
+      source: 'arguments',
+    }
+    const outcome = await this.host.dispatch({
+      type: 'session.provider.switch',
+      sessionId: lead.id,
+      driverKind: agent.driverKind,
+      modelId: agent.modelId,
+      effort: agent.effort,
+    })
+    if (!outcome.accepted)
+      throw new ControlFailure('turn_refused', outcome.reason ?? 'Switch refused.')
+    return {
+      projectId: p.projectId,
+      sessionId: lead.id,
+      switched: true,
+      lead: await this.#get(lead.id),
+      agent,
     }
   }
 
@@ -1861,4 +1922,14 @@ export function descendantIds(
   }
   visit(rootId)
   return ids
+}
+
+function leadAgent(lead: Session): ResolvedProjectAgent {
+  return {
+    driverKind: lead.driverKind,
+    modelId: lead.modelId,
+    effort: lead.effort ?? null,
+    permissionMode: lead.permissionMode,
+    source: 'lead',
+  }
 }

@@ -12,6 +12,8 @@ const orchestrationCommands = [
   'ari routine rm routine_1 --json',
   'ari routine remove routine_1 --json',
   'ari project default proj_1 --agent claude --model opus',
+  'ari project lead proj_1 --agent codex --model gpt --effort high',
+  'ari project lead proj_1 --reset',
   'ari task integrate --params \'{"taskId":"task_1","resultId":"result_1","snapshotCommit":"abc"}\' --key i',
   'ari orchestration integrate --params \'{"taskId":"task_1","resultId":"result_1","snapshotCommit":"abc"}\' --key i',
   'ari task routine.add --params \'{"prompt":"Check the worker","at":1234}\' --key r',
