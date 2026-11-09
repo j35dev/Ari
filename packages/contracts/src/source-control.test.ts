@@ -81,6 +81,43 @@ describe('source-control contracts', () => {
     ).toMatchObject({ baseOid: oid, headOid: id, live: true })
   })
 
+  it('accepts optional review identities while validating their object-ID format', () => {
+    const file = {
+      path: 'a.ts',
+      kind: 'modified',
+      additions: 1,
+      deletions: 1,
+      binary: false,
+      staged: false,
+      unstaged: true,
+    }
+    const manifest = {
+      id,
+      comparison: { kind: 'working-tree' },
+      baseOid: oid,
+      headOid: oid,
+      baseLabel: 'HEAD',
+      headLabel: 'Working tree',
+      branch: 'main',
+      live: true,
+      files: [file],
+      truncated: false,
+      checkedAt: 1,
+    }
+    expect(schemas.manifest.parse(manifest).reviewScopeId).toBeUndefined()
+    expect(
+      schemas.manifest.parse({
+        ...manifest,
+        reviewScopeId: id,
+        files: [{ ...file, contentId: id }],
+      }),
+    ).toMatchObject({ reviewScopeId: id, files: [{ contentId: id }] })
+    expect(schemas.manifest.safeParse({ ...manifest, reviewScopeId: 'invalid' }).success).toBe(
+      false,
+    )
+    expect(schemas.file.safeParse({ ...file, contentId: 'invalid' }).success).toBe(false)
+  })
+
   it('anchors review notes to either side and rejects reversed ranges', () => {
     const note = {
       id: 'note_1',

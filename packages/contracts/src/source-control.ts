@@ -34,6 +34,8 @@ const comparison = z.discriminatedUnion('kind', [
 const changeKind = z.enum(['added', 'modified', 'deleted', 'renamed', 'untracked', 'conflicted'])
 const file = z.object({
   path,
+  /** Snapshot-derived content, mode and rename identity; absent on older producers. */
+  contentId: oid.optional(),
   oldPath: path.optional(),
   kind: changeKind,
   additions: z.number().int().nonnegative(),
@@ -44,6 +46,8 @@ const file = z.object({
 })
 const manifest = z.object({
   id: oid,
+  /** Stable workspace/comparison/base identity, independent of changes to other files. */
+  reviewScopeId: oid.optional(),
   comparison,
   baseOid: oid,
   headOid: oid,
