@@ -53,7 +53,7 @@ import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
-import { queryTurnDiff } from './turn-diff'
+import { queryTurnDiff, queryTurnDiffFile } from './turn-diff'
 import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
@@ -2351,6 +2351,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       turnId: params.turnId,
       checkpoints,
     })
+  })
+
+  r.register('git.turnDiffFile', async (params) => {
+    const { session } = await getSessionStore().load(params.sessionId)
+    if (!session) return { diffText: null, error: 'unknown session' }
+    const workspace = await engine.workspace(session)
+    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
+    return queryTurnDiffFile(workspace, params)
   })
 
   // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing

@@ -491,7 +491,10 @@ export function SessionView({
             return
           }
           const diffText = result.diffText
-          if (typeof diffText === 'string' && diffText.length > 0) {
+          const summary = result.summary
+          if (summary && summary.files.length > 0) {
+            setTurnDiffs((prev) => ({ ...prev, [turnId]: { summary, sessionId } }))
+          } else if (typeof diffText === 'string' && diffText.length > 0) {
             setTurnDiffs((prev) => ({ ...prev, [turnId]: diffText }))
           }
         })

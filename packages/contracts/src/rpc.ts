@@ -16,6 +16,7 @@ import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
 import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
 import type {
+  GitReviewFile,
   GitReviewManifest,
   HostConnection,
   RequestCheckout,
@@ -25,6 +26,12 @@ import type {
   ChangeRequest,
 } from './source-control'
 export { sourceControlSchemas, gitMutationSchema }
+/** File metadata for a turn whose complete patch is too large for chat. */
+export interface GitTurnDiffSummary {
+  baseOid: string
+  headOid: string
+  files: GitReviewFile[]
+}
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
 export type {
   ChangeRequest,
@@ -922,6 +929,13 @@ export const rpcParams = {
     sessionId: checkpointComponentSchema,
     turnId: checkpointComponentSchema,
   }),
+  'git.turnDiffFile': z.object({
+    sessionId: checkpointComponentSchema,
+    baseOid: sourceControlSchemas.oid,
+    headOid: sourceControlSchemas.oid,
+    path: sourceControlSchemas.path,
+    oldPath: sourceControlSchemas.path.optional(),
+  }),
   'git.add': gitScopeSchema.extend({
     /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
     paths: z.array(z.string().min(1)).min(1),
@@ -1342,7 +1356,8 @@ export interface RpcResults extends OrchestrationResults {
     error?: string
   }
   'git.diffWorktree': { diffText: string; error?: string }
-  'git.turnDiff': { diffText: string | null; error?: string }
+  'git.turnDiff': { diffText: string | null; summary?: GitTurnDiffSummary; error?: string }
+  'git.turnDiffFile': { diffText: string | null; tooLarge?: boolean; error?: string }
   'git.add': GitActionResult
   'git.commit': GitActionResult
   'git.push': GitActionResult
