@@ -221,6 +221,102 @@ describe('decideCommand', () => {
     expect(result.reason).toContain('already active')
   })
 
+  it.each(['turn.start', 'message.enqueue'] as const)(
+    'restores an archived session when %s starts a human turn',
+    (type) => {
+      const archived = previewDispatch(modelWithSession(), {
+        accepted: true,
+        events: [{ type: 'session.updated', archived: true, pinned: true }],
+      })
+      const decision = decideCommand(
+        archived,
+        { type, sessionId: 'sess_1', text: 'continue', attachments: [] },
+        ids,
+      )
+      expect(decision.accepted).toBe(true)
+      expect(previewDispatch(archived, decision)).toMatchObject({
+        activeTurnId: 'turn_1',
+        session: { archived: false, pinned: true, title: 'T', status: 'running' },
+      })
+      expect(archived.session?.archived).toBe(true)
+    },
+  )
+
+  it('restores an archived running session for an accepted human follow-up', () => {
+    const archived = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [
+        { type: 'turn.started', turnId: 'turn_1' },
+        { type: 'session.updated', archived: true, pinned: true },
+      ],
+    })
+    const decision = decideCommand(
+      archived,
+      { type: 'message.enqueue', sessionId: 'sess_1', text: 'next', attachments: [] },
+      ids,
+      { kind: 'human' },
+    )
+    expect(decision.accepted).toBe(true)
+    expect(previewDispatch(archived, decision)).toMatchObject({
+      activeTurnId: 'turn_1',
+      session: { archived: false, pinned: true, title: 'T' },
+      queuedMessages: [{ text: 'next', attachments: [], origin: { kind: 'human' } }],
+    })
+  })
+
+  it.each([false, true])(
+    'preserves archive for non-human prompts with active turn %s',
+    (active) => {
+      const archived = previewDispatch(modelWithSession(), {
+        accepted: true,
+        events: [
+          { type: 'session.updated', archived: true },
+          ...(active ? [{ type: 'turn.started' as const, turnId: 'turn_1' }] : []),
+        ],
+      })
+      const inputs = [
+        { command: { type: 'message.enqueue' as const, hold: true } },
+        { command: { type: 'message.enqueue' as const, priority: 'routine' as const } },
+        { command: { type: 'message.enqueue' as const, priority: 'room' as const } },
+        {
+          command: { type: 'message.enqueue' as const },
+          origin: { kind: 'session' as const, sessionId: 'child' },
+        },
+        {
+          command: { type: 'turn.start' as const },
+          origin: { kind: 'completion' as const, sessionIds: ['child'] },
+        },
+      ]
+      for (const input of inputs) {
+        const decision = decideCommand(
+          archived,
+          { ...input.command, sessionId: 'sess_1', text: 'background work', attachments: [] },
+          ids,
+          input.origin,
+        )
+        expect(previewDispatch(archived, decision).session?.archived).toBe(true)
+      }
+    },
+  )
+
+  it('preserves archive when a human start is rejected', () => {
+    const archived = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [
+        { type: 'turn.started', turnId: 'turn_1' },
+        { type: 'session.updated', archived: true },
+      ],
+    })
+    const decision = decideCommand(
+      archived,
+      { type: 'turn.start', sessionId: 'sess_1', text: 'again', attachments: [] },
+      ids,
+    )
+    expect(decision.accepted).toBe(false)
+    expect(decision.reason).toBe('a turn is already active')
+    expect(previewDispatch(archived, decision).session?.archived).toBe(true)
+  })
+
   it('folds staged images into image parts ahead of the text', () => {
     const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
     const result = decideCommand(

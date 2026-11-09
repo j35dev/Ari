@@ -13,7 +13,7 @@ import type { MessageOrigin, MessagePart } from '@ari/contracts/message'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { runningBackgroundTasks, type BackgroundTask } from '@ari/contracts/background-task'
 import type { ApprovalOption } from '@ari/contracts/common'
-import { decideCommand, findQueued } from '@ari/engine/dispatcher'
+import { decideCommand, findQueued, previewDispatch } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
@@ -589,14 +589,15 @@ export class Engine {
       (command.type === 'turn.start' || command.type === 'message.enqueue')
         ? { text: command.text, attachments: command.attachments ?? [] }
         : null
-    if (startRequest !== null && model.session && this.#deps.authorizeTurn) {
-      const reason = await this.#deps.authorizeTurn(model.session)
+    const turnSession = startRequest !== null ? previewDispatch(model, decision).session : null
+    if (turnSession && this.#deps.authorizeTurn) {
+      const reason = await this.#deps.authorizeTurn(turnSession)
       if (reason) return { accepted: false, reason }
     }
     if (this.#closing && command.type !== 'turn.interrupt')
       return { accepted: false, reason: 'Ari is shutting down' }
     let releaseTurn: ((persisted: boolean) => void) | undefined
-    if (startRequest !== null) {
+    if (startRequest !== null && turnSession !== null) {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
       const gate = new Promise<boolean>((resolve) => {
         releaseTurn = resolve
@@ -606,7 +607,7 @@ export class Engine {
         .then((persisted) =>
           persisted
             ? this.#runTurn(
-                model.session as Session,
+                turnSession,
                 attributedInput(startRequest.text, origin),
                 startRequest.attachments,
                 ids.turnId,
@@ -1512,7 +1513,7 @@ export class Engine {
     if (this.#closing) return
     const fresh = await this.#deps.store.load(sessionId)
     const session = fresh.session
-    if (!session || fresh.activeTurnId !== null) return
+    if (!session || session.archived || fresh.activeTurnId !== null) return
     // A user's Stop holds the user's own queue, but delegated work is already
     // promised to a lead: after any settle it may take the next free slot.
     const heldOnly = fresh.lastTurn !== undefined && fresh.lastTurn.stopReason !== 'completed'

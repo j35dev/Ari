@@ -2,6 +2,7 @@ import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { MessagePart, MessageOrigin } from '@ari/contracts/message'
 import type { AttachmentRef, QueuedMessage } from '@ari/contracts/attachments'
+import type { Session } from '@ari/contracts/session'
 import {
   applyEvent,
   initialReadModel,
@@ -78,9 +79,17 @@ export function decideCommand(
       // message simply *is* the next turn, so decide it as one instead of
       // rejecting a command the user has no way to retry.
       if (!model.activeTurnId) {
-        return startTurn(model, command.text, command.attachments ?? [], ids, origin)
+        return startTurn(
+          model,
+          command.text,
+          command.attachments ?? [],
+          ids,
+          origin,
+          command.priority,
+        )
       }
       return accept([
+        ...restoreEvents(model.session, origin, command.priority),
         {
           type: 'message.enqueued',
           text: command.text,
@@ -275,6 +284,7 @@ function startTurn(
   attachments: AttachmentRef[],
   ids: DispatchIds,
   origin?: MessageOrigin,
+  priority?: QueuedMessage['priority'],
 ): DispatchDecision {
   const session = model.session
   if (!session) return reject('unknown session')
@@ -287,6 +297,7 @@ function startTurn(
   }))
   if (text.length > 0) parts.push({ type: 'text', text })
   const events: UnstampedJournalEvent[] = [
+    ...restoreEvents(session, origin, priority),
     { type: 'turn.started', turnId: ids.turnId },
     {
       type: 'user.message.added',
@@ -317,6 +328,18 @@ function startTurn(
     })
   }
   return { accepted: true, startsTurn: true, events }
+}
+
+function restoreEvents(
+  session: Session,
+  origin?: MessageOrigin,
+  priority?: QueuedMessage['priority'],
+): UnstampedJournalEvent[] {
+  return session.archived &&
+    (origin === undefined || origin.kind === 'human') &&
+    (priority === undefined || priority === 'human')
+    ? [{ type: 'session.updated', archived: false }]
+    : []
 }
 
 /**
