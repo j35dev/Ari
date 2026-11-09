@@ -8,6 +8,7 @@ import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
 import { rpc } from '../../lib/rpc'
 import { anchorBelow, type MenuAnchor } from '../../shell/ContextMenu'
+import type { SessionStartIntent } from '../../shell/session-start-focus'
 
 const log = createLogger('welcome')
 const CHECK_TIMEOUT_MS = 15_000
@@ -86,16 +87,47 @@ export function WelcomePanel({
   hasProjects,
   onCreateSession,
   onConnect,
+  startPending = false,
+  onStartIntent,
 }: {
   hasProjects: boolean
   onCreateSession: (anchor: MenuAnchor) => void
-  onConnect: (endpointId: string, anchor: MenuAnchor) => void
+  onConnect: (endpointId: string, anchor: MenuAnchor, intent?: SessionStartIntent) => void
+  startPending?: boolean
+  onStartIntent?: () => SessionStartIntent | null
 }) {
   const { toast } = useToast()
   const providers = useSetupCheck(detectProviders)
   const endpoints = useSetupCheck(listEndpoints)
   const [form, setForm] = useState({ baseUrl: '', model: '', apiKey: '' })
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const endpointIdRef = useRef<string | null>(null)
+  const [savedForm, setSavedForm] = useState<{
+    id: string
+    baseUrl: string
+    model: string
+    apiKey: string | null
+  } | null>(null)
+  const normalized = {
+    baseUrl: form.baseUrl.trim().replace(/\/+$/, ''),
+    model: form.model.trim(),
+    apiKey: form.apiKey.trim() || null,
+  }
+  const alreadySaved =
+    savedForm !== null &&
+    savedForm.baseUrl === normalized.baseUrl &&
+    savedForm.model === normalized.model &&
+    savedForm.apiKey === normalized.apiKey
+  const mountedRef = useRef(true)
+  const connectIntentRef = useRef<SessionStartIntent | null>(null)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      connectIntentRef.current?.cancel()
+    }
+  }, [])
   const [formError, setFormError] = useState<string | null>(null)
   /** The connect button, so the session's project picker opens beneath it. */
   const connectButtonRef = useRef<HTMLButtonElement>(null)
@@ -127,8 +159,8 @@ export function WelcomePanel({
 
   const connect = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const baseUrl = form.baseUrl.trim().replace(/\/+$/, '')
-    const model = form.model.trim()
+    if (savingRef.current || startPending) return
+    const { baseUrl, model, apiKey } = normalized
     if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
       setFormError('Enter an http(s) base URL, e.g. https://api.openai.com/v1')
       return
@@ -137,25 +169,44 @@ export function WelcomePanel({
       setFormError('Enter a model id, e.g. gpt-4o-mini.')
       return
     }
+    const intent = onStartIntent?.()
+    if (onStartIntent && intent == null) return
+    savingRef.current = true
     setSaving(true)
     setFormError(null)
+    connectIntentRef.current = intent ?? null
     try {
-      const saved = await rpc.invoke('endpoints.upsert', {
-        id: createId(),
-        name: hostLabel(baseUrl),
-        baseUrl,
-        flavor: 'openai-chat',
-        model,
-        apiKey: form.apiKey.trim() === '' ? null : form.apiKey.trim(),
-        headers: {},
-      })
-      toast({ title: 'Model saved', description: `${saved.name} · ${model}`, tone: 'success' })
+      let endpointId = savedForm?.id
+      if (!alreadySaved) {
+        // An upsert acknowledgement can be lost too. Retrying the same form
+        // keeps its identity instead of minting a second saved endpoint.
+        endpointIdRef.current ??= createId()
+        const saved = await rpc.invoke('endpoints.upsert', {
+          id: endpointIdRef.current,
+          name: hostLabel(baseUrl),
+          baseUrl,
+          flavor: 'openai-chat',
+          model,
+          apiKey,
+          headers: {},
+        })
+        endpointId = saved.id
+        if (mountedRef.current) setSavedForm({ id: saved.id, baseUrl, model, apiKey })
+        toast({ title: 'Model saved', description: `${saved.name} · ${model}`, tone: 'success' })
+      }
+      if (!mountedRef.current || !endpointId) {
+        intent?.cancel()
+        return
+      }
       const trigger = connectButtonRef.current
-      onConnect(saved.id, trigger ? anchorBelow(trigger) : { x: 24, y: 88 })
+      onConnect(endpointId, trigger ? anchorBelow(trigger) : { x: 24, y: 88 }, intent ?? undefined)
+      connectIntentRef.current = null // The shell now owns completion/recovery.
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : String(e))
+      intent?.dispose()
+      if (mountedRef.current) setFormError(e instanceof Error ? e.message : String(e))
     } finally {
-      setSaving(false)
+      savingRef.current = false
+      if (mountedRef.current) setSaving(false)
     }
   }
 
@@ -183,8 +234,9 @@ export function WelcomePanel({
         {/* Primary start button */}
         <button
           type="button"
+          disabled={startPending || saving}
           onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-[background-color,scale] duration-150 hover:bg-accent-hover active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-[background-color,scale] duration-150 hover:bg-accent-hover active:scale-[0.99] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <Sparkles size={15} />
           <span>{hasProjects ? 'Start a new session' : 'Add a project to start'}</span>
@@ -307,11 +359,15 @@ export function WelcomePanel({
             <button
               ref={connectButtonRef}
               type="submit"
-              disabled={saving}
+              disabled={saving || startPending}
               className="flex items-center justify-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             >
-              {saving ? <Loader2 size={13} className="animate-spin" /> : null}
-              Save and choose project
+              {saving || startPending ? <Loader2 size={13} className="animate-spin" /> : null}
+              {startPending
+                ? 'Starting session…'
+                : alreadySaved
+                  ? 'Choose project'
+                  : 'Save and choose project'}
             </button>
           </form>
         ) : null}

@@ -256,6 +256,7 @@ export function SessionView({
   startedByAria = false,
   onOpenAria,
   hidden = false,
+  onComposerReady,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -278,10 +279,13 @@ export function SessionView({
    * as it did when switching away unmounted it.
    */
   hidden?: boolean
+  /** Used only by the shell's explicit session-start handoff. */
+  onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
   const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
@@ -682,6 +686,7 @@ export function SessionView({
             hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
             providerSessionId: m.providerSessionId ?? previous.providerSessionId,
           }))
+          setMetadataReadySession(sessionId)
           onDefaultsChange({
             driverKind: m.session.driverKind,
             modelId: m.session.modelId,
@@ -1729,6 +1734,9 @@ export function SessionView({
     () => (
       <Composer
         centered={centered}
+        onReady={
+          !hidden && centered && metadataReadySession === sessionId ? onComposerReady : undefined
+        }
         sessionId={sessionId}
         onSend={handleSend}
         sendPending={sendPending}
@@ -1833,6 +1841,9 @@ export function SessionView({
     ),
     [
       centered,
+      hidden,
+      metadataReadySession,
+      onComposerReady,
       sessionId,
       handleSend,
       sendPending,
