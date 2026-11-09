@@ -5,7 +5,7 @@ The native hook runs only while `settings.speech.enabled` is true and
 including when Ari has focus. Dictation always goes to the shared Aria thread;
 existing browser and OS actions for the chord still run.
 Windows and Linux default to `ctrl+alt+space`; macOS defaults to
-`meta+shift+space`. Settings lets the user record a different shortcut. The widget
+`shift+meta+space`. Settings lets the user record a different shortcut. The widget
 accepts a modifier chord with one supported key, or a function key alone, and
 refuses reserved OS shortcuts. Modifier-only and side-specific shortcuts are
 not supported.

@@ -52,7 +52,7 @@ const allowedKeys = [
 describe('speech shortcut format', () => {
   it.each(['win32', 'linux', 'darwin'])('arms the default for %s', (platform) => {
     expect(defaultShortcut(platform)).toBe(
-      platform === 'darwin' ? 'meta+shift+space' : 'ctrl+alt+space',
+      platform === 'darwin' ? 'shift+meta+space' : 'ctrl+alt+space',
     )
     expect(parseChord(defaultShortcut(platform), keys, platform)).not.toBeNull()
   })
@@ -103,6 +103,7 @@ describe('speech shortcut format', () => {
     'option+space',
     'commandorcontrol+f8',
     'alt+ctrl+space',
+    'meta+shift+space',
     'space+ctrl',
   ])('refuses old aliases and invalid formats: %s', (shortcut) => {
     expect(shortcutError(shortcut, 'win32')).toBeTypeOf('string')
@@ -136,6 +137,12 @@ describe('speech shortcut format', () => {
 
   it('does not arm a key absent from the native key table', () => {
     expect(parseChord('ctrl+quote', keys, 'win32')).toBeNull()
+  })
+
+  it('requires canonical modifier order on macOS without a default exception', () => {
+    expect(parseChord('meta+shift+space', keys, 'darwin')).toBeNull()
+    expect(shortcutError('meta+shift+space', 'darwin')).toContain('ctrl, alt, shift, meta')
+    expect(parseChord('shift+meta+space', keys, 'darwin')).not.toBeNull()
   })
 })
 
