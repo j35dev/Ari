@@ -329,17 +329,11 @@ describe('ProjectStore', () => {
 
 describe('project agent resolution', () => {
   const project = { projectId: 'p' }
-  const aria = {
-    driverKind: 'codex' as const,
-    modelId: 'gpt',
-    effort: 'medium',
-    permissionMode: 'allow-edits' as const,
-  }
   const saved = {
     driverKind: 'claude' as const,
     modelId: 'opus',
     effort: 'high',
-    permissionMode: 'ask' as const,
+    permissionMode: 'allow-edits' as const,
   }
   const providers = [
     {
@@ -350,75 +344,82 @@ describe('project agent resolution', () => {
     },
     { driverKind: 'codex', available: true, models: [{ id: 'gpt' }], defaultModelId: 'gpt' },
   ]
-  const app = { permissionMode: 'ask' as const }
-  const input = { project, aria, providers, app, maxPermissionMode: aria.permissionMode }
+  const input = {
+    project,
+    providers,
+    app: { permissionMode: 'ask' as const },
+    maxPermissionMode: 'allow-edits' as const,
+  }
 
-  it('takes explicit arguments before the project default, then inherits Aria', () => {
+  it('uses explicit choices before the saved project default and otherwise requires a user choice', () => {
     expect(
       resolveProjectAgent({
         ...input,
         project: { ...project, defaultAgent: saved },
         arguments: { driverKind: 'codex', modelId: 'gpt', effort: 'low' },
       }),
-    ).toEqual({ ...aria, effort: 'low', permissionMode: 'ask', source: 'arguments' })
+    ).toEqual({
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'low',
+      permissionMode: 'ask',
+      source: 'arguments',
+    })
     expect(resolveProjectAgent({ ...input, project: { ...project, defaultAgent: saved } })).toEqual(
       { ...saved, source: 'project' },
     )
-    expect(resolveProjectAgent(input)).toEqual({ ...aria, source: 'aria' })
+    expect(resolveProjectAgent(input)).toBeNull()
+    expect(resolveProjectAgent({ ...input, arguments: { driverKind: 'codex' } })).toBeNull()
   })
 
-  it('applies partial explicit options to the project choice or Aria', () => {
+  it('uses partial options only with a matching saved provider and normalizes model aliases', () => {
+    const configured = { ...input, project: { ...project, defaultAgent: saved } }
     expect(
-      resolveProjectAgent({
-        ...input,
-        project: { ...project, defaultAgent: saved },
-        arguments: { modelId: 'sonnet', effort: 'low' },
-      }),
+      resolveProjectAgent({ ...configured, arguments: { modelId: 'sonnet', effort: 'low' } }),
     ).toEqual({ ...saved, modelId: 'sonnet', effort: 'low', source: 'arguments' })
-    expect(resolveProjectAgent({ ...input, arguments: { effort: 'high' } })).toEqual({
-      ...aria,
-      effort: 'high',
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'claude' } })).toEqual({
+      ...saved,
       source: 'arguments',
     })
+    expect(resolveProjectAgent({ ...input, arguments: { effort: 'high' } })).toBeNull()
     expect(
       resolveProjectAgent({
-        ...input,
-        project: { ...project, defaultAgent: { ...saved, modelId: 'latest' } },
-      })?.modelId,
-    ).toBe('opus')
+        ...configured,
+        arguments: { driverKind: 'codex', modelId: 'removed' },
+      }),
+    ).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { driverKind: 'codex' } })).toBeNull()
+    expect(resolveProjectAgent({ ...configured, arguments: { modelId: 'latest' } })?.modelId).toBe(
+      'opus',
+    )
   })
 
-  it('caps inherited permissions while leaving explicit elevation visible for refusal', () => {
-    const capped = { ...input, maxPermissionMode: 'ask' as const }
+  it('caps saved permissions while leaving explicit elevation visible for refusal', () => {
+    const capped = {
+      ...input,
+      project: { ...project, defaultAgent: { ...saved, permissionMode: 'full' as const } },
+      maxPermissionMode: 'ask' as const,
+    }
     expect(resolveProjectAgent(capped)?.permissionMode).toBe('ask')
-    expect(
-      resolveProjectAgent({
-        ...capped,
-        project: { ...project, defaultAgent: { ...saved, permissionMode: 'full' } },
-      })?.permissionMode,
-    ).toBe('ask')
     expect(
       resolveProjectAgent({ ...capped, arguments: { permissionMode: 'full' } })?.permissionMode,
     ).toBe('full')
   })
 
-  it('uses Aria when the saved model is stale and never chooses another available provider', () => {
+  it('refuses stale or unset defaults instead of choosing another installed or catalog-default model', () => {
+    for (const modelId of ['removed', null])
+      expect(
+        resolveProjectAgent({
+          ...input,
+          project: { ...project, defaultAgent: { ...saved, modelId } },
+        }),
+      ).toBeNull()
     expect(
       resolveProjectAgent({
         ...input,
-        project: { ...project, defaultAgent: { ...saved, modelId: 'removed' } },
-      }),
-    ).toEqual({ ...aria, source: 'aria' })
-    expect(resolveProjectAgent({ ...input, aria: { ...aria, modelId: 'removed' } })).toBeNull()
-    expect(
-      resolveProjectAgent({
-        ...input,
-        providers: providers.map((p) => ({ ...p, available: p.driverKind === 'claude' })),
+        project: { ...project, defaultAgent: saved },
+        providers: providers.map((p) => ({ ...p, available: p.driverKind === 'codex' })),
       }),
     ).toBeNull()
-    expect(resolveProjectAgent({ ...input, aria: { ...aria, modelId: null } })).toEqual({
-      ...aria,
-      source: 'aria',
-    })
   })
 })

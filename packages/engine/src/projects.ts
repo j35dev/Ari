@@ -10,7 +10,6 @@ import type {
   ResolvedProjectAgent,
   StoredProject,
 } from '@ari/contracts/project'
-import type { Session } from '@ari/contracts/session'
 import { exceedsPermission, type PermissionMode } from '@ari/contracts/common'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
@@ -29,11 +28,10 @@ export interface ProjectAgentDefaults {
   permissionMode: PermissionMode
 }
 
-/** Leads follow the project's saved choice, then the Aria session asking for work. */
+/** Project work requires a user choice or a saved project default. */
 export function resolveProjectAgent(input: {
   project: { projectId: string; defaultAgent?: ProjectAgent | null }
   arguments?: Partial<ProjectAgent>
-  aria: Pick<Session, 'driverKind' | 'modelId' | 'effort' | 'permissionMode'>
   providers: readonly ProjectAgentProvider[]
   app: ProjectAgentDefaults
   maxPermissionMode?: PermissionMode
@@ -62,7 +60,7 @@ export function resolveProjectAgent(input: {
       (p) => p.available && p.driverKind === candidate.driverKind,
     )
     if (!provider) return null
-    const selected = candidate.modelId ?? provider.defaultModelId
+    const selected = candidate.modelId
     const model = provider.models.find(
       (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
     )
@@ -84,14 +82,17 @@ export function resolveProjectAgent(input: {
   }
   const explicit = input.arguments
   if (explicit?.driverKind) {
-    const picked = resolve(explicit, 'arguments')
-    if (picked) return picked
+    const saved = input.project.defaultAgent
+    return resolve(
+      saved?.driverKind === explicit.driverKind ? { ...saved, ...explicit } : explicit,
+      'arguments',
+    )
   }
   if (input.project.defaultAgent) {
     const picked = resolve(input.project.defaultAgent, 'project')
     if (picked) return picked
   }
-  return resolve(input.aria, 'aria')
+  return null
 }
 
 export interface ProjectStoreOptions {

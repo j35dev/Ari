@@ -19,12 +19,14 @@ function setup(
   accepted = true,
   evidence: 'history' | 'message' | 'ref' | 'running' | 'empty' = 'history',
   lead = false,
+  ariaStarted = lead,
 ) {
   const onPick = vi.fn()
   const session = {
     id: 'aria',
     projectId,
-    ...(lead ? { lead: true, createdBy: { kind: 'session' as const, sessionId: 'helm' } } : {}),
+    ...(lead ? { lead: true } : {}),
+    ...(ariaStarted ? { createdBy: { kind: 'session' as const, sessionId: 'helm' } } : {}),
     title: 'Chat',
     driverKind: 'opencode' as const,
     modelId: 'current-model',
@@ -362,10 +364,16 @@ describe('Aria model picker', () => {
     },
   )
 
-  it.each(['aria', 'lead'] as const)(
+  it.each(['aria', 'lead', 'session'] as const)(
     'lists every ready provider mid-chat for %s and sends an explicit switch',
     async (kind) => {
-      const { emit } = setup(kind === 'aria' ? 'helm' : 'project', true, 'history', kind === 'lead')
+      const { emit } = setup(
+        kind === 'aria' ? 'helm' : 'project',
+        true,
+        'history',
+        kind === 'lead',
+        kind !== 'aria',
+      )
       const user = userEvent.setup()
       await screen.findByText('Earlier reply')
       await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))

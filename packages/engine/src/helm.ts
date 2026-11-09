@@ -8,6 +8,7 @@ import {
   type HelmSessionRow,
   isHelmSession,
   isHelmProjectLead,
+  isHelmProjectSession,
 } from '@ari/contracts/helm'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel } from './projection'
@@ -30,7 +31,7 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
   return null
 }
 
-/** A new Aria topic inherits reports from project leads whose requester was deleted. */
+/** A new Aria topic inherits reports from project sessions whose requester was deleted. */
 export async function helmReportRecipient(
   store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
   model: SessionReadModel,
@@ -77,7 +78,7 @@ async function helmRecipient(
   if (row) return isHelmSession(row) ? requester : null
   const asked = (await store.loadExisting(requester))?.session
   if (asked) return isHelmSession(asked) ? requester : null
-  if (!isHelmProjectLead(model.session)) return null
+  if (!isHelmProjectSession(model.session)) return null
   if (!rows) return store.currentHelmSession()
   const current = [...rows]
     .filter((row) => isHelmSession(row) && !row.archived)
@@ -200,7 +201,6 @@ function projectLine(
   const source = {
     arguments: 'explicit choice',
     project: 'project setting',
-    aria: 'your current agent',
     lead: 'current lead',
   } as const
   const agent = p.agent

@@ -103,7 +103,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     turnId: z.string(),
   }),
   z.object({
-    /** Aria and its project leads; a running turn keeps its original provider. */
+    /** Aria and the project sessions it launched; a running turn keeps its original provider. */
     type: z.literal('session.provider.switch'),
     sessionId: z.string(),
     driverKind: driverKindSchema,

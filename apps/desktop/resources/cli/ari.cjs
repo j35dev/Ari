@@ -27,6 +27,7 @@ function parse(argv) {
     'include-consumed',
     'active',
     'reset',
+    'read-only',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -257,11 +258,23 @@ function parse(argv) {
           idempotencyKey: key,
           ...(flags.project ? { projectId: flags.project } : {}),
           ...(flags.role ? { role: flags.role } : {}),
+          ...(flags['read-only'] ? { readOnly: true } : {}),
           ...(flags.model ? { modelId: flags.model } : {}),
           ...(flags.effort ? { effort: flags.effort } : {}),
           ...(flags.permission ? { permissionMode: flags.permission } : {}),
           ...(flags.workspace ? { workspaceMode: flags.workspace } : {}),
           ...(flags.prompt || flags['prompt-file'] ? { prompt: promptText(flags.prompt) } : {}),
+        }
+        break
+      case 'switch':
+        if (!target) throw new Error('session switch needs a session id')
+        if (!flags.agent) throw new Error('session switch needs --agent')
+        params = {
+          targetSessionId: target,
+          driverKind: flags.agent,
+          idempotencyKey: key,
+          ...(flags.model ? { modelId: flags.model } : {}),
+          ...(flags.effort ? { effort: flags.effort } : {}),
         }
         break
       case 'prompt':

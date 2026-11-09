@@ -193,7 +193,9 @@ export function decideCommand(
     case 'session.provider.switch': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!canSwitchProvider(model.session))
-        return reject('provider switching is only available to Aria and its project leads')
+        return reject(
+          'provider switching is only available to Aria and the project sessions it launched',
+        )
       return accept(providerSwitch(model, command))
     }
 
@@ -205,7 +207,7 @@ export function decideCommand(
         return reject(
           canSwitchProvider(model.session)
             ? 'use session.provider.switch to change the provider'
-            : 'provider switching is only available to Aria and its project leads',
+            : 'provider switching is only available to Aria and the project sessions it launched',
         )
       }
       const patch: UnstampedJournalEvent = {

@@ -205,7 +205,9 @@ export const controlParams = {
       /** Aria only: the project the new session works in. */
       projectId: target.optional(),
       role: delegationRoleSchema.optional(),
-      driverKind: driverKindSchema,
+      /** Aria may use the project's saved agent; child sessions require an explicit provider. */
+      driverKind: driverKindSchema.optional(),
+      readOnly: z.literal(true).optional(),
       modelId: z.string().min(1).nullish(),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),
@@ -219,6 +221,16 @@ export const controlParams = {
     })
     .strict(),
   'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  /** Aria only: switch a top-level project session it launched. */
+  'session.switch': z
+    .object({
+      targetSessionId: target,
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1).nullish(),
+      effort: z.string().min(1).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
   'session.message': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
   'session.delivery': z.object({ targetSessionId: target, messageId: target }).strict(),
   'session.inbox': z.object({ includeConsumed: z.boolean().default(false) }).strict(),
