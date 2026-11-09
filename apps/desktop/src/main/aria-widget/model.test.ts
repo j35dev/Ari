@@ -1,67 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import {
-  HoldToTalk,
-  MODIFIER_HOLD_MS,
-  RECORDING_LIMIT_MS,
-  SENT_MS,
-  TRANSCRIPTION_LIMIT_MS,
-} from './model'
+import { HoldToTalk, RECORDING_LIMIT_MS, SENT_MS, TRANSCRIPTION_LIMIT_MS } from './model'
 
 describe('hold to talk', () => {
-  it('arms a modifier hold without recording, then listens after the threshold', () => {
-    const flow = new HoldToTalk()
-    flow.down(0, MODIFIER_HOLD_MS)
-    expect(flow.state.phase).toBe('arming')
-    expect(flow.visible()).toBe(false)
-    flow.tick(MODIFIER_HOLD_MS - 1)
-    expect(flow.state.phase).toBe('arming')
-    flow.tick(MODIFIER_HOLD_MS)
-    expect(flow.state.phase).toBe('listening')
-    expect(flow.visible()).toBe(true)
-    flow.up(MODIFIER_HOLD_MS)
-    expect(flow.state.phase).toBe('transcribing')
-  })
-
-  it('cancels a short modifier tap without ever revealing or transcribing', () => {
-    const flow = new HoldToTalk()
-    flow.down(0, MODIFIER_HOLD_MS)
-    flow.up(MODIFIER_HOLD_MS - 1)
-    expect(flow.state.phase).toBe('hidden')
-    expect(flow.visible()).toBe(false)
-    flow.finish(1, 'Never send this', MODIFIER_HOLD_MS)
-    expect(flow.state.phase).toBe('hidden')
-  })
-
-  it('rejects renderer errors for a hold that has not opened the microphone', () => {
-    const flow = new HoldToTalk()
-    flow.down(0, MODIFIER_HOLD_MS)
-    flow.error(1, 'Microphone unavailable', false, 10)
-    expect(flow.state.phase).toBe('arming')
-    expect(flow.visible()).toBe(false)
-    flow.up(20)
-    expect(flow.state.phase).toBe('hidden')
-    expect(flow.visible()).toBe(false)
-  })
-
-  it.each(['transcribing', 'sent', 'error', 'setup'] as const)(
-    'ignores new holds and releases while %s is showing',
-    (phase) => {
-      const flow = new HoldToTalk()
-      flow.down(0)
-      if (phase === 'transcribing' || phase === 'sent') flow.up(1)
-      if (phase === 'sent') flow.finish(1, 'Keep this result', 2)
-      if (phase === 'error' || phase === 'setup')
-        flow.error(1, 'Keep this hint', phase === 'setup', 2)
-      const previous = flow.state
-      const deadline = flow.expiresAt
-      expect(flow.down(3, MODIFIER_HOLD_MS)).toBe(false)
-      flow.up(4)
-      expect(flow.state).toBe(previous)
-      expect(flow.expiresAt).toBe(deadline)
-    },
-  )
-
   it('listens once per hold, transcribes on release and hides after sent', () => {
     const flow = new HoldToTalk()
     expect(flow.down(0)).toBe(true)
@@ -77,7 +18,36 @@ describe('hold to talk', () => {
     expect(flow.state.phase).toBe('hidden')
   })
 
-  it('cancels quietly and ignores releases and results from a cancelled hold', () => {
+  it('ignores new holds and releases during transcription or sending', () => {
+    const flow = new HoldToTalk()
+    flow.down(0)
+    flow.up(1)
+    const previous = flow.state
+    const deadline = flow.expiresAt
+    expect(flow.canStart).toBe(false)
+    expect(flow.down(3)).toBe(false)
+    flow.up(4)
+    expect(flow.state).toBe(previous)
+    expect(flow.expiresAt).toBe(deadline)
+  })
+
+  it.each(['sent', 'error', 'setup'] as const)('replaces a %s pill with a new hold', (phase) => {
+    const flow = new HoldToTalk()
+    flow.down(0)
+    if (phase === 'sent') {
+      flow.up(1)
+      flow.finish(1, 'Previous result', 2)
+    } else flow.error(1, 'Previous hint', phase === 'setup', 2)
+    expect(flow.canStart).toBe(true)
+    expect(flow.down(3)).toBe(true)
+    expect(flow.state).toEqual({ id: 2, phase: 'listening', text: '', setup: false })
+    expect(flow.expiresAt).toBe(3 + RECORDING_LIMIT_MS)
+    flow.finish(1, 'Late result', 4)
+    flow.error(1, 'Late error', true, 4)
+    expect(flow.state).toEqual({ id: 2, phase: 'listening', text: '', setup: false })
+  })
+
+  it('cancels quietly and ignores results from a cancelled hold', () => {
     const flow = new HoldToTalk()
     flow.down(0)
     flow.cancel()
@@ -103,11 +73,11 @@ describe('hold to talk', () => {
     expect(flow.state).toMatchObject({ phase: 'error', text: 'Speech timed out. Try again.' })
     flow.finish(1, 'Late speech', timeout + 1)
     expect(flow.state.phase).toBe('error')
-    flow.tick(timeout + 6_000)
+    flow.tick(timeout + 6000)
     expect(flow.state.phase).toBe('hidden')
   })
 
-  it('keeps a clickable setup hint after readiness fails on an armed press', () => {
+  it('keeps a clickable setup hint after readiness fails on a press', () => {
     const flow = new HoldToTalk()
     flow.down(0)
     flow.error(1, 'Set up speech to text in Settings', true, 1)

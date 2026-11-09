@@ -4,20 +4,23 @@ The native hook runs only while `settings.speech.enabled` is true and
 `speech.status` reports ready. It observes key events without suppressing them,
 including when Ari has focus. Dictation always goes to the shared Aria thread;
 existing browser and OS actions for the chord still run.
-macOS defaults to holding Right Option alone (`alt-right`). Recording and the
-pill start after 250 ms with no other key or mouse button pressed. A short tap,
-key press, or mouse press/drag during the hold cancels quietly, so Option character
-entry is unaffected. Presses during transcription or while a result pill is
-showing are ignored.
+Windows and Linux default to `ctrl+alt+space`; macOS defaults to
+`meta+shift+space`. Settings lets the user record a different shortcut. The widget
+accepts a modifier chord with one supported key, or a function key alone, and
+refuses reserved OS shortcuts. Modifier-only and side-specific shortcuts are
+not supported.
 
 The non-focusable renderer records while held. Releasing the chord stops and
-transcribes; Esc while held cancels. Silence hides quietly. Only the current
+transcribes; Esc while held cancels. A new hold replaces a sent or error pill;
+presses during transcription or sending are ignored. Silence hides quietly. Only the current
 hold can publish a result. Aria's normal command dispatcher starts or queues the
 message through one `message.enqueue` command.
 
 Modifier flags reconcile missed releases after the source first sets each flag;
 unmasked injected modifiers use tracked keycodes. Lock and suspend reset input
-tracking while preserving already released dictations. Renderer crashes recover
+tracking while preserving already released dictations. After a reset, the
+shortcut key must be released or stay quiet for one second before another hold.
+Renderer crashes recover
 with a capped backoff. All main-window
 reopen paths bind fresh RPC and widget services. Timers run only for an active
 state deadline or while recording.

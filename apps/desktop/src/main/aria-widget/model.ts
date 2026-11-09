@@ -1,4 +1,4 @@
-export type WidgetPhase = 'hidden' | 'arming' | 'listening' | 'transcribing' | 'sent' | 'error'
+export type WidgetPhase = 'hidden' | 'listening' | 'transcribing' | 'sent' | 'error'
 
 export interface WidgetState {
   id: number
@@ -15,7 +15,6 @@ export interface WidgetSnapshot extends WidgetState {
 export const RECORDING_LIMIT_MS = 120_000
 export const TRANSCRIPTION_LIMIT_MS = 45_000
 export const SENT_MS = 1_500
-export const MODIFIER_HOLD_MS = 250
 
 /** The hook and recorder can finish in either order; only the current hold may publish. */
 export class HoldToTalk {
@@ -27,27 +26,30 @@ export class HoldToTalk {
   }
 
   get active(): boolean {
-    return this.state.phase === 'arming' || this.state.phase === 'listening'
+    return this.state.phase === 'listening'
+  }
+
+  get canStart(): boolean {
+    return !this.active && this.state.phase !== 'transcribing'
   }
 
   visible(): boolean {
-    return this.state.phase !== 'hidden' && this.state.phase !== 'arming'
+    return this.state.phase !== 'hidden'
   }
 
-  down(now: number, revealDelay = 0): boolean {
-    if (this.state.phase !== 'hidden') return false
+  down(now: number): boolean {
+    if (!this.canStart) return false
     this.state = {
       id: this.state.id + 1,
-      phase: revealDelay ? 'arming' : 'listening',
+      phase: 'listening',
       text: '',
       setup: false,
     }
-    this.deadline = now + (revealDelay || RECORDING_LIMIT_MS)
+    this.deadline = now + RECORDING_LIMIT_MS
     return true
   }
 
   up(now: number): void {
-    if (this.state.phase === 'arming') return this.cancel()
     if (this.state.phase !== 'listening') return
     this.state = { ...this.state, phase: 'transcribing' }
     this.deadline = now + TRANSCRIPTION_LIMIT_MS
@@ -73,11 +75,6 @@ export class HoldToTalk {
 
   tick(now: number): void {
     if (now < this.deadline) return
-    if (this.state.phase === 'arming') {
-      this.state = { ...this.state, phase: 'listening' }
-      this.deadline = now + RECORDING_LIMIT_MS
-      return
-    }
     if (this.state.phase === 'listening' || this.state.phase === 'transcribing') {
       this.error(this.state.id, 'Speech timed out. Try again.', false, now)
     } else this.cancel()

@@ -6,7 +6,6 @@ import type { HookKey } from './chord'
 const mock = vi.hoisted(() => ({
   handlers: new Map<string, (event: { sender: unknown }, params?: unknown) => unknown>(),
   keys: new Map<string, (event: HookKey) => void>(),
-  mouse: new Map<string, (event: { button: unknown }) => void>(),
   windows: [] as {
     webContents: { send: ReturnType<typeof vi.fn>; isDestroyed(): boolean }
     showInactive: ReturnType<typeof vi.fn>
@@ -86,19 +85,12 @@ vi.mock('electron', () => ({
 }))
 vi.mock('uiohook-napi', () => ({
   uIOhook: {
-    on: (event: string, listener: unknown) => {
-      if (event === 'keydown' || event === 'keyup')
-        mock.keys.set(event, listener as (event: HookKey) => void)
-      else mock.mouse.set(event, listener as (event: { button: unknown }) => void)
-    },
-    removeListener: (event: string) => {
-      mock.keys.delete(event)
-      mock.mouse.delete(event)
-    },
+    on: (event: string, listener: (event: HookKey) => void) => mock.keys.set(event, listener),
+    removeListener: (event: string) => mock.keys.delete(event),
     start: mock.start,
     stop: mock.stop,
   },
-  UiohookKey: { Space: 57, Escape: 1, Ctrl: 29, CtrlRight: 3613, Alt: 56, AltRight: 3640 },
+  UiohookKey: { Space: 57, Escape: 1, Ctrl: 29, CtrlRight: 3613, Alt: 56, AltRight: 3640, F8: 66 },
 }))
 
 import { AriaWidget } from './index'
@@ -118,7 +110,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   mock.handlers.clear()
   mock.keys.clear()
-  mock.mouse.clear()
   mock.windows.length = 0
   mock.powerEvents.clear()
   mock.appEvents.clear()
@@ -155,7 +146,6 @@ it('starts only for configured and enabled speech and tears down on disable', as
   } as Settings)
   expect(mock.stop).toHaveBeenCalledOnce()
   expect(mock.keys.size).toBe(0)
-  expect(mock.mouse.size).toBe(0)
 })
 
 it('keeps the hook and hold when only appearance changes', async () => {
@@ -293,98 +283,54 @@ it('transcribes when a later event reveals a missed modifier release', async () 
   )
 })
 
-it('accepts a fresh hold after lock then suspend without new key events between resets', async () => {
+it('accepts a fresh hold after reset once the shortcut key has stayed quiet for one second', async () => {
   widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
   await widget.configure(configured)
-  mock.keys.get('keydown')?.({ ...key(57), ctrlKey: false })
+  mock.keys.get('keydown')?.(key(57))
   mock.powerEvents.get('lock-screen')!()
   mock.powerEvents.get('suspend')!()
-  await vi.advanceTimersByTimeAsync(121)
+  await vi.advanceTimersByTimeAsync(999)
   mock.keys.get('keydown')?.(key(57))
   expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
+  await vi.advanceTimersByTimeAsync(999)
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
+  await vi.advanceTimersByTimeAsync(1000)
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]!.showInactive).toHaveBeenCalledTimes(2)
 })
 
-it('arms modifier-only holds and starts listening only after 250 ms', async () => {
+it('starts recording immediately with a function key alone', async () => {
   widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
-  await widget.configure({
-    ...configured,
-    speech: { enabled: true, shortcut: 'option-right' },
-  } as Settings)
-  mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
-  const win = mock.windows[0]!
-  expect(win.webContents.send).toHaveBeenLastCalledWith(
-    'ari:ariaWidget.state',
-    expect.objectContaining({ phase: 'arming' }),
-  )
-  expect(win.showInactive).not.toHaveBeenCalled()
-  expect(vi.getTimerCount()).toBe(1)
-  await vi.advanceTimersByTimeAsync(249)
-  expect(win.showInactive).not.toHaveBeenCalled()
-  await vi.advanceTimersByTimeAsync(1)
-  expect(win.webContents.send).toHaveBeenLastCalledWith(
+  await widget.configure({ ...configured, speech: { enabled: true, shortcut: 'f8' } } as Settings)
+  mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+  expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
+  expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
     'ari:ariaWidget.state',
     expect.objectContaining({ phase: 'listening' }),
   )
-  expect(win.showInactive).toHaveBeenCalledOnce()
-  expect(vi.getTimerCount()).toBe(1)
-  mock.keys.get('keyup')?.({ ...key(3640), ctrlKey: false, altKey: false })
-  expect(win.webContents.send).toHaveBeenLastCalledWith(
-    'ari:ariaWidget.state',
-    expect.objectContaining({ phase: 'transcribing' }),
-  )
+  expect([...mock.keys.keys()]).toEqual(['keydown', 'keyup'])
 })
 
-it.each(['typing', 'tap', 'modifier', 'mouse', 'drag'] as const)(
-  'cancels %s during the modifier grace period without showing or sending',
-  async (kind) => {
-    const invoke = vi.fn(async () => ({ ready: true }))
-    widget = new AriaWidget({ invoke, openSettings: vi.fn() })
-    await widget.configure({
-      ...configured,
-      speech: { enabled: true, shortcut: 'alt-right' },
-    } as Settings)
-    mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
-    await vi.advanceTimersByTimeAsync(100)
-    if (kind === 'typing') mock.keys.get('keydown')?.({ ...key(30), ctrlKey: false, altKey: true })
-    if (kind === 'modifier') mock.keys.get('keydown')?.({ ...key(29), altKey: true })
-    if (kind === 'mouse' || kind === 'drag') mock.mouse.get('mousedown')!({ button: 1 })
-    if (kind === 'drag') mock.mouse.get('mousemove')!({ button: 1 })
-    mock.keys.get('keyup')?.({ ...key(3640), ctrlKey: false, altKey: false })
-    const sender = mock.windows[0]!.webContents
-    expect(sender.send).toHaveBeenLastCalledWith(
-      'ari:ariaWidget.state',
-      expect.objectContaining({ phase: 'hidden' }),
-    )
-    await mock.handlers.get('ari:ariaWidget.complete')!({ sender }, { id: 1, text: 'Do not send' })
-    await vi.advanceTimersByTimeAsync(1_000)
-    expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(invoke).toHaveBeenCalledTimes(1)
-  },
-)
-
-it.each(['key', 'mouse'] as const)('does not arm with another %s already pressed', async (kind) => {
+it('uses the new platform default when the shortcut is empty', async () => {
   widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
-  await widget.configure({
-    ...configured,
-    speech: { enabled: true, shortcut: 'alt-right' },
-  } as Settings)
-  if (kind === 'key') mock.keys.get('keydown')!({ ...key(30), ctrlKey: false })
-  else mock.mouse.get('mousedown')!({ button: 1 })
-  mock.keys.get('keydown')!({ ...key(3640), ctrlKey: false, altKey: true })
-  await vi.advanceTimersByTimeAsync(500)
-  expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
-  expect(vi.getTimerCount()).toBe(0)
-  mock.keys.get('keyup')!({ ...key(3640), ctrlKey: false, altKey: false })
-  if (kind === 'key') mock.keys.get('keyup')!({ ...key(30), ctrlKey: false })
-  else mock.mouse.get('mouseup')!({ button: 1 })
-  mock.keys.get('keydown')!({ ...key(3640), ctrlKey: false, altKey: true })
-  await vi.advanceTimersByTimeAsync(250)
+  await widget.configure({ ...configured, speech: { enabled: true, shortcut: '' } } as Settings)
+  mock.keys.get('keydown')!({ ...key(57), altKey: true })
   expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
 })
 
-it.each(['transcribing', 'sending', 'sent', 'error', 'setup'] as const)(
-  'ignores modifier presses, typing and mouse activity while %s is showing',
+it.each(['alt-right', 'ctrl', 'alt+f4', 'ctrl+tab', 'ctrl+arrowleft'])(
+  'does not start the hook for an unsupported or reserved shortcut: %s',
+  async (shortcut) => {
+    widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+    await widget.configure({ ...configured, speech: { enabled: true, shortcut } } as Settings)
+    expect(mock.start).not.toHaveBeenCalled()
+    expect(mock.windows).toHaveLength(0)
+  },
+)
+
+it.each(['transcribing', 'sending'] as const)(
+  'ignores new shortcut presses and typing while %s',
   async (phase) => {
     let opened!: (value: { sessionId: string }) => void
     const dispatch = vi.fn(async () => ({ accepted: true }))
@@ -402,83 +348,108 @@ it.each(['transcribing', 'sending', 'sent', 'error', 'setup'] as const)(
       },
       openSettings: vi.fn(),
     })
-    await widget.configure({
-      ...configured,
-      speech: { enabled: true, shortcut: 'alt-right' },
-    } as Settings)
-    mock.keys.get('keydown')!({ ...key(3640), ctrlKey: false, altKey: true })
-    await vi.advanceTimersByTimeAsync(250)
+    await widget.configure({ ...configured, speech: { enabled: true, shortcut: 'f8' } } as Settings)
+    mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+    mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
     const sender = mock.windows[0]!.webContents
     const complete = mock.handlers.get('ari:ariaWidget.complete')!
-    let pending: unknown
-    if (phase === 'error' || phase === 'setup') {
-      await mock.handlers.get('ari:ariaWidget.error')!(
-        { sender },
-        { id: 1, text: 'Keep this hint', setup: phase === 'setup' },
-      )
-    } else {
-      mock.keys.get('keyup')!({ ...key(3640), ctrlKey: false, altKey: false })
-      if (phase === 'sent' || phase === 'sending') {
-        pending = complete({ sender }, { id: 1, text: 'Keep this dictation' })
-        if (phase === 'sent') await pending
-      }
-    }
+    const pending =
+      phase === 'sending' ? complete({ sender }, { id: 1, text: 'Keep this dictation' }) : undefined
     const previous = sender.send.mock.calls.at(-1)![1]
     const count = sender.send.mock.calls.length
-    mock.keys.get('keydown')!({ ...key(3640), ctrlKey: false, altKey: true })
-    mock.keys.get('keydown')!({ ...key(30), ctrlKey: false, altKey: true })
-    mock.keys.get('keydown')!({ ...key(1), ctrlKey: false, altKey: true })
-    mock.mouse.get('mousedown')!({ button: 1 })
-    mock.mouse.get('mousemove')!({ button: 1 })
-    mock.mouse.get('mouseup')!({ button: 1 })
-    mock.keys.get('keyup')!({ ...key(3640), ctrlKey: false, altKey: false })
+    mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+    mock.keys.get('keydown')!({ ...key(30), ctrlKey: false })
+    mock.keys.get('keydown')!({ ...key(1), ctrlKey: false })
+    mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
     await vi.advanceTimersByTimeAsync(250)
     expect(sender.send).toHaveBeenCalledTimes(count)
     expect(sender.send.mock.calls.at(-1)![1]).toBe(previous)
     if (phase === 'sending') {
       opened({ sessionId: 'aria' })
       await pending
-    }
-    if (phase === 'transcribing') await complete({ sender }, { id: 1, text: 'Keep this dictation' })
-    if (phase !== 'error' && phase !== 'setup') {
-      expect(dispatch).toHaveBeenCalledOnce()
-      expect(sender.send).toHaveBeenLastCalledWith(
-        'ari:ariaWidget.state',
-        expect.objectContaining({ phase: 'sent', id: 1 }),
-      )
-    }
+    } else await complete({ sender }, { id: 1, text: 'Keep this dictation' })
+    expect(dispatch).toHaveBeenCalledOnce()
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'sent', id: 1 }),
+    )
   },
 )
 
-it.each(['tap', 'timeout'] as const)(
-  'uses monotonic time despite wall-clock jumps during a %s',
-  async (kind) => {
-    widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
-    await widget.configure({
-      ...configured,
-      speech: { enabled: true, shortcut: 'alt-right' },
-    } as Settings)
-    mock.keys.get('keydown')!({ ...key(3640), ctrlKey: false, altKey: true })
-    vi.setSystemTime(Date.now() + 3_600_000)
-    await vi.advanceTimersByTimeAsync(249)
-    expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
-    vi.setSystemTime(Date.now() - 7_200_000)
-    if (kind === 'tap') {
-      mock.keys.get('keyup')!({ ...key(3640), ctrlKey: false, altKey: false })
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
-      expect(vi.getTimerCount()).toBe(0)
+it.each(['sent', 'error', 'setup'] as const)(
+  'replaces the %s pill with an immediate new dictation',
+  async (phase) => {
+    const dispatch = vi.fn(async () => ({ accepted: true }))
+    widget = new AriaWidget({
+      invoke: async (method) => {
+        if (method === 'speech.status') return { ready: true }
+        if (method === 'aria.open') return { sessionId: 'aria' }
+        return dispatch()
+      },
+      openSettings: vi.fn(),
+    })
+    await widget.configure({ ...configured, speech: { enabled: true, shortcut: 'f8' } } as Settings)
+    mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+    const sender = mock.windows[0]!.webContents
+    const complete = mock.handlers.get('ari:ariaWidget.complete')!
+    const error = mock.handlers.get('ari:ariaWidget.error')!
+    if (phase === 'sent') {
+      mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
+      await complete({ sender }, { id: 1, text: 'Old message' })
     } else {
-      await vi.advanceTimersByTimeAsync(1)
-      expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
-      await vi.advanceTimersByTimeAsync(120_000)
-      expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
-        'ari:ariaWidget.state',
-        expect.objectContaining({ phase: 'error' }),
-      )
+      await error({ sender }, { id: 1, text: 'Old hint', setup: phase === 'setup' })
+      mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
     }
+    mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ id: 2, phase: 'listening', text: '', setup: false }),
+    )
+    await complete({ sender }, { id: 1, text: 'Late result' })
+    await error({ sender }, { id: 1, text: 'Late error' })
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ id: 2, phase: 'listening' }),
+    )
+    mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
+    await complete({ sender }, { id: 2, text: 'New message' })
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ id: 2, phase: 'sent', text: 'New message' }),
+    )
+    expect(dispatch).toHaveBeenCalledTimes(phase === 'sent' ? 2 : 1)
   },
 )
+
+it.each([
+  ['listening', 120000],
+  ['transcribing', 45000],
+  ['sent', 1500],
+] as const)('uses monotonic time despite wall-clock jumps during %s', async (phase, timeout) => {
+  widget = new AriaWidget({
+    invoke: async (method) =>
+      method === 'aria.open' ? { sessionId: 'aria' } : { ready: true, accepted: true },
+    openSettings: vi.fn(),
+  })
+  await widget.configure({ ...configured, speech: { enabled: true, shortcut: 'f8' } } as Settings)
+  mock.keys.get('keydown')!({ ...key(66), ctrlKey: false })
+  const sender = mock.windows[0]!.webContents
+  if (phase !== 'listening') mock.keys.get('keyup')!({ ...key(66), ctrlKey: false })
+  if (phase === 'sent')
+    await mock.handlers.get('ari:ariaWidget.complete')!({ sender }, { id: 1, text: 'Done' })
+  vi.setSystemTime(Date.now() + 3600000)
+  await vi.advanceTimersByTimeAsync(timeout - 1)
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase }),
+  )
+  vi.setSystemTime(Date.now() - 7200000)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: phase === 'sent' ? 'hidden' : 'error' }),
+  )
+})
 
 it('ignores stale renderer crash, load failure and closed callbacks after replacement', async () => {
   let rejectLoad!: (error: Error) => void
@@ -528,12 +499,11 @@ it('preserves crash backoff through unrelated settings updates, but re-arms for 
   mock.windows[1]!.events.get('render-process-gone')!()
   await widget.configure({
     ...configured,
-    speech: { enabled: true, shortcut: 'alt-right' },
+    speech: { enabled: true, shortcut: 'f8' },
   } as Settings)
   expect(mock.windows).toHaveLength(3)
   expect(vi.getTimerCount()).toBe(0)
-  mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
-  await vi.advanceTimersByTimeAsync(250)
+  mock.keys.get('keydown')?.({ ...key(66), ctrlKey: false })
   expect(mock.windows[2]!.showInactive).toHaveBeenCalledOnce()
 })
 

@@ -40,12 +40,6 @@ it('polls the level only while listening and clears the poll on release and unmo
   })
   expect(vi.getTimerCount()).toBe(0)
   await act(async () => {
-    receive({ ...hidden, id: 1, phase: 'arming' })
-    await Promise.resolve()
-  })
-  expect(document.querySelector('.aria-pill')).toBeNull()
-  expect(vi.getTimerCount()).toBe(0)
-  await act(async () => {
     receive({ ...hidden, id: 1, phase: 'listening' })
     await Promise.resolve()
   })
