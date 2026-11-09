@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
@@ -86,14 +86,30 @@ export function needsWindowsShell(binaryPath: string): boolean {
 }
 
 /**
- * Builds the argv for spawning a `.ps1` script via powershell.exe:
- * `-File` passes every later arg through literally, so prompt text with
- * cmd metacharacters (`&`, `|`, `>`) is never re-parsed as a command line.
+ * PowerShell script arguments stay literal. `-File` handles normal calls;
+ * a literal splat handles its parser's unsupported standalone dash.
  */
 export function buildPowershellSpawnArgs(
   binaryPath: string,
   args: string[],
 ): { file: string; args: string[] } {
+  if (args.includes('-')) {
+    // Windows PowerShell's -File parser rejects a standalone dash before the
+    // script sees it. Splat literal strings so Codex's stdin marker survives.
+    const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
+    const command = `$cliArgs = @(${args.map(literal).join(', ')}); & ${literal(binaryPath)} @cliArgs; exit $LASTEXITCODE`
+    return {
+      file: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(command, 'utf16le').toString('base64'),
+      ],
+    }
+  }
   return {
     file: 'powershell.exe',
     args: [
@@ -193,10 +209,8 @@ export function argsWithWindowsHandoffBudget(
 /**
  * Spawns an external CLI safely on every platform: direct argv elsewhere,
  * a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows, and
- * powershell.exe -File for .ps1 scripts — so arbitrary prompt text can
+ * powershell.exe for .ps1 scripts — so arbitrary prompt text can
  * never be parsed as a command line.
- * Piped stdin uses a sibling native or cmd launcher for PowerShell scripts,
- * since PowerShell rewrites native input rather than forwarding bytes.
  *
  * Returns the non-null-stream shape every driver uses (callers pass pipe
  * stdio); the wrapped paths are cast to match since they spawn the same way.
@@ -206,20 +220,6 @@ export function spawnCli(
   args: string[],
   options: SpawnOptions,
 ): ChildProcessWithoutNullStreams {
-  if (
-    process.platform === 'win32' &&
-    isPowershellScript(binaryPath) &&
-    (options.stdio === 'pipe' || (Array.isArray(options.stdio) && options.stdio[0] === 'pipe'))
-  ) {
-    // PowerShell re-encodes native stdin and normalizes line endings. npm and
-    // Pi install a sibling cmd launcher, which forwards the original pipe.
-    const launcher = ['.exe', '.cmd']
-      .map((extension) => binaryPath.replace(/\.ps1$/i, extension))
-      .find((path) => existsSync(path))
-    if (!launcher)
-      throw new Error(`CLI stdin requires a .cmd or native launcher beside ${binaryPath}`)
-    binaryPath = launcher
-  }
   if (!needsWindowsShell(binaryPath)) {
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams

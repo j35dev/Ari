@@ -14,7 +14,13 @@ const base: AdapterSession = {
 describe('buildCodexArgs', () => {
   it('uses exec --json with repo check skipped', () => {
     const args = buildCodexArgs(base)
-    expect(args.slice(0, 3)).toEqual(['exec', '--json', '--skip-git-repo-check'])
+    expect(args.slice(0, 5)).toEqual([
+      '--ask-for-approval',
+      'on-request',
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+    ])
     expect(args[args.length - 1]).toBe('-')
     expect(args).not.toContain(base.prompt)
   })
@@ -51,7 +57,7 @@ describe('buildCodexArgs', () => {
 
   it('resumes an exec thread when resumeOf is set', () => {
     const args = buildCodexArgs({ ...base, resumeOf: 'thr_old' })
-    expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'thr_old'])
+    expect(args.slice(2, 5)).toEqual(['exec', 'resume', 'thr_old'])
     expect(args).toContain('--json')
     expect(args[args.length - 1]).toBe('-')
   })

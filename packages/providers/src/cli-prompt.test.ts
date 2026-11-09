@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import type * as ChildProcess from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -14,7 +15,15 @@ import { OpencodeDriver } from './opencode/opencode-driver'
 import { PiDriver } from './pi/pi-driver'
 import { HermesDriver } from './hermes/hermes-driver'
 
-vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  spawn: vi.fn(),
+  execFile: vi.fn((...args: unknown[]) => {
+    const callback = args.at(-1) as (error: null, stdout: string, stderr: string) => void
+    queueMicrotask(() => callback(null, '', ''))
+    return {}
+  }),
+}))
 
 const realPlatform = process.platform
 let scratchDir: string
@@ -23,11 +32,6 @@ beforeAll(async () => {
   scratchDir = await mkdtemp(join(tmpdir(), 'ari-prompt-spawn-'))
   binDir = join(scratchDir, 'node_modules', '.bin')
   await mkdir(binDir, { recursive: true })
-  await Promise.all(
-    ['codex', 'opencode', 'pi', 'claude'].map((kind) =>
-      writeFile(join(binDir, `${kind}.cmd`), '@echo off'),
-    ),
-  )
 })
 afterAll(async () => {
   await rm(scratchDir, {
@@ -140,6 +144,8 @@ describe.each(['cmd', 'ps1', 'exe'])(
         : plain.match(/"([^"]*ari-grok-prompt-[^"]+[\\/]prompt\.txt)"/)![1]!
       expect(await readFile(path, 'utf8')).toBe(session.prompt)
       expect(fixture.input()).toBe('')
+      fixture.child.emit('error', new Error('transient process error'))
+      expect(await readFile(path, 'utf8')).toBe(session.prompt)
       fixture.child.emit('close', 0)
       await adapter.dispose()
       await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })

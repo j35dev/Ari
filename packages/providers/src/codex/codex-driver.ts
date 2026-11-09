@@ -28,12 +28,13 @@ export function buildCodexArgs(session: AdapterSession): string[] {
   const args = ['--json', '--skip-git-repo-check']
   if (session.modelId) args.push('--model', session.modelId)
   if (hasEffort(session.effort)) args.push('-c', `model_reasoning_effort=${session.effort}`)
-  args.push(...sandboxFlags(session.permissionMode))
+  // Policy flags belong to the top-level CLI, including when resuming a turn.
+  const policy = sandboxFlags(session.permissionMode)
   // `exec resume <id>` continues the thread a queued follow-up belongs to.
   // A fresh `exec` drops that thread and the agent starts over.
   // Both `exec` and `exec resume` document `-` as reading the prompt from stdin.
-  if (session.resumeOf) return ['exec', 'resume', session.resumeOf, ...args, '-']
-  return ['exec', ...args, '-']
+  if (session.resumeOf) return [...policy, 'exec', 'resume', session.resumeOf, ...args, '-']
+  return [...policy, 'exec', ...args, '-']
 }
 
 /** True when the session picked a thought/reasoning level to apply. */
