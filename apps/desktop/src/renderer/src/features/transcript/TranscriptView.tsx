@@ -27,6 +27,8 @@ import type { TurnDiffValue } from './types'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
 import { insertDelegationRows } from './delegation-rows'
+import { insertProviderSwitchRows } from './provider-switch-rows'
+import { ProviderSwitchDivider } from './ProviderSwitchDivider'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
 import type {
@@ -35,6 +37,7 @@ import type {
   TranscriptBlock,
   TranscriptImage,
   TranscriptRow,
+  ProviderSwitch,
 } from './types'
 import type { Message } from '@ari/contracts/message'
 
@@ -62,6 +65,7 @@ function estimateUncached(row: TranscriptRow): number {
   if (row.kind === 'tool-group') return 30
   if (row.kind === 'turn-diff') return 40
   if (row.kind === 'delegation') return 30 * row.children.length
+  if (row.kind === 'provider-switch') return 32
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
   if (row.kind === 'image') return 96
   const text = row.text ?? ''
@@ -126,6 +130,8 @@ export function TranscriptView({
   working,
   activity,
   delegations,
+  providerSwitches,
+  modelLabel,
   sessionTitle,
   onOpenSession,
   onTurnInView,
@@ -142,6 +148,8 @@ export function TranscriptView({
   activity?: React.ReactNode
   /** Children this session delegated to; each renders as a task card where it was spawned. */
   delegations?: readonly DelegatedChild[]
+  providerSwitches?: readonly ProviderSwitch[]
+  modelLabel?: (kind: ProviderSwitch['driverKind'], id: string) => string | undefined
   /** Current title of another session, for attributing messages it sent. */
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
@@ -199,13 +207,17 @@ export function TranscriptView({
       : messages
     blocksRef.current = splitBlocks(visible, blocksRef.current)
     groupedRef.current = groupBlocks(blocksRef.current, turnDiffs, groupedRef.current)
-    return insertDelegationRows(groupedRef.current, delegations ?? [])
-  }, [messages, turnDiffs, delegations])
+    return insertProviderSwitchRows(
+      insertDelegationRows(groupedRef.current, delegations ?? []),
+      providerSwitches ?? [],
+    )
+  }, [messages, turnDiffs, delegations, providerSwitches])
   // A task card sits below the burst that spawned it, so while a turn waits on
   // its children the burst is no longer the last row. It is still the row the
   // turn is on, and the one that reads as live.
   const activeIndex = useMemo(() => {
-    for (let i = rows.length - 1; i >= 0; i--) if (rows[i]?.kind !== 'delegation') return i
+    for (let i = rows.length - 1; i >= 0; i--)
+      if (rows[i]?.kind !== 'delegation' && rows[i]?.kind !== 'provider-switch') return i
     return -1
   }, [rows])
   // The last row of each turn, keyed by row key: where its diff card attaches.
@@ -214,7 +226,7 @@ export function TranscriptView({
     let lastKey: string | null = null
     let lastTurn: string | null = null
     for (const row of rows) {
-      if (row.kind === 'delegation') continue
+      if (row.kind === 'delegation' || row.kind === 'provider-switch') continue
       const turn = rowTurnId(row)
       if (lastKey !== null && lastTurn !== null && turn !== lastTurn) ends.set(lastKey, lastTurn)
       lastKey = row.key
@@ -546,6 +558,11 @@ export function TranscriptView({
               {lazyRows.isMounted(row.key) ? (
                 <TranscriptRowView
                   row={row}
+                  modelLabel={
+                    row.kind === 'provider-switch' && row.switch.modelId !== null
+                      ? modelLabel?.(row.switch.driverKind, row.switch.modelId)
+                      : undefined
+                  }
                   index={index}
                   sessionTitle={sessionTitle}
                   onOpenSession={onOpenSession}
@@ -657,6 +674,7 @@ const RowPlaceholder = memo(function RowPlaceholder({
  */
 const TranscriptRowView = memo(function TranscriptRowView({
   row,
+  modelLabel,
   index,
   onEditUserMessage,
   onRegenerate,
@@ -673,6 +691,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   onOpenSession,
 }: {
   row: TranscriptRow
+  modelLabel?: string
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
   index: number
@@ -693,6 +712,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
 }) {
   const body = renderRowBody({
     row,
+    modelLabel,
     active,
     terminal,
     onEditUserMessage,
@@ -723,6 +743,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
 /** The row kinds' own render. */
 function renderRowBody({
   row,
+  modelLabel,
   active,
   terminal,
   onEditUserMessage,
@@ -738,6 +759,7 @@ function renderRowBody({
   onOpenSession,
 }: {
   row: TranscriptRow
+  modelLabel?: string
   active: boolean
   terminal: boolean
   onUndoTurn?: (turnId: string) => Promise<boolean>
@@ -754,7 +776,9 @@ function renderRowBody({
 }) {
   return (
     <>
-      {row.kind === 'tool-group' ? (
+      {row.kind === 'provider-switch' ? (
+        <ProviderSwitchDivider change={row.switch} modelLabel={modelLabel} />
+      ) : row.kind === 'tool-group' ? (
         <ActivityBurst row={row} active={active} terminal={terminal} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard

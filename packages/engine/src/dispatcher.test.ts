@@ -29,6 +29,141 @@ function modelWithSession() {
 }
 
 describe('decideCommand', () => {
+  it('rejects the provider switch command outside Aria, including unused sessions', () => {
+    const result = decideCommand(
+      modelWithSession(),
+      {
+        type: 'session.provider.switch',
+        sessionId: session.id,
+        driverKind: 'opencode',
+        modelId: 'model',
+        effort: null,
+      },
+      ids,
+    )
+    expect(result).toMatchObject({
+      accepted: false,
+      reason: 'provider switching is only available to Aria',
+      events: [],
+    })
+  })
+
+  it('records Aria switches without interrupting the active turn', () => {
+    let model = modelWithSession()
+    model.session = { ...session, projectId: 'helm' }
+    model = previewDispatch(model, {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'running' }],
+    })
+    const result = decideCommand(
+      model,
+      {
+        type: 'session.provider.switch',
+        sessionId: session.id,
+        driverKind: 'opencode',
+        modelId: 'model',
+        effort: 'high',
+      },
+      ids,
+    )
+    expect(result.events).toEqual([
+      {
+        type: 'session.provider.switched',
+        driverKind: 'opencode',
+        modelId: 'model',
+        effort: 'high',
+        afterTurnId: 'running',
+        afterMessageId: null,
+      },
+    ])
+    const next = previewDispatch(model, result)
+    expect(next.session).toMatchObject({ driverKind: 'opencode', modelId: 'model', effort: 'high' })
+    expect(next.activeTurnId).toBe('running')
+    expect(next.providerHandoffPending).toBe(true)
+  })
+
+  it('keeps same-provider model changes and initial ordinary provider choices on session.update', () => {
+    const initial = decideCommand(
+      modelWithSession(),
+      { type: 'session.update', sessionId: session.id, driverKind: 'opencode', modelId: 'model' },
+      ids,
+    )
+    expect(initial.accepted).toBe(true)
+    const started = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'running' }],
+    })
+    expect(
+      decideCommand(
+        started,
+        { type: 'session.update', sessionId: session.id, driverKind: 'opencode' },
+        ids,
+      ).accepted,
+    ).toBe(false)
+    expect(
+      decideCommand(
+        started,
+        {
+          type: 'session.update',
+          sessionId: session.id,
+          driverKind: 'claude',
+          modelId: 'opus',
+          effort: 'high',
+        },
+        ids,
+      ).events,
+    ).toEqual([{ type: 'session.updated', driverKind: 'claude', modelId: 'opus', effort: 'high' }])
+    started.session = { ...session, projectId: 'helm' }
+    expect(
+      decideCommand(
+        started,
+        { type: 'session.update', sessionId: session.id, driverKind: 'opencode', modelId: 'model' },
+        ids,
+      ),
+    ).toMatchObject({
+      accepted: false,
+      reason: 'use session.provider.switch to change Aria’s provider',
+      events: [],
+    })
+  })
+
+  it('changes an unused Aria provider through a plain update with no divider or handoff', () => {
+    const model = modelWithSession()
+    model.session = { ...session, projectId: 'helm' }
+    for (const type of ['session.update', 'session.provider.switch'] as const) {
+      const decision = decideCommand(
+        model,
+        { type, sessionId: session.id, driverKind: 'opencode', modelId: 'chosen', effort: null },
+        ids,
+      )
+      expect(decision.events).toEqual([
+        { type: 'session.updated', driverKind: 'opencode', modelId: 'chosen', effort: null },
+      ])
+      expect(previewDispatch(model, decision).providerHandoffPending).toBeUndefined()
+    }
+  })
+
+  it.each(['message', 'turn', 'ref'])(
+    'locks ordinary providers when the journal has a %s',
+    (evidence) => {
+      const model = modelWithSession()
+      if (evidence === 'message')
+        model.messages = [
+          { id: 'm', sessionId: session.id, turnId: null, role: 'user', parts: [], createdAt: 0 },
+        ]
+      if (evidence === 'turn')
+        model.lastTurn = { turnId: 't', stopReason: 'completed', settledAt: 0 }
+      if (evidence === 'ref') model.providerSessionId = 'native'
+      expect(
+        decideCommand(
+          model,
+          { type: 'session.update', sessionId: session.id, driverKind: 'opencode' },
+          ids,
+        ).accepted,
+      ).toBe(false)
+    },
+  )
+
   it('rejects commands for unknown sessions', () => {
     const result = decideCommand(
       initialReadModel(),

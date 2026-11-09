@@ -9,6 +9,8 @@ import {
   type SessionReadModel,
 } from './projection'
 import { deriveSliceTitle } from './title'
+import { isHelmSession } from '@ari/contracts/helm'
+import { hasProviderContext } from '@ari/contracts/session'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
 
@@ -188,8 +190,24 @@ export function decideCommand(
       ])
     }
 
+    case 'session.provider.switch': {
+      if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      if (!isHelmSession(model.session))
+        return reject('provider switching is only available to Aria')
+      return accept(providerSwitch(model, command))
+    }
+
     case 'session.update': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      const switched =
+        command.driverKind !== undefined && command.driverKind !== model.session.driverKind
+      if (switched && sessionHasContext(model)) {
+        return reject(
+          isHelmSession(model.session)
+            ? 'use session.provider.switch to change Aria’s provider'
+            : 'provider switching is only available to Aria',
+        )
+      }
       const patch: UnstampedJournalEvent = {
         type: 'session.updated',
         ...(command.driverKind !== undefined ? { driverKind: command.driverKind } : {}),
@@ -208,6 +226,40 @@ export function decideCommand(
       // directly (journals are removed wholesale; no event survives).
       return reject('session.destroy is handled by the store')
   }
+}
+
+function providerSwitch(
+  model: SessionReadModel,
+  next: {
+    driverKind: NonNullable<SessionReadModel['session']>['driverKind']
+    modelId: string | null
+    effort: string | null
+  },
+): UnstampedJournalEvent[] {
+  const { driverKind, modelId, effort } = next
+  if (driverKind === model.session?.driverKind || !sessionHasContext(model))
+    return [{ type: 'session.updated', driverKind, modelId, effort }]
+  return [
+    {
+      type: 'session.provider.switched',
+      driverKind,
+      modelId,
+      effort,
+      afterTurnId: model.activeTurnId ?? model.lastTurn?.turnId ?? null,
+      afterMessageId:
+        model.messages.findLast(
+          (message) => message.origin?.kind !== 'completion' && message.origin?.kind !== 'question',
+        )?.id ?? null,
+    },
+  ]
+}
+
+function sessionHasContext(model: SessionReadModel): boolean {
+  return hasProviderContext({
+    hasMessages: model.messages.length > 0,
+    hasTurns: model.activeTurnId !== null || model.lastTurn !== undefined,
+    providerSessionId: model.providerSessionId,
+  })
 }
 
 /**
