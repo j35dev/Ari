@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,12 @@ import type { Session } from '@ari/contracts/session'
 import type { UnstampedEvent } from './projection'
 import { SessionStore } from './session-store'
 import { Journal } from './journal'
+
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof fs>()),
+}))
+
+const actualFs = await vi.importActual<typeof fs>('node:fs/promises')
 
 let rootDir: string
 let store: SessionStore
@@ -28,6 +35,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await rm(rootDir, { recursive: true, force: true })
 })
 
@@ -386,7 +394,18 @@ describe('SessionStore', () => {
       expect(row).toMatchObject({ lead: true, createdBy: lead.createdBy })
       expect(row).not.toHaveProperty('permissionMode')
       expect(replay).not.toHaveBeenCalled()
-      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(old)
+      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+        ...old,
+        leadIdentityRead: true,
+        hierarchy: { ...old.hierarchy, lead: true, createdBy: lead.createdBy },
+      })
+      const head = vi.spyOn(fs, 'open')
+      expect((await new SessionStore({ rootDir }).listSessions())[0]).toMatchObject({
+        lead: true,
+        createdBy: lead.createdBy,
+      })
+      expect(head).not.toHaveBeenCalled()
+      head.mockRestore()
       const { appendFile } = await import('node:fs/promises')
       await appendFile(
         join(rootDir, lead.id, 'journal.0000.jsonl'),
@@ -460,6 +479,184 @@ describe('SessionStore', () => {
     expect(await store.loadExisting('deleted')).toBeNull()
     const { readdir } = await import('node:fs/promises')
     expect(await readdir(rootDir)).toEqual([])
+  })
+
+  it.each(['cached', 'listed', 'loaded'])(
+    'checks %s sessions without reading their journal heads',
+    async (kind) => {
+      await store.append(session.id, { type: 'session.created', session })
+      await store.closeJournal(session.id)
+      const fresh = kind === 'cached' ? store : new SessionStore({ rootDir })
+      if (kind === 'listed') await fresh.listSessions()
+      if (kind === 'loaded') await fresh.load(session.id)
+      const open = vi.spyOn(fs, 'open')
+      try {
+        expect(await fresh.exists(session.id)).toBe(true)
+        expect(await fresh.exists(session.id)).toBe(true)
+        expect(open).not.toHaveBeenCalled()
+      } finally {
+        open.mockRestore()
+        await fresh.closeJournal(session.id)
+      }
+    },
+  )
+
+  it('shares and caches positive head reads until the session is destroyed', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    const fresh = new SessionStore({ rootDir })
+    const open = vi.spyOn(fs, 'open')
+    expect(
+      await Promise.all([
+        fresh.exists(session.id),
+        fresh.exists(session.id),
+        fresh.exists(session.id),
+      ]),
+    ).toEqual([true, true, true])
+    expect(await fresh.exists(session.id)).toBe(true)
+    expect(open).toHaveBeenCalledTimes(1)
+    await fresh.destroy(session.id)
+    expect(await fresh.exists(session.id)).toBe(false)
+    const replacement = new SessionStore({ rootDir })
+    await replacement.append(session.id, { type: 'session.created', session })
+    await replacement.closeJournal(session.id)
+    open.mockClear()
+    expect(await fresh.exists(session.id)).toBe(true)
+    expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restore a destroyed session to the existence cache when an earlier index read finishes', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    const path = join(rootDir, session.id, 'index.json')
+    const readFile = actualFs.readFile.bind(actualFs)
+    let finish!: () => void
+    let started!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const reading = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    vi.spyOn(fs, 'readFile').mockImplementation(async (name, options) => {
+      const text = await readFile(name, options)
+      if (name === path) {
+        started()
+        await gate
+      }
+      return text
+    })
+    const fresh = new SessionStore({ rootDir })
+    const listing = fresh.listSessions()
+    try {
+      await reading
+      await fresh.destroy(session.id)
+      finish()
+      await listing
+      expect(await fresh.exists(session.id)).toBe(false)
+      expect(await fresh.loadExisting(session.id)).toBeNull()
+      expect(await fs.readdir(rootDir)).toEqual([])
+    } finally {
+      finish()
+      await listing
+    }
+  })
+
+  it('maintains the current Aria lookup from listings, archives and destruction', async () => {
+    for (const [id, updatedAt] of [
+      ['aria1', 1],
+      ['aria2', 2],
+    ] as const) {
+      await store.append(id, {
+        type: 'session.created',
+        session: { ...session, id, projectId: 'helm', updatedAt },
+      })
+      await store.closeJournal(id)
+    }
+    const fresh = new SessionStore({ rootDir })
+    await fresh.listSessions()
+    const listing = vi
+      .spyOn(fresh, 'listSessions')
+      .mockRejectedValue(new Error('Unexpected listing'))
+    expect(fresh.currentHelmSession()).toBe('aria2')
+    await fresh.append('aria2', { type: 'session.updated', archived: true })
+    expect(fresh.currentHelmSession()).toBe('aria1')
+    await fresh.destroy('aria1')
+    expect(fresh.currentHelmSession()).toBeNull()
+    expect(listing).not.toHaveBeenCalled()
+    await fresh.closeJournal('aria2')
+  })
+
+  it.each(['invalid-head', 'read-error'])(
+    'keeps an indexed session with unknown lead identity after %s',
+    async (failure) => {
+      await store.append(session.id, { type: 'session.created', session })
+      await store.closeJournal(session.id)
+      const path = join(rootDir, session.id, 'index.json')
+      const index = JSON.parse(await fs.readFile(path, 'utf8')) as {
+        hierarchy: Record<string, unknown>
+        journalBytes: number
+      }
+      delete index.hierarchy.lead
+      delete index.hierarchy.createdBy
+      if (failure === 'invalid-head') {
+        const journal = join(rootDir, session.id, 'journal.0000.jsonl')
+        const text = '{broken}\n' + (await fs.readFile(journal, 'utf8'))
+        await writeFile(journal, text)
+        index.journalBytes = Buffer.byteLength(text)
+      }
+      await writeFile(path, JSON.stringify(index))
+      const open = vi.spyOn(fs, 'open')
+      if (failure === 'read-error')
+        open.mockRejectedValueOnce(Object.assign(new Error('Busy head'), { code: 'EACCES' }))
+      const fresh = new SessionStore({ rootDir })
+      const [row] = await fresh.listSessions()
+      expect(row).toMatchObject({ id: session.id, title: session.title })
+      expect(row).not.toHaveProperty('lead')
+      expect(row).not.toHaveProperty('createdBy')
+      expect(await fresh.exists(session.id)).toBe(true)
+      expect(open).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(await fs.readFile(path, 'utf8'))).toMatchObject({
+        version: 5,
+        leadIdentityRead: true,
+      })
+      open.mockClear()
+      expect(await new SessionStore({ rootDir }).listSessions()).toEqual([row])
+      expect(open).not.toHaveBeenCalled()
+    },
+  )
+
+  it('replays a session behind an invalid first line when its index needs repair', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    const journal = join(rootDir, session.id, 'journal.0000.jsonl')
+    await writeFile(journal, '{broken}\n' + (await fs.readFile(journal, 'utf8')))
+    await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
+    const fresh = new SessionStore({ rootDir })
+    const open = vi.spyOn(fresh, 'openJournal')
+    expect((await fresh.listSessions())[0]).toMatchObject({ id: session.id, title: session.title })
+    expect(await fresh.exists(session.id)).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('reports transient session-directory read errors instead of silently dropping the row', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    const directory = join(rootDir, session.id)
+    const readdir = actualFs.readdir.bind(actualFs)
+    vi.spyOn(fs, 'readdir').mockImplementation((path, options) => {
+      if (path === directory)
+        return Promise.reject(Object.assign(new Error('Busy directory'), { code: 'EACCES' }))
+      return readdir(path, options)
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await expect(new SessionStore({ rootDir }).listSessions()).rejects.toThrow(
+      'Saved sessions could not be read.',
+    )
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('session could not be listed'),
+      expect.objectContaining({ sessionId: session.id }),
+    )
   })
 
   it.each(['directory', 'empty-journal', 'uncreated-journal', 'sidecar-only'])(

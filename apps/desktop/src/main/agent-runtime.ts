@@ -34,11 +34,30 @@ export async function revokeArchivedSessions(
   ids: Iterable<string>,
   revoke: (id: string) => Promise<void>,
 ): Promise<void> {
+  const errors: unknown[] = []
   for (const id of ids) {
     try {
       await revoke(id)
     } catch (error) {
+      errors.push(error)
       log.warn('archived session cleanup failed', { sessionId: id, error: String(error) })
+    }
+  }
+  if (errors.length > 0) throw errors[0]
+}
+
+export async function closeControlTransport(
+  closeServer: () => Promise<void>,
+  socketDir: string | null,
+  abortCleanup: () => void,
+): Promise<void> {
+  try {
+    await closeServer()
+  } finally {
+    try {
+      if (socketDir) await rm(socketDir, { recursive: true, force: true })
+    } finally {
+      abortCleanup()
     }
   }
 }
@@ -341,7 +360,7 @@ async function startControlTransport(
   })
   supervisor.start()
   const cleanupAbort = new AbortController()
-  const cleanup = (async () => {
+  void (async () => {
     await workspaces.retryReleases((id) => dropSession(id, 'release'), cleanupAbort.signal)
     if (cleanupAbort.signal.aborted) return
     const rows = await store.listSessions()
@@ -365,7 +384,7 @@ async function startControlTransport(
     log.warn('managed workspace startup cleanup failed', { error: String(error) })
   })
   // Dependency waits have no queued provider message; explicitly recover them.
-  const recovery = store
+  void store
     .listSessions()
     .then(async (rows) => {
       for (const row of rows) {
@@ -417,23 +436,14 @@ async function startControlTransport(
       }
     },
     close: async () => {
-      cleanupAbort.abort()
       unsubscribe()
-      let timeout: ReturnType<typeof setTimeout> | undefined
-      try {
-        await Promise.race([
-          Promise.allSettled([cleanup, recovery]),
-          new Promise<void>((resolve) => {
-            timeout = setTimeout(resolve, 3_000)
-          }),
-        ])
-      } finally {
-        clearTimeout(timeout)
-      }
       supervisor.close()
       approvals.close()
-      await server.close()
-      if (socketDir) await rm(socketDir, { recursive: true, force: true })
+      await closeControlTransport(
+        () => server.close(),
+        socketDir,
+        () => cleanupAbort.abort(),
+      )
     },
     environment: (session: Session): NodeJS.ProcessEnv => {
       const env = { ...(options.baseEnv ?? process.env) }

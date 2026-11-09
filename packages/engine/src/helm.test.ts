@@ -925,7 +925,9 @@ it('discovers an orphaned lead from an old sidecar without replaying known non-l
   service.host.store = store
   const load = vi.spyOn(store, 'loadExisting')
   expect((await service.tasks('helm2')).map((task) => task.sessionId)).toEqual([id])
-  expect(new Set(load.mock.calls.map(([target]) => target))).toEqual(new Set(['helm2', id]))
+  expect(new Set(load.mock.calls.map(([target]) => target))).toEqual(
+    new Set(['helm2', id, 'helm1']),
+  )
   expect((await store.listSessions()).find((row) => row.id === 'old0')).toMatchObject({
     lead: false,
     createdBy: { kind: 'human' },
@@ -986,7 +988,7 @@ it('uses listing rows for lead recipients without checking their journals', asyn
     idempotencyKey: 'listing-recipient',
   })
   const id = (first as { result: { sessionId: string } }).result.sessionId
-  const turn = await startTurn(id, 'Work', { kind: 'session', sessionId: 'helm1' })
+  await startTurn(id, 'Work', { kind: 'session', sessionId: 'helm1' })
   const model = await store.load(id)
   const rows = await store.listSessions()
   const exists = vi.spyOn(store, 'exists').mockRejectedValue(new Error('Unexpected existence read'))
@@ -995,12 +997,41 @@ it('uses listing rows for lead recipients without checking their journals', asyn
     .mockRejectedValue(new Error('Unexpected journal read'))
   try {
     expect(await helmTaskRecipient(store, model, rows)).toBe('helm1')
-    expect(await helmReportRecipient(store, model, turn)).toBe('helm1')
     expect(exists).not.toHaveBeenCalled()
     expect(load).not.toHaveBeenCalled()
   } finally {
     exists.mockRestore()
     load.mockRestore()
+  }
+})
+
+it('routes live and orphaned lead reports with targeted lookups and no registry scan', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Work',
+    idempotencyKey: 'targeted-recipient',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  const turn = await startTurn(id, 'Work', { kind: 'session', sessionId: 'helm1' })
+  const model = await store.load(id)
+  const listing = vi.spyOn(store, 'listSessions').mockRejectedValue(new Error('Unexpected listing'))
+  const load = vi.spyOn(store, 'loadExisting')
+  const current = vi.spyOn(store, 'currentHelmSession')
+  try {
+    expect(await helmReportRecipient(store, model, turn)).toBe('helm1')
+    expect(load).toHaveBeenCalledWith('helm1')
+    expect(current).not.toHaveBeenCalled()
+    await store.destroy('helm1')
+    await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+    expect(await helmReportRecipient(store, model, turn)).toBe('helm2')
+    expect(current).toHaveBeenCalledTimes(1)
+    expect(load.mock.calls.map(([id]) => id)).toEqual(['helm1', 'helm1'])
+    expect(listing).not.toHaveBeenCalled()
+    expect(await store.exists('helm1')).toBe(false)
+  } finally {
+    listing.mockRestore()
+    load.mockRestore()
+    current.mockRestore()
   }
 })
 

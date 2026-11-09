@@ -6,6 +6,7 @@ import {
 } from '@ari/contracts/session'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import { newTypedId } from '@ari/shared/ids'
+import { isHelmSession } from '@ari/contracts/helm'
 import { createLogger } from '@ari/shared/logger'
 import { Journal } from './journal'
 import {
@@ -56,6 +57,7 @@ interface SessionIndex {
   outputTokens: number
   costUsd: number | null
   journalBytes: number
+  leadIdentityRead?: true
 }
 
 export interface SessionListEntry extends SessionHierarchySummary {
@@ -219,6 +221,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     outputTokens: value['outputTokens'],
     costUsd: cost,
     journalBytes: value['journalBytes'],
+    ...(value['leadIdentityRead'] === true ? { leadIdentityRead: true as const } : {}),
   }
 }
 
@@ -258,6 +261,10 @@ export class SessionStore {
   /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
   readonly #indexCache = new Map<string, SessionIndex>()
   readonly #rebuildingIndexes = new Map<string, Promise<SessionIndex | null>>()
+  readonly #indexEpochs = new Map<string, number>()
+  readonly #knownSessions = new Set<string>()
+  readonly #createdSessions = new Map<string, Promise<Session | null>>()
+  readonly #helmSessions = new Map<string, { updatedAt: number; archived: boolean }>()
   /** Last replay diagnostic per session, surfaced to the UI. */
   readonly #diagnostics = new Map<string, ReplayDiagnostics>()
   /** Raw lines already quarantined this process, so replays never duplicate. */
@@ -285,10 +292,34 @@ export class SessionStore {
 
   /** A leftover directory is not a session until its creation was journaled. */
   async exists(sessionId: string): Promise<boolean> {
+    if (
+      this.#knownSessions.has(sessionId) ||
+      this.#models.get(sessionId)?.session ||
+      this.#indexCache.get(sessionId)?.hasSession
+    )
+      return true
     return (await this.#createdSession(sessionId)) !== null
   }
 
   async #createdSession(sessionId: string): Promise<Session | null> {
+    const existing = this.#createdSessions.get(sessionId)
+    if (existing) return existing
+    const reading = this.#readCreatedSession(sessionId)
+    this.#createdSessions.set(sessionId, reading)
+    try {
+      const session = await reading
+      if (this.#createdSessions.get(sessionId) === reading) {
+        if (session) this.#knownSessions.add(sessionId)
+        else this.#createdSessions.delete(sessionId)
+      }
+      return session
+    } catch (error) {
+      if (this.#createdSessions.get(sessionId) === reading) this.#createdSessions.delete(sessionId)
+      throw error
+    }
+  }
+
+  async #readCreatedSession(sessionId: string): Promise<Session | null> {
     const { open, readdir } = await import('node:fs/promises')
     const dir = this.#dirFor(sessionId)
     let segments: string[]
@@ -332,6 +363,39 @@ export class SessionStore {
     return this.#serial(sessionId, async () =>
       (await this.exists(sessionId)) ? this.#modelFor(sessionId) : null,
     )
+  }
+
+  /** Listings and session writes maintain this small cache; report routing never scans the registry. */
+  currentHelmSession(): string | null {
+    let current: string | null = null
+    let updatedAt = -1
+    for (const [id, session] of this.#helmSessions) {
+      if (!session.archived && session.updatedAt > updatedAt) {
+        current = id
+        updatedAt = session.updatedAt
+      }
+    }
+    return current
+  }
+
+  #rememberSession(session: Pick<Session, 'id' | 'projectId' | 'updatedAt' | 'archived'>): void {
+    this.#knownSessions.add(session.id)
+    if (isHelmSession(session))
+      this.#helmSessions.set(session.id, {
+        updatedAt: session.updatedAt,
+        archived: session.archived ?? false,
+      })
+  }
+
+  #cacheIndex(id: string, entry: SessionIndex): void {
+    this.#indexCache.set(id, entry)
+    if (entry.hasSession)
+      this.#rememberSession({
+        id,
+        projectId: entry.projectId,
+        updatedAt: entry.updatedAt,
+        archived: entry.archived,
+      })
   }
 
   #journalFor(sessionId: string): Journal<JournalEvent> {
@@ -456,7 +520,7 @@ export class SessionStore {
     }
     await journal.append(stamped, line)
     if (!streamed) await journal.flush()
-    this.#indexCache.set(sessionId, entry)
+    this.#cacheIndex(sessionId, entry)
     this.#models.set(sessionId, post)
     for (const listener of this.#listeners) {
       try {
@@ -499,6 +563,7 @@ export class SessionStore {
     this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
     if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
     if (cache) this.#models.set(sessionId, model)
+    if (model.session) this.#rememberSession(model.session)
     return model
   }
 
@@ -609,10 +674,11 @@ export class SessionStore {
   }
 
   async #readIndex(id: string, rebuilding = false): Promise<SessionIndex | null> {
+    const epoch = this.#indexEpochs.get(id) ?? 0
     const bytes = await this.#measureJournalBytes(id)
     if (bytes === 0) return null
     const cached = this.#indexCache.get(id)
-    if (cached && cached.journalBytes === bytes) return this.#leadIdentity(id, cached)
+    if (cached && cached.journalBytes === bytes) return this.#leadIdentity(id, cached, rebuilding)
     const { readFile } = await import('node:fs/promises')
     let disk: SessionIndex | null
     try {
@@ -621,8 +687,9 @@ export class SessionStore {
       disk = null
     }
     if (disk && disk.journalBytes === bytes) {
-      if (this.#indexCache.get(id) === cached) this.#indexCache.set(id, disk)
-      return this.#leadIdentity(id, disk)
+      if (this.#indexCache.get(id) === cached && (this.#indexEpochs.get(id) ?? 0) === epoch)
+        this.#cacheIndex(id, disk)
+      return this.#leadIdentity(id, disk, rebuilding)
     }
     if (!rebuilding) {
       const existing = this.#rebuildingIndexes.get(id)
@@ -635,7 +702,6 @@ export class SessionStore {
         if (this.#rebuildingIndexes.get(id) === rebuilding) this.#rebuildingIndexes.delete(id)
       }
     }
-    if (!(await this.exists(id))) return null
     // Stale, missing, corrupt, or old-version index: one replay, then repair.
     // A size mismatch means the journal changed behind this process, so the
     // cached model cannot be trusted either.
@@ -644,27 +710,46 @@ export class SessionStore {
     const journal =
       this.#journals.get(id) ?? (await this.#openingJournals.get(id)) ?? this.#journalFor(id)
     const model = await this.#replay(id, journal, this.#models.has(id))
+    if (!model.session) return null
     const entry = entryFrom(model, bytes)
-    this.#indexCache.set(id, entry)
+    this.#cacheIndex(id, entry)
     await this.#writeIndex(id, entry)
     return model.session ? entry : null
   }
 
-  async #leadIdentity(id: string, entry: SessionIndex): Promise<SessionIndex | null> {
+  async #leadIdentity(
+    id: string,
+    entry: SessionIndex,
+    serialized = false,
+  ): Promise<SessionIndex | null> {
     if (!entry.hasSession) return null
-    if (entry.hierarchy.lead !== undefined && entry.hierarchy.createdBy !== undefined) return entry
-    const session = await this.#createdSession(id)
-    if (!session) return null
+    if (
+      entry.leadIdentityRead ||
+      (entry.hierarchy.lead !== undefined && entry.hierarchy.createdBy !== undefined)
+    )
+      return entry
+    const session = await this.#createdSession(id).catch((error: unknown) => {
+      log.warn('session lead identity could not be read', { sessionId: id, error: String(error) })
+      return null
+    })
     const enriched = {
       ...entry,
-      hierarchy: {
-        ...entry.hierarchy,
-        lead: session.lead ?? false,
-        createdBy: session.createdBy ?? { kind: 'human' as const },
-      },
+      leadIdentityRead: true as const,
+      hierarchy: session
+        ? {
+            ...entry.hierarchy,
+            lead: session.lead ?? false,
+            createdBy: session.createdBy ?? { kind: 'human' as const },
+          }
+        : entry.hierarchy,
     }
-    if (this.#indexCache.get(id) === entry) this.#indexCache.set(id, enriched)
-    return enriched
+    const persist = async () => {
+      if (this.#indexCache.get(id) !== entry) return this.#indexCache.get(id) ?? enriched
+      this.#cacheIndex(id, enriched)
+      await this.#writeIndex(id, enriched)
+      return enriched
+    }
+    return serialized ? persist() : this.#serial(id, persist)
   }
 
   /**
@@ -736,8 +821,9 @@ export class SessionStore {
     let names: string[]
     try {
       names = await readdir(dir)
-    } catch {
-      return 0
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+      throw error
     }
     let total = 0
     for (const name of names) {
@@ -787,5 +873,10 @@ export class SessionStore {
       throw error
     }
     await rm(this.#dirFor(sessionId), { recursive: true, force: true })
+    this.#indexEpochs.set(sessionId, (this.#indexEpochs.get(sessionId) ?? 0) + 1)
+    this.#indexCache.delete(sessionId)
+    this.#knownSessions.delete(sessionId)
+    this.#createdSessions.delete(sessionId)
+    this.#helmSessions.delete(sessionId)
   }
 }

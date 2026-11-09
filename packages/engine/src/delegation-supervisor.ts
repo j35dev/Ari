@@ -47,7 +47,10 @@ function automaticTurns(model: SessionReadModel): number {
 }
 
 export interface SupervisorHost {
-  store: Pick<SessionStore, 'load' | 'loadExisting' | 'exists' | 'listSessions'>
+  store: Pick<
+    SessionStore,
+    'load' | 'loadExisting' | 'exists' | 'listSessions' | 'currentHelmSession'
+  >
   policy(): DelegationSettings
   dispatch(
     command: Command,
