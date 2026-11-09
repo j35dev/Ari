@@ -234,6 +234,25 @@ describe('contracts', () => {
     expect(parsed.appearance.wallpaper).toBe('none')
   })
 
+  it.each([undefined, {}, { defaultDriverKind: 'codex' }])(
+    'defaults missing session permissions to full access for %j',
+    (sessions) => {
+      expect(settingsSchema.parse({ version: 1, sessions }).sessions.defaultPermissionMode).toBe(
+        'full',
+      )
+    },
+  )
+
+  it.each(['ask', 'allow-edits', 'full'])(
+    'preserves a saved permission preference of %s',
+    (defaultPermissionMode) => {
+      expect(
+        settingsSchema.parse({ version: 1, sessions: { defaultPermissionMode } }).sessions
+          .defaultPermissionMode,
+      ).toBe(defaultPermissionMode)
+    },
+  )
+
   it('defaults the settle sound to on when settings predate the section', () => {
     const parsed = settingsSchema.parse({ version: 1 })
     expect(parsed.notifications.settleSound).toBe(true)
