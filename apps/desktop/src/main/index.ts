@@ -1,8 +1,9 @@
-import { app, BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { DiscordPresence } from './discord-presence'
-import { registerRpc, startAppUpdateChecks } from './rpc'
+import { openSpeechSettings, registerRpc, startAppUpdateChecks } from './rpc'
+import { AriaWidget } from './aria-widget'
 import { afterFirstPaint } from './startup-gate'
 import { getSettingsStore } from './store'
 import { createTray, type TrayHandle } from './tray'
@@ -28,6 +29,7 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null
   let tray: TrayHandle | null = null
+  let widget: AriaWidget | null = null
   const presence = new DiscordPresence()
 
   app.on('second-instance', () => {
@@ -54,27 +56,56 @@ if (!gotLock) {
     })
     // Handlers register synchronously; driver detection hydrates in background.
     // Turn lifecycle events flow into the tray tooltip and the Discord status as the running count.
-    registerRpc(mainWindow.webContents, {
+    const handle = registerRpc(mainWindow.webContents, {
       onRunningCount: (count) => {
         updateTrayStatus(tray, count)
         presence.setRunningCount(count)
       },
-      onSettingsChanged: (settings) => presence.setEnabled(settings.notifications.discordPresence),
+      onSettingsChanged: (settings) => {
+        presence.setEnabled(settings.notifications.discordPresence)
+        void widget?.configure(settings)
+      },
       backgroundReady: firstPaint,
     })
+    widget = new AriaWidget({
+      invoke: handle.invoke,
+      openSettings: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) openSpeechSettings(mainWindow.webContents)
+      },
+    })
+    // A hidden helper must not keep Ari alive after its main window was closed.
+    mainWindow.once('closed', () => widget?.destroyWindow())
     void getSettingsStore()
       .load()
       .catch((error: unknown) => log.warn('settings load failed', { error }))
-      .then(() => presence.setEnabled(getSettingsStore().current.notifications.discordPresence))
+      .then(() => {
+        presence.setEnabled(getSettingsStore().current.notifications.discordPresence)
+        return widget?.configure(getSettingsStore().current)
+      })
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      if (!mainWindow || mainWindow.isDestroyed()) {
         mainWindow = createMainWindow()
-        registerRpc(mainWindow.webContents)
+        const handle = registerRpc(mainWindow.webContents, {
+          onSettingsChanged: (settings) => {
+            presence.setEnabled(settings.notifications.discordPresence)
+            void widget?.configure(settings)
+          },
+        })
+        widget?.close()
+        widget = new AriaWidget({
+          invoke: handle.invoke,
+          openSettings: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) openSpeechSettings(mainWindow.webContents)
+          },
+        })
+        mainWindow.once('closed', () => widget?.destroyWindow())
+        void widget.configure(getSettingsStore().current)
       }
     })
   })
 
+  app.on('before-quit', () => widget?.close())
   app.on('will-quit', () => presence.stop())
 
   app.on('window-all-closed', () => {
