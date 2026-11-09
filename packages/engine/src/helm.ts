@@ -6,6 +6,8 @@ import {
   HELM_SESSION_TITLE_CHARS,
   type HelmProjectContext,
   type HelmSessionRow,
+  isHelmSession,
+  isHelmProjectLead,
 } from '@ari/contracts/helm'
 import type { SessionListEntry } from './session-store'
 import type { SessionReadModel } from './projection'
@@ -26,6 +28,26 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
     if (origin?.kind !== 'completion' && origin?.kind !== 'question') return null
   }
   return null
+}
+
+/** A new Aria topic inherits reports from project leads whose requester was deleted. */
+export async function helmReportRecipient(
+  store: {
+    load(id: string): Promise<SessionReadModel>
+    listSessions(): Promise<SessionListEntry[]>
+  },
+  model: SessionReadModel,
+  turnId: string,
+): Promise<string | null> {
+  const requester = turnRequester(model, turnId)
+  if (!requester) return null
+  const asked = await store.load(requester).catch(() => null)
+  if (asked?.session) return isHelmSession(asked.session) ? requester : null
+  if (!isHelmProjectLead(model.session)) return null
+  const current = (await store.listSessions())
+    .filter((row) => isHelmSession(row) && !row.archived)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  return current?.id ?? null
 }
 
 /** Where a session stands, from its journal. */

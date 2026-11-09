@@ -32,7 +32,7 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 5
+  version: 6
   hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
@@ -82,10 +82,9 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-// v5 added a botId field for the since-removed Hive bots. The version stays at
-// 5 so existing indexes are still read (their extra botId key is ignored)
-// rather than forcing every session to replay.
-const INDEX_VERSION = 5
+// v6 includes agent choices and lead identity so Aria need not replay journals
+// to resolve project defaults. Older sidecars are repaired once on first read.
+const INDEX_VERSION = 6
 
 /** Longest preview stored in the index. */
 const PREVIEW_MAX_CHARS = 160
@@ -133,7 +132,14 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
       // Says who started a session, so the sidebar can show what Aria began.
       ...(model.session?.createdBy ? { createdBy: model.session.createdBy } : {}),
       ...(model.session
-        ? { driverKind: model.session.driverKind, status: model.session.status }
+        ? {
+            driverKind: model.session.driverKind,
+            status: model.session.status,
+            createdAt: model.session.createdAt,
+            permissionMode: model.session.permissionMode,
+            effort: model.session.effort ?? null,
+            ...(model.session.lead ? { lead: model.session.lead } : {}),
+          }
         : {}),
       modelId: model.session?.modelId ?? null,
       ...(model.session?.role ? { role: model.session.role } : {}),
@@ -191,7 +197,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   return {
-    version: 5,
+    version: INDEX_VERSION,
     hierarchy: hierarchy.data,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],

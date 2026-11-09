@@ -8,7 +8,8 @@
     "./ids": "./src/ids.ts",
     "./jsonl": "./src/jsonl.ts",
     "./logger": "./src/logger.ts",
-    "./diff-parse": "./src/diff-parse.ts"
+    "./diff-parse": "./src/diff-parse.ts",
+    "./paths": "./src/paths.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

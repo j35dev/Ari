@@ -19,8 +19,7 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
-import { turnRequester } from '@ari/engine/helm'
-import { isHelmSession } from '@ari/contracts/helm'
+import { helmReportRecipient } from '@ari/engine/helm'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -708,10 +707,9 @@ export class Engine {
       }
       if (parentId) await this.#append(parentId, settled)
       // Aria hears about every turn it asked for, in any project.
-      const asker = turnRequester(model, event.turnId)
+      const asker = await helmReportRecipient(this.#deps.store, model, event.turnId)
       if (asker !== null && asker !== parentId && asker !== sessionId) {
-        const helm = await this.#deps.store.load(asker).catch(() => null)
-        if (helm?.session && isHelmSession(helm.session)) await this.#append(asker, settled)
+        await this.#append(asker, settled)
       }
     }
     return stamped

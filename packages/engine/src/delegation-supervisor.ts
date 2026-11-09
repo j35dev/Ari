@@ -17,7 +17,7 @@ import {
   routineReport,
   type CompletionReport,
 } from './delegation-state'
-import { turnRequester } from './helm'
+import { helmReportRecipient } from './helm'
 
 const log = createLogger('engine:delegation')
 
@@ -357,11 +357,10 @@ export class DelegationSupervisor {
    */
   async #bubble(sessionId: string): Promise<void> {
     const model = await this.host.store.load(sessionId)
-    const requester = model.lastTurn ? turnRequester(model, model.lastTurn.turnId) : null
     const parentId =
       model.session?.parentSessionId ??
-      (requester && isHelmSession((await this.host.store.load(requester)).session)
-        ? requester
+      (model.lastTurn
+        ? await helmReportRecipient(this.host.store, model, model.lastTurn.turnId)
         : null)
     if (!parentId || model.activeTurnId !== null) return
     const parent = await this.host.store.load(parentId)

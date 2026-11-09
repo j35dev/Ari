@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process'
-import { resolve, sep } from 'node:path'
+import { resolve } from 'node:path'
+import { isWithinRoot } from '@ari/shared/paths'
 
 const MAX_SCROLLBACK = 1024 * 1024
 /**
@@ -143,14 +144,8 @@ export class TerminalService {
 
   /** Waits for shells opened inside a workspace before that directory is removed. */
   async killInWorkspace(root: string): Promise<void> {
-    const key = (path: string): string =>
-      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
-    const target = key(root)
     const ids = [...this.#sessions]
-      .filter(([, session]) => {
-        const cwd = key(session.cwd)
-        return cwd === target || cwd.startsWith(target + sep)
-      })
+      .filter(([, session]) => isWithinRoot(session.cwd, root))
       .map(([id]) => id)
     await Promise.all(ids.map((id) => this.#kill(id, true)))
   }

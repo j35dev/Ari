@@ -282,6 +282,50 @@ it('sweeps only unregistered orphans while preserving live folders and external 
   await expect(manager.release('../external')).rejects.toMatchObject({ code: 'invalid_request' })
 }, 30_000)
 
+it('skips failed repositories without aborting the orphan sweep or losing known registrations', async () => {
+  const project = join(manager.rootDir, root.projectId)
+  const registered = join(project, 'registered')
+  const orphan = join(project, 'orphan')
+  await mkdir(registered, { recursive: true })
+  await mkdir(orphan)
+  const failure = {
+    ok: false as const,
+    error: { code: 'command_failed' as const, message: 'unavailable' },
+  }
+  const isRepo = vi
+    .spyOn(manager.git, 'isRepo')
+    .mockResolvedValueOnce(failure)
+    .mockResolvedValue({ ok: true, value: true })
+  const list = vi
+    .spyOn(manager.git, 'listWorktrees')
+    .mockResolvedValueOnce(failure)
+    .mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          path: registered,
+          head: '',
+          branch: null,
+          bare: false,
+          detached: false,
+        },
+      ],
+    })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    await manager.sweepOrphans(new Set(), ['missing', 'broken', repo])
+    expect(isRepo).toHaveBeenCalledTimes(3)
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect((await fs.lstat(registered)).isDirectory()).toBe(true)
+    await expect(fs.lstat(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    isRepo.mockRestore()
+    list.mockRestore()
+    warn.mockRestore()
+  }
+})
+
 it('prunes snapshots keeping only the current commit', async () => {
   const workspace = await manager.isolate(root, repo, 'child')
   if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')

@@ -31,13 +31,22 @@ export interface ProjectAgentDefaults {
   permissionMode: PermissionMode
 }
 
+export type ProjectAgentSession = Pick<Session, 'projectId'> &
+  Partial<
+    Pick<
+      Session,
+      'driverKind' | 'modelId' | 'effort' | 'permissionMode' | 'createdBy' | 'createdAt'
+    >
+  >
+
 /** Pick from known user choices only; an installed provider is not a preference. */
 export function resolveProjectAgent(input: {
   project: { projectId: string; defaultAgent?: ProjectAgent | null }
   arguments?: Partial<ProjectAgent>
-  sessions: readonly Session[]
+  sessions: readonly ProjectAgentSession[]
   providers: readonly ProjectAgentProvider[]
   app: ProjectAgentDefaults
+  maxPermissionMode?: PermissionMode
 }): ResolvedProjectAgent | null {
   const resolve = (
     candidate: Partial<ProjectAgent>,
@@ -68,11 +77,17 @@ export function resolveProjectAgent(input: {
       (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
     )
     if (!model) return null
+    const modes: PermissionMode[] = ['ask', 'allow-edits', 'full']
+    const permission = candidate.permissionMode ?? input.app.permissionMode
+    const permissionMode =
+      input.maxPermissionMode && input.arguments?.permissionMode === undefined
+        ? modes[Math.min(modes.indexOf(permission), modes.indexOf(input.maxPermissionMode))]!
+        : permission
     return {
       driverKind: candidate.driverKind,
       modelId: model.id,
       effort: candidate.effort ?? null,
-      permissionMode: candidate.permissionMode ?? input.app.permissionMode,
+      permissionMode,
       source,
     }
   }
@@ -92,7 +107,7 @@ export function resolveProjectAgent(input: {
         (!s.createdBy || s.createdBy.kind === 'human') &&
         !isHelmSession(s),
     )
-    .sort((a, b) => b.createdAt - a.createdAt)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
     .slice(0, 10)
   const choices = new Map<string, { agent: ResolvedProjectAgent; count: number }>()
   for (const session of recent) {

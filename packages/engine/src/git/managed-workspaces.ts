@@ -16,6 +16,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { createLogger } from '@ari/shared/logger'
+import { pathKey } from '@ari/shared/paths'
 import { GitService } from './git-service'
 import { branchBelongsToSession, orchestrationBranch } from './orchestration-branch'
 
@@ -23,8 +24,6 @@ const oid = /^[a-f0-9]{40,64}$/
 const component = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const log = createLogger('engine:managed-workspaces')
 const removalOptions = { recursive: true, force: true, maxRetries: 6, retryDelay: 200 } as const
-const comparable = (path: string): string =>
-  process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
 export class ManagedWorkspaces {
@@ -256,12 +255,17 @@ export class ManagedWorkspaces {
     const registered = new Set<string>()
     for (const repo of new Set(repositories)) {
       const inside = await this.git.isRepo(repo)
-      if (!inside.ok)
-        throw new Error(`Could not inspect repository ${repo}: ${inside.error.message}`)
+      if (!inside.ok) {
+        log.warn('orphan sweep skipped repository', { repo, error: inside.error.message })
+        continue
+      }
       if (!inside.value) continue
       const list = await this.git.listWorktrees(repo)
-      if (!list.ok) throw new Error(`Could not list worktrees in ${repo}: ${list.error.message}`)
-      for (const worktree of list.value) registered.add(comparable(worktree.path))
+      if (!list.ok) {
+        log.warn('orphan sweep skipped repository', { repo, error: list.error.message })
+        continue
+      }
+      for (const worktree of list.value) registered.add(pathKey(worktree.path))
     }
     const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
       (error: NodeJS.ErrnoException) => {
@@ -277,7 +281,7 @@ export class ManagedWorkspaces {
         if (!entry.isDirectory() || !component.test(entry.name) || sessionIds.has(entry.name))
           continue
         const path = join(projectPath, entry.name)
-        if (registered.has(comparable(path))) continue
+        if (registered.has(pathKey(path))) continue
         // A removed project's repository may not be in the supplied list.
         // A surviving .git marker keeps it inspectable even when Git fails.
         if (await lstat(join(path, '.git')).catch(() => null)) continue
@@ -359,9 +363,7 @@ export class ManagedWorkspaces {
   async #mainRepo(worktreePath: string): Promise<string | null> {
     const list = await this.git.listWorktrees(worktreePath)
     if (!list.ok) return null
-    const others = list.value.filter(
-      (worktree) => comparable(worktree.path) !== comparable(worktreePath),
-    )
+    const others = list.value.filter((worktree) => pathKey(worktree.path) !== pathKey(worktreePath))
     return (others[0] ?? list.value[0])?.path ?? null
   }
 
@@ -419,14 +421,10 @@ export class ManagedWorkspaces {
         'Managed worktree is missing or relocated.',
       )
     const list = await this.git.listWorktrees(actual)
-    const comparable = (path: string) =>
-      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
     if (
       !list.ok ||
       !list.value.some(
-        (w) =>
-          comparable(w.path) === comparable(actual) &&
-          w.branch === `refs/heads/${workspace.branch}`,
+        (w) => pathKey(w.path) === pathKey(actual) && w.branch === `refs/heads/${workspace.branch}`,
       )
     ) {
       throw new ControlFailure(
