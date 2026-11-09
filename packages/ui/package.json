@@ -34,6 +34,7 @@
     "./scroll-area": "./src/components/ScrollArea.tsx",
     "./skeleton": "./src/components/Skeleton.tsx",
     "./spinner": "./src/components/Spinner.tsx",
+    "./aria-mark": "./src/aria/AriaMark.tsx",
     "./popover": "./src/components/Popover.tsx",
     "./tooltip": "./src/components/Tooltip.tsx",
     "./dialog": "./src/components/Dialog.tsx",
