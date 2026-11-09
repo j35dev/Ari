@@ -118,7 +118,8 @@ export interface ControlHost {
   ): Promise<unknown>
   approve(root: Session): Promise<boolean>
   quiesce?(id: string): Promise<void>
-  revoke?(id: string): void
+  /** Revokes access and waits for parked processes and workspace handles to close. */
+  revoke?(id: string): void | Promise<void>
   release(child: Session): Promise<void>
   /** A `session wait` by this caller ended; undelivered results may now be due. */
   waitEnded?(callerId: string): void
@@ -756,6 +757,7 @@ export class AgentControlService {
             await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })
             await this.host.quiesce?.(id)
           }
+          await this.host.revoke?.(id)
           try {
             await this.host.store.destroy(id)
           } catch (error) {
@@ -767,8 +769,12 @@ export class AgentControlService {
             ))
               throw error
           }
-          await this.host.release({ ...target, id }).catch(() => undefined)
-          this.host.revoke?.(id)
+          await this.host.release(state?.session ?? { ...target, id }).catch((error: unknown) =>
+            log.warn('destroyed session workspace cleanup deferred', {
+              sessionId: id,
+              error: String(error),
+            }),
+          )
           this.#notifyGone(id)
         }
         await this.host.record(caller.id, {

@@ -43,6 +43,7 @@ export interface IdleHandlers {
  */
 export class AcpSessionPool {
   readonly #idle = new Map<string, PooledAcpSession>()
+  readonly #closing = new Map<string, Promise<void>>()
   #timer: ReturnType<typeof setInterval> | null = null
   /** Receives events an agent emits between turns, folded like a turn's. */
   onBackground: ((ariSessionId: string, events: AgentEvent[]) => void) | null = null
@@ -51,7 +52,7 @@ export class AcpSessionPool {
    * with it whatever the agent still ran in the background. Not called when a
    * turn takes the connection back, nor on app quit.
    */
-  onEnded: ((ariSessionId: string) => void) | null = null
+  onEnded: ((ariSessionId: string) => void | Promise<void>) | null = null
 
   constructor(
     private readonly idleMs = IDLE_MS,
@@ -90,7 +91,7 @@ export class AcpSessionPool {
     void connection.waitClosed().then(() => {
       if (this.#idle.get(ariSessionId) !== entry) return
       this.#idle.delete(ariSessionId)
-      this.#ended(ariSessionId)
+      return this.#ended(ariSessionId)
     })
     this.#evict()
     this.#arm()
@@ -103,10 +104,12 @@ export class AcpSessionPool {
   }
 
   /** Ends a session's parked connection, when it is deleted or archived. */
-  release(ariSessionId: string): void {
+  async release(ariSessionId: string): Promise<void> {
+    const closing = this.#closing.get(ariSessionId)
+    if (closing) return closing
     const entry = this.#idle.get(ariSessionId)
     if (!entry) return
-    this.#close(ariSessionId, entry)
+    await this.#close(ariSessionId, entry)
   }
 
   /** Ends every parked connection, for app quit. */
@@ -115,7 +118,10 @@ export class AcpSessionPool {
     this.#idle.clear()
     if (this.#timer) clearInterval(this.#timer)
     this.#timer = null
-    await Promise.all(entries.map((entry) => entry.connection.shutdown().catch(() => undefined)))
+    await Promise.all([
+      ...this.#closing.values(),
+      ...entries.map((entry) => entry.connection.shutdown().catch(() => undefined)),
+    ])
   }
 
   /** How many connections are parked (tests and diagnostics). */
@@ -128,19 +134,26 @@ export class AcpSessionPool {
     for (const [id, entry] of this.#idle) {
       if (now - entry.lastActivity < this.idleMs) continue
       log.info('closing idle agent connection', { ariSessionId: id })
-      this.#close(id, entry)
+      void this.#close(id, entry).catch((error: unknown) =>
+        log.warn('idle agent shutdown failed', { ariSessionId: id, error: String(error) }),
+      )
     }
   }
 
-  #close(ariSessionId: string, entry: PooledAcpSession): void {
+  async #close(ariSessionId: string, entry: PooledAcpSession): Promise<void> {
     this.#idle.delete(ariSessionId)
-    void entry.connection.shutdown()
-    this.#ended(ariSessionId)
+    const task = entry.connection.shutdown().then(() => this.#ended(ariSessionId))
+    this.#closing.set(ariSessionId, task)
+    try {
+      await task
+    } finally {
+      if (this.#closing.get(ariSessionId) === task) this.#closing.delete(ariSessionId)
+    }
   }
 
-  #ended(ariSessionId: string): void {
+  async #ended(ariSessionId: string): Promise<void> {
     try {
-      this.onEnded?.(ariSessionId)
+      await this.onEnded?.(ariSessionId)
     } catch (error) {
       log.warn('onEnded handler failed', { ariSessionId, error: String(error) })
     }
@@ -152,7 +165,9 @@ export class AcpSessionPool {
       for (const pair of this.#idle)
         if (!oldest || pair[1].lastActivity < oldest[1].lastActivity) oldest = pair
       if (!oldest) return
-      this.#close(oldest[0], oldest[1])
+      void this.#close(oldest[0], oldest[1]).catch((error: unknown) =>
+        log.warn('evicted agent shutdown failed', { error: String(error) }),
+      )
     }
   }
 

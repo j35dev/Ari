@@ -123,4 +123,29 @@ describe('live source-control leases', { timeout: 30_000 }, () => {
     live.watch('a', { projectId: 'p' })
     await vi.waitFor(() => expect(frames[0]?.payload).toMatchObject({ error: 'cannot watch' }))
   })
+
+  it('awaits pending Git watcher cleanup when a session workspace is released', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const close = vi.fn(async () => undefined)
+    const watch = vi.fn(async () => {
+      await pending
+      return { ok: true as const, value: close }
+    })
+    const { live } = fixture({ watch, busy: async () => false })
+    live.watch('child-watch', { sessionId: 'child' })
+    await vi.waitFor(() => expect(watch).toHaveBeenCalledOnce())
+    const dropped = live.dropSession('child', [root])
+    expect(close).not.toHaveBeenCalled()
+    finish()
+    await dropped
+    expect(close).toHaveBeenCalledOnce()
+    const abandoned = vi.fn(async () => ({ ok: true as const, value: close }))
+    const other = fixture({ watch: abandoned, busy: async () => false })
+    other.live.watch('pending-scope', { sessionId: 'child' })
+    await other.live.dropSession('child', [root])
+    expect(abandoned).not.toHaveBeenCalled()
+  })
 })

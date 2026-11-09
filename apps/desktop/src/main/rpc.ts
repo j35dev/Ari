@@ -92,6 +92,7 @@ import {
   sameRoot,
   stopWatchingProject,
   watchedFiles,
+  watchers,
 } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
@@ -1128,7 +1129,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   acpSessionPool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
   // A parked process that ends takes its background shells and sub-agents along.
   acpSessionPool.onEnded = (sessionId) => {
-    void engine
+    return engine
       .releaseBackgroundTasks(sessionId, 'The agent process ended')
       .catch((error: unknown) =>
         log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
@@ -1157,8 +1158,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     }
     if (archived) {
       for (const id of parents) {
-        runtime?.revoke(id)
-        acpSessionPool.release(id)
+        if (runtime) await runtime.revoke(id)
+        else await acpSessionPool.release(id)
       }
     }
   }
@@ -1188,7 +1189,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
-        onDrop: (id) => browserMcpHandle?.revoke(id),
+        onDrop: async (id) => {
+          browserMcpHandle?.revoke(id)
+          await acpSessionPool.release(id)
+          const session = (await getSessionStore().load(id)).session
+          const roots: string[] = []
+          if (session?.workspace?.kind === 'managed-worktree') roots.push(session.workspace.path)
+          // A startup retry has no session sidecar left to name its workspace.
+          const managedRoot = join(app.getPath('userData'), 'worktrees')
+          for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
+            () => [],
+          )) {
+            if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
+          }
+          for (const root of new Set(roots)) {
+            await terminals.killInWorkspace(root)
+            const key = process.platform === 'win32' ? resolve(root).toLowerCase() : resolve(root)
+            for (const watched of [...watchers.keys()]) {
+              if (watched === key || watched.startsWith(key + sep))
+                await stopWatchingProject(watched)
+            }
+          }
+          await sourceControlLive.dropSession(id, roots)
+        },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
         projectAgentDefaults: () => ({
@@ -1714,7 +1737,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
         await engine.quiesce(id)
       }
-      acpSessionPool.release(id)
+      if (runtime) await runtime.revoke(id)
+      else await acpSessionPool.release(id)
       await store.destroy(id)
       await runtime?.release(id)
     }
@@ -2709,8 +2733,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { subscribed: true }
   })
 
-  r.register('stream.unsubscribe', (params) => {
-    sourceControlLive.unwatch(params.id)
+  r.register('stream.unsubscribe', async (params) => {
+    await sourceControlLive.unwatch(params.id)
     rpcRegistry.unsubscribe(params.id)
     return { unsubscribed: true }
   })
