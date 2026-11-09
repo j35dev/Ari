@@ -88,6 +88,11 @@ describe('controlCliApproval', () => {
 describe('Aria commands', () => {
   it('runs project and session lookups without a prompt', () => {
     expect(isSafeControlCommand('ari project ask proj_1 "Fix login" --key login')).toBe(true)
+    expect(
+      isSafeControlCommand(
+        'ari project create --name "Garden planner" --path "D:/Projects/garden" --key garden',
+      ),
+    ).toBe(true)
     expect(isSafeControlCommand('ari project default proj_1 --agent claude --model opus')).toBe(
       false,
     )

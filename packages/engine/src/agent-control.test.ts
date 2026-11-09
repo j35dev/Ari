@@ -126,6 +126,55 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+it('creates projects for Aria only and persists idempotent results across runtime restarts', async () => {
+  const aria = { ...root, id: 'aria', projectId: 'helm' }
+  await store.append(aria.id, { type: 'session.created', session: aria })
+  let calls = 0
+  host.createProject = async (input) => {
+    calls++
+    return { projectId: 'new-project', name: input.name, path: input.path ?? dir, created: true }
+  }
+  const params = { name: 'Garden', path: dir, idempotencyKey: 'garden' }
+  expect(await service.invoke('root', 'projects.create', params)).toMatchObject({
+    ok: false,
+    error: { code: 'scope_denied' },
+  })
+  expect(calls).toBe(0)
+  const results = await Promise.all(
+    Array.from({ length: 3 }, () => service.invoke('aria', 'projects.create', params)),
+  )
+  expect(results[0]).toEqual({
+    ok: true,
+    result: { projectId: 'new-project', name: 'Garden', path: dir, created: true },
+  })
+  expect(results.every((result) => JSON.stringify(result) === JSON.stringify(results[0]))).toBe(
+    true,
+  )
+  expect(await new AgentControlService(host).invoke('aria', 'projects.create', params)).toEqual(
+    results[0],
+  )
+  expect(calls).toBe(1)
+  expect(
+    await service.invoke('aria', 'projects.create', { ...params, name: 'Other' }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+})
+
+it('rejects invalid project creation input and reports hosts without project creation support', async () => {
+  await store.append('aria', {
+    type: 'session.created',
+    session: { ...root, id: 'aria', projectId: 'helm' },
+  })
+  expect(
+    await service.invoke('aria', 'projects.create', { name: ' ', idempotencyKey: 'empty' }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+  expect(
+    await service.invoke('aria', 'projects.create', {
+      name: 'Garden',
+      idempotencyKey: 'unsupported',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+})
+
 it('deduplicates concurrent spawn retries and sends the assignment exactly once', async () => {
   const replies = await Promise.all(
     Array.from({ length: 5 }, () => service.invoke('root', 'session.spawn', spawn)),

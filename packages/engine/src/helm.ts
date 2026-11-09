@@ -214,7 +214,7 @@ export async function helmSnapshot(
   const lastViewed = others.find((project) => project.lastViewed)
   const projectBlock =
     others.length === 0
-      ? 'Projects: none yet. Ask the user to add a project folder in Ari.'
+      ? 'Projects: none yet. Use `ari project create` when the user asks to build something new.'
       : `Projects:\n${others.slice(0, HELM_MAX_PROJECTS).map(projectLine).join('\n')}${others.length > HELM_MAX_PROJECTS ? `\n(${others.length - HELM_MAX_PROJECTS} more; use ari projects to list all.)` : ''}`
   return [
     "[Ari now: the live state of the user's projects, added automatically by Ari for Aria. The user does not see this.]",
