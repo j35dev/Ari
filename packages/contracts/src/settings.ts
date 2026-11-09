@@ -158,8 +158,17 @@ const defaultAppearance = {
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
 const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
 
+export const speechSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  modelId: z.string().nullable().default(null),
+  modelPath: z.string().nullable().default(null),
+  // Empty in older files means use the host's default chord.
+  shortcut: z.string().trim().max(80).default(''),
+})
+
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  speech: speechSettingsSchema.default(() => speechSettingsSchema.parse({})),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
@@ -266,6 +275,15 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  speech: z
+    .object({
+      enabled: z.boolean(),
+      modelId: z.string().nullable(),
+      modelPath: z.string().nullable(),
+      shortcut: z.string().trim().max(80),
+    })
+    .partial()
+    .optional(),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
@@ -350,6 +368,7 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  speech: speechSettingsSchema.parse({}),
   delegation: delegationSettingsSchema.parse({}),
   version: 1,
   appearance: { ...defaultAppearance },

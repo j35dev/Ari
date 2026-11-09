@@ -10,9 +10,11 @@ import { defaultSettings } from '@ari/contracts/settings'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  subscribe: vi.fn(() => () => undefined),
 }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+vi.mock('../speech/useSpeech', () => ({ useSpeech: () => ({ status: { ready: false } }) }))
 
 describe('Composer', () => {
   it('sends trimmed text on click and clears the field', async () => {
