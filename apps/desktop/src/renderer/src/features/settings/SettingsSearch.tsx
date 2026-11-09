@@ -21,6 +21,12 @@ export interface SettingsIndexEntry {
  */
 export const SETTINGS_SEARCH_INDEX = [
   {
+    section: 'settings-speech',
+    label: 'Speech to text',
+    keywords:
+      'speech microphone dictate dictation handy whisper parakeet model download shortcut hold talk',
+  },
+  {
     section: 'settings-appearance',
     label: 'Theme',
     keywords: 'theme accent light dark preview appearance',

@@ -13,7 +13,18 @@ onlyBuiltDependencies:
   - electron
   - electron-winstaller
   - esbuild
+  - koffi
 allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  koffi: true
+
+# The speech binding is JavaScript. Native inference is installed on
+# demand into userData, never collected as a production dependency.
+overrides:
+  'transcribe-cpp>@transcribe-cpp/darwin-x64-cpu': '-'
+  'transcribe-cpp>@transcribe-cpp/darwin-arm64-metal': '-'
+  'transcribe-cpp>@transcribe-cpp/linux-x64-cpu-vulkan': '-'
+  'transcribe-cpp>@transcribe-cpp/win32-x64-cpu-vulkan': '-'
+  'transcribe-cpp>@transcribe-cpp/linux-arm64-cpu-vulkan': '-'

@@ -1,0 +1,32 @@
+﻿[
+  {
+    "filename": "transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz",
+    "size": 18137415,
+    "sha256": "3671d8a07e256642d6bb38cc05ad8bbe88c76f814aeb704d1f8b57c61010db02",
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz"
+  },
+  {
+    "filename": "transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz",
+    "size": 22561707,
+    "sha256": "4b58e80c63d7f2b531b4e844b94c0703593f48a5be6afd829389cdda14a13edf",
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz"
+  },
+  {
+    "filename": "transcribe-native-0.4.1-macos-arm64-metal.tar.gz",
+    "size": 2491746,
+    "sha256": "7369e36dc2a5fc5d52eee5766fa03ad22d3f533c8688bf1deccf3ffdc202ea24",
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-arm64-metal.tar.gz"
+  },
+  {
+    "filename": "transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz",
+    "size": 1619231,
+    "sha256": "513a3976a2f0ebc0666c9670551e96c226e39ed14090a51f2efa0874f41258d8",
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz"
+  },
+  {
+    "filename": "transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz",
+    "size": 18052295,
+    "sha256": "272eb97795048ccb557c85bb9dd44c9e530e1c928443114c39816a8a5f76269d",
+    "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz"
+  }
+]
