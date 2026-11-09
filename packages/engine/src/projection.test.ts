@@ -25,6 +25,65 @@ function ev(seq: number, partial: UnstampedEvent): JournalEvent {
 }
 
 describe('session projection', () => {
+  it('replays switches, discards stale refs, and consumes the handoff once', () => {
+    const events = [
+      ev(0, { type: 'session.created', session: { ...session, projectId: 'helm' } }),
+      ev(1, { type: 'session.ref.observed', ref: 'claude-old' }),
+      ev(2, { type: 'turn.started', turnId: 'running' }),
+      ev(3, {
+        type: 'session.provider.switched',
+        driverKind: 'opencode',
+        modelId: 'new',
+        effort: null,
+        afterTurnId: 'running',
+        afterMessageId: null,
+      }),
+      ev(4, { type: 'session.ref.observed', ref: 'claude-late', contextSeq: 0 }),
+    ]
+    const switched = projectEvents(events)
+    expect(switched.providerSessionId).toBeNull()
+    expect(switched.providerContextSeq).toBe(3)
+    expect(switched.providerHandoffPending).toBe(true)
+    expect(switched.providerSwitches).toEqual([events[3]])
+    expect(switched.activeTurnId).toBe('running')
+    const next = applyEvent(switched, ev(5, { type: 'turn.started', turnId: 'next' }))
+    expect(next.providerHandoffPending).toBe(true)
+    expect(
+      applyEvent(next, ev(6, { type: 'session.provider.context.started', contextSeq: 3 }))
+        .providerHandoffPending,
+    ).toBe(false)
+    expect(
+      applyEvent(next, ev(6, { type: 'session.provider.context.started', contextSeq: 0 }))
+        .providerHandoffPending,
+    ).toBe(true)
+    expect(
+      applyEvent(next, ev(6, { type: 'session.ref.observed', ref: 'opencode-new', contextSeq: 3 }))
+        .providerSessionId,
+    ).toBe('opencode-new')
+    const back = applyEvent(
+      next,
+      ev(7, {
+        type: 'session.provider.switched',
+        driverKind: 'claude',
+        modelId: 'opus',
+        effort: 'high',
+        afterTurnId: 'next',
+        afterMessageId: null,
+      }),
+    )
+    expect(back.providerSessionId).toBeNull()
+    expect(
+      applyEvent(back, ev(8, { type: 'session.ref.observed', ref: 'claude-old' }))
+        .providerSessionId,
+    ).toBeNull()
+    expect(
+      applyEvent(back, ev(9, { type: 'session.ref.observed', ref: 'opencode-late', contextSeq: 3 }))
+        .providerSessionId,
+    ).toBeNull()
+    expect(applyEventToDraft(initialReadModel(), events[0]!)).toEqual(projectEvents([events[0]!]))
+    expect(events.reduce(applyEvent, initialReadModel())).toEqual(switched)
+  })
+
   it('starts empty and folds session.created', () => {
     let state = initialReadModel()
     expect(state.status).toBe('unknown')

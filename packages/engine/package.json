@@ -17,6 +17,7 @@
     "./dispatcher": "./src/dispatcher.ts",
     "./title": "./src/title.ts",
     "./projection": "./src/projection.ts",
+    "./provider-context": "./src/provider-context.ts",
     "./session-store": "./src/session-store.ts",
     "./settings": "./src/settings.ts",
     "./projects": "./src/projects.ts",
