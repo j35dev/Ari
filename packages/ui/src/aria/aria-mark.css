@@ -1,0 +1,84 @@
+.ari-aria-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.ari-aria-mark-frame {
+  fill: var(--ari-fg-muted);
+}
+
+.ari-aria-mark-face {
+  fill: var(--ari-fg);
+}
+
+.ari-aria-mark-ink {
+  fill: var(--ari-bg);
+}
+
+.ari-aria-mark-eyes {
+  transform-box: view-box;
+  transform-origin: 8px 7px;
+}
+
+.ari-aria-mark[data-state='idle'] .ari-aria-mark-eyes {
+  animation: ari-aria-pixel-blink 5.8s steps(1, end) infinite;
+}
+
+.ari-aria-mark[data-state='thinking'] .ari-aria-mark-eyes {
+  transform: translate(1px, -1px);
+  animation: ari-aria-pixel-glance 3.4s steps(1, end) infinite;
+}
+
+.ari-aria-mark[data-state='working'] .ari-aria-mark-tuft {
+  transform: translateY(-1px);
+  animation: ari-aria-pixel-twitch 1.8s steps(1, end) infinite;
+}
+
+.ari-aria-mark[data-state='attention'] .ari-aria-mark-frame {
+  fill: var(--ari-accent);
+}
+
+.ari-aria-mark[data-state='attention'] .ari-aria-mark-tuft {
+  transform: translateY(-1px);
+}
+
+@keyframes ari-aria-pixel-blink {
+  0%,
+  92%,
+  98%,
+  100% {
+    opacity: 1;
+  }
+  94%,
+  96% {
+    opacity: 0;
+  }
+}
+
+@keyframes ari-aria-pixel-glance {
+  0%,
+  100% {
+    transform: translate(1px, -1px);
+  }
+  50% {
+    transform: translate(1px, 0);
+  }
+}
+
+@keyframes ari-aria-pixel-twitch {
+  0%,
+  100% {
+    transform: translateY(-1px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-aria-mark[data-state] .ari-aria-mark-eyes,
+  .ari-aria-mark[data-state] .ari-aria-mark-tuft {
+    animation: none;
+  }
+}
