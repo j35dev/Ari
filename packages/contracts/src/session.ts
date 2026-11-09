@@ -84,7 +84,6 @@ export const sessionHierarchySummarySchema = sessionSchema
     createdAt: true,
     permissionMode: true,
     effort: true,
-    lead: true,
     driverKind: true,
     modelId: true,
     status: true,
@@ -92,6 +91,7 @@ export const sessionHierarchySummarySchema = sessionSchema
   })
   .partial()
   .extend({
+    lead: z.boolean().optional(),
     workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
     branch: z.string().nullable().optional(),
   })

@@ -11,7 +11,7 @@ import type {
   StoredProject,
 } from '@ari/contracts/project'
 import type { Session } from '@ari/contracts/session'
-import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import { exceedsPermission, type DriverKind, type PermissionMode } from '@ari/contracts/common'
 import { isHelmSession } from '@ari/contracts/helm'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
@@ -77,11 +77,12 @@ export function resolveProjectAgent(input: {
       (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
     )
     if (!model) return null
-    const modes: PermissionMode[] = ['ask', 'allow-edits', 'full']
     const permission = candidate.permissionMode ?? input.app.permissionMode
     const permissionMode =
-      input.maxPermissionMode && input.arguments?.permissionMode === undefined
-        ? modes[Math.min(modes.indexOf(permission), modes.indexOf(input.maxPermissionMode))]!
+      input.maxPermissionMode &&
+      input.arguments?.permissionMode === undefined &&
+      exceedsPermission(permission, input.maxPermissionMode)
+        ? input.maxPermissionMode
         : permission
     return {
       driverKind: candidate.driverKind,
