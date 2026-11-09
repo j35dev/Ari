@@ -81,7 +81,7 @@ it('creates a real managed worktree using native policy, approval and durable re
   const host: ControlHost = {
     store,
     version: 'test',
-    policy: () => delegationSettingsSchema.parse({ enabled }),
+    policy: () => delegationSettingsSchema.parse({ enabled, approvalMode: 'first-per-root' }),
     providers: async () => [
       { driverKind: 'claude', available: true, models: [{ id: 'model-a', label: 'A' }] },
     ],
