@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -2812,6 +2812,15 @@ describe('SessionView settle sound', () => {
 })
 
 describe('SessionView delegated work', () => {
+  const CHILD = {
+    id: 'child_1',
+    title: 'Parser worker',
+    projectId: PROJECT.id,
+    parentSessionId: SESSION.id,
+    status: 'idle' as const,
+    updatedAt: 1,
+    messageCount: 0,
+  }
   const TASK = {
     sessionId: 'child_1',
     parentSessionId: 'sess_1',
@@ -2909,7 +2918,7 @@ describe('SessionView delegated work', () => {
     replay(6, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed' })
   }
 
-  it('shows a task card where the child was spawned, with its report', async () => {
+  it('keeps transcript and composer child navigation without a Work sidebar', async () => {
     const open = vi.fn()
     render(
       <ToastProvider>
@@ -2918,6 +2927,7 @@ describe('SessionView delegated work', () => {
           defaults={DEFAULTS}
           onDefaultsChange={() => undefined}
           onOpenSession={open}
+          childSessions={[CHILD]}
         />
       </ToastProvider>,
     )
@@ -2930,8 +2940,67 @@ describe('SessionView delegated work', () => {
     const reply = screen.getByText('Delegated the parser.')
     expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(invokeMock.mock.calls.filter(([method]) => method === 'session.tasks')).toHaveLength(1)
+    expect(invokeMock.mock.calls.some(([method]) => method === 'orchestration.view')).toBe(false)
+    expect(screen.queryByRole('button', { name: 'Work' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Work details' })).not.toBeInTheDocument()
+    const editor = screen.getByLabelText('Message')
+    await userEvent.clear(editor)
+    await userEvent.type(editor, 'Keep the composer draft')
+    await userEvent.click(screen.getByRole('button', { name: 'Child sessions' }))
+    const children = screen.getByRole('list', { name: 'Child sessions' })
+    await userEvent.click(within(children).getByRole('button', { name: /Parser worker/ }))
+    expect(open).toHaveBeenCalledWith('child_1')
+    expect(screen.getByLabelText('Message')).toBe(editor)
+    expect(editor).toHaveValue('Keep the composer draft')
     await userEvent.click(card)
     expect(open).toHaveBeenCalledWith('child_1')
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps child approvals and stop-all in the composer while the parent is idle', async () => {
+    const open = vi.fn()
+    const original = invokeMock.getMockImplementation()!
+    let finishStop!: (value: unknown) => void
+    const stopping = new Promise((resolve) => {
+      finishStop = resolve
+    })
+    invokeMock.mockImplementation((method, params) =>
+      method === 'orchestration.stop' ? stopping : original(method, params),
+    )
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          onOpenSession={open}
+          childSessions={[CHILD]}
+          activityOf={() => ({ phase: 'paused', startedAt: 1, pauseReason: 'approval' })}
+        />
+      </ToastProvider>,
+    )
+    await screen.findByLabelText('Message')
+    emitReplayDone()
+    expect(screen.getByRole('button', { name: 'Child sessions' })).toHaveTextContent(
+      'Parser worker needs you',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(open).toHaveBeenCalledWith('child_1')
+    await userEvent.click(screen.getByRole('button', { name: 'Stop all' }))
+    expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled()
+    expect(invokeMock).toHaveBeenCalledWith('orchestration.stop', {
+      sessionId: 'sess_1',
+      tree: true,
+      idempotencyKey: expect.stringMatching(/^work_/),
+    })
+    await act(async () => {
+      finishStop({ stopped: ['child_1'] })
+      await stopping
+    })
+    expect(screen.getByRole('button', { name: 'Stop all' })).toBeEnabled()
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    expect(screen.queryByRole('button', { name: 'Stop all' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
   })
 
   it('does not offer to resend a turn that Ari started with a delegation update', async () => {
