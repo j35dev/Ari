@@ -44,16 +44,32 @@ it('polls the level only while listening and clears the poll on release and unmo
     await Promise.resolve()
   })
   expect(vi.getTimerCount()).toBe(1)
+  const meter = () => document.querySelector('.aria-level i') as HTMLElement
+  expect(meter().style.transform).toBe('scaleY(0.15)')
   await act(async () => {
-    receive({ ...hidden, id: 1, phase: 'transcribing' })
-    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(50)
   })
-  expect(vi.getTimerCount()).toBe(0)
+  expect(meter().style.transform).not.toBe('scaleY(0.15)')
   await act(async () => {
     receive({ ...hidden, id: 2, phase: 'listening' })
     await Promise.resolve()
   })
+  expect(meter().style.transform).toBe('scaleY(0.15)')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(50)
+  })
+  expect(meter().style.transform).not.toBe('scaleY(0.15)')
+  await act(async () => {
+    receive({ ...hidden, id: 2, phase: 'transcribing' })
+    await Promise.resolve()
+  })
+  expect(vi.getTimerCount()).toBe(0)
+  await act(async () => {
+    receive({ ...hidden, id: 3, phase: 'listening' })
+    await Promise.resolve()
+  })
   expect(vi.getTimerCount()).toBe(1)
+  expect(meter().style.transform).toBe('scaleY(0.15)')
   cleanup()
   expect(vi.getTimerCount()).toBe(0)
 })

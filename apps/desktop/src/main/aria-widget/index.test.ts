@@ -16,6 +16,8 @@ const mock = vi.hoisted(() => ({
   appEvents: new Map<string, () => void>(),
   start: vi.fn(),
   stop: vi.fn(),
+  load: vi.fn(async () => undefined),
+  autoReady: true,
 }))
 
 vi.mock('electron', () => ({
@@ -52,9 +54,10 @@ vi.mock('electron', () => ({
     })
     constructor(readonly options: unknown) {
       mock.windows.push(this)
-      queueMicrotask(() =>
-        mock.handlers.get('ari:ariaWidget.ready')?.({ sender: this.webContents }),
-      )
+      if (mock.autoReady)
+        queueMicrotask(() =>
+          mock.handlers.get('ari:ariaWidget.ready')?.({ sender: this.webContents }),
+        )
     }
     isDestroyed(): boolean {
       return this.destroyed
@@ -69,10 +72,11 @@ vi.mock('electron', () => ({
     setAlwaysOnTop = vi.fn()
     setVisibleOnAllWorkspaces = vi.fn()
     once(event: string, callback: () => void): void {
+      this.events.set(event, callback)
       if (event === 'closed') this.closed = callback
     }
-    loadFile = async (): Promise<void> => undefined
-    loadURL = async (): Promise<void> => undefined
+    loadFile = mock.load
+    loadURL = mock.load
     destroy(): void {
       this.destroyed = true
       this.closed?.()
@@ -111,6 +115,8 @@ beforeEach(() => {
   mock.appEvents.clear()
   mock.start.mockClear()
   mock.stop.mockClear()
+  mock.load.mockReset().mockResolvedValue(undefined)
+  mock.autoReady = true
 })
 afterEach(() => {
   widget?.close()
@@ -198,23 +204,140 @@ it('hands off the current release once, ignoring repeated and cancelled results'
   expect(dispatch).toHaveBeenCalledOnce()
 })
 
-it.each(['lock-screen', 'suspend', 'browser-window-blur'])(
-  'clears input and cancels recording on %s',
+it.each(['lock-screen', 'suspend'])('clears input and cancels recording on %s', async (event) => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.(key(57))
+  mock.powerEvents.get(event)?.()
+  expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'hidden' }),
+  )
+  mock.keys.get('keydown')?.({ ...key(57), ctrlKey: false })
+  expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(1)
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(1)
+  mock.keys.get('keyup')?.(key(57))
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(2)
+})
+
+it.each(['browser-window-blur', 'lock-screen', 'suspend'])(
+  'preserves released dictation through transcription and sending on %s',
   async (event) => {
-    widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+    let opened!: (value: { sessionId: string }) => void
+    const dispatch = vi.fn(async () => ({ accepted: true }))
+    widget = new AriaWidget({
+      invoke: async (method) => {
+        if (method === 'speech.status') return { ready: true }
+        if (method === 'aria.open')
+          return new Promise((resolve) => {
+            opened = resolve
+          })
+        return dispatch()
+      },
+      openSettings: vi.fn(),
+    })
     await widget.configure(configured)
+    const emit = () =>
+      (event === 'browser-window-blur' ? mock.appEvents : mock.powerEvents).get(event)?.()
     mock.keys.get('keydown')?.(key(57))
-    ;(event === 'browser-window-blur' ? mock.appEvents : mock.powerEvents).get(event)?.()
-    expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
+    if (event === 'browser-window-blur') {
+      expect(mock.appEvents.has(event)).toBe(false)
+      emit()
+      expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+        'ari:ariaWidget.state',
+        expect.objectContaining({ phase: 'listening' }),
+      )
+    }
+    mock.keys.get('keyup')?.(key(57))
+    const sender = mock.windows[0]!.webContents
+    emit()
+    expect(sender.send).toHaveBeenLastCalledWith(
       'ari:ariaWidget.state',
-      expect.objectContaining({ phase: 'hidden' }),
+      expect.objectContaining({ phase: 'transcribing' }),
     )
-    mock.keys.get('keydown')?.({ ...key(57), ctrlKey: false })
-    expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(1)
-    mock.keys.get('keydown')?.(key(57))
-    expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(2)
+    const sending = mock.handlers.get('ari:ariaWidget.complete')!(
+      { sender },
+      { id: 1, text: 'Keep this' },
+    )
+    emit()
+    opened({ sessionId: 'aria' })
+    await sending
+    expect(dispatch).toHaveBeenCalledOnce()
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'sent' }),
+    )
   },
 )
+
+it('transcribes when a later event reveals a missed modifier release', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.(key(57))
+  mock.keys.get('keydown')?.({ ...key(30), ctrlKey: false })
+  expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'transcribing' }),
+  )
+})
+
+it('ignores stale renderer crash, load failure and closed callbacks after replacement', async () => {
+  let rejectLoad!: (error: Error) => void
+  mock.load.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectLoad = reject
+      }),
+  )
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  const old = mock.windows[0]!
+  old.events.get('render-process-gone')!()
+  mock.autoReady = false
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(mock.windows).toHaveLength(2)
+  old.events.get('render-process-gone')!()
+  old.events.get('closed')!()
+  rejectLoad(new Error('old navigation failed'))
+  await Promise.resolve()
+  expect(vi.getTimerCount()).toBe(0)
+  expect(mock.start).toHaveBeenCalledOnce()
+  const replacement = mock.windows[1]!
+  await mock.handlers.get('ari:ariaWidget.ready')!({ sender: replacement.webContents })
+  await Promise.resolve()
+  expect(mock.start).toHaveBeenCalledTimes(2)
+  mock.keys.get('keydown')?.(key(57))
+  expect(replacement.showInactive).toHaveBeenCalledOnce()
+})
+
+it('preserves crash backoff through unrelated settings updates, but re-arms for a shortcut change', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.windows[0]!.events.get('render-process-gone')!()
+  await vi.advanceTimersByTimeAsync(500)
+  await widget.configure({
+    ...configured,
+    appearance: { ...configured.appearance, themeId: 'porcelain' },
+  })
+  await widget.configure(configured)
+  expect(mock.windows).toHaveLength(1)
+  expect(vi.getTimerCount()).toBe(1)
+  await vi.advanceTimersByTimeAsync(499)
+  expect(mock.windows).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(mock.windows).toHaveLength(2)
+  mock.windows[1]!.events.get('render-process-gone')!()
+  await widget.configure({
+    ...configured,
+    speech: { enabled: true, shortcut: 'alt-right' },
+  } as Settings)
+  expect(mock.windows).toHaveLength(3)
+  expect(vi.getTimerCount()).toBe(0)
+  mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
+  expect(mock.windows[2]!.showInactive).toHaveBeenCalledOnce()
+})
 
 it('recreates and re-arms after crashes with increasing backoff, then cancels recovery on disable', async () => {
   widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })

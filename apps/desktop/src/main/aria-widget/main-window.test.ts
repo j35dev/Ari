@@ -8,6 +8,10 @@ it('rebinds RPC and widget callbacks on tray, dock and second-instance reopen', 
     id: ++id,
     destroyed: false,
     minimized: false,
+    paint: (): void => undefined,
+    once(_event: 'ready-to-show', callback: () => void) {
+      this.paint = callback
+    },
     isDestroyed() {
       return this.destroyed
     },
@@ -38,6 +42,10 @@ it('rebinds RPC and widget callbacks on tray, dock and second-instance reopen', 
 
 it('restores a live minimized window without rebinding the widget', () => {
   const window = {
+    paint: (): void => undefined,
+    once(_event: 'ready-to-show', callback: () => void) {
+      this.paint = callback
+    },
     isDestroyed: () => false,
     isMinimized: () => true,
     restore: vi.fn(),
@@ -47,8 +55,43 @@ it('restores a live minimized window without rebinding the widget', () => {
   const bind = vi.fn()
   const windows = new MainWindowLifecycle(() => window, bind)
   windows.ensure()
+  window.paint()
   windows.show()
   expect(bind).toHaveBeenCalledOnce()
   expect(window.restore).toHaveBeenCalledOnce()
   expect(window.focus).toHaveBeenCalledOnce()
+})
+
+it('defers tray and second-instance requests until first paint, including replacement windows', () => {
+  const create = () => ({
+    destroyed: false,
+    paint: (): void => undefined,
+    once(_event: 'ready-to-show', callback: () => void) {
+      this.paint = callback
+    },
+    isDestroyed() {
+      return this.destroyed
+    },
+    isMinimized: () => false,
+    restore: vi.fn(),
+    show: vi.fn(),
+    focus: vi.fn(),
+  })
+  const windows = new MainWindowLifecycle(create, vi.fn())
+  const first = windows.ensure()
+  windows.show()
+  windows.show()
+  expect(first.show).not.toHaveBeenCalled()
+  expect(first.focus).not.toHaveBeenCalled()
+  first.paint()
+  expect(first.show).toHaveBeenCalledOnce()
+  expect(first.focus).toHaveBeenCalledOnce()
+  first.destroyed = true
+  windows.show()
+  const second = windows.ensure()
+  first.paint()
+  expect(second.show).not.toHaveBeenCalled()
+  second.paint()
+  expect(second.show).toHaveBeenCalledOnce()
+  expect(second.focus).toHaveBeenCalledOnce()
 })
