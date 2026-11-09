@@ -30,6 +30,14 @@ it('keeps speech patches default-free and validates PCM bounds', () => {
   expect(rpcParams['speech.select'].safeParse({ modelId: 'one', path: '/two' }).success).toBe(false)
 })
 
+it('accepts recordings beyond five minutes and still rejects empty or invalid PCM', () => {
+  expect(
+    rpcParams['speech.transcribe'].safeParse({ pcm: new Float32Array(16_000 * 360) }).success,
+  ).toBe(true)
+  for (const pcm of [new Float32Array(), [], [NaN], [Infinity], [1.1], [-1.1]])
+    expect(rpcParams['speech.transcribe'].safeParse({ pcm }).success).toBe(false)
+})
+
 it.each(['win32', 'linux', 'darwin'])('migrates old speech shortcuts on %s', (platform) => {
   for (const chord of ['alt+space', 'ctrl+alt+space'])
     expect(migrateSpeechShortcut(chord, platform)).toBe(chord)

@@ -22,8 +22,11 @@ tracking while preserving already released dictations. After a reset, the
 shortcut key must be released or stay quiet for one second before another hold.
 Renderer crashes recover
 with a capped backoff. All main-window
-reopen paths bind fresh RPC and widget services. Timers run only for an active
-state deadline or while recording.
+reopen paths bind fresh RPC and widget services. Recording lasts until release or
+cancellation; listening and transcription have no widget deadline. The speech
+service applies an audio/model-aware failure budget after inference starts,
+without charging queued requests for their wait. Sent and error pills still
+expire, and the renderer meters audio only while recording.
 
 `uiohook-napi` 1.5.5 ships Node-API prebuilds. The builder uses those binaries,
 unpacks the hook and its loader, and preserves both macOS architecture slices.

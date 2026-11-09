@@ -12,8 +12,6 @@ export interface WidgetSnapshot extends WidgetState {
   reducedMotion: boolean
 }
 
-export const RECORDING_LIMIT_MS = 120_000
-export const TRANSCRIPTION_LIMIT_MS = 45_000
 export const SENT_MS = 1_500
 
 /** The hook and recorder can finish in either order; only the current hold may publish. */
@@ -37,7 +35,7 @@ export class HoldToTalk {
     return this.state.phase !== 'hidden'
   }
 
-  down(now: number): boolean {
+  down(_now: number): boolean {
     if (!this.canStart) return false
     this.state = {
       id: this.state.id + 1,
@@ -45,14 +43,16 @@ export class HoldToTalk {
       text: '',
       setup: false,
     }
-    this.deadline = now + RECORDING_LIMIT_MS
+    // A hold ends on release/cancel, not elapsed time. The speech service owns
+    // the audio/model-aware failure budget once transcription actually starts.
+    this.deadline = Infinity
     return true
   }
 
-  up(now: number): void {
+  up(_now: number): void {
     if (this.state.phase !== 'listening') return
     this.state = { ...this.state, phase: 'transcribing' }
-    this.deadline = now + TRANSCRIPTION_LIMIT_MS
+    this.deadline = Infinity
   }
 
   cancel(): void {
@@ -75,8 +75,6 @@ export class HoldToTalk {
 
   tick(now: number): void {
     if (now < this.deadline) return
-    if (this.state.phase === 'listening' || this.state.phase === 'transcribing') {
-      this.error(this.state.id, 'Speech timed out. Try again.', false, now)
-    } else this.cancel()
+    this.cancel()
   }
 }

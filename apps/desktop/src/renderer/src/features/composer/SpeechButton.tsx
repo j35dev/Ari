@@ -51,14 +51,15 @@ export function SpeechButton({
     setState('transcribing')
     try {
       const pcm = await active.stop()
-      if (!pcm.length) return
+      if (!mounted.current || generation.current !== attempt || !pcm.length) return
       const result = await rpc.invoke('speech.transcribe', { pcm })
       if (mounted.current && generation.current === attempt && result.text)
         insert.current(result.text)
     } catch (reason) {
-      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason))
+      if (mounted.current && generation.current === attempt)
+        setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      if (mounted.current) setState('idle')
+      if (mounted.current && generation.current === attempt) setState('idle')
     }
   }
 
@@ -95,7 +96,7 @@ export function SpeechButton({
       recording.current = active
       setState('recording')
     } catch (reason) {
-      if (mounted.current) {
+      if (mounted.current && generation.current === attempt) {
         setError(reason instanceof Error ? reason.message : String(reason))
         setState('idle')
       }

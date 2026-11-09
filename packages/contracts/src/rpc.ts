@@ -947,7 +947,7 @@ export const rpcParams = {
   'speech.transcribe': z.object({
     pcm: z
       .union([z.instanceof(Float32Array), z.array(z.number().finite().min(-1).max(1))])
-      .refine((pcm) => pcm.length > 0 && pcm.length <= 16_000 * 300, 'Record up to five minutes'),
+      .refine((pcm) => pcm.length > 0, 'Recording is empty'),
     language: z.string().max(20).optional(),
   }),
   'settings.update': settingsUpdateSchema,
