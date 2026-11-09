@@ -268,6 +268,69 @@ describe('Aria model picker', () => {
     })
   })
 
+  it.each([
+    { pick: 'model', accepted: false, effort: 'medium' },
+    { pick: 'initial', accepted: false, effort: 'medium' },
+    { pick: 'switch', accepted: true, effort: 'medium' },
+    { pick: 'switch', accepted: true, effort: 'high' },
+  ] as const)(
+    'preserves a later $effort effort update after $pick (accepted: $accepted)',
+    async ({ pick, accepted, effort }) => {
+      const { onPick } = setup(
+        pick === 'model' ? 'project' : 'helm',
+        true,
+        pick === 'initial' ? 'empty' : 'history',
+      )
+      const implementation = rpcMocks.invoke.getMockImplementation()!
+      let finish!: (value: unknown) => void
+      rpcMocks.invoke.mockImplementation((method: string, params?: unknown) => {
+        if (method === 'providers.efforts')
+          return Promise.resolve({
+            efforts: [
+              { id: 'high', label: 'High' },
+              { id: 'medium', label: 'Medium' },
+            ],
+          })
+        const command = (params as { command?: { modelId?: unknown } } | undefined)?.command
+        if (method === 'command.dispatch' && command?.modelId !== undefined)
+          return new Promise((resolve) => {
+            finish = resolve
+          })
+        return implementation(method, params)
+      })
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+      if (pick !== 'model')
+        await user.click(
+          within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Claude'),
+        )
+      await user.click(
+        within(screen.getByRole('listbox', { name: 'Models' })).getByText(
+          pick === 'model' ? 'Other model' : 'Opus',
+        ),
+      )
+      await user.click(await screen.findByRole('button', { name: /Effort:/ }))
+      await user.click(
+        within(screen.getByRole('listbox', { name: 'Effort' })).getByRole('option', {
+          name: effort === 'high' ? 'High' : 'Medium',
+        }),
+      )
+      await act(async () => finish({ accepted, reason: 'Pick rejected' }))
+      expect(
+        screen.getByRole('button', { name: effort === 'high' ? 'Effort: High' : 'Effort: Medium' }),
+      ).toBeVisible()
+      if (accepted) {
+        expect(screen.getByRole('button', { name: /Model: Claude · Opus/ })).toBeVisible()
+        expect(onPick.mock.lastCall).toEqual([{ driverKind: 'claude', modelId: 'opus' }])
+      } else {
+        expect(
+          screen.getByRole('button', { name: /Model: OpenCode · Current model/ }),
+        ).toBeVisible()
+        expect(onPick).toHaveBeenCalledExactlyOnceWith({ effort })
+      }
+    },
+  )
+
   it('lists every ready provider mid-chat for Aria and sends an explicit switch', async () => {
     const { emit } = setup('helm')
     const user = userEvent.setup()

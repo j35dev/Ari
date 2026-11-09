@@ -60,6 +60,35 @@ function workReferences(json: string): string {
   return found.join(', ')
 }
 
+function workInvocation(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    if (value[0] === 'bash' && value[1] === '-lc') return workInvocation(value[2])
+    if (!value.every((arg) => typeof arg === 'string')) return null
+    value = value.join(' ')
+  }
+  if (typeof value !== 'string') return null
+  const command = value.trim()
+  const shell = /^bash\s+-lc\s+(['"])([\s\S]*)\1$/.exec(command)
+  if (shell) return workInvocation(shell[2])
+  const token = /^(?:"([^"]*)"|'([^']*)'|(\S+))\s+([\s\S]*)$/
+  let match = token.exec(command)
+  if (!match) return null
+  let first = match[1] ?? match[2] ?? match[3]
+  let rest = match[4]!
+  if (first === '&') {
+    match = token.exec(rest)
+    if (!match || (match[1] ?? match[2] ?? match[3]) !== '$env:ARI_CLI') return null
+    first = '$ARI_CLI'
+    rest = match[4]!
+  }
+  if (first !== 'ari' && first !== 'ari.cmd' && first !== '$ARI_CLI') return null
+  return /^(?:session\s+(?:spawn|prompt)|project\s+ask|(?:task|orchestration)\s+(?:launch|retry|compare))\b/.test(
+    rest,
+  )
+    ? command
+    : null
+}
+
 function workCall(part: MessagePart, results: ReadonlyMap<string, string>): string {
   if (part.type !== 'tool-call') return ''
   let parsed: unknown
@@ -70,26 +99,12 @@ function workCall(part: MessagePart, results: ReadonlyMap<string, string>): stri
   }
   const args = record(parsed) ?? {}
   const input = record(args.input) ?? args
-  const commandText = (value: unknown): string =>
-    typeof value === 'string'
-      ? value
-      : Array.isArray(value)
-        ? value.filter((entry) => typeof entry === 'string').join(' ')
-        : ''
-  const commands = [input.command, input.cmd, args.input, args.title, part.name, parsed].map(
-    commandText,
+  const command = [input.command, input.cmd, args.input, parsed, args.title, part.name].find(
+    (value) => (typeof value === 'string' && value.trim() !== '') || Array.isArray(value),
   )
-  const workCommand = commands.find((command) =>
-    /(?:\bari(?:\.cmd)?|\$(?:ARI_CLI|env:ARI_CLI))["']?\s+(?:session\s+(?:spawn|prompt)|project\s+ask|(?:task|orchestration)\s+(?:launch|retry|compare))\b/i.test(
-      command,
-    ),
-  )
-  const nativeWork =
-    /(?:session[_.](?:spawn|prompt)|projects?[_.]ask|orchestration[_.](?:launch|retry|compare))$/.test(
-      part.name,
-    )
-  if (!workCommand && !nativeWork) return ''
-  const invocation = compact(workCommand || `${part.name} ${part.argsJson}`, 600)
+  const workCommand = workInvocation(command)
+  if (!workCommand) return ''
+  const invocation = compact(workCommand, 600)
   const identities = [
     ...new Set(
       [workReferences(part.argsJson), workReferences(results.get(part.callId) ?? '')].filter(
@@ -120,8 +135,15 @@ export function conversationHandoff(
       .join('')
       .trim()
     const origin = message.origin
-    const label =
-      message.role === 'assistant'
+    const errorNotice =
+      message.role === 'assistant' &&
+      message.parts.every(
+        (part) =>
+          part.type === 'thinking' || (part.type === 'text' && part.text.startsWith('\n\n⚠ ')),
+      )
+    const label = errorNotice
+      ? 'Provider notice: '
+      : message.role === 'assistant'
         ? 'Aria: '
         : origin?.kind === 'completion'
           ? `Work reports (${origin.sessionIds.join(', ')}): `
@@ -136,8 +158,9 @@ export function conversationHandoff(
       entries.push({
         label,
         text,
-        speaker:
-          message.role === 'assistant'
+        speaker: errorNotice
+          ? null
+          : message.role === 'assistant'
             ? 'aria'
             : !origin || origin.kind === 'human'
               ? 'user'
