@@ -674,12 +674,25 @@ export class AgentControlService {
         const resolved = await this.#projectAgent({ ...project, defaultAgent: agent }, caller, p)
         if (!resolved) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
         if (p.effort !== undefined && p.effort !== 'auto') await this.#effort(resolved, p.effort)
+        // Discovery can outlast a permission or archive change. Authorize the write
+        // against the current caller, without another discovery await in between.
+        const currentCaller = await this.#get(caller.id)
+        if (currentCaller.archived)
+          throw new ControlFailure('scope_denied', 'Restore Aria before saving a project default.')
+        if (exceedsPermission(agent.permissionMode, currentCaller.permissionMode))
+          throw new ControlFailure(
+            'scope_denied',
+            'Aria permissions changed while resolving the project default. The default was not saved.',
+          )
         if (!(await this.host.setProjectDefault(project.projectId, agent)))
           throw new ControlFailure('project_not_found', 'Project not found.')
         return {
           projectId: project.projectId,
           defaultAgent: agent,
-          agent: await this.#projectAgent({ ...project, defaultAgent: agent }, caller),
+          agent: await this.#projectAgent(
+            { ...project, defaultAgent: agent },
+            await this.#get(caller.id),
+          ),
         }
       }
       case 'projects.ask':
