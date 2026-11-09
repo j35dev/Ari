@@ -168,21 +168,33 @@ export function SpeechSettings() {
               Checking…
             </span>
           ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={pending === 'engine'}
-              onClick={() =>
-                void run(
-                  'engine',
-                  status.engineInstallable
-                    ? () => rpc.invoke('speech.engine.download')
-                    : () => Promise.resolve(),
-                )
-              }
-            >
-              {status.engineInstallable ? 'Download engine' : 'Retry'}
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pending === 'engine'}
+                onClick={() =>
+                  void run(
+                    'engine',
+                    status.engineInstallable
+                      ? () => rpc.invoke('speech.engine.download')
+                      : () => rpc.invoke('speech.engine.check'),
+                  )
+                }
+              >
+                {status.engineInstallable ? 'Download engine' : 'Retry'}
+              </Button>
+              {status.engineReinstallable && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending === 'engine'}
+                  onClick={() => void run('engine', () => rpc.invoke('speech.engine.reinstall'))}
+                >
+                  Reinstall engine
+                </Button>
+              )}
+            </>
           )}
         </SettingsRow>
         <SettingsRow

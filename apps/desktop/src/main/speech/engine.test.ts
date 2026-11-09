@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import type * as FsPromises from 'node:fs/promises'
+import type * as TimersPromises from 'node:timers/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -16,7 +17,11 @@ import {
   EngineIoError,
 } from './engine'
 
-const io = vi.hoisted(() => ({ lstat: vi.fn() }))
+const io = vi.hoisted(() => ({ lstat: vi.fn(), delay: vi.fn() }))
+vi.mock('node:timers/promises', async (original) => ({
+  ...(await original<typeof TimersPromises>()),
+  setTimeout: io.delay,
+}))
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof FsPromises>()
   return { ...actual, lstat: io.lstat }
@@ -24,6 +29,7 @@ vi.mock('node:fs/promises', async (original) => {
 beforeEach(async () => {
   const actual = await vi.importActual<typeof FsPromises>('node:fs/promises')
   io.lstat.mockReset().mockImplementation(actual.lstat)
+  io.delay.mockReset().mockResolvedValue(undefined)
 })
 
 const roots: string[] = []
@@ -105,31 +111,50 @@ it('maps only supported Linux architectures', () => {
 
 it('ignores only known OS metadata while verifying manifest files', async () => {
   const { root, release } = await fixture()
+  const verified = vi.fn()
+  await verifyInstalledEngine(root, true, release, verified)
   for (const name of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '._transcribe.dll'])
     await writeFile(join(root, 'native', name), 'metadata')
   expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+  expect(await engineStampMatches(root, verified.mock.calls[0]![0])).toBe(true)
 })
 
 it('rejects unexpected dotfiles and folders instead of skipping their contents', async () => {
   const { root, release } = await fixture()
+  const verified = vi.fn()
+  await verifyInstalledEngine(root, true, release, verified)
   await writeFile(join(root, 'native/.notes'), 'unexpected')
   expect(await verifyInstalledEngine(root, true, release)).toBeNull()
+  expect(await engineStampMatches(root, verified.mock.calls[0]![0])).toBe(false)
   await rm(join(root, 'native/.notes'))
   await mkdir(join(root, 'native/.cache'))
   expect(await verifyInstalledEngine(root, true, release)).toBeNull()
+  expect(await engineStampMatches(root, verified.mock.calls[0]![0])).toBe(false)
 })
 
-it('reports a read failure immediately without retrying or classifying it as a mismatch', async () => {
+it('recovers a transient read error with a short in-function retry', async () => {
   const { root, release } = await fixture()
   io.lstat.mockRejectedValueOnce(Object.assign(new Error('busy'), { code: 'EBUSY' }))
+  expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+  expect(io.delay).toHaveBeenCalledExactlyOnceWith(100)
+})
+
+it.each(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'EIO'])(
+  'stops after three transient read attempts (%s)',
+  async (code) => {
+    const { root, release } = await fixture()
+    io.lstat.mockRejectedValue(Object.assign(new Error('locked'), { code }))
+    await expect(verifyInstalledEngine(root, true, release)).rejects.toBeInstanceOf(EngineIoError)
+    expect(io.lstat).toHaveBeenCalledTimes(3)
+    expect(io.delay.mock.calls).toEqual([[100], [200]])
+  },
+)
+
+it('does not retry non-transient errors or missing files', async () => {
+  const { root, release } = await fixture()
+  io.lstat.mockRejectedValueOnce(Object.assign(new Error('unavailable'), { code: 'EINVAL' }))
   await expect(verifyInstalledEngine(root, true, release)).rejects.toThrow(ENGINE_READ_ERROR)
-  expect(io.lstat).toHaveBeenCalledOnce()
-  io.lstat.mockReset().mockRejectedValue(Object.assign(new Error('locked'), { code: 'EPERM' }))
-  await expect(verifyInstalledEngine(root, true, release)).rejects.toBeInstanceOf(EngineIoError)
-  expect(io.lstat).toHaveBeenCalledOnce()
-  io.lstat.mockClear()
-  await expect(engineStampMatches(root, 'native/ggml.dll:10:0:0')).rejects.toThrow(
-    ENGINE_READ_ERROR,
-  )
-  expect(io.lstat).toHaveBeenCalledOnce()
+  io.lstat.mockRejectedValueOnce(Object.assign(new Error('absent'), { code: 'ENOENT' }))
+  expect(await verifyInstalledEngine(root, true, release)).toBeNull()
+  expect(io.delay).not.toHaveBeenCalled()
 })

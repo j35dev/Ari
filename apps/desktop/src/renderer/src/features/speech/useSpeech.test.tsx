@@ -77,7 +77,7 @@ it('applies status frames immediately without another RPC read', async () => {
   hook.unmount()
 })
 
-it('lets refresh settle after at most one rerun while status frames keep arriving', async () => {
+it('preserves a newer status frame instead of applying the older RPC response', async () => {
   let publish: (frame: SpeechProgress) => void = () => undefined
   mocks.subscribe.mockImplementation((_name, _params, callback) => {
     publish = callback
@@ -107,7 +107,48 @@ it('lets refresh settle after at most one rerun while status frames keep arrivin
     settled = true
   })
   expect(settled).toBe(true)
+  expect(mocks.invoke).toHaveBeenCalledOnce()
+  expect(hook.result.current.status).toMatchObject({ engine: 'ready', ready: true })
+  hook.unmount()
+})
+
+it('ignores a stale second read after a newer frame arrives during a coalesced refresh', async () => {
+  let publish: (frame: SpeechProgress) => void = () => undefined
+  mocks.subscribe.mockImplementation((_name, _params, callback) => {
+    publish = callback
+    return mocks.off
+  })
+  mocks.invoke.mockResolvedValue({ engine: 'missing', model: null, ready: false })
+  const hook = renderHook(() => useSpeech())
+  await act(async () => {
+    await hook.result.current.refresh()
+  })
+  mocks.invoke.mockClear()
+  let finish: (status: unknown) => void = () => undefined
+  mocks.invoke
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockImplementationOnce(async () => {
+      publish({
+        id: 'configuration',
+        phase: 'complete',
+        received: 0,
+        total: 0,
+        status: { engine: 'ready', model: null, ready: true },
+      })
+      return { engine: 'missing', model: null, ready: false }
+    })
+  await act(async () => {
+    const reading = hook.result.current.refresh()
+    const coalesced = hook.result.current.refresh()
+    finish({ engine: 'missing', model: null, ready: false })
+    await Promise.all([reading, coalesced])
+  })
   expect(mocks.invoke).toHaveBeenCalledTimes(2)
-  expect(hook.result.current.status).toMatchObject({ engine: 'missing', ready: false })
+  expect(hook.result.current.status.ready).toBe(true)
   hook.unmount()
 })
