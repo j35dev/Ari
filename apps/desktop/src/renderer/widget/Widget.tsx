@@ -7,7 +7,7 @@ export function Widget(props: {
   onSetup: () => void
 }): React.JSX.Element | null {
   const { state, level, onSetup } = props
-  if (state.phase === 'hidden') return null
+  if (state.phase === 'hidden' || state.phase === 'arming') return null
   const text =
     state.phase === 'listening'
       ? 'Listening'

@@ -4,9 +4,11 @@ The native hook runs only while `settings.speech.enabled` is true and
 `speech.status` reports ready. It observes key events without suppressing them,
 including when Ari has focus. Dictation always goes to the shared Aria thread;
 existing browser and OS actions for the chord still run.
-macOS defaults to holding Right Option alone (`alt-right`). Recording starts on
-press; the pill appears after 250 ms. A short tap or typing another key during
-the hold cancels quietly, so Option character entry is unaffected.
+macOS defaults to holding Right Option alone (`alt-right`). Recording and the
+pill start after 250 ms with no other key or mouse button pressed. A short tap,
+key press, or mouse press/drag during the hold cancels quietly, so Option character
+entry is unaffected. Presses during transcription or while a result pill is
+showing are ignored.
 
 The non-focusable renderer records while held. Releasing the chord stops and
 transcribes; Esc while held cancels. Silence hides quietly. Only the current

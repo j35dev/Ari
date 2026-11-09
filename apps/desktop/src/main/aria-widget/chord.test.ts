@@ -124,8 +124,8 @@ describe('speech chord', () => {
 
   it.each([false, true])('ignores AltGr synthetic left Ctrl with its flag set to %s', (ctrlKey) => {
     const tracker = new ChordTracker(parseChord('alt-right', keys, 'win32')!, keys.Escape)
-    tracker.down(event(keys.Ctrl, { ctrlKey, time: 10 }))
-    expect(tracker.down(event(keys.AltRight, { ctrlKey, altKey: true, time: 10 }))).toBe('down')
+    tracker.down(event(keys.Ctrl, { ctrlKey, time: 10 }), 10)
+    expect(tracker.down(event(keys.AltRight, { ctrlKey, altKey: true, time: 35 }), 35)).toBe('down')
     expect(tracker.down(event(keys.A, { ctrlKey, altKey: true, time: 11 }))).toBe('cancel')
     tracker.up(event(keys.AltRight))
     tracker.up(event(keys.Ctrl))
@@ -133,15 +133,66 @@ describe('speech chord', () => {
 
   it('retains deliberately held Ctrl when it is not the AltGr synthetic event', () => {
     const tracker = new ChordTracker(parseChord('alt-right', keys, 'win32')!, keys.Escape)
-    tracker.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }))
+    tracker.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }), 10)
     expect(
-      tracker.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 100 })),
+      tracker.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 100 }), 100),
     ).toBeNull()
     const ctrlChord = new ChordTracker(parseChord('ctrl+alt-right', keys, 'win32')!, keys.Escape)
-    ctrlChord.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }))
-    expect(ctrlChord.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 10 }))).toBe(
-      'down',
-    )
+    ctrlChord.down(event(keys.Ctrl, { ctrlKey: true, time: 10 }), 10)
+    expect(
+      ctrlChord.down(event(keys.AltRight, { ctrlKey: true, altKey: true, time: 35 }), 35),
+    ).toBe('down')
+  })
+
+  it.each(['key-up', 'key-down', 'mouse'] as const)(
+    'requires the AltGr pair to be consecutive without an intervening %s',
+    (kind) => {
+      const tracker = new ChordTracker(parseChord('alt-right', keys, 'win32')!, keys.Escape)
+      tracker.down(event(keys.Ctrl, { ctrlKey: true }), 0)
+      if (kind === 'key-up') tracker.up(event(keys.A, { ctrlKey: true }))
+      else if (kind === 'key-down') tracker.down(event(keys.A, { ctrlKey: true }), 10)
+      else tracker.mouseMove()
+      expect(tracker.down(event(keys.AltRight, { ctrlKey: true, altKey: true }), 25)).toBeNull()
+    },
+  )
+
+  it('suppresses only closely spaced primary repeats after reset and accepts a hold without key-up', () => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'darwin')!, keys.Escape)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 0)).toBe('down')
+    tracker.reset()
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 120)).toBeNull()
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 241)).toBe('down')
+  })
+
+  it('does not latch a press that was ignored while another dictation was finishing', () => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'darwin')!, keys.Escape)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 0, false)).toBeNull()
+    expect(tracker.down(event(keys.A, { altKey: true }), 10, false)).toBeNull()
+    expect(tracker.down(event(keys.Escape, { altKey: true }), 20, false)).toBeNull()
+    expect(tracker.mouseDown(1)).toBe(false)
+    tracker.mouseUp(1)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 250)).toBeNull()
+    tracker.up(event(keys.AltRight))
+    tracker.up(event(keys.A))
+    tracker.up(event(keys.Escape))
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 300)).toBe('down')
+  })
+
+  it('rejects a modifier hold while another key or a mouse button is already down', () => {
+    const tracker = new ChordTracker(parseChord('alt-right', keys, 'darwin')!, keys.Escape)
+    tracker.down(event(keys.A), 0)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 10)).toBeNull()
+    tracker.up(event(keys.AltRight))
+    tracker.up(event(keys.A))
+    tracker.mouseDown(1)
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 20)).toBeNull()
+    tracker.mouseUp(1)
+    tracker.up(event(keys.AltRight))
+    expect(tracker.down(event(keys.AltRight, { altKey: true }), 30)).toBe('down')
+    expect(tracker.mouseMove()).toBe(false)
+    expect(tracker.mouseDown(1)).toBe(true)
+    expect(tracker.mouseMove()).toBe(true)
+    tracker.mouseUp(1)
   })
 
   it.each(['down', 'up'] as const)(
@@ -173,10 +224,10 @@ describe('speech chord', () => {
 
   it('clears unmatched primary presses across lock then suspend without swallowing a fresh hold', () => {
     const tracker = new ChordTracker(parseChord('ctrl+space', keys, 'win32')!, keys.Escape)
-    expect(tracker.down(event(keys.Space))).toBeNull()
+    expect(tracker.down(event(keys.Space), 0)).toBeNull()
     tracker.reset()
     tracker.reset()
-    expect(tracker.down(event(keys.Space, { ctrlKey: true }))).toBe('down')
+    expect(tracker.down(event(keys.Space, { ctrlKey: true }), 121)).toBe('down')
   })
 
   it('keeps repeat suppression through consecutive resets until the held key is released', () => {
