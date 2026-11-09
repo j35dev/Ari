@@ -15,12 +15,14 @@ it('persists speech selection and merges shortcut updates without losing the mod
       speech: { modelId: 'tiny', modelPath: '/models/tiny.gguf', enabled: true },
     })
     await store.update({ speech: { shortcut: 'ctrl+alt+space' } })
+    await store.update({ speech: { duckAudio: false } })
     const reloaded = await new SettingsStore({ dir }).load()
     expect(reloaded.speech).toEqual({
       modelId: 'tiny',
       modelPath: '/models/tiny.gguf',
       enabled: true,
       shortcut: 'ctrl+alt+space',
+      duckAudio: false,
     })
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -49,6 +51,7 @@ it('replaces a retired shortcut on load and persists the migration without chang
       modelPath: '/models/tiny.gguf',
       enabled: true,
       shortcut: defaultSpeechShortcut(process.platform),
+      duckAudio: true,
     })
     expect(JSON.parse(await readFile(path, 'utf8')).speech.shortcut).toBe(
       defaultSpeechShortcut(process.platform),

@@ -230,6 +230,7 @@ export const speechSettingsSchema = z.object({
   modelPath: z.string().nullable().default(null),
   // Empty in older files means use the host's default chord.
   shortcut: z.string().trim().max(80).default(''),
+  duckAudio: z.boolean().default(true),
 })
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -344,6 +345,7 @@ export const settingsUpdateSchema = z.object({
   speech: z
     .object({
       enabled: z.boolean(),
+      duckAudio: z.boolean(),
       modelId: z.string().nullable(),
       modelPath: z.string().nullable(),
       shortcut: z

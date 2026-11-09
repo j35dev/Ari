@@ -22,7 +22,13 @@ export function resampleMono(
   return output
 }
 
-export async function startRecording(): Promise<{
+export interface RecordingEvents {
+  onReady?(): void
+  onStopped?(): void
+  onError?(error: Error): void
+}
+
+export async function startRecording(events: RecordingEvents = {}): Promise<{
   stop(): Promise<Float32Array>
   cancel(): void
   level(): number
@@ -37,15 +43,28 @@ export async function startRecording(): Promise<{
   let ended = false
   let samples = 0
   let amplitude = 0
+  let ready = false
+  let failure: Error | null = null
   const chunks: Float32Array[] = []
   const cleanup = (): void => {
+    if (ended) return
     ended = true
     amplitude = 0
     if (node) node.port.onmessage = null
     source?.disconnect()
     node?.disconnect()
-    stream.getTracks().forEach((track) => track.stop())
+    stream.getTracks().forEach((track) => {
+      track.removeEventListener('ended', failed)
+      track.stop()
+    })
     if (context) void context.close().catch(() => undefined)
+    events.onStopped?.()
+  }
+  const failed = (): void => {
+    if (ended) return
+    failure = new Error('Microphone capture stopped unexpectedly.')
+    cleanup()
+    events.onError?.(failure)
   }
   try {
     context = new AudioContext()
@@ -53,6 +72,8 @@ export async function startRecording(): Promise<{
     if (context.state === 'suspended') await context.resume()
     source = context.createMediaStreamSource(stream)
     node = new AudioWorkletNode(context, 'ari-speech-recorder')
+    node.addEventListener('processorerror', failed)
+    stream.getTracks().forEach((track) => track.addEventListener('ended', failed))
     const mute = context.createGain()
     mute.gain.value = 0
     source.connect(node)
@@ -67,16 +88,22 @@ export async function startRecording(): Promise<{
         return
       }
       const chunk = event.data.length > remaining ? event.data.slice(0, remaining) : event.data
+      if (!chunk.length) return
       chunks.push(chunk)
       samples += chunk.length
       const power = chunk.reduce((sum, value) => sum + value * value, 0) / chunk.length
       amplitude = Math.min(1, Math.sqrt(power) * 4)
+      if (!ready) {
+        ready = true
+        events.onReady?.()
+      }
     }
     let stopped: Promise<Float32Array> | null = null
     return {
       stop() {
         stopped ??= Promise.resolve().then(() => {
           cleanup()
+          if (failure) throw failure
           const pcm = new Float32Array(samples)
           let at = 0
           for (const chunk of chunks) {

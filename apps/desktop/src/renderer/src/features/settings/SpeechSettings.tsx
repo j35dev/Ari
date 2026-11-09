@@ -37,7 +37,11 @@ export function SpeechSettings() {
   const [pending, setPending] = useState<string | null>(null)
   const [recordingShortcut, setRecordingShortcut] = useState(false)
   const [shortcutError, setShortcutError] = useState<string | null>(null)
-  const platform = /Mac/.test(navigator.platform) ? 'darwin' : 'linux'
+  const platform = /Mac/.test(navigator.platform)
+    ? 'darwin'
+    : /Win/.test(navigator.platform)
+      ? 'win32'
+      : 'linux'
   const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
@@ -250,6 +254,25 @@ export function SpeechSettings() {
           >
             {recordingShortcut ? 'Cancel' : 'Record shortcut'}
           </Button>
+        </SettingsRow>
+        <SettingsRow
+          label="Lower other apps while listening"
+          hint={
+            platform === 'darwin'
+              ? 'Unavailable on macOS. Audio output stays unchanged.'
+              : platform === 'win32'
+                ? 'Aria lowers other apps to 25% of their volume during shortcut dictation, then restores them. Your volume changes are preserved.'
+                : 'Aria lowers playback streams to 25% during shortcut dictation. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
+          }
+        >
+          <Switch
+            aria-label="Lower other apps while listening"
+            checked={settings?.speech.duckAudio ?? true}
+            disabled={platform === 'darwin' || !settings}
+            onCheckedChange={(duckAudio) =>
+              void run('duck-audio', () => update({ speech: { duckAudio } }))
+            }
+          />
         </SettingsRow>
       </SettingsSection>
       <SettingsSection

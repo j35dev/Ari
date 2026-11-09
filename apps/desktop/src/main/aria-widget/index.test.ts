@@ -18,7 +18,10 @@ const mock = vi.hoisted(() => ({
   stop: vi.fn(),
   load: vi.fn(async () => undefined),
   autoReady: true,
+  ducking: vi.fn(),
 }))
+
+vi.mock('../speech/audio-ducking', () => ({ getAudioDucking: () => ({ setActive: mock.ducking }) }))
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -119,11 +122,75 @@ beforeEach(() => {
   mock.stop.mockClear()
   mock.load.mockReset().mockResolvedValue(undefined)
   mock.autoReady = true
+  mock.ducking.mockClear()
 })
 afterEach(() => {
   widget?.close()
   vi.unstubAllGlobals()
   vi.useRealTimers()
+})
+
+it('ducks only after current microphone readiness, restores on release and ignores stale capture callbacks', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.ducking).not.toHaveBeenCalledWith(expect.any(String), true)
+  const sender = mock.windows[0]!.webContents
+  const capture = mock.handlers.get('ari:ariaWidget.capture')!
+  await capture({ sender }, { id: 1, active: true })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), true)
+  mock.keys.get('keyup')?.(key(57))
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
+  await capture({ sender }, { id: 1, active: true })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
+  await mock.handlers.get('ari:ariaWidget.error')!({ sender }, { id: 1, text: 'Failed' })
+  mock.keys.get('keydown')?.(key(57))
+  await capture({ sender }, { id: 2, active: true })
+  await capture({ sender }, { id: 1, active: false })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), true)
+})
+
+it.each(['escape', 'lock-screen', 'suspend', 'error', 'crash', 'close', 'disable', 'quit'])(
+  'restores output on %s during microphone capture',
+  async (end) => {
+    widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+    await widget.configure(configured)
+    mock.keys.get('keydown')?.(key(57))
+    const sender = mock.windows[0]!.webContents
+    await mock.handlers.get('ari:ariaWidget.capture')!({ sender }, { id: 1, active: true })
+    if (end === 'escape') mock.keys.get('keydown')?.(key(1))
+    else if (end === 'lock-screen' || end === 'suspend') mock.powerEvents.get(end)!()
+    else if (end === 'error')
+      await mock.handlers.get('ari:ariaWidget.error')!(
+        { sender },
+        { id: 1, text: 'Microphone failed' },
+      )
+    else if (end === 'crash') mock.windows[0]!.events.get('render-process-gone')!()
+    else if (end === 'close') mock.windows[0]!.events.get('closed')!()
+    else if (end === 'disable') await widget.configure(defaultSettings)
+    else widget.close()
+    expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
+  },
+)
+
+it('applies opt-out immediately without stopping or restarting the held recording', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.(key(57))
+  const sender = mock.windows[0]!.webContents
+  const capture = mock.handlers.get('ari:ariaWidget.capture')!
+  await capture({ sender }, { id: 1, active: true })
+  await widget.configure({ ...configured, speech: { ...configured.speech, duckAudio: false } })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
+  expect(mock.stop).not.toHaveBeenCalled()
+  expect(sender.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'listening' }),
+  )
+  await capture({ sender }, { id: 1, active: true })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
+  await widget.configure({ ...configured, speech: { ...configured.speech, duckAudio: true } })
+  expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), true)
 })
 
 it('starts only for configured and enabled speech and tears down on disable', async () => {

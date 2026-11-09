@@ -24,7 +24,7 @@ export const SETTINGS_SEARCH_INDEX = [
     section: 'settings-speech',
     label: 'Speech to text',
     keywords:
-      'speech microphone dictate dictation handy whisper parakeet model download shortcut hold talk',
+      'speech microphone dictate dictation handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
   },
   {
     section: 'settings-appearance',
