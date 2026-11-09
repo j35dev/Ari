@@ -1,4 +1,5 @@
 import { exec } from 'node:child_process'
+import { resolve, sep } from 'node:path'
 
 const MAX_SCROLLBACK = 1024 * 1024
 /**
@@ -26,11 +27,7 @@ export interface PtySpawnOptions {
   windowsHide: boolean
 }
 
-export type PtyFactory = (
-  file: string,
-  args: string[],
-  options: PtySpawnOptions,
-) => PtyLike
+export type PtyFactory = (file: string, args: string[], options: PtySpawnOptions) => PtyLike
 
 export interface TerminalEvents {
   onData: (id: string, data: string) => void
@@ -54,9 +51,11 @@ export function ptyUnavailableReason(loadError: string | null): string {
     : 'terminal backend still loading'
 }
 
-function killTree(pid: number): void {
+async function killTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
-    exec(`taskkill /PID ${pid} /T /F`, () => undefined)
+    await new Promise<void>((done) => {
+      exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, () => done())
+    })
   } else {
     try {
       process.kill(-pid)
@@ -73,6 +72,7 @@ function killTree(pid: number): void {
 interface Session {
   pty: PtyLike
   scrollback: string
+  cwd: string
 }
 
 /**
@@ -105,13 +105,7 @@ export class TerminalService {
    * A specific program, not a shell. Sign-in uses this so keystrokes are
    * stdin for that program and cannot start another command.
    */
-  spawn(
-    id: string,
-    file: string,
-    args: string[],
-    cwd: string,
-    env: Record<string, string>,
-  ): void {
+  spawn(id: string, file: string, args: string[], cwd: string, env: Record<string, string>): void {
     if (this.#sessions.has(id)) return
     const pty = this.#spawnPty(file, args, {
       name: 'xterm-256color',
@@ -119,7 +113,7 @@ export class TerminalService {
       env,
       windowsHide: true,
     })
-    const session: Session = { pty, scrollback: '' }
+    const session: Session = { pty, scrollback: '', cwd: resolve(cwd) }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -144,17 +138,38 @@ export class TerminalService {
   }
 
   kill(id: string): void {
+    void this.#kill(id)
+  }
+
+  /** Waits for shells opened inside a workspace before that directory is removed. */
+  async killInWorkspace(root: string): Promise<void> {
+    const key = (path: string): string =>
+      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
+    const target = key(root)
+    const ids = [...this.#sessions]
+      .filter(([, session]) => {
+        const cwd = key(session.cwd)
+        return cwd === target || cwd.startsWith(target + sep)
+      })
+      .map(([id]) => id)
+    await Promise.all(ids.map((id) => this.#kill(id, true)))
+  }
+
+  async #kill(id: string, treeFirst = false): Promise<void> {
     const session = this.#sessions.get(id)
     if (!session) return
     this.#sessions.delete(id)
-    // Release the native handle first; the tree kill is the backstop for
-    // orphaned children (killTree alone leaks the ConPTY/file descriptor).
+    // Workspace removal must kill descendants while their parent PID still
+    // exists; a shell exiting first can leave children holding the directory.
+    if (treeFirst) await killTree(session.pty.pid)
+    // Tree shutdown alone leaks the ConPTY/file descriptor; release the
+    // native handle even when its process has already exited.
     try {
       session.pty.kill()
     } catch {
       // already gone
     }
-    killTree(session.pty.pid)
+    if (!treeFirst) await killTree(session.pty.pid)
   }
 
   replay(id: string): string {

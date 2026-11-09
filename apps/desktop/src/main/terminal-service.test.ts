@@ -1,10 +1,19 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
+import type * as childProcess from 'node:child_process'
+import { join, resolve } from 'node:path'
 import {
   TerminalService,
   ptyUnavailableReason,
   type PtyFactory,
   type PtyLike,
 } from './terminal-service'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof childProcess>()
+  const exec = vi.fn((_command: string, _options: unknown, done: () => void) => done())
+  return { ...original, exec, default: { ...original, exec } }
+})
 
 type FakePty = PtyLike & {
   write: ReturnType<typeof vi.fn>
@@ -104,6 +113,19 @@ describe('TerminalService', () => {
     service.create('t4', '.')
     ptys[0]?.emitExit()
     expect(exits).toEqual(['t4'])
+  })
+
+  it('closes only terminals opened inside the released workspace', async () => {
+    const { service, ptys } = makeService()
+    const root = resolve('worktrees', 'child')
+    service.create('root', root)
+    service.create('nested', join(root, 'packages'))
+    service.create('sibling', root + '-other')
+    await service.killInWorkspace(root)
+    expect(ptys[0]?.kill).toHaveBeenCalledOnce()
+    expect(ptys[1]?.kill).toHaveBeenCalledOnce()
+    expect(ptys[2]?.kill).not.toHaveBeenCalled()
+    expect(service.has('sibling')).toBe(true)
   })
 })
 
