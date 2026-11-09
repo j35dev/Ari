@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile, utimes } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile, utimes } from 'node:fs/promises'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -33,7 +33,7 @@ const git = (cwd: string, ...args: string[]) =>
 
 beforeEach(async () => {
   vi.mocked(fs.rm).mockReset().mockImplementation(actualFs.rm)
-  dir = await mkdtemp(join(tmpdir(), 'ari-managed-'))
+  dir = await realpath(await mkdtemp(join(tmpdir(), 'ari-managed-')))
   repo = join(dir, 'parent space')
   await mkdir(repo)
   git(repo, 'init', '-q')
