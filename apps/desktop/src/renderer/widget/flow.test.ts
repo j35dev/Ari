@@ -27,6 +27,8 @@ it('records while held and transcribes once on release', async () => {
   const deps = fake()
   const flow = new RecordingFlow(deps)
   flow.observe(state(1, 'listening'))
+  expect(deps.record).toHaveBeenCalledOnce()
+  expect(deps.invoke).not.toHaveBeenCalled()
   await vi.waitFor(() => expect(flow.level()).toBe(0.1))
   flow.observe(state(1, 'transcribing'))
   flow.observe(state(1, 'transcribing'))
@@ -117,11 +119,17 @@ it('hides silence without calling the transcription service', async () => {
   flow.dispose()
 })
 
-it('shows setup when readiness is lost before recording', async () => {
+it('starts the microphone immediately and shows setup if transcription loses readiness', async () => {
   const deps = fake()
-  deps.invoke = vi.fn(async () => ({ ready: false }))
+  deps.invoke = vi.fn(async (method) => {
+    if (method === 'speech.transcribe') throw new Error('Speech is not configured')
+    return { ready: false }
+  })
   const flow = new RecordingFlow(deps)
   flow.observe(state(1, 'listening'))
+  expect(deps.record).toHaveBeenCalledOnce()
+  expect(deps.invoke).not.toHaveBeenCalled()
+  flow.observe(state(1, 'transcribing'))
   await vi.waitFor(() =>
     expect(deps.invoke).toHaveBeenCalledWith('ariaWidget.error', {
       id: 1,
@@ -129,7 +137,7 @@ it('shows setup when readiness is lost before recording', async () => {
       setup: true,
     }),
   )
-  expect(deps.record).not.toHaveBeenCalled()
+  expect(deps.invoke).toHaveBeenCalledWith('speech.transcribe', { pcm })
   flow.dispose()
 })
 

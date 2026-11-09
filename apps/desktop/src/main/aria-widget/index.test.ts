@@ -10,7 +10,10 @@ const mock = vi.hoisted(() => ({
     webContents: { send: ReturnType<typeof vi.fn>; isDestroyed(): boolean }
     showInactive: ReturnType<typeof vi.fn>
     options: unknown
+    events: Map<string, () => void>
   }[],
+  powerEvents: new Map<string, () => void>(),
+  appEvents: new Map<string, () => void>(),
   start: vi.fn(),
   stop: vi.fn(),
 }))
@@ -21,7 +24,14 @@ vi.mock('electron', () => ({
       mock.handlers.set(channel, handler),
     removeHandler: (channel: string) => mock.handlers.delete(channel),
   },
-  nativeTheme: { on: vi.fn(), removeListener: vi.fn(), shouldUseDarkColors: true },
+  powerMonitor: {
+    on: (event: string, callback: () => void) => mock.powerEvents.set(event, callback),
+    removeListener: (event: string) => mock.powerEvents.delete(event),
+  },
+  app: {
+    on: (event: string, callback: () => void) => mock.appEvents.set(event, callback),
+    removeListener: (event: string) => mock.appEvents.delete(event),
+  },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
     getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
@@ -30,11 +40,12 @@ vi.mock('electron', () => ({
     private closed: (() => void) | null = null
     private destroyed = false
     private visible = false
+    events = new Map<string, () => void>()
     webContents = {
       send: vi.fn(),
       isDestroyed: () => this.destroyed,
       setWindowOpenHandler: vi.fn(),
-      on: vi.fn(),
+      on: (event: string, callback: () => void) => this.events.set(event, callback),
     }
     showInactive = vi.fn(() => {
       this.visible = true
@@ -96,6 +107,8 @@ beforeEach(() => {
   mock.handlers.clear()
   mock.keys.clear()
   mock.windows.length = 0
+  mock.powerEvents.clear()
+  mock.appEvents.clear()
   mock.start.mockClear()
   mock.stop.mockClear()
 })
@@ -162,7 +175,6 @@ it('hands off the current release once, ignoring repeated and cancelled results'
   const invoke = vi.fn(async (method: string) => {
     if (method === 'speech.status') return { ready: true }
     if (method === 'aria.open') return { sessionId: 'aria' }
-    if (method === 'session.load') return { activeTurnId: null }
     return dispatch()
   })
   widget = new AriaWidget({ invoke, openSettings: vi.fn() })
@@ -184,4 +196,77 @@ it('hands off the current release once, ignoring repeated and cancelled results'
   mock.keys.get('keydown')?.(key(1))
   await complete({ sender }, { id: 2, text: 'Cancelled' })
   expect(dispatch).toHaveBeenCalledOnce()
+})
+
+it.each(['lock-screen', 'suspend', 'browser-window-blur'])(
+  'clears input and cancels recording on %s',
+  async (event) => {
+    widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+    await widget.configure(configured)
+    mock.keys.get('keydown')?.(key(57))
+    ;(event === 'browser-window-blur' ? mock.appEvents : mock.powerEvents).get(event)?.()
+    expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'hidden' }),
+    )
+    mock.keys.get('keydown')?.({ ...key(57), ctrlKey: false })
+    expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(1)
+    mock.keys.get('keydown')?.(key(57))
+    expect(mock.windows[0]?.showInactive).toHaveBeenCalledTimes(2)
+  },
+)
+
+it('recreates and re-arms after crashes with increasing backoff, then cancels recovery on disable', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.windows[0]!.events.get('render-process-gone')!()
+  expect(mock.keys.size).toBe(0)
+  await vi.advanceTimersByTimeAsync(999)
+  expect(mock.windows).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(mock.windows).toHaveLength(2)
+  expect(mock.start).toHaveBeenCalledTimes(2)
+  mock.windows[1]!.events.get('render-process-gone')!()
+  await vi.advanceTimersByTimeAsync(1_999)
+  expect(mock.windows).toHaveLength(2)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(mock.windows).toHaveLength(3)
+  mock.windows[2]!.events.get('render-process-gone')!()
+  await widget.configure(defaultSettings)
+  expect(vi.getTimerCount()).toBe(0)
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(mock.windows).toHaveLength(3)
+})
+
+it('arms one deadline only while active and removes all timers and signals on close', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  expect(vi.getTimerCount()).toBe(0)
+  await widget.configure(configured)
+  expect(vi.getTimerCount()).toBe(0)
+  mock.keys.get('keydown')?.(key(57))
+  expect(vi.getTimerCount()).toBe(1)
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect(vi.getTimerCount()).toBe(1)
+  expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'error' }),
+  )
+  await vi.advanceTimersByTimeAsync(6_000)
+  expect(vi.getTimerCount()).toBe(0)
+  widget.close()
+  expect(mock.powerEvents.size).toBe(0)
+  expect(mock.appEvents.size).toBe(0)
+})
+
+it('uses the appearance theme already resolved by the main renderer', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure({
+    ...configured,
+    appearance: { ...configured.appearance, mode: 'system', themeId: 'verdant' },
+  })
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]?.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ theme: 'verdant' }),
+  )
 })

@@ -4,11 +4,17 @@ The native hook runs only while `settings.speech.enabled` is true and
 `speech.status` reports ready. It observes key events without suppressing them,
 including when Ari has focus. Dictation always goes to the shared Aria thread;
 existing browser and OS actions for the chord still run.
+macOS defaults to Ctrl+Option+Space so Option+Space does not type nonbreaking spaces.
 
 The non-focusable renderer records while held. Releasing the chord stops and
 transcribes; Esc while held cancels. Silence hides quietly. Only the current
 hold can publish a result. Aria's normal command dispatcher starts or queues the
-message, including a concurrent automatic-turn race.
+message through one `message.enqueue` command.
+
+Modifier flags reconcile missed releases; lock, suspend and app focus loss reset
+input tracking. Renderer crashes recover with a capped backoff. All main-window
+reopen paths bind fresh RPC and widget services. Timers run only for an active
+state deadline or while the microphone level is visible.
 
 `uiohook-napi` 1.5.5 ships Node-API prebuilds. The builder uses those binaries,
 unpacks the hook and its loader, and preserves both macOS architecture slices.

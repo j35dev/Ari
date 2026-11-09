@@ -121,9 +121,15 @@ async function capture(): Promise<void> {
     const pill = BrowserWindow.getAllWindows().find((candidate) => candidate !== main)
     assert.ok(pill, 'configured hook warms the widget renderer')
     await new Promise((resolve) => setTimeout(resolve, 200))
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    uIOhook.keyToggle(UiohookKey.F24, 'down')
+    // Windows SendInput does not set this hook's Ctrl flags. Keep the real
+    // native release probe above separate from this background-window fixture.
+    uIOhook.emit('keydown', {
+      keycode: UiohookKey.F24,
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+    })
     await new Promise((resolve) => setTimeout(resolve, 250))
     await pill.webContents.executeJavaScript(`new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Listening did not appear')), 5000);
@@ -135,11 +141,52 @@ async function capture(): Promise<void> {
     assert.equal(pill.isVisible(), true)
     assert.equal(pill.isFocused(), false)
     assert.equal(BrowserWindow.getFocusedWindow(), focus)
-    uIOhook.keyToggle(UiohookKey.F24, 'up')
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
+    uIOhook.emit('keyup', {
+      keycode: UiohookKey.F24,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+    })
     await new Promise((resolve) => setTimeout(resolve, 250))
     assert.equal(pill.isVisible(), false, 'silent release quietly hides the widget')
-    console.log('Background hold/release passed without activating the widget or main window')
+    console.log('Background hook-event fixture passed without activating the widget or main window')
+    pill.webContents.forcefullyCrashRenderer()
+    const recovered = await new Promise<BrowserWindow>((resolve, reject) => {
+      const deadline = Date.now() + 10_000
+      const poll = (): void => {
+        const next = BrowserWindow.getAllWindows().find(
+          (candidate) => candidate !== main && candidate !== pill,
+        )
+        if (next) resolve(next)
+        else if (Date.now() >= deadline)
+          reject(new Error('Widget did not recover after renderer crash'))
+        else setTimeout(poll, 50)
+      }
+      poll()
+    })
+    await recovered.webContents.executeJavaScript("window.ariaWidget.invoke('ariaWidget.ready')")
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    uIOhook.emit('keydown', {
+      keycode: UiohookKey.F24,
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    assert.equal(recovered.isVisible(), true)
+    assert.equal(recovered.isFocused(), false)
+    uIOhook.emit('keyup', {
+      keycode: UiohookKey.F24,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    assert.equal(recovered.isVisible(), false)
+    console.log('Renderer crash recovery re-armed the widget successfully')
   } finally {
     uIOhook.keyToggle(UiohookKey.F24, 'up')
     uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
