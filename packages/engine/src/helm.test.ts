@@ -697,7 +697,10 @@ it('keeps the empty-project snapshot actionable', async () => {
     await store.load('helm1'),
     [projects[0]!],
   )
-  expect(text).toContain('Projects: none yet. Ask the user to add a project folder in Ari.')
+  expect(text).toContain(
+    'Projects: none yet. Use `ari project create` when the user asks to build something new.',
+  )
+  expect(text).not.toContain('Ask the user to add a project folder')
   expect(text).not.toContain('You were last in')
 })
 

@@ -37,6 +37,7 @@ export interface AgentRuntimeOptions {
   routines?: ControlHost['routines']
   /** The projects Aria reaches; a runtime started without them has no Aria. */
   projects?: ControlHost['projects']
+  createProject?: ControlHost['createProject']
   projectAgentDefaults?: ControlHost['projectAgentDefaults']
   setProjectDefault?: ControlHost['setProjectDefault']
   baseEnv?: NodeJS.ProcessEnv
@@ -178,6 +179,7 @@ async function startControlTransport(
     providers: options.providers,
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
+    ...(options.createProject === undefined ? {} : { createProject: options.createProject }),
     ...(options.projectAgentDefaults === undefined
       ? {}
       : { projectAgentDefaults: options.projectAgentDefaults }),

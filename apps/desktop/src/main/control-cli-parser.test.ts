@@ -9,6 +9,34 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
 }
 
+it('parses project creation with an optional absolute folder and retry key', () => {
+  expect(
+    cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),
+  ).toMatchObject({
+    method: 'projects.create',
+    params: { name: 'Garden planner', idempotencyKey: 'garden' },
+  })
+  expect(
+    cli.parse([
+      'project',
+      'create',
+      '--name',
+      'Garden',
+      '--path',
+      'D:\\Projects\\garden',
+      '--key',
+      'adopt',
+    ]).params,
+  ).toEqual({
+    name: 'Garden',
+    path: 'D:\\Projects\\garden',
+    idempotencyKey: 'adopt',
+  })
+  expect(() => cli.parse(['project', 'create'])).toThrow('needs --name')
+  expect(() => cli.parse(['project', 'create', '--name', '  '])).toThrow('needs --name')
+  expect(() => cli.parse(['project', 'create', 'folder', '--name', 'Garden'])).toThrow('Use --path')
+})
+
 it('exposes recipient inbox acknowledgement and sender delivery inspection with exact identities', () => {
   expect(cli.parse(['session', 'inbox', '--include-consumed']).params).toEqual({
     includeConsumed: true,

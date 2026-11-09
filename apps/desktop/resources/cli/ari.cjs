@@ -45,6 +45,8 @@ function parse(argv) {
   const allowed = new Set([
     ...boolean,
     'title',
+    'name',
+    'path',
     'role',
     'agent',
     'model',
@@ -119,8 +121,17 @@ function parse(argv) {
     method = 'projects.list'
     params = {}
   } else if (group === 'project') {
-    if (!target) throw new Error('project ask/default needs a project id')
-    if (verb === 'ask') {
+    if (verb === 'create') {
+      if (!flags.name || !flags.name.trim()) throw new Error('project create needs --name')
+      if (target) throw new Error('Use --path to name a project folder')
+      method = 'projects.create'
+      params = {
+        name: flags.name,
+        ...(flags.path ? { path: flags.path } : {}),
+        idempotencyKey: key,
+      }
+    } else if (verb === 'ask') {
+      if (!target) throw new Error('project ask needs a project id')
       method = 'projects.ask'
       params = {
         projectId: target,
@@ -133,6 +144,7 @@ function parse(argv) {
         ...(flags.permission ? { permissionMode: flags.permission } : {}),
       }
     } else if (verb === 'default') {
+      if (!target) throw new Error('project default needs a project id')
       if (!flags.agent) throw new Error('project default needs --agent')
       method = 'projects.setDefault'
       params = {
@@ -143,7 +155,7 @@ function parse(argv) {
         ...(flags.effort ? { effort: flags.effort } : {}),
         ...(flags.permission ? { permissionMode: flags.permission } : {}),
       }
-    } else throw new Error('Use ari project ask or ari project default')
+    } else throw new Error('Use ari project create, ari project ask or ari project default')
   } else if (group === 'sessions') {
     const words = positional.slice(1).join(' ')
     if (words && flags.query) throw new Error('Use either query words or --query')

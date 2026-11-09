@@ -303,6 +303,7 @@ export type PickedElement = z.infer<typeof pickedElementSchema>
 
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
+  'projects.changed',
   'orchestration.changed',
   'session.events',
   'terminal.data',

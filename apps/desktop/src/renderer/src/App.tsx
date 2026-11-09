@@ -744,6 +744,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
+  useEffect(() => rpc.subscribe('projects.changed', {}, refreshProjects), [refreshProjects])
+
   useEffect(() => {
     if (onboardingOutcome === null) return
     let cancelled = false
