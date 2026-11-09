@@ -301,4 +301,36 @@ describe('Claude process continuity', () => {
     pool.reap(Date.now() + 60_000)
     expect(pool.has('ari')).toBe(false)
   })
+
+  it('awaits process and background cleanup when a parked connection is released', async () => {
+    const { driver, children, pool } = harness()
+    const adapter = await driver.create(SESSION)
+    const events = collect(adapter)
+    finish(children[0]!)
+    await events
+    await adapter.dispose()
+    let finishCleanup!: () => void
+    pool.onEnded = () =>
+      new Promise<void>((resolve) => {
+        finishCleanup = resolve
+      })
+    let released = false
+    const releasing = pool.release('ari').then(() => {
+      released = true
+    })
+    expect(pool.has('ari')).toBe(false)
+    await Promise.resolve()
+    expect(released).toBe(false)
+    let stopped = false
+    const shutdown = pool.shutdownAll().then(() => {
+      stopped = true
+    })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    finishCleanup()
+    await releasing
+    await shutdown
+    expect(released).toBe(true)
+    expect(stopped).toBe(true)
+  })
 })
