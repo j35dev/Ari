@@ -10,6 +10,7 @@ import {
 } from './projection'
 import { deriveSliceTitle } from './title'
 import { isHelmSession } from '@ari/contracts/helm'
+import { hasProviderContext } from '@ari/contracts/session'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
 
@@ -200,14 +201,12 @@ export function decideCommand(
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       const switched =
         command.driverKind !== undefined && command.driverKind !== model.session.driverKind
-      if (
-        switched &&
-        !isHelmSession(model.session) &&
-        (model.messages.length > 0 ||
-          model.activeTurnId !== null ||
-          model.providerSessionId !== null)
-      ) {
-        return reject('provider switching is only available to Aria')
+      if (switched && sessionHasContext(model)) {
+        return reject(
+          isHelmSession(model.session)
+            ? 'use session.provider.switch to change Aria’s provider'
+            : 'provider switching is only available to Aria',
+        )
       }
       const patch: UnstampedJournalEvent = {
         type: 'session.updated',
@@ -218,19 +217,6 @@ export function decideCommand(
         ...(command.title !== undefined ? { title: command.title } : {}),
         ...(command.archived !== undefined ? { archived: command.archived } : {}),
         ...(command.pinned !== undefined ? { pinned: command.pinned } : {}),
-      }
-      if (switched && isHelmSession(model.session)) {
-        delete patch.driverKind
-        delete patch.modelId
-        delete patch.effort
-        return accept([
-          ...providerSwitch(model, {
-            driverKind: command.driverKind!,
-            modelId: command.modelId ?? null,
-            effort: command.effort ?? null,
-          }),
-          ...(Object.keys(patch).length > 1 ? [patch] : []),
-        ])
       }
       return accept([patch])
     }
@@ -251,7 +237,7 @@ function providerSwitch(
   },
 ): UnstampedJournalEvent[] {
   const { driverKind, modelId, effort } = next
-  if (driverKind === model.session?.driverKind)
+  if (driverKind === model.session?.driverKind || !sessionHasContext(model))
     return [{ type: 'session.updated', driverKind, modelId, effort }]
   return [
     {
@@ -266,6 +252,14 @@ function providerSwitch(
         )?.id ?? null,
     },
   ]
+}
+
+function sessionHasContext(model: SessionReadModel): boolean {
+  return hasProviderContext({
+    hasMessages: model.messages.length > 0,
+    hasTurns: model.activeTurnId !== null || model.lastTurn !== undefined,
+    providerSessionId: model.providerSessionId,
+  })
 }
 
 /**

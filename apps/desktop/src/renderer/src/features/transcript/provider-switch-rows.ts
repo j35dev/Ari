@@ -29,6 +29,9 @@ export function insertProviderSwitchRows(
         messageTarget = i
     }
     if (messageTarget !== null) target = messageTarget
+    // Delegation rows follow their owning transcript row, including when a
+    // final activity burst is the turn's last output.
+    while (rows[target + 1]?.kind === 'delegation') target++
     const group = groups.get(target) ?? []
     group.push({ kind: 'provider-switch', key: `provider-switch:${change.seq}`, switch: change })
     groups.set(target, group)

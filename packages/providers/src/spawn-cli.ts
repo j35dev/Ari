@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { AdapterSession } from './driver'
 
 /**
  * Windows CLI spawn support.
@@ -78,7 +79,15 @@ export function buildPowershellSpawnArgs(
 ): { file: string; args: string[] } {
   return {
     file: 'powershell.exe',
-    args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', binaryPath, ...args],
+    args: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      binaryPath,
+      ...args,
+    ],
   }
 }
 
@@ -111,14 +120,55 @@ export function buildCmdSpawnArgs(
   args: string[],
 ): { file: string; args: string[]; windowsVerbatimArguments: true } {
   const doubleEscapeMetaChars = isCmdShimRegExp.test(binaryPath)
-  const shellCommand = [escapeCommand(binaryPath), ...args.map((a) => escapeArgument(a, doubleEscapeMetaChars))].join(
-    ' ',
-  )
+  const shellCommand = [
+    escapeCommand(binaryPath),
+    ...args.map((a) => escapeArgument(a, doubleEscapeMetaChars)),
+  ].join(' ')
   return {
     file: process.env['ComSpec'] ?? 'cmd.exe',
     args: ['/d', '/s', '/c', `"${shellCommand}"`],
     windowsVerbatimArguments: true,
   }
+}
+
+/** Keep a carried conversation from exceeding cmd.exe's 8,191-character limit. */
+export function argsWithWindowsHandoffBudget(
+  binaryPath: string,
+  session: AdapterSession,
+  buildArgs: (session: AdapterSession) => string[],
+): string[] {
+  const original = buildArgs(session)
+  const handoff = session.handoff
+  if (!handoff || !needsWindowsShell(binaryPath) || isPowershellScript(binaryPath)) return original
+  const fits = (args: string[]): boolean => {
+    const wrapped = buildCmdSpawnArgs(binaryPath, args)
+    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191
+  }
+  if (fits(original)) return original
+  const header = handoff.split('\n\n', 1)[0] ?? ''
+  const argsAt = (budget: number): string[] => {
+    const bodyChars = budget - header.length - 2
+    const reduced = bodyChars > 0 ? `${header}\n\n${handoff.slice(-bodyChars)}` : ''
+    const prompt = reduced
+      ? session.prompt.replace(handoff, reduced)
+      : session.prompt.replace(`${handoff}\n\n`, '').replace(handoff, '')
+    return buildArgs({ ...session, prompt })
+  }
+  let low = 0
+  let high = handoff.length
+  let best = argsAt(0)
+  // The user's prompt, preamble and live state are preserved. If they alone
+  // exceed the limit, adding carried history must not make that worse.
+  if (!fits(best)) return best
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const candidate = argsAt(middle)
+    if (fits(candidate)) {
+      best = candidate
+      low = middle + 1
+    } else high = middle - 1
+  }
+  return best
 }
 
 /**

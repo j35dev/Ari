@@ -14,7 +14,11 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function setup(projectId: string, accepted = true) {
+function setup(
+  projectId: string,
+  accepted = true,
+  evidence: 'history' | 'message' | 'ref' | 'running' | 'empty' = 'history',
+) {
   const session = {
     id: 'aria',
     projectId,
@@ -29,7 +33,12 @@ function setup(projectId: string, accepted = true) {
   }
   let listener: ((payload: unknown) => void) | undefined
   rpcMocks.invoke.mockImplementation(async (method: string) => {
-    if (method === 'session.load') return { session, activeTurnId: null }
+    if (method === 'session.load')
+      return {
+        session,
+        activeTurnId: evidence === 'running' ? 'first' : null,
+        providerSessionId: evidence === 'ref' ? 'native' : null,
+      }
     if (method === 'files.index') return { paths: [] }
     if (method === 'providers.detect')
       return ['opencode', 'claude'].map((kind) => ({
@@ -44,7 +53,10 @@ function setup(projectId: string, accepted = true) {
         {
           kind: 'opencode',
           source: 'live',
-          models: [{ id: 'current-model', label: 'Current model' }],
+          models: [
+            { id: 'current-model', label: 'Current model' },
+            { id: 'other-model', label: 'Other model' },
+          ],
         },
         { kind: 'claude', source: 'live', models: [{ id: 'opus', label: 'Opus' }] },
       ]
@@ -59,42 +71,47 @@ function setup(projectId: string, accepted = true) {
       if (method === 'session.events') {
         listener = onEvent
         const stamp = { at: 1, sessionId: 'aria' }
-        onEvent({
-          sessionId: 'aria',
-          replay: true,
-          events: [
-            { ...stamp, seq: 0, type: 'session.created', session },
-            { ...stamp, seq: 1, type: 'turn.started', turnId: 'first' },
-            {
-              ...stamp,
-              seq: 2,
-              type: 'user.message.added',
-              message: {
-                id: 'user',
-                sessionId: 'aria',
-                turnId: 'first',
-                role: 'user',
-                parts: [{ type: 'text', text: 'Earlier request' }],
-                createdAt: 1,
-              },
-            },
-            {
-              ...stamp,
-              seq: 3,
-              type: 'assistant.parts.appended',
-              messageId: 'reply',
-              parts: [{ type: 'text', text: 'Earlier reply' }],
-            },
-            {
-              ...stamp,
-              seq: 4,
-              type: 'turn.settled',
+        const events = [
+          { ...stamp, seq: 0, type: 'session.created', session },
+          { ...stamp, seq: 1, type: 'turn.started', turnId: 'first' },
+          {
+            ...stamp,
+            seq: 2,
+            type: 'user.message.added',
+            message: {
+              id: 'user',
+              sessionId: 'aria',
               turnId: 'first',
-              stopReason: 'completed',
-              errorMessage: null,
+              role: 'user',
+              parts: [{ type: 'text', text: 'Earlier request' }],
+              createdAt: 1,
             },
-          ],
-        })
+          },
+          {
+            ...stamp,
+            seq: 3,
+            type: 'assistant.parts.appended',
+            messageId: 'reply',
+            parts: [{ type: 'text', text: 'Earlier reply' }],
+          },
+          {
+            ...stamp,
+            seq: 4,
+            type: 'turn.settled',
+            turnId: 'first',
+            stopReason: 'completed',
+            errorMessage: null,
+          },
+        ]
+        const replay =
+          evidence === 'history'
+            ? events
+            : evidence === 'message'
+              ? events.filter((event) => !event.type.startsWith('turn.'))
+              : evidence === 'running'
+                ? events.slice(0, 2)
+                : events.slice(0, 1)
+        onEvent({ sessionId: 'aria', replay: true, events: replay })
         onEvent({ sessionId: 'aria', replayDone: true })
       }
       return () => undefined
@@ -118,13 +135,63 @@ function setup(projectId: string, accepted = true) {
 }
 
 describe('Aria model picker', () => {
+  it('uses a plain session update for an initial Aria provider choice', async () => {
+    setup('helm', true, 'empty')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Claude'),
+    )
+    await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
+    expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'session.update',
+        sessionId: 'aria',
+        driverKind: 'claude',
+        modelId: 'opus',
+        effort: null,
+      },
+    })
+    expect(screen.queryByRole('separator')).toBeNull()
+  })
+  it.each(['message', 'ref', 'running'] as const)(
+    'locks ordinary provider selection with %s context even without settled turns',
+    async (evidence) => {
+      setup('project', true, evidence)
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+      expect(screen.queryByRole('presentation', { name: 'Providers' })).toBeNull()
+      expect(screen.queryByText('Opus')).toBeNull()
+    },
+  )
+
+  it('updates ordinary model chips while the dispatch response is still pending', async () => {
+    setup('project')
+    const implementation = rpcMocks.invoke.getMockImplementation()!
+    let finish!: (value: unknown) => void
+    rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
+      method === 'command.dispatch'
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : implementation(method, params),
+    )
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Other model'),
+    )
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Other model/ })).toBeVisible()
+    await act(async () => finish({ accepted: true }))
+  })
   it('lists every ready provider mid-chat for Aria and sends an explicit switch', async () => {
     const { emit } = setup('helm')
     const user = userEvent.setup()
     await screen.findByText('Earlier reply')
     await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
     const providers = screen.getByRole('presentation', { name: 'Providers' })
-    expect(within(providers).getByText('OpenCode')).toBeVisible()
+    await waitFor(() => expect(within(providers).getByText('OpenCode')).toBeVisible())
     await user.click(within(providers).getByText('Claude'))
     await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
     expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
@@ -157,9 +224,11 @@ describe('Aria model picker', () => {
     await screen.findByText('Earlier reply')
     await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
     expect(screen.queryByRole('presentation', { name: 'Providers' })).toBeNull()
-    expect(
-      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),
+      ).toBeVisible(),
+    )
     expect(screen.queryByText('Opus')).toBeNull()
     await user.click(
       within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),

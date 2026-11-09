@@ -76,6 +76,15 @@ export const sessionSchema = z.object({
 })
 export type Session = z.infer<typeof sessionSchema>
 
+/** A native thread or journalled conversation binds an ordinary session to its provider. */
+export function hasProviderContext(context: {
+  hasMessages: boolean
+  hasTurns: boolean
+  providerSessionId: string | null
+}): boolean {
+  return context.hasMessages || context.hasTurns || context.providerSessionId !== null
+}
+
 export const sessionHierarchySummarySchema = sessionSchema
   .pick({
     parentSessionId: true,

@@ -80,6 +80,7 @@ export class AcpSessionPool {
     entry.lastActivity = Date.now()
     const connection = entry.connection
     connection.onSessionUpdate = (notification) => {
+      if (this.#idle.get(ariSessionId) !== entry) return
       entry.lastActivity = Date.now()
       const events = entry.folder.foldBetweenTurns(notification)
       if (events.length > 0) this.onBackground?.(ariSessionId, events)

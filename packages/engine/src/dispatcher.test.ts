@@ -119,9 +119,50 @@ describe('decideCommand', () => {
         started,
         { type: 'session.update', sessionId: session.id, driverKind: 'opencode', modelId: 'model' },
         ids,
-      ).events[0]?.type,
-    ).toBe('session.provider.switched')
+      ),
+    ).toMatchObject({
+      accepted: false,
+      reason: 'use session.provider.switch to change Aria’s provider',
+      events: [],
+    })
   })
+
+  it('changes an unused Aria provider through a plain update with no divider or handoff', () => {
+    const model = modelWithSession()
+    model.session = { ...session, projectId: 'helm' }
+    for (const type of ['session.update', 'session.provider.switch'] as const) {
+      const decision = decideCommand(
+        model,
+        { type, sessionId: session.id, driverKind: 'opencode', modelId: 'chosen', effort: null },
+        ids,
+      )
+      expect(decision.events).toEqual([
+        { type: 'session.updated', driverKind: 'opencode', modelId: 'chosen', effort: null },
+      ])
+      expect(previewDispatch(model, decision).providerHandoffPending).toBeUndefined()
+    }
+  })
+
+  it.each(['message', 'turn', 'ref'])(
+    'locks ordinary providers when the journal has a %s',
+    (evidence) => {
+      const model = modelWithSession()
+      if (evidence === 'message')
+        model.messages = [
+          { id: 'm', sessionId: session.id, turnId: null, role: 'user', parts: [], createdAt: 0 },
+        ]
+      if (evidence === 'turn')
+        model.lastTurn = { turnId: 't', stopReason: 'completed', settledAt: 0 }
+      if (evidence === 'ref') model.providerSessionId = 'native'
+      expect(
+        decideCommand(
+          model,
+          { type: 'session.update', sessionId: session.id, driverKind: 'opencode' },
+          ids,
+        ).accepted,
+      ).toBe(false)
+    },
+  )
 
   it('rejects commands for unknown sessions', () => {
     const result = decideCommand(
