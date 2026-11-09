@@ -4,9 +4,9 @@ import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
 import type { uIOhook } from 'uiohook-napi'
 import { createLogger } from '@ari/shared/logger'
-import { ChordTracker, defaultShortcut, parseChord, type HookKey } from './chord'
+import { ChordTracker, defaultShortcut, parseChord, shortcutError, type HookKey } from './chord'
 import { sendToAria } from './handoff'
-import { HoldToTalk, MODIFIER_HOLD_MS, type WidgetSnapshot } from './model'
+import { HoldToTalk, type WidgetSnapshot } from './model'
 import { widgetBounds } from './position'
 
 const log = createLogger('desktop:aria-widget')
@@ -186,11 +186,10 @@ export class AriaWidget {
       if (revision !== this.revision || this.disposed || !status.ready) return
       const { uIOhook, UiohookKey } = await import('uiohook-napi')
       if (revision !== this.revision || this.disposed) return
-      const chord = parseChord(
-        speech.shortcut || defaultShortcut(process.platform),
-        UiohookKey,
-        process.platform,
-      )
+      const shortcut = speech.shortcut || defaultShortcut(process.platform)
+      const invalid = shortcutError(shortcut, process.platform)
+      if (invalid) throw new Error(invalid)
+      const chord = parseChord(shortcut, UiohookKey, process.platform)
       if (!chord) throw new Error('Invalid speech shortcut')
       await this.createWindow()
       if (revision !== this.revision || this.disposed || !this.window) return
@@ -198,9 +197,6 @@ export class AriaWidget {
       this.hook = uIOhook
       uIOhook.on('keydown', this.keyDown)
       uIOhook.on('keyup', this.keyUp)
-      uIOhook.on('mousedown', this.mouseDown)
-      uIOhook.on('mouseup', this.mouseUp)
-      uIOhook.on('mousemove', this.mouseMove)
       uIOhook.start()
     } catch (error) {
       this.stopHook()
@@ -210,9 +206,9 @@ export class AriaWidget {
 
   private readonly keyDown = (event: HookKey): void => {
     const now = performance.now()
-    const action = this.tracker?.down(event, now, this.hold.state.phase === 'hidden')
+    const action = this.tracker?.down(event, now, this.hold.canStart)
     if (action === 'down') {
-      if (!this.hold.down(now, this.tracker?.modifierOnly ? MODIFIER_HOLD_MS : 0)) return
+      if (!this.hold.down(now)) return
       this.recoveryDelay = 1_000
     } else if (action === 'cancel' && this.hold.active) this.hold.cancel()
     else if (action === 'up' && this.hold.active) this.hold.up(now)
@@ -224,24 +220,6 @@ export class AriaWidget {
     if (this.tracker?.up(event) !== 'up' || !this.hold.active) return
     this.hold.up(performance.now())
     this.publish()
-  }
-
-  private readonly mouseDown = (event: { button: unknown }): void => {
-    if (this.tracker?.mouseDown(event.button) && this.hold.active) {
-      this.hold.cancel()
-      this.publish()
-    }
-  }
-
-  private readonly mouseUp = (event: { button: unknown }): void => {
-    this.tracker?.mouseUp(event.button)
-  }
-
-  private readonly mouseMove = (): void => {
-    if (this.tracker?.mouseMove() && this.hold.active) {
-      this.hold.cancel()
-      this.publish()
-    }
   }
 
   private async handle(method: string, raw: unknown): Promise<unknown> {
@@ -318,9 +296,6 @@ export class AriaWidget {
   private stopHook(): void {
     this.hook?.removeListener('keydown', this.keyDown)
     this.hook?.removeListener('keyup', this.keyUp)
-    this.hook?.removeListener('mousedown', this.mouseDown)
-    this.hook?.removeListener('mouseup', this.mouseUp)
-    this.hook?.removeListener('mousemove', this.mouseMove)
     this.hook?.stop()
     this.hook = null
     this.tracker = null

@@ -23,28 +23,6 @@ function fake(): RecordingDeps & { recording: Recording } {
   }
 }
 
-it('opens nothing while arming and opens the microphone once the hold qualifies', () => {
-  const deps = fake()
-  const flow = new RecordingFlow(deps)
-  flow.observe(state(1, 'arming'))
-  flow.observe(state(1, 'arming'))
-  expect(deps.record).not.toHaveBeenCalled()
-  expect(deps.invoke).not.toHaveBeenCalled()
-  flow.observe(state(1, 'listening'))
-  expect(deps.record).toHaveBeenCalledOnce()
-  flow.dispose()
-})
-
-it('never opens or transcribes an arming hold that is cancelled', () => {
-  const deps = fake()
-  const flow = new RecordingFlow(deps)
-  flow.observe(state(1, 'arming'))
-  flow.observe(state(1, 'hidden'))
-  expect(deps.record).not.toHaveBeenCalled()
-  expect(deps.invoke).not.toHaveBeenCalled()
-  flow.dispose()
-})
-
 it('records while held and transcribes once on release', async () => {
   const deps = fake()
   const flow = new RecordingFlow(deps)
