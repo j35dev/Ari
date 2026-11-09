@@ -31,7 +31,11 @@ export function AwakenSplash({ ready, onDone }: AwakenSplashProps) {
   const [outro, setOutro] = useState(false)
   const [floorPassed, setFloorPassed] = useState(false)
   const [expired, setExpired] = useState(false)
-  const doneRef = useRef(false)
+  const onDoneRef = useRef(onDone)
+
+  useEffect(() => {
+    onDoneRef.current = onDone
+  }, [onDone])
 
   useEffect(() => {
     const floor = setTimeout(() => setFloorPassed(true), AWAKEN_MIN_MS)
@@ -43,13 +47,15 @@ export function AwakenSplash({ ready, onDone }: AwakenSplashProps) {
   }, [])
 
   useEffect(() => {
-    if (doneRef.current) return
-    if (!expired && !(ready && floorPassed)) return
-    doneRef.current = true
-    setOutro(true)
-    const handover = setTimeout(onDone, AWAKEN_OUTRO_MS)
+    if (expired || (ready && floorPassed)) setOutro(true)
+  }, [ready, floorPassed, expired])
+
+  // Once the fade starts, boot updates must not cancel or restart its handover.
+  useEffect(() => {
+    if (!outro) return
+    const handover = setTimeout(() => onDoneRef.current(), AWAKEN_OUTRO_MS)
     return () => clearTimeout(handover)
-  }, [ready, floorPassed, expired, onDone])
+  }, [outro])
 
   return (
     <div
