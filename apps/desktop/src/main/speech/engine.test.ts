@@ -86,11 +86,20 @@ it('maps only supported Linux architectures', () => {
   }
 })
 
-it('ignores OS metadata and untracked dotfiles while verifying manifest files', async () => {
+it('ignores only known OS metadata while verifying manifest files', async () => {
   const { root, release } = await fixture()
-  for (const name of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '.notes'])
+  for (const name of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '._transcribe.dll'])
     await writeFile(join(root, 'native', name), 'metadata')
   expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+})
+
+it('rejects unexpected dotfiles and folders instead of skipping their contents', async () => {
+  const { root, release } = await fixture()
+  await writeFile(join(root, 'native/.notes'), 'unexpected')
+  expect(await verifyInstalledEngine(root, true, release)).toBeNull()
+  await rm(join(root, 'native/.notes'))
+  await mkdir(join(root, 'native/.cache'))
+  expect(await verifyInstalledEngine(root, true, release)).toBeNull()
 })
 
 it('retries temporary read failures and distinguishes persistent I/O errors from mismatches', async () => {

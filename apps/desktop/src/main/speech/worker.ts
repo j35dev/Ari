@@ -1,7 +1,9 @@
 import type { TranscribeModel as Model } from 'transcribe-cpp'
+import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
 
 let model: Model | null = null
 let loadedPath: string | null = null
+let hasLoaded = false
 let idle: ReturnType<typeof setTimeout> | undefined
 let queue = Promise.resolve()
 
@@ -35,6 +37,7 @@ process.parentPort?.on('message', (event: { data: Request }) => {
           model = await TranscribeModel.load(request.path!)
           loadingLibrary = false
           loadedPath = request.path!
+          hasLoaded = true
         }
         const result =
           request.kind === 'transcribe'
@@ -54,9 +57,10 @@ process.parentPort?.on('message', (event: { data: Request }) => {
         id: request.id,
         error:
           loadingLibrary &&
+          !hasLoaded &&
           process.platform === 'win32' &&
           /shared library|specified module|\.dll/i.test(message)
-            ? `${message} Install Microsoft Visual C++ 2015–2022 Redistributable 14.40 or newer and retry.`
+            ? `${message} ${WINDOWS_SPEECH_RUNTIME_HINT}`
             : message,
       })
     } finally {

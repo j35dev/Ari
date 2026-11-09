@@ -14,11 +14,23 @@ export async function prunePartialDownloads(
   maxAge = PARTIAL_DOWNLOAD_MAX_AGE,
   suffix = '.gguf.partial',
 ): Promise<void> {
-  for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT')
+        console.warn('Could not inspect speech partial downloads:', directory, error)
+      return []
+    },
+  )
+  for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(suffix) || keep.has(entry.name)) continue
     const path = join(directory, entry.name)
-    const file = await stat(path).catch(() => null)
-    if (file && Date.now() - file.mtimeMs >= maxAge) await rm(path, { force: true })
+    try {
+      const file = await stat(path)
+      if (Date.now() - file.mtimeMs >= maxAge) await rm(path, { force: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        console.warn('Could not clean a speech partial download:', path, error)
+    }
   }
 }
 

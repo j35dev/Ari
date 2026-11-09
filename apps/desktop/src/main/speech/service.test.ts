@@ -9,8 +9,9 @@ import * as engineModule from './engine'
 import { catalog } from './discovery'
 import { ENGINE_HEADER_HASH, ENGINE_VERSION, EngineIoError } from './engine'
 import { handyDataDirectory } from './discovery'
+import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
 
-const mocks = vi.hoisted(() => ({ fork: vi.fn(), manual: false }))
+const mocks = vi.hoisted(() => ({ fork: vi.fn(), manual: false, manualLoad: false }))
 vi.mock('./engine-releases.json', async () => {
   const { createHash } = await import('node:crypto')
   const host =
@@ -62,6 +63,7 @@ vi.mock('electron', async () => {
       postMessage: vi.fn(
         (request: { id: number; kind: string; path: string; pcm?: Float32Array }) => {
           if (mocks.manual && request.kind === 'transcribe') return
+          if (mocks.manualLoad && request.kind === 'load') return
           queueMicrotask(() => {
             child.emit('message', { id: request.id, started: true })
             child.emit(
@@ -86,6 +88,7 @@ const services: SpeechService[] = []
 beforeEach(() => {
   mocks.fork.mockClear()
   mocks.manual = false
+  mocks.manualLoad = false
 })
 afterEach(async () => {
   for (const service of services.splice(0)) service.dispose()
@@ -95,7 +98,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
-async function setup(engine = true) {
+async function setup(engine = true, initialize = true) {
   const dir = await mkdtemp(join(tmpdir(), 'ari-speech-service-'))
   roots.push(dir)
   vi.stubEnv('APPDATA', dir)
@@ -108,6 +111,7 @@ async function setup(engine = true) {
   const store = new SettingsStore({ dir })
   const service = new SpeechService(dir, store)
   services.push(service)
+  if (engine && initialize) await vi.waitFor(() => expect(service.status().engine).toBe('ready'))
   return { dir, store, service }
 }
 async function createEngine(dir: string) {
@@ -180,7 +184,10 @@ it('rechecks deleted and tampered engines and offers reinstall instead of stale 
   expect((await service.status()).engine).toBe('ready')
   const native = join(dir, 'speech', 'engine', ENGINE_VERSION)
   await rm(join(native, 'contract.json'))
-  expect(await service.status()).toMatchObject({ engine: 'missing', ready: false })
+  await vi.waitFor(
+    () => expect(service.status()).toMatchObject({ engine: 'missing', ready: false }),
+    { timeout: 3000 },
+  )
   const other = await setup()
   await other.service.status()
   const path = join(other.dir, 'custom.gguf')
@@ -192,7 +199,10 @@ it('rechecks deleted and tampered engines and offers reinstall instead of stale 
         ? 'libtranscribe.dylib'
         : 'libtranscribe.so'
   await writeFile(join(other.dir, 'speech', 'engine', ENGINE_VERSION, library), 'NATIVE FIXTURE')
-  await expect(other.service.select({ path })).rejects.toThrow('Download the speech engine')
+  await other.store.update({ speech: { modelPath: path, enabled: true } })
+  await expect(other.service.transcribe(new Float32Array([0]))).rejects.toThrow(
+    'Download the speech engine',
+  )
   expect(await other.service.status()).toMatchObject({ engine: 'missing', ready: false })
   expect(mocks.fork).not.toHaveBeenCalled()
 })
@@ -317,36 +327,64 @@ it('verifies fully once before each worker and never on warm dictations', async 
   expect(verify.mock.calls.filter(([, full]) => full)).toHaveLength(2)
 })
 
-it('serializes concurrent checks and installs without overwriting downloading state', async () => {
-  const { dir, service } = await setup(false)
-  await service.status()
-  let finishCheck: (library: string | null) => void = () => undefined
+it('serializes status, installation and pre-fork verification while snapshots stay immediate', async () => {
+  const { dir, service, store } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await store.update({ speech: { modelPath: path, enabled: true } })
+  const library = await createEngine(dir)
+  const originalVerify = engineModule.verifyInstalledEngine
+  let finishCheck: () => void = () => undefined
   let finishInstall: () => void = () => undefined
-  vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finishCheck = resolve
-      }),
+  let active = 0
+  let maxActive = 0
+  let fullChecks = 0
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementation(
+    async (root, full, release) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      try {
+        if (full) {
+          fullChecks++
+          await new Promise<void>((resolve) => {
+            finishCheck = resolve
+          })
+          return library
+        }
+        return await originalVerify(root, full, release)
+      } finally {
+        active--
+      }
+    },
   )
   const install = vi.spyOn(engineModule, 'installEngine').mockImplementation(async () => {
-    await new Promise<void>((resolve) => {
-      finishInstall = resolve
-    })
-    return createEngine(dir)
+    active++
+    maxActive = Math.max(maxActive, active)
+    try {
+      await new Promise<void>((resolve) => {
+        finishInstall = resolve
+      })
+      return await createEngine(dir)
+    } finally {
+      active--
+    }
   })
+  const transcription = service.transcribe(new Float32Array([0])).catch((error: unknown) => error)
+  await vi.waitFor(() => expect(fullChecks).toBe(1))
   const first = service.install()
   const second = service.install()
   const status = service.status()
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  finishCheck(null)
-  const results = await Promise.all([first, second, status])
-  expect(results.filter((result) => 'started' in result && result.started)).toHaveLength(1)
-  expect(install).toHaveBeenCalledOnce()
-  expect((await service.status()).engine).toBe('downloading')
+  expect(status).not.toBeInstanceOf(Promise)
+  expect(install).not.toHaveBeenCalled()
+  expect(await Promise.all([first, second])).toEqual([{ started: true }, { started: false }])
+  finishCheck()
+  await vi.waitFor(() => expect(install).toHaveBeenCalledOnce())
+  for (let i = 0; i < 10; i++) expect(service.status().engine).toBe('downloading')
   finishInstall()
-  while (service.snapshot().find((frame) => frame.id === 'engine')?.phase !== 'complete')
-    await new Promise<void>((resolve) => setImmediate(resolve))
-  expect((await service.status()).engine).toBe('ready')
+  await vi.waitFor(() => expect(service.status()).toMatchObject({ engine: 'ready', ready: true }))
+  await transcription
+  expect(maxActive).toBe(1)
+  expect(fullChecks).toBe(1)
 })
 
 it('reports transient engine I/O without killing a warm worker or marking it missing', async () => {
@@ -357,32 +395,33 @@ it('reports transient engine I/O without killing a warm worker or marking it mis
   vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValueOnce(
     new EngineIoError('Temporarily locked. Retry.'),
   )
-  expect(await service.status()).toMatchObject({
-    engine: 'ready',
-    ready: true,
-    error: 'Temporarily locked. Retry.',
-  })
+  await vi.waitFor(
+    () =>
+      expect(service.status()).toMatchObject({
+        engine: 'ready',
+        ready: true,
+        error: 'Temporarily locked. Retry.',
+      }),
+    { timeout: 3000 },
+  )
   expect(mocks.fork.mock.results[0]!.value.kill).not.toHaveBeenCalled()
   expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
 })
 
 it('offers the official VC++ runtime link only for unexplained early Windows crashes', () => {
-  expect(speechWorkerExitError('win32', -1073741819, 'load', false, false)).toContain(
-    'https://aka.ms/vs/17/release/vc_redist.x64.exe',
+  expect(speechWorkerExitError('win32', -1073741819, false, false)).toContain(
+    WINDOWS_SPEECH_RUNTIME_HINT,
   )
-  expect(speechWorkerExitError('win32', -1073741819, 'transcribe', false, false)).toContain('14.40')
-  for (const [platform, code, phase, inferred, knownCause] of [
-    ['win32', 0, 'load', false, false],
-    ['win32', 1, 'transcribe', true, false],
-    ['win32', 1, 'load', false, true],
-    ['darwin', 1, 'load', false, false],
+  for (const [platform, code, loaded, knownCause] of [
+    ['win32', 0, false, false],
+    ['win32', 1, true, false],
+    ['win32', 1, false, true],
+    ['darwin', 1, false, false],
   ] as const)
-    expect(speechWorkerExitError(platform, code, phase, inferred, knownCause)).not.toContain(
-      'Visual C++',
-    )
+    expect(speechWorkerExitError(platform, code, loaded, knownCause)).not.toContain('Visual C++')
 })
 
-it('includes the runtime hint when the worker crashes during its first inference', async () => {
+it('reports a crash after a successful load without the runtime hint', async () => {
   const { dir, service } = await setup()
   const path = join(dir, 'custom.gguf')
   await writeFile(path, 'gguf')
@@ -392,9 +431,73 @@ it('includes the runtime hint when the worker crashes during its first inference
   const pending = service.transcribe(new Float32Array([0]))
   while (child.postMessage.mock.calls.length < 2)
     await new Promise<void>((resolve) => setImmediate(resolve))
-  const rejected = expect(pending).rejects.toThrow(
-    process.platform === 'win32' ? '14.40' : 'The speech engine stopped',
-  )
+  const rejected = expect(pending).rejects.toThrow('The speech engine stopped. Please retry.')
   child.emit('exit', -1073741819)
   await rejected
+})
+
+it('shows the shared runtime hint when the worker dies before loading a model', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  mocks.manualLoad = true
+  const selection = service.select({ path })
+  const rejected = expect(selection).rejects.toThrow(
+    process.platform === 'win32' ? WINDOWS_SPEECH_RUNTIME_HINT : 'The speech engine stopped',
+  )
+  await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledOnce())
+  const child = mocks.fork.mock.results[0]!.value
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledOnce())
+  child.emit('exit', -1073741819)
+  await rejected
+})
+
+it('reinstalls despite an I/O error in the old installation and reuses verified installed files', async () => {
+  const { dir, service } = await setup(false, false)
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValue(
+    new EngineIoError('Old folder is locked.'),
+  )
+  const install = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockImplementation(() => createEngine(dir))
+  expect(await service.install()).toEqual({ started: true })
+  await vi.waitFor(() => expect(service.status().engine).toBe('ready'))
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  expect(await service.select({ path })).toMatchObject({ ready: true })
+  expect(install).toHaveBeenCalledOnce()
+})
+
+it('automatically recovers from a transient pre-fork read error on a later status read', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  const originalVerify = engineModule.verifyInstalledEngine
+  let failed = false
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementation((root, full, release) => {
+    if (full && !failed) {
+      failed = true
+      return Promise.reject(new EngineIoError('Temporarily locked.'))
+    }
+    return originalVerify(root, full, release)
+  })
+  await expect(service.select({ path })).rejects.toThrow('Temporarily locked')
+  await vi.waitFor(() => expect(service.status()).toMatchObject({ ready: true, error: null }), {
+    timeout: 3000,
+  })
+  expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+})
+
+it('never caches a rejected initialization promise', async () => {
+  const { service, store } = await setup(false, false)
+  const originalLoad = store.load.bind(store)
+  const load = vi
+    .spyOn(store, 'load')
+    .mockRejectedValueOnce(new Error('Settings temporarily blocked.'))
+    .mockImplementation(originalLoad)
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow(
+    'Settings temporarily blocked',
+  )
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow('Set up speech to text')
+  expect(load).toHaveBeenCalledTimes(2)
 })
