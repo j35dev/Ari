@@ -19,10 +19,27 @@ it('grants speech only to Ari pages and its configured development origin', () =
   expect(isSpeechPage('http://localhost:5174/index.html', 'http://localhost:5173')).toBe(false)
   expect(isSpeechPage('not a URL', '')).toBe(false)
   const entry = 'file:///C:/Ari/renderer/index.html'
-  expect(isSpeechPage(`${entry}#/settings`, '', entry)).toBe(true)
-  expect(isSpeechPage('file:///C:/Ari/renderer/index.html.evil', '', entry)).toBe(false)
-  expect(isSpeechPage('file:///C:/Ari/renderer/other.html', '', entry)).toBe(false)
-  expect(isSpeechPage('about:blank', '', entry)).toBe(false)
+  const widget = 'file:///C:/Ari/renderer/widget/index.html'
+  const entries = [entry, widget]
+  expect(isSpeechPage(`${entry}#/settings`, '', entries)).toBe(true)
+  // The packaged hold-to-talk widget records too.
+  expect(isSpeechPage(widget, '', entries)).toBe(true)
+  expect(isSpeechPage('file:///C:/Ari/renderer/index.html.evil', '', entries)).toBe(false)
+  expect(isSpeechPage('file:///C:/Ari/renderer/other.html', '', entries)).toBe(false)
+  expect(isSpeechPage('file:///C:/Ari/renderer/widget/other.html', '', entries)).toBe(false)
+  expect(isSpeechPage('about:blank', '', entries)).toBe(false)
+})
+
+it('defaults to the main window and widget entry files', () => {
+  expect(
+    isSpeechPage(
+      pathToFileURL(join(import.meta.dirname, '../renderer/widget/index.html')).href,
+      '',
+    ),
+  ).toBe(true)
+  expect(
+    isSpeechPage(pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href, ''),
+  ).toBe(true)
 })
 
 it('preserves Electron default clipboard and ordinary permission decisions', () => {
