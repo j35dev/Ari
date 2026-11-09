@@ -13,7 +13,7 @@ const COMMANDS =
   'env, agents, session spawn|status|wait|read|prompt|message|answer|inbox|diff|integrate|stop|destroy, task, routine'
 
 const HELM_COMMANDS =
-  'projects, project create|ask|default|lead, sessions [--query <words>] [--project <id>] [--active], session spawn --project <id> [--read-only], session prompt|switch|message|read|wait|stop|answer|destroy'
+  'projects, project create|ask|default|lead, sessions [--query <words>] [--project <id>] [--active], session spawn --project <id>, session prompt|switch|message|read|wait|stop|answer|destroy'
 
 const CLI_PERMISSIONS =
   "Ari's own commands run without shell permission prompts by default, except `ari skill install`, which writes your agent configuration. Safe `ari` commands may be chained with `&&` or `||`; trailing `2>&1` and `| head` or `| tail` are allowed. Delegation needs no approval by default; Settings → Permissions can change either policy."
@@ -32,7 +32,7 @@ const PROJECT_CREATE =
   'When the user asks to build something new and no existing project fits (none named and nothing in the snapshot or `ari sessions --query` matches), create a project with `ari project create --name "<short, clear name>"`, then start a session there with `ari session spawn --project <projectId>` after selecting its model. Use --path with an absolute folder only when the user named it; an existing folder is adopted as is. Tell the user the project’s name and where it lives. If it is unclear whether they mean an existing project or a new one, ask one short question. Do not create projects for questions or small tasks that need no code.'
 
 const PROJECT_WORK =
-  'By default, run work directly in a top-level project session with `ari session spawn --project <projectId> --title "<task title>" --prompt "<task>"`; do not create a lead. Before starting a new session, find earlier related work with `ari sessions --query "<words>"` and reuse it when appropriate. Send follow-ups to the same session with `ari session prompt <sessionId> "<task>"`. Only one code session may work in a project folder at a time, including sessions the user started: prompt that working session or wait. Pass --read-only explicitly for parallel research; it runs with ask permissions and cannot spawn children or integrate changes.'
+  'By default, run work directly in a top-level project session with `ari session spawn --project <projectId> --title "<task title>" --prompt "<task>"`; do not create a lead. Before starting a new session, find earlier related work with `ari sessions --query "<words>"` and reuse it when appropriate. Send follow-ups to the same session with `ari session prompt <sessionId> "<task>"`. Only one session may work in a project folder at a time, including sessions the user started: prompt that working session or wait. Do research inside that session or after it. Stale turns and turns waiting on human approval or a question for three minutes do not block new work.'
 
 const PROJECT_MODEL =
   'For every session or lead you start, use the provider and model the user named in the message, else the project saved default. If no valid choice resolves, ask the user once for that project which provider and model to use, suggesting your current model as an option, then save the answer with `ari project default <projectId> --agent <provider> --model <model>` and reuse that default. Never inherit your own model or choose one from recent sessions or the app default. Starting without a resolved agent is refused. Inherited permissions are capped at yours. The result names the actual agent and its source; say which model it runs on in your reply.'
@@ -41,10 +41,7 @@ const REQUESTED_LEAD =
   'Create or use a project lead only when the user asks for one, such as "set up a lead" or "have a lead handle this". For large multi-part work you may propose a lead, but ask the user first; never create a lead on your own. After the user requests a lead, `ari project ask <projectId> "<task>"` creates or reuses the long-lived lead, and follow-ups through project ask keep its context. Each lead cleans up its own finished workers; do not destroy project leads unless the user asks or a provider/model failure requires a reset.'
 
 const SESSION_RECOVERY =
-  'You can switch any top-level project session you launched with `ari session switch <sessionId> --agent <provider> --model <model> [--effort <level>]` or destroy it and its workers with `ari session destroy <sessionId>`. A running turn finishes on its original provider before the following turn uses the new one. Leads also support `ari project lead <projectId> --agent <provider> --model <model>` and `ari project lead <projectId> --reset`. Switch commands and project default require --model; ask the user when the model is unknown. A lead switch targets the lead most recently assigned work for Aria. If a session fails with a provider or model error, switch it to a known working model; ask the user when you do not know one. A lead reset destroys all Aria leads in the project and their workers, including archived leads; the next project ask creates a fresh lead. Recover from the error instead of giving up.'
-
-const READ_ONLY =
-  'This is an explicitly requested read-only session. Inspect, research and report; do not edit project files or run commands that change the project without the user approving them. You run with ask permissions and cannot spawn children or integrate changes.'
+  'You can switch any top-level project session you launched with `ari session switch <sessionId> --agent <provider> --model <model> [--effort <level>]` or destroy it and its workers with `ari session destroy <sessionId>`. A running turn finishes on its original provider before the following turn uses the new one. Leads also support `ari project lead <projectId> --agent <provider> --model <model>` and `ari project lead <projectId> --reset`. Switch commands and project default require --model; ask the user when the model is unknown. A lead switch targets the lead most recently assigned work for Aria. If a session fails with a provider or model error, switch it to a known working model; ask the user when you do not know one. A lead reset destroys live Aria leads in the project and their workers, preserving archived leads; the next project ask creates a fresh lead. Recover from the error instead of giving up.'
 
 /**
  * What Ari tells an agent about the session it is running in. A delegated
@@ -70,8 +67,7 @@ export function controlPreamble(
         : session.lead === true
           ? leadNote(delivers)
           : parentNote(delivers)
-  const note = session.readOnly ? `${brief} ${READ_ONLY}` : brief
-  const body = session.parentSessionId || session.readOnly ? note : `${note} ${CLI_PERMISSIONS}`
+  const body = session.parentSessionId ? brief : `${brief} ${CLI_PERMISSIONS}`
   if (channel === 'system')
     return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool; call it as \`ari\`. ${body} Do not print the ARI_CONTROL_TOKEN environment variable.`
   return `[${session.parentSessionId || launched ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} Never disclose ARI_CONTROL_TOKEN.]`

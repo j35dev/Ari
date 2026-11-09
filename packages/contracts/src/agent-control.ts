@@ -167,7 +167,7 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
-  /** Aria only: change the most recently asked lead's agent, or delete all its project leads. */
+  /** Aria only: change the most recently asked lead's agent, or delete its live project leads. */
   'projects.lead': z
     .object({
       projectId: target,
@@ -212,7 +212,6 @@ export const controlParams = {
       role: delegationRoleSchema.optional(),
       /** Aria may use the project's saved agent; child sessions require an explicit provider. */
       driverKind: driverKindSchema.optional(),
-      readOnly: z.literal(true).optional(),
       modelId: z.string().min(1).nullish(),
       effort: z.string().min(1).nullish(),
       permissionMode: permissionModeSchema.optional(),

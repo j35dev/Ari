@@ -27,7 +27,6 @@ function parse(argv) {
     'include-consumed',
     'active',
     'reset',
-    'read-only',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -262,7 +261,6 @@ function parse(argv) {
           idempotencyKey: key,
           ...(flags.project ? { projectId: flags.project } : {}),
           ...(flags.role ? { role: flags.role } : {}),
-          ...(flags['read-only'] ? { readOnly: true } : {}),
           ...(flags.model ? { modelId: flags.model } : {}),
           ...(flags.effort ? { effort: flags.effort } : {}),
           ...(flags.permission ? { permissionMode: flags.permission } : {}),

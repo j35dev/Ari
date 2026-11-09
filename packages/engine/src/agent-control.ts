@@ -28,10 +28,10 @@ import type { Message } from '@ari/contracts/message'
 import type { Command } from '@ari/contracts/commands'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import type { SessionListEntry, SessionStore } from './session-store'
-import type { UnstampedEvent } from './projection'
+import type { SessionReadModel, UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
-import { childWorkState, finalAssistantText, pendingCompletions } from './delegation-state'
+import { childWorkState, finalAssistantText } from './delegation-state'
 import type { TreeSpend } from './tree-budget'
 import { findSessions, turnRequester, helmTaskRecipient, type HelmView } from './helm'
 import {
@@ -47,6 +47,7 @@ const PROJECT_MODEL_REQUIRED =
   'No valid provider/model is selected for this project. Ask the user once which provider and model to use, suggesting your current model as an option, then save the answer with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
 const PROJECT_DEFAULT_MODEL_REQUIRED =
   'The project saved default is missing a model. Ask the user which model to use, then save it with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
+const PROJECT_HUMAN_WAIT_MS = 3 * 60_000
 
 /**
  * Reported when the requesting call went away (control timeout, disconnect)
@@ -830,8 +831,6 @@ export class AgentControlService {
       }
       case 'session.diff':
       case 'session.integrate': {
-        if (method === 'session.integrate' && caller.readOnly)
-          throw new ControlFailure('scope_denied', 'Read-only sessions cannot integrate changes.')
         const p = raw as ControlParams<'session.integrate'> & ControlParams<'session.diff'>
         const child = await this.#target(caller, p.targetSessionId)
         if (child.parentSessionId !== caller.id)
@@ -960,8 +959,6 @@ export class AgentControlService {
     p: ControlParams<'session.spawn'>,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    if (caller.readOnly)
-      throw new ControlFailure('scope_denied', 'Read-only sessions cannot spawn children.')
     const existing = await this.#existingSpawn(caller, p.idempotencyKey)
     if (existing) return existing
     if (isHelmSession(caller)) return this.#launch(caller, p, signal)
@@ -988,7 +985,7 @@ export class AgentControlService {
       throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
     if (p.modelId && !provider.models.some((m) => m.id === p.modelId))
       throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
-    const permissionMode = p.readOnly ? 'ask' : (p.permissionMode ?? caller.permissionMode)
+    const permissionMode = p.permissionMode ?? caller.permissionMode
     if (exceedsPermission(permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
@@ -1045,7 +1042,6 @@ export class AgentControlService {
         rootSessionId: root.id,
         createdBy: { kind: 'session', sessionId: caller.id },
         ...(p.role ? { role: p.role } : {}),
-        ...(p.readOnly ? { readOnly: true } : {}),
         workspace,
         title: p.title,
         driverKind: p.driverKind,
@@ -1154,23 +1150,17 @@ export class AgentControlService {
       throw new ControlFailure('project_unavailable', 'That project folder is missing.')
     const policy = this.host.policy()
     checkDelegation(policy, 0, 0)
-    if (
-      !p.readOnly &&
-      p.permissionMode &&
-      exceedsPermission(p.permissionMode, caller.permissionMode)
-    )
+    if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const selectedAgent = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
-    if (!selectedAgent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
-    const agent = p.readOnly ? { ...selectedAgent, permissionMode: 'ask' as const } : selectedAgent
+    const agent = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
+    if (!agent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
     const { permissionMode } = agent
     const launch = {
       ...agent,
       projectId: project.projectId,
-      ...(p.readOnly ? { readOnly: true as const } : {}),
     }
     await this.#checkLaunch(caller, launch)
     await this.#approveDelegation(caller, policy, signal)
@@ -1190,7 +1180,6 @@ export class AgentControlService {
       createdBy: { kind: 'session', sessionId: caller.id },
       ...(lead ? { lead: true } : {}),
       ...(p.role ? { role: p.role } : {}),
-      ...(p.readOnly ? { readOnly: true } : {}),
       workspace,
       title: p.title,
       driverKind: agent.driverKind,
@@ -1370,7 +1359,7 @@ export class AgentControlService {
       (entry) => entry.projectId === p.projectId,
     )
     if (!project) throw new ControlFailure('project_not_found', 'Project not found.')
-    const leads = await this.#projectLeads(rows, p.projectId, p.reset)
+    const leads = await this.#projectLeads(rows, p.projectId)
     const lead = leads[0]
     if (!lead) throw new ControlFailure('session_not_found', 'This project has no live Aria lead.')
     if (p.reset) {
@@ -1393,21 +1382,12 @@ export class AgentControlService {
     return { ...switched, projectId: p.projectId, lead: switched.session }
   }
 
-  async #projectLeads(
-    rows: readonly SessionListEntry[],
-    projectId: string,
-    includeArchived = false,
-  ): Promise<Session[]> {
+  async #projectLeads(rows: readonly SessionListEntry[], projectId: string): Promise<Session[]> {
     const leads: Session[] = []
     for (const row of rows) {
-      if (
-        row.projectId !== projectId ||
-        !isHelmProjectLead(row) ||
-        (!includeArchived && row.archived)
-      )
-        continue
+      if (row.projectId !== projectId || !isHelmProjectLead(row) || row.archived) continue
       const session = (await this.host.store.loadExisting(row.id))?.session
-      if (session && isHelmProjectLead(session)) leads.push(session)
+      if (session && !session.archived && isHelmProjectLead(session)) leads.push(session)
     }
     if (leads.length < 2) return leads
     const lastAsked = new Map<string, number>()
@@ -1497,7 +1477,7 @@ export class AgentControlService {
   async #checkLaunch(
     caller: Session,
     session: Pick<Session, 'driverKind' | 'modelId' | 'permissionMode'> &
-      Partial<Pick<Session, 'id' | 'projectId' | 'readOnly'>>,
+      Partial<Pick<Session, 'id' | 'projectId'>>,
     existing = false,
     providers?: readonly ProjectAgentProvider[],
   ): Promise<void> {
@@ -1519,8 +1499,7 @@ export class AgentControlService {
           : 'Session permissions cannot exceed Aria permissions.',
       )
     const working = await this.#workingProjectSessions(session.id)
-    if (session.projectId && !session.readOnly)
-      this.#refuseConcurrentCode(session.projectId, working)
+    if (session.projectId) this.#refuseConcurrentCode(session.projectId, working)
     const model = session.id ? await this.host.store.load(session.id) : null
     if (
       (!model || (model.activeTurnId === null && model.queuedMessages.length === 0)) &&
@@ -1532,10 +1511,11 @@ export class AgentControlService {
       )
   }
 
-  /** Aria's outstanding work and any active session sharing a project folder. */
+  /** Only live turns occupy a project; stale journals and long human waits do not. */
   async #workingProjectSessions(excludeId?: string): Promise<Session[]> {
     const working: Session[] = []
     const rows = await this.host.store.listSessions()
+    const now = Date.now()
     const excluded = new Set(excludeId ? [excludeId, ...descendantIds(rows, excludeId)] : [])
     for (const row of rows) {
       if (excluded.has(row.id) || row.projectId === HELM_PROJECT_ID) continue
@@ -1543,22 +1523,18 @@ export class AgentControlService {
       const session = model.session
       if (!session) continue
       if (!isHelmProjectSession(session)) {
-        if (model.activeTurnId !== null && session.workspace?.kind !== 'managed-worktree')
+        if (
+          session.workspace?.kind !== 'managed-worktree' &&
+          (await this.#projectTurnRunning(session.id, model, now))
+        )
           working.push(session)
         continue
       }
-      let live =
-        model.activeTurnId !== null ||
-        (!session.archived &&
-          (model.queuedMessages.length > 0 ||
-            pendingCompletions(model).some((entry) => entry.stopReason !== 'interrupted')))
+      let live = await this.#projectTurnRunning(session.id, model, now)
       if (!live)
         for (const id of descendantIds(rows, row.id)) {
           const child = await this.host.store.load(id)
-          if (
-            child.activeTurnId !== null ||
-            (!child.session?.archived && child.queuedMessages.length > 0)
-          ) {
+          if (await this.#projectTurnRunning(id, child, now)) {
             live = true
             break
           }
@@ -1568,17 +1544,49 @@ export class AgentControlService {
     return working
   }
 
+  async #projectTurnRunning(id: string, model: SessionReadModel, now: number): Promise<boolean> {
+    if (!model.activeTurnId || this.host.isRunning?.(id) !== true) return false
+    if (model.pendingApprovals.length === 0 && model.pendingInputs.length === 0) return true
+    const approvals = new Set(model.pendingApprovals.map((approval) => approval.approvalId))
+    const inputs = new Set(model.pendingInputs.map((input) => input.inputId))
+    let inTurn = false
+    const requestedAt = new Map<string, number>()
+    // Provider activity can continue while a tool waits for a human. Use the
+    // pending request's journal time, rather than the last observed activity.
+    for await (const chunk of (await this.host.store.openJournal(id)).readByChunk()) {
+      for (const entry of chunk) {
+        if (entry.kind !== 'value') continue
+        const parsed = journalEventSchema.safeParse(entry.value)
+        if (!parsed.success) continue
+        const event = parsed.data
+        if (event.type === 'turn.started') inTurn = event.turnId === model.activeTurnId
+        if (!inTurn) continue
+        if (event.type === 'approval.requested' && approvals.has(event.approvalId)) {
+          const key = `approval:${event.approvalId}`
+          if (!requestedAt.has(key)) requestedAt.set(key, event.at)
+        } else if (event.type === 'input.requested' && inputs.has(event.inputId)) {
+          const key = `input:${event.inputId}`
+          if (!requestedAt.has(key)) requestedAt.set(key, event.at)
+        } else if (event.type === 'approval.responded')
+          requestedAt.delete(`approval:${event.approvalId}`)
+        else if (event.type === 'input.responded') requestedAt.delete(`input:${event.inputId}`)
+      }
+    }
+    const waitingSince = Math.min(...requestedAt.values())
+    return Number.isFinite(waitingSince) && now - waitingSince < PROJECT_HUMAN_WAIT_MS
+  }
+
   async #checkProjectCode(projectId: string, excludeId?: string): Promise<void> {
     const working = await this.#workingProjectSessions(excludeId)
     this.#refuseConcurrentCode(projectId, working)
   }
 
   #refuseConcurrentCode(projectId: string, working: readonly Session[]): void {
-    const active = working.find((session) => session.projectId === projectId && !session.readOnly)
+    const active = working.find((session) => session.projectId === projectId)
     if (active)
       throw new ControlFailure(
         'delegation_limit',
-        `Project already has a working code session: "${active.title}" (${active.id}). Send follow-ups with \`ari session prompt ${active.id} "<task>"\` or wait for it to finish. Use --read-only only for research that does not edit the project.`,
+        `Project already has a working session: "${active.title}" (${active.id}). Send follow-ups with \`ari session prompt ${active.id} "<task>"\` or wait for it to finish. Do research inside that session or after it.`,
       )
   }
 
@@ -1704,7 +1712,11 @@ export class AgentControlService {
     if (++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    if (isHelmSession(caller) && target.workspace?.kind !== 'managed-worktree' && !target.readOnly)
+    if (
+      isHelmSession(caller) &&
+      !target.parentSessionId &&
+      target.workspace?.kind !== 'managed-worktree'
+    )
       await this.#checkProjectCode(target.projectId, target.id)
     const state = await this.host.store.load(target.id)
     if (state.queuedMessages.length >= 32)

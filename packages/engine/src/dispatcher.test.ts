@@ -29,35 +29,6 @@ function modelWithSession() {
 }
 
 describe('decideCommand', () => {
-  it('refuses elevating read-only permissions while allowing ordinary session permissions', () => {
-    const model = modelWithSession()
-    model.session = { ...session, readOnly: true }
-    for (const permissionMode of ['allow-edits', 'full'] as const)
-      expect(
-        decideCommand(
-          model,
-          { type: 'session.update', sessionId: session.id, permissionMode },
-          ids,
-        ),
-      ).toMatchObject({
-        accepted: false,
-        reason: 'read-only sessions require ask permissions',
-      })
-    expect(
-      decideCommand(
-        model,
-        { type: 'session.update', sessionId: session.id, permissionMode: 'ask' },
-        ids,
-      ).accepted,
-    ).toBe(true)
-    expect(
-      decideCommand(
-        modelWithSession(),
-        { type: 'session.update', sessionId: session.id, permissionMode: 'full' },
-        ids,
-      ).accepted,
-    ).toBe(true)
-  })
   it('rejects the provider switch command outside Aria, including unused sessions', () => {
     const result = decideCommand(
       modelWithSession(),

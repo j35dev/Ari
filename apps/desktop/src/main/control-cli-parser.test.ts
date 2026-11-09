@@ -135,7 +135,7 @@ it('parses lead switches and resets, refusing ambiguous or incomplete choices', 
   ).toThrow('permissions')
 })
 
-it('parses direct project sessions without an agent, read-only research and session switching', () => {
+it('parses direct project sessions without an agent and session switching', () => {
   expect(
     cli.parse([
       'session',
@@ -144,13 +144,12 @@ it('parses direct project sessions without an agent, read-only research and sess
       'proj_1',
       '--title',
       'Research',
-      '--read-only',
       '--key',
       'research',
     ]),
   ).toMatchObject({
     method: 'session.spawn',
-    params: { projectId: 'proj_1', title: 'Research', readOnly: true, idempotencyKey: 'research' },
+    params: { projectId: 'proj_1', title: 'Research', idempotencyKey: 'research' },
   })
   expect(
     cli.parse([
@@ -179,6 +178,9 @@ it('parses direct project sessions without an agent, read-only research and sess
   expect(() => cli.parse(['session', 'switch', '--agent', 'codex'])).toThrow('session id')
   expect(() => cli.parse(['session', 'switch', 'session_1'])).toThrow('--agent')
   expect(() => cli.parse(['session', 'switch', 'session_1', '--agent', 'codex'])).toThrow('--model')
+  expect(() =>
+    cli.parse(['session', 'spawn', '--project', 'proj_1', '--read-only', 'true']),
+  ).toThrow('Unknown option')
 })
 
 it('parses the Aria commands', () => {

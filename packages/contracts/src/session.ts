@@ -71,8 +71,6 @@ export const sessionSchema = z.object({
   workspace: sessionWorkspaceSchema.nullish(),
   /** A lead coordinates children; it is guidance, not a permission change. */
   lead: z.literal(true).optional(),
-  /** Explicitly requested research that can run alongside code work in the project. */
-  readOnly: z.literal(true).optional(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 })
