@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SettingsStore } from '@ari/engine/settings'
-import { SpeechService, speechRequestTimeout, speechWorkerExitError } from './service'
+import {
+  SpeechService,
+  speechRequestTimeout,
+  speechWorkerExitError,
+  speechEngineRetryDelay,
+} from './service'
 import * as engineModule from './engine'
 import * as downloadModule from './download'
 import type { SpeechProgress } from '@ari/contracts/rpc'
@@ -86,6 +91,7 @@ vi.mock('electron', async () => {
   return { utilityProcess: { fork: mocks.fork } }
 })
 const roots: string[] = []
+const verifyFixture = engineModule.verifyInstalledEngine
 const services: SpeechService[] = []
 beforeEach(() => {
   mocks.fork.mockClear()
@@ -147,6 +153,11 @@ async function selectReady(service: SpeechService, choice: { modelId?: string; p
   await service.select(choice)
   await vi.waitFor(() => expect(service.status().ready).toBe(true), { timeout: 3000 })
 }
+async function installFixture(dir: string, verified?: (stamp: string) => void) {
+  const library = await createEngine(dir)
+  await verifyFixture(join(dir, 'speech', 'engine', ENGINE_VERSION), true, undefined, verified)
+  return library
+}
 it('keeps the mic unarmed until a model is configured', async () => {
   const { service } = await setup(false)
   expect(await service.status()).toMatchObject({ engine: 'missing', model: null, ready: false })
@@ -180,7 +191,7 @@ it('never removes Handy models and leaves an invalid selected model unarmed', as
     (model) => model.installed && model.installed.path === path,
   )!
   await expect(service.remove(entry.id)).rejects.toThrow('Only models downloaded by Ari')
-  await service.select({ modelId: entry.id })
+  await expect(service.select({ modelId: entry.id })).rejects.toThrow('Invalid GGUF model')
   await vi.waitFor(() =>
     expect(service.status()).toMatchObject({ ready: false, error: 'Invalid GGUF model' }),
   )
@@ -347,7 +358,7 @@ it('serializes status, installation and pre-fork verification while snapshots st
   let maxActive = 0
   let fullChecks = 0
   vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementation(
-    async (root, full, release) => {
+    async (root, full, release, stamp) => {
       active++
       maxActive = Math.max(maxActive, active)
       try {
@@ -358,24 +369,26 @@ it('serializes status, installation and pre-fork verification while snapshots st
           })
           return null
         }
-        return await originalVerify(root, full, release)
+        return await originalVerify(root, full, release, stamp)
       } finally {
         active--
       }
     },
   )
-  const install = vi.spyOn(engineModule, 'installEngine').mockImplementation(async () => {
-    active++
-    maxActive = Math.max(maxActive, active)
-    try {
-      await new Promise<void>((resolve) => {
-        finishInstall = resolve
-      })
-      return await createEngine(dir)
-    } finally {
-      active--
-    }
-  })
+  const install = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockImplementation(async (_root, _signal, _progress, stamp) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      try {
+        await new Promise<void>((resolve) => {
+          finishInstall = resolve
+        })
+        return await installFixture(dir, stamp)
+      } finally {
+        active--
+      }
+    })
   const transcription = service.transcribe(new Float32Array([0])).catch((error: unknown) => error)
   await vi.waitFor(() => expect(fullChecks).toBe(1))
   const first = service.install()
@@ -384,8 +397,8 @@ it('serializes status, installation and pre-fork verification while snapshots st
   expect(status).not.toBeInstanceOf(Promise)
   expect(install).not.toHaveBeenCalled()
   expect(await second).toEqual({ started: false })
-  finishCheck()
   expect(await first).toEqual({ started: true })
+  finishCheck()
   await vi.waitFor(() => expect(install).toHaveBeenCalledOnce())
   for (let i = 0; i < 10; i++) expect(service.status().engine).toBe('downloading')
   finishInstall()
@@ -450,11 +463,13 @@ it('shows the shared runtime hint when the worker dies before loading a model', 
   const path = join(dir, 'custom.gguf')
   await writeFile(path, 'gguf')
   mocks.manualLoad = true
-  await service.select({ path })
+  const selected = service.select({ path })
+  const rejected = expect(selected).rejects.toThrow('The speech engine stopped')
   await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledOnce())
   const child = mocks.fork.mock.results[0]!.value
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledOnce())
   child.emit('exit', -1073741819)
+  await rejected
   await vi.waitFor(() =>
     expect(service.status().error).toContain(
       process.platform === 'win32' ? WINDOWS_SPEECH_RUNTIME_HINT : 'The speech engine stopped',
@@ -464,12 +479,12 @@ it('shows the shared runtime hint when the worker dies before loading a model', 
 
 it('reinstalls despite an I/O error in the old installation and reuses verified installed files', async () => {
   const { dir, service } = await setup(false, false)
-  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValue(
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValueOnce(
     new EngineIoError('Old folder is locked.'),
   )
   const install = vi
     .spyOn(engineModule, 'installEngine')
-    .mockImplementation(() => createEngine(dir))
+    .mockImplementation((_root, _signal, _progress, stamp) => installFixture(dir, stamp))
   expect(await service.install()).toEqual({ started: true })
   await vi.waitFor(() => expect(service.status().engine).toBe('ready'))
   const path = join(dir, 'custom.gguf')
@@ -495,7 +510,7 @@ it('automatically retries a transient pre-fork error and publishes recovery with
   )
   const frames: SpeechProgress[] = []
   service.publish = (frame) => frames.push(frame)
-  await service.select({ path })
+  await expect(service.select({ path })).rejects.toThrow('Temporarily locked')
   await vi.waitFor(() =>
     expect(frames.some((frame) => frame.status?.error === 'Temporarily locked.')).toBe(true),
   )
@@ -546,8 +561,8 @@ it('does not reinstall or stop a ready worker, including an install queued behin
   await vi.waitFor(() => expect(verifying).toBe(true))
   const install = service.install()
   expect(service.status()).not.toBeInstanceOf(Promise)
+  expect(await install).toEqual({ started: true })
   release()
-  expect(await install).toEqual({ started: false })
   expect(await transcription).toEqual({ text: 'local transcript' })
   const worker = mocks.fork.mock.results[0]!.value
   expect(await service.install()).toEqual({ started: false })
@@ -603,20 +618,20 @@ it('selects another model while an earlier model is loading and publishes readin
   await writeFile(first, 'gguf')
   await writeFile(second, 'gguf')
   mocks.manualLoad = true
-  await service.select({ path: first })
+  const firstSelection = service.select({ path: first })
   await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledOnce())
   const child = mocks.fork.mock.results[0]!.value
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledOnce())
   const frames: SpeechProgress[] = []
   service.publish = (frame) => frames.push(frame)
-  expect(await service.select({ path: second })).toMatchObject({
-    ready: false,
-    model: { installed: { path: second } },
-  })
+  const secondSelection = service.select({ path: second })
+  await vi.waitFor(() => expect(service.status().model?.installed).toMatchObject({ path: second }))
   child.emit('message', { id: child.postMessage.mock.calls[0][0].id, result: { text: '' } })
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(2))
   expect(frames.some((frame) => frame.status?.ready)).toBe(false)
   child.emit('message', { id: child.postMessage.mock.calls[1][0].id, result: { text: '' } })
+  await firstSelection
+  expect(await secondSelection).toMatchObject({ ready: true })
   await vi.waitFor(() =>
     expect(frames.at(-1)?.status).toMatchObject({
       ready: true,
@@ -628,12 +643,14 @@ it('selects another model while an earlier model is loading and publishes readin
 it('keeps model discard, selection and download responsive during an engine install', async () => {
   const { dir, service } = await setup(false, false)
   let finish: () => void = () => undefined
-  vi.spyOn(engineModule, 'installEngine').mockImplementation(async () => {
-    await new Promise<void>((resolve) => {
-      finish = resolve
-    })
-    return createEngine(dir)
-  })
+  vi.spyOn(engineModule, 'installEngine').mockImplementation(
+    async (_root, _signal, _progress, stamp) => {
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      return installFixture(dir, stamp)
+    },
+  )
   expect(await service.install()).toEqual({ started: true })
   expect(await service.install()).toEqual({ started: false })
   const root = join(dir, 'speech', 'models')
@@ -709,17 +726,14 @@ it.each(['immediate', 'expired', 'changed'] as const)(
     if (mode === 'changed') {
       const library = await originalVerify(join(dir, 'speech', 'engine', ENGINE_VERSION), false)
       await writeFile(library!, 'NATIVE FIXTURE')
-      now += 2000
-      service.status()
-      await vi.waitFor(() =>
-        expect(verification.mock.calls.filter(([, full]) => !full)).toHaveLength(2),
-      )
+      await utimes(library!, new Date(now), new Date(now + 1000))
     }
-    await service.select({ path })
     if (mode === 'changed') {
+      await expect(service.select({ path })).rejects.toThrow('Download the speech engine')
       await vi.waitFor(() => expect(service.status().engine).toBe('missing'))
       expect(mocks.fork).not.toHaveBeenCalled()
     } else {
+      await service.select({ path })
       await vi.waitFor(() => expect(service.status().ready).toBe(true))
     }
     expect(verification.mock.calls.filter(([, full]) => full)).toHaveLength(
@@ -732,3 +746,200 @@ it.each(['immediate', 'expired', 'changed'] as const)(
     }
   },
 )
+
+it('backs off repeated full-verification I/O errors without publishing false recovery', async () => {
+  const { dir, service, store } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await store.update({ speech: { modelPath: path, enabled: true } })
+  const originalVerify = engineModule.verifyInstalledEngine
+  let fail = true
+  let attempts = 0
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementation(
+    (root, full, release, stamp) => {
+      if (full) {
+        attempts++
+        if (fail) return Promise.reject(new EngineIoError('Library remains locked.'))
+      }
+      return originalVerify(root, full, release, stamp)
+    },
+  )
+  const frames: SpeechProgress[] = []
+  service.publish = (frame) => frames.push(frame)
+  vi.useFakeTimers()
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow('Library remains locked')
+  expect(attempts).toBe(1)
+  for (const [index, budget] of [500, 1000, 2000, 4000, 8000, 16000, 32000, 60000].entries()) {
+    expect(speechEngineRetryDelay(index + 1)).toBe(budget)
+    await vi.advanceTimersByTimeAsync(budget - 1)
+    expect(attempts).toBe(index + 1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(attempts).toBe(index + 2)
+  }
+  expect(speechEngineRetryDelay(100)).toBe(60_000)
+  const errorAt = frames.findIndex((frame) => frame.status?.error === 'Library remains locked.')
+  expect(errorAt).toBeGreaterThanOrEqual(0)
+  expect(
+    frames.slice(errorAt).every((frame) => frame.status?.error === 'Library remains locked.'),
+  ).toBe(true)
+  fail = false
+  await vi.advanceTimersByTimeAsync(60_000)
+  await vi.waitFor(
+    () => expect(frames.at(-1)?.status).toMatchObject({ ready: true, error: null }),
+    { timeout: 3000 },
+  )
+  expect(mocks.fork).toHaveBeenCalledOnce()
+})
+
+it.each(['pending', 'io-error', 'absent'] as const)(
+  'auto-installs only after a completed absence check (%s)',
+  async (mode) => {
+    const { dir, service } = await setup(mode !== 'absent', false)
+    const path = join(dir, 'custom.gguf')
+    await writeFile(path, 'gguf')
+    let release: () => void = () => undefined
+    const originalVerify = engineModule.verifyInstalledEngine
+    vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementationOnce(
+      async (root, full, data, stamp) => {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        if (mode === 'io-error') throw new EngineIoError('Old engine is temporarily locked.')
+        return originalVerify(root, full, data, stamp)
+      },
+    )
+    const installer = vi
+      .spyOn(engineModule, 'installEngine')
+      .mockImplementation((_root, _signal, _progress, stamp) => installFixture(dir, stamp))
+    const frames: SpeechProgress[] = []
+    service.publish = (frame) => frames.push(frame)
+    expect(await service.select({ path })).toMatchObject({ engine: 'missing', ready: false })
+    expect(installer).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(frames.at(-1)?.status).toMatchObject({ ready: true }), {
+      timeout: 3000,
+    })
+    expect(installer).toHaveBeenCalledTimes(mode === 'absent' ? 1 : 0)
+  },
+)
+
+it('recovers a valid engine left behind by a failed install step without another download', async () => {
+  const { dir, service, store } = await setup(false, false)
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await store.update({ speech: { modelPath: path, enabled: true } })
+  const installer = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockImplementation(async (_root, _signal, _progress, stamp) => {
+      await installFixture(dir, stamp)
+      throw new Error('Late install step failed.')
+    })
+  const frames: SpeechProgress[] = []
+  service.publish = (frame) => frames.push(frame)
+  expect(await service.install()).toEqual({ started: true })
+  await vi.waitFor(() =>
+    expect(frames.some((frame) => frame.status?.error === 'Late install step failed.')).toBe(true),
+  )
+  await vi.waitFor(
+    () => expect(frames.at(-1)?.status).toMatchObject({ ready: true, error: null }),
+    { timeout: 3000 },
+  )
+  expect(installer).toHaveBeenCalledOnce()
+})
+
+it('re-arms a retry that fires before the engine-check backoff expires', async () => {
+  const { dir, service, store } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await store.update({ speech: { modelPath: path, enabled: true } })
+  const originalVerify = engineModule.verifyInstalledEngine
+  let failed = false
+  const verification = vi
+    .spyOn(engineModule, 'verifyInstalledEngine')
+    .mockImplementation((root, full, data, stamp) => {
+      if (full && !failed) {
+        failed = true
+        return Promise.reject(new EngineIoError('Temporarily locked.'))
+      }
+      return originalVerify(root, full, data, stamp)
+    })
+  const frames: SpeechProgress[] = []
+  service.publish = (frame) => frames.push(frame)
+  vi.useFakeTimers()
+  const now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow('Temporarily locked')
+  await vi.advanceTimersByTimeAsync(500)
+  expect(verification.mock.calls.filter(([, full]) => full)).toHaveLength(1)
+  clock.mockReturnValue(now + 500)
+  await vi.advanceTimersByTimeAsync(500)
+  await vi.waitFor(() => expect(frames.at(-1)?.status?.ready).toBe(true), { timeout: 3000 })
+  expect(verification.mock.calls.filter(([, full]) => full)).toHaveLength(2)
+})
+
+it('loads the newly selected model before dictation on an already running worker', async () => {
+  const { dir, service, store } = await setup()
+  const first = join(dir, 'first.gguf')
+  const second = join(dir, 'second.gguf')
+  await writeFile(first, 'gguf')
+  await writeFile(second, 'gguf')
+  await selectReady(service, { path: first })
+  await store.update({ speech: { modelPath: second } })
+  expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+  expect(mocks.fork).toHaveBeenCalledOnce()
+  const calls = mocks.fork.mock.results[0]!.value.postMessage.mock.calls
+  expect(
+    calls
+      .slice(-2)
+      .map(([request]: [{ kind: string; path: string }]) => [request.kind, request.path]),
+  ).toEqual([
+    ['load', second],
+    ['transcribe', second],
+  ])
+})
+
+it('returns selection load errors and lets immediate dictation wait for a model switch', async () => {
+  const { dir, service } = await setup()
+  const first = join(dir, 'first.gguf')
+  const second = join(dir, 'second.gguf')
+  await writeFile(first, 'gguf')
+  await writeFile(second, 'gguf')
+  await selectReady(service, { path: first })
+  mocks.manualLoad = true
+  const selected = service.select({ path: second })
+  const child = mocks.fork.mock.results[0]!.value
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(2))
+  const dictation = service.transcribe(new Float32Array([0]))
+  child.emit('message', { id: child.postMessage.mock.calls[1][0].id, result: { text: '' } })
+  expect(await selected).toMatchObject({ ready: true })
+  expect(await dictation).toEqual({ text: 'local transcript' })
+  expect(child.postMessage).toHaveBeenCalledTimes(3)
+})
+
+it('returns an install receipt before queued inspection finishes and releases a cancelled install', async () => {
+  const { dir, service } = await setup(false, false)
+  let release: () => void = () => undefined
+  const inspection = vi
+    .spyOn(engineModule, 'verifyInstalledEngine')
+    .mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return null
+    })
+  const installer = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockImplementation((_root, _signal, _progress, stamp) => installFixture(dir, stamp))
+  expect(await service.install()).toEqual({ started: true })
+  expect(await service.install()).toEqual({ started: false })
+  expect(installer).not.toHaveBeenCalled()
+  expect(service.cancel('engine')).toEqual({ cancelled: true })
+  await vi.waitFor(() => expect(inspection).toHaveBeenCalledOnce())
+  release()
+  await vi.waitFor(() =>
+    expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('cancelled'),
+  )
+  expect(await service.install()).toEqual({ started: true })
+  await vi.waitFor(() => expect(service.status().engine).toBe('ready'), { timeout: 3000 })
+  expect(installer).toHaveBeenCalledOnce()
+})

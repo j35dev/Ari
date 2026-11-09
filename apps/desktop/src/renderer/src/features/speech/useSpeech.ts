@@ -22,14 +22,15 @@ async function refresh(): Promise<void> {
   const currentGeneration = generation
   reading = (async () => {
     let readRevision: number
-    do {
+    for (let attempt = 0; attempt < 2; attempt++) {
       readRevision = revision
       const status = await rpc.invoke('speech.status')
       if (currentGeneration !== generation) return
       if (readRevision !== revision) continue
       snapshot = { ...snapshot, status }
       emit()
-    } while (revision !== readRevision)
+      if (revision === readRevision) break
+    }
   })().finally(() => {
     if (currentGeneration === generation) reading = null
   })

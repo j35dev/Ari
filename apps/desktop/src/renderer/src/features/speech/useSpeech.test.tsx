@@ -76,3 +76,38 @@ it('applies status frames immediately without another RPC read', async () => {
   expect(mocks.invoke).toHaveBeenCalledOnce()
   hook.unmount()
 })
+
+it('lets refresh settle after at most one rerun while status frames keep arriving', async () => {
+  let publish: (frame: SpeechProgress) => void = () => undefined
+  mocks.subscribe.mockImplementation((_name, _params, callback) => {
+    publish = callback
+    return mocks.off
+  })
+  mocks.invoke.mockResolvedValue({ engine: 'missing', model: null, ready: false })
+  const hook = renderHook(() => useSpeech())
+  await act(async () => {
+    await hook.result.current.refresh()
+  })
+  mocks.invoke.mockClear()
+  let remaining = 10
+  mocks.invoke.mockImplementation(async () => {
+    if (remaining-- > 0)
+      publish({
+        id: 'configuration',
+        phase: 'complete',
+        received: 0,
+        total: 0,
+        status: { engine: 'ready', model: null, ready: true },
+      })
+    return { engine: 'missing', model: null, ready: false }
+  })
+  let settled = false
+  await act(async () => {
+    await hook.result.current.refresh()
+    settled = true
+  })
+  expect(settled).toBe(true)
+  expect(mocks.invoke).toHaveBeenCalledTimes(2)
+  expect(hook.result.current.status.ready).toBe(true)
+  hook.unmount()
+})
