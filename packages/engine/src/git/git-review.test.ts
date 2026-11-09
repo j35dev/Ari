@@ -31,6 +31,86 @@ afterEach(async () => {
 })
 
 describe('snapshot-backed Git review', { timeout: 60_000 }, () => {
+  it('keeps file identities across other edits but changes them for equal-count content edits', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'app.ts'), 'two\n')
+    await writeFile(join(root, 'other.ts'), 'other\n')
+    const service = new GitReviewService(root)
+    const first = await service.manifest({ kind: 'working-tree' })
+    await writeFile(join(root, 'other.ts'), 'changed\n')
+    const second = await new GitReviewService(root).manifest({ kind: 'working-tree' })
+    await writeFile(join(root, 'app.ts'), 'six\n')
+    const third = await service.manifest({ kind: 'working-tree' })
+    if (!first.ok || !second.ok || !third.ok) throw new Error('review unavailable')
+    const app = (review: typeof first.value) => review.files.find((file) => file.path === 'app.ts')!
+    expect(first.value.reviewScopeId).toMatch(/^[a-f0-9]{64}$/)
+    expect(second.value.reviewScopeId).toBe(first.value.reviewScopeId)
+    expect(second.value.id).not.toBe(first.value.id)
+    expect(app(first.value).contentId).toMatch(/^[a-f0-9]{64}$/)
+    expect(app(second.value).contentId).toBe(app(first.value).contentId)
+    expect(app(third.value).contentId).not.toBe(app(first.value).contentId)
+    expect(app(third.value).additions).toBe(app(first.value).additions)
+    expect(app(third.value).deletions).toBe(app(first.value).deletions)
+  })
+
+  it('isolates review scopes by comparison, selected base, branch and workspace', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'app.ts'), 'two\n')
+    git(root, 'add', 'app.ts')
+    const service = new GitReviewService(root)
+    const working = await service.manifest({ kind: 'working-tree' })
+    const staged = await service.manifest({ kind: 'staged' })
+    const automatic = await service.manifest({ kind: 'branch' })
+    const explicit = await service.manifest({ kind: 'branch', base: 'main' })
+    git(root, 'switch', '-c', 'feature')
+    const branch = await service.manifest({ kind: 'working-tree' })
+    const other = await new GitReviewService(await repository()).manifest({ kind: 'working-tree' })
+    for (const result of [working, staged, automatic, explicit, branch, other])
+      if (!result.ok) throw new Error(result.error.message)
+    expect(
+      new Set(
+        [working, staged, automatic, explicit, branch, other].map((result) =>
+          result.ok ? result.value.reviewScopeId : null,
+        ),
+      ).size,
+    ).toBe(6)
+    git(root, 'commit', '-m', 'new base')
+    await writeFile(join(root, 'app.ts'), 'six\n')
+    const newBase = await service.manifest({ kind: 'working-tree' })
+    if (!newBase.ok || !branch.ok) throw new Error('review unavailable')
+    expect(newBase.value.reviewScopeId).not.toBe(branch.value.reviewScopeId)
+  })
+
+  it('fingerprints binary content, modes, deletions and literal rename paths from snapshot objects', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'image.bin'), Buffer.from([0, 1, 2]))
+    git(root, 'add', 'image.bin')
+    git(root, 'commit', '-m', 'binary base')
+    await writeFile(join(root, 'image.bin'), Buffer.from([0, 3, 4]))
+    const service = new GitReviewService(root)
+    const first = await service.manifest({ kind: 'working-tree' })
+    await writeFile(join(root, 'image.bin'), Buffer.from([0, 5, 6]))
+    const second = await service.manifest({ kind: 'working-tree' })
+    git(root, 'mv', 'app.ts', 'renamed [file].ts')
+    const rename = await service.manifest({ kind: 'working-tree' })
+    git(root, 'update-index', '--chmod=+x', 'renamed [file].ts')
+    const executable = await service.manifest({ kind: 'staged' })
+    git(root, 'rm', '-f', 'renamed [file].ts')
+    const deleted = await service.manifest({ kind: 'working-tree' })
+    if (!first.ok || !second.ok || !rename.ok || !executable.ok || !deleted.ok)
+      throw new Error('review unavailable')
+    expect(first.value.files[0]?.binary).toBe(true)
+    expect(first.value.files[0]?.contentId).toMatch(/^[a-f0-9]{64}$/)
+    expect(second.value.files[0]?.contentId).not.toBe(first.value.files[0]?.contentId)
+    const renamed = rename.value.files.find((file) => file.kind === 'renamed')!
+    const mode = executable.value.files.find((file) => file.kind === 'renamed')!
+    expect(renamed).toMatchObject({ path: 'renamed [file].ts', oldPath: 'app.ts' })
+    expect(mode.contentId).not.toBe(renamed.contentId)
+    const deletion = deleted.value.files.find((file) => file.path === 'app.ts')!
+    expect(deletion.kind).toBe('deleted')
+    expect(deletion.contentId).toMatch(/^[a-f0-9]{64}$/)
+  })
+
   it('counts branch and changed files without reading history or ignored paths', async () => {
     const root = await repository()
     await writeFile(join(root, 'app.ts'), 'one\ntwo\n')
