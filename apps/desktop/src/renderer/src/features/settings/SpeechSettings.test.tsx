@@ -83,9 +83,24 @@ it.each(['missing', 'ready'] as const)(
     expect(screen.queryByRole('button', { name: 'Download engine' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
+    expect(mocks.invoke).toHaveBeenCalledWith('speech.engine.check')
+    expect(screen.queryByRole('button', { name: 'Reinstall engine' })).not.toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalledWith('speech.engine.download')
   },
 )
+it('offers an explicit reinstall after Retry could not read the engine', async () => {
+  mocks.status = {
+    engine: 'missing',
+    engineError: 'Files still locked',
+    engineReinstallable: true,
+    engineInstallable: false,
+    model: null,
+    ready: false,
+  }
+  render(<SpeechSettings />)
+  fireEvent.click(screen.getByRole('button', { name: 'Reinstall engine' }))
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('speech.engine.reinstall'))
+})
 it('waits for completed startup inspection and shows a background model load', () => {
   mocks.status = { engine: 'missing', engineInstallable: false, model: null, ready: false }
   const view = render(<SpeechSettings />)

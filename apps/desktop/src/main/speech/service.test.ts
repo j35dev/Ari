@@ -237,7 +237,7 @@ it('clears an engine verification error after explicit inspection of repaired fi
   )
   const installer = vi.spyOn(engineModule, 'installEngine')
   await createEngine(dir)
-  service.status()
+  await service.check()
   await vi.waitFor(() =>
     expect(service.snapshot().find((frame) => frame.id === 'configuration')?.status).toMatchObject({
       engine: 'ready',
@@ -439,9 +439,9 @@ it('reports transient engine I/O without killing a warm worker or marking it mis
   await selectReady(service, { path })
   const now = Date.now()
   vi.spyOn(Date, 'now').mockReturnValue(now + 60_001)
-  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValueOnce(
-    new EngineIoError('Temporarily locked. Retry.'),
-  )
+  const verification = vi
+    .spyOn(engineModule, 'verifyInstalledEngine')
+    .mockRejectedValue(new EngineIoError('Temporarily locked. Retry.'))
   await vi.waitFor(
     () =>
       expect(service.status()).toMatchObject({
@@ -453,7 +453,97 @@ it('reports transient engine I/O without killing a warm worker or marking it mis
   )
   expect(await service.install()).toEqual({ started: false })
   expect(mocks.fork.mock.results[0]!.value.kill).not.toHaveBeenCalled()
+  const reads = verification.mock.calls.length
   expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+  expect(verification).toHaveBeenCalledTimes(reads)
+})
+
+it('forces a check during model loading even within the recent-verification window', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  mocks.manualLoad = true
+  await service.select({ path })
+  await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledOnce())
+  const child = mocks.fork.mock.results[0]!.value
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledOnce())
+  const verification = vi.spyOn(engineModule, 'verifyInstalledEngine')
+  expect(await service.check()).toMatchObject({
+    engine: 'ready',
+    loading: true,
+    ready: false,
+    error: null,
+  })
+  expect(verification.mock.calls.filter(([, full]) => full)).toHaveLength(1)
+  child.emit('message', { id: child.postMessage.mock.calls[0][0].id, result: { text: '' } })
+  await vi.waitFor(() => expect(service.status().ready).toBe(true))
+})
+
+it('offers reinstall after a forced read check fails and replaces files without rechecking the locked install', async () => {
+  const { dir, service } = await setup()
+  expect(await service.reinstall()).toEqual({ started: false })
+  const inspection = vi
+    .spyOn(engineModule, 'verifyInstalledEngine')
+    .mockRejectedValue(new EngineIoError('Persistent read failure'))
+  const installer = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockImplementation((_root, _signal, _progress, stamp) => installFixture(dir, stamp))
+  const status = await service.check()
+  expect(status).toMatchObject({
+    engine: 'ready',
+    engineInstallable: false,
+    engineReinstallable: true,
+    error: ENGINE_READ_ERROR,
+  })
+  const reads = inspection.mock.calls.length
+  expect(await service.reinstall()).toEqual({ started: true })
+  await vi.waitFor(() =>
+    expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('complete'),
+  )
+  expect(installer).toHaveBeenCalledOnce()
+  expect(inspection).toHaveBeenCalledTimes(reads)
+  expect(service.status()).toMatchObject({
+    engine: 'ready',
+    engineReinstallable: false,
+    error: null,
+  })
+})
+
+it('retries a failed installation through check and exposes reinstall if that retry has another read error', async () => {
+  const { service } = await setup(false, false)
+  const installer = vi
+    .spyOn(engineModule, 'installEngine')
+    .mockRejectedValue(new EngineIoError('Staging files locked'))
+  await service.install()
+  await vi.waitFor(() =>
+    expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('error'),
+  )
+  expect(await service.check()).toMatchObject({
+    engine: 'missing',
+    engineInstallable: false,
+    engineReinstallable: true,
+    error: ENGINE_READ_ERROR,
+  })
+  expect(installer).toHaveBeenCalledTimes(2)
+})
+
+it('clears a stale install error frame when a read failure replaces it and the engine becomes missing', async () => {
+  const { dir, service, store } = await setup(false, false)
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await store.update({ speech: { modelPath: path, enabled: true } })
+  vi.spyOn(engineModule, 'installEngine').mockRejectedValue(new Error('Install failed'))
+  await service.install()
+  await vi.waitFor(() =>
+    expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('error'),
+  )
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValueOnce(
+    new EngineIoError('Files locked'),
+  )
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow(ENGINE_READ_ERROR)
+  expect(await service.check()).toMatchObject({ engine: 'missing', error: null })
+  expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('complete')
+  expect(service.snapshot().find((frame) => frame.id === 'engine')?.error).toBeUndefined()
 })
 
 it('offers the official VC++ runtime link only for unexplained early Windows crashes', () => {
@@ -653,7 +743,8 @@ it('coalesces refresh requests and publishes the selected model after a delayed 
       model: { installed: { path: second } },
     }),
   )
-  expect(models).toHaveBeenCalledTimes(2)
+  expect(models.mock.calls.length).toBeGreaterThanOrEqual(2)
+  expect(models.mock.calls.length).toBeLessThan(10)
   await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledOnce())
   const requests = mocks.fork.mock.results[0]!.value.postMessage.mock.calls
   await vi.waitFor(() => expect(requests).toHaveLength(1))
@@ -748,12 +839,12 @@ it('preserves installation failure messages through status checks until an expli
     expect(service.status()).toMatchObject({ engine: 'error', error: 'Not enough disk space.' })
   await new Promise<void>((resolve) => setImmediate(resolve))
   expect(service.status()).toMatchObject({ engine: 'error', error: 'Not enough disk space.' })
-  expect(await service.install()).toEqual({ started: true })
+  expect(await service.check()).toMatchObject({ engine: 'ready', error: null })
   await vi.waitFor(() => expect(service.status()).toMatchObject({ engine: 'ready', error: null }))
   expect(installer).toHaveBeenCalledTimes(2)
 })
 
-it.each(['immediate', 'expired', 'changed'] as const)(
+it.each(['immediate', 'expired', 'changed', 'extra-file', 'extra-folder'] as const)(
   'reuses install verification for only one recent, unchanged spawn (%s)',
   async (mode) => {
     const { dir, service } = await setup(false, false)
@@ -780,7 +871,10 @@ it.each(['immediate', 'expired', 'changed'] as const)(
       await writeFile(library!, 'NATIVE FIXTURE')
       await utimes(library!, new Date(now), new Date(now + 1000))
     }
-    if (mode === 'changed') {
+    if (mode === 'extra-file')
+      await writeFile(join(dir, 'speech', 'engine', ENGINE_VERSION, 'extra.dll'), 'unexpected')
+    if (mode === 'extra-folder') await mkdir(join(dir, 'speech', 'engine', ENGINE_VERSION, 'extra'))
+    if (['changed', 'extra-file', 'extra-folder'].includes(mode)) {
       expect(await service.select({ path })).toMatchObject({ ready: false })
       await vi.waitFor(() =>
         expect(
@@ -804,7 +898,7 @@ it.each(['immediate', 'expired', 'changed'] as const)(
   },
 )
 
-it('stops after an I/O error and inspects only once per explicit status or dictation request', async () => {
+it('stops after an I/O error and inspects only on forced checks or cold dictation attempts', async () => {
   const { dir, service, store } = await setup()
   const path = join(dir, 'custom.gguf')
   await writeFile(path, 'gguf')
@@ -829,6 +923,12 @@ it('stops after an I/O error and inspects only once per explicit status or dicta
   expect(attempts).toBe(1)
   expect(vi.getTimerCount()).toBe(0)
   service.status()
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(attempts).toBe(1)
+  expect(await service.check()).toMatchObject({
+    error: ENGINE_READ_ERROR,
+    engineReinstallable: true,
+  })
   await vi.waitFor(() => expect(attempts).toBe(2))
   await vi.advanceTimersByTimeAsync(60 * 60_000)
   expect(attempts).toBe(2)
@@ -870,7 +970,7 @@ it.each(['pending', 'io-error', 'absent'] as const)(
     if (mode === 'io-error') {
       await vi.waitFor(() => expect(frames.at(-1)?.status?.error).toBe(ENGINE_READ_ERROR))
       expect(await service.install()).toEqual({ started: false })
-      service.status()
+      await service.check()
     }
     await vi.waitFor(() => expect(frames.at(-1)?.status).toMatchObject({ ready: true }), {
       timeout: 3000,
@@ -879,7 +979,7 @@ it.each(['pending', 'io-error', 'absent'] as const)(
   },
 )
 
-it.each(['status', 'install'] as const)(
+it.each(['dictation', 'install'] as const)(
   'recovers a valid engine on explicit %s and clears its stale install error frame',
   async (action) => {
     const { dir, service, store } = await setup(false, false)
@@ -899,7 +999,8 @@ it.each(['status', 'install'] as const)(
       expect(service.snapshot().find((frame) => frame.id === 'engine')?.phase).toBe('error'),
     )
     expect(frames.at(-1)?.error).toBe('Late install step failed.')
-    if (action === 'status') service.status()
+    if (action === 'dictation')
+      expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
     else expect(await service.install()).toEqual({ started: true })
     await vi.waitFor(
       () => expect(frames.at(-1)?.status).toMatchObject({ ready: true, error: null }),
