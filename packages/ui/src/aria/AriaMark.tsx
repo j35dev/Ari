@@ -9,13 +9,13 @@ const STATE_LABEL = {
 } as const
 
 const EYES = {
-  idle: { width: 2.3, height: 3.2 },
-  thinking: { width: 2.3, height: 2.7 },
-  working: { width: 2.7, height: 1.8 },
-  attention: { width: 2.8, height: 4.2 },
+  idle: { y: 6, height: 2 },
+  thinking: { y: 6, height: 2 },
+  working: { y: 7, height: 1 },
+  attention: { y: 5, height: 3 },
 } as const
 
-/** A flat lion cub; the eyes stay legible when sidebar sizes omit its tiny nose. */
+/** Block scout's 16px grid stays intact at every size and in every pose. */
 export function AriaMark(props: {
   size?: number
   state?: 'idle' | 'thinking' | 'working' | 'attention'
@@ -23,42 +23,37 @@ export function AriaMark(props: {
   title?: string
 }): JSX.Element {
   const { size = 16, state = 'idle', className, title = 'Aria' } = props
-  const small = size <= 16
   const eyes = EYES[state]
 
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
       role="img"
       aria-label={title}
       aria-description={STATE_LABEL[state]}
       focusable="false"
       data-state={state}
-      data-small={small}
       className={['ari-aria-mark', className].filter(Boolean).join(' ')}
     >
       <title>{title}</title>
-      <g className="ari-aria-mark-ears ari-aria-mark-mane">
-        <ellipse className="ari-aria-mark-ear-left" cx="5.8" cy="6" rx="2.7" ry="2.5" />
-        <ellipse cx="18.2" cy="6" rx="2.7" ry="2.5" />
+      <g className="ari-aria-mark-frame">
+        <rect className="ari-aria-mark-tuft" x="10" y="1" width="2" height="3" />
+        <rect x="4" y="2" width="5" height="2" />
+        <rect x="2" y="4" width="12" height="7" />
+        <rect x="1" y="5" width="1" height="3" />
+        <rect x="14" y="6" width="1" height="3" />
+        <rect x="3" y="11" width="10" height="2" />
+        <rect x="5" y="13" width="6" height="1" />
       </g>
-      <path className="ari-aria-mark-mane" d="M8 3H16L21 8V17L16 22H8L3 17V8Z" />
-      <circle className="ari-aria-mark-face" cx="12" cy="12.7" r="6.2" />
+      <rect className="ari-aria-mark-face" x="3" y="5" width="10" height="5" />
       <g className="ari-aria-mark-eyes ari-aria-mark-ink">
-        {[9.3, 14.7].map((cx) => (
-          <rect
-            key={cx}
-            x={cx - eyes.width / 2}
-            y={11.5 - eyes.height / 2}
-            width={eyes.width}
-            height={eyes.height}
-            rx="0.55"
-          />
+        {[5, 9].map((x) => (
+          <rect key={x} x={x} y={eyes.y} width="2" height={eyes.height} />
         ))}
       </g>
-      {!small && <path className="ari-aria-mark-ink" d="M10.8 15.7H13.2L12 17.3Z" />}
     </svg>
   )
 }

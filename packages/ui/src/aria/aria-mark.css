@@ -2,86 +2,83 @@
   display: inline-block;
   flex-shrink: 0;
   vertical-align: middle;
-  --aria-mark-mane: var(--ari-warning);
 }
 
-.ari-aria-mark[data-state='attention'] {
-  --aria-mark-mane: var(--ari-accent);
+.ari-aria-mark-frame {
+  fill: var(--ari-fg-muted);
 }
 
-.ari-aria-mark-mane {
-  fill: var(--aria-mark-mane);
-}
-
-/* The warm face and ink come from Ari's theme-independent awaken palette. */
 .ari-aria-mark-face {
-  fill: var(--ari-awaken-ink);
+  fill: var(--ari-fg);
 }
 
 .ari-aria-mark-ink {
-  fill: var(--ari-awaken-bg);
+  fill: var(--ari-bg);
 }
 
 .ari-aria-mark-eyes {
   transform-box: view-box;
-  transform-origin: 12px 11.5px;
+  transform-origin: 8px 7px;
 }
 
 .ari-aria-mark[data-state='idle'] .ari-aria-mark-eyes {
-  animation: ari-aria-blink 5.8s linear infinite;
+  animation: ari-aria-pixel-blink 5.8s steps(1, end) infinite;
 }
 
 .ari-aria-mark[data-state='thinking'] .ari-aria-mark-eyes {
   transform: translate(1px, -1px);
-  animation: ari-aria-glance 3.4s ease-in-out infinite;
+  animation: ari-aria-pixel-glance 3.4s steps(1, end) infinite;
 }
 
-.ari-aria-mark[data-state='working'] .ari-aria-mark-ear-left {
-  transform: translate(-0.3px, -0.8px);
-  animation: ari-aria-ear-twitch 2.4s ease-in-out infinite;
+.ari-aria-mark[data-state='working'] .ari-aria-mark-tuft {
+  transform: translateY(-1px);
+  animation: ari-aria-pixel-twitch 1.8s steps(1, end) infinite;
 }
 
-.ari-aria-mark[data-state='attention'] .ari-aria-mark-ears {
-  transform: translateY(-1.6px);
+.ari-aria-mark[data-state='attention'] .ari-aria-mark-frame {
+  fill: var(--ari-accent);
 }
 
-@keyframes ari-aria-blink {
+.ari-aria-mark[data-state='attention'] .ari-aria-mark-tuft {
+  transform: translateY(-1px);
+}
+
+@keyframes ari-aria-pixel-blink {
   0%,
   92%,
   98%,
   100% {
-    transform: scaleY(1);
+    opacity: 1;
   }
   94%,
   96% {
-    transform: scaleY(0.12);
+    opacity: 0;
   }
 }
 
-@keyframes ari-aria-glance {
+@keyframes ari-aria-pixel-glance {
   0%,
   100% {
     transform: translate(1px, -1px);
   }
   50% {
-    transform: translate(1.3px, -1.2px);
+    transform: translate(1px, 0);
   }
 }
 
-@keyframes ari-aria-ear-twitch {
+@keyframes ari-aria-pixel-twitch {
   0%,
-  60%,
   100% {
-    transform: translate(-0.3px, -0.8px);
+    transform: translateY(-1px);
   }
-  45% {
-    transform: translate(-0.3px, -1.4px);
+  50% {
+    transform: translateY(0);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ari-aria-mark[data-state] .ari-aria-mark-eyes,
-  .ari-aria-mark[data-state] .ari-aria-mark-ear-left {
+  .ari-aria-mark[data-state] .ari-aria-mark-tuft {
     animation: none;
   }
 }
