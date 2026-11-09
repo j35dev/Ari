@@ -9,6 +9,7 @@ import {
   type SessionReadModel,
 } from './projection'
 import { deriveSliceTitle } from './title'
+import { isHelmSession } from '@ari/contracts/helm'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
 
@@ -188,8 +189,26 @@ export function decideCommand(
       ])
     }
 
+    case 'session.provider.switch': {
+      if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      if (!isHelmSession(model.session))
+        return reject('provider switching is only available to Aria')
+      return accept(providerSwitch(model, command))
+    }
+
     case 'session.update': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      const switched =
+        command.driverKind !== undefined && command.driverKind !== model.session.driverKind
+      if (
+        switched &&
+        !isHelmSession(model.session) &&
+        (model.messages.length > 0 ||
+          model.activeTurnId !== null ||
+          model.providerSessionId !== null)
+      ) {
+        return reject('provider switching is only available to Aria')
+      }
       const patch: UnstampedJournalEvent = {
         type: 'session.updated',
         ...(command.driverKind !== undefined ? { driverKind: command.driverKind } : {}),
@@ -200,6 +219,19 @@ export function decideCommand(
         ...(command.archived !== undefined ? { archived: command.archived } : {}),
         ...(command.pinned !== undefined ? { pinned: command.pinned } : {}),
       }
+      if (switched && isHelmSession(model.session)) {
+        delete patch.driverKind
+        delete patch.modelId
+        delete patch.effort
+        return accept([
+          ...providerSwitch(model, {
+            driverKind: command.driverKind!,
+            modelId: command.modelId ?? null,
+            effort: command.effort ?? null,
+          }),
+          ...(Object.keys(patch).length > 1 ? [patch] : []),
+        ])
+      }
       return accept([patch])
     }
 
@@ -208,6 +240,32 @@ export function decideCommand(
       // directly (journals are removed wholesale; no event survives).
       return reject('session.destroy is handled by the store')
   }
+}
+
+function providerSwitch(
+  model: SessionReadModel,
+  next: {
+    driverKind: NonNullable<SessionReadModel['session']>['driverKind']
+    modelId: string | null
+    effort: string | null
+  },
+): UnstampedJournalEvent[] {
+  const { driverKind, modelId, effort } = next
+  if (driverKind === model.session?.driverKind)
+    return [{ type: 'session.updated', driverKind, modelId, effort }]
+  return [
+    {
+      type: 'session.provider.switched',
+      driverKind,
+      modelId,
+      effort,
+      afterTurnId: model.activeTurnId ?? model.lastTurn?.turnId ?? null,
+      afterMessageId:
+        model.messages.findLast(
+          (message) => message.origin?.kind !== 'completion' && message.origin?.kind !== 'question',
+        )?.id ?? null,
+    },
+  ]
 }
 
 /**

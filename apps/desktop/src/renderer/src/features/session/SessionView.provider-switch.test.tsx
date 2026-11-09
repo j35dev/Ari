@@ -1,0 +1,192 @@
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { ToastProvider } from '@ari/ui/toast'
+import type { JournalEvent } from '@ari/contracts/events'
+import { SessionView, type SessionDefaults } from './SessionView'
+
+const rpcMocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
+vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+function setup(projectId: string, accepted = true) {
+  const session = {
+    id: 'aria',
+    projectId,
+    title: 'Chat',
+    driverKind: 'opencode' as const,
+    modelId: 'current-model',
+    effort: 'high',
+    permissionMode: 'ask' as const,
+    status: 'idle' as const,
+    createdAt: 0,
+    updatedAt: 0,
+  }
+  let listener: ((payload: unknown) => void) | undefined
+  rpcMocks.invoke.mockImplementation(async (method: string) => {
+    if (method === 'session.load') return { session, activeTurnId: null }
+    if (method === 'files.index') return { paths: [] }
+    if (method === 'providers.detect')
+      return ['opencode', 'claude'].map((kind) => ({
+        kind,
+        installed: true,
+        binaryPath: kind,
+        authStatus: 'authenticated',
+        version: '1',
+      }))
+    if (method === 'providers.models')
+      return [
+        {
+          kind: 'opencode',
+          source: 'live',
+          models: [{ id: 'current-model', label: 'Current model' }],
+        },
+        { kind: 'claude', source: 'live', models: [{ id: 'opus', label: 'Opus' }] },
+      ]
+    if (method === 'providers.efforts') return []
+    if (method === 'endpoints.list' || method === 'session.tasks') return []
+    if (method === 'command.dispatch')
+      return { accepted, reason: accepted ? undefined : 'Switch refused' }
+    return null
+  })
+  rpcMocks.subscribe.mockImplementation(
+    (method: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+      if (method === 'session.events') {
+        listener = onEvent
+        const stamp = { at: 1, sessionId: 'aria' }
+        onEvent({
+          sessionId: 'aria',
+          replay: true,
+          events: [
+            { ...stamp, seq: 0, type: 'session.created', session },
+            { ...stamp, seq: 1, type: 'turn.started', turnId: 'first' },
+            {
+              ...stamp,
+              seq: 2,
+              type: 'user.message.added',
+              message: {
+                id: 'user',
+                sessionId: 'aria',
+                turnId: 'first',
+                role: 'user',
+                parts: [{ type: 'text', text: 'Earlier request' }],
+                createdAt: 1,
+              },
+            },
+            {
+              ...stamp,
+              seq: 3,
+              type: 'assistant.parts.appended',
+              messageId: 'reply',
+              parts: [{ type: 'text', text: 'Earlier reply' }],
+            },
+            {
+              ...stamp,
+              seq: 4,
+              type: 'turn.settled',
+              turnId: 'first',
+              stopReason: 'completed',
+              errorMessage: null,
+            },
+          ],
+        })
+        onEvent({ sessionId: 'aria', replayDone: true })
+      }
+      return () => undefined
+    },
+  )
+  function Host() {
+    const [defaults, setDefaults] = useState<SessionDefaults>({
+      driverKind: session.driverKind,
+      modelId: session.modelId,
+      effort: session.effort,
+      permissionMode: session.permissionMode,
+    })
+    return (
+      <ToastProvider>
+        <SessionView sessionId="aria" defaults={defaults} onDefaultsChange={setDefaults} />
+      </ToastProvider>
+    )
+  }
+  render(<Host />)
+  return { emit: (event: JournalEvent) => act(() => listener?.({ sessionId: 'aria', event })) }
+}
+
+describe('Aria model picker', () => {
+  it('lists every ready provider mid-chat for Aria and sends an explicit switch', async () => {
+    const { emit } = setup('helm')
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    const providers = screen.getByRole('presentation', { name: 'Providers' })
+    expect(within(providers).getByText('OpenCode')).toBeVisible()
+    await user.click(within(providers).getByText('Claude'))
+    await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
+    expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'claude',
+        modelId: 'opus',
+        effort: null,
+      },
+    })
+    expect(await screen.findByRole('button', { name: /Model: Claude · Opus/ })).toBeVisible()
+    emit({
+      seq: 5,
+      at: 2,
+      sessionId: 'aria',
+      type: 'session.provider.switched',
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: null,
+      afterTurnId: 'first',
+      afterMessageId: 'reply',
+    })
+    expect(await screen.findByRole('separator')).toHaveTextContent('Switched to Claude · Opus')
+  })
+
+  it('keeps an ordinary session locked to its provider after its first turn', async () => {
+    setup('project')
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    expect(screen.queryByRole('presentation', { name: 'Providers' })).toBeNull()
+    expect(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),
+    ).toBeVisible()
+    expect(screen.queryByText('Opus')).toBeNull()
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),
+    )
+    expect(rpcMocks.invoke).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'session.update',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: 'current-model',
+      },
+    })
+  })
+
+  it('keeps the selected model when the engine rejects a switch', async () => {
+    setup('helm', false)
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Claude'),
+    )
+    await user.click(within(screen.getByRole('listbox', { name: 'Models' })).getByText('Opus'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Model: OpenCode · Current model/ })).toBeVisible(),
+    )
+    expect(await screen.findByText('Switch refused')).toBeVisible()
+    expect(screen.queryByRole('separator')).toBeNull()
+  })
+})

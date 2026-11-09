@@ -21,6 +21,7 @@ import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
 import { turnRequester } from '@ari/engine/helm'
 import { isHelmSession } from '@ari/contracts/helm'
+import { providerTurnContext, type ProviderTurnContext } from '@ari/engine/provider-context'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -528,7 +529,7 @@ export class Engine {
                 attributedInput(startRequest.text, origin),
                 startRequest.attachments,
                 ids.turnId,
-                model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+                providerTurnContext(model),
               )
             : undefined,
         )
@@ -744,17 +745,18 @@ export class Engine {
 
   /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
-   * into journal parts (coalescing text), and settles the turn. `resumeOf`
-   * carries the provider-native session/thread id observed on a previous
-   * turn, so follow-up prompts continue the same provider thread.
+   * into journal parts (coalescing text), and settles the turn. Context is
+   * frozen when the turn starts: a provider switch affects the following
+   * turn even if this adapter is still starting or reporting its thread id.
    */
   async #runTurn(
     session: Session,
     prompt: string,
     attachments: AttachmentRef[],
     turnId: string,
-    resumeOf: string | null,
+    providerContext: ProviderTurnContext,
   ): Promise<void> {
+    const { resumeOf, handoff, contextSeq } = providerContext
     // Nothing reliably says when a background shell ends, so what earlier
     // turns left running is not tracked past the start of the next one.
     await this.#endBackgroundTasks(
@@ -875,7 +877,7 @@ export class Engine {
             },
           )
         : null
-      const body = context ? `${context}\n\n${prompt}` : prompt
+      const body = [handoff, context, prompt].filter((part) => part !== null).join('\n\n')
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
@@ -1031,8 +1033,13 @@ export class Engine {
     let providerStopReason: 'completed' | 'interrupted' | 'error' | undefined
     let errorMessage: string | null
     try {
+      // Keep the handoff pending through failed or cancelled startup. Only an
+      // adapter actually given this turn can consume it; a later switch has
+      // its own generation and cannot be consumed by this one.
+      if (providerContext.handoffPending)
+        await append({ type: 'session.provider.context.started', contextSeq })
       let firstErrorMessage: string | null = null
-      for await (const event of adapter.start()) {
+      for await (const event of interrupted ? [] : adapter.start()) {
         // A timed flush that could not journal fails the turn like any other.
         if (timedFlush.error !== null) throw timedFlush.error
         switch (event.type) {
@@ -1168,7 +1175,7 @@ export class Engine {
           case 'session-ref':
             // Persist the provider-native thread id so the next turn resumes
             // it instead of re-prompting cold.
-            await append({ type: 'session.ref.observed', ref: event.ref })
+            await append({ type: 'session.ref.observed', ref: event.ref, contextSeq })
             break
           case 'permission-mode':
             await append({ type: 'session.updated', permissionMode: event.mode })
@@ -1409,7 +1416,7 @@ export class Engine {
               attributedInput(next.text, next.origin),
               next.attachments,
               ids.turnId,
-              fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
+              providerTurnContext(fresh),
             )
           : undefined,
       )

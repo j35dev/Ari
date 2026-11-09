@@ -520,6 +520,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         !event ||
         (event.type !== 'user.message.added' &&
           event.type !== 'session.updated' &&
+          event.type !== 'session.provider.switched' &&
           event.type !== 'turn.settled' &&
           event.type !== 'session.created' &&
           !event.type?.startsWith('child.session.'))

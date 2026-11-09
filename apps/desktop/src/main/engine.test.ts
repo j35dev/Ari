@@ -94,6 +94,232 @@ async function seedSession(
   })
 }
 
+describe('Aria provider switching', () => {
+  function recordingDriver(
+    kind: 'claude' | 'opencode',
+    created: AdapterSession[],
+    systemInstructions = false,
+  ): Driver {
+    return {
+      kind,
+      systemInstructions,
+      create: async (session) => {
+        created.push(session)
+        const ref = `${kind}-${created.length}`
+        return {
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'session-ref', ref }
+              yield { type: 'text-delta', text: `Aria replied on ${ref}.` }
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: async () => undefined,
+        }
+      },
+    }
+  }
+
+  function engineWith(registry: DriverRegistry): Engine {
+    return new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+      turnContext: async () => '[Ari now: test]',
+    })
+  }
+
+  async function turn(engine: Engine, text: string): Promise<void> {
+    expect(
+      await engine.dispatch({ type: 'turn.start', sessionId: 'aria', text, attachments: [] }),
+    ).toEqual({ accepted: true })
+    await engine.quiesce('aria')
+  }
+
+  it.each([false, true])(
+    'starts a fresh context with hidden history and the preamble (system channel: %s)',
+    async (systemInstructions) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created, systemInstructions))
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Please fix the redirect.')
+      expect(
+        await engine.dispatch({
+          type: 'session.provider.switch',
+          sessionId: 'aria',
+          driverKind: 'opencode',
+          modelId: 'opus',
+          effort: 'high',
+        }),
+      ).toEqual({ accepted: true })
+      await turn(engine, 'Continue the work.')
+      const fresh = created[1]!
+      expect(fresh).toMatchObject({ resumeOf: null, modelId: 'opus', effort: 'high' })
+      expect(fresh.prompt).toContain('Conversation so far')
+      expect(fresh.prompt).toContain('User: Please fix the redirect.')
+      expect(fresh.prompt).toContain('Aria: Aria replied on claude-1.')
+      expect(fresh.prompt).toContain('[Ari now: test]\n\nContinue the work.')
+      expect(systemInstructions ? fresh.instructions : fresh.prompt).toContain('You are Aria')
+      if (systemInstructions) expect(fresh.prompt).not.toContain('You are Aria')
+      const model = await store.load('aria')
+      expect(
+        model.messages.filter((message) => message.role === 'user').map((message) => message.parts),
+      ).toEqual([
+        [{ type: 'text', text: 'Please fix the redirect.' }],
+        [{ type: 'text', text: 'Continue the work.' }],
+      ])
+      expect(JSON.stringify(model.messages)).not.toContain('Conversation so far')
+      expect(JSON.stringify(model.messages)).not.toContain('[Ari now:')
+      expect(JSON.stringify(model.messages)).not.toContain('You are Aria')
+      await turn(engine, 'One more detail.')
+      expect(created[2]!.resumeOf).toBe('opencode-2')
+      expect(created[2]!.prompt).not.toContain('Conversation so far')
+      if (!systemInstructions) expect(created[2]!.prompt).not.toContain('You are Aria')
+    },
+  )
+
+  it('lets the running turn finish and switches its queued follow-up, ignoring late refs', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const created: AdapterSession[] = []
+    const interrupt = vi.fn()
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: async (session) => {
+        created.push(session)
+        return {
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'text-delta', text: 'Working. ' }
+              await gate
+              yield { type: 'session-ref', ref: 'late-claude-thread' }
+              yield { type: 'text-delta', text: 'Finished the old turn.' }
+              yield { type: 'done' }
+            })(),
+          interrupt,
+          dispose: async () => undefined,
+        }
+      },
+    })
+    registry.register(recordingDriver('opencode', created))
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'aria',
+      text: 'Start work.',
+      attachments: [],
+    })
+    await expect.poll(() => created.length).toBe(1)
+    const running = (await store.load('aria')).activeTurnId
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: 'next-model',
+      effort: null,
+    })
+    expect((await store.load('aria')).activeTurnId).toBe(running)
+    expect(interrupt).not.toHaveBeenCalled()
+    await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId: 'aria',
+      text: 'Next turn.',
+      attachments: [],
+    })
+    release()
+    await expect.poll(() => created.length).toBe(2)
+    await engine.quiesce('aria')
+    expect(created[1]!).toMatchObject({ resumeOf: null, modelId: 'next-model' })
+    expect(created[1]!.prompt).toContain('Finished the old turn.')
+    expect(created[1]!.prompt).toContain('User: Start work.')
+    expect(created[1]!.prompt).toContain('[Ari now: test]\n\nNext turn.')
+    expect((await store.load('aria')).providerSessionId).toBe('opencode-2')
+  })
+
+  it('starts fresh each time Aria switches back and forth, even when returning to a known provider', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created, true))
+    registry.register(recordingDriver('opencode', created))
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'First.')
+    for (const driverKind of ['opencode', 'claude', 'opencode', 'claude'] as const) {
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind,
+        modelId: 'chosen',
+        effort: null,
+      })
+      expect((await store.load('aria')).providerSessionId).toBeNull()
+      await turn(engine, `Continue on ${driverKind}.`)
+      expect(created.at(-1)!.resumeOf).toBeNull()
+      expect(created.at(-1)!.prompt).toContain('Conversation so far')
+    }
+    await turn(engine, 'Stay on Claude.')
+    expect(created.at(-1)!.resumeOf).toBe('claude-5')
+    expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+  })
+
+  it('rejects switching an ordinary session without journaling a change', async () => {
+    await seedSession(store, 'ordinary')
+    const engine = engineWith(new DriverRegistry())
+    expect(
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'ordinary',
+        driverKind: 'opencode',
+        modelId: 'model',
+        effort: null,
+      }),
+    ).toMatchObject({ accepted: false, reason: 'provider switching is only available to Aria' })
+    expect(published).toEqual([])
+    expect((await store.load('ordinary')).session?.driverKind).toBe('claude')
+  })
+
+  it('keeps the handoff for a retry when the new provider fails to start', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    const provider = recordingDriver('opencode', created)
+    let fail = true
+    registry.register({
+      ...provider,
+      create: async (session) => {
+        if (fail) throw new Error('Startup failed')
+        return provider.create(session)
+      },
+    })
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'Keep this context.')
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: 'chosen',
+      effort: null,
+    })
+    await turn(engine, 'Use the new provider.')
+    expect((await store.load('aria')).providerHandoffPending).toBe(true)
+    fail = false
+    await turn(engine, 'Try again.')
+    expect(created.at(-1)!.resumeOf).toBeNull()
+    expect(created.at(-1)!.prompt).toContain('User: Keep this context.')
+    expect((await store.load('aria')).providerHandoffPending).toBe(false)
+  })
+})
+
 describe('engine end-to-end with scripted driver', () => {
   it.each(['live', 'follow-up', 'unknown', false] as const)(
     'uses the created adapter steering capability %s for coordination',

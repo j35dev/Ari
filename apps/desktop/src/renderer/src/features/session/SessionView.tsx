@@ -26,6 +26,8 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
+import { isHelmSession } from '@ari/contracts/helm'
+import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
@@ -263,6 +265,8 @@ export function SessionView({
   const messageFoldRef = useRef(createMessageFold())
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
+  const [ariaSession, setAriaSession] = useState(false)
+  const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
   const [queued, setQueued] = useState<QueuedMessageView[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
@@ -360,11 +364,20 @@ export function SessionView({
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
   const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
+  const modelLabel = useCallback(
+    (kind: DriverKind, id: string) =>
+      catalogModels
+        .find((row) => row.kind === kind)
+        ?.models.find((model) => model.id === id || model.aliases?.includes(id))?.label,
+    [catalogModels],
+  )
 
   useEffect(() => {
     let cancelled = false
     messageFoldRef.current = store.begin()
     setRunning(false)
+    setAriaSession(false)
+    setProviderSwitches([])
     setQueued([])
     setApprovals([])
     setPendingQuestion(null)
@@ -521,6 +534,7 @@ export function SessionView({
           activeTurnId: string | null
         }
         if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+        setAriaSession(isHelmSession(m.session))
         setRunning(m.activeTurnId !== null)
         onDefaultsChange({
           driverKind: m.session.driverKind,
@@ -544,6 +558,19 @@ export function SessionView({
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
+      case 'session.created':
+        setAriaSession(isHelmSession(event.session))
+        break
+      case 'session.provider.switched':
+        setProviderSwitches((prev) => [...prev, event])
+        if (live)
+          onDefaultsChangeRef.current({
+            ...defaultsRef.current,
+            driverKind: event.driverKind,
+            modelId: event.modelId,
+            effort: event.effort,
+          })
+        break
       case 'child.session.spawned': {
         // The card sits where the spawn happened: after whatever part of the
         // conversation was last on screen when this event was journaled.
@@ -1091,24 +1118,25 @@ export function SessionView({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
-      // A session that already ran turns stays on its harness: the provider
-      // thread (resume id) belongs to that CLI, and switching would fork the
-      // context silently. The picker is locked too; this guards other paths.
-      if (telemetry.turnCount > 0 && next.driverKind !== defaults.driverKind) return
-      onDefaultsChange({ ...defaults, ...next })
-      onPick?.(next)
-      void rpc
-        .invoke('command.dispatch', {
-          command: {
-            type: 'session.update',
-            sessionId,
-            driverKind: next.driverKind,
-            modelId: next.modelId,
-          },
+      const switched = next.driverKind !== defaults.driverKind
+      if (telemetry.turnCount > 0 && switched && !ariaSession) return
+      const switchProvider = ariaSession && switched
+      void dispatch(
+        switchProvider
+          ? { type: 'session.provider.switch', sessionId, ...next, effort: null }
+          : { type: 'session.update', sessionId, ...next },
+        'Couldn’t change model',
+      ).then((accepted) => {
+        if (!accepted) return
+        onDefaultsChange({
+          ...defaultsRef.current,
+          ...next,
+          ...(switchProvider ? { effort: null } : {}),
         })
-        .catch(() => undefined)
+        onPick?.(switchProvider ? { ...next, effort: null } : next)
+      })
     },
-    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults],
+    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults, ariaSession, dispatch],
   )
 
   const changeEffort = useCallback(
@@ -1318,7 +1346,7 @@ export function SessionView({
               driverKind={defaults.driverKind}
               modelId={defaults.modelId}
               onChange={changeModel}
-              lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
+              lockedTo={telemetry.turnCount > 0 && !ariaSession ? defaults.driverKind : null}
             />
             <EffortChip
               driverKind={defaults.driverKind}
@@ -1369,6 +1397,7 @@ export function SessionView({
       changeEffort,
       changePermissionMode,
       telemetry.turnCount,
+      ariaSession,
     ],
   )
   const startFromStarter = useCallback((text: string) => {
@@ -1439,6 +1468,8 @@ export function SessionView({
               ) : null
             }
             delegations={delegations}
+            providerSwitches={providerSwitches}
+            modelLabel={modelLabel}
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
             onTurnInView={handleTurnInView}

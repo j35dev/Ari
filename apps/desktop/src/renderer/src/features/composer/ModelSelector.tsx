@@ -87,10 +87,9 @@ interface ResultGroup {
  * provider when locked. Arrows move the selection, Left/Right switch provider,
  * Enter picks, Esc closes.
  *
- * `lockedTo` hides the rail and pins the pane to one provider (a session that
- * already ran turns must stay on its harness, or the provider-side resume
- * thread and the transcript's context story break). New sessions can still
- * pick any provider.
+ * `lockedTo` hides the rail and pins the pane to one provider. Ordinary
+ * sessions keep their harness after the first turn; Aria can remain unlocked
+ * because Ari carries its conversation into a fresh provider context.
  */
 export function ModelSelector({
   driverKind,
@@ -269,9 +268,8 @@ export function ModelSelector({
     if (q.length === 0) return []
     const groups: ResultGroup[] = []
     let start = 0
-    const eligible = lockedTo === null
-      ? providers
-      : [{ kind: lockedTo, label: driverLabel(lockedTo) }]
+    const eligible =
+      lockedTo === null ? providers : [{ kind: lockedTo, label: driverLabel(lockedTo) }]
     for (const provider of eligible) {
       const options = optionsFor(provider.kind).filter(
         (o) =>
@@ -294,11 +292,13 @@ export function ModelSelector({
   )
   const visibleCount = flatOptions.length
   const activeIndex = useMemo(() => {
-    const candidate = activeOptionId === null
-      ? -1
-      : flatOptions.findIndex((option) => option.id === activeOptionId)
+    const candidate =
+      activeOptionId === null ? -1 : flatOptions.findIndex((option) => option.id === activeOptionId)
     if (candidate >= 0) return candidate
-    return Math.max(0, flatOptions.findIndex((option) => matchesCurrent(option, currentId)))
+    return Math.max(
+      0,
+      flatOptions.findIndex((option) => matchesCurrent(option, currentId)),
+    )
   }, [flatOptions, activeOptionId, currentId])
   const activeId = `${listboxId}-opt-${activeIndex}`
   const focusOption = (index: number): void => {
@@ -456,7 +456,11 @@ export function ModelSelector({
         onMouseEnter={() => setActiveOptionId(opt.id)}
         onClick={() => pickModel(opt)}
         className={`flex h-8 w-full items-center gap-3 rounded-md px-2.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-          isSelected ? 'bg-accent-subtle text-fg' : isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
+          isSelected
+            ? 'bg-accent-subtle text-fg'
+            : isActive
+              ? 'bg-surface-2 text-fg'
+              : 'text-fg-muted'
         }`}
       >
         <span className="min-w-0 truncate text-[13px] font-medium">
@@ -464,7 +468,9 @@ export function ModelSelector({
         </span>
         {/* The agent's own summary, only for the row in hand: a list of twelve
             taglines is noise, one beside the row being considered is an answer. */}
-        <span className={`min-w-0 flex-1 basis-0 truncate text-right text-xs ${isSelected ? 'text-fg-muted' : 'text-fg-subtle'}`}>
+        <span
+          className={`min-w-0 flex-1 basis-0 truncate text-right text-xs ${isSelected ? 'text-fg-muted' : 'text-fg-subtle'}`}
+        >
           {isActive ? (opt.description ?? opt.hint) : null}
         </span>
         {isSelected ? <Check size={14} aria-hidden className="shrink-0 text-accent" /> : null}
