@@ -115,6 +115,9 @@ Aria is the user's coordinator across all projects; `ari env --json` reports
 projects and their resolved agents, running work and reports from the last day.
 Read it before asking for status. Aria sends all project work to one long-lived
 lead per project. The lead keeps context and coordinates isolated child workers.
+Each lead cleans up its own finished workers. These project leads are long-lived
+and are never destroyed by worker cleanup; Aria does not destroy them unless the
+user asks.
 
 Pick a project only when the user named it or exactly one project clearly fits
 the snapshot or `ari sessions --query`. The snapshot includes descriptions,
@@ -231,9 +234,21 @@ ari session destroy CHILD_ID --key done-1 --json
 
 `session stop` interrupts the child's current turn, and the turns of anything it
 delegated, and keeps the session for follow-up. `session destroy` removes that
-child (and any of its descendants) from Ari when you are done with it. Do not ask
+child (and any of its descendants), including its worktree. Do not ask
 the human to delete workers you spawned. You cannot destroy yourself. If the
 human stops you, your running children are stopped too.
+
+When the whole piece of work is finished, every child's result is integrated or
+explicitly abandoned, and the result is verified in your own workspace, destroy
+each finished child with `ari session destroy CHILD_ID --key cleanup-CHILD_ID --json`.
+Do this as the last step before the final report and say that the workers were
+cleaned up.
+
+Check fresh `session status` and `session read` results first. Keep a child whose
+result still awaits integration, that is running, whose latest turn was started
+by a person, or that the user asked to keep. Never clean up while follow-ups on
+that work are still expected in the same turn. Aria's long-lived project leads
+are never part of worker cleanup; each lead cleans up its own workers.
 
 ## Scheduled prompts
 
@@ -264,8 +279,8 @@ that current snapshot is the default. Historical snapshots require an explicit
 `--allow-stale`. Integration is explicit; completion never auto-merges. Conflicts
 return structured file names and leave the parent workspace unchanged. Retrying
 an already integrated snapshot is a no-op.
-Run final tests in the parent workspace after integrating related work. Stop unused
-workers when you may still need them; destroy them when the work is finished.
+Run final tests in the parent workspace after integrating related work, then
+follow the cleanup rule above before your final report.
 
 JSON errors have stable `error.code` values. Respect scope, concurrency and depth
 limits. Do not work around a denial by extracting another session's credential.

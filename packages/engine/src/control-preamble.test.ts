@@ -145,6 +145,45 @@ it('describes default orchestration permissions separately from provider tool ap
   )
 })
 
+it.each([
+  { role: 'parent', session: root },
+  { role: 'lead', session: { ...root, lead: true as const } },
+  {
+    role: 'project lead',
+    session: {
+      ...root,
+      lead: true as const,
+      createdBy: { kind: 'session' as const, sessionId: 'helm1' },
+    },
+  },
+])('tells a $role to clean up finished workers before its final report', ({ session }) => {
+  for (const channel of ['prompt', 'system'] as const) {
+    const text = controlPreamble(session, null, channel)
+    expect(text).toContain('When the whole work is finished')
+    expect(text).toContain('all child results are integrated or explicitly abandoned')
+    expect(text).toContain('the result is verified in your own workspace')
+    expect(text).toContain('`ari session destroy <child>` for each finished child')
+    expect(text).toContain('immediately before the final report')
+    expect(text).toContain('this deletes its session and worktree')
+    expect(text).toContain('Report that the workers were cleaned up')
+    expect(text).toContain('Keep a child that is running')
+    expect(text).toContain('has a result awaiting integration')
+    expect(text).toContain('has a latest turn started by a person')
+    expect(text).toContain('that the user asked to keep')
+    expect(text).toContain('Do not clean up while follow-ups are still expected in this turn')
+    expect(text).toContain("never clean up Aria's long-lived project leads")
+  }
+})
+
+it('tells Aria to leave project leads alive and let them clean up their own workers', () => {
+  for (const channel of ['prompt', 'system'] as const) {
+    const text = controlPreamble({ ...root, projectId: 'helm' }, null, channel)
+    expect(text).toContain('Each lead cleans up its own finished workers')
+    expect(text).toContain('do not destroy project leads unless the user asks')
+    expect(text).not.toContain('`ari session destroy <child>`')
+  }
+})
+
 it('gives an Aria project lead lasting ownership and a worker integration protocol', () => {
   const lead: Session = {
     ...root,
