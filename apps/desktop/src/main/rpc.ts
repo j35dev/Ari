@@ -867,6 +867,16 @@ type NodePtyModule = {
 export interface EngineHandle {
   engine: Engine
   registry: DriverRegistry
+  invoke: (method: string, params?: unknown) => Promise<unknown>
+}
+
+export function openSpeechSettings(contents: WebContents): void {
+  if (contents.isDestroyed()) return
+  const win = BrowserWindow.fromWebContents(contents)
+  if (win?.isMinimized()) win.restore()
+  win?.show()
+  win?.focus()
+  rpcRegistryRef?.publish('app.navigate', { settingsSection: 'speech' } satisfies NavigateFrame)
 }
 
 export interface RegisterRpcOptions {
@@ -2828,5 +2838,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     })
   }
 
-  return { engine, registry: driverRegistry }
+  return {
+    engine,
+    registry: driverRegistry,
+    invoke: async (method, params) => {
+      // Merge-time speech fallbacks; the speech worker owns the real RPC handlers.
+      if (!(IPC_METHODS as readonly string[]).includes(method)) {
+        if (method === 'speech.status') return { ready: false }
+        if (method === 'speech.transcribe') return { text: '' }
+      }
+      return rpcRegistry.invoke(method, params)
+    },
+  }
 }
