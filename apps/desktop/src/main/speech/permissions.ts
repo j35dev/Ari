@@ -41,7 +41,7 @@ export function grantSpeechMicrophone(session: Session): void {
       contents !== null &&
       isSpeechPage(contents.getURL()) &&
       isSpeechPage(details.requestingUrl ?? contents.getURL()) &&
-      details.mediaType === 'audio'
+      details.mediaType !== 'video'
     )
   })
 }

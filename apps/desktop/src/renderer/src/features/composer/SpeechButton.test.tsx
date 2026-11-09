@@ -27,6 +27,15 @@ it('disables the mic with the setup tooltip until a model is ready', () => {
   expect(screen.getByRole('button')).toBeDisabled()
   expect(screen.getByTitle('Set up speech to text in Settings')).toBeInTheDocument()
 })
+it('lets Enter pass through while the mic is idle', () => {
+  mocks.ready = true
+  render(<SpeechButton onTranscript={vi.fn()} />)
+  const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true })
+  window.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(false)
+  expect(mocks.stop).not.toHaveBeenCalled()
+  expect(mocks.invoke).not.toHaveBeenCalled()
+})
 it('records with a ready model, stops on Enter, and inserts the transcript', async () => {
   mocks.ready = true
   const insert = vi.fn()

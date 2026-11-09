@@ -2,15 +2,20 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, open, readdir, rename, rm, stat, statfs } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { setImmediate } from 'node:timers/promises'
 import type { SpeechProgress } from '@ari/contracts/rpc'
+
+export const PARTIAL_DOWNLOAD_MAX_AGE = 14 * 24 * 60 * 60_000
+export class DownloadChecksumError extends Error {}
 
 export async function prunePartialDownloads(
   directory: string,
   keep: Set<string>,
-  maxAge = 7 * 24 * 60 * 60_000,
+  maxAge = PARTIAL_DOWNLOAD_MAX_AGE,
+  suffix = '.gguf.partial',
 ): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
-    if (!entry.isFile() || !entry.name.endsWith('.gguf.partial') || keep.has(entry.name)) continue
+    if (!entry.isFile() || !entry.name.endsWith(suffix) || keep.has(entry.name)) continue
     const path = join(directory, entry.name)
     const file = await stat(path).catch(() => null)
     if (file && Date.now() - file.mtimeMs >= maxAge) await rm(path, { force: true })
@@ -19,9 +24,13 @@ export async function prunePartialDownloads(
 
 export async function verifyDownload(path: string, expected: string): Promise<void> {
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk as Buffer)
+    // Keep checksum work in small turns so Electron can paint and handle input.
+    await setImmediate()
+  }
   if (hash.digest('hex') !== expected)
-    throw new Error('Download checksum did not match. Please download it again.')
+    throw new DownloadChecksumError('Download checksum did not match. Please download it again.')
 }
 
 export async function ensureFreeSpace(directory: string, bytes: number): Promise<void> {

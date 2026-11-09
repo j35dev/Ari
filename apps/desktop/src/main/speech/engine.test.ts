@@ -1,16 +1,28 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import type * as FsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   ENGINE_HEADER_HASH,
   ENGINE_VERSION,
   engineRelease,
   verifyInstalledEngine,
   type EngineRelease,
+  EngineIoError,
 } from './engine'
+
+const io = vi.hoisted(() => ({ lstat: vi.fn() }))
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof FsPromises>()
+  return { ...actual, lstat: io.lstat }
+})
+beforeEach(async () => {
+  const actual = await vi.importActual<typeof FsPromises>('node:fs/promises')
+  io.lstat.mockReset().mockImplementation(actual.lstat)
+})
 
 const roots: string[] = []
 afterEach(async () => {
@@ -72,4 +84,20 @@ it('maps only supported Linux architectures', () => {
   for (const arch of ['arm', 'ia32', 'riscv64', 'ppc64'] as const) {
     expect(() => engineRelease('linux', arch)).toThrow(`not available on linux ${arch}`)
   }
+})
+
+it('ignores OS metadata and untracked dotfiles while verifying manifest files', async () => {
+  const { root, release } = await fixture()
+  for (const name of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '.notes'])
+    await writeFile(join(root, 'native', name), 'metadata')
+  expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+})
+
+it('retries temporary read failures and distinguishes persistent I/O errors from mismatches', async () => {
+  const { root, release } = await fixture()
+  io.lstat.mockRejectedValueOnce(Object.assign(new Error('busy'), { code: 'EBUSY' }))
+  expect(await verifyInstalledEngine(root, true, release)).toBe(join(root, 'native/transcribe.dll'))
+  io.lstat.mockReset().mockRejectedValue(Object.assign(new Error('locked'), { code: 'EPERM' }))
+  await expect(verifyInstalledEngine(root, true, release)).rejects.toBeInstanceOf(EngineIoError)
+  expect(io.lstat).toHaveBeenCalledTimes(3)
 })

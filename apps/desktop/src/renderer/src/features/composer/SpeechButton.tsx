@@ -63,8 +63,8 @@ export function SpeechButton({
   }
 
   useEffect(() => {
-    if (state !== 'recording') return
     const key = (event: KeyboardEvent): void => {
+      if (!recording.current) return
       if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -80,7 +80,7 @@ export function SpeechButton({
     }
     window.addEventListener('keydown', key, true)
     return () => window.removeEventListener('keydown', key, true)
-  }, [state])
+  }, [])
 
   const start = async (): Promise<void> => {
     setError(null)

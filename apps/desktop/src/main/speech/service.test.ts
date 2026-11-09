@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SettingsStore } from '@ari/engine/settings'
-import { SpeechService, speechRequestTimeout } from './service'
+import { SpeechService, speechRequestTimeout, speechWorkerExitError } from './service'
+import * as engineModule from './engine'
 import { catalog } from './discovery'
-import { ENGINE_HEADER_HASH, ENGINE_VERSION } from './engine'
+import { ENGINE_HEADER_HASH, ENGINE_VERSION, EngineIoError } from './engine'
 import { handyDataDirectory } from './discovery'
 
 const mocks = vi.hoisted(() => ({ fork: vi.fn(), manual: false }))
@@ -91,6 +92,7 @@ afterEach(async () => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 async function setup(engine = true) {
@@ -102,29 +104,38 @@ async function setup(engine = true) {
   vi.stubEnv('HF_HUB_CACHE', join(dir, 'cache', 'hub'))
   vi.stubEnv('HF_HOME', join(dir, 'cache'))
   vi.stubEnv('PATH', '')
-  if (engine) {
-    const native = join(dir, 'speech', 'engine', '0.4.1')
-    await mkdir(native, { recursive: true })
-    await writeFile(
-      join(native, 'contract.json'),
-      JSON.stringify({ version: ENGINE_VERSION, header_hash: ENGINE_HEADER_HASH }),
-    )
-    await writeFile(
-      join(
-        native,
-        process.platform === 'win32'
-          ? 'transcribe.dll'
-          : process.platform === 'darwin'
-            ? 'libtranscribe.dylib'
-            : 'libtranscribe.so',
-      ),
-      'native fixture',
-    )
-  }
+  if (engine) await createEngine(dir)
   const store = new SettingsStore({ dir })
   const service = new SpeechService(dir, store)
   services.push(service)
   return { dir, store, service }
+}
+async function createEngine(dir: string) {
+  const native = join(dir, 'speech', 'engine', '0.4.1')
+  await mkdir(native, { recursive: true })
+  await writeFile(
+    join(native, 'contract.json'),
+    JSON.stringify({ version: ENGINE_VERSION, header_hash: ENGINE_HEADER_HASH }),
+  )
+  await writeFile(
+    join(
+      native,
+      process.platform === 'win32'
+        ? 'transcribe.dll'
+        : process.platform === 'darwin'
+          ? 'libtranscribe.dylib'
+          : 'libtranscribe.so',
+    ),
+    'native fixture',
+  )
+  return join(
+    native,
+    process.platform === 'win32'
+      ? 'transcribe.dll'
+      : process.platform === 'darwin'
+        ? 'libtranscribe.dylib'
+        : 'libtranscribe.so',
+  )
 }
 it('keeps the mic unarmed until a model is configured', async () => {
   const { service } = await setup(false)
@@ -237,7 +248,7 @@ it('reports worker exits without blaming the Visual C++ runtime', async () => {
   await rejected
 })
 
-it('discards saved Ari partials explicitly and when selecting a different model', async () => {
+it('discards partials explicitly and preserves them when selecting a different model', async () => {
   const { dir, service } = await setup()
   const root = join(dir, 'speech', 'models')
   await mkdir(root, { recursive: true })
@@ -250,7 +261,7 @@ it('discards saved Ari partials explicitly and when selecting a different model'
   const path = join(root, 'custom.gguf')
   await writeFile(path, 'gguf')
   await service.select({ path })
-  await expect(readFile(partial)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(partial, 'utf8')).toBe('saved again')
 })
 
 it('waits for a cancelled download to close before discarding its partial', async () => {
@@ -277,7 +288,113 @@ it('waits for a cancelled download to close before discarding its partial', asyn
   const path = join(dir, 'speech', 'models', `${model.filename}.partial`)
   while (!(await readFile(path).catch(() => null))?.length)
     await new Promise<void>((resolve) => setImmediate(resolve))
+  const selected = join(dir, 'custom.gguf')
+  await writeFile(selected, 'gguf')
+  await service.select({ path: selected })
+  expect(service.snapshot().find((frame) => frame.id === model.id)?.phase).toBe('downloading')
+  await expect(service.discard(model.id)).rejects.toThrow('Cancel the model download')
+  service.cancel(model.id)
+  while (service.snapshot().find((frame) => frame.id === model.id)?.phase !== 'cancelled')
+    await new Promise<void>((resolve) => setImmediate(resolve))
   expect(await service.discard(model.id)).toEqual({ discarded: true })
   await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(service.snapshot().find((frame) => frame.id === model.id)?.phase).toBe('cancelled')
+})
+
+it('verifies fully once before each worker and never on warm dictations', async () => {
+  const verify = vi.spyOn(engineModule, 'verifyInstalledEngine')
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await service.select({ path })
+  const before = verify.mock.calls.length
+  await service.transcribe(new Float32Array([0]))
+  await service.transcribe(new Float32Array([0]))
+  expect(verify.mock.calls).toHaveLength(before)
+  expect(verify.mock.calls.filter(([, full]) => full)).toHaveLength(1)
+  mocks.fork.mock.results[0]!.value.kill()
+  await service.transcribe(new Float32Array([0]))
+  expect(verify.mock.calls.filter(([, full]) => full)).toHaveLength(2)
+})
+
+it('serializes concurrent checks and installs without overwriting downloading state', async () => {
+  const { dir, service } = await setup(false)
+  await service.status()
+  let finishCheck: (library: string | null) => void = () => undefined
+  let finishInstall: () => void = () => undefined
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishCheck = resolve
+      }),
+  )
+  const install = vi.spyOn(engineModule, 'installEngine').mockImplementation(async () => {
+    await new Promise<void>((resolve) => {
+      finishInstall = resolve
+    })
+    return createEngine(dir)
+  })
+  const first = service.install()
+  const second = service.install()
+  const status = service.status()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  finishCheck(null)
+  const results = await Promise.all([first, second, status])
+  expect(results.filter((result) => 'started' in result && result.started)).toHaveLength(1)
+  expect(install).toHaveBeenCalledOnce()
+  expect((await service.status()).engine).toBe('downloading')
+  finishInstall()
+  while (service.snapshot().find((frame) => frame.id === 'engine')?.phase !== 'complete')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  expect((await service.status()).engine).toBe('ready')
+})
+
+it('reports transient engine I/O without killing a warm worker or marking it missing', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await service.select({ path })
+  vi.spyOn(engineModule, 'verifyInstalledEngine').mockRejectedValueOnce(
+    new EngineIoError('Temporarily locked. Retry.'),
+  )
+  expect(await service.status()).toMatchObject({
+    engine: 'ready',
+    ready: true,
+    error: 'Temporarily locked. Retry.',
+  })
+  expect(mocks.fork.mock.results[0]!.value.kill).not.toHaveBeenCalled()
+  expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+})
+
+it('offers the official VC++ runtime link only for unexplained early Windows crashes', () => {
+  expect(speechWorkerExitError('win32', -1073741819, 'load', false, false)).toContain(
+    'https://aka.ms/vs/17/release/vc_redist.x64.exe',
+  )
+  expect(speechWorkerExitError('win32', -1073741819, 'transcribe', false, false)).toContain('14.40')
+  for (const [platform, code, phase, inferred, knownCause] of [
+    ['win32', 0, 'load', false, false],
+    ['win32', 1, 'transcribe', true, false],
+    ['win32', 1, 'load', false, true],
+    ['darwin', 1, 'load', false, false],
+  ] as const)
+    expect(speechWorkerExitError(platform, code, phase, inferred, knownCause)).not.toContain(
+      'Visual C++',
+    )
+})
+
+it('includes the runtime hint when the worker crashes during its first inference', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await service.select({ path })
+  mocks.manual = true
+  const child = mocks.fork.mock.results[0]!.value
+  const pending = service.transcribe(new Float32Array([0]))
+  while (child.postMessage.mock.calls.length < 2)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  const rejected = expect(pending).rejects.toThrow(
+    process.platform === 'win32' ? '14.40' : 'The speech engine stopped',
+  )
+  child.emit('exit', -1073741819)
+  await rejected
 })

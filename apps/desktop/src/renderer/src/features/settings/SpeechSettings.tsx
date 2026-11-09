@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpeechModel, SpeechProgress } from '@ari/contracts/rpc'
+import { MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
@@ -13,6 +14,11 @@ function sizeLabel(bytes: number): string {
   return bytes >= 1_000_000_000
     ? `${(bytes / 1_000_000_000).toFixed(1)} GB`
     : `${Math.round(bytes / 1_000_000)} MB`
+}
+function modifierChord(code: string): string | null {
+  const [, modifier, side] = /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code) ?? []
+  if (!modifier || !side) return null
+  return `${modifier === 'Control' ? 'ctrl' : modifier.toLowerCase()}-${side.toLowerCase()}`
 }
 function progressLabel(frame: SpeechProgress): string {
   if (frame.phase === 'verifying') return 'Verifying…'
@@ -33,6 +39,7 @@ export function SpeechSettings() {
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
+  const modifierOnly = useRef<{ code: string; chord: string } | null>(null)
   const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
@@ -72,7 +79,8 @@ export function SpeechSettings() {
     .map((frame) => frame.error)
     .filter(Boolean)
   const shortcut =
-    settings?.speech.shortcut || (/Mac/.test(navigator.platform) ? 'ctrl+alt+space' : 'ctrl+space')
+    settings?.speech.shortcut ||
+    (/Mac/.test(navigator.platform) ? MAC_SPEECH_SHORTCUT : 'ctrl+space')
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
@@ -144,7 +152,7 @@ export function SpeechSettings() {
         </SettingsRow>
         <SettingsRow
           label="Hold to talk"
-          hint="Press a modifier and key to change the global shortcut."
+          hint="Hold a modifier alone, or press a modifier and key, to change the shortcut."
         >
           <input
             aria-label="Hold-to-talk shortcut"
@@ -152,6 +160,17 @@ export function SpeechSettings() {
             value={shortcut}
             className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
             onKeyDown={(event) => {
+              const modifier = modifierChord(event.code)
+              if (modifier) {
+                if (event.repeat) return
+                event.preventDefault()
+                const held = [event.ctrlKey, event.altKey, event.metaKey, event.shiftKey].filter(
+                  Boolean,
+                ).length
+                modifierOnly.current = held <= 1 ? { code: event.code, chord: modifier } : null
+                return
+              }
+              modifierOnly.current = null
               if (
                 ['Control', 'Alt', 'Meta', 'Shift', 'Tab'].includes(event.key) ||
                 (!event.ctrlKey && !event.altKey && !event.metaKey)
@@ -167,6 +186,16 @@ export function SpeechSettings() {
                 key,
               ].join('+')
               void run('shortcut', () => update({ speech: { shortcut: chord } }))
+            }}
+            onKeyUp={(event) => {
+              const candidate = modifierOnly.current
+              if (!candidate || candidate.code !== event.code) return
+              event.preventDefault()
+              modifierOnly.current = null
+              void run('shortcut', () => update({ speech: { shortcut: candidate.chord } }))
+            }}
+            onBlur={() => {
+              modifierOnly.current = null
             }}
           />
         </SettingsRow>
@@ -267,41 +296,18 @@ export function SpeechSettings() {
                     )}
                   </>
                 ) : (
-                  <>
-                    {model.partial && (
-                      <span className="text-xs text-fg-muted">
-                        {sizeLabel(model.partial.size)} saved
-                      </span>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={pending !== null || modelBusy}
-                      onClick={() =>
-                        void run(model.id, () =>
-                          rpc.invoke('speech.download', { modelId: model.id }),
-                        )
-                      }
-                    >
-                      {model.partial ? 'Resume' : 'Download'}
-                    </Button>
-                    {model.partial && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={pending !== null}
-                        onClick={() =>
-                          void run(model.id, () =>
-                            rpc.invoke('speech.discard', { modelId: model.id }),
-                          )
-                        }
-                      >
-                        Discard
-                      </Button>
-                    )}
-                  </>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={pending !== null || modelBusy}
+                    onClick={() =>
+                      void run(model.id, () => rpc.invoke('speech.download', { modelId: model.id }))
+                    }
+                  >
+                    {model.partial ? 'Resume' : 'Download'}
+                  </Button>
                 )}
-                {model.partial && model.installed && (
+                {model.partial && !inProgress(frame) && (
                   <>
                     <span className="text-xs text-fg-muted">
                       {sizeLabel(model.partial.size)} saved
