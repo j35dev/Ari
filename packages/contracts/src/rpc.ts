@@ -11,7 +11,7 @@ import type { Project, ProjectDiscovery } from './project'
 import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
-import { sessionHierarchySummarySchema } from './session'
+import { sessionHierarchySummarySchema, sessionCreatorSchema } from './session'
 import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
@@ -51,6 +51,7 @@ export type {
  */
 
 export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
+  createdBy: sessionCreatorSchema.nullish(),
   id: z.string(),
   projectId: z.string(),
   title: z.string(),
@@ -648,6 +649,13 @@ export const rpcParams = {
   /** Quit and relaunch into a release already staged by `download`. */
   'app.update.install': z.undefined(),
   'session.list': z.undefined(),
+  'aria.open': sessionCreateParamsSchema
+    .omit({ projectId: true, title: true, lead: true })
+    .optional(),
+  'aria.newTopic': sessionCreateParamsSchema
+    .omit({ projectId: true, title: true, lead: true })
+    .optional(),
+  'aria.topics': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
@@ -1029,6 +1037,9 @@ export interface RpcResults extends OrchestrationResults {
   'app.update.download': UpdateStart
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
+  'aria.open': { sessionId: string }
+  'aria.newTopic': { sessionId: string }
+  'aria.topics': SessionSummary[]
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }

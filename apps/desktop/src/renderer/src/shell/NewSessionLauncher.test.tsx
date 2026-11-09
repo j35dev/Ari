@@ -83,11 +83,21 @@ function launch(overrides?: {
 }
 
 describe('NewSessionLauncher', () => {
+  it('never offers Aria as a project, including when Aria is focused', () => {
+    launch({
+      projects: [{ ...projects[0]!, id: 'helm', name: 'Aria' }, ...projects],
+      preferredProjectId: 'helm',
+    })
+    expect(screen.queryByRole('option', { name: 'Aria' })).toBeNull()
+    expect(screen.getAllByRole('option')).toHaveLength(projects.length)
+  })
   it('lists each project once, with recent candidates first', () => {
     launch()
     const dialog = screen.getByRole('dialog', { name: 'New session' })
 
-    const names = within(dialog).getAllByRole('option').map((row) => row.getAttribute('aria-label'))
+    const names = within(dialog)
+      .getAllByRole('option')
+      .map((row) => row.getAttribute('aria-label'))
     expect(names).toHaveLength(3)
     expect(names).toEqual(['Ari', 'Lost repo', 'Ari mobile'])
     // The duplicated "Lead session in X" rows are gone: exactly one per project.
@@ -207,7 +217,9 @@ describe('NewSessionLauncher', () => {
   it('ranks the working project first and labels it current', () => {
     launch({ preferredProjectId: 'proj-mobile' })
     const dialog = screen.getByRole('dialog', { name: 'New session' })
-    const names = within(dialog).getAllByRole('option').map((row) => row.getAttribute('aria-label'))
+    const names = within(dialog)
+      .getAllByRole('option')
+      .map((row) => row.getAttribute('aria-label'))
     expect(names[0]).toBe('Ari mobile')
     const head = within(dialog).getAllByRole('option')[0]
     expect(head).not.toBeNull()

@@ -17,6 +17,7 @@ export interface AppShortcut {
 export const APP_SHORTCUTS: readonly AppShortcut[] = [
   { id: 'TogglePalette', label: 'Toggle command palette', chord: 'Mod+K' },
   { id: 'NewSession', label: 'New session', chord: 'Mod+N' },
+  { id: 'OpenAria', label: 'Open Aria', chord: 'Mod+0' },
   { id: 'ContentSearch', label: 'Search project content', chord: 'Mod+Shift+F' },
   { id: 'ToggleTerminal', label: 'Toggle terminal panel', chord: 'Ctrl+`' },
   { id: 'JumpToSession', label: 'Jump to session 1–9', chord: 'Mod+1…9' },

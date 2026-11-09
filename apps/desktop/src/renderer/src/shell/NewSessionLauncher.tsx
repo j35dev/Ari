@@ -7,6 +7,7 @@ import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 import type { Project } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { visibleProjects } from '../features/aria/visibility'
 
 /**
  * Compact relative age for "last opened" labels — member of the same family
@@ -64,8 +65,9 @@ export function NewSessionLauncher({
 
   /** The chosen project first, then newest-opened, then never-opened. */
   const ranked = useMemo(() => {
-    const preferred = projects.filter((project) => project.id === preferredProjectId)
-    const rest = [...projects]
+    const choices = visibleProjects(projects)
+    const preferred = choices.filter((project) => project.id === preferredProjectId)
+    const rest = [...choices]
       .filter((project) => project.id !== preferredProjectId)
       .sort(
         (a, b) =>
@@ -80,8 +82,7 @@ export function NewSessionLauncher({
     const q = query.trim().toLowerCase()
     if (q === '') return ranked
     return ranked.filter(
-      (project) =>
-        project.name.toLowerCase().includes(q) || project.path.toLowerCase().includes(q),
+      (project) => project.name.toLowerCase().includes(q) || project.path.toLowerCase().includes(q),
     )
   }, [query, ranked])
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { visibleProjects } from '../aria/visibility'
 import type { GitComparison, GitScope } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
@@ -64,7 +65,7 @@ export function ChangesView({
     void rpc
       .invoke('project.list')
       .then((projects) => {
-        if (!cancelled) setFallback(projects[0]?.id ?? null)
+        if (!cancelled) setFallback(visibleProjects(projects)[0]?.id ?? null)
       })
       .catch((error: unknown) => {
         log.warn('Project scope unavailable', { error: String(error) })
