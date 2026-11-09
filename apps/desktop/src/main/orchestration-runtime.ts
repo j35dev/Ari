@@ -18,6 +18,8 @@ export function createOrchestrationRuntime(
   return new OrchestrationService({
     control,
     host: control.host,
+    readResultDiff: (session, snapshot, selection, signal) =>
+      workspaces.readResultDiff(session, snapshot, selection, signal),
     liveCapabilities: (id) => engine.liveCapabilities(id),
     freezeBase: async (session, key) => {
       const root = await engine.workspace(session)
