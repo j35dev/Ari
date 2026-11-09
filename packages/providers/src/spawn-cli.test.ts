@@ -416,7 +416,7 @@ describe.runIf(process.platform === 'win32')('long prompts through real Windows 
         // for a .ps1-only install.
         await writeFile(
           join(dir, 'ps1', `${kind}.ps1`),
-          '#!/usr/bin/env pwsh\r\n$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent\r\nif ($MyInvocation.ExpectingInput) {\r\n  $input | & node \"$basedir/../echo.cjs\" $args\r\n} else {\r\n  & node \"$basedir/../echo.cjs\" $args\r\n}\r\nexit $LASTEXITCODE\r\n',
+          '#!/usr/bin/env pwsh\r\n$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent\r\nif ($MyInvocation.ExpectingInput) {\r\n  $input | & node "$basedir/../echo.cjs" $args\r\n} else {\r\n  & node "$basedir/../echo.cjs" $args\r\n}\r\nexit $LASTEXITCODE\r\n',
         )
         for (const extension of ['cmd', 'ps1']) {
           const child = spawnCli(join(dir, extension, `${kind}.${extension}`), buildArgs(session), {
