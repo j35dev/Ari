@@ -1,5 +1,84 @@
-import { describe, expect, it } from 'vitest'
-import { resampleMono } from './recorder'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resampleMono, startRecording } from './recorder'
+
+afterEach(() => vi.unstubAllGlobals())
+
+function microphone() {
+  const stopTrack = vi.fn()
+  const close = vi.fn(async () => undefined)
+  const disconnect = vi.fn()
+  const addModule = vi.fn(async () => undefined)
+  const port = { onmessage: null as ((event: MessageEvent<Float32Array>) => void) | null }
+  const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] }))
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+  vi.stubGlobal(
+    'AudioContext',
+    class {
+      sampleRate = 16_000
+      state = 'running'
+      audioWorklet = { addModule }
+      destination = {}
+      close = close
+      createMediaStreamSource = () => ({ connect: vi.fn(), disconnect })
+      createGain = () => ({ gain: { value: 1 }, connect: vi.fn() })
+    },
+  )
+  vi.stubGlobal(
+    'AudioWorkletNode',
+    class {
+      port = port
+      connect = vi.fn()
+      disconnect = vi.fn()
+    },
+  )
+  return {
+    stopTrack,
+    close,
+    disconnect,
+    addModule,
+    getUserMedia,
+    emit: (data: Float32Array) => port.onmessage?.({ data } as MessageEvent<Float32Array>),
+  }
+}
+
+it('captures audio beyond five minutes until explicit stop, including the final words', async () => {
+  const mic = microphone()
+  const recording = await startRecording()
+  const second = new Float32Array(16_000).fill(0.25)
+  for (let i = 0; i < 360; i++) mic.emit(second)
+  mic.emit(new Float32Array([0.75, -0.75]))
+  expect(mic.stopTrack).not.toHaveBeenCalled()
+  expect(mic.close).not.toHaveBeenCalled()
+  expect(recording.level()).toBeGreaterThan(0)
+  const stopped = recording.stop()
+  expect(recording.stop()).toBe(stopped)
+  const pcm = await stopped
+  expect(pcm).toHaveLength(16_000 * 360 + 2)
+  expect(pcm[0]).toBe(0.25)
+  expect(pcm.slice(-2)).toEqual(new Float32Array([0.75, -0.75]))
+  expect(mic.stopTrack).toHaveBeenCalledOnce()
+  expect(mic.close).toHaveBeenCalledOnce()
+  expect(recording.level()).toBe(0)
+})
+
+it('discards captured audio and releases the microphone on explicit cancellation', async () => {
+  const mic = microphone()
+  const recording = await startRecording()
+  mic.emit(new Float32Array([0.25]))
+  recording.cancel()
+  mic.emit(new Float32Array([0.75]))
+  expect(await recording.stop()).toHaveLength(0)
+  expect(mic.stopTrack).toHaveBeenCalledOnce()
+  expect(mic.close).toHaveBeenCalledOnce()
+})
+
+it('cleans up the microphone and reports a genuine audio setup failure', async () => {
+  const mic = microphone()
+  mic.addModule.mockRejectedValueOnce(new Error('Audio worklet failed'))
+  await expect(startRecording()).rejects.toThrow('Audio worklet failed')
+  expect(mic.stopTrack).toHaveBeenCalledOnce()
+  expect(mic.close).toHaveBeenCalledOnce()
+})
 
 describe('16 kHz mono resampling', () => {
   it('preserves duration and averages 48 kHz sample intervals', () => {

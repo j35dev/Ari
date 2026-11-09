@@ -285,6 +285,43 @@ it('uses generous audio and model budgets and starts no timer for queued dictati
   )
 })
 
+it('transcribes more than five minutes of valid audio with a duration-scaled failure budget', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  mocks.manual = true
+  const child = mocks.fork.mock.results[0]!.value
+  const pcm = new Float32Array(16_000 * 360 + 1).fill(0.25)
+  pcm[pcm.length - 1] = 0.75
+  const pending = service.transcribe(pcm)
+  while (child.postMessage.mock.calls.length < 2)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  const request = child.postMessage.mock.calls[1][0]
+  expect(request.pcm).toBe(pcm)
+  expect(request.pcm.at(-1)).toBe(0.75)
+  vi.useFakeTimers()
+  child.emit('message', { id: request.id, started: true })
+  await vi.advanceTimersByTimeAsync(20 * 60_000)
+  expect(child.kill).not.toHaveBeenCalled()
+  child.emit('message', { id: request.id, result: { text: 'Full long dictation' } })
+  expect(await pending).toEqual({ text: 'Full long dictation' })
+  await vi.advanceTimersByTimeAsync(speechRequestTimeout('transcribe', pcm.length))
+  expect(child.kill).not.toHaveBeenCalled()
+})
+
+it.each([
+  new Float32Array(),
+  new Float32Array([NaN]),
+  new Float32Array([Infinity]),
+  new Float32Array([1.1]),
+  new Float32Array([-1.1]),
+])('rejects empty or invalid recordings before starting inference (%s)', async (pcm) => {
+  const { service } = await setup(false, false)
+  await expect(service.transcribe(pcm)).rejects.toThrow('Invalid recording')
+  expect(mocks.fork).not.toHaveBeenCalled()
+})
+
 it('reports worker exits without blaming the Visual C++ runtime', async () => {
   const { dir, service } = await setup()
   const path = join(dir, 'custom.gguf')
