@@ -66,12 +66,17 @@ import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
 import { formatPaneTitle } from './features/split/pane-title'
 import { SplitView } from './features/split/SplitView'
-import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
+import {
+  splitLayoutActions,
+  splitLayoutSnapshot,
+  useSplitLayout,
+} from './features/split/use-split-layout'
 import {
   MAX_SPACES,
   SpaceTabs,
   recentSpaces,
   spaceActions,
+  spaceStoreSnapshot,
   spaceStatus,
   useSpaces,
   useSpaceSwipe,
@@ -96,6 +101,8 @@ import { ariaActivity, startedByAria } from './features/aria/aria-activity'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
 import { NewSessionLauncher } from './shell/NewSessionLauncher'
+import { useSessionStart } from './shell/use-session-start'
+import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
   applyPatches,
@@ -213,6 +220,42 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
+  const [composerFocusRequest, setComposerFocusRequest] = useState<{
+    sessionId: string
+    intent: SessionStartIntent
+  } | null>(null)
+  const startIntentsRef = useRef(new Set<SessionStartIntent>())
+  const panesVisibleRef = useRef(panesVisible)
+  panesVisibleRef.current = panesVisible
+  const captureStartIntent = useCallback((): SessionStartIntent => {
+    for (const previous of startIntentsRef.current) previous.cancel()
+    const intent: SessionStartIntent = captureSessionStartIntent(
+      () => {
+        const current = splitLayoutSnapshot()
+        return {
+          spaceId: spaceStoreSnapshot().activeSpaceId,
+          paneId: activePaneOf(current),
+          sessionId: activeSessionOf(current),
+        }
+      },
+      () => panesVisibleRef.current,
+      () => {
+        startIntentsRef.current.delete(intent)
+        setComposerFocusRequest((previous) => (previous?.intent === intent ? null : previous))
+      },
+    )
+    startIntentsRef.current.add(intent)
+    return intent
+  }, [])
+  useEffect(() => {
+    for (const intent of startIntentsRef.current) intent.validate()
+  }, [layout, spaceStore.activeSpaceId, panesVisible])
+  useEffect(() => {
+    const intents = startIntentsRef.current
+    return () => {
+      for (const intent of intents) intent.cancel()
+    }
+  }, [])
   const [recentSpaceIds, setRecentSpaceIds] = useState<readonly string[]>([])
   const nextRecentSpaceIds = recentSpaces(
     recentSpaceIds,
@@ -952,70 +995,27 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     layout,
   ])
 
-  const createSession = useCallback(
-    (projectId: string, overrides?: Partial<SessionDefaults>): void => {
-      const effective = { ...defaults, ...overrides }
-      // Reuse the newest pristine (zero-message) session when its config is
-      // compatible — spamming ✎ must not pile up empty chats. A lead is a
-      // different kind of session, so it never borrows an ordinary one.
-      const reusable = effective.lead
-        ? undefined
-        : sessions.find(
-            (s) =>
-              s.projectId === projectId &&
-              s.messageCount === 0 &&
-              (overrides === undefined || overrides.driverKind === undefined),
-          )
-      if (reusable) {
-        if (overrides) setDefaults(effective)
-        const open = (): void => {
-          splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
-          clearTransientInspector()
-        }
-        // Already on screen: its chips are the user's to set, nothing starts.
-        if (reusable.id === activeSessionId) {
-          open()
-          return
-        }
-        // It was created under the default of its day; an empty session picked
-        // up as "new" has to start the way a new one would. The update goes out
-        // first and the pane opens in the same frame: whichever lands first, the
-        // load or the journal's `session.updated`, the chip ends on this mode.
-        void rpc
-          .invoke('command.dispatch', {
-            command: {
-              type: 'session.update',
-              sessionId: reusable.id,
-              driverKind: effective.driverKind,
-              modelId: effective.modelId,
-              permissionMode: effective.permissionMode,
-              effort: effective.effort,
-            },
-          })
-          .catch((error: unknown) => log.warn('rpc call failed', error))
-        open()
+  const sessionStart = useSessionStart({
+    defaults,
+    sessions,
+    captureIntent: captureStartIntent,
+    refreshProjects,
+    refreshSessions,
+    checkSessions: reloadSessions,
+    onStarted: (sessionId, effective, intent) => {
+      if (effective !== null) writeDefaults(sessionId, effective)
+      if (!intent.select(sessionId)) {
+        intent.dispose()
         return
       }
-      void rpc
-        .invoke('session.create', {
-          projectId,
-          title: 'New session',
-          driverKind: effective.driverKind,
-          modelId: effective.modelId,
-          permissionMode: effective.permissionMode,
-          effort: effective.effort,
-          ...(effective.lead ? { lead: true } : {}),
-        })
-        .then(({ sessionId }) => {
-          if (overrides) setDefaults(effective)
-          splitLayoutActions.assign(layout.focusedPaneId, sessionId)
-          clearTransientInspector()
-          refreshSessions()
-        })
-        .catch((error: unknown) => log.warn('rpc call failed', error))
+      splitLayoutActions.assign(intent.scope.paneId, sessionId)
+      if (intent.wantsFocus) {
+        clearTransientInspector()
+        setComposerFocusRequest({ sessionId, intent })
+      } else intent.dispose()
     },
-    [defaults, sessions, layout, activeSessionId, refreshSessions, clearTransientInspector],
-  )
+  })
+  const createSession = sessionStart.create
 
   /**
    * Single door for every "new session" affordance. A session always belongs
@@ -1025,20 +1025,24 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * every session now has a real one.
    */
   const beginNewSession = useCallback(
-    (anchor: MenuAnchor, overrides?: Partial<SessionDefaults>): void => {
-      if (projects.length === 0) {
-        void openProjectViaPicker()
-          .then((project) => {
-            if (project === null) return // cancelled picker stays put
-            refreshProjects()
-            createSession(project.id, overrides)
-          })
-          .catch((error: unknown) => log.warn('project open failed', error))
+    (
+      anchor: MenuAnchor,
+      overrides?: Partial<SessionDefaults>,
+      intent?: SessionStartIntent,
+    ): void => {
+      if (!sessionStart.canStart() || (intent && !intent.isCurrent())) {
+        intent?.dispose()
         return
       }
+      if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
+      if (projects.length === 0) {
+        sessionStart.pickProject(overrides, intent)
+        return
+      }
+      intent?.dispose() // The chooser owns the next explicit pick and its focus.
       setNewSessionRequest({ anchor, overrides })
     },
-    [projects.length, refreshProjects, createSession],
+    [projects.length, sessionStart.canStart, sessionStart.pickProject],
   )
 
   /**
@@ -1057,15 +1061,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const addProjectAndStart = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
       setNewSessionRequest(null)
-      void openProjectViaPicker()
-        .then((project) => {
-          if (project === null) return // cancelled picker stays put
-          refreshProjects()
-          createSession(project.id, overrides)
-        })
-        .catch((error: unknown) => log.warn('project open failed', error))
+      sessionStart.pickProject(overrides)
     },
-    [createSession, refreshProjects],
+    [sessionStart.pickProject],
   )
 
   const selectWorkspaceTool = useCallback(
@@ -1442,12 +1440,20 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         <ErrorBoundary label="Welcome">
                           <WelcomePanel
                             hasProjects={projects.length > 0}
+                            startPending={sessionStart.pending}
+                            onStartIntent={() =>
+                              sessionStart.canStart() ? captureStartIntent() : null
+                            }
                             onCreateSession={beginNewSession}
-                            onConnect={(endpointId, anchor) =>
-                              beginNewSession(anchor, {
-                                driverKind: 'ari-core',
-                                modelId: `ep:${endpointId}`,
-                              })
+                            onConnect={(endpointId, anchor, intent) =>
+                              beginNewSession(
+                                anchor,
+                                {
+                                  driverKind: 'ari-core',
+                                  modelId: `ep:${endpointId}`,
+                                },
+                                intent,
+                              )
                             }
                           />
                         </ErrorBoundary>
@@ -1508,6 +1514,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                     onOpenAria={() => openAria()}
                                     startedByAria={ariaStartedIds.has(sessionId)}
                                     hidden={hidden}
+                                    onComposerReady={
+                                      composerFocusRequest?.sessionId === sessionId &&
+                                      composerFocusRequest.intent.scope.spaceId === space.id &&
+                                      composerFocusRequest.intent.scope.paneId === paneId
+                                        ? composerFocusRequest.intent.ready
+                                        : undefined
+                                    }
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}
