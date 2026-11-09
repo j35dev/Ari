@@ -283,6 +283,68 @@ it('transcribes when a later event reveals a missed modifier release', async () 
   )
 })
 
+it('accepts a fresh hold after lock then suspend without new key events between resets', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.({ ...key(57), ctrlKey: false })
+  mock.powerEvents.get('lock-screen')!()
+  mock.powerEvents.get('suspend')!()
+  mock.keys.get('keydown')?.(key(57))
+  expect(mock.windows[0]!.showInactive).toHaveBeenCalledOnce()
+})
+
+it('records modifier-only holds immediately but reveals the pill after 250 ms', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure({
+    ...configured,
+    speech: { enabled: true, shortcut: 'option-right' },
+  } as Settings)
+  mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
+  const win = mock.windows[0]!
+  expect(win.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'listening' }),
+  )
+  expect(win.showInactive).not.toHaveBeenCalled()
+  expect(vi.getTimerCount()).toBe(1)
+  await vi.advanceTimersByTimeAsync(249)
+  expect(win.showInactive).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(win.showInactive).toHaveBeenCalledOnce()
+  expect(vi.getTimerCount()).toBe(1)
+  mock.keys.get('keyup')?.({ ...key(3640), ctrlKey: false, altKey: false })
+  expect(win.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'transcribing' }),
+  )
+})
+
+it.each(['typing', 'tap'] as const)(
+  'cancels %s during the modifier grace period without showing or sending',
+  async (kind) => {
+    const invoke = vi.fn(async () => ({ ready: true }))
+    widget = new AriaWidget({ invoke, openSettings: vi.fn() })
+    await widget.configure({
+      ...configured,
+      speech: { enabled: true, shortcut: 'alt-right' },
+    } as Settings)
+    mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
+    await vi.advanceTimersByTimeAsync(100)
+    if (kind === 'typing') mock.keys.get('keydown')?.({ ...key(30), ctrlKey: false, altKey: true })
+    mock.keys.get('keyup')?.({ ...key(3640), ctrlKey: false, altKey: false })
+    const sender = mock.windows[0]!.webContents
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'hidden' }),
+    )
+    await mock.handlers.get('ari:ariaWidget.complete')!({ sender }, { id: 1, text: 'Do not send' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(invoke).toHaveBeenCalledTimes(1)
+  },
+)
+
 it('ignores stale renderer crash, load failure and closed callbacks after replacement', async () => {
   let rejectLoad!: (error: Error) => void
   mock.load.mockImplementationOnce(
@@ -336,6 +398,7 @@ it('preserves crash backoff through unrelated settings updates, but re-arms for 
   expect(mock.windows).toHaveLength(3)
   expect(vi.getTimerCount()).toBe(0)
   mock.keys.get('keydown')?.({ ...key(3640), ctrlKey: false, altKey: true })
+  await vi.advanceTimersByTimeAsync(250)
   expect(mock.windows[2]!.showInactive).toHaveBeenCalledOnce()
 })
 

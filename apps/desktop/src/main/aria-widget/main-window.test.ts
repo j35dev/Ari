@@ -1,6 +1,14 @@
 // @vitest-environment node
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MainWindowLifecycle } from './main-window'
+import { STARTUP_FALLBACK_MS } from '../startup-gate'
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 it('rebinds RPC and widget callbacks on tray, dock and second-instance reopen', () => {
   let id = 0
@@ -40,7 +48,7 @@ it('rebinds RPC and widget callbacks on tray, dock and second-instance reopen', 
   expect(create).toHaveBeenCalledTimes(4)
 })
 
-it('restores a live minimized window without rebinding the widget', () => {
+it('restores a live minimized window without rebinding the widget', async () => {
   const window = {
     paint: (): void => undefined,
     once(_event: 'ready-to-show', callback: () => void) {
@@ -56,13 +64,14 @@ it('restores a live minimized window without rebinding the widget', () => {
   const windows = new MainWindowLifecycle(() => window, bind)
   windows.ensure()
   window.paint()
+  await vi.advanceTimersByTimeAsync(0)
   windows.show()
   expect(bind).toHaveBeenCalledOnce()
   expect(window.restore).toHaveBeenCalledOnce()
   expect(window.focus).toHaveBeenCalledOnce()
 })
 
-it('defers tray and second-instance requests until first paint, including replacement windows', () => {
+it('defers tray and second-instance requests until first paint, including replacement windows', async () => {
   const create = () => ({
     destroyed: false,
     paint: (): void => undefined,
@@ -84,14 +93,35 @@ it('defers tray and second-instance requests until first paint, including replac
   expect(first.show).not.toHaveBeenCalled()
   expect(first.focus).not.toHaveBeenCalled()
   first.paint()
+  await vi.advanceTimersByTimeAsync(0)
   expect(first.show).toHaveBeenCalledOnce()
   expect(first.focus).toHaveBeenCalledOnce()
   first.destroyed = true
   windows.show()
   const second = windows.ensure()
   first.paint()
+  await vi.advanceTimersByTimeAsync(0)
   expect(second.show).not.toHaveBeenCalled()
   second.paint()
+  await vi.advanceTimersByTimeAsync(0)
   expect(second.show).toHaveBeenCalledOnce()
   expect(second.focus).toHaveBeenCalledOnce()
+})
+
+it('shows a requested window on the startup fallback even if it never paints', async () => {
+  const window = {
+    once: vi.fn(),
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    restore: vi.fn(),
+    show: vi.fn(),
+    focus: vi.fn(),
+  }
+  const windows = new MainWindowLifecycle(() => window, vi.fn())
+  windows.show()
+  await vi.advanceTimersByTimeAsync(STARTUP_FALLBACK_MS - 1)
+  expect(window.show).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(window.show).toHaveBeenCalledOnce()
+  expect(window.focus).toHaveBeenCalledOnce()
 })

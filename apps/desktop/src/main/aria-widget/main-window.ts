@@ -1,3 +1,5 @@
+import { afterFirstPaint } from '../startup-gate'
+
 interface ReopenableWindow {
   isDestroyed(): boolean
   isMinimized(): boolean
@@ -23,7 +25,7 @@ export class MainWindowLifecycle<W extends ReopenableWindow> {
       this.painted = false
       this.showRequested = false
       const window = this.window
-      window.once('ready-to-show', () => {
+      void afterFirstPaint(window, 0).then(() => {
         if (this.window !== window || window.isDestroyed()) return
         this.painted = true
         if (this.showRequested) this.show()

@@ -1,8 +1,44 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { HoldToTalk, RECORDING_LIMIT_MS, SENT_MS, TRANSCRIPTION_LIMIT_MS } from './model'
+import {
+  HoldToTalk,
+  MODIFIER_HOLD_MS,
+  RECORDING_LIMIT_MS,
+  SENT_MS,
+  TRANSCRIPTION_LIMIT_MS,
+} from './model'
 
 describe('hold to talk', () => {
+  it('records a modifier hold immediately, reveals after the delay and transcribes on release', () => {
+    const flow = new HoldToTalk()
+    flow.down(0, MODIFIER_HOLD_MS)
+    expect(flow.state.phase).toBe('listening')
+    expect(flow.visible(MODIFIER_HOLD_MS - 1)).toBe(false)
+    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(true)
+    flow.up(MODIFIER_HOLD_MS)
+    expect(flow.state.phase).toBe('transcribing')
+  })
+
+  it('cancels a short modifier tap without ever revealing or transcribing', () => {
+    const flow = new HoldToTalk()
+    flow.down(0, MODIFIER_HOLD_MS)
+    flow.up(MODIFIER_HOLD_MS - 1)
+    expect(flow.state.phase).toBe('hidden')
+    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(false)
+    flow.finish(1, 'Never send this', MODIFIER_HOLD_MS)
+    expect(flow.state.phase).toBe('hidden')
+  })
+
+  it('keeps recording failures hidden during the modifier grace period and cancels them on a tap', () => {
+    const flow = new HoldToTalk()
+    flow.down(0, MODIFIER_HOLD_MS)
+    flow.error(1, 'Microphone unavailable', false, 10)
+    expect(flow.visible(10)).toBe(false)
+    flow.up(20)
+    expect(flow.state.phase).toBe('hidden')
+    expect(flow.visible(MODIFIER_HOLD_MS)).toBe(false)
+  })
+
   it('listens once per hold, transcribes on release and hides after sent', () => {
     const flow = new HoldToTalk()
     expect(flow.down(0)).toBe(true)
