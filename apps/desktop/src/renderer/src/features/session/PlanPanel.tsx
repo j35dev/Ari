@@ -5,7 +5,7 @@ import { rpc } from '../../lib/rpc'
 
 type PlanItems = RpcResults['plan.get']['items']
 
-/** The provider's checklist. Delegated work lives in the optional Work panel. */
+/** The provider's checklist. Delegated work lives in the transcript and composer. */
 export function PlanPanel({
   sessionId,
   refreshNonce,

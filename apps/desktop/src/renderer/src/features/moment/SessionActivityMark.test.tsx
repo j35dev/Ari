@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { SessionActivityMark } from './SessionActivityMark'
 
 describe('SessionActivityMark', () => {
+  it('announces queued with a static neutral matrix, then starts the chase on execution', () => {
+    const { container, rerender } = render(
+      <SessionActivityMark activity={{ phase: 'queued', startedAt: null }} />,
+    )
+    expect(screen.getByRole('status', { name: 'Queued' })).toHaveAttribute('title', 'Queued')
+    expect(container.querySelectorAll('.ari-forge-cell, .ari-pause-hold')).toHaveLength(0)
+    rerender(<SessionActivityMark activity={{ phase: 'working', startedAt: 100 }} />)
+    expect(screen.queryByRole('status', { name: 'Queued' })).not.toBeInTheDocument()
+    expect(container.querySelectorAll('.ari-forge-cell')).toHaveLength(8)
+  })
   it('announces working with the nine-cell forging matrix', () => {
     const { container } = render(
       <SessionActivityMark activity={{ phase: 'working', startedAt: Date.now() }} />,

@@ -40,9 +40,26 @@ export interface ComposerSeed {
   text: string
   nonce: number
   files?: File[]
+  sessionId?: string
+  /** Recovery swaps the complete draft, including an empty image set. */
+  replaceFiles?: boolean
+  /** Automatic recovery must not take focus from another control/session. */
+  focus?: boolean
   /** `replace` overwrites the draft. `insert` splices at the caret. */
   mode?: 'replace' | 'insert'
 }
+
+export interface ComposerDraft {
+  text: string
+  files: File[]
+}
+
+export interface ComposerRecovery extends ComposerDraft {
+  id: string
+  autoRestore?: boolean
+}
+
+const NO_RECOVERIES: ComposerRecovery[] = []
 
 /**
  * One message parked behind the active turn. `attachments` rides along so the
@@ -60,7 +77,11 @@ export interface ComposerProps {
   /** Announces a mounted, enabled editor; the owner decides whether to focus it. */
   onReady?: (input: HTMLTextAreaElement) => void
   /** Called with the message text and pending image files when the user sends. */
-  onSend: (text: string, files: File[]) => void
+  onSend: (text: string, files: File[]) => boolean | void
+  /** Waiting for preparation/dispatch; typing and Stop remain available. */
+  sendPending?: boolean
+  recoveries?: ComposerRecovery[]
+  onRecover?: (message: ComposerRecovery, current: ComposerDraft, focus: boolean) => boolean
   /** Called when the user presses stop during an active turn. */
   onStop?: () => void
   /** Whether a turn is currently running for the active session. */
@@ -152,6 +173,9 @@ export function Composer({
   centered = false,
   history,
   onReady,
+  sendPending = false,
+  recoveries = NO_RECOVERIES,
+  onRecover,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -184,7 +208,9 @@ export function Composer({
     !focused &&
     !attentionRequired &&
     text.trim().length === 0 &&
-    images.length === 0
+    images.length === 0 &&
+    recoveries.length === 0 &&
+    !sendPending
 
   /** Puts the caret back in the field and lets focus expand the plate. */
   const focusField = useCallback(() => {
@@ -350,7 +376,7 @@ export function Composer({
 
   // Draft injection: only a fresh nonce applies the seed, so re-renders with
   // the same object never clobber what the user is typing.
-  const seededNonceRef = useRef<number | null>(null)
+  const seededNonceRef = useRef<string | null>(null)
   // Insert mode has to place the caret after React commits the new value.
   // Setting it in the seed effect lands on the pre-update textarea.
   const seedCaretRef = useRef<number | null>(null)
@@ -364,8 +390,11 @@ export function Composer({
     el.setSelectionRange(next, next)
   }, [text])
   useEffect(() => {
-    if (!seed || seededNonceRef.current === seed.nonce) return
-    seededNonceRef.current = seed.nonce
+    if (!seed || (seed.sessionId !== undefined && seed.sessionId !== sessionId)) return
+    const key = `${seed.sessionId ?? sessionId ?? ''}:${seed.nonce}`
+    if (seededNonceRef.current === key) return
+    seededNonceRef.current = key
+    if (seed.replaceFiles) clear()
     if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
     const el = textareaRef.current
     if (seed.mode === 'insert') {
@@ -382,19 +411,32 @@ export function Composer({
     setCaret(end)
     // Synchronous focus + caret: deferring via rAF raced user input under
     // load (the caret yank landed between keystrokes and ate characters).
-    el?.focus()
-    el?.setSelectionRange(end, end)
-  }, [seed, addFiles])
+    if (seed.focus !== false) {
+      el?.focus()
+      el?.setSelectionRange(end, end)
+    }
+  }, [seed, sessionId, addFiles, clear, setText])
+
+  const seenRecoveriesRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (sendPending) return
+    const added = recoveries.filter((message) => !seenRecoveriesRef.current.has(message.id))
+    seenRecoveriesRef.current = new Set(recoveries.map((message) => message.id))
+    const next = added.find((message) => message.autoRestore !== false)
+    if (next && text.length === 0 && images.length === 0) {
+      onRecover?.(next, { text, files: [] }, false)
+    }
+  }, [recoveries, sendPending, text, images.length, onRecover])
 
   const send = useCallback(() => {
     const trimmed = text.trim()
-    if ((trimmed.length === 0 && images.length === 0) || disabled) return
-    onSend(trimmed, [...images])
+    if ((trimmed.length === 0 && images.length === 0) || disabled || sendPending) return
+    if (onSend(trimmed, [...images]) === false) return
     setText('')
     setCaret(0)
     clear()
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [text, images, disabled, onSend, clear])
+  }, [text, images, disabled, sendPending, onSend, clear, setText])
 
   /**
    * Inserts text at the live caret (event target wins over stale state),
@@ -412,7 +454,6 @@ export function Composer({
     [refocus, setText],
   )
 
-  /** Inserts at a captured range. A file write resolves after the caret may have moved. */
   // A paste event does not carry Ctrl/Shift. Remember them from the keys
   // that are down so Ctrl/Cmd+Shift+V can stay inline.
   const forceInlinePasteRef = useRef(false)
@@ -436,11 +477,30 @@ export function Composer({
   const insertRange = useCallback(
     (at: number, end: number, insert: string) => {
       const nextCaret = at + insert.length
+      seedCaretRef.current = nextCaret
       setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
       setCaret(nextCaret)
-      refocus(nextCaret)
     },
-    [refocus, setText],
+    [setText],
+  )
+
+  const pasteSelectionRef = useRef<{ start: number; end: number } | null>(null)
+  useLayoutEffect(() => {
+    const selection = pasteSelectionRef.current
+    pasteSelectionRef.current = null
+    const el = textareaRef.current
+    if (selection && el) {
+      el.setSelectionRange(selection.start, selection.end)
+    }
+  }, [text])
+
+  // A completed write must not touch a different session or an unmounted editor.
+  const pasteGenerationRef = useRef(0)
+  useLayoutEffect(
+    () => () => {
+      pasteGenerationRef.current += 1
+    },
+    [sessionId],
   )
 
   const handlePaste = useCallback(
@@ -484,6 +544,11 @@ export function Composer({
         insertRange(start, end, pasted)
         return
       }
+      // Keep the content in the draft before starting IPC. Sending, typing,
+      // reloading, or leaving this session during the write must not lose it.
+      const inlineDraft = text.slice(0, start) + pasted + text.slice(end)
+      insertRange(start, end, pasted)
+      const generation = pasteGenerationRef.current
       const mention = `@${decision.path} `
       void rpc
         .invoke('fs.writeTextFile', {
@@ -491,10 +556,31 @@ export function Composer({
           path: decision.path,
           content: decision.content,
         })
-        .then(() => insertRange(start, end, mention))
-        .catch(() => insertRange(start, end, pasted))
+        .then(
+          () => {
+            // Only compact an untouched draft. A captured selection no longer
+            // names the same text after an edit, send, or replacement seed.
+            if (pasteGenerationRef.current !== generation) return
+            const el = textareaRef.current
+            if (el?.value !== inlineDraft) return
+            // Keep a moved caret/selection and do not reclaim focus on completion.
+            const remap = (index: number) =>
+              index <= start
+                ? index
+                : Math.max(start + mention.length, index - pasted.length + mention.length)
+            pasteSelectionRef.current = {
+              start: remap(el.selectionStart),
+              end: remap(el.selectionEnd),
+            }
+            setCaret(pasteSelectionRef.current.start)
+            setText(text.slice(0, start) + mention + text.slice(end))
+          },
+          () => {
+            // The inline fallback is already present, including any later edits.
+          },
+        )
     },
-    [addFiles, caret, insertAtCaret, insertRange, sessionId, text],
+    [addFiles, caret, insertAtCaret, insertRange, sessionId, setText, text],
   )
 
   const handleDrop = useCallback(
@@ -746,11 +832,16 @@ export function Composer({
           {/* `contents` keeps the chips as direct flex children, so expanding
               and resting lay out identically without remounting the pickers. */}
           <div className={resting ? 'hidden' : 'contents'}>{leading}</div>
+          {sendPending ? (
+            <span role="status" className="px-1 text-2xs text-fg-subtle">
+              Sending message…
+            </span>
+          ) : null}
           <button
             type="button"
             aria-label="Send message"
             onClick={send}
-            disabled={(text.trim().length === 0 && images.length === 0) || disabled}
+            disabled={(text.trim().length === 0 && images.length === 0) || disabled || sendPending}
             tabIndex={-1}
             className="sr-only"
           >
@@ -765,16 +856,25 @@ export function Composer({
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
-                aria-label={`Prompt stash (${stash.length})`}
+                aria-label={`Prompt stash (${stash.length})${recoveries.length > 0 ? ` · ${recoveries.length} unsent message${recoveries.length === 1 ? '' : 's'}` : ''}`}
                 aria-haspopup="menu"
                 aria-expanded={stashOpen}
-                title="Stash this prompt (Mod+S) or reuse a stashed one"
+                title={
+                  recoveries.length > 0
+                    ? `${recoveries.length} unsent message${recoveries.length === 1 ? '' : 's'} — open to restore`
+                    : 'Stash this prompt (Mod+S) or reuse a stashed one'
+                }
                 onClick={() => setStashOpen((o) => !o)}
                 animate={stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined}
                 transition={{ duration: 0.35, ease: 'easeOut' }}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                className="relative flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
               >
                 <Bookmark size={13} />
+                {recoveries.length > 0 ? (
+                  <span className="absolute -right-1 -top-1 rounded-full bg-accent px-1 text-2xs text-fg-on-accent">
+                    {recoveries.length}
+                  </span>
+                ) : null}
               </motion.button>
               <Popover open={stashOpen} onOpenChange={setStashOpen} anchor={stashAnchor}>
                 <Popover.Content
@@ -785,7 +885,37 @@ export function Composer({
                   aria-label="Stashed prompts"
                   className="max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-surface-2 p-1 shadow-2"
                 >
-                  {stash.length === 0 ? (
+                  {recoveries.length > 0 ? (
+                    <>
+                      <p className="px-2 py-1 text-2xs text-fg-subtle">
+                        Unsent messages · restoring keeps your current draft here
+                      </p>
+                      {recoveries.map((message, index) => (
+                        <button
+                          key={message.id}
+                          type="button"
+                          role="menuitem"
+                          aria-label={`Restore unsent message ${index + 1}`}
+                          disabled={sendPending}
+                          onClick={() => {
+                            if (onRecover?.(message, { text, files: [...images] }, true))
+                              setStashOpen(false)
+                          }}
+                          className="block w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                        >
+                          <span className="line-clamp-2 block whitespace-pre-wrap break-words text-fg">
+                            {message.text || 'Saved context'}
+                          </span>
+                          {message.files.length > 0 ? (
+                            <span className="text-2xs text-fg-subtle">
+                              {message.files.length} image{message.files.length === 1 ? '' : 's'}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </>
+                  ) : null}
+                  {stash.length === 0 && recoveries.length === 0 ? (
                     <p className="px-3 py-4 text-center text-xs text-fg-subtle">
                       Nothing stashed yet.
                       <br />
@@ -830,6 +960,7 @@ export function Composer({
               onSend={send}
               onStop={onStop}
               canSend={text.trim().length > 0 || images.length > 0}
+              pending={sendPending}
             />
           </div>
         </div>
@@ -888,11 +1019,13 @@ function SendStopButton({
   onSend,
   onStop,
   canSend,
+  pending,
 }: {
   running: boolean
   onSend: () => void
   onStop?: () => void
   canSend: boolean
+  pending: boolean
 }) {
   const buttonClass = (busy: boolean, enabled: boolean): string =>
     `relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
@@ -910,6 +1043,8 @@ function SendStopButton({
           aria-label="Queue message"
           title="Queue message"
           onClick={onSend}
+          disabled={pending}
+          aria-busy={pending || undefined}
           whileTap={{ scale: 0.96 }}
           transition={transitions.morph}
           className={buttonClass(false, true)}
@@ -922,7 +1057,8 @@ function SendStopButton({
         aria-label={running ? 'Stop' : 'Send'}
         title={running ? 'Stop' : 'Send'}
         onClick={() => (running ? onStop?.() : onSend())}
-        disabled={!running && !canSend}
+        disabled={!running && (!canSend || pending)}
+        aria-busy={!running && pending ? true : undefined}
         whileTap={{ scale: 0.96 }}
         transition={transitions.morph}
         className={buttonClass(running, canSend)}

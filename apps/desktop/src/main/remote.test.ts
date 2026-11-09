@@ -1,8 +1,11 @@
+// @vitest-environment node
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { exec } from 'node:child_process'
+import type * as ChildProcess from 'node:child_process'
 import type { RemoteState } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
 import type { Engine } from './engine'
@@ -12,6 +15,21 @@ import { RemoteService, type RemoteServiceDeps } from './remote'
 import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
+
+// Native terminal factories below are fakes and authorize no real PID kills.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  exec: vi.fn(),
+}))
+beforeEach(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => true)
+  vi.mocked(exec).mockImplementation((...args) => {
+    const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+    callback(null, '', '')
+    return {} as ReturnType<typeof exec>
+  })
+})
+afterEach(() => vi.restoreAllMocks())
 
 /**
  * The desktop end of remote access: the gateway's lifetime, the two decisions
@@ -696,7 +714,7 @@ describe('remote service terminals', () => {
     expect(kills[0]).not.toHaveBeenCalled()
 
     service.updateDeviceGrants(deviceId, ['proj_2'], true)
-    vi.advanceTimersByTime(1000)
+    await vi.advanceTimersByTimeAsync(1000)
     expect(kills[0]).toHaveBeenCalledOnce()
     expect((await open(origin, token, 'sess_one')).status).toBe(404)
     expect((await open(origin, token, 'sess_two')).status).toBe(200)

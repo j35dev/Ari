@@ -274,7 +274,11 @@ export function Composer({
           )}
           <button
             type={stopInstead ? 'button' : 'submit'}
-            className="icon-button rounded-full bg-accent text-fg-on-accent"
+            className={
+              pending !== null && !stopInstead
+                ? 'inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-3 text-xs font-medium text-fg-on-accent disabled:opacity-50'
+                : 'icon-button rounded-full bg-accent text-fg-on-accent'
+            }
             disabled={stopInstead ? disabled || busy || uploading : !canSend}
             onClick={stopInstead ? stop : undefined}
             aria-label={
@@ -291,9 +295,10 @@ export function Composer({
               <LoaderCircle size={18} className="animate-spin" />
             ) : stopInstead ? (
               <Square size={14} fill="currentColor" />
-            ) : (
+            ) : pending === null ? (
               <ArrowUp size={20} />
-            )}
+            ) : null}
+            {pending !== null && !stopInstead && (busy ? 'Submitting…' : 'Retry submission')}
           </button>
         </div>
       </form>
