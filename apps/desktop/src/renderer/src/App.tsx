@@ -358,8 +358,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(
     () =>
       rpc.subscribe('app.navigate', {}, (payload) => {
-        const sessionId = (payload as Partial<NavigateFrame> | null)?.sessionId
-        if (typeof sessionId === 'string') selectSessionRef.current(sessionId)
+        const frame = payload as NavigateFrame | null
+        if (frame && 'settingsSection' in frame && frame.settingsSection === 'speech') {
+          setHubOpen(false)
+          setSettingsSection('speech' as SettingsSectionId)
+          setSettingsOpen(true)
+        } else if (frame && 'sessionId' in frame && typeof frame.sessionId === 'string') {
+          selectSessionRef.current(frame.sessionId)
+        }
       }),
     [],
   )

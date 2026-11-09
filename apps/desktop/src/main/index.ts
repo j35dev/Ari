@@ -1,8 +1,10 @@
-import { app, BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { DiscordPresence } from './discord-presence'
-import { registerRpc, startAppUpdateChecks } from './rpc'
+import { openSpeechSettings, registerRpc, startAppUpdateChecks } from './rpc'
+import { AriaWidget } from './aria-widget'
+import { MainWindowLifecycle } from './aria-widget/main-window'
 import { afterFirstPaint } from './startup-gate'
 import { getSettingsStore } from './store'
 import { createTray, type TrayHandle } from './tray'
@@ -26,55 +28,65 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  let mainWindow: BrowserWindow | null = null
+  let mainWindows: MainWindowLifecycle<BrowserWindow> | null = null
   let tray: TrayHandle | null = null
+  let widget: AriaWidget | null = null
   const presence = new DiscordPresence()
 
   app.on('second-instance', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    mainWindows?.show()
   })
 
   void app.whenReady().then(() => {
-    if (mainWindow) return
+    if (mainWindows) return
     // One window owns the whole startup: it stays hidden until the renderer has
     // painted its first frame, which is the launch animation itself, so there
     // is never a separate splash surface to hand over from.
-    mainWindow = createMainWindow()
-    const firstPaint = afterFirstPaint(mainWindow)
-    mainWindow.once('ready-to-show', () => {
-      startAppUpdateChecks()
+    mainWindows = new MainWindowLifecycle(createMainWindow, (window) => {
+      const firstPaint = afterFirstPaint(window)
+      window.once('ready-to-show', startAppUpdateChecks)
+      const handle = registerRpc(window.webContents, {
+        onRunningCount: (count) => {
+          updateTrayStatus(tray, count)
+          presence.setRunningCount(count)
+        },
+        onSettingsChanged: (settings) => {
+          presence.setEnabled(settings.notifications.discordPresence)
+          void widget?.configure(settings)
+        },
+        backgroundReady: firstPaint,
+      })
+      widget?.close()
+      const currentWidget = new AriaWidget({
+        invoke: handle.invoke,
+        openSettings: () => {
+          if (mainWindows) openSpeechSettings(mainWindows.ensure().webContents)
+        },
+      })
+      widget = currentWidget
+      // Preserve close behavior; every tray/dock reopen binds a fresh widget and RPC.
+      window.once('closed', () => {
+        currentWidget.close()
+        if (widget === currentWidget) widget = null
+      })
+      void currentWidget.configure(getSettingsStore().current)
     })
-    tray = createTray(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
-      mainWindow.show()
-      mainWindow.focus()
-    })
-    // Handlers register synchronously; driver detection hydrates in background.
-    // Turn lifecycle events flow into the tray tooltip and the Discord status as the running count.
-    registerRpc(mainWindow.webContents, {
-      onRunningCount: (count) => {
-        updateTrayStatus(tray, count)
-        presence.setRunningCount(count)
-      },
-      onSettingsChanged: (settings) => presence.setEnabled(settings.notifications.discordPresence),
-      backgroundReady: firstPaint,
-    })
+    mainWindows.ensure()
+    tray = createTray(() => mainWindows?.show())
     void getSettingsStore()
       .load()
       .catch((error: unknown) => log.warn('settings load failed', { error }))
-      .then(() => presence.setEnabled(getSettingsStore().current.notifications.discordPresence))
+      .then(() => {
+        presence.setEnabled(getSettingsStore().current.notifications.discordPresence)
+        return widget?.configure(getSettingsStore().current)
+      })
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createMainWindow()
-        registerRpc(mainWindow.webContents)
-      }
+      mainWindows?.show()
     })
   })
 
+  app.on('before-quit', () => widget?.close())
   app.on('will-quit', () => presence.stop())
 
   app.on('window-all-closed', () => {

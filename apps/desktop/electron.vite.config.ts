@@ -1,5 +1,6 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'node:path'
 
 export default defineConfig({
   main: {
@@ -15,6 +16,7 @@ export default defineConfig({
           'electron-updater',
           'koffi',
           'transcribe-cpp',
+          'uiohook-napi',
         ],
         input: { index: 'src/main/index.ts', 'speech-worker': 'src/main/speech/worker.ts' },
       },
@@ -23,6 +25,10 @@ export default defineConfig({
   preload: {
     build: {
       rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          widget: resolve('src/main/aria-widget/preload.ts'),
+        },
         output: {
           // Sandboxed renderers require a CommonJS preload script.
           format: 'cjs',
@@ -34,5 +40,13 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     worker: { format: 'es' },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          widget: resolve('src/renderer/widget/index.html'),
+        },
+      },
+    },
   },
 })

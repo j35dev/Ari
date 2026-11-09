@@ -39,7 +39,8 @@
     "motion": "^13.1.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "uiohook-napi": "1.5.5"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",

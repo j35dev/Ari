@@ -348,10 +348,8 @@ export interface SpeechProgress {
   status?: SpeechStatus
 }
 
-/** Payload delivered on the app.navigate stream: the main process asking to show a session. */
-export interface NavigateFrame {
-  sessionId: string
-}
+/** The main process asking to show a session or open speech configuration. */
+export type NavigateFrame = { sessionId: string } | { settingsSection: 'speech' }
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
