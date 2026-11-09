@@ -1,15 +1,11 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { AriaRow } from './AriaRow'
 import { ariaActivity, startedByAria } from './aria-activity'
 import type { SessionSummary } from '@ari/contracts/rpc'
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
-vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
-beforeEach(() => invoke.mockReset())
-
-const topicActions = { onNewTopic: vi.fn(), onOpenSession: vi.fn() }
+const chatActions = { onNewChat: vi.fn() }
 
 vi.mock('@ari/ui/aria-mark', () => ({
   AriaMark: ({ state }: { state: string }) => <svg data-aria-state={state} />,
@@ -39,7 +35,7 @@ it('opens Aria, shows selected styling and prioritizes attention over running co
         : undefined,
   )
   const { container } = render(
-    <AriaRow selected activity={activity} onOpen={onOpen} {...topicActions} />,
+    <AriaRow selected activity={activity} onOpen={onOpen} {...chatActions} />,
   )
   expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute('aria-current', 'page')
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'attention')
@@ -55,7 +51,7 @@ it('derives idle, own thinking and started-session working states from live acti
       selected={false}
       activity={ariaActivity(sessions, () => undefined)}
       onOpen={() => {}}
-      {...topicActions}
+      {...chatActions}
     />,
   )
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'idle')
@@ -64,25 +60,36 @@ it('derives idle, own thinking and started-session working states from live acti
   const working = ariaActivity(sessions, (id) =>
     id === 'worker' ? { phase: 'working', startedAt: 1 } : undefined,
   )
-  rerender(<AriaRow selected={false} activity={working} onOpen={() => {}} {...topicActions} />)
+  rerender(<AriaRow selected={false} activity={working} onOpen={() => {}} {...chatActions} />)
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'working')
   expect(screen.getByTitle('1 sessions working')).toHaveTextContent('1')
   const thinking = ariaActivity(sessions, (id) =>
     id === 'aria' || id === 'worker' ? { phase: 'working', startedAt: 1 } : undefined,
   )
-  rerender(<AriaRow selected={false} activity={thinking} onOpen={() => {}} {...topicActions} />)
+  rerender(<AriaRow selected={false} activity={thinking} onOpen={() => {}} {...chatActions} />)
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'thinking')
 })
 
-it('attributes only top-level sessions to creators in Aria, including past topics', () => {
-  expect(startedByAria(sessions[2]!, sessions)).toBe(true)
-  expect(startedByAria({ ...sessions[2]!, parentSessionId: 'worker' }, sessions)).toBe(false)
+it('attributes only top-level sessions with a session creator to Aria', () => {
+  expect(startedByAria(sessions[2]!)).toBe(true)
+  expect(startedByAria({ ...sessions[2]!, parentSessionId: 'worker' })).toBe(false)
+  expect(startedByAria({ ...sessions[2]!, createdBy: null })).toBe(false)
+})
+
+it('keeps attribution and working counts for a lead whose creating Aria chat was deleted', () => {
+  const lead: SessionSummary = sessions[2]!
+  const remaining = [lead, sessions[3]!]
+  expect(startedByAria(lead)).toBe(true)
+  expect(startedByAria({ ...lead, parentSessionId: 'parent' })).toBe(false)
   expect(
-    startedByAria(
-      { ...sessions[2]!, createdBy: { kind: 'session', sessionId: 'another' } },
-      sessions,
+    ariaActivity(remaining, (id) =>
+      id === lead.id ? { phase: 'working', startedAt: 1 } : undefined,
     ),
-  ).toBe(false)
+  ).toEqual({
+    state: 'working',
+    attention: 0,
+    working: 1,
+  })
 })
 
 it('counts each pending user item even when several belong to one session', () => {
@@ -94,23 +101,18 @@ it('counts each pending user item even when several belong to one session', () =
   expect(status).toEqual({ state: 'attention', attention: 4, working: 0 })
 })
 
-it('keeps topic actions in the hover menu and opens a chosen past topic', async () => {
+it('offers only New chat and waits for confirmation before resetting Aria', async () => {
   const user = userEvent.setup()
   const onOpen = vi.fn()
-  const onNewTopic = vi.fn()
-  const onOpenSession = vi.fn()
-  invoke.mockResolvedValue([sessions[1]])
+  const onNewChat = vi.fn()
   render(
     <AriaRow
       selected
       activity={ariaActivity(sessions, () => undefined)}
       onOpen={onOpen}
-      onNewTopic={onNewTopic}
-      onOpenSession={onOpenSession}
+      onNewChat={onNewChat}
     />,
   )
-  expect(screen.queryByText('New topic')).toBeNull()
-  expect(screen.queryByText('Past topics')).toBeNull()
   const actions = screen.getByRole('button', { name: 'Aria actions' })
   expect(actions).toHaveClass(
     'opacity-0',
@@ -118,69 +120,33 @@ it('keeps topic actions in the hover menu and opens a chosen past topic', async 
     'focus-visible:opacity-100',
   )
   await user.click(actions)
-  expect(actions).toHaveAttribute('aria-expanded', 'true')
-  await user.click(screen.getByRole('menuitem', { name: 'New topic' }))
-  expect(onNewTopic).toHaveBeenCalledOnce()
+  expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+  await user.click(screen.getByRole('menuitem', { name: 'New chat' }))
+  expect(onNewChat).not.toHaveBeenCalled()
+  expect(screen.getByText('Delete Aria chat?')).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Cancel new Aria chat' }))
+  expect(onNewChat).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Open Aria' })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Aria actions' }))
+  await user.click(screen.getByRole('menuitem', { name: 'New chat' }))
+  await user.click(screen.getByRole('button', { name: 'Confirm new Aria chat' }))
+  expect(onNewChat).toHaveBeenCalledOnce()
   expect(onOpen).not.toHaveBeenCalled()
-  expect(screen.queryByRole('menu')).toBeNull()
-  await user.click(actions)
-  await user.click(screen.getByRole('menuitem', { name: 'Past topics' }))
-  expect(invoke).toHaveBeenCalledWith('aria.topics')
-  const topic = await screen.findByRole('menuitem', { name: 'Past' })
-  expect(topic).toHaveFocus()
-  await user.click(topic)
-  expect(onOpenSession).toHaveBeenCalledWith('past')
   expect(screen.queryByRole('menu')).toBeNull()
 })
 
-it('supports right-click and reports empty topics and list failures in the menu', async () => {
+it('opens its New chat action by right-click and dismisses the menu with Escape', async () => {
   const user = userEvent.setup()
-  invoke.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('offline'))
   render(
     <AriaRow
       selected={false}
       activity={ariaActivity(sessions, () => undefined)}
       onOpen={() => {}}
-      {...topicActions}
+      {...chatActions}
     />,
   )
   fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Aria' }))
-  await user.click(screen.getByRole('menuitem', { name: 'Past topics' }))
-  expect(await screen.findByRole('menuitem', { name: 'No past topics' })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  )
+  expect(screen.getByRole('menuitem', { name: 'New chat' })).toBeVisible()
   await user.keyboard('{Escape}')
-  await user.click(screen.getByRole('button', { name: 'Aria actions' }))
-  await user.click(screen.getByRole('menuitem', { name: 'Past topics' }))
-  expect(
-    await screen.findByRole('menuitem', { name: 'Could not load past topics.' }),
-  ).toHaveAttribute('aria-disabled', 'true')
-})
-
-it('does not reopen dismissed topic menus when loading finishes', async () => {
-  const user = userEvent.setup()
-  let resolve!: (topics: SessionSummary[]) => void
-  invoke.mockReturnValue(
-    new Promise<SessionSummary[]>((done) => {
-      resolve = done
-    }),
-  )
-  render(
-    <AriaRow
-      selected={false}
-      activity={ariaActivity(sessions, () => undefined)}
-      onOpen={() => {}}
-      {...topicActions}
-    />,
-  )
-  await user.click(screen.getByRole('button', { name: 'Aria actions' }))
-  await user.click(screen.getByRole('menuitem', { name: 'Past topics' }))
-  expect(screen.getByRole('menuitem', { name: 'Loading past topics…' })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  )
-  await user.keyboard('{Escape}')
-  await act(async () => resolve([sessions[1]!]))
   expect(screen.queryByRole('menu')).toBeNull()
 })

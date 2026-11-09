@@ -4,18 +4,12 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import type { SessionActivity } from '../session/session-activity'
 import { descendantIds } from '../session/session-tree'
 
-type AttributedSession = Pick<Session, 'id' | 'projectId' | 'parentSessionId' | 'createdBy'>
+type AttributedSession = Pick<Session, 'parentSessionId' | 'createdBy'>
 
-export function startedByAria(
-  session: AttributedSession,
-  sessions: readonly { id: string; projectId: string }[],
-): boolean {
-  const creator = session.createdBy
-  return (
-    !session.parentSessionId &&
-    creator?.kind === 'session' &&
-    sessions.some((candidate) => candidate.id === creator.sessionId && isHelmSession(candidate))
-  )
+export function startedByAria(session: AttributedSession): boolean {
+  // Only Aria creates top-level sessions with a session creator. Attribution
+  // survives deleting that chat, so ongoing work keeps its identity.
+  return !session.parentSessionId && session.createdBy?.kind === 'session'
 }
 
 export function ariaActivity(
@@ -35,7 +29,7 @@ export function ariaActivity(
   )
   const working = live.filter(
     (session) =>
-      startedByAria(session, sessions) &&
+      startedByAria(session) &&
       [session.id, ...descendantIds(live, session.id)].some(
         (id) => activityOf(id)?.phase === 'working',
       ),

@@ -158,17 +158,8 @@ const defaultAppearance = {
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
 const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
 
-/** A separate pick for new Aria topics; null inherits the session defaults. */
-export const ariaSettingsSchema = z.object({
-  driverKind: driverKindSchema,
-  modelId: z.string().min(1).nullable().default(null),
-  effort: z.string().min(1).nullable().default(null),
-  permissionMode: permissionModeSchema.default('ask'),
-})
-
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
-  aria: ariaSettingsSchema.nullable().default(null),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
@@ -275,7 +266,6 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
-  aria: ariaSettingsSchema.nullable().optional(),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
@@ -360,7 +350,6 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
-  aria: null,
   delegation: delegationSettingsSchema.parse({}),
   version: 1,
   appearance: { ...defaultAppearance },

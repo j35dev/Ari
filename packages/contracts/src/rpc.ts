@@ -652,10 +652,7 @@ export const rpcParams = {
   'aria.open': sessionCreateParamsSchema
     .omit({ projectId: true, title: true, lead: true })
     .optional(),
-  'aria.newTopic': sessionCreateParamsSchema
-    .omit({ projectId: true, title: true, lead: true })
-    .optional(),
-  'aria.topics': z.undefined(),
+  'aria.newChat': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
@@ -1038,8 +1035,7 @@ export interface RpcResults extends OrchestrationResults {
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'aria.open': { sessionId: string }
-  'aria.newTopic': { sessionId: string }
-  'aria.topics': SessionSummary[]
+  'aria.newChat': { sessionId: string }
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }

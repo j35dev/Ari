@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AppearanceSettings } from './AppearanceSettings'
-import { AriaSettings } from './AriaSettings'
 import { AdvancedSettings } from './AdvancedSettings'
 import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
@@ -33,7 +32,6 @@ export const SETTINGS_SECTIONS = [
   { id: 'notifications', label: 'Notifications', icon: Bell, group: null },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard, group: null },
   { id: 'providers', label: 'Providers', icon: Cpu, group: 'AI' },
-  { id: 'aria', label: 'Aria', icon: Cpu, group: 'AI' },
   { id: 'agents', label: 'Agents', icon: FileCog, group: 'AI' },
   { id: 'endpoints', label: 'Endpoints', icon: Plug, group: 'AI' },
   { id: 'permissions', label: 'Permissions', icon: Shield, group: 'AI' },
@@ -220,7 +218,6 @@ export function SettingsWorkspace({
             </div>
           ) : null}
           {section === 'agents' ? <AgentConfigSettings workspacePath={workspacePath} /> : null}
-          {section === 'aria' ? <AriaSettings /> : null}
           {section === 'endpoints' ? (
             <SettingsPage
               title="Endpoints"

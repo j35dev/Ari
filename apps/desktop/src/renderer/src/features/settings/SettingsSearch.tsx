@@ -21,11 +21,6 @@ export interface SettingsIndexEntry {
  */
 export const SETTINGS_SEARCH_INDEX = [
   {
-    section: 'settings-aria',
-    label: 'Aria',
-    keywords: 'provider model effort permission topics lead agent',
-  },
-  {
     section: 'settings-appearance',
     label: 'Theme',
     keywords: 'theme accent light dark preview appearance',

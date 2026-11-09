@@ -13,7 +13,6 @@ vi.mock('../../lib/rpc', () => ({
 
 const baseSettings: Settings = {
   version: 1,
-  aria: null,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
     ...defaultSettings.appearance,

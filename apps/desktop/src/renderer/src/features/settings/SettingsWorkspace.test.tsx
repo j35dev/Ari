@@ -26,7 +26,6 @@ vi.mock('../../lib/rpc', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  aria: null,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
     ...defaultSettings.appearance,
@@ -75,6 +74,7 @@ describe('SettingsWorkspace', () => {
     for (const section of SETTINGS_SECTIONS) {
       expect(screen.getByRole('button', { name: section.label })).toBeInTheDocument()
     }
+    expect(screen.queryByRole('button', { name: 'Aria' })).not.toBeInTheDocument()
     expect(screen.queryByText('Detected providers')).not.toBeInTheDocument()
     expect(screen.queryByText('Export diagnostics')).not.toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Dark' })).toBeInTheDocument()

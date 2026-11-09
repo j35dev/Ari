@@ -570,17 +570,17 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [sessions, activityOf, attentionCountOf],
   )
   const ariaStartedIds = useMemo(
-    () =>
-      new Set(
-        sessions.filter((session) => startedByAria(session, sessions)).map((session) => session.id),
-      ),
+    () => new Set(sessions.filter(startedByAria).map((session) => session.id)),
     [sessions],
   )
   const openAria = useCallback(
-    (newTopic = false): void => {
-      void rpc
-        .invoke(newTopic ? 'aria.newTopic' : 'aria.open', defaults)
+    (newChat = false): void => {
+      const request = newChat ? rpc.invoke('aria.newChat') : rpc.invoke('aria.open', defaults)
+      void request
         .then(async ({ sessionId }) => {
+          if (newChat)
+            for (const session of sessions)
+              if (isHelmSession(session) && !session.archived) forget(session.id)
           await reloadSessions()
           selectSessionRef.current(sessionId)
         })
@@ -593,7 +593,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           })
         })
     },
-    [defaults, reloadSessions, toast],
+    [defaults, reloadSessions, toast, sessions, forget],
   )
   const openAriaRef = useRef(openAria)
   openAriaRef.current = openAria
@@ -1236,8 +1236,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 selected={isHelmSession(activeSession)}
                 activity={ariaStatus}
                 onOpen={() => openAria()}
-                onNewTopic={() => openAria(true)}
-                onOpenSession={selectSession}
+                onNewChat={() => openAria(true)}
               />
               <SessionsUnderProjects
                 sessions={sessions}
