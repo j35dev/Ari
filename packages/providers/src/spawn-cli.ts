@@ -18,7 +18,7 @@ const log = createLogger('providers:spawn-cli')
  *
  * PowerShell scripts (`.ps1`, e.g. the Pi agent's Windows installer layout)
  * cannot run through cmd.exe at all, so they are spawned via
- * `powershell.exe -File` instead — argv stays literal, never re-parsed.
+ * powershell.exe instead — argv stays literal, never re-parsed.
  */
 
 // See http://www.robvanderwoude.com/escapechars.php
@@ -71,7 +71,7 @@ function escapeArgument(arg: string, doubleEscapeMetaChars: boolean): string {
 
 /**
  * True when the binary is a PowerShell script: cmd.exe cannot execute it, so
- * it must go through powershell.exe -File rather than the cmd wrapper.
+ * it must go through powershell.exe rather than the cmd wrapper.
  */
 export function isPowershellScript(binaryPath: string): boolean {
   return /\.ps1$/i.test(binaryPath)
@@ -86,18 +86,19 @@ export function needsWindowsShell(binaryPath: string): boolean {
 }
 
 /**
- * PowerShell script arguments stay literal. `-File` handles normal calls;
- * a literal splat handles its parser's unsupported standalone dash.
+ * PowerShell script arguments stay literal. Piped stdin must bypass -File's
+ * text pipeline, which decodes bytes and normalizes newlines in npm shims.
  */
 export function buildPowershellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[] } {
-  if (args.includes('-')) {
+  if (pipedStdin || args.includes('-')) {
     // Windows PowerShell's -File parser rejects a standalone dash before the
     // script sees it. Splat literal strings so Codex's stdin marker survives.
     const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
-    const command = `$cliArgs = @(${args.map(literal).join(', ')}); & ${literal(binaryPath)} @cliArgs; exit $LASTEXITCODE`
+    const command = `$ErrorActionPreference = 'Stop'; try { $LASTEXITCODE = $null; $cliArgs = @(${args.map(literal).join(', ')}); & ${literal(binaryPath)} @cliArgs; if ($null -eq $LASTEXITCODE) { exit 0 }; exit $LASTEXITCODE } catch { [Console]::Error.WriteLine($_); exit 1 }`
     return {
       file: 'powershell.exe',
       args: [
@@ -137,9 +138,13 @@ export function buildPowershellSpawnArgs(
 export function buildShellSpawnArgs(
   binaryPath: string,
   args: string[],
+  pipedStdin = false,
 ): { file: string; args: string[]; windowsVerbatimArguments: boolean } {
   if (isPowershellScript(binaryPath)) {
-    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: false }
+    return {
+      ...buildPowershellSpawnArgs(binaryPath, args, pipedStdin),
+      windowsVerbatimArguments: false,
+    }
   }
   return buildCmdSpawnArgs(binaryPath, args)
 }
@@ -224,7 +229,9 @@ export function spawnCli(
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams
   }
-  const wrapped = buildShellSpawnArgs(binaryPath, args)
+  const stdin = Array.isArray(options.stdio) ? options.stdio[0] : options.stdio
+  const pipedStdin = stdin == null || stdin === 'pipe' || stdin === 'overlapped'
+  const wrapped = buildShellSpawnArgs(binaryPath, args, pipedStdin)
   return spawn(wrapped.file, wrapped.args, {
     ...options,
     windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
