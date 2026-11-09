@@ -342,7 +342,6 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       // belongs to that turn, never to the provider selected for the next one.
       if ((event.contextSeq ?? 0) === (state.providerContextSeq ?? 0)) {
         next.providerSessionId = event.ref
-        next.providerHandoffPending = false
       }
       break
 

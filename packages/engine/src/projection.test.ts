@@ -62,7 +62,7 @@ describe('session projection', () => {
     expect(
       applyEvent(next, ev(6, { type: 'session.ref.observed', ref: 'opencode-new', contextSeq: 3 }))
         .providerHandoffPending,
-    ).toBe(false)
+    ).toBe(true)
     const back = applyEvent(
       next,
       ev(7, {

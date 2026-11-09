@@ -142,7 +142,9 @@ export function argsWithWindowsHandoffBudget(
   if (!handoff || !needsWindowsShell(binaryPath) || isPowershellScript(binaryPath)) return original
   const fits = (args: string[]): boolean => {
     const wrapped = buildCmdSpawnArgs(binaryPath, args)
-    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191
+    // npm shims prepend the node and script paths when expanding %*.
+    const shimMargin = Math.max(512, binaryPath.length * 2 + 128)
+    return wrapped.file.length + 1 + wrapped.args.join(' ').length <= 8_191 - shimMargin
   }
   if (fits(original)) return original
   const header = handoff.split('\n\n', 1)[0] ?? ''
@@ -150,7 +152,7 @@ export function argsWithWindowsHandoffBudget(
     const bodyChars = budget - header.length - 2
     const reduced = bodyChars > 0 ? `${header}\n\n${handoff.slice(-bodyChars)}` : ''
     const prompt = reduced
-      ? session.prompt.replace(handoff, reduced)
+      ? session.prompt.replace(handoff, () => reduced)
       : session.prompt.replace(`${handoff}\n\n`, '').replace(handoff, '')
     return buildArgs({ ...session, prompt })
   }

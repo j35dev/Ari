@@ -1072,6 +1072,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     store: getSessionStore(),
     registry: driverRegistry,
     publish: publishSessionEvent,
+    releaseProviderConnection: (sessionId) => acpSessionPool.release(sessionId),
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.

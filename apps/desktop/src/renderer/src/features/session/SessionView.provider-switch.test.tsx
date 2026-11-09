@@ -19,6 +19,7 @@ function setup(
   accepted = true,
   evidence: 'history' | 'message' | 'ref' | 'running' | 'empty' = 'history',
 ) {
+  const onPick = vi.fn()
   const session = {
     id: 'aria',
     projectId,
@@ -126,12 +127,20 @@ function setup(
     })
     return (
       <ToastProvider>
-        <SessionView sessionId="aria" defaults={defaults} onDefaultsChange={setDefaults} />
+        <SessionView
+          sessionId="aria"
+          defaults={defaults}
+          onDefaultsChange={setDefaults}
+          onPick={onPick}
+        />
       </ToastProvider>
     )
   }
   render(<Host />)
-  return { emit: (event: JournalEvent) => act(() => listener?.({ sessionId: 'aria', event })) }
+  return {
+    onPick,
+    emit: (event: JournalEvent) => act(() => listener?.({ sessionId: 'aria', event })),
+  }
 }
 
 describe('Aria model picker', () => {
@@ -166,7 +175,7 @@ describe('Aria model picker', () => {
   )
 
   it('updates ordinary model chips while the dispatch response is still pending', async () => {
-    setup('project')
+    const { onPick } = setup('project')
     const implementation = rpcMocks.invoke.getMockImplementation()!
     let finish!: (value: unknown) => void
     rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
@@ -183,8 +192,82 @@ describe('Aria model picker', () => {
       within(screen.getByRole('listbox', { name: 'Models' })).getByText('Other model'),
     )
     expect(screen.getByRole('button', { name: /Model: OpenCode · Other model/ })).toBeVisible()
+    expect(onPick).not.toHaveBeenCalled()
     await act(async () => finish({ accepted: true }))
+    expect(onPick).toHaveBeenCalledWith({ driverKind: 'opencode', modelId: 'other-model' })
   })
+
+  it.each([
+    ['model', 'rejected'],
+    ['model', 'failed'],
+    ['provider', 'rejected'],
+    ['provider', 'failed'],
+  ] as const)('rolls back an optimistic %s pick when dispatch is %s', async (pick, failure) => {
+    const { onPick } = setup('project', true, pick === 'provider' ? 'empty' : 'history')
+    const implementation = rpcMocks.invoke.getMockImplementation()!
+    let finish!: (value: unknown) => void
+    let fail!: (reason: Error) => void
+    rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
+      method === 'command.dispatch'
+        ? new Promise((resolve, reject) => {
+            finish = resolve
+            fail = reject
+          })
+        : implementation(method, params),
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    if (pick === 'provider')
+      await user.click(
+        within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Claude'),
+      )
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText(
+        pick === 'model' ? 'Other model' : 'Opus',
+      ),
+    )
+    expect(
+      screen.getByRole('button', {
+        name: pick === 'model' ? /Model: OpenCode · Other model/ : /Model: Claude · Opus/,
+      }),
+    ).toBeVisible()
+    expect(onPick).not.toHaveBeenCalled()
+    await act(async () => {
+      if (failure === 'failed') fail(new Error('Pick failed'))
+      else finish({ accepted: false, reason: 'Pick rejected' })
+    })
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Current model/ })).toBeVisible()
+    expect(onPick).not.toHaveBeenCalled()
+  })
+  it('rolls back an overlapping failed pick to the last accepted model', async () => {
+    const { onPick } = setup('project')
+    const implementation = rpcMocks.invoke.getMockImplementation()!
+    const pending: ((result: unknown) => void)[] = []
+    rpcMocks.invoke.mockImplementation((method: string, params?: unknown) =>
+      method === 'command.dispatch'
+        ? new Promise((resolve) => pending.push(resolve))
+        : implementation(method, params),
+    )
+    const user = userEvent.setup()
+    await screen.findByText('Earlier reply')
+    await user.click(await screen.findByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Other model'),
+    )
+    await user.click(screen.getByRole('button', { name: /Model: OpenCode/ }))
+    await user.click(
+      within(screen.getByRole('listbox', { name: 'Models' })).getByText('Current model'),
+    )
+    await act(async () => pending[0]!({ accepted: true }))
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Current model/ })).toBeVisible()
+    await act(async () => pending[1]!({ accepted: false, reason: 'Pick rejected' }))
+    expect(screen.getByRole('button', { name: /Model: OpenCode · Other model/ })).toBeVisible()
+    expect(onPick).toHaveBeenCalledExactlyOnceWith({
+      driverKind: 'opencode',
+      modelId: 'other-model',
+    })
+  })
+
   it('lists every ready provider mid-chat for Aria and sends an explicit switch', async () => {
     const { emit } = setup('helm')
     const user = userEvent.setup()
