@@ -4,14 +4,16 @@
  * a row spinning after the turn is gone (same rule as RunningTurnCounter).
  */
 
-export type SessionActivityPhase = 'working' | 'paused' | 'done' | 'error'
+export type SessionActivityPhase = 'queued' | 'working' | 'paused' | 'done' | 'error'
 
 export interface SessionActivity {
   phase: SessionActivityPhase
-  /** Turn start epoch-ms while working/paused; null after settle. */
+  /** Turn start epoch-ms while working/paused; null while queued or after settle. */
   startedAt: number | null
   pauseReason?: 'approval' | 'input'
   settledAt?: number
+  /** Outstanding messages observed on the live feed; never hydrated from a journal. */
+  queuedCount?: number
 }
 
 /** Subset of journal events the sidebar reducer cares about. */
@@ -42,12 +44,44 @@ export function reduceSessionActivity(
   event: ActivityEvent,
   now: number,
 ): SessionActivity | undefined {
+  const queuedCount = Math.max(
+    0,
+    (prev?.queuedCount ?? 0) +
+      (event.type === 'message.enqueued' ? 1 : event.type === 'message.dequeued' ? -1 : 0),
+  )
+  let next = reduceActivityPhase(prev, event, now)
+  if (next === prev && queuedCount === (prev?.queuedCount ?? 0)) return prev
+  if (queuedCount > 0) {
+    if (next === undefined || next.phase === 'done') next = { phase: 'queued', startedAt: null }
+    return { ...next, queuedCount }
+  }
+  if (next?.queuedCount !== undefined) {
+    next = { ...next }
+    delete next.queuedCount
+  }
+  return next
+}
+
+function reduceActivityPhase(
+  prev: SessionActivity | undefined,
+  event: ActivityEvent,
+  now: number,
+): SessionActivity | undefined {
   switch (event.type) {
+    case 'message.enqueued':
+      return prev?.phase === 'working' || prev?.phase === 'paused' || prev?.phase === 'error'
+        ? prev
+        : { phase: 'queued', startedAt: null }
+
+    case 'message.dequeued':
+      return prev?.phase === 'queued' ? undefined : prev
+
     case 'turn.started':
       return { phase: 'working', startedAt: event.at ?? now }
 
     case 'session.status.changed': {
-      if (event.to === 'running' || event.to === 'queued') {
+      if (event.to === 'queued') return { phase: 'queued', startedAt: null }
+      if (event.to === 'running') {
         return { phase: 'working', startedAt: prev?.startedAt ?? event.at ?? now }
       }
       if (event.to === 'waiting-approval') {
@@ -58,6 +92,9 @@ export function reduceSessionActivity(
       }
       if (event.to === 'error') {
         return { phase: 'error', startedAt: null, settledAt: event.at ?? now }
+      }
+      if ((event.to === 'idle' || event.to === 'settled') && prev?.phase === 'queued') {
+        return undefined
       }
       return prev
     }
@@ -71,7 +108,7 @@ export function reduceSessionActivity(
     case 'approval.responded':
     case 'input.responded':
       if (prev?.phase === 'paused') {
-        return { phase: 'working', startedAt: prev.startedAt ?? now }
+        return prev.startedAt === null ? undefined : { phase: 'working', startedAt: prev.startedAt }
       }
       return prev
 
@@ -86,11 +123,12 @@ export function reduceSessionActivity(
     }
 
     case 'child.session.spawned':
-      if (prev?.phase === 'working' || prev?.phase === 'paused') return prev
-      return { phase: 'working', startedAt: event.at ?? now }
+      // A spawn is not evidence of execution: the child may be queued for capacity.
+      return prev?.phase === 'done' || prev?.phase === 'error' ? undefined : prev
 
     case 'child.session.settled': {
-      if (prev?.phase === 'working' || prev?.phase === 'paused') return prev
+      if (prev?.phase === 'working' || prev?.phase === 'paused' || prev?.phase === 'queued')
+        return prev
       if (event.stopReason === 'error') {
         return { phase: 'error', startedAt: null, settledAt: event.at ?? now }
       }
@@ -98,7 +136,9 @@ export function reduceSessionActivity(
     }
 
     case 'child.session.destroyed':
-      return prev?.phase === 'working' || prev?.phase === 'paused' ? prev : undefined
+      return prev?.phase === 'working' || prev?.phase === 'paused' || prev?.phase === 'queued'
+        ? prev
+        : undefined
 
     default:
       return prev
@@ -119,27 +159,36 @@ export function treeActivity(
   const blocked = descendants.find((activity) => activity?.phase === 'paused')
   if (blocked) return blocked
   if (own?.phase === 'working' || own?.phase === 'paused') return own
-  return descendants.find((activity) => activity?.phase === 'working') ?? own
+  return (
+    descendants.find((activity) => activity?.phase === 'working') ??
+    (own?.phase === 'queued'
+      ? own
+      : descendants.find((activity) => activity?.phase === 'queued')) ??
+    own
+  )
 }
 
-/** Highest-priority phase among a project's sessions (working > paused > error > done). */
+/** Decisions outrank execution in a project, including when its rows are collapsed. */
 export function peakActivity(
   activities: Array<SessionActivity | undefined>,
 ): SessionActivity | undefined {
-  let paused: SessionActivity | undefined
+  let working: SessionActivity | undefined
+  let queued: SessionActivity | undefined
   let error: SessionActivity | undefined
   let done: SessionActivity | undefined
   for (const activity of activities) {
     if (activity === undefined) continue
-    if (activity.phase === 'working') return activity
-    if (activity.phase === 'paused' && paused === undefined) paused = activity
+    if (activity.phase === 'paused') return activity
+    if (activity.phase === 'working' && working === undefined) working = activity
+    else if (activity.phase === 'queued' && queued === undefined) queued = activity
     else if (activity.phase === 'error' && error === undefined) error = activity
     else if (activity.phase === 'done' && done === undefined) done = activity
   }
-  return paused ?? error ?? done
+  return working ?? queued ?? error ?? done
 }
 
 export const ACTIVITY_LABEL: Record<SessionActivityPhase, string> = {
+  queued: 'Queued',
   working: 'Working',
   paused: 'Waiting for you',
   done: 'Turn complete',

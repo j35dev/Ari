@@ -85,12 +85,12 @@ describe('ari core harness end to end', () => {
       // ls sees the tree, grep finds the line, read returns the source.
       expect(completed[0]?.resultJson).toContain('src/')
       expect(completed[0]?.resultJson).toContain('AGENTS.md')
-      expect(completed[1]?.resultJson).toContain('src/app.ts:1:')
+      const grepOutput: unknown = JSON.parse(completed[1]!.resultJson)
+      expect(typeof grepOutput).toBe('string')
+      expect(String(grepOutput).replace(/\\/g, '/')).toContain('src/app.ts:1:')
       expect(completed[2]?.resultJson).toContain('answer = 41')
       // The edit landed on disk, not just in the transcript.
-      expect(await readFile(join(dir, 'src', 'app.ts'), 'utf8')).toBe(
-        'export const answer = 42\n',
-      )
+      expect(await readFile(join(dir, 'src', 'app.ts'), 'utf8')).toBe('export const answer = 42\n')
       // And the model was told where it is and what the project asks of it.
       expect(systemPrompts[0]).toContain(dir.replace(/\\/g, '/'))
       expect(systemPrompts[0]).toContain('Never use var.')

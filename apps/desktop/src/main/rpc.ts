@@ -50,10 +50,11 @@ import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
+import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
-import { queryTurnDiff } from './turn-diff'
+import { queryTurnDiff, queryTurnDiffFile } from './turn-diff'
 import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
@@ -89,7 +90,7 @@ import {
 } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
-import { applyThemeToWindow } from './window'
+import { applyThemeToWindow, registerWindowControls } from './window'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
@@ -855,6 +856,7 @@ type NodePtyModule = {
 export interface EngineHandle {
   engine: Engine
   registry: DriverRegistry
+  shutdown(): Promise<void>
 }
 
 export interface RegisterRpcOptions {
@@ -901,6 +903,24 @@ void loadPtyModule().then((m) => {
 })
 
 export function registerRpc(contents: WebContents, options: RegisterRpcOptions = {}): EngineHandle {
+  let stopping = false
+  let shutdownPromise: Promise<void> | null = null
+  const shutdownTasks: (() => void | Promise<unknown>)[] = []
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise
+    stopping = true
+    shutdownPromise = Promise.allSettled(shutdownTasks.map(async (close) => close())).then(
+      (results) => {
+        for (const result of results) {
+          if (result.status === 'rejected')
+            log.warn('runtime resource failed to close', { error: result.reason as unknown })
+        }
+      },
+    )
+    return shutdownPromise
+  }
+  // Also covers a synchronous startup error before the handle can be returned.
+  app.once('before-quit', () => void shutdown())
   const rpcRegistry = new RpcRegistry({
     send: (frame) => {
       if (!contents.isDestroyed()) contents.send(STREAM_CHANNEL, frame)
@@ -1025,6 +1045,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  let controlStarting = false
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
   const engine = new Engine({
@@ -1083,10 +1104,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         )
     }
   }
-  app.once(
-    'before-quit',
-    () => void Promise.all([acpSessionPool.shutdownAll(), claudeSessionPool.shutdownAll()]),
-  )
+  shutdownTasks.push(async () => {
+    // ACP dispose parks its transport; the process owner closes it before
+    // waiting for the cancelled turn's stream and again after late startup.
+    await engine.shutdown(async () => {
+      await Promise.all([acpSessionPool.shutdownAll(), claudeSessionPool.shutdownAll()])
+    })
+  })
   const sessionDeps: SessionCreateDeps = {
     loadProject,
     createSession: (session) => engine.createSession(session),
@@ -1122,13 +1146,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     store: getSessionStore(),
     dispatch: (command) => engine.dispatch(command),
   })
-  const resumeReady: Promise<void> = resumeSchedule.load().then(() => resumeSchedule.start())
+  const resumeReady: Promise<void> = resumeSchedule.load().then(() => {
+    if (!stopping) resumeSchedule.start()
+  })
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
-  const environmentReady = backgroundReady.then(() => resolveDetectionEnvironment())
+  const environmentReady = backgroundReady.then(() => {
+    if (stopping) throw new Error('Ari is shutting down')
+    return resolveDetectionEnvironment()
+  })
   const controlReady = Promise.all([environmentReady, getSettingsStore().load(), resumeReady]).then(
     async ([environment]) => {
+      if (stopping) throw new Error('Ari is shutting down')
+      controlStarting = true
       runtime = await startAgentRuntime({
         userData: app.getPath('userData'),
         cliPath: app.isPackaged
@@ -1175,9 +1206,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     .catch((error: unknown) =>
       log.warn('held delegated work did not resume', { error: String(error) }),
     )
-  app.once('before-quit', () => {
+  shutdownTasks.push(() => {
     resumeSchedule.close()
-    void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
+    // An in-flight startup still owns a listener; close it once it returns.
+    return controlStarting
+      ? controlReady.then(
+          (handle) => handle.close(),
+          () => undefined,
+        )
+      : undefined
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
@@ -1193,7 +1230,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     raw.onData((data) => dataListeners.forEach((l) => l(data)))
     raw.onExit((_e) => exitListeners.forEach((l) => l(0)))
     const pty: PtyLike = {
-      pid: raw.pid,
+      get pid() {
+        // ConPTY sets this asynchronously once its output worker connects.
+        return raw.pid
+      },
       write: (data) => raw.write(data),
       resize: (cols, rows) => raw.resize(cols, rows),
       kill: () => raw.kill(),
@@ -1215,23 +1255,46 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     ptyFactory,
   )
+  shutdownTasks.push(() => terminals.close())
+  contents.once('destroyed', () => void terminals.close())
   const browsers = new BrowserService(hostedBrowserGuestFactory(contents), (state) =>
     rpcRegistry.publish('browser.updated', state),
   )
   hideGuestsOnShellReset(contents, browsers)
+  shutdownTasks.push(() => browsers.dispose())
   contents.once('destroyed', () => {
     browsers.dispose()
     browserMcpHandle = null
     browserMcpProxyPath = null
   })
-  void backgroundReady
-    .then(() => startBrowserMcpServer(browsers))
+  let browserStarting = false
+  const browserReady = backgroundReady
+    .then(() => {
+      if (stopping) return null
+      browserStarting = true
+      return startBrowserMcpServer(browsers)
+    })
     .then(async (handle) => {
+      if (!handle) return
+      if (stopping || contents.isDestroyed()) {
+        handle.close()
+        return
+      }
       browserMcpProxyPath = await writeBrowserMcpProxy(app.getPath('userData'))
       browserMcpHandle = handle
+      if (stopping || contents.isDestroyed()) {
+        handle.close()
+        browserMcpHandle = null
+        browserMcpProxyPath = null
+        return
+      }
       contents.once('destroyed', () => handle.close())
     })
     .catch((error: unknown) => log.warn('browser mcp failed to start', { error: String(error) }))
+  shutdownTasks.push(async () => {
+    browserMcpHandle?.close()
+    if (browserStarting) await browserReady
+  })
 
   const r = rpcRegistry
   r.register('ping', () => ({ pong: true, at: Date.now() }))
@@ -1558,21 +1621,27 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Serve is deliberately not torn down on quit: the mapping is the address a
   // phone has saved, and a desktop that is switched off is the "computer
   // unreachable" state the design names, not a reason to redo the setup.
-  void getSettingsStore()
+  let remoteStarting = false
+  const remoteReady = getSettingsStore()
     .load()
     .then(async (settings) => {
-      if (!settings.remote.enabled) return
+      if (stopping || !settings.remote.enabled) return
+      remoteStarting = true
       await remote.start(settings.remote.port)
+      if (stopping) {
+        await remote.stop()
+        return
+      }
       await refreshTailscale()
+      if (stopping) return
       await connect.status()
     })
     .catch(() => log.error('remote access did not start on boot'))
 
-  app.once('before-quit', () => {
-    void connect
-      .stop()
-      .then(() => remote.stop())
-      .catch(() => log.error('remote access failed to close'))
+  shutdownTasks.push(async () => {
+    await Promise.allSettled([connect.stop(), remote.stop()])
+    if (remoteStarting) await remoteReady
+    await Promise.all([connect.stop(), remote.stop()])
   })
 
   r.register('session.list', async () => getSessionStore().listSessions())
@@ -1593,6 +1662,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     (await controlReady).service.tasks(sessionId),
   )
   const stopOrchestrationRefresh = registerOrchestrationRpc(r, controlReady)
+  shutdownTasks.push(stopOrchestrationRefresh)
   contents.once('destroyed', stopOrchestrationRefresh)
 
   r.register('session.stopChildren', async ({ sessionId }) => ({
@@ -1940,23 +2010,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     efforts: await effortsForModel(params.kind, params.modelId ?? null),
   }))
 
-  r.register('window.minimize', () => {
-    BrowserWindow.fromWebContents(contents)?.minimize()
-    return { done: true }
-  })
-
-  r.register('window.toggleMaximize', () => {
-    const win = BrowserWindow.fromWebContents(contents)
-    if (!win) return { maximized: false }
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
-    return { maximized: win.isMaximized() }
-  })
-
-  r.register('window.close', () => {
-    BrowserWindow.fromWebContents(contents)?.close()
-    return { done: true }
-  })
+  registerWindowControls(contents, r)
 
   // Live theme change: repaint Windows overlay symbols and the OS light/dark hint.
   r.register('theme.apply', (params) => {
@@ -1966,10 +2020,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { applied: true }
   })
 
-  const setupTerminalIds = new Set<string>()
-  contents.once('destroyed', () => {
-    for (const id of setupTerminalIds) terminals.kill(id)
-  })
   r.register('providers.setupTerminal', async ({ kind }) => {
     ptyModule = await loadPtyModule()
     if (!ptyModule) return { ok: false as const, error: 'The terminal backend is unavailable.' }
@@ -1979,7 +2029,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       homeDir: homedir(),
       platform: process.platform,
     })
-    if (result.ok) setupTerminalIds.add(result.id)
     return result
   })
 
@@ -2007,9 +2056,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { resized: true }
   })
 
-  r.register('terminal.kill', (params) => {
-    setupTerminalIds.delete(params.id)
-    terminals.kill(params.id)
+  r.register('terminal.kill', async (params) => {
+    await terminals.kill(params.id)
     return { killed: true }
   })
 
@@ -2324,7 +2372,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     sourceControl.close()
   }
   contents.once('destroyed', closeSourceControl)
-  app.once('before-quit', closeSourceControl)
+  shutdownTasks.push(closeSourceControl)
 
   r.register('git.status', async (params) => {
     const { GitService } = await import('@ari/engine/git')
@@ -2358,6 +2406,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       turnId: params.turnId,
       checkpoints,
     })
+  })
+
+  r.register('git.turnDiffFile', async (params) => {
+    const { session } = await getSessionStore().load(params.sessionId)
+    if (!session) return { diffText: null, error: 'unknown session' }
+    const workspace = await engine.workspace(session)
+    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
+    return queryTurnDiffFile(workspace, params)
   })
 
   // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing
@@ -2538,39 +2594,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // serializes and hands the renderer a jank-sized clone in one go.
         // Frame order plus the final sentinel preserve the burst contract the
         // renderer already relies on (seq-ordered, terminated by replayDone).
-        const sendChunk = (events: JournalEvent[]): void => {
-          rpcRegistry.sendTo(params.id, {
-            sessionId,
-            events,
-            replay: true,
-          } satisfies SessionEventFrame)
-        }
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
-        const settled =
-          acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
-            ? Promise.resolve()
-            : engine
-                .releaseBackgroundTasks(sessionId, 'The agent process ended')
-                .catch((error: unknown) =>
-                  log.warn('background tasks could not be closed', {
-                    sessionId,
-                    error: String(error),
-                  }),
-                )
-        void settled
-          .then(() => engine.replaySessionChunks(sessionId, sendChunk))
-          // The sentinel still goes out: the renderer holds live frames, and
-          // its loading state, until it arrives.
-          .catch((error: unknown) => {
-            log.warn('journal replay failed', { sessionId, error: String(error) })
-          })
-          .finally(() => {
-            rpcRegistry.sendTo(params.id, {
-              sessionId,
-              replayDone: true,
-            } satisfies SessionEventFrame)
-          })
+        const settled = acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
+          ? Promise.resolve()
+          : engine
+              .releaseBackgroundTasks(sessionId, 'The agent process ended')
+              .catch((error: unknown) =>
+                log.warn('background tasks could not be closed', {
+                  sessionId,
+                  error: String(error),
+                }),
+              )
+        void streamSessionReplay(
+          sessionId,
+          async (sendChunk) => {
+            await settled
+            await engine.replaySessionChunks(sessionId, sendChunk)
+          },
+          (frame) => rpcRegistry.sendTo(params.id, frame),
+          (error) => log.warn('journal replay failed', { sessionId, error: String(error) }),
+          () => engine.liveTurnId(sessionId),
+        )
       }
     }
     if (params.name === 'scm.changed') sourceControlLive.watch(params.id, params.params)
@@ -2622,6 +2667,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   for (const method of IPC_METHODS) {
     ipcMain.removeHandler(`ari:${method}`)
     ipcMain.handle(`ari:${method}`, (event, payload) => {
+      if (stopping) throw new Error('Ari is shutting down')
       if (!isTrustedIpcSender(event.sender, contents)) {
         throw new Error(`rejected IPC sender for ${method}`)
       }
@@ -2631,5 +2677,5 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     })
   }
 
-  return { engine, registry: driverRegistry }
+  return { engine, registry: driverRegistry, shutdown }
 }

@@ -3,6 +3,9 @@ import { z } from 'zod'
 export const permissionModeSchema = z.enum(['ask', 'allow-edits', 'full'])
 export type PermissionMode = z.infer<typeof permissionModeSchema>
 
+/** New sessions use each harness's unrestricted tool mode by default. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'full'
+
 export const driverKindSchema = z.enum([
   'claude',
   'codex',

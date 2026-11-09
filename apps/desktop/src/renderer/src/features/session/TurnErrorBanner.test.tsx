@@ -19,7 +19,15 @@ describe('TurnErrorBanner resume', () => {
       resume={resume}
     />
   )
-  const controls = { format: () => '3:42 PM', onSchedule: vi.fn(), onCancel: vi.fn() }
+  const controls = {
+    format: () => '3:42 PM',
+    onSchedule: vi.fn(),
+    onCancel: vi.fn(),
+    onCheck: vi.fn(),
+    scheduleKnown: true,
+    pending: null,
+    error: null,
+  }
 
   it('offers to resume at the reset time, then shows the schedule with a way out', async () => {
     const user = userEvent.setup()

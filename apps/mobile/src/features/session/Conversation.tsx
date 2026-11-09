@@ -90,6 +90,12 @@ export function Conversation({
                     key={`${message.id}:${block.sourceIndex}`}
                     part={block.part}
                     sessionId={sessionId}
+                    streaming={
+                      running &&
+                      !user &&
+                      index === messages.length - 1 &&
+                      position === blocks.length - 1
+                    }
                   />
                 ) : (
                   <ActivityRun
@@ -117,11 +123,13 @@ export function Conversation({
 function Part({
   part,
   sessionId,
+  streaming,
 }: {
   part: Extract<Message['parts'][number], { type: 'text' | 'image' }>
   sessionId: string
+  streaming: boolean
 }): ReactNode {
-  if (part.type === 'text') return <Markdown text={part.text} />
+  if (part.type === 'text') return <Markdown text={part.text} streaming={streaming} />
   return <ImageAttachment sessionId={sessionId} id={part.attachmentId} name={part.name} />
 }
 function CopyMessage({ text }: { text: string }): ReactNode {
