@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, powerMonitor, screen } from 'electron'
+import { BrowserWindow, ipcMain, powerMonitor, screen } from 'electron'
 import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
 import type { uIOhook } from 'uiohook-napi'
@@ -51,13 +51,14 @@ export class AriaWidget {
     }
     powerMonitor.on('lock-screen', this.resetInput)
     powerMonitor.on('suspend', this.resetInput)
-    app.on('browser-window-blur', this.resetInput)
   }
 
   private readonly resetInput = (): void => {
     this.tracker?.reset()
-    this.hold.cancel()
-    this.publish()
+    if (this.hold.state.phase === 'listening') {
+      this.hold.cancel()
+      this.publish()
+    }
   }
 
   private scheduleDeadline(): void {
@@ -112,9 +113,11 @@ export class AriaWidget {
 
   private createWindow(): Promise<void> {
     if (this.boot) return this.boot
-    this.boot = new Promise((resolve) => {
+    const boot = new Promise<void>((resolve) => {
       this.ready = resolve
     })
+    const ready = this.ready!
+    this.boot = boot
     const win = new BrowserWindow({
       ...widgetBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea),
       show: false,
@@ -142,10 +145,13 @@ export class AriaWidget {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     win.webContents.on('will-navigate', (event) => event.preventDefault())
     win.webContents.on('will-redirect', (event) => event.preventDefault())
-    win.webContents.on('render-process-gone', () => this.recoverWindow())
+    win.webContents.on('render-process-gone', () => {
+      if (this.window === win) this.recoverWindow()
+    })
     win.once('closed', () => {
-      if (this.window === win) this.window = null
-      this.ready?.()
+      ready()
+      if (this.window !== win) return
+      this.window = null
       this.ready = null
       this.boot = null
     })
@@ -154,21 +160,22 @@ export class AriaWidget {
       ? win.loadURL(new URL('widget/index.html', url).href)
       : win.loadFile(join(import.meta.dirname, '../renderer/widget/index.html'))
     void loaded.catch((error: unknown) => {
+      if (this.window !== win) return
       log.warn('widget failed to load', { error: String(error) })
       this.recoverWindow()
     })
-    return this.boot
+    return boot
   }
 
   async configure(settings: Settings): Promise<void> {
-    if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
-    this.recoveryTimer = null
     this.settings = settings
     this.publish()
     // Optional until the concurrently-built speech settings contract is merged.
     const speech = this.settings.speech
     const configuration = JSON.stringify(speech) ?? ''
-    if (configuration === this.configuration && this.hook) return
+    if (configuration === this.configuration && (this.hook || this.recoveryTimer)) return
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
     this.configuration = configuration
     const revision = ++this.revision
     this.stopHook()
@@ -202,6 +209,7 @@ export class AriaWidget {
     if (action === 'down') {
       if (this.hold.down(Date.now())) this.recoveryDelay = 1_000
     } else if (action === 'cancel') this.hold.cancel()
+    else if (action === 'up') this.hold.up(Date.now())
     else return
     this.publish()
   }
@@ -291,6 +299,9 @@ export class AriaWidget {
   destroyWindow(): void {
     const window = this.window
     this.window = null
+    this.ready?.()
+    this.ready = null
+    this.boot = null
     this.stopHook()
     window?.destroy()
   }
@@ -303,7 +314,6 @@ export class AriaWidget {
     this.recoveryTimer = null
     powerMonitor.removeListener('lock-screen', this.resetInput)
     powerMonitor.removeListener('suspend', this.resetInput)
-    app.removeListener('browser-window-blur', this.resetInput)
     this.destroyWindow()
     for (const method of METHODS) ipcMain.removeHandler(`ari:${method}`)
   }
