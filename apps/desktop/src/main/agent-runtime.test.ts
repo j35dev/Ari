@@ -2,6 +2,7 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -21,6 +22,7 @@ import {
   startAgentRuntime,
   dropSessionResources,
   revokeArchivedSessions,
+  closeControlTransport,
 } from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { RpcRegistry } from './rpc-registry'
@@ -641,12 +643,10 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
     const closing = runtime.close().then(() => {
       closed = true
     })
-    await vi.waitFor(() => expect(sweepSignal?.aborted).toBe(true))
-    expect(closed).toBe(false)
-    finish()
     await closing
     expect(closed).toBe(true)
     expect(sweepSignal?.aborted).toBe(true)
+    finish()
   } finally {
     finish()
     await (await starting).close()
@@ -657,7 +657,7 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
   }
 })
 
-it('bounds shutdown while a release retry is stuck and starts no cleanup after cancellation', async () => {
+it('closes without waiting for a stuck retry and starts no cleanup after cancellation', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-retry-'))
   const store = new SessionStore({ rootDir: join(dir, 'sessions') })
   const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
@@ -686,23 +686,13 @@ it('bounds shutdown while a release retry is stuck and starts no cleanup after c
   })
   try {
     await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    let closed = false
-    const closing = runtime.close().then(() => {
-      closed = true
-    })
+    await runtime.close()
     expect(retrySignal?.aborted).toBe(true)
-    await vi.advanceTimersByTimeAsync(2_999)
-    expect(closed).toBe(false)
-    await vi.advanceTimersByTimeAsync(1)
-    await closing
-    expect(closed).toBe(true)
     finish()
     await gate
     await Promise.resolve()
     expect(projects).not.toHaveBeenCalled()
   } finally {
-    vi.useRealTimers()
     finish()
     await runtime.close()
     retry.mockRestore()
@@ -710,18 +700,44 @@ it('bounds shutdown while a release retry is stuck and starts no cleanup after c
   }
 })
 
+it('closes the server and removes the socket directory before aborting cleanup', async () => {
+  const socketDir = await mkdtemp(join(tmpdir(), 'ari-close-socket-'))
+  await writeFile(join(socketDir, 'socket'), 'fixture')
+  const events: string[] = []
+  try {
+    await closeControlTransport(
+      async () => {
+        events.push('server closed')
+      },
+      socketDir,
+      () => {
+        expect(existsSync(socketDir)).toBe(false)
+        events.push('cleanup aborted')
+      },
+    )
+    expect(events).toEqual(['server closed', 'cleanup aborted'])
+  } finally {
+    await rm(socketDir, { recursive: true, force: true })
+  }
+})
+
 it('continues revoking archived sessions when one parked process fails to release', async () => {
+  const firstError = new Error('parked cleanup failed')
   const revoke = vi.fn(async (id: string) => {
-    if (id === 'first') throw new Error('parked cleanup failed')
+    if (id === 'first') throw firstError
+    if (id === 'child') throw new Error('child cleanup failed')
   })
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   try {
-    await revokeArchivedSessions(['first', 'child', 'grandchild'], revoke)
+    await expect(revokeArchivedSessions(['first', 'child', 'grandchild'], revoke)).rejects.toBe(
+      firstError,
+    )
     expect(revoke.mock.calls.map(([id]) => id)).toEqual(['first', 'child', 'grandchild'])
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('archived session cleanup failed'),
       expect.objectContaining({ sessionId: 'first', error: 'Error: parked cleanup failed' }),
     )
+    expect(warn).toHaveBeenCalledTimes(2)
   } finally {
     warn.mockRestore()
   }

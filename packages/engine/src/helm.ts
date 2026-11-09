@@ -32,7 +32,7 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
 
 /** A new Aria topic inherits reports from project leads whose requester was deleted. */
 export async function helmReportRecipient(
-  store: Pick<SessionStore, 'exists' | 'loadExisting' | 'listSessions'>,
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
   model: SessionReadModel,
   turnId: string,
 ): Promise<string | null> {
@@ -45,7 +45,7 @@ export function isProjectLeadCandidate(row: SessionListEntry): boolean {
 }
 
 export async function helmTaskRecipient(
-  store: Pick<SessionStore, 'exists' | 'loadExisting' | 'listSessions'>,
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
   model: SessionReadModel,
   rows: readonly SessionListEntry[],
 ): Promise<string | null> {
@@ -67,21 +67,19 @@ export async function helmTaskRecipient(
 }
 
 async function helmRecipient(
-  store: Pick<SessionStore, 'exists' | 'loadExisting' | 'listSessions'>,
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
   model: SessionReadModel,
   requester: string | null,
   rows?: readonly SessionListEntry[],
 ): Promise<string | null> {
   if (!requester) return null
-  const listing = rows ?? (await store.listSessions())
-  const row = listing.find((row) => row.id === requester)
+  const row = rows?.find((row) => row.id === requester)
   if (row) return isHelmSession(row) ? requester : null
-  if (await store.exists(requester)) {
-    const asked = (await store.loadExisting(requester))?.session
-    if (asked) return isHelmSession(asked) ? requester : null
-  }
+  const asked = (await store.loadExisting(requester))?.session
+  if (asked) return isHelmSession(asked) ? requester : null
   if (!isHelmProjectLead(model.session)) return null
-  const current = [...listing]
+  if (!rows) return store.currentHelmSession()
+  const current = [...rows]
     .filter((row) => isHelmSession(row) && !row.archived)
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
   return current?.id ?? null
