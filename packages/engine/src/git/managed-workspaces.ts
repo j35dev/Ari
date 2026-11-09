@@ -249,11 +249,13 @@ export class ManagedWorkspaces {
 
   /** Removes only abandoned directories; registered Git worktrees remain inspectable. */
   async sweepOrphans(
-    sessionIds: ReadonlySet<string>,
+    sessionExists: (id: string) => Promise<boolean>,
     repositories: readonly string[],
+    signal?: AbortSignal,
   ): Promise<void> {
     const registered = new Set<string>()
     for (const repo of new Set(repositories)) {
+      if (signal?.aborted) return
       const inside = await this.git.isRepo(repo)
       if (!inside.ok) {
         log.warn('orphan sweep skipped repository', { repo, error: inside.error.message })
@@ -267,6 +269,7 @@ export class ManagedWorkspaces {
       }
       for (const worktree of list.value) registered.add(pathKey(worktree.path))
     }
+    if (signal?.aborted) return
     const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
       (error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return []
@@ -274,12 +277,13 @@ export class ManagedWorkspaces {
       },
     )
     for (const project of projects) {
+      if (signal?.aborted) return
       if (!project.isDirectory()) continue
       const projectPath = join(this.rootDir, project.name)
       await this.#assertOwned(projectPath)
       for (const entry of await readdir(projectPath, { withFileTypes: true })) {
-        if (!entry.isDirectory() || !component.test(entry.name) || sessionIds.has(entry.name))
-          continue
+        if (signal?.aborted) return
+        if (!entry.isDirectory() || !component.test(entry.name)) continue
         const path = join(projectPath, entry.name)
         if (registered.has(pathKey(path))) continue
         // A removed project's repository may not be in the supplied list.
@@ -287,9 +291,17 @@ export class ManagedWorkspaces {
         if (await lstat(join(path, '.git')).catch(() => null)) continue
         try {
           await this.#assertOwned(path)
-          await this.#detachLinks(path)
+          const info = await lstat(path)
+          // A spawn can create its workspace before it journals the session.
+          if (Date.now() - info.mtimeMs < 5 * 60_000 || (await sessionExists(entry.name))) continue
+          if (signal?.aborted) return
+          await this.#detachLinks(path, signal)
+          if (signal?.aborted) return
+          if (await sessionExists(entry.name)) continue
+          if (signal?.aborted) return
           await rm(path, removalOptions)
         } catch (error) {
+          if (signal?.aborted) return
           log.warn('orphaned workspace cleanup will retry on startup', {
             path,
             error: String(error),
@@ -299,12 +311,14 @@ export class ManagedWorkspaces {
     }
   }
 
-  async #detachLinks(path: string): Promise<void> {
+  async #detachLinks(path: string, signal?: AbortSignal): Promise<void> {
     for (const entry of await readdir(path, { withFileTypes: true })) {
+      signal?.throwIfAborted()
       const child = join(path, entry.name)
       const info = await lstat(child)
+      signal?.throwIfAborted()
       if (info.isSymbolicLink()) await unlink(child)
-      else if (info.isDirectory()) await this.#detachLinks(child)
+      else if (info.isDirectory()) await this.#detachLinks(child, signal)
     }
   }
 

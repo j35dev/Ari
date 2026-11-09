@@ -17,6 +17,19 @@ import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:agent-runtime')
 
+/** Archives end provider processes while preserving the reusable workspace. */
+export async function dropSessionResources(
+  id: string,
+  reason: 'archive' | 'destroy' | 'release',
+  releaseAgent: (id: string) => Promise<void>,
+  releaseWorkspace: (id: string) => Promise<void>,
+): Promise<void> {
+  await releaseAgent(id).catch((error: unknown) =>
+    log.warn('parked session cleanup failed', { sessionId: id, error: String(error) }),
+  )
+  if (reason !== 'archive') await releaseWorkspace(id)
+}
+
 const scopedKeys = [
   'ARI_ENV',
   'ARI_SESSION_ID',
@@ -304,9 +317,9 @@ async function startControlTransport(
     if (event.type === 'turn.settled') {
       void engine
         .quiesce(event.sessionId)
-        .then(() => store.load(event.sessionId))
+        .then(() => store.loadExisting(event.sessionId))
         .then((model) => {
-          if (model.session?.parentSessionId)
+          if (model?.session?.parentSessionId)
             return orchestration.schedule(model.session.parentSessionId)
           return undefined
         })
@@ -314,19 +327,22 @@ async function startControlTransport(
     }
   })
   supervisor.start()
-  const cleanup = (async () => {
+  const cleanupAbort = new AbortController()
+  void (async () => {
     await workspaces.retryReleases((id) => dropSession(id, 'release'))
+    if (cleanupAbort.signal.aborted) return
     const rows = await store.listSessions()
     const projects = (await options.projects?.(rows)) ?? []
     const repositories = projects
       .filter((project) => project.available)
       .map((project) => project.path)
     for (const row of rows) {
-      const session = (await store.load(row.id)).session
+      if (cleanupAbort.signal.aborted) return
+      const session = (await store.loadExisting(row.id))?.session
       const cwd = session ? await engine.workspace(session) : null
       if (cwd) repositories.push(cwd)
     }
-    await workspaces.sweepOrphans(new Set(rows.map((row) => row.id)), repositories)
+    await workspaces.sweepOrphans((id) => store.exists(id), repositories, cleanupAbort.signal)
   })().catch((error: unknown) => {
     log.warn('managed workspace startup cleanup failed', { error: String(error) })
   })
@@ -335,7 +351,7 @@ async function startControlTransport(
     .listSessions()
     .then(async (rows) => {
       for (const row of rows) {
-        if ((await store.load(row.id)).orchestration)
+        if ((await store.loadExisting(row.id))?.orchestration)
           await orchestration.schedule(row.id).catch(() => undefined)
       }
     })
@@ -381,11 +397,11 @@ async function startControlTransport(
       }
     },
     close: async () => {
+      cleanupAbort.abort()
       unsubscribe()
       supervisor.close()
       approvals.close()
       await server.close()
-      await cleanup
       if (socketDir) await rm(socketDir, { recursive: true, force: true })
     },
     environment: (session: Session): NodeJS.ProcessEnv => {

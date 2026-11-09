@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile, utimes } from 'node:fs/promises'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -271,7 +271,10 @@ it('sweeps only unregistered orphans while preserving live folders and external 
     join(manager.rootDir, 'external-project'),
     process.platform === 'win32' ? 'junction' : 'dir',
   )
-  await manager.sweepOrphans(new Set(['live-child']), [repo])
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(orphan, old, old)
+  await utimes(live, old, old)
+  await manager.sweepOrphans(async (id) => id === 'live-child', [repo])
   await expect(fs.lstat(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
   expect(await readFile(join(external, 'keep.txt'), 'utf8')).toBe('keep\n')
@@ -288,6 +291,8 @@ it('skips failed repositories without aborting the orphan sweep or losing known 
   const orphan = join(project, 'orphan')
   await mkdir(registered, { recursive: true })
   await mkdir(orphan)
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(orphan, old, old)
   const failure = {
     ok: false as const,
     error: { code: 'command_failed' as const, message: 'unavailable' },
@@ -313,7 +318,7 @@ it('skips failed repositories without aborting the orphan sweep or losing known 
     })
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   try {
-    await manager.sweepOrphans(new Set(), ['missing', 'broken', repo])
+    await manager.sweepOrphans(async () => false, ['missing', 'broken', repo])
     expect(isRepo).toHaveBeenCalledTimes(3)
     expect(list).toHaveBeenCalledTimes(2)
     expect(warn).toHaveBeenCalledTimes(2)
@@ -323,6 +328,40 @@ it('skips failed repositories without aborting the orphan sweep or losing known 
     isRepo.mockRestore()
     list.mockRestore()
     warn.mockRestore()
+  }
+})
+
+it('keeps fresh folders and rechecks live session ids immediately before removal', async () => {
+  const project = join(manager.rootDir, root.projectId)
+  const fresh = join(project, 'fresh-spawn')
+  const raced = join(project, 'raced-spawn')
+  const orphan = join(project, 'old-orphan')
+  for (const path of [fresh, raced, orphan]) await mkdir(path, { recursive: true })
+  const old = new Date(Date.now() - 10 * 60_000)
+  for (const path of [raced, orphan]) await utimes(path, old, old)
+  let checks = 0
+  await manager.sweepOrphans(async (id) => id === 'raced-spawn' && ++checks === 2, [])
+  expect(checks).toBe(2)
+  expect((await fs.lstat(fresh)).isDirectory()).toBe(true)
+  expect((await fs.lstat(raced)).isDirectory()).toBe(true)
+  await expect(fs.lstat(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('aborts an orphan sweep while repository inspection is in flight', async () => {
+  const orphan = join(manager.rootDir, root.projectId, 'old-orphan')
+  await mkdir(orphan, { recursive: true })
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(orphan, old, old)
+  const controller = new AbortController()
+  const inspect = vi.spyOn(manager.git, 'isRepo').mockImplementationOnce(async () => {
+    controller.abort()
+    return { ok: true, value: false }
+  })
+  try {
+    await manager.sweepOrphans(async () => false, [repo], controller.signal)
+    expect((await fs.lstat(orphan)).isDirectory()).toBe(true)
+  } finally {
+    inspect.mockRestore()
   }
 })
 

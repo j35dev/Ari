@@ -2,7 +2,7 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -15,7 +15,12 @@ import { ManagedWorkspaces } from '@ari/engine/git'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
-import { controlEndpoint, SOCKET_ROOT, startAgentRuntime } from './agent-runtime'
+import {
+  controlEndpoint,
+  SOCKET_ROOT,
+  startAgentRuntime,
+  dropSessionResources,
+} from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { RpcRegistry } from './rpc-registry'
 import { registerOrchestrationRpc } from './orchestration-runtime'
@@ -483,7 +488,7 @@ it('wakes an idle parent with its child report and stops children with their par
   }
 }, 60_000)
 
-it('revokes archive access and reserves resource teardown for destruction or release', async () => {
+it('revokes archive access, releases parked agents, and keeps workspace handles until destruction', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-drop-'))
   const store = new SessionStore({ rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
@@ -508,6 +513,7 @@ it('revokes archive access and reserves resource teardown for destruction or rel
   })
   const dropped: string[] = []
   const revoked: string[] = []
+  const parked: string[] = []
   const runtime = await startAgentRuntime({
     engine,
     store,
@@ -524,7 +530,16 @@ it('revokes archive access and reserves resource teardown for destruction or rel
     providers: async () => [{ driverKind: 'claude', available: true, models: [] }],
     onDrop: (id, reason) => {
       revoked.push(id)
-      if (reason !== 'archive') dropped.push(id)
+      return dropSessionResources(
+        id,
+        reason,
+        async (id) => {
+          parked.push(id)
+        },
+        async (id) => {
+          dropped.push(id)
+        },
+      )
     },
   })
   try {
@@ -556,6 +571,7 @@ it('revokes archive access and reserves resource teardown for destruction or rel
     await engine.dispatch({ type: 'session.update', sessionId: 'root', archived: true })
     await vi.waitFor(() => expect(revoked).toContain('root'))
     expect(dropped).not.toContain('root')
+    expect(parked).toContain('root')
     const release = vi
       .spyOn(ManagedWorkspaces.prototype, 'release')
       .mockResolvedValueOnce(undefined)
@@ -581,9 +597,13 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
   const gate = new Promise<void>((resolve) => {
     finish = resolve
   })
+  let sweepSignal: AbortSignal | undefined
   const sweep = vi
     .spyOn(ManagedWorkspaces.prototype, 'sweepOrphans')
-    .mockImplementationOnce(() => gate)
+    .mockImplementationOnce((_exists, _repos, signal) => {
+      sweepSignal = signal
+      return gate
+    })
   const release = vi.spyOn(ManagedWorkspaces.prototype, 'release').mockResolvedValueOnce(undefined)
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   let ready = false
@@ -616,6 +636,13 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
         error: 'Error: resource cleanup failed',
       }),
     )
+    let closed = false
+    const closing = runtime.close().then(() => {
+      closed = true
+    })
+    await vi.waitFor(() => expect(closed).toBe(true))
+    expect(sweepSignal?.aborted).toBe(true)
+    await closing
   } finally {
     finish()
     await (await starting).close()
@@ -633,6 +660,8 @@ it('awaits session teardown before release and retries failed removals during st
   await mkdir(orphan, { recursive: true })
   await mkdir(live, { recursive: true })
   await writeFile(join(orphan, 'leftover.txt'), 'old\n')
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(orphan, old, old)
   await writeFile(join(live, 'keep.txt'), 'live\n')
   const store = new SessionStore({ rootDir: join(dir, 'sessions') })
   const engine = new Engine({
@@ -665,13 +694,17 @@ it('awaits session teardown before release and retries failed removals during st
   }
   let runtime = await startAgentRuntime(options)
   try {
-    await vi.waitFor(async () => {
-      await expect(readFile(join(orphan, 'leftover.txt'))).rejects.toThrow()
-    })
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(orphan, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
     const locked = join(dir, 'worktrees', 'project', 'locked-child')
     await mkdir(locked)
     await writeFile(join(locked, 'leftover.txt'), 'locked\n')
+    await utimes(locked, old, old)
     const effects: string[] = []
     let finish!: () => void
     await runtime.close()
@@ -685,9 +718,12 @@ it('awaits session teardown before release and retries failed removals during st
         effects.push(`stopped ${id}`)
       },
     })
-    await vi.waitFor(async () => {
-      await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
-    })
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     // Startup sweeps unregistered folders, so recreate this future release.
     await mkdir(locked, { recursive: true })
     await writeFile(join(locked, 'leftover.txt'), 'locked\n')
@@ -716,9 +752,12 @@ it('awaits session teardown before release and retries failed removals during st
     const dropped = vi.fn(async () => undefined)
     runtime = await startAgentRuntime({ ...options, onDrop: dropped })
     await vi.waitFor(() => expect(dropped).toHaveBeenCalledWith('locked-child', 'release'))
-    await vi.waitFor(async () => {
-      await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
-    })
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
   } finally {
     vi.restoreAllMocks()

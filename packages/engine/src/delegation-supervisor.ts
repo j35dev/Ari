@@ -7,7 +7,7 @@ import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { MessageOrigin } from '@ari/contracts/message'
 import type { SessionListEntry, SessionStore } from './session-store'
-import type { SessionReadModel, UnstampedEvent } from './projection'
+import { initialReadModel, type SessionReadModel, type UnstampedEvent } from './projection'
 import { budgetLine, type TreeSpend } from './tree-budget'
 import {
   completionNotice,
@@ -47,7 +47,7 @@ function automaticTurns(model: SessionReadModel): number {
 }
 
 export interface SupervisorHost {
-  store: Pick<SessionStore, 'load' | 'listSessions'>
+  store: Pick<SessionStore, 'load' | 'loadExisting' | 'exists' | 'listSessions'>
   policy(): DelegationSettings
   dispatch(
     command: Command,
@@ -356,20 +356,22 @@ export class DelegationSupervisor {
    * delegated was unfinished) has that parent look again once it goes quiet.
    */
   async #bubble(sessionId: string): Promise<void> {
-    const model = await this.host.store.load(sessionId)
+    const model = await this.host.store.loadExisting(sessionId)
+    if (!model) return
     const parentId =
       model.session?.parentSessionId ??
       (model.lastTurn
         ? await helmReportRecipient(this.host.store, model, model.lastTurn.turnId)
         : null)
     if (!parentId || model.activeTurnId !== null) return
-    const parent = await this.host.store.load(parentId)
-    if (pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
+    const parent = await this.host.store.loadExisting(parentId)
+    if (parent && pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
       this.schedule(parentId)
   }
 
   async #reconcileDeliveries(parentId: string): Promise<void> {
-    const parent = await this.host.store.load(parentId)
+    const parent = await this.host.store.loadExisting(parentId)
+    if (!parent) return
     for (const operation of Object.values(parent.orchestration?.operations ?? {})) {
       if (operation.method !== 'child.result.delivery') continue
       const accepted = parent.messages.some(
@@ -420,8 +422,8 @@ export class DelegationSupervisor {
     await this.#reconcileDeliveries(parentId)
     const policy = this.host.policy()
     if (!policy.enabled || !policy.autoDeliverResults) return
-    const parent = await this.host.store.load(parentId)
-    if (!parent.session || parent.session.archived) {
+    const parent = await this.host.store.loadExisting(parentId)
+    if (!parent?.session || parent.session.archived) {
       this.#refused.delete(parentId)
       return
     }
@@ -437,7 +439,7 @@ export class DelegationSupervisor {
     const rows = await this.host.store.listSessions()
     const models = new Map<string, SessionReadModel>()
     const load = async (id: string): Promise<SessionReadModel> => {
-      const known = models.get(id) ?? (await this.host.store.load(id))
+      const known = models.get(id) ?? (await this.host.store.loadExisting(id)) ?? initialReadModel()
       models.set(id, known)
       return known
     }
@@ -476,15 +478,16 @@ export class DelegationSupervisor {
       const asked = child.messages.find(
         (message) => message.role === 'user' && message.turnId === entry.turnId,
       )
+      const asker = asked?.origin?.kind === 'session' ? asked.origin.sessionId : null
       if (asked !== undefined && (asked.origin === undefined || asked.origin.kind === 'human')) {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
         continue
       }
       // Aria asked for this turn and hears about it itself; the parent did not.
       if (
-        asked?.origin?.kind === 'session' &&
-        asked.origin.sessionId !== parentId &&
-        isHelmSession((await load(asked.origin.sessionId)).session)
+        asker !== null &&
+        asker !== parentId &&
+        rows.some((row) => row.id === asker && isHelmSession(row))
       ) {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
         continue
@@ -544,8 +547,9 @@ export class DelegationSupervisor {
 
     // Everything above took time. If the parent moved on in the meantime —
     // most of all if it was started and stopped — the wake-up no longer applies.
-    const current = await this.host.store.load(parentId)
+    const current = await this.host.store.loadExisting(parentId)
     if (
+      !current ||
       current.activeTurnId !== null ||
       current.lastTurn?.turnId !== parent.lastTurn.turnId ||
       current.queuedMessages.length > 0

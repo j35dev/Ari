@@ -32,7 +32,7 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 6
+  version: 5
   hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
@@ -82,9 +82,9 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-// v6 includes agent choices and lead identity so Aria need not replay journals
-// to resolve project defaults. Older sidecars are repaired once on first read.
-const INDEX_VERSION = 6
+// Agent and lead metadata is optional: old v5 sidecars remain cheap to read,
+// and gain those fields when journal growth requires an index rebuild.
+const INDEX_VERSION = 5
 
 /** Longest preview stored in the index. */
 const PREVIEW_MAX_CHARS = 160
@@ -138,7 +138,7 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
             createdAt: model.session.createdAt,
             permissionMode: model.session.permissionMode,
             effort: model.session.effort ?? null,
-            ...(model.session.lead ? { lead: model.session.lead } : {}),
+            lead: model.session.lead ?? false,
           }
         : {}),
       modelId: model.session?.modelId ?? null,
@@ -251,6 +251,7 @@ export class SessionStore {
   readonly #openingJournals = new Map<string, Promise<Journal<JournalEvent>>>()
   /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
   readonly #indexCache = new Map<string, SessionIndex>()
+  readonly #readingIndexes = new Map<string, Promise<SessionIndex | null>>()
   /** Last replay diagnostic per session, surfaced to the UI. */
   readonly #diagnostics = new Map<string, ReplayDiagnostics>()
   /** Raw lines already quarantined this process, so replays never duplicate. */
@@ -276,6 +277,31 @@ export class SessionStore {
     return join(this.#rootDir, sessionId)
   }
 
+  /** Checks the registry without opening or creating a journal. */
+  async exists(sessionId: string): Promise<boolean> {
+    const { stat } = await import('node:fs/promises')
+    try {
+      return (await stat(this.#dirFor(sessionId))).isDirectory()
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+
+  async loadExisting(sessionId: string): Promise<SessionReadModel | null> {
+    return this.#serial(sessionId, async () =>
+      (await this.exists(sessionId)) ? this.#modelFor(sessionId) : null,
+    )
+  }
+
+  #journalFor(sessionId: string): Journal<JournalEvent> {
+    return new Journal<JournalEvent>({
+      dir: this.#dirFor(sessionId),
+      name: 'journal',
+      fsync: 'batch',
+    })
+  }
+
   /**
    * The session's journal, opened once. Callers that arrive while the first
    * open is still in flight await that same one: a check-then-open race used to
@@ -297,11 +323,7 @@ export class SessionStore {
 
   async #openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
     // Batched fsync: `#append` places the durability barrier itself.
-    const journal = new Journal<JournalEvent>({
-      dir: this.#dirFor(sessionId),
-      name: 'journal',
-      fsync: 'batch',
-    })
+    const journal = this.#journalFor(sessionId)
     await journal.open()
     try {
       if ((await journal.ensureTrailingNewline()) > 0) this.#indexCache.delete(sessionId)
@@ -424,11 +446,19 @@ export class SessionStore {
   /** Full journal replay, bypassing and then refreshing the cached model. */
   async #load(sessionId: string): Promise<SessionReadModel> {
     const journal = await this.openJournal(sessionId)
+    return this.#replay(sessionId, journal, true)
+  }
+
+  async #replay(
+    sessionId: string,
+    journal: Journal<JournalEvent>,
+    cache: boolean,
+  ): Promise<SessionReadModel> {
     const entries = await journal.readAll()
     const { model, rejected } = replayEntries(entries)
     this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
     if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
-    this.#models.set(sessionId, model)
+    if (cache) this.#models.set(sessionId, model)
     return model
   }
 
@@ -535,9 +565,22 @@ export class SessionStore {
    * replay that also repairs the sidecar. Null when no session ever existed.
    */
   async #indexFor(id: string): Promise<SessionIndex | null> {
+    const existing = this.#readingIndexes.get(id)
+    if (existing) return existing
+    const reading = this.#serial(id, () => this.#readIndex(id))
+    this.#readingIndexes.set(id, reading)
+    try {
+      return await reading
+    } finally {
+      if (this.#readingIndexes.get(id) === reading) this.#readingIndexes.delete(id)
+    }
+  }
+
+  async #readIndex(id: string): Promise<SessionIndex | null> {
+    if (!(await this.exists(id))) return null
     const bytes = await this.#measureJournalBytes(id)
     const cached = this.#indexCache.get(id)
-    if (cached && cached.journalBytes === bytes) return cached
+    if (cached && cached.journalBytes === bytes) return cached.hasSession ? cached : null
     const { readFile } = await import('node:fs/promises')
     let disk: SessionIndex | null
     try {
@@ -552,8 +595,12 @@ export class SessionStore {
     // Stale, missing, corrupt, or old-version index: one replay, then repair.
     // A size mismatch means the journal changed behind this process, so the
     // cached model cannot be trusted either.
-    const model = await this.#serial(id, () => this.#load(id))
-    const entry = entryFrom(model, bytes)
+    // A listing must not retain a full transcript or an append handle. Closed
+    // journals can be replayed read-only; only an existing model is refreshed.
+    const journal =
+      this.#journals.get(id) ?? (await this.#openingJournals.get(id)) ?? this.#journalFor(id)
+    const model = await this.#replay(id, journal, this.#models.has(id))
+    const entry = entryFrom(model, await this.#measureJournalBytes(id))
     this.#indexCache.set(id, entry)
     await this.#writeIndex(id, entry)
     return model.session ? entry : null

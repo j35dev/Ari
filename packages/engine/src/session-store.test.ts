@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import type { UnstampedEvent } from './projection'
 import { SessionStore } from './session-store'
+import { Journal } from './journal'
 
 let rootDir: string
 let store: SessionStore
@@ -351,12 +352,12 @@ describe('SessionStore', () => {
 
     // The repair persisted as a current index carrying the token pair.
     const migrated = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    expect(migrated['version']).toBe(6)
+    expect(migrated['version']).toBe(5)
     expect(migrated['inputTokens']).toBe(7)
     expect(migrated['outputTokens']).toBe(3)
   })
 
-  it('lists agent choices and lead identity after repairing a v5 sidecar once', async () => {
+  it('keeps a v5 sidecar without new fields and fills them only after journal growth', async () => {
     const lead = {
       ...session,
       lead: true as const,
@@ -375,15 +376,87 @@ describe('SessionStore', () => {
     old.version = 5
     for (const key of ['createdAt', 'permissionMode', 'effort', 'lead']) delete old.hierarchy[key]
     await writeFile(path, JSON.stringify(old))
+    await store.closeJournal(lead.id)
     const fresh = new SessionStore({ rootDir })
-    expect((await fresh.listSessions())[0]).toMatchObject({
-      createdAt: lead.createdAt,
-      permissionMode: 'full',
-      effort: 'high',
-      lead: true,
-      createdBy: { kind: 'session', sessionId: 'old-aria' },
-    })
-    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ version: 6 })
+    const replay = vi.spyOn(Journal.prototype, 'readAll')
+    const opening = vi.spyOn(fresh, 'openJournal')
+    try {
+      expect((await fresh.listSessions())[0]).not.toHaveProperty('lead')
+      expect(replay).not.toHaveBeenCalled()
+      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(old)
+      const { appendFile } = await import('node:fs/promises')
+      await appendFile(
+        join(rootDir, lead.id, 'journal.0000.jsonl'),
+        JSON.stringify({
+          type: 'session.updated',
+          title: 'Changed',
+          sessionId: lead.id,
+          seq: 1,
+          at: 2000,
+        }) + '\n',
+      )
+      expect((await fresh.listSessions())[0]).toMatchObject({
+        createdAt: lead.createdAt,
+        permissionMode: 'full',
+        effort: 'high',
+        lead: true,
+        createdBy: { kind: 'session', sessionId: 'old-aria' },
+      })
+      expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ version: 5 })
+      expect(replay).toHaveBeenCalledOnce()
+      expect(opening).not.toHaveBeenCalled()
+      // Rebuilds did not cache the transcript: an explicit load still replays it.
+      await fresh.load(lead.id)
+      expect(replay).toHaveBeenCalledTimes(2)
+    } finally {
+      await fresh.closeJournal(lead.id)
+      replay.mockRestore()
+      opening.mockRestore()
+    }
+  })
+
+  it('shares concurrent index repairs without retaining journals or full models', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
+    const fresh = new SessionStore({ rootDir })
+    const replay = vi.spyOn(Journal.prototype, 'readAll')
+    const opening = vi.spyOn(fresh, 'openJournal')
+    try {
+      await Promise.all([fresh.listSessions(), fresh.usageSummary(), fresh.listSessions()])
+      expect(replay).toHaveBeenCalledOnce()
+      expect(opening).not.toHaveBeenCalled()
+      await fresh.load(session.id)
+      expect(replay).toHaveBeenCalledTimes(2)
+    } finally {
+      await fresh.closeJournal(session.id)
+      replay.mockRestore()
+      opening.mockRestore()
+    }
+  })
+
+  it('preserves an already-open journal without adding a model cache during repair', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
+    const fresh = new SessionStore({ rootDir })
+    const opened = await fresh.openJournal(session.id)
+    const replay = vi.spyOn(opened, 'readAll')
+    try {
+      await fresh.listSessions()
+      expect(await fresh.openJournal(session.id)).toBe(opened)
+      await fresh.load(session.id)
+      expect(replay).toHaveBeenCalledTimes(2)
+    } finally {
+      await fresh.closeJournal(session.id)
+    }
+  })
+
+  it('checks and reads deleted sessions without creating their directories', async () => {
+    expect(await store.exists('deleted')).toBe(false)
+    expect(await store.loadExisting('deleted')).toBeNull()
+    const { readdir } = await import('node:fs/promises')
+    expect(await readdir(rootDir)).toEqual([])
   })
 
   it('reads an index entry that still carries a removed Hive botId, and drops it', async () => {
