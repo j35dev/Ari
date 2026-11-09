@@ -19,6 +19,8 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
+import { turnRequester } from '@ari/engine/helm'
+import { isHelmSession } from '@ari/contracts/helm'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -134,6 +136,11 @@ export interface EngineDeps {
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /**
+   * Live state put ahead of a turn's prompt for the provider only, never in
+   * the transcript. Aria reads the state of every project this way.
+   */
+  turnContext?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
   deliversResults?: () => boolean
   /**
@@ -691,14 +698,21 @@ export class Engine {
     const stamped = await this.#deps.store.append(sessionId, event)
     this.#deps.publish(sessionId, stamped)
     if (event.type === 'turn.settled') {
-      const parentId = (await this.#deps.store.load(sessionId)).session?.parentSessionId
-      if (parentId)
-        await this.#append(parentId, {
-          type: 'child.session.settled',
-          childSessionId: sessionId,
-          turnId: event.turnId,
-          stopReason: event.stopReason,
-        })
+      const model = await this.#deps.store.load(sessionId)
+      const parentId = model.session?.parentSessionId
+      const settled = {
+        type: 'child.session.settled' as const,
+        childSessionId: sessionId,
+        turnId: event.turnId,
+        stopReason: event.stopReason,
+      }
+      if (parentId) await this.#append(parentId, settled)
+      // Aria hears about every turn it asked for, in any project.
+      const asker = turnRequester(model, event.turnId)
+      if (asker !== null && asker !== parentId && asker !== sessionId) {
+        const helm = await this.#deps.store.load(asker).catch(() => null)
+        if (helm?.session && isHelmSession(helm.session)) await this.#append(asker, settled)
+      }
     }
     return stamped
   }
@@ -853,11 +867,20 @@ export class Engine {
               this.#deps.deliversResults?.() ?? true,
             )
           : null
+      const context = hasControl
+        ? await (this.#deps.turnContext?.(session) ?? Promise.resolve(null)).catch(
+            (error: unknown) => {
+              log.warn('turn context could not be built', { error: String(error) })
+              return null
+            },
+          )
+        : null
+      const body = context ? `${context}\n\n${prompt}` : prompt
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt: preamble === null || viaSystem ? prompt : `${preamble}\n\n${prompt}`,
+        prompt: preamble === null || viaSystem ? body : `${preamble}\n\n${body}`,
         ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,

@@ -111,10 +111,30 @@ export interface ChildTask {
   branch: string | null
 }
 
+/** A project as Aria sees it. */
+export interface HelmProject {
+  projectId: string
+  name: string
+  path: string
+  available: boolean
+}
+
 export const controlParams = {
   ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
   'providers.list': z.object({}).strict(),
+  /** Aria only: the projects it can start and steer work in. */
+  'projects.list': z.object({}).strict(),
+  /** Aria only: sessions across every project, newest first. */
+  'sessions.find': z
+    .object({
+      query: z.string().trim().max(200).optional(),
+      projectId: target.optional(),
+      /** `active` is working, queued or waiting on the user; `all` adds idle sessions. */
+      scope: z.enum(['active', 'all']).default('all'),
+      limit: z.number().int().min(1).max(100).default(20),
+    })
+    .strict(),
   'session.get': z.object({ targetSessionId: target.default('self') }).strict(),
   'session.children': z
     .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
@@ -125,6 +145,8 @@ export const controlParams = {
   'session.spawn': z
     .object({
       title: z.string().trim().min(1).max(120),
+      /** Aria only: the project the new session works in. */
+      projectId: target.optional(),
       role: delegationRoleSchema.optional(),
       driverKind: driverKindSchema,
       modelId: z.string().min(1).nullish(),

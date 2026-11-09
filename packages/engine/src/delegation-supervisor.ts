@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { HELM_PROJECT_ID, isHelmSession } from '@ari/contracts/helm'
 import type { OperationReceipt } from '@ari/contracts/orchestration'
 import { createLogger } from '@ari/shared/logger'
 import type { DelegationSettings } from '@ari/contracts/agent-control'
@@ -161,14 +162,18 @@ export class DelegationSupervisor {
     event: { inputId: string; prompt: string; choicesJson: string | null },
   ): Promise<void> {
     const child = await this.host.store.load(childId)
-    const parentId = child.session?.parentSessionId
-    if (!parentId) return
     // A question on a turn a person started is theirs to answer; only work the
-    // parent delegated routes back to the parent.
+    // parent delegated, or Aria asked for, routes back to whoever asked.
     const asked = child.messages.find(
       (message) => message.role === 'user' && message.turnId === child.activeTurnId,
     )
-    if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== parentId) return
+    if (asked?.origin?.kind !== 'session') return
+    const parentId = asked.origin.sessionId
+    if (
+      parentId !== child.session?.parentSessionId &&
+      !isHelmSession((await this.host.store.load(parentId)).session)
+    )
+      return
     const key = `${childId}:${event.inputId}`
     if (this.#asked.has(key)) return
     this.#asked.add(key)
@@ -252,7 +257,11 @@ export class DelegationSupervisor {
     const rows = await this.host.store.listSessions()
     this.#recovering = true
     try {
-      for (const parentId of new Set(rows.flatMap((row) => row.parentSessionId ?? []))) {
+      const receivers = [
+        ...rows.flatMap((row) => row.parentSessionId ?? []),
+        ...rows.filter((row) => row.projectId === HELM_PROJECT_ID).map((row) => row.id),
+      ]
+      for (const parentId of new Set(receivers)) {
         const parent = await this.host.store.load(parentId)
         await this.#reconcileDeliveries(parentId)
         // Historical reports remain readable, without starting unattended provider turns.
@@ -440,6 +449,15 @@ export class DelegationSupervisor {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
         continue
       }
+      // Aria asked for this turn and hears about it itself; the parent did not.
+      if (
+        asked?.origin?.kind === 'session' &&
+        asked.origin.sessionId !== parentId &&
+        isHelmSession((await load(asked.origin.sessionId)).session)
+      ) {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
       // Its turn ended cleanly, but it is working again or waiting on work it
       // delegated itself: "I have handed this out" is not the result. It will
       // settle again, or go quiet and bubble back here.
@@ -524,6 +542,7 @@ export class DelegationSupervisor {
           reports,
           working,
           spend === null ? null : budgetLine(spend, this.host.policy()),
+          isHelmSession(parent.session) ? 'helm' : 'parent',
         ),
         attachments: [],
       },

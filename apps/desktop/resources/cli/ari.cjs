@@ -25,6 +25,7 @@ function parse(argv) {
     'any',
     'tools',
     'include-consumed',
+    'active',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -50,7 +51,6 @@ function parse(argv) {
     'effort',
     'permission',
     'workspace',
-    'prompt',
     'key',
     'tail',
     'turns',
@@ -69,6 +69,9 @@ function parse(argv) {
     'params',
     'params-file',
     'prompt-file',
+    'project',
+    'query',
+    'limit',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -109,6 +112,23 @@ function parse(argv) {
   } else if (group === 'agents' || group === 'providers') {
     method = 'providers.list'
     params = {}
+  } else if (group === 'projects') {
+    method = 'projects.list'
+    params = {}
+  } else if (group === 'sessions') {
+    const words = positional.slice(1).join(' ')
+    if (words && flags.query) throw new Error('Use either query words or --query')
+    const query = flags.query || words
+    const limit = flags.limit === undefined ? undefined : Number(flags.limit)
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
+      throw new Error('--limit must be between 1 and 100')
+    method = 'sessions.find'
+    params = {
+      scope: flags.active ? 'active' : 'all',
+      ...(query ? { query } : {}),
+      ...(flags.project ? { projectId: flags.project } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    }
   } else if (group === 'parent' && verb === 'message') {
     method = 'session.message'
     params = {
@@ -175,6 +195,7 @@ function parse(argv) {
           title: flags.title,
           driverKind: flags.agent,
           idempotencyKey: key,
+          ...(flags.project ? { projectId: flags.project } : {}),
           ...(flags.role ? { role: flags.role } : {}),
           ...(flags.model ? { modelId: flags.model } : {}),
           ...(flags.effort ? { effort: flags.effort } : {}),
@@ -265,7 +286,7 @@ function parse(argv) {
     } else throw new Error('Unknown routine command')
   } else
     throw new Error(
-      'Use ari env, ari agents, ari session <command>, ari routine <command>, or ari --skill',
+      'Use ari env, ari agents, ari projects, ari sessions, ari session <command>, ari routine <command>, or ari --skill',
     )
   return { method, params, flags, timeoutMs }
 }

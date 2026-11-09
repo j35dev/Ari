@@ -7,7 +7,7 @@ import type { ApprovalOption } from '@ari/contracts/common'
  * sessions and `skill install` writes user configuration, so those keep their
  * permission prompt.
  */
-const TOP_LEVEL = new Set(['env', 'agents', 'providers', '--skill'])
+const TOP_LEVEL = new Set(['env', 'agents', 'providers', 'projects', 'sessions', '--skill'])
 const SESSION = new Set([
   'get',
   'children',

@@ -2123,6 +2123,70 @@ describe('session title source', () => {
     expect(await titleOf(sessionId)).toBe('fix it')
   }, 10000)
 
+  it('tells Aria when a turn it asked for settles, in any project', async () => {
+    const engine = engineFor(turnsDriver([[{ type: 'text-delta', text: 'Fixed the redirect.' }]]))
+    await seedSession(store, 'sess_helm', 'helm')
+    await seedSession(store, 'sess_work', 'proj_1')
+    await engine.dispatch(
+      { type: 'turn.start', sessionId: 'sess_work', text: 'fix the redirect', attachments: [] },
+      { kind: 'session', sessionId: 'sess_helm' },
+    )
+    await until('settle', () => settles('sess_work') > 0)
+    await until(
+      'routed',
+      async () =>
+        (await store.load('sess_helm')).childCompletions?.['sess_work']?.stopReason === 'completed',
+    )
+    // A turn a person started in that session is not Aria's.
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_work',
+      text: 'thanks',
+      attachments: [],
+    })
+    await until('second settle', () => settles('sess_work') > 1)
+    const routed = (await store.load('sess_helm')).childEvents ?? []
+    expect(routed.filter((event) => event.type === 'child.session.settled')).toHaveLength(1)
+  }, 10000)
+
+  it('puts Aria turn context ahead of the provider prompt only', async () => {
+    const prompts: string[] = []
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: (session) => {
+        prompts.push(session.prompt)
+        return Promise.resolve({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        })
+      },
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+      turnContext: async (session) => (session.projectId === 'helm' ? '[Ari now: test]' : null),
+    })
+    await seedSession(store, 'sess_helm', 'helm')
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_helm',
+      text: 'what is running',
+      attachments: [],
+    })
+    await until('settle', () => settles('sess_helm') > 0)
+    expect(prompts[0]).toContain('[Ari now: test]\n\nwhat is running')
+    const asked = (await store.load('sess_helm')).messages.find((m) => m.role === 'user')
+    expect(JSON.stringify(asked?.parts)).not.toContain('Ari now')
+  }, 10000)
+
   it('skips a notice banner that opens the first reply', async () => {
     const engine = engineFor(
       turnsDriver([
