@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { downloadFile, prunePartialDownloads } from './download'
+import { downloadFile, prunePartialDownloads, verifyDownload } from './download'
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -81,7 +81,7 @@ it('prunes expired partials, keeps active downloads, and discards other partials
   const recent = `${path}.partial`
   const legacy = join(root, 'other.bin.partial')
   for (const file of [old, active, recent, legacy]) await writeFile(file, 'saved')
-  const expired = new Date(Date.now() - 8 * 24 * 60 * 60_000)
+  const expired = new Date(Date.now() - 15 * 24 * 60 * 60_000)
   await utimes(old, expired, expired)
   await utimes(active, expired, expired)
   await prunePartialDownloads(root, new Set(['active.gguf.partial']))
@@ -91,4 +91,38 @@ it('prunes expired partials, keeps active downloads, and discards other partials
   await prunePartialDownloads(root, new Set(['active.gguf.partial']), 0)
   await expect(readFile(recent)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await readFile(legacy, 'utf8')).toBe('saved')
+})
+
+it('retains eight-day partials and cleans expired engine archive partials', async () => {
+  const root = dirname(await target())
+  const recent = join(root, 'engine.tar.gz.partial')
+  const old = join(root, 'old-engine.tar.gz.partial')
+  const active = join(root, 'active-engine.tar.gz.partial')
+  for (const path of [recent, old, active]) await writeFile(path, 'saved')
+  const eightDays = new Date(Date.now() - 8 * 24 * 60 * 60_000)
+  const expired = new Date(Date.now() - 15 * 24 * 60 * 60_000)
+  await utimes(recent, eightDays, eightDays)
+  await utimes(old, expired, expired)
+  await utimes(active, expired, expired)
+  await prunePartialDownloads(
+    root,
+    new Set(['active-engine.tar.gz.partial']),
+    undefined,
+    '.partial',
+  )
+  expect(await readFile(recent, 'utf8')).toBe('saved')
+  expect(await readFile(active, 'utf8')).toBe('saved')
+  await expect(readFile(old)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('yields to the event loop while hashing a download', async () => {
+  const path = await target()
+  const bytes = Buffer.alloc(1024 * 1024, 1)
+  await writeFile(path, bytes)
+  let yielded = false
+  setImmediate(() => {
+    yielded = true
+  })
+  await verifyDownload(path, createHash('sha256').update(bytes).digest('hex'))
+  expect(yielded).toBe(true)
 })

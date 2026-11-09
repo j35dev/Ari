@@ -3,6 +3,8 @@ import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent
 import { driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
 
+export const MAC_SPEECH_SHORTCUT = 'alt-right'
+
 /**
  * Theme identifiers. Mirrors `themeIds` in packages/ui/src/themes.ts, which
  * owns the palettes; contracts keeps its own literal list so the engine never

@@ -1,7 +1,7 @@
 ﻿import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechSettings } from './SpeechSettings'
-import { defaultSettings } from '@ari/contracts/settings'
+import { defaultSettings, MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
 import type { SpeechModel } from '@ari/contracts/rpc'
 
 const mocks = vi.hoisted(() => ({
@@ -105,6 +105,29 @@ it('uses the agreed macOS hold-to-talk chord', () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)
   expect(screen.getByRole('textbox', { name: 'Hold-to-talk shortcut' })).toHaveValue(
-    'ctrl+alt+space',
+    MAC_SPEECH_SHORTCUT,
+  )
+})
+
+it('accepts Right Option alone and saves it on release', async () => {
+  render(<SpeechSettings />)
+  const picker = screen.getByLabelText('Hold-to-talk shortcut')
+  fireEvent.keyDown(picker, { key: 'Alt', code: 'AltRight', altKey: true })
+  expect(mocks.update).not.toHaveBeenCalled()
+  fireEvent.keyUp(picker, { key: 'Alt', code: 'AltRight' })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledWith({ speech: { shortcut: 'alt-right' } }),
+  )
+})
+
+it('does not save a modifier alone when it is part of a chord', async () => {
+  render(<SpeechSettings />)
+  const picker = screen.getByLabelText('Hold-to-talk shortcut')
+  fireEvent.keyDown(picker, { key: 'Control', code: 'ControlLeft', ctrlKey: true })
+  fireEvent.keyDown(picker, { key: ' ', code: 'Space', ctrlKey: true })
+  fireEvent.keyUp(picker, { key: ' ', code: 'Space', ctrlKey: true })
+  fireEvent.keyUp(picker, { key: 'Control', code: 'ControlLeft' })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'ctrl+space' } }),
   )
 })

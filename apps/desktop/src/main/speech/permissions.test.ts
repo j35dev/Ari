@@ -84,6 +84,17 @@ it('grants audio only when both the top page and requesting page are trusted', (
   expect(
     check.mock.calls[0]![0](contents, 'media', '', { requestingUrl: url, mediaType: 'video' }),
   ).toBe(false)
+  for (const mediaType of ['unknown', undefined]) {
+    expect(check.mock.calls[0]![0](contents, 'media', '', { requestingUrl: url, mediaType })).toBe(
+      true,
+    )
+    expect(
+      check.mock.calls[0]![0]({ getURL: () => 'https://example.com' }, 'media', '', {
+        requestingUrl: url,
+        mediaType,
+      }),
+    ).toBe(false)
+  }
   expect(
     check.mock.calls[0]![0](null, 'media', '', { requestingUrl: url, mediaType: 'audio' }),
   ).toBe(false)

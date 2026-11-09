@@ -1,9 +1,17 @@
 import { lstat, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, join, relative } from 'node:path'
+import { setTimeout } from 'node:timers/promises'
 import { t, x } from 'tar'
 import type { SpeechProgress } from '@ari/contracts/rpc'
 import releaseData from './engine-releases.json'
-import { downloadFile, verifyDownload, ensureFreeSpace } from './download'
+import {
+  DownloadChecksumError,
+  downloadFile,
+  verifyDownload,
+  ensureFreeSpace,
+  prunePartialDownloads,
+  PARTIAL_DOWNLOAD_MAX_AGE,
+} from './download'
 
 export const ENGINE_VERSION = '0.4.1'
 export const ENGINE_HEADER_HASH = 'f99ad4169374b8f3'
@@ -15,6 +23,17 @@ export interface EngineRelease {
   files: Record<string, { size: number; sha256: string }>
 }
 const releases = releaseData as unknown as EngineRelease[]
+export class EngineIoError extends Error {}
+class EngineMismatchError extends Error {}
+const TRANSIENT_IO_CODES = new Set([
+  'EBUSY',
+  'EPERM',
+  'EACCES',
+  'EMFILE',
+  'ENFILE',
+  'EIO',
+  'ETXTBSY',
+])
 export function engineRelease(platform = process.platform, arch = process.arch) {
   const host = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : platform
   const cpu =
@@ -31,44 +50,69 @@ export async function verifyInstalledEngine(
   full = true,
   release?: EngineRelease,
 ): Promise<string | null> {
-  try {
-    const expected = (release ?? engineRelease()).files
-    if (!(await lstat(directory)).isDirectory()) return null
-    const found = new Set<string>()
-    const walk = async (relative = ''): Promise<void> => {
-      for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
-        const key = relative ? `${relative}/${entry.name}` : entry.name
-        if (entry.isDirectory()) await walk(key)
-        else {
-          const file = expected[key]
-          if (!entry.isFile() || !file) throw new Error('Unexpected engine file.')
-          const path = join(directory, key)
-          if ((await lstat(path)).size !== file.size) throw new Error('Incomplete engine file.')
-          if (full) await verifyDownload(path, file.sha256)
-          found.add(key)
+  const expected = (release ?? engineRelease()).files
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (!(await lstat(directory)).isDirectory()) return null
+      const found = new Set<string>()
+      const walk = async (relative = ''): Promise<void> => {
+        for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
+          const key = relative ? `${relative}/${entry.name}` : entry.name
+          if (
+            !expected[key] &&
+            (entry.name.startsWith('.') ||
+              ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
+          )
+            continue
+          if (entry.isDirectory()) await walk(key)
+          else {
+            const file = expected[key]
+            if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
+            const path = join(directory, key)
+            if ((await lstat(path)).size !== file.size)
+              throw new EngineMismatchError('Incomplete engine file.')
+            if (full) await verifyDownload(path, file.sha256)
+            found.add(key)
+          }
         }
       }
+      await walk()
+      if (found.size !== Object.keys(expected).length) return null
+      const contractKey = [...found].find((key) => basename(key) === 'contract.json')
+      const libraryKey = [...found].find((key) =>
+        /^(transcribe\.dll|libtranscribe\.(dylib|so))$/.test(basename(key)),
+      )
+      if (!contractKey || !libraryKey) return null
+      const contract: unknown = JSON.parse(await readFile(join(directory, contractKey), 'utf8'))
+      if (
+        typeof contract !== 'object' ||
+        !contract ||
+        !('version' in contract) ||
+        !('header_hash' in contract) ||
+        contract.version !== ENGINE_VERSION ||
+        contract.header_hash !== ENGINE_HEADER_HASH
+      )
+        return null
+      return join(directory, libraryKey)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (
+        code === 'ENOENT' ||
+        code === 'ENOTDIR' ||
+        error instanceof DownloadChecksumError ||
+        error instanceof EngineMismatchError ||
+        error instanceof SyntaxError
+      )
+        return null
+      if (code && TRANSIENT_IO_CODES.has(code) && attempt < 2) {
+        await setTimeout(100 * (attempt + 1))
+        continue
+      }
+      throw new EngineIoError(
+        'Could not read the speech engine files. Close apps using these files and retry.',
+        { cause: error },
+      )
     }
-    await walk()
-    if (found.size !== Object.keys(expected).length) return null
-    const contractKey = [...found].find((key) => basename(key) === 'contract.json')
-    const libraryKey = [...found].find((key) =>
-      /^(transcribe\.dll|libtranscribe\.(dylib|so))$/.test(basename(key)),
-    )
-    if (!contractKey || !libraryKey) return null
-    const contract: unknown = JSON.parse(await readFile(join(directory, contractKey), 'utf8'))
-    if (
-      typeof contract !== 'object' ||
-      !contract ||
-      !('version' in contract) ||
-      !('header_hash' in contract) ||
-      contract.version !== ENGINE_VERSION ||
-      contract.header_hash !== ENGINE_HEADER_HASH
-    )
-      return null
-    return join(directory, libraryKey)
-  } catch {
-    return null
   }
 }
 
@@ -82,6 +126,12 @@ export async function installEngine(
   const staging = join(root, `${ENGINE_VERSION}.staging`)
   const destination = join(root, ENGINE_VERSION)
   await mkdir(root, { recursive: true })
+  await prunePartialDownloads(
+    root,
+    new Set([`${release.filename}.partial`]),
+    PARTIAL_DOWNLOAD_MAX_AGE,
+    '.partial',
+  )
   if (!(await stat(archive).catch(() => null))) {
     await downloadFile({
       id: 'engine',
@@ -120,12 +170,13 @@ export async function installEngine(
         'type' in entry && (entry.type === 'File' || entry.type === 'Directory'),
     })
     signal.throwIfAborted()
-    if (!(await verifyInstalledEngine(staging)))
+    const library = await verifyInstalledEngine(staging)
+    if (!library)
       throw new Error('The speech engine files did not pass verification. Download it again.')
     await rm(destination, { recursive: true, force: true })
     await rename(staging, destination)
     await rm(archive, { force: true })
-    return (await verifyInstalledEngine(destination))!
+    return join(destination, relative(staging, library))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOSPC')
       throw new Error('The disk is full. Free some space and retry the speech engine download.', {
