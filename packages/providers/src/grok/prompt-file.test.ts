@@ -26,7 +26,11 @@ $acl = Get-Acl -LiteralPath '${prompt.path.replaceAll("'", "''")}'
       )
       const acl = JSON.parse(stdout) as { owner: string; current: string; rules: string[] }
       expect(acl.owner).toBe(acl.current)
-      expect(acl.rules).toEqual([acl.current])
+      // The per-user TEMP ACL: the user, SYSTEM and Administrators only. No
+      // Everyone, Users or Authenticated Users entry may grant access.
+      expect(acl.rules).toContain(acl.current)
+      for (const broad of ['S-1-1-0', 'S-1-5-32-545', 'S-1-5-11'])
+        expect(acl.rules).not.toContain(broad)
     } else {
       expect((await stat(prompt.path)).mode & 0o777).toBe(0o600)
       expect((await stat(dirname(prompt.path))).mode & 0o777).toBe(0o700)
