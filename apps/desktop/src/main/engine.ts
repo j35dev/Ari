@@ -350,7 +350,8 @@ export class Engine {
    * never comes here; the turn's own stream carries it.
    */
   recordBackground(sessionId: string, events: AgentEvent[]): void {
-    if (this.#turnTasks.has(sessionId)) return
+    // Pools route only output outside the adapter's turn stream. It can
+    // arrive while disposal/checkpoint capture still fences that turn.
     const now = Date.now()
     let state = this.#background.get(sessionId)
     // A quiet minute starts a new message, so separate reports read separately.
@@ -878,20 +879,6 @@ export class Engine {
     }
     const needsRelease = this.#providerReleases.has(session.id) || providerContext.handoffPending
     if (needsRelease) await waitForProviderRelease()
-    // Nothing reliably says when a background shell ends, so what earlier
-    // turns left running is not tracked past the start of the next one.
-    if (!needsRelease)
-      await this.#endBackgroundTasks(
-        session.id,
-        () => true,
-        'completed',
-        'No longer tracked after the next turn started',
-      ).catch((error: unknown) =>
-        log.warn('background tasks could not be closed', {
-          sessionId: session.id,
-          error: String(error),
-        }),
-      )
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
       const reason = await this.#deps
@@ -1021,9 +1008,38 @@ export class Engine {
         ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
       })
     } catch (e) {
+      // A failed reuse can have closed the process that owned earlier tasks.
+      // There is no adapter stream left to publish their terminal state.
+      await this.#endBackgroundTasks(
+        session.id,
+        () => true,
+        'stopped',
+        'The agent could not continue',
+      ).catch((error: unknown) =>
+        log.warn('background tasks could not be closed', {
+          sessionId: session.id,
+          error: String(error),
+        }),
+      )
       await this.#settle(session.id, turnId, 'error', String(e))
       await this.#captureTurnEnd(session.id, turnId)
       return
+    }
+
+    // A reused native process still owns its earlier tasks. Other transports
+    // cannot attribute them across turns, so keep their existing cleanup.
+    if (adapter.continuesBackgroundWork?.() !== true) {
+      await this.#endBackgroundTasks(
+        session.id,
+        () => true,
+        'completed',
+        'No longer tracked after the next turn started',
+      ).catch((error: unknown) =>
+        log.warn('background tasks could not be closed', {
+          sessionId: session.id,
+          error: String(error),
+        }),
+      )
     }
 
     if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId || this.#closing) {

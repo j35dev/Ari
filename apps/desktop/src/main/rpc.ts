@@ -104,7 +104,7 @@ import type { UpdateController } from './update-controller'
 import { applyThemeToWindow, registerWindowControls } from './window'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
-import { ClaudeDriver } from '@ari/providers/claude'
+import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
 import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
@@ -1114,11 +1114,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   let controlStarting = false
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
+  const releaseProviderConnections = async (sessionId: string): Promise<void> => {
+    await Promise.all([acpSessionPool.release(sessionId), claudeSessionPool.release(sessionId)])
+  }
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
     publish: publishSessionEvent,
-    releaseProviderConnection: (sessionId) => acpSessionPool.release(sessionId),
+    releaseProviderConnection: releaseProviderConnections,
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
@@ -1175,19 +1178,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   engineRef = engine
   // Agent connections outlive their turn so background shells and sub-agents
   // keep running; what they report between turns lands in the transcript.
-  acpSessionPool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
-  // A parked process that ends takes its background shells and sub-agents along.
-  acpSessionPool.onEnded = (sessionId) => {
-    return engine
-      .releaseBackgroundTasks(sessionId, 'The agent process ended')
-      .catch((error: unknown) =>
-        log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
-      )
+  for (const pool of [acpSessionPool, claudeSessionPool]) {
+    pool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
+    // A parked process that ends takes its background shells and sub-agents along.
+    pool.onEnded = (sessionId) => {
+      return engine
+        .releaseBackgroundTasks(sessionId, 'The agent process ended')
+        .catch((error: unknown) =>
+          log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
+        )
+    }
   }
   shutdownTasks.push(async () => {
     // ACP dispose parks its transport; the process owner closes it before
     // waiting for the cancelled turn's stream and again after late startup.
-    await engine.shutdown(() => acpSessionPool.shutdownAll())
+    await engine.shutdown(async () => {
+      await Promise.all([acpSessionPool.shutdownAll(), claudeSessionPool.shutdownAll()])
+    })
   })
   const sessionDeps: SessionCreateDeps = {
     loadProject,
@@ -1213,7 +1220,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       await revokeArchivedSessions(parents, async (id) => {
         if (runtime) await runtime.revoke(id)
         else browserMcpHandle?.revoke(id)
-        if (!runtime) await acpSessionPool.release(id)
+        if (!runtime) await releaseProviderConnections(id)
       })
     }
   }
@@ -1252,35 +1259,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         recover: firstRuntime,
         onDrop: async (id, reason) => {
           browserMcpHandle?.revoke(id)
-          await dropSessionResources(
-            id,
-            reason,
-            (id) => acpSessionPool.release(id),
-            async (id) => {
-              const session = (await getSessionStore().loadExisting(id))?.session
-              const roots: string[] = []
-              if (session?.workspace?.kind === 'managed-worktree')
-                roots.push(session.workspace.path)
-              // A startup retry has no session sidecar left to name its workspace.
-              const managedRoot = join(app.getPath('userData'), 'worktrees')
-              for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
-                () => [],
-              )) {
-                if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
-              }
-              for (const root of new Set(roots)) {
-                await terminals
-                  .killInWorkspace(root)
-                  .catch((error: unknown) =>
-                    log.warn('workspace terminal cleanup failed', { root, error: String(error) }),
-                  )
-                await stopWatchingUnder(root).catch((error: unknown) =>
-                  log.warn('workspace watcher cleanup failed', { root, error: String(error) }),
+          await dropSessionResources(id, reason, releaseProviderConnections, async (id) => {
+            const session = (await getSessionStore().loadExisting(id))?.session
+            const roots: string[] = []
+            if (session?.workspace?.kind === 'managed-worktree') roots.push(session.workspace.path)
+            // A startup retry has no session sidecar left to name its workspace.
+            const managedRoot = join(app.getPath('userData'), 'worktrees')
+            for (const project of await readdir(managedRoot, { withFileTypes: true }).catch(
+              () => [],
+            )) {
+              if (project.isDirectory()) roots.push(join(managedRoot, project.name, id))
+            }
+            for (const root of new Set(roots)) {
+              await terminals
+                .killInWorkspace(root)
+                .catch((error: unknown) =>
+                  log.warn('workspace terminal cleanup failed', { root, error: String(error) }),
                 )
-              }
-              await sourceControlLive.dropSession(id, roots)
-            },
-          )
+              await stopWatchingUnder(root).catch((error: unknown) =>
+                log.warn('workspace watcher cleanup failed', { root, error: String(error) }),
+              )
+            }
+            await sourceControlLive.dropSession(id, roots)
+          })
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
@@ -1891,7 +1892,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
       try {
         if (runtime) await runtime.revoke(id, 'destroy')
-        else await acpSessionPool.release(id)
+        else await releaseProviderConnections(id)
       } catch (error) {
         log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
       }
@@ -2806,16 +2807,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // renderer already relies on (seq-ordered, terminated by replayDone).
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
-        const settled = acpSessionPool.has(sessionId)
-          ? Promise.resolve()
-          : engine
-              .releaseBackgroundTasks(sessionId, 'The agent process ended')
-              .catch((error: unknown) =>
-                log.warn('background tasks could not be closed', {
-                  sessionId,
-                  error: String(error),
-                }),
-              )
+        const settled =
+          acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
+            ? Promise.resolve()
+            : engine
+                .releaseBackgroundTasks(sessionId, 'The agent process ended')
+                .catch((error: unknown) =>
+                  log.warn('background tasks could not be closed', {
+                    sessionId,
+                    error: String(error),
+                  }),
+                )
         void streamSessionReplay(
           sessionId,
           async (sendChunk) => {

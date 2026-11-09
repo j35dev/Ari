@@ -1,7 +1,10 @@
 import type { PermissionMode } from '@ari/contracts/common'
+import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
-import { mapClaudeLine } from './mapper'
+import { mapClaudeLine, type NativeLine } from './mapper'
+import { ClaudeBackgroundTasks } from './background-tasks'
+import { claudeSessionPool, type ClaudeSessionPool } from './session-pool'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
@@ -15,6 +18,9 @@ const CLAUDE_CAPABILITIES = {
   ...ONE_SHOT_PROVIDER_CAPABILITIES,
   steering: 'live',
   liveResponses: 'approvals',
+  nativeChildren: { ...ONE_SHOT_PROVIDER_CAPABILITIES.nativeChildren, visibility: 'lifecycle' },
+  processContinuity: 'between-turns',
+  terminalStatus: 'explicit',
 } as const
 
 /** Time the CLI gets to honor an interrupt frame before the kill fallback fires. */
@@ -47,8 +53,7 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
   // Not stored with the conversation, so it is sent on every spawn, resumed or not.
-  if (session.instructions)
-    args.push('--append-system-prompt', argvSafeText(session.instructions))
+  if (session.instructions) args.push('--append-system-prompt', argvSafeText(session.instructions))
   args.push('--permission-mode', permissionModeFlag(session.permissionMode))
   return args
 }
@@ -66,7 +71,10 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
  * shim happens to be in use.
  */
 export function argvSafeText(text: string): string {
-  return text.replace(/"/g, "'").replace(/%/g, ' percent ').replace(/\s*[\r\n]+\s*/g, ' ')
+  return text
+    .replace(/"/g, "'")
+    .replace(/%/g, ' percent ')
+    .replace(/\s*[\r\n]+\s*/g, ' ')
 }
 
 function permissionModeFlag(mode: PermissionMode): string {
@@ -118,7 +126,11 @@ export function buildApprovalResponseFrame(
   if (decision === 'deny') {
     return {
       type: 'control_response',
-      response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'Denied by user in Ari.' } },
+      response: {
+        subtype: 'success',
+        request_id: requestId,
+        response: { behavior: 'deny', message: 'Denied by user in Ari.' },
+      },
     }
   }
   const allow: Record<string, unknown> = { behavior: 'allow' }
@@ -134,7 +146,10 @@ export function buildApprovalResponseFrame(
 }
 
 /** Error control_response for control requests Ari does not handle; without it the CLI would wait forever. */
-export function buildUnsupportedControlResponse(requestId: string, subtype: string | undefined): unknown {
+export function buildUnsupportedControlResponse(
+  requestId: string,
+  subtype: string | undefined,
+): unknown {
   return {
     type: 'control_response',
     response: {
@@ -195,7 +210,38 @@ export function wireClaudeControl(
   child: ControlProcessLike,
   options: { initialPrompt?: unknown } = {},
 ): ClaudeControlAdapter {
+  return wireClaudeProcess(child).beginTurn(options.initialPrompt)
+}
+
+/** One continuous stdout reader, reused without restarting Claude or its agents. */
+export interface ClaudeControlProcess {
+  readonly closed: boolean
+  readonly sessionRef: string | null
+  readonly lastActivity: number
+  readonly hasRunningTasks: boolean
+  onBackground: ((events: AgentEvent[]) => void) | null
+  onEnded: (() => void) | null
+  beginTurn(prompt?: unknown, park?: () => boolean, continuing?: boolean): ClaudeControlAdapter
+  shutdown(): Promise<void>
+}
+
+export function wireClaudeProcess(child: ControlProcessLike): ClaudeControlProcess {
   let killFallback: ReturnType<typeof setTimeout> | null = null
+  let closed = false
+  let closing = false
+  let lastActivity = Date.now()
+  let sessionRef: string | null = null
+  const tasks = new ClaudeBackgroundTasks()
+  const pendingBackground: AgentEvent[] = []
+  let backgroundHandler: ClaudeControlProcess['onBackground'] = null
+  let endedHandler: ClaudeControlProcess['onEnded'] = null
+  interface Turn {
+    queue: AgentEvent[]
+    notify: (() => void) | null
+    completed: boolean
+    interrupted: boolean
+  }
+  let active: Turn | null = null
   /** request_id → tool name of live can_use_tool prompts, for always-allow rules. */
   const pendingPermissions = new Map<string, string>()
 
@@ -206,15 +252,20 @@ export function wireClaudeControl(
     }
   }
 
-  child.on('close', () => clearKillFallback())
+  child.on('close', () => {
+    closed = true
+    clearKillFallback()
+  })
 
   // EPIPE during teardown is routine once the CLI exits; keep it from crashing the host.
-  child.stdin?.on('error', (err: Error) => log.debug('claude stdin error', { message: err.message }))
+  child.stdin?.on('error', (err: Error) =>
+    log.debug('claude stdin error', { message: err.message }),
+  )
 
   /** Best-effort write; false means stdin is gone and callers must fall back. */
   const writeLine = (frame: unknown): boolean => {
     const stdin = child.stdin
-    if (!stdin || stdin.destroyed || stdin.writableEnded) {
+    if (closed || closing || !stdin || stdin.destroyed || stdin.writableEnded) {
       log.debug('claude stdin unavailable; dropping control frame')
       return false
     }
@@ -236,33 +287,87 @@ export function wireClaudeControl(
     }
     if (parsed.type !== 'control_request' || typeof parsed.request_id !== 'string') return
     if (parsed.request?.subtype === 'can_use_tool') {
+      if (active === null) {
+        // A permission needs a live turn to present it; do not leave idle
+        // background agents waiting forever on an invisible approval.
+        writeLine(buildApprovalResponseFrame(parsed.request_id, 'deny'))
+        return
+      }
       pendingPermissions.set(parsed.request_id, parsed.request.tool_name ?? 'unknown')
       return
     }
     writeLine(buildUnsupportedControlResponse(parsed.request_id, parsed.request?.subtype))
   }
 
-  const iterator = streamProcessEvents(child, (line: string) => {
-    answerUnhandledControl(line)
-    return mapClaudeLine(line)
-  }, {
-    label: 'claude',
-    stderrLog: (text) => log.debug('claude stderr', { text: text.slice(0, 500) }),
-  })[Symbol.asyncIterator]()
+  const stream = streamProcessEvents(
+    child,
+    (line: string) => {
+      try {
+        answerUnhandledControl(line)
+        const native = JSON.parse(line) as NativeLine
+        const events = [...tasks.observe(native), ...mapClaudeLine(line)]
+        return active === null
+          ? events.filter((event) => event.type !== 'approval-requested')
+          : events
+      } catch (error) {
+        return [
+          {
+            type: 'error',
+            message: `Invalid Claude stream message: ${String(error)}`,
+            rawJson: null,
+          },
+        ]
+      }
+    },
+    {
+      label: 'claude',
+      continueAfterDone: true,
+      stderrLog: (text) => log.debug('claude stderr', { text: text.slice(0, 500) }),
+    },
+  )
 
-  // The turn's prompt rides stdin as the first stream-json user frame now that
-  // --input-format stream-json replaced the one-shot -p argv form.
-  if (options.initialPrompt !== undefined) {
-    writeLine(options.initialPrompt)
+  const background = (event: AgentEvent): void => {
+    if (
+      event.type !== 'background-task' &&
+      event.type !== 'text-delta' &&
+      event.type !== 'thinking-delta' &&
+      event.type !== 'tool-started' &&
+      event.type !== 'tool-completed'
+    )
+      return
+    if (backgroundHandler) backgroundHandler([event])
+    else pendingBackground.push(event)
   }
+  async function pump(): Promise<void> {
+    try {
+      for await (const event of stream) {
+        lastActivity = Date.now()
+        if (event.type === 'session-ref') sessionRef = event.ref
+        const turn = active
+        if (!turn) {
+          background(event)
+          continue
+        }
+        turn.queue.push(event)
+        if (event.type === 'done') {
+          turn.completed = true
+          active = null
+        }
+        turn.notify?.()
+        turn.notify = null
+      }
+    } finally {
+      closed = true
+      clearKillFallback()
+      endedHandler?.()
+    }
+  }
+  void pump().catch((error: unknown) => log.warn('claude stream failed', { error: String(error) }))
 
-  return {
-    capabilities: () => CLAUDE_CAPABILITIES,
-    start: () => ({ [Symbol.asyncIterator]: () => iterator }),
+  const controls = {
     send: (frame) => {
       writeLine(frame)
     },
-    steer: (text) => writeLine(buildUserFrame(text)),
     respondApproval: (approvalId, decision) => {
       writeLine(
         buildApprovalResponseFrame(
@@ -273,26 +378,112 @@ export function wireClaudeControl(
       )
       pendingPermissions.delete(approvalId)
     },
-    interrupt: () => {
-      if (child.killed || killFallback !== null) return
-      const delivered = writeLine(buildInterruptFrame())
-      killFallback = setTimeout(() => {
-        killFallback = null
-        if (!child.killed) child.kill()
-      }, INTERRUPT_KILL_FALLBACK_MS)
-      if (!delivered) {
-        clearKillFallback()
-        if (!child.killed) child.kill()
-      }
+  } satisfies Pick<ClaudeControlAdapter, 'send' | 'respondApproval'>
+
+  const shutdown = (): Promise<void> => {
+    closing = true
+    clearKillFallback()
+    return teardownChild(child)
+  }
+  return {
+    get closed() {
+      return closed || closing
     },
-    dispose: () => {
-      clearKillFallback()
-      return teardownChild(child)
+    get sessionRef() {
+      return sessionRef
+    },
+    get lastActivity() {
+      return lastActivity
+    },
+    get hasRunningTasks() {
+      return tasks.running().length > 0
+    },
+    get onBackground() {
+      return backgroundHandler
+    },
+    set onBackground(handler) {
+      backgroundHandler = handler
+      if (handler && pendingBackground.length > 0) handler(pendingBackground.splice(0))
+    },
+    get onEnded() {
+      return endedHandler
+    },
+    set onEnded(handler) {
+      endedHandler = handler
+    },
+    shutdown,
+    beginTurn: (prompt, park, continuing = false) => {
+      if (closed || closing || active)
+        throw new Error('Claude process is unavailable for a new turn')
+      const turn: Turn = {
+        queue: tasks.running(),
+        notify: null,
+        completed: false,
+        interrupted: false,
+      }
+      active = turn
+      backgroundHandler = null
+      endedHandler = null
+      let parked = false
+      const iterator = (async function* () {
+        while (true) {
+          while (turn.queue.length > 0) {
+            const event = turn.queue.shift()!
+            yield event
+            if (event.type === 'done') return
+          }
+          if (closed) return
+          await new Promise<void>((resolve) => {
+            turn.notify = resolve
+            if (turn.queue.length > 0 || closed) resolve()
+          })
+        }
+      })()
+      if (prompt !== undefined && !writeLine(prompt)) {
+        active = null
+        throw new Error('Claude stdin is unavailable')
+      }
+      return {
+        ...controls,
+        capabilities: () => ({
+          ...CLAUDE_CAPABILITIES,
+          processContinuity: park ? 'between-turns' : 'turn-only',
+        }),
+        start: () => ({ [Symbol.asyncIterator]: () => iterator }),
+        continuesBackgroundWork: () => continuing,
+        keepsBackgroundWork: () => parked,
+        steer: (text) =>
+          active === turn &&
+          !turn.interrupted &&
+          text.length > 0 &&
+          writeLine(buildUserFrame(text)),
+        interrupt: () => {
+          turn.interrupted = true
+          if (child.killed || killFallback !== null) return
+          const delivered = writeLine(buildInterruptFrame())
+          killFallback = setTimeout(() => {
+            killFallback = null
+            if (!child.killed) child.kill()
+          }, INTERRUPT_KILL_FALLBACK_MS)
+          if (!delivered) {
+            clearKillFallback()
+            if (!child.killed) child.kill()
+          }
+        },
+        dispose: async () => {
+          if (turn.completed && !turn.interrupted && !closed && !closing && park?.()) {
+            parked = true
+            return
+          }
+          await shutdown()
+        },
+      }
     },
   }
 }
 
 export interface ClaudeDriverOptions {
+  pool?: ClaudeSessionPool | null
   /** Test seam. Production uses {@link spawnCli}. */
   spawn?: (
     binaryPath: string,
@@ -308,10 +499,20 @@ export interface ClaudeDriverOptions {
 
 export class ClaudeDriver implements Driver {
   capabilities() {
-    return CLAUDE_CAPABILITIES
+    return {
+      ...CLAUDE_CAPABILITIES,
+      processContinuity: this.options.pool === null ? 'turn-only' : 'between-turns',
+    } as const
   }
   readonly kind = 'claude' as const
   readonly systemInstructions = true
+
+  hasLiveSession(sessionId: string): boolean {
+    return (
+      (this.options.pool === undefined ? claudeSessionPool : this.options.pool)?.has(sessionId) ??
+      false
+    )
+  }
 
   constructor(
     private readonly binaryPath: string,
@@ -319,22 +520,43 @@ export class ClaudeDriver implements Driver {
   ) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
+    const pool = this.options.pool === undefined ? claudeSessionPool : this.options.pool
+    const key = JSON.stringify([
+      this.binaryPath,
+      session.workspacePath,
+      session.modelId,
+      session.permissionMode,
+      session.instructions ?? null,
+      session.runtimeEnv ?? null,
+    ])
+    const reused = pool?.take(session.sessionId, key, session.resumeOf) ?? null
     const spawnOptions = {
       cwd: session.workspacePath,
       ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
       stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     }
-    const child =
-      this.options.spawn !== undefined
+    const child = reused
+      ? null
+      : this.options.spawn !== undefined
         ? this.options.spawn(this.binaryPath, buildClaudeArgs(session), spawnOptions)
         : spawnCli(this.binaryPath, buildClaudeArgs(session), spawnOptions)
-    log.debug('claude spawned', { pid: child.pid })
+    if (child) log.debug('claude spawned', { pid: child.pid })
+    const process = reused ?? wireClaudeProcess(child!)
 
-    return loadImageData(stagedImagesOf(session)).then(({ loaded, missing }) =>
-      wireClaudeControl(child, {
-        initialPrompt: buildUserFrame(session.prompt + missingImagesNote(missing), loaded),
-      }),
-    )
+    return loadImageData(stagedImagesOf(session))
+      .then(({ loaded, missing }) =>
+        process.beginTurn(
+          buildUserFrame(session.prompt + missingImagesNote(missing), loaded),
+          pool ? () => pool.put(session.sessionId, key, process) : undefined,
+          reused !== null,
+        ),
+      )
+      .catch(async (error: unknown) => {
+        await process.shutdown()
+        throw error
+      })
   }
 }
+
+export { claudeSessionPool, ClaudeSessionPool } from './session-pool'
