@@ -478,14 +478,43 @@ describe('createAcpAdapter', () => {
   it('does not drive a permission mode axis as thought', async () => {
     const child = fakeChild()
     script(child, LEGACY_MODES_AGENT)
-    const adapter = await createAcpAdapter(
-      LAUNCH,
-      { ...SESSION, permissionMode: 'allow-edits', effort: 'high' },
-      () => child,
-    )
+    await expect(
+      createAcpAdapter(
+        LAUNCH,
+        { ...SESSION, permissionMode: 'allow-edits', effort: 'high' },
+        () => child,
+      ),
+    ).rejects.toThrow('no selector')
     expect(modeCalls(child)).toEqual(['build'])
-    await adapter.dispose()
+    expect(child.killed).toBe(true)
   }, 15000)
+
+  it('refuses an unadvertised effort before sending the task prompt', async () => {
+    const child = fakeChild()
+    script(child, THOUGHT_LEVEL_AGENT)
+    await expect(
+      createAcpAdapter(LAUNCH, { ...SESSION, effort: 'xhigh' }, () => child),
+    ).rejects.toThrow('not advertised')
+    expect(child.sent.some((message) => message.method === 'session/prompt')).toBe(false)
+    expect(child.killed).toBe(true)
+  })
+
+  it('fails setup when the advertised effort selector refuses the pick', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/set_config_option') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32602, message: 'effort refused' } })}\n`,
+        )
+        return undefined
+      }
+      return THOUGHT_LEVEL_AGENT(method, params, id)
+    })
+    await expect(
+      createAcpAdapter(LAUNCH, { ...SESSION, effort: 'high' }, () => child),
+    ).rejects.toThrow('effort refused')
+    expect(child.sent.some((message) => message.method === 'session/prompt')).toBe(false)
+  })
 
   it('runs a registry pick on the agent row for that same model', async () => {
     const child = fakeChild()

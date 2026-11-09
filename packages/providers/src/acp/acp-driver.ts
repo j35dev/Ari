@@ -406,6 +406,10 @@ export async function createAcpAdapter(
     // The pick did not reach the agent, so a different model is about to
     // answer. Say it in the transcript: the composer still shows the pick.
     if (applied.kind === 'unavailable' && session.modelId !== null) {
+      if (session.effort)
+        throw new Error(
+          `Cannot apply reasoning effort ${session.effort}: model ${session.modelId} is unavailable.`,
+        )
       push([modelUnavailableNotice(session.modelId, applied.offered)])
     }
     // A model switch can reshape the session's own selectors: OpenCode only
@@ -1187,7 +1191,7 @@ function findModelOption(configOptions: AcpConfigOption[]): AcpConfigOption | nu
  * Applies the user's thought/reasoning pick onto the agent's own selector.
  * Config options (`thought_level`, or id aliases like `effort`) are preferred;
  * a thinking-shaped `session/set_mode` axis (pi) is the fallback. Unknown
- * values are skipped so we never push a level the harness did not advertise.
+ * values or refused selectors fail setup so the session cannot silently run at a lower level.
  */
 async function applyThoughtLevel(
   connection: AcpConnection,
@@ -1202,35 +1206,23 @@ async function applyThoughtLevel(
   if (option !== null && option.id !== undefined) {
     const advertised = option.options ?? []
     if (advertised.length > 0 && !advertised.some((v) => v.value === effort)) {
-      log.debug('acp: requested thought level not advertised by agent', { effort })
-      return
+      throw new Error(`Reasoning effort ${effort} is not advertised by this model.`)
     }
-    try {
-      await connection.setConfigOption(sessionId, option.id, effort)
-    } catch (error) {
-      log.debug('acp: set_config_option(thought) failed', { error: String(error) })
-    }
+    await connection.setConfigOption(sessionId, option.id, effort)
     return
   }
   const ids = availableModes
     .map((m) => m.id)
     .filter((v): v is string => typeof v === 'string' && v.length > 0)
   if (looksLikeThoughtAxis(ids) && ids.includes(effort)) {
-    try {
-      await connection.setMode(sessionId, effort)
-    } catch (error) {
-      log.debug('acp: set_mode(thought) failed', { error: String(error) })
-    }
+    await connection.setMode(sessionId, effort)
     return
   }
   // Grok documents configId `reasoning_effort` even when session/new omitted the
   // option (or listed it with an empty options array for an unsupported model).
-  if (!/^grok\b/i.test(launchLabel)) return
-  try {
-    await connection.setConfigOption(sessionId, 'reasoning_effort', effort)
-  } catch (error) {
-    log.debug('acp: set_config_option(reasoning_effort) failed', { error: String(error) })
-  }
+  if (!/^grok\b/i.test(launchLabel))
+    throw new Error(`This model exposes no selector for reasoning effort ${effort}.`)
+  await connection.setConfigOption(sessionId, 'reasoning_effort', effort)
 }
 
 /** Grok's `--effort` is a top-level `grok` flag, before `agent stdio`. */

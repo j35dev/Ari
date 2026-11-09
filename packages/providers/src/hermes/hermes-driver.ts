@@ -19,6 +19,10 @@ const log = createLogger('providers:hermes')
  * fallback's flags; keep argv budgeting until this interface is verified.
  */
 export function buildHermesArgs(session: AdapterSession): string[] {
+  if (session.effort)
+    throw new Error(
+      'The legacy Hermes transport cannot apply reasoning effort. Enable ACP or select a supported provider.',
+    )
   const args = ['-p', promptWithAttachments(session), '--output-format', 'stream-json', '--verbose']
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)

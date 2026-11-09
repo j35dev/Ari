@@ -37,6 +37,9 @@ const PROJECT_WORK =
 const PROJECT_MODEL =
   'For every session or lead you start, use the provider and model the user named in the message, else the project saved default. If no valid choice resolves, ask the user once for that project which provider and model to use, suggesting your current model as an option, then save the answer with `ari project default <projectId> --agent <provider> --model <model>` and reuse that default. Never inherit your own model or choose one from recent sessions or the app default. Starting without a resolved agent is refused. Inherited permissions are capped at yours. The result names the actual agent and its source; say which model it runs on in your reply.'
 
+const LAUNCH_REASONING =
+  'Project launches default to full permissions within your permission cap; explicit session and saved project permission choices take priority. Assess each task before launching: inspect supported per-model efforts with `ari agents`, honor the user requested effort exactly, and otherwise choose --effort appropriate to its scope. Use low for small routine extraction or a typo, medium for ordinary work, high for implementation, investigation and reviews, and xhigh or stronger only for demanding multi-part work when supported. --effort auto asks Ari to assess task scope; omitted effort uses task assessment with saved or same-model inherited effort as a minimum. Unsupported explicit levels are refused. Launch results include permissionMode and effortSelection with resolved effort, supported levels and the reason; report the resolved model, effort and permissions. Lead follow-ups apply explicit options to the same lead and preserve its context. Workers should make the same assessment when delegating.'
+
 const REQUESTED_LEAD =
   'Create or use a project lead only when the user asks for one, such as "set up a lead" or "have a lead handle this". For large multi-part work you may propose a lead, but ask the user first; never create a lead on your own. After the user requests a lead, `ari project ask <projectId> "<task>"` creates or reuses the long-lived lead, and follow-ups through project ask keep its context. Each lead cleans up its own finished workers; do not destroy project leads unless the user asks or a provider/model failure requires a reset.'
 
@@ -67,7 +70,7 @@ export function controlPreamble(
         : session.lead === true
           ? leadNote(delivers)
           : parentNote(delivers)
-  const body = session.parentSessionId ? brief : `${brief} ${CLI_PERMISSIONS}`
+  const body = `${session.parentSessionId ? brief : `${brief} ${CLI_PERMISSIONS}`} ${LAUNCH_REASONING}`
   const visuals =
     'When a visual helps answer the user, include a top-level `ari-viz` fenced code block containing a JSON object with version 1, type, title, and data. Ari renders it inline and matches the active theme automatically. Types: bar, line, area, scatter, pie, donut, radar, heatmap, treemap, funnel, graph, timeline, gantt, metrics, comparison. Use real data, label axes and units, and explain assumptions; use a visual only when it improves the answer. Do not include HTML, scripts, or custom colors. Run `ari --skill` for the exact data fields and examples.'
   if (channel === 'system')

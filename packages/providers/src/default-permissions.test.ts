@@ -20,6 +20,17 @@ const session: AdapterSession = {
 
 describe('default permissions across provider harnesses', () => {
   it.each([
+    ['Hermes', buildHermesArgs],
+    ['OpenCode', buildOpencodeArgs],
+  ] as const)(
+    'refuses effort on the %s legacy transport instead of silently discarding it',
+    (_name, buildArgs) => {
+      expect(() => buildArgs({ ...session, effort: 'high' })).toThrow(
+        'cannot apply reasoning effort',
+      )
+    },
+  )
+  it.each([
     ['Claude', buildClaudeArgs],
     ['Grok', (current: AdapterSession) => buildGrokArgs(current, '/private/prompt.txt')],
     ['Hermes', buildHermesArgs],

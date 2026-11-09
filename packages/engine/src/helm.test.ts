@@ -117,6 +117,8 @@ beforeEach(async () => {
   const host: ControlHost = {
     store,
     version: 'test',
+    // Synthetic catalog support; production resolves this against each selected model.
+    effortsForModel: async () => ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id })),
     policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
     providers: async () => [
       {
@@ -597,7 +599,7 @@ it('limits project commands to Aria and asks for a user choice when Aria and the
     driverKind: 'claude',
     modelId: 'model',
     effort: 'high',
-    permissionMode: 'ask',
+    permissionMode: 'allow-edits',
     source: 'project',
   })
   expect((await service.invoke('helm1', 'projects.ask', ask)).ok).toBe(true)
@@ -665,7 +667,7 @@ it('caps inherited lead permissions but refuses an explicit elevation on creatio
   ).toMatchObject({ ok: true, result: { lead: { permissionMode: 'allow-edits' } } })
 })
 
-it('replaces a lead whose provider is unavailable and reports the actual agent when reusing it', async () => {
+it('repairs a lead whose provider is unavailable without losing its session and enforces explicit permissions on reuse', async () => {
   const ask = { projectId: 'web', text: 'Fix login', idempotencyKey: 'stale-first' }
   const first = await service.invoke('helm1', 'projects.ask', ask)
   const id = (first as { result: { sessionId: string } }).result.sessionId
@@ -688,7 +690,7 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
     type: 'session.updated',
     driverKind: 'codex',
     modelId: 'gpt',
-    permissionMode: 'ask',
+    permissionMode: 'allow-edits',
   })
   const next = await service.invoke('helm1', 'projects.ask', {
     ...ask,
@@ -696,9 +698,9 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
     modelId: 'gpt',
     idempotencyKey: 'stale-next',
   })
-  expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { driverKind: 'codex' } } })
+  expect(next).toMatchObject({ ok: true, result: { reused: true, lead: { driverKind: 'codex' } } })
   const replacement = (next as { result: { sessionId: string } }).result.sessionId
-  expect(replacement).not.toBe(id)
+  expect(replacement).toBe(id)
   expect((await store.load(id)).session).toMatchObject({ id, archived: false, status: 'idle' })
   expect(
     await service.invoke('helm1', 'projects.ask', {
@@ -708,14 +710,7 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
       permissionMode: 'full',
       idempotencyKey: 'stale-reuse',
     }),
-  ).toMatchObject({
-    ok: true,
-    result: {
-      sessionId: replacement,
-      reused: true,
-      lead: { driverKind: 'codex', modelId: 'gpt', permissionMode: 'ask' },
-    },
-  })
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
 })
 
 it('refuses steering higher-permission sessions outside Aria launches while keeping reads and stop open', async () => {
@@ -857,7 +852,7 @@ it('refuses saving a project default above Aria permission before writing it', a
   expect(save).toHaveBeenCalledOnce()
 })
 
-it('replaces a lead with a removed catalog model while preserving the old lead', async () => {
+it('switches a lead with a removed catalog model while preserving its context', async () => {
   const ask = { projectId: 'web', text: 'Fix it', idempotencyKey: 'model-old' }
   const first = await service.invoke('helm1', 'projects.ask', ask)
   const id = (first as { result: { sessionId: string } }).result.sessionId
@@ -881,11 +876,11 @@ it('replaces a lead with a removed catalog model while preserving the old lead',
     modelId: 'new',
     idempotencyKey: 'model-new',
   })
-  expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { modelId: 'new' } } })
-  expect((next as { result: { sessionId: string } }).result.sessionId).not.toBe(id)
+  expect(next).toMatchObject({ ok: true, result: { reused: true, lead: { modelId: 'new' } } })
+  expect((next as { result: { sessionId: string } }).result.sessionId).toBe(id)
   expect((await store.load(id)).session).toMatchObject({
     id,
-    modelId: 'model',
+    modelId: 'new',
     status: 'idle',
     archived: false,
   })
@@ -1332,7 +1327,7 @@ it('uses the saved project model rather than Aria current model or recent projec
       child: {
         driverKind: 'claude',
         modelId: 'model',
-        effort: null,
+        effort: 'high',
         permissionMode: 'allow-edits',
       },
       agent: { source: 'project', driverKind: 'claude', modelId: 'model' },
