@@ -30,6 +30,25 @@ describe('delegatedChildState', () => {
     expect(delegatedChildState(task(), { phase: 'paused', startedAt: 1 }, false)).toBe('needs-you')
   })
 
+  it('shows live queues before snapshots arrive and execution after an older queued snapshot', () => {
+    const queued = { phase: 'queued', startedAt: null } as const
+    expect(delegatedChildState(undefined, queued, false)).toBe('queued')
+    expect(delegatedChildState(task(), queued, false)).toBe('queued')
+    expect(
+      delegatedChildState(
+        task({ workState: 'queued' }),
+        { phase: 'working', startedAt: 10 },
+        false,
+      ),
+    ).toBe('working')
+    expect(delegatedChildState(task({ workState: 'blocked_on_parent' }), queued, false)).toBe(
+      'needs-lead',
+    )
+    expect(delegatedChildState(task({ workState: 'blocked_on_user' }), undefined, false)).toBe(
+      'needs-you',
+    )
+  })
+
   it('reads how a finished turn ended from the task', () => {
     expect(delegatedChildState(settledAs('completed'), undefined, false)).toBe('done')
     expect(delegatedChildState(settledAs('error'), undefined, false)).toBe('failed')
@@ -45,7 +64,9 @@ describe('delegatedChildState', () => {
 
   it('falls back to activity before the first snapshot and marks removed children', () => {
     expect(delegatedChildState(undefined, { phase: 'done', startedAt: null }, false)).toBe('done')
-    expect(delegatedChildState(undefined, { phase: 'error', startedAt: null }, false)).toBe('failed')
+    expect(delegatedChildState(undefined, { phase: 'error', startedAt: null }, false)).toBe(
+      'failed',
+    )
     expect(delegatedChildState(undefined, undefined, false)).toBe('idle')
     expect(delegatedChildState(task(), { phase: 'working', startedAt: 1 }, true)).toBe('removed')
   })
