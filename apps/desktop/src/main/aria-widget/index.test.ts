@@ -107,6 +107,8 @@ const key = (keycode: number): HookKey => ({
   metaKey: false,
 })
 beforeEach(() => {
+  // These fixtures exercise Windows chords; chord.test.ts covers every platform.
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
   vi.useFakeTimers()
   mock.handlers.clear()
   mock.keys.clear()
@@ -120,6 +122,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   widget?.close()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 

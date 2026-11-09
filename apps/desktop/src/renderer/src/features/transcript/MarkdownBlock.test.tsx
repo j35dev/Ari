@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const highlight = vi.hoisted(() => ({
@@ -135,5 +135,52 @@ describe('MarkdownBlock', () => {
 
     expect(root(container).querySelector('code')?.textContent).toBe('let a\nlet b\n')
     expect(root(container).querySelector('.line')).toBeNull()
+  })
+
+  it('renders a visual in reply order and preserves its controls as prose streams', () => {
+    const source = JSON.stringify({
+      version: 1,
+      type: 'bar',
+      title: 'Work',
+      labels: ['A'],
+      series: [
+        { name: 'One', values: [2] },
+        { name: 'Two', values: [3] },
+      ],
+    })
+    const text = `Before\n\n\`\`\`ari-viz\n${source}\n\`\`\`\n\nAfter`
+    const { container, rerender } = render(<MarkdownBlock text={text} streaming />)
+    const figure = screen.getByRole('figure', { name: 'Work' })
+    fireEvent.click(within(figure).getByRole('button', { name: 'One' }))
+    rerender(<MarkdownBlock text={`${text} grows`} streaming />)
+    expect(screen.getByRole('figure', { name: 'Work' })).toBe(figure)
+    expect(within(figure).getByRole('button', { name: 'One' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(container.querySelector('.ari-visual-reply')?.firstElementChild).toHaveTextContent(
+      'Before',
+    )
+    expect(container.querySelector('.ari-visual-reply')?.lastElementChild).toHaveTextContent(
+      'After grows',
+    )
+    expect(container.querySelector('code.language-ari-viz')).toBeNull()
+  })
+
+  it('waits for a closing fence while streaming and settles an interrupted visual', () => {
+    const partial = '```ari-viz\n{"type":"metrics"'
+    const { rerender } = render(<MarkdownBlock text={partial} streaming />)
+    expect(screen.getByRole('status')).toHaveTextContent('Building visualization')
+    rerender(<MarkdownBlock text={partial} />)
+    expect(screen.queryByText('Building visualization…')).toBeNull()
+    expect(screen.getByText('Visualization unavailable')).toBeInTheDocument()
+    rerender(
+      <MarkdownBlock
+        text={
+          '```ari-viz\n{"type":"metrics","title":"Count","items":[{"label":"Total","value":4}]}\n```'
+        }
+      />,
+    )
+    expect(screen.getByRole('figure', { name: 'Count' })).toBeInTheDocument()
   })
 })

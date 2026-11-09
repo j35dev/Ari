@@ -345,7 +345,7 @@ export function SessionScreen({
         >
           <span className="flex-1">{failure}</span>
           <button type="button" className="min-h-11 shrink-0" onClick={() => void load()}>
-            Retry
+            Refresh session
           </button>
         </div>
       )}

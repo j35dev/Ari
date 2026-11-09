@@ -563,6 +563,7 @@ export function TranscriptView({
                       ? modelLabel?.(row.switch.driverKind, row.switch.modelId)
                       : undefined
                   }
+                  sessionId={sessionId}
                   index={index}
                   sessionTitle={sessionTitle}
                   onOpenSession={onOpenSession}
@@ -675,6 +676,7 @@ const RowPlaceholder = memo(function RowPlaceholder({
 const TranscriptRowView = memo(function TranscriptRowView({
   row,
   modelLabel,
+  sessionId,
   index,
   onEditUserMessage,
   onRegenerate,
@@ -692,6 +694,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
 }: {
   row: TranscriptRow
   modelLabel?: string
+  sessionId: string
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
   index: number
@@ -713,6 +716,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   const body = renderRowBody({
     row,
     modelLabel,
+    sessionId,
     active,
     terminal,
     onEditUserMessage,
@@ -744,6 +748,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
 function renderRowBody({
   row,
   modelLabel,
+  sessionId,
   active,
   terminal,
   onEditUserMessage,
@@ -760,6 +765,7 @@ function renderRowBody({
 }: {
   row: TranscriptRow
   modelLabel?: string
+  sessionId: string
   active: boolean
   terminal: boolean
   onUndoTurn?: (turnId: string) => Promise<boolean>
@@ -793,7 +799,7 @@ function renderRowBody({
           undoDisabled={undoDisabled}
         />
       ) : row.kind === 'delegation' ? (
-        <DelegationCard row={row} onOpenSession={onOpenSession} />
+        <DelegationCard row={row} sessionId={sessionId} onOpenSession={onOpenSession} />
       ) : row.kind === 'image' ? (
         <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (

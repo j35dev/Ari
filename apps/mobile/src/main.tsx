@@ -8,6 +8,7 @@ import { defaultDeviceStore } from './lib/device-key'
 import { ThemeChrome } from './lib/theme-chrome'
 import { trackViewport } from './lib/viewport'
 import './styles/index.css'
+import '@ari/ui/visualization.css'
 
 const container = document.getElementById('root')
 if (container === null) throw new Error('missing #root element')
