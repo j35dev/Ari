@@ -21,7 +21,7 @@ const session: AdapterSession = {
 describe('default permissions across provider harnesses', () => {
   it.each([
     ['Claude', buildClaudeArgs],
-    ['Grok', buildGrokArgs],
+    ['Grok', (current: AdapterSession) => buildGrokArgs(current, '/private/prompt.txt')],
     ['Hermes', buildHermesArgs],
   ] as const)('launches %s with bypass permissions', (_name, buildArgs) => {
     expect(buildArgs(session)).toEqual(
