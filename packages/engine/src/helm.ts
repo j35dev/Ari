@@ -1,4 +1,12 @@
-import { HELM_PROJECT_ID, type HelmSessionRow } from '@ari/contracts/helm'
+import {
+  HELM_PROJECT_ID,
+  HELM_MAX_PROJECTS,
+  HELM_DESCRIPTION_CHARS,
+  HELM_RECENT_SESSIONS,
+  HELM_SESSION_TITLE_CHARS,
+  type HelmProjectContext,
+  type HelmSessionRow,
+} from '@ari/contracts/helm'
 import type { SessionListEntry } from './session-store'
 import type { SessionReadModel } from './projection'
 import { finalAssistantText } from './delegation-state'
@@ -119,6 +127,45 @@ const MAX_ACTIVE = 25
 const MAX_FINISHED = 8
 const DAY_MS = 24 * 3_600_000
 
+function compact(text: string, max: number): string {
+  const value = text.replace(/\s+/g, ' ').trim()
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+function projectLine(
+  p: HelmProjectContext & {
+    projectId: string
+    name: string
+    available: boolean
+    agent?: ResolvedProjectAgent | null
+  },
+): string {
+  const source = {
+    arguments: 'explicit choice',
+    project: 'project setting',
+    recent: 'recent sessions',
+    app: 'app default',
+  } as const
+  const agent = p.agent
+    ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
+    : p.agent === null
+      ? ', agent unset'
+      : ''
+  const clues = [
+    ...(p.description ? [compact(p.description, HELM_DESCRIPTION_CHARS)] : []),
+    ...(p.repository ? [`repo: ${compact(p.repository, 100)}`] : []),
+    ...(p.recentSessionTitles?.length
+      ? [
+          `recent: ${p.recentSessionTitles
+            .slice(0, HELM_RECENT_SESSIONS)
+            .map((title) => JSON.stringify(compact(title, HELM_SESSION_TITLE_CHARS)))
+            .join(' / ')}`,
+        ]
+      : []),
+  ]
+  return `- ${compact(p.name, 80)} (${p.projectId}${agent}${p.available ? '' : ', folder missing'})${clues.length ? ` — ${clues.join('; ')}` : ''}`
+}
+
 /**
  * What Aria is told at the start of every turn: the projects it can reach,
  * what is running across them, and which of the sessions it asked for work
@@ -128,12 +175,12 @@ const DAY_MS = 24 * 3_600_000
 export async function helmSnapshot(
   view: HelmView,
   helm: SessionReadModel,
-  projects: readonly {
+  projects: readonly (HelmProjectContext & {
     projectId: string
     name: string
     available: boolean
     agent?: ResolvedProjectAgent | null
-  }[],
+  })[],
   now = Date.now(),
 ): Promise<string> {
   const rows = reachable(view)
@@ -156,29 +203,25 @@ export async function helmSnapshot(
     const entry = await helmRow(view, row)
     if (entry.state === 'idle') finished.push(entry)
   }
-  const others = projects.filter((project) => project.projectId !== HELM_PROJECT_ID)
-  const projectLine =
+  const others = projects
+    .filter((project) => project.projectId !== HELM_PROJECT_ID)
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.open)) - Number(Boolean(a.open)) ||
+        Number(Boolean(b.lastViewed)) - Number(Boolean(a.lastViewed)) ||
+        (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0),
+    )
+  const lastViewed = others.find((project) => project.lastViewed)
+  const projectBlock =
     others.length === 0
       ? 'Projects: none yet. Ask the user to add a project folder in Ari.'
-      : `Projects: ${others
-          .map((p) => {
-            const source = {
-              arguments: 'explicit choice',
-              project: 'project setting',
-              recent: 'recent sessions',
-              app: 'app default',
-            } as const
-            const agent = p.agent
-              ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
-              : p.agent === null
-                ? ', agent unset'
-                : ''
-            return `${p.name} (${p.projectId}${agent}${p.available ? '' : ', folder missing'})`
-          })
-          .join(', ')}`
+      : `Projects:\n${others.slice(0, HELM_MAX_PROJECTS).map(projectLine).join('\n')}${others.length > HELM_MAX_PROJECTS ? `\n(${others.length - HELM_MAX_PROJECTS} more; use ari projects to list all.)` : ''}`
   return [
     "[Ari now: the live state of the user's projects, added automatically by Ari for Aria. The user does not see this.]",
-    projectLine,
+    projectBlock,
+    ...(lastViewed
+      ? [`You were last in ${compact(lastViewed.name, 80)} (${lastViewed.projectId}).`]
+      : []),
     active.length === 0
       ? 'Nothing is running.'
       : `Running now:\n${active.map((entry) => line(entry, titles)).join('\n')}`,
