@@ -60,12 +60,17 @@ export async function verifyInstalledEngine(
           const key = relative ? `${relative}/${entry.name}` : entry.name
           if (
             !expected[key] &&
-            (entry.name.startsWith('.') ||
+            entry.isFile() &&
+            (entry.name === '.DS_Store' ||
+              entry.name.startsWith('._') ||
               ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
           )
             continue
-          if (entry.isDirectory()) await walk(key)
-          else {
+          if (entry.isDirectory()) {
+            if (!Object.keys(expected).some((path) => path.startsWith(`${key}/`)))
+              throw new EngineMismatchError('Unexpected engine directory.')
+            await walk(key)
+          } else {
             const file = expected[key]
             if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
             const path = join(directory, key)
@@ -132,7 +137,12 @@ export async function installEngine(
     PARTIAL_DOWNLOAD_MAX_AGE,
     '.partial',
   )
-  if (!(await stat(archive).catch(() => null))) {
+  if (
+    !(await stat(archive).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null
+      throw error
+    }))
+  ) {
     await downloadFile({
       id: 'engine',
       path: archive,
@@ -142,12 +152,13 @@ export async function installEngine(
       signal,
       progress,
     })
-  }
-  try {
-    await verifyDownload(archive, release.sha256)
-  } catch (error) {
-    await rm(archive, { force: true })
-    throw error
+  } else {
+    try {
+      await verifyDownload(archive, release.sha256)
+    } catch (error) {
+      if (error instanceof DownloadChecksumError) await rm(archive, { force: true })
+      throw error
+    }
   }
   let expandedSize = 0
   await t({

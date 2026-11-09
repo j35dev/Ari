@@ -1,12 +1,14 @@
 import { stat, rm, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import type { SettingsStore } from '@ari/engine/settings'
 import { MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
 import type { SpeechModel, SpeechProgress, SpeechStatus } from '@ari/contracts/rpc'
 import { catalog, discoverModels, modelRoots } from './discovery'
 import { downloadFile, prunePartialDownloads, PARTIAL_DOWNLOAD_MAX_AGE } from './download'
-import { ENGINE_VERSION, verifyInstalledEngine, installEngine } from './engine'
+import { ENGINE_VERSION, verifyInstalledEngine, installEngine, EngineIoError } from './engine'
+import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
 
 export function speechRequestTimeout(kind: string, samples = 0, modelSize = 0): number {
   if (kind !== 'transcribe') return 15 * 60_000
@@ -18,16 +20,12 @@ export function speechRequestTimeout(kind: string, samples = 0, modelSize = 0): 
 export function speechWorkerExitError(
   platform: string,
   code: number,
-  phase: string | null,
-  hasInferred: boolean,
+  hasLoaded: boolean,
   knownCause: boolean,
 ): string {
   const message = 'The speech engine stopped. Please retry.'
-  return platform === 'win32' &&
-    code !== 0 &&
-    !knownCause &&
-    (phase === 'load' || (phase === 'transcribe' && !hasInferred))
-    ? `${message} Install Microsoft Visual C++ 2015–2022 Redistributable 14.40 or newer: https://aka.ms/vs/17/release/vc_redist.x64.exe`
+  return platform === 'win32' && code !== 0 && !knownCause && !hasLoaded
+    ? `${message} ${WINDOWS_SPEECH_RUNTIME_HINT}`
     : message
 }
 
@@ -37,8 +35,15 @@ export class SpeechService {
   #engine: SpeechStatus['engine'] = 'missing'
   #library: string | null = null
   #initialized: Promise<void> | null = null
-  #engineTask: Promise<void> | null = null
-  #engineCheckFull = false
+  #engineQueue: Promise<void> = Promise.resolve()
+  #checkQueued = false
+  #installQueued = false
+  #nextCheckAt = 0
+  #retryAt = 0
+  #verifiedForSpawn = false
+  #refreshing: Promise<void> | null = null
+  #model: SpeechModel | null = null
+  #disposed = false
   #engineError: string | null = null
   #reinstallRequired = false
   #workerStarting: Promise<UtilityProcess> | null = null
@@ -61,7 +66,7 @@ export class SpeechService {
   #downloads = new Map<string, { controller: AbortController; done: Promise<void> }>()
   #workerState = new WeakMap<
     UtilityProcess,
-    { phase: string | null; hasInferred: boolean; knownCause: boolean; stopping: boolean }
+    { hasLoaded: boolean; knownCause: boolean; stopping: boolean }
   >()
   #progress = new Map<string, SpeechProgress>()
   #models: { at: number; value: SpeechModel[] } | null = null
@@ -90,64 +95,129 @@ export class SpeechService {
             shortcut: process.platform === 'darwin' ? MAC_SPEECH_SHORTCUT : 'ctrl+space',
           },
         })
-      await prunePartialDownloads(
-        join(this.#root, 'engine'),
-        new Set(),
-        PARTIAL_DOWNLOAD_MAX_AGE,
-        '.partial',
-      )
-      await this.#checkEngine().catch(() => undefined)
-    })()
+      this.#scheduleCheck(true)
+    })().catch((error: unknown) => {
+      this.#initialized = null
+      throw error
+    })
     return this.#initialized
   }
 
-  async #checkEngine(full = false): Promise<void> {
-    if (this.#engine === 'downloading') return
-    if (this.#engineTask) {
-      const checkedFull = this.#engineCheckFull
-      await this.#engineTask
-      if (full && !checkedFull) await this.#checkEngine(true)
+  #queueEngine<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.#engineQueue.then(() => {
+      if (this.#disposed) throw new Error('Speech service stopped.')
+      return run()
+    })
+    this.#engineQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  #scheduleCheck(prune = false): void {
+    if (
+      this.#disposed ||
+      this.#checkQueued ||
+      this.#installQueued ||
+      Date.now() < this.#nextCheckAt
+    )
       return
-    }
-    this.#engineCheckFull = full
-    const task = this.#inspectEngine(full)
+    this.#checkQueued = true
+    void this.#queueEngine(async () => {
+      if (prune)
+        await prunePartialDownloads(
+          join(this.#root, 'engine'),
+          new Set(),
+          PARTIAL_DOWNLOAD_MAX_AGE,
+          '.partial',
+        )
+      await this.#inspectEngine(false)
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        this.#checkQueued = false
+        this.#refreshStatus()
+      })
+  }
+
+  #refreshStatus(): void {
+    if (this.#disposed || this.#refreshing) return
+    this.#refreshing = this.#init()
+      .then(async () => {
+        this.#scheduleCheck()
+        const model = await this.#selected()
+        if (
+          this.#engine === 'ready' &&
+          this.#settings.current.speech.enabled &&
+          model?.installed &&
+          this.#validated !== model.installed.path &&
+          !this.#error &&
+          Date.now() >= this.#retryAt
+        ) {
+          await this.#prepare(model)
+        }
+      })
       .catch((error: unknown) => {
-        this.#engineError = error instanceof Error ? error.message : String(error)
-        throw error
+        if (!this.#disposed && !(error instanceof EngineIoError))
+          console.warn('Could not refresh speech configuration:', error)
       })
       .finally(() => {
-        if (this.#engineTask === task) this.#engineTask = null
+        this.#refreshing = null
       })
-    this.#engineTask = task
-    return task
   }
 
   async #inspectEngine(full: boolean): Promise<void> {
-    const library = await verifyInstalledEngine(join(this.#root, 'engine', ENGINE_VERSION), full)
+    const prior = this.#engine
+    const priorError = this.#engineError
+    let library: string | null
+    try {
+      library = await verifyInstalledEngine(join(this.#root, 'engine', ENGINE_VERSION), full)
+    } catch (error) {
+      if (this.#disposed) throw error
+      this.#engineError = error instanceof Error ? error.message : String(error)
+      this.#nextCheckAt = Date.now() + 500
+      this.#retryAt = this.#nextCheckAt
+      if (this.#engineError !== priorError)
+        this.#emit({
+          id: 'configuration',
+          phase: 'error',
+          received: 0,
+          total: 0,
+          error: this.#engineError,
+        })
+      throw error
+    }
+    if (this.#disposed) return
+    this.#nextCheckAt = Date.now() + 1000
+    this.#retryAt = 0
     this.#engineError = null
     if (library) {
       if (full) this.#reinstallRequired = false
       if (this.#reinstallRequired) return
       this.#library = library
       this.#engine = 'ready'
+      if (full) this.#verifiedForSpawn = true
     } else {
       const wasInstalled = this.#library !== null
       if (full || wasInstalled) this.#reinstallRequired = true
       this.#library = null
+      this.#verifiedForSpawn = false
       this.#engine = 'missing'
       this.#validated = null
-      if (this.#worker) this.#stopWorker(this.#worker)
+      if (this.#worker) await this.#stopWorkerAndWait(this.#worker)
       if (wasInstalled) {
         this.#error = 'The speech engine is missing or changed. Download it again.'
-        this.#emit({
-          id: 'configuration',
-          phase: 'error',
-          received: 0,
-          total: 0,
-          error: this.#error,
-        })
       }
     }
+    if (prior !== this.#engine || priorError)
+      this.#emit({
+        id: 'configuration',
+        phase: this.#engine === 'ready' ? 'complete' : 'error',
+        received: 0,
+        total: 0,
+        ...(this.#error ? { error: this.#error } : {}),
+      })
   }
 
   async models(refresh = true): Promise<SpeechModel[]> {
@@ -167,14 +237,23 @@ export class SpeechService {
 
   async #selected(): Promise<SpeechModel | null> {
     const { modelPath, modelId } = this.#settings.current.speech
-    if (!modelPath) return null
+    if (!modelPath) {
+      this.#model = null
+      return null
+    }
     const known = (await this.models(false)).find(
       (entry) => entry.installed && entry.installed.path === modelPath,
     )
-    if (known) return known
+    if (known) {
+      if (this.#settings.current.speech.modelPath === modelPath) this.#model = known
+      return known
+    }
     const file = await stat(modelPath).catch(() => null)
-    if (!file?.isFile() || !modelPath.toLowerCase().endsWith('.gguf') || !file.size) return null
-    return {
+    if (!file?.isFile() || !modelPath.toLowerCase().endsWith('.gguf') || !file.size) {
+      if (this.#settings.current.speech.modelPath === modelPath) this.#model = null
+      return null
+    }
+    const model: SpeechModel = {
       id: modelId ?? `local:${modelPath}`,
       name: basename(modelPath),
       filename: basename(modelPath),
@@ -186,27 +265,23 @@ export class SpeechService {
       revision: null,
       installed: { path: modelPath, source: 'other' },
     }
+    if (this.#settings.current.speech.modelPath === modelPath) this.#model = model
+    return model
   }
 
-  async status(): Promise<SpeechStatus> {
-    await this.#init()
-    await this.#checkEngine().catch(() => undefined)
-    const model = await this.#selected()
-    if (
-      this.#engine === 'ready' &&
-      this.#settings.current.speech.enabled &&
-      model?.installed &&
-      this.#validated !== model.installed.path &&
-      !this.#error
-    ) {
-      void this.#prepare(model).catch(() => undefined)
-    }
+  status(): SpeechStatus {
+    this.#refreshStatus()
+    const model = this.#model
     return {
       engine: this.#engine,
       model,
       ready:
         this.#settings.current.speech.enabled &&
-        Boolean(model?.installed && this.#validated === model.installed.path) &&
+        Boolean(
+          model?.installed &&
+          this.#validated === model.installed.path &&
+          model.installed.path === this.#settings.current.speech.modelPath,
+        ) &&
         this.#engine === 'ready' &&
         !this.#error,
       error: this.#error ?? this.#engineError,
@@ -224,15 +299,15 @@ export class SpeechService {
         this.#error = null
         this.#emit({ id: 'configuration', phase: 'complete', received: 0, total: 0 })
       } catch (error) {
-        await this.#checkEngine().catch(() => undefined)
         this.#validated = null
-        this.#error = error instanceof Error ? error.message : String(error)
+        if (!(error instanceof EngineIoError))
+          this.#error = error instanceof Error ? error.message : String(error)
         this.#emit({
           id: 'configuration',
           phase: 'error',
           received: 0,
           total: 0,
-          error: this.#error,
+          error: this.#error ?? this.#engineError ?? String(error),
         })
         throw error
       } finally {
@@ -244,23 +319,41 @@ export class SpeechService {
 
   async install(): Promise<{ started: boolean }> {
     await this.#init()
-    if (this.#downloads.has('engine')) return { started: false }
-    await this.#checkEngine()
-    if (this.#engine === 'downloading' || this.#engine === 'ready') return { started: false }
-    this.#engine = 'downloading'
-    this.#error = null
-    const task = this.#start('engine', async (signal) => {
-      this.#library = await installEngine(join(this.#root, 'engine'), signal, (frame) =>
-        this.#emit(frame),
-      )
-      this.#engine = 'ready'
-      this.#reinstallRequired = false
-      this.#validated = null
-    })
-    this.#engineTask = task
+    if (this.#installQueued) return { started: false }
+    this.#installQueued = true
+    const task = this.#start('engine', (signal) =>
+      this.#queueEngine(async () => {
+        const prior = this.#engine
+        try {
+          signal.throwIfAborted()
+          this.#engine = 'downloading'
+          this.#error = null
+          this.#engineError = null
+          this.#verifiedForSpawn = false
+          this.#validated = null
+          if (this.#worker) await this.#stopWorkerAndWait(this.#worker)
+          this.#library = await installEngine(join(this.#root, 'engine'), signal, (frame) =>
+            this.#emit(frame),
+          )
+          this.#engine = 'ready'
+          this.#reinstallRequired = false
+          this.#verifiedForSpawn = true
+          this.#retryAt = 0
+          this.#nextCheckAt = Date.now() + 1000
+        } catch (error) {
+          this.#engine = signal.aborted ? prior : 'error'
+          this.#engineError = signal.aborted
+            ? null
+            : error instanceof Error
+              ? error.message
+              : String(error)
+          throw error
+        }
+      }),
+    )
     void task
       .finally(() => {
-        if (this.#engineTask === task) this.#engineTask = null
+        this.#installQueued = false
       })
       .then(async () => {
         if (this.#engine !== 'ready') return
@@ -284,10 +377,6 @@ export class SpeechService {
       .catch((error: unknown) => {
         const cancelled = controller.signal.aborted
         const message = error instanceof Error ? error.message : String(error)
-        if (id === 'engine') {
-          this.#engine = cancelled ? 'missing' : 'error'
-          this.#error = cancelled ? null : message
-        }
         terminal = {
           ...this.#progress.get(id)!,
           phase: cancelled ? 'cancelled' : 'error',
@@ -340,13 +429,15 @@ export class SpeechService {
   async discard(modelId: string): Promise<{ discarded: boolean }> {
     const model = catalog.find((model) => model.id === modelId)
     if (!model) throw new Error('Unknown speech model.')
-    if (this.#downloads.has(modelId))
-      throw new Error('Cancel the model download before discarding it.')
-    const path = join(this.#root, 'models', `${model.filename}.partial`)
-    const exists = Boolean(await stat(path).catch(() => null))
-    await rm(path, { force: true })
-    this.#models = null
-    return { discarded: exists }
+    return this.#queueEngine(async () => {
+      if (this.#downloads.has(modelId))
+        throw new Error('Cancel the model download before discarding it.')
+      const path = join(this.#root, 'models', `${model.filename}.partial`)
+      const exists = Boolean(await stat(path).catch(() => null))
+      await rm(path, { force: true })
+      this.#models = null
+      return { discarded: exists }
+    })
   }
 
   async select(choice: { modelId?: string; path?: string }): Promise<SpeechStatus> {
@@ -369,11 +460,12 @@ export class SpeechService {
     await this.#settings.update({
       speech: { modelId: entry?.id ?? null, modelPath: path, enabled: true },
     })
-    if (this.#engine !== 'ready') await this.install()
-    else {
-      const selected = await this.#selected()
-      if (selected) await this.#prepare(selected)
-    }
+    const selected = await this.#selected()
+    if (selected)
+      await this.#prepare(selected).catch(async (error: unknown) => {
+        if (this.#engine === 'missing' && !(error instanceof EngineIoError)) await this.install()
+        else throw error
+      })
     this.#emit({ id: 'configuration', phase: 'complete', received: 0, total: 0 })
     return this.status()
   }
@@ -396,6 +488,7 @@ export class SpeechService {
       if (this.#worker) await this.#request('unload', path)
       this.#validated = null
       await this.#settings.update({ speech: { modelId: null, modelPath: null, enabled: false } })
+      this.#model = null
     }
     await rm(path)
     await rm(`${path}.partial`, { force: true })
@@ -435,9 +528,9 @@ export class SpeechService {
     language?: string,
     modelSize?: number,
   ): Promise<{ text: string }> {
-    const worker = await this.#getWorker()
-    const state = this.#workerState.get(worker)
-    if (state && !state.phase) state.phase = kind
+    let worker = await this.#getWorker()
+    while (worker !== this.#worker || this.#workerState.get(worker)?.stopping)
+      worker = await this.#getWorker()
     const id = ++this.#nextId
     return new Promise((resolve, reject) => {
       this.#pending.set(id, {
@@ -452,7 +545,7 @@ export class SpeechService {
   }
 
   async #getWorker(): Promise<UtilityProcess> {
-    if (this.#worker) return this.#worker
+    if (this.#worker && !this.#workerState.get(this.#worker)?.stopping) return this.#worker
     this.#workerStarting ??= this.#spawnWorker().finally(() => {
       this.#workerStarting = null
     })
@@ -460,89 +553,112 @@ export class SpeechService {
   }
 
   async #spawnWorker(): Promise<UtilityProcess> {
-    // Verify once per process, immediately before loading downloaded native code.
-    await this.#checkEngine(true)
-    if (!this.#worker) {
-      if (!this.#library || this.#engine !== 'ready')
-        throw new Error('Download the speech engine in Settings.')
-      const child = utilityProcess.fork(join(import.meta.dirname, 'speech-worker.js'), [], {
-        serviceName: 'Speech to text',
-        env: { ...process.env, TRANSCRIBE_LIBRARY: this.#library },
-      })
-      this.#worker = child
-      const state = {
-        phase: null as string | null,
-        hasInferred: false,
-        knownCause: false,
-        stopping: false,
+    return this.#queueEngine(async () => {
+      if (this.#worker && this.#workerState.get(this.#worker)?.stopping)
+        await this.#stopWorkerAndWait(this.#worker)
+      if (!this.#verifiedForSpawn) {
+        if (Date.now() < this.#retryAt) await delay(this.#retryAt - Date.now())
+        await this.#inspectEngine(true)
       }
-      this.#workerState.set(child, state)
-      child.on(
-        'message',
-        (message: { id: number; started?: boolean; result?: { text: string }; error?: string }) => {
-          const pending = this.#pending.get(message.id)
-          if (!pending || pending.worker !== child) return
-          if (message.started) {
-            if (pending.timeout) return
-            state.phase = pending.kind
-            if (!state.stopping) state.knownCause = false
-            // A queued request gets its own budget only after inference dequeues it.
-            pending.timeout = setTimeout(() => {
-              this.#pending.delete(message.id)
-              pending.reject(
-                new Error(
-                  'Speech to text took too long. Try a smaller model or a shorter recording.',
-                ),
-              )
-              this.#stopWorker(child)
-            }, pending.budget)
-            return
-          }
-          clearTimeout(pending.timeout)
-          this.#pending.delete(message.id)
-          state.phase = null
-          if (message.error) {
-            state.knownCause = true
-            pending.reject(new Error(message.error))
-          } else {
-            if (pending.kind === 'transcribe') state.hasInferred = true
-            pending.resolve(message.result ?? { text: '' })
-          }
-        },
-      )
-      child.on('exit', (code: number) => {
-        const message = speechWorkerExitError(
-          process.platform,
-          code,
-          state.phase,
-          state.hasInferred,
-          state.knownCause,
+      if (this.#disposed) throw new Error('Speech service stopped.')
+      if (!this.#worker) {
+        if (!this.#library || this.#engine !== 'ready')
+          throw new Error('Download the speech engine in Settings.')
+        const child = utilityProcess.fork(join(import.meta.dirname, 'speech-worker.js'), [], {
+          serviceName: 'Speech to text',
+          env: { ...process.env, TRANSCRIBE_LIBRARY: this.#library },
+        })
+        this.#worker = child
+        this.#verifiedForSpawn = false
+        const state = {
+          hasLoaded: false,
+          knownCause: false,
+          stopping: false,
+        }
+        this.#workerState.set(child, state)
+        child.on(
+          'message',
+          (message: {
+            id: number
+            started?: boolean
+            result?: { text: string }
+            error?: string
+          }) => {
+            const pending = this.#pending.get(message.id)
+            if (!pending || pending.worker !== child) return
+            if (message.started) {
+              if (pending.timeout) return
+              if (!state.stopping) state.knownCause = false
+              // A queued request gets its own budget only after inference dequeues it.
+              pending.timeout = setTimeout(() => {
+                this.#pending.delete(message.id)
+                pending.reject(
+                  new Error(
+                    'Speech to text took too long. Try a smaller model or a shorter recording.',
+                  ),
+                )
+                this.#stopWorker(child)
+              }, pending.budget)
+              return
+            }
+            clearTimeout(pending.timeout)
+            this.#pending.delete(message.id)
+            if (message.error) {
+              state.knownCause = true
+              pending.reject(new Error(message.error))
+            } else {
+              if (pending.kind === 'load') state.hasLoaded = true
+              pending.resolve(message.result ?? { text: '' })
+            }
+          },
         )
-        if (this.#worker === child) {
-          this.#worker = null
-          this.#validated = null
-        }
-        for (const [id, pending] of this.#pending) {
-          if (pending.worker !== child) continue
-          clearTimeout(pending.timeout)
-          pending.reject(new Error(message))
-          this.#pending.delete(id)
-        }
-      })
-    }
-    return this.#worker
+        child.on('exit', (code: number) => {
+          const message = speechWorkerExitError(
+            process.platform,
+            code,
+            state.hasLoaded,
+            state.knownCause,
+          )
+          if (this.#worker === child) {
+            this.#worker = null
+            this.#validated = null
+          }
+          for (const [id, pending] of this.#pending) {
+            if (pending.worker !== child) continue
+            clearTimeout(pending.timeout)
+            pending.reject(new Error(message))
+            this.#pending.delete(id)
+          }
+        })
+      }
+      return this.#worker
+    })
   }
 
-  #stopWorker(worker: UtilityProcess): void {
+  #stopWorker(worker: UtilityProcess): boolean {
     const state = this.#workerState.get(worker)
     if (state) {
       state.knownCause = true
       state.stopping = true
     }
-    worker.kill()
+    return worker.kill()
+  }
+
+  async #stopWorkerAndWait(worker: UtilityProcess): Promise<void> {
+    await new Promise<void>((resolve) => {
+      worker.once('exit', () => resolve())
+      if (!this.#stopWorker(worker)) {
+        if (this.#worker === worker) {
+          this.#worker = null
+          this.#validated = null
+        }
+        resolve()
+      }
+    })
   }
 
   dispose(): void {
+    this.#disposed = true
     for (const { controller } of this.#downloads.values()) controller.abort()
     if (this.#worker) this.#stopWorker(this.#worker)
   }

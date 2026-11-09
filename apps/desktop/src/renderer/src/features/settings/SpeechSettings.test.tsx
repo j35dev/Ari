@@ -1,4 +1,4 @@
-﻿import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, createEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechSettings } from './SpeechSettings'
 import { defaultSettings, MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
@@ -129,5 +129,32 @@ it('does not save a modifier alone when it is part of a chord', async () => {
   fireEvent.keyUp(picker, { key: 'Control', code: 'ControlLeft' })
   await waitFor(() =>
     expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'ctrl+space' } }),
+  )
+})
+
+it('saves Windows AltGr as Right Alt and ignores the synthetic Ctrl release', async () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+  render(<SpeechSettings />)
+  const picker = screen.getByLabelText('Hold-to-talk shortcut')
+  const control = createEvent.keyDown(picker, {
+    key: 'Control',
+    code: 'ControlLeft',
+    ctrlKey: true,
+  })
+  Object.defineProperty(control, 'timeStamp', { value: 100 })
+  fireEvent(picker, control)
+  const alt = createEvent.keyDown(picker, {
+    key: 'AltGraph',
+    code: 'AltRight',
+    ctrlKey: true,
+    altKey: true,
+  })
+  Object.defineProperty(alt, 'timeStamp', { value: 100 })
+  Object.defineProperty(alt, 'getModifierState', { value: (name: string) => name === 'AltGraph' })
+  fireEvent(picker, alt)
+  fireEvent.keyUp(picker, { key: 'AltGraph', code: 'AltRight', ctrlKey: true })
+  fireEvent.keyUp(picker, { key: 'Control', code: 'ControlLeft' })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'alt-right' } }),
   )
 })

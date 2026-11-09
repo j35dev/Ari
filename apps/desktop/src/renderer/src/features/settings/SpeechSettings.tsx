@@ -5,6 +5,7 @@ import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
 import { useSpeech } from '../speech/useSpeech'
+import { ModifierShortcutCapture } from '../speech/shortcut'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { SettingsSection } from './SettingsSection'
@@ -14,11 +15,6 @@ function sizeLabel(bytes: number): string {
   return bytes >= 1_000_000_000
     ? `${(bytes / 1_000_000_000).toFixed(1)} GB`
     : `${Math.round(bytes / 1_000_000)} MB`
-}
-function modifierChord(code: string): string | null {
-  const [, modifier, side] = /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code) ?? []
-  if (!modifier || !side) return null
-  return `${modifier === 'Control' ? 'ctrl' : modifier.toLowerCase()}-${side.toLowerCase()}`
 }
 function progressLabel(frame: SpeechProgress): string {
   if (frame.phase === 'verifying') return 'Verifying…'
@@ -39,7 +35,7 @@ export function SpeechSettings() {
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
-  const modifierOnly = useRef<{ code: string; chord: string } | null>(null)
+  const modifierOnly = useRef(new ModifierShortcutCapture())
   const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
@@ -160,17 +156,11 @@ export function SpeechSettings() {
             value={shortcut}
             className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
             onKeyDown={(event) => {
-              const modifier = modifierChord(event.code)
-              if (modifier) {
-                if (event.repeat) return
+              if (event.repeat) return
+              if (modifierOnly.current.press(event.nativeEvent, /Win/.test(navigator.platform))) {
                 event.preventDefault()
-                const held = [event.ctrlKey, event.altKey, event.metaKey, event.shiftKey].filter(
-                  Boolean,
-                ).length
-                modifierOnly.current = held <= 1 ? { code: event.code, chord: modifier } : null
                 return
               }
-              modifierOnly.current = null
               if (
                 ['Control', 'Alt', 'Meta', 'Shift', 'Tab'].includes(event.key) ||
                 (!event.ctrlKey && !event.altKey && !event.metaKey)
@@ -188,14 +178,13 @@ export function SpeechSettings() {
               void run('shortcut', () => update({ speech: { shortcut: chord } }))
             }}
             onKeyUp={(event) => {
-              const candidate = modifierOnly.current
-              if (!candidate || candidate.code !== event.code) return
+              const chord = modifierOnly.current.release(event.nativeEvent)
+              if (!chord) return
               event.preventDefault()
-              modifierOnly.current = null
-              void run('shortcut', () => update({ speech: { shortcut: candidate.chord } }))
+              void run('shortcut', () => update({ speech: { shortcut: chord } }))
             }}
             onBlur={() => {
-              modifierOnly.current = null
+              modifierOnly.current.reset()
             }}
           />
         </SettingsRow>
