@@ -9,9 +9,10 @@ interface Entry {
 /** Park native stream-json processes so Claude's built-in agents survive replies. */
 export class ClaudeSessionPool {
   readonly #idle = new Map<string, Entry>()
+  readonly #releases = new Set<Promise<void>>()
   #timer: ReturnType<typeof setInterval> | null = null
   onBackground: ((sessionId: string, events: AgentEvent[]) => void) | null = null
-  onEnded: ((sessionId: string) => void) | null = null
+  onEnded: ((sessionId: string) => void | Promise<void>) | null = null
 
   constructor(
     private readonly idleMs = 30 * 60_000,
@@ -63,15 +64,18 @@ export class ClaudeSessionPool {
     return this.#idle.get(sessionId)?.process.closed === false
   }
 
-  release(sessionId: string): void {
+  release(sessionId: string): Promise<void> {
     const entry = this.#idle.get(sessionId)
-    if (!entry) return
+    if (!entry) return Promise.resolve()
     this.#idle.delete(sessionId)
     entry.process.onBackground = null
     entry.process.onEnded = null
-    void entry.process.shutdown()
-    this.onEnded?.(sessionId)
+    const ended = this.onEnded?.(sessionId)
+    const release = Promise.all([entry.process.shutdown(), ended]).then(() => undefined)
+    this.#releases.add(release)
+    void release.finally(() => this.#releases.delete(release))
     this.#disarmWhenEmpty()
+    return release
   }
 
   #disarmWhenEmpty(): void {
@@ -100,6 +104,7 @@ export class ClaudeSessionPool {
         return process.shutdown()
       }),
     )
+    await Promise.all(this.#releases)
   }
 }
 
