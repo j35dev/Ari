@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { SpeechModel, SpeechProgress } from '@ari/contracts/rpc'
-import { MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
+import { defaultSpeechShortcut, speechShortcutError } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
 import { useSpeech } from '../speech/useSpeech'
-import { ModifierShortcutCapture } from '../speech/shortcut'
+import { isShortcutModifier, shortcutFromKey } from '../speech/shortcut'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { SettingsSection } from './SettingsSection'
@@ -35,7 +35,9 @@ export function SpeechSettings() {
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
-  const modifierOnly = useRef(new ModifierShortcutCapture())
+  const [recordingShortcut, setRecordingShortcut] = useState(false)
+  const [shortcutError, setShortcutError] = useState<string | null>(null)
+  const platform = /Mac/.test(navigator.platform) ? 'darwin' : 'linux'
   const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
@@ -74,12 +76,57 @@ export function SpeechSettings() {
     .filter((frame) => frame.phase === 'error')
     .map((frame) => frame.error)
     .filter(Boolean)
-  const shortcut =
-    settings?.speech.shortcut ||
-    (/Mac/.test(navigator.platform) ? MAC_SPEECH_SHORTCUT : 'ctrl+space')
+  const shortcut = settings?.speech.shortcut || defaultSpeechShortcut(platform)
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
+
+  useEffect(() => {
+    if (!recordingShortcut) return
+    let pressedKey = false
+    const press = (event: KeyboardEvent): void => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.repeat) return
+      if (event.key === 'Escape') {
+        setRecordingShortcut(false)
+        setShortcutError(null)
+        return
+      }
+      const result = shortcutFromKey(event, platform)
+      if (!result) return
+      pressedKey = true
+      if ('error' in result) {
+        setShortcutError(result.error)
+        return
+      }
+      setRecordingShortcut(false)
+      setShortcutError(null)
+      void update({ speech: { shortcut: result.shortcut } }).catch((reason: unknown) =>
+        setShortcutError(reason instanceof Error ? reason.message : String(reason)),
+      )
+    }
+    const release = (event: KeyboardEvent): void => {
+      if (
+        !pressedKey &&
+        isShortcutModifier(event.key) &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.metaKey
+      )
+        setShortcutError(speechShortcutError(event.key === 'Meta' ? 'meta' : 'ctrl', platform))
+    }
+    const cancel = (): void => setRecordingShortcut(false)
+    window.addEventListener('keydown', press, true)
+    window.addEventListener('keyup', release, true)
+    window.addEventListener('blur', cancel)
+    return () => {
+      window.removeEventListener('keydown', press, true)
+      window.removeEventListener('keyup', release, true)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [recordingShortcut, platform, update])
 
   return (
     <SettingsPage
@@ -148,45 +195,33 @@ export function SpeechSettings() {
         </SettingsRow>
         <SettingsRow
           label="Hold to talk"
-          hint="Hold a modifier alone, or press a modifier and key, to change the shortcut."
+          hint={
+            shortcutError ? (
+              <span role="alert">{shortcutError}</span>
+            ) : recordingShortcut ? (
+              'Press a shortcut. Esc cancels.'
+            ) : (
+              'Choose a key with modifiers, or F1–F24 alone.'
+            )
+          }
         >
           <input
             aria-label="Hold-to-talk shortcut"
             readOnly
             value={shortcut}
             className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
-            onKeyDown={(event) => {
-              if (event.repeat) return
-              if (modifierOnly.current.press(event.nativeEvent, /Win/.test(navigator.platform))) {
-                event.preventDefault()
-                return
-              }
-              if (
-                ['Control', 'Alt', 'Meta', 'Shift', 'Tab'].includes(event.key) ||
-                (!event.ctrlKey && !event.altKey && !event.metaKey)
-              )
-                return
-              event.preventDefault()
-              const key = event.code === 'Space' ? 'space' : event.key.toLowerCase()
-              const chord = [
-                ...(event.ctrlKey ? ['ctrl'] : []),
-                ...(event.altKey ? ['alt'] : []),
-                ...(event.metaKey ? ['meta'] : []),
-                ...(event.shiftKey ? ['shift'] : []),
-                key,
-              ].join('+')
-              void run('shortcut', () => update({ speech: { shortcut: chord } }))
-            }}
-            onKeyUp={(event) => {
-              const chord = modifierOnly.current.release(event.nativeEvent)
-              if (!chord) return
-              event.preventDefault()
-              void run('shortcut', () => update({ speech: { shortcut: chord } }))
-            }}
-            onBlur={() => {
-              modifierOnly.current.reset()
-            }}
           />
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-pressed={recordingShortcut}
+            onClick={() => {
+              setShortcutError(null)
+              setRecordingShortcut((recording) => !recording)
+            }}
+          >
+            {recordingShortcut ? 'Cancel' : 'Record shortcut'}
+          </Button>
         </SettingsRow>
       </SettingsSection>
       <SettingsSection

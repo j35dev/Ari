@@ -1,6 +1,13 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { activeAccountId, defaultSettings, settingsSchema } from '@ari/contracts/settings'
+import {
+  activeAccountId,
+  defaultSettings,
+  settingsSchema,
+  defaultSpeechShortcut,
+  migrateSpeechShortcut,
+  speechShortcutError,
+} from '@ari/contracts/settings'
 import type { CliKind, ProviderConnection, Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 
@@ -58,6 +65,10 @@ export class SettingsStore {
 
   constructor(options: SettingsStoreOptions) {
     this.#path = join(options.dir, 'settings.json')
+    this.#current = {
+      ...defaultSettings,
+      speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+    }
   }
 
   get current(): Settings {
@@ -89,8 +100,11 @@ export class SettingsStore {
         log.warn('settings read failed; preserving file', { error: String(error) })
         throw error
       }
-      await this.save(defaultSettings)
-      this.#current = defaultSettings
+      this.#current = {
+        ...defaultSettings,
+        speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+      }
+      await this.save(this.#current)
       this.#loaded = true
       return this.#current
     }
@@ -100,6 +114,11 @@ export class SettingsStore {
     } catch (error) {
       log.warn('settings invalid; preserving file', { error: String(error) })
       throw error
+    }
+    const shortcut = migrateSpeechShortcut(this.#current.speech.shortcut, process.platform)
+    if (shortcut !== this.#current.speech.shortcut) {
+      this.#current = { ...this.#current, speech: { ...this.#current.speech, shortcut } }
+      await this.save(this.#current)
     }
     this.#loaded = true
     return this.#current
@@ -118,6 +137,10 @@ export class SettingsStore {
   async #apply(patch: SettingsPatch): Promise<Settings> {
     // Window geometry can save before boot has loaded the user's preferences.
     if (!this.#loaded) await this.#read()
+    if (patch.speech?.shortcut !== undefined) {
+      const error = speechShortcutError(patch.speech.shortcut, process.platform)
+      if (error) throw new Error(error)
+    }
     const next: Settings = {
       speech: { ...this.#current.speech, ...patch.speech },
       onboarding: patch.onboarding ?? this.#current.onboarding,

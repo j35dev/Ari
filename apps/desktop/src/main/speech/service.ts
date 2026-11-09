@@ -3,7 +3,6 @@ import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import type { SettingsStore } from '@ari/engine/settings'
-import { MAC_SPEECH_SHORTCUT } from '@ari/contracts/settings'
 import type { SpeechModel, SpeechProgress, SpeechStatus } from '@ari/contracts/rpc'
 import { catalog, discoverModels, modelRoots } from './discovery'
 import { downloadFile, prunePartialDownloads, PARTIAL_DOWNLOAD_MAX_AGE } from './download'
@@ -111,12 +110,6 @@ export class SpeechService {
   async #init(): Promise<void> {
     this.#initialized ??= (async () => {
       await this.#settings.load()
-      if (!this.#settings.current.speech.shortcut)
-        await this.#settings.update({
-          speech: {
-            shortcut: process.platform === 'darwin' ? MAC_SPEECH_SHORTCUT : 'ctrl+space',
-          },
-        })
       this.#scheduleCheck(true)
     })().catch((error: unknown) => {
       this.#initialized = null

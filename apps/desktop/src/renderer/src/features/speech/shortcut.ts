@@ -1,83 +1,52 @@
+import { speechShortcutError } from '@ari/contracts/settings'
+
 type ShortcutKey = Pick<
   KeyboardEvent,
-  'code' | 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey' | 'timeStamp' | 'getModifierState'
+  'code' | 'key' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'
 >
 
-function modifierChord(code: string): string | null {
-  const [, modifier, side] = /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code) ?? []
-  if (!modifier || !side) return null
-  return `${modifier === 'Control' ? 'ctrl' : modifier.toLowerCase()}-${side.toLowerCase()}`
+const keyNames: Record<string, string> = {
+  Space: 'space',
+  Enter: 'enter',
+  Tab: 'tab',
+  Delete: 'delete',
+  Comma: 'comma',
+  Period: 'period',
+  Slash: 'slash',
+  Semicolon: 'semicolon',
+  Quote: 'quote',
+  Backquote: 'backquote',
+  Minus: 'minus',
+  Equal: 'equal',
+  BracketLeft: 'bracketleft',
+  BracketRight: 'bracketright',
+  Backslash: 'backslash',
 }
 
-export class ModifierShortcutCapture {
-  #held = new Set<string>()
-  #candidate: { code: string; chord: string } | null = null
-  #leftControlAt: number | null = null
-  #syntheticControl = false
+export function isShortcutModifier(key: string): boolean {
+  return ['Control', 'Alt', 'Shift', 'Meta', 'AltGraph'].includes(key)
+}
 
-  press(event: ShortcutKey, windows: boolean): boolean {
-    const leftControlAt = this.#leftControlAt
-    this.#leftControlAt = event.code === 'ControlLeft' ? event.timeStamp : null
-    const chord = modifierChord(event.code)
-    if (!chord) {
-      this.#candidate = null
-      return false
-    }
-    this.#held.add(event.code)
-    if (event.code === 'ControlLeft') {
-      this.#syntheticControl = false
-    }
-    // Windows emits AltGr's virtual left Ctrl immediately before Right Alt.
-    // A Ctrl held earlier remains a physical modifier and disqualifies capture.
-    if (
-      windows &&
-      event.code === 'AltRight' &&
-      leftControlAt !== null &&
-      event.timeStamp - leftControlAt >= 0 &&
-      event.timeStamp - leftControlAt <= 50 &&
-      this.#held.has('ControlLeft')
-    ) {
-      this.#held.delete('ControlLeft')
-      this.#syntheticControl = true
-    }
-    const flags = [
-      event.ctrlKey && !this.#syntheticControl,
-      event.altKey || (event.code === 'AltRight' && event.getModifierState('AltGraph')),
-      event.metaKey,
-      event.shiftKey,
-    ]
-    const index = chord.startsWith('ctrl')
-      ? 0
-      : chord.startsWith('alt')
-        ? 1
-        : chord.startsWith('meta')
-          ? 2
-          : 3
-    this.#candidate =
-      this.#held.size === 1 && flags[index] && flags.filter(Boolean).length === 1
-        ? { code: event.code, chord }
-        : null
-    return true
-  }
-
-  release(event: ShortcutKey): string | null {
-    this.#leftControlAt = null
-    const remaining =
-      event.altKey || event.metaKey || event.shiftKey || (event.ctrlKey && !this.#syntheticControl)
-    const result =
-      this.#candidate?.code === event.code && this.#held.size === 1 && !remaining
-        ? this.#candidate.chord
-        : null
-    this.#held.delete(event.code)
-    if (this.#candidate?.code === event.code) this.#candidate = null
-    if (event.code === 'AltRight') this.#syntheticControl = false
-    return result
-  }
-
-  reset(): void {
-    this.#held.clear()
-    this.#candidate = null
-    this.#leftControlAt = null
-    this.#syntheticControl = false
-  }
+export function shortcutFromKey(
+  event: ShortcutKey,
+  platform: string,
+): { shortcut: string } | { error: string } | null {
+  if (isShortcutModifier(event.key)) return null
+  const key = /^Key[A-Z]$/.test(event.code)
+    ? event.code.slice(3).toLowerCase()
+    : /^Digit[0-9]$/.test(event.code)
+      ? event.code.slice(5)
+      : /^F([1-9]|1[0-9]|2[0-4])$/.test(event.code)
+        ? event.code.toLowerCase()
+        : keyNames[event.code]
+  if (!key) return { error: 'Use a letter, number, punctuation key, Space, Enter, or F1–F24.' }
+  const shortcut = [
+    ...(event.ctrlKey ? ['ctrl'] : []),
+    ...(event.altKey ? ['alt'] : []),
+    ...(event.shiftKey ? ['shift'] : []),
+    ...(event.metaKey ? ['meta'] : []),
+    key,
+  ].join('+')
+  const error = speechShortcutError(shortcut, platform)
+  return error ? { error } : { shortcut }
 }
