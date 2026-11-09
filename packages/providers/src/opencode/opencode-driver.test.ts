@@ -15,7 +15,7 @@ describe('buildOpencodeArgs', () => {
   it('uses run with raw JSON events and thinking blocks enabled', () => {
     const args = buildOpencodeArgs(base)
     expect(args.slice(0, 4)).toEqual(['run', '--format', 'json', '--thinking'])
-    expect(args[args.length - 1]).toBe('do the thing')
+    expect(args).not.toContain(base.prompt)
   })
 
   it('emits no permission flags for ask/allow-edits; only full gets --auto', () => {

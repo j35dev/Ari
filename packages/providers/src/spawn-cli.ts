@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { Writable } from 'node:stream'
+import { createLogger } from '@ari/shared/logger'
 import type { AdapterSession } from './driver'
+
+const log = createLogger('providers:spawn-cli')
 
 /**
  * Windows CLI spawn support.
@@ -144,7 +148,7 @@ export function buildCmdSpawnArgs(
   }
 }
 
-/** Keep a carried conversation from exceeding cmd.exe's 8,191-character limit. */
+/** Only argv-only CLIs need to budget history against cmd.exe's length limit. */
 export function argsWithWindowsHandoffBudget(
   binaryPath: string,
   session: AdapterSession,
@@ -191,6 +195,8 @@ export function argsWithWindowsHandoffBudget(
  * a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows, and
  * powershell.exe -File for .ps1 scripts — so arbitrary prompt text can
  * never be parsed as a command line.
+ * Piped stdin uses a sibling native or cmd launcher for PowerShell scripts,
+ * since PowerShell rewrites native input rather than forwarding bytes.
  *
  * Returns the non-null-stream shape every driver uses (callers pass pipe
  * stdio); the wrapped paths are cast to match since they spawn the same way.
@@ -200,6 +206,20 @@ export function spawnCli(
   args: string[],
   options: SpawnOptions,
 ): ChildProcessWithoutNullStreams {
+  if (
+    process.platform === 'win32' &&
+    isPowershellScript(binaryPath) &&
+    (options.stdio === 'pipe' || (Array.isArray(options.stdio) && options.stdio[0] === 'pipe'))
+  ) {
+    // PowerShell re-encodes native stdin and normalizes line endings. npm and
+    // Pi install a sibling cmd launcher, which forwards the original pipe.
+    const launcher = ['.exe', '.cmd']
+      .map((extension) => binaryPath.replace(/\.ps1$/i, extension))
+      .find((path) => existsSync(path))
+    if (!launcher)
+      throw new Error(`CLI stdin requires a .cmd or native launcher beside ${binaryPath}`)
+    binaryPath = launcher
+  }
   if (!needsWindowsShell(binaryPath)) {
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams
@@ -209,4 +229,12 @@ export function spawnCli(
     ...options,
     windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams
+}
+
+/** One-shot CLIs read through EOF; no shell ever parses these prompt bytes. */
+export function writeCliPrompt(stdin: Writable, prompt: string): void {
+  // A CLI may exit for login or argument errors before accepting the prompt.
+  // Its exit/stderr pump reports that failure; EPIPE must not crash the host.
+  stdin.on('error', (error: Error) => log.debug('CLI stdin error', { message: error.message }))
+  stdin.end(prompt, 'utf8')
 }

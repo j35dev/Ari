@@ -8,13 +8,13 @@ import {
   buildShellSpawnArgs,
   needsWindowsShell,
   spawnCli,
+  writeCliPrompt,
   argsWithWindowsHandoffBudget,
 } from './spawn-cli'
 import type { AdapterSession } from './driver'
 import { buildCodexArgs } from './codex/codex-driver'
 import { buildOpencodeArgs } from './opencode/opencode-driver'
 import { buildPiArgs } from './pi/pi-driver'
-import { buildGrokArgs } from './grok/grok-driver'
 import { buildHermesArgs } from './hermes/hermes-driver'
 
 describe('Windows handoff budget', () => {
@@ -53,13 +53,7 @@ describe('Windows handoff budget', () => {
     resumeOf: null,
   }
 
-  it.each([
-    ['codex', buildCodexArgs],
-    ['opencode', buildOpencodeArgs],
-    ['pi', buildPiArgs],
-    ['grok', buildGrokArgs],
-    ['hermes', buildHermesArgs],
-  ] as const)(
+  it.each([['hermes', buildHermesArgs]] as const)(
     'fits %s fallback argv after Windows escaping and keeps the newest history',
     (kind, buildArgs) => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
@@ -86,9 +80,9 @@ describe('Windows handoff budget', () => {
     const args = argsWithWindowsHandoffBudget(
       'agent.cmd',
       { ...session, handoff: carried, prompt: `Preamble\n\n${carried}\n\nCurrent request` },
-      buildPiArgs,
+      buildHermesArgs,
     )
-    const prompt = args.at(-1)!
+    const prompt = args[1]!
     expect(prompt).toContain(literal)
     expect(prompt).toMatch(/^Preamble\n\n\[Conversation so far\]/)
     expect(prompt.endsWith(`${literal}\n\nCurrent request`)).toBe(true)
@@ -106,13 +100,13 @@ describe('Windows handoff budget', () => {
           : join(scratch, 'npm', 'agent.cmd')
       const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
       const bounded = { ...session, handoff: carried, prompt: carried }
-      const original = buildCmdSpawnArgs(binary, buildPiArgs(bounded))
+      const original = buildCmdSpawnArgs(binary, buildHermesArgs(bounded))
       const originalLength = original.file.length + 1 + original.args.join(' ').length
       expect(originalLength).toBeLessThanOrEqual(8_191)
       expect(originalLength).toBeGreaterThan(8_191 - 512)
       const wrapped = buildCmdSpawnArgs(
         binary,
-        argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs),
+        argsWithWindowsHandoffBudget(binary, bounded, buildHermesArgs),
       )
       expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(
         8_191 - 512,
@@ -126,12 +120,12 @@ describe('Windows handoff budget', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
       const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
       const bounded = { ...session, handoff: carried, prompt: carried }
-      const wrapped = buildCmdSpawnArgs(binary, buildPiArgs(bounded))
+      const wrapped = buildCmdSpawnArgs(binary, buildHermesArgs(bounded))
       const length = wrapped.file.length + 1 + wrapped.args.join(' ').length
       expect(length).toBeGreaterThan(8_191 - 512)
       expect(length).toBeLessThanOrEqual(8_191)
-      expect(argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)).toEqual(
-        buildPiArgs(bounded),
+      expect(argsWithWindowsHandoffBudget(binary, bounded, buildHermesArgs)).toEqual(
+        buildHermesArgs(bounded),
       )
     },
   )
@@ -141,12 +135,12 @@ describe('Windows handoff budget', () => {
     const binary = join(scratch, 'npm', 'plain.cmd')
     const carried = `[Conversation so far]\n\n${'x'.repeat(7_650)}`
     const bounded = { ...session, handoff: carried, prompt: carried }
-    const original = buildPiArgs(bounded)
+    const original = buildHermesArgs(bounded)
     const wrapped = buildCmdSpawnArgs(binary, original)
     const length = wrapped.file.length + 1 + wrapped.args.join(' ').length
     expect(length).toBeGreaterThan(8_191 - 512)
     expect(length).toBeLessThanOrEqual(8_191)
-    expect(argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)).toEqual(original)
+    expect(argsWithWindowsHandoffBudget(binary, bounded, buildHermesArgs)).toEqual(original)
   })
 
   it.each([
@@ -162,7 +156,7 @@ describe('Windows handoff budget', () => {
         layout === 'local'
           ? join(scratch, 'node_modules', '.bin', 'agent.cmd')
           : join(scratch, 'npm', 'agent.cmd')
-      const empty = buildCmdSpawnArgs(binary, buildPiArgs({ ...session, prompt: '\n\n' }))
+      const empty = buildCmdSpawnArgs(binary, buildHermesArgs({ ...session, prompt: '\n\n' }))
       const overhead = empty.file.length + 1 + empty.args.join(' ').length
       const carried = '[Conversation so far]\n\nAria: Latest work'
       const bounded = {
@@ -170,11 +164,11 @@ describe('Windows handoff budget', () => {
         handoff: carried,
         prompt: `${'x'.repeat(length - overhead)}\n\n${carried}`,
       }
-      const original = buildPiArgs(bounded)
+      const original = buildHermesArgs(bounded)
       const wrapped = buildCmdSpawnArgs(binary, original)
       expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191)
-      const args = argsWithWindowsHandoffBudget(binary, bounded, buildPiArgs)
-      expect(args.at(-1)).not.toContain('[Conversation so far]')
+      const args = argsWithWindowsHandoffBudget(binary, bounded, buildHermesArgs)
+      expect(args[1]).not.toContain('[Conversation so far]')
       expect(args).not.toEqual(original)
       const reduced = buildCmdSpawnArgs(binary, args)
       const reducedLength = reduced.file.length + 1 + reduced.args.join(' ').length
@@ -186,12 +180,12 @@ describe('Windows handoff budget', () => {
   it('keeps the full history for direct executables, PowerShell and non-Windows argv', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' })
     for (const binary of ['agent.exe', 'agent.ps1'])
-      expect(argsWithWindowsHandoffBudget(binary, session, buildPiArgs)).toEqual(
-        buildPiArgs(session),
+      expect(argsWithWindowsHandoffBudget(binary, session, buildHermesArgs)).toEqual(
+        buildHermesArgs(session),
       )
     Object.defineProperty(process, 'platform', { value: 'linux' })
-    expect(argsWithWindowsHandoffBudget('agent.cmd', session, buildPiArgs)).toEqual(
-      buildPiArgs(session),
+    expect(argsWithWindowsHandoffBudget('agent.cmd', session, buildHermesArgs)).toEqual(
+      buildHermesArgs(session),
     )
   })
 })
@@ -294,6 +288,15 @@ describe('needsWindowsShell', () => {
     expect(needsWindowsShell('C:\\bin\\claude')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.exe')).toBe(false)
   })
+
+  it('refuses piped stdin through a PowerShell-only launcher instead of rewriting prompt bytes', () => {
+    withPlatform('win32')
+    expect(() =>
+      spawnCli('C:\\missing\\agent.ps1', [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).toThrow('CLI stdin requires a .cmd or native launcher')
+  })
 })
 
 describe('buildPowershellSpawnArgs', () => {
@@ -347,4 +350,61 @@ describe.runIf(process.platform === 'win32')('spawnCli with a real .ps1', () => 
     expect(code).toBe(0)
     expect(stdout.trim().split(/\r?\n/)).toEqual(['-p', 'fix the && bug $env:USERNAME > log'])
   }, 30_000)
+})
+
+describe.runIf(process.platform === 'win32')('long prompts through real Windows shims', () => {
+  it.each([
+    ['codex', buildCodexArgs],
+    ['opencode', buildOpencodeArgs],
+    ['pi', buildPiArgs],
+  ] as const)(
+    '%s preserves prompt bytes through .cmd and .ps1 stdin',
+    async (kind, buildArgs) => {
+      const dir = await mkdtemp(join(tmpdir(), 'ari stdin '))
+      const prompt = ` \n${'Preamble & %PATH% "$&" 中文 🙂\r\n'.repeat(1_000)}\nCurrent request \n`
+      const session: AdapterSession = {
+        sessionId: 's',
+        workspacePath: dir,
+        prompt,
+        modelId: null,
+        permissionMode: 'ask',
+        resumeOf: 'old-thread',
+      }
+      try {
+        await writeFile(join(dir, 'echo.cjs'), 'process.stdin.pipe(process.stdout)')
+        await writeFile(join(dir, `${kind}.cmd`), '@echo off\r\nnode "%~dp0echo.cjs" %*\r\n')
+        await writeFile(
+          join(dir, `${kind}.ps1`),
+          `if ($MyInvocation.ExpectingInput) {
+  $input | & node "$PSScriptRoot/echo.cjs" $args
+} else {
+  & node "$PSScriptRoot/echo.cjs" $args
+}
+exit $LASTEXITCODE`,
+        )
+        for (const extension of ['cmd', 'ps1']) {
+          const child = spawnCli(join(dir, `${kind}.${extension}`), buildArgs(session), {
+            cwd: dir,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+          })
+          let output = ''
+          let errors = ''
+          child.stdout.setEncoding('utf8')
+          child.stdout.on('data', (chunk: string) => (output += chunk))
+          child.stderr.on('data', (chunk: Buffer) => (errors += chunk.toString('utf8')))
+          const closed = new Promise<number | null>((resolve, reject) => {
+            child.once('close', resolve)
+            child.once('error', reject)
+          })
+          writeCliPrompt(child.stdin, prompt)
+          expect(await closed, errors).toBe(0)
+          expect(output).toBe(prompt)
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+      }
+    },
+    30_000,
+  )
 })
