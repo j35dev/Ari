@@ -26,18 +26,33 @@ describe('AriaMark', () => {
     expect(mark.querySelector('title')).toHaveTextContent('Aria needs your input')
   })
 
-  it('keeps the closed idle circle and opens a gap only for thinking', () => {
+  it('gives every state a different eye expression without relying on color', () => {
+    const { container } = render(
+      <>
+        <AriaMark state="idle" />
+        <AriaMark state="thinking" />
+        <AriaMark state="working" />
+        <AriaMark state="attention" />
+      </>,
+    )
+    const expressions = Array.from(container.querySelectorAll('svg')).map((mark) => {
+      const eyes = mark.querySelectorAll('.ari-aria-mark-eyes rect')
+      expect(eyes).toHaveLength(2)
+      return `${eyes[0]?.getAttribute('width')} ${eyes[0]?.getAttribute('height')}`
+    })
+    expect(new Set(expressions).size).toBe(4)
+  })
+
+  it('omits the small nose in sidebar sizes and keeps the larger art flat', () => {
     const { container } = render(
       <>
         <AriaMark size={64} />
-        <AriaMark size={12} state="thinking" />
+        <AriaMark size={16} />
       </>,
     )
     const marks = Array.from(container.querySelectorAll('svg'))
-    expect(marks[0]?.querySelector('circle')).not.toHaveAttribute('stroke-dasharray')
-    expect(marks[1]?.querySelector('circle')).toHaveAttribute('stroke-dasharray', '78 22')
-    expect(marks[0]).toHaveAttribute('stroke-width', '2.3')
-    expect(marks[1]).toHaveAttribute('stroke-width', '2.6')
+    expect(marks[0]?.querySelector('path.ari-aria-mark-ink')).not.toBeNull()
+    expect(marks[1]?.querySelector('path.ari-aria-mark-ink')).toBeNull()
     expect(container.querySelector('defs, filter, image')).toBeNull()
   })
 })
