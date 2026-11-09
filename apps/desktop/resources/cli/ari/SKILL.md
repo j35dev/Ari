@@ -158,6 +158,13 @@ Aria reaches every session outside its own project: `get`, `read`, `prompt`,
 started). `destroy`, `diff` and `integrate` stay with each session's own
 parent. `project ask` creates or reuses the live Aria-created lead in the project
 folder. Send follow-ups through `project ask` so that lead keeps its context.
+`--agent`, `--model`, `--effort`, `--permission` and `--title` apply only when
+creating a lead. The result includes `reused` and `lead`, with the lead's actual
+agent and permissions. An unavailable provider or model gets a new lead; the old lead is
+kept. Inherited permissions are capped at Aria's; an explicit higher permission
+is refused when creating a lead or saving a project default. Reusing, prompting,
+messaging or answering a lead or session with higher permissions is refused;
+ask the user to send the instruction or raise Aria's permissions.
 `session spawn --project` still works, but use `project ask` for project work.
 Aria cannot start work in its own project; the concurrency cap counts working
 project leads, including leads waiting on their workers.

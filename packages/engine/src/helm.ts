@@ -6,8 +6,10 @@ import {
   HELM_SESSION_TITLE_CHARS,
   type HelmProjectContext,
   type HelmSessionRow,
+  isHelmSession,
+  isHelmProjectLead,
 } from '@ari/contracts/helm'
-import type { SessionListEntry } from './session-store'
+import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel } from './projection'
 import { finalAssistantText } from './delegation-state'
 import type { ResolvedProjectAgent } from '@ari/contracts/project'
@@ -26,6 +28,61 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
     if (origin?.kind !== 'completion' && origin?.kind !== 'question') return null
   }
   return null
+}
+
+/** A new Aria topic inherits reports from project leads whose requester was deleted. */
+export async function helmReportRecipient(
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
+  model: SessionReadModel,
+  turnId: string,
+): Promise<string | null> {
+  return helmRecipient(store, model, turnRequester(model, turnId))
+}
+
+/** Listing identity is filled from the creation event without replaying a journal. */
+export function isProjectLeadCandidate(row: SessionListEntry): boolean {
+  return !row.archived && isHelmProjectLead(row)
+}
+
+export async function helmTaskRecipient(
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
+  model: SessionReadModel,
+  rows: readonly SessionListEntry[],
+): Promise<string | null> {
+  const queued = [...model.queuedMessages]
+    .reverse()
+    .find((message) => message.origin?.kind === 'session')
+  const asked = [...model.messages]
+    .reverse()
+    .find((message) => message.role === 'user' && message.origin?.kind === 'session')
+  const requester =
+    queued?.origin?.kind === 'session'
+      ? queued.origin.sessionId
+      : asked?.origin?.kind === 'session'
+        ? asked.origin.sessionId
+        : model.session?.createdBy?.kind === 'session'
+          ? model.session.createdBy.sessionId
+          : null
+  return helmRecipient(store, model, requester, rows)
+}
+
+async function helmRecipient(
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
+  model: SessionReadModel,
+  requester: string | null,
+  rows?: readonly SessionListEntry[],
+): Promise<string | null> {
+  if (!requester) return null
+  const row = rows?.find((row) => row.id === requester)
+  if (row) return isHelmSession(row) ? requester : null
+  const asked = (await store.loadExisting(requester))?.session
+  if (asked) return isHelmSession(asked) ? requester : null
+  if (!isHelmProjectLead(model.session)) return null
+  if (!rows) return store.currentHelmSession()
+  const current = [...rows]
+    .filter((row) => isHelmSession(row) && !row.archived)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  return current?.id ?? null
 }
 
 /** Where a session stands, from its journal. */

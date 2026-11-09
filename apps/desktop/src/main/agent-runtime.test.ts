@@ -2,7 +2,8 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -11,11 +12,19 @@ import type { Session } from '@ari/contracts/session'
 import type { OrchestrationView, ResultPackage } from '@ari/contracts/orchestration'
 import type { StreamFrame } from '@ari/contracts/rpc'
 import { SessionStore } from '@ari/engine/session-store'
+import { AgentControlServer } from '@ari/engine/control-server'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
-import { controlEndpoint, SOCKET_ROOT, startAgentRuntime } from './agent-runtime'
+import {
+  controlEndpoint,
+  SOCKET_ROOT,
+  startAgentRuntime,
+  dropSessionResources,
+  revokeArchivedSessions,
+  closeControlTransport,
+} from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { RpcRegistry } from './rpc-registry'
 import { registerOrchestrationRpc } from './orchestration-runtime'
@@ -483,7 +492,7 @@ it('wakes an idle parent with its child report and stops children with their par
   }
 }, 60_000)
 
-it('drops a session through onDrop when it is destroyed or archived', async () => {
+it('revokes archive access, releases parked agents, and keeps workspace handles until destruction', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-drop-'))
   const store = new SessionStore({ rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
@@ -507,6 +516,8 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
   const dropped: string[] = []
+  const revoked: string[] = []
+  const parked: string[] = []
   const runtime = await startAgentRuntime({
     engine,
     store,
@@ -521,8 +532,18 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
         defaultWorkspaceMode: 'shared',
       }),
     providers: async () => [{ driverKind: 'claude', available: true, models: [] }],
-    onDrop: (id) => {
-      dropped.push(id)
+    onDrop: (id, reason) => {
+      revoked.push(id)
+      return dropSessionResources(
+        id,
+        reason,
+        async (id) => {
+          parked.push(id)
+        },
+        async (id) => {
+          dropped.push(id)
+        },
+      )
     },
   })
   try {
@@ -552,7 +573,16 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
 
     // A remote archive reaches the engine directly, without the desktop RPC.
     await engine.dispatch({ type: 'session.update', sessionId: 'root', archived: true })
-    await vi.waitFor(() => expect(dropped).toContain('root'))
+    await vi.waitFor(() => expect(revoked).toContain('root'))
+    expect(dropped).not.toContain('root')
+    expect(parked).toContain('root')
+    const release = vi
+      .spyOn(ManagedWorkspaces.prototype, 'release')
+      .mockResolvedValueOnce(undefined)
+    await runtime.release('root')
+    expect(dropped).toContain('root')
+    expect(release).toHaveBeenCalledWith('root')
+    release.mockRestore()
   } finally {
     await runtime.close()
     for (const session of await store.listSessions()) {
@@ -563,6 +593,237 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
   }
 }, 60_000)
 
+it('makes control ready while the orphan sweep runs and releases even if resource cleanup fails', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-background-sweep-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  let sweepSignal: AbortSignal | undefined
+  const sweep = vi
+    .spyOn(ManagedWorkspaces.prototype, 'sweepOrphans')
+    .mockImplementationOnce((_exists, _repos, signal) => {
+      sweepSignal = signal
+      return gate
+    })
+  const release = vi.spyOn(ManagedWorkspaces.prototype, 'release').mockResolvedValueOnce(undefined)
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  let ready = false
+  const starting = startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+    onDrop: async () => {
+      throw new Error('resource cleanup failed')
+    },
+  }).then((runtime) => {
+    ready = true
+    return runtime
+  })
+  try {
+    await vi.waitFor(() => expect(sweep).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(ready).toBe(true))
+    const runtime = await starting
+    await runtime.release('removed-session')
+    expect(release).toHaveBeenCalledWith('removed-session')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('session cleanup failed'),
+      expect.objectContaining({
+        sessionId: 'removed-session',
+        error: 'Error: resource cleanup failed',
+      }),
+    )
+    let closed = false
+    const closing = runtime.close().then(() => {
+      closed = true
+    })
+    await closing
+    expect(closed).toBe(true)
+    expect(sweepSignal?.aborted).toBe(true)
+    finish()
+  } finally {
+    finish()
+    await (await starting).close()
+    sweep.mockRestore()
+    release.mockRestore()
+    warn.mockRestore()
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('closes without waiting for a stuck retry and starts no cleanup after cancellation', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-retry-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  let retrySignal: AbortSignal | undefined
+  const retry = vi
+    .spyOn(ManagedWorkspaces.prototype, 'retryReleases')
+    .mockImplementationOnce(async (_drop, signal) => {
+      retrySignal = signal
+      await gate
+    })
+  const projects = vi.fn(async () => [])
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+    projects,
+  })
+  const closeSupervisor = runtime.supervisor.close.bind(runtime.supervisor)
+  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(() => {
+    expect(retrySignal?.aborted).toBe(true)
+    closeSupervisor()
+  })
+  const closeApprovals = runtime.approvals.close.bind(runtime.approvals)
+  const approvals = vi.spyOn(runtime.approvals, 'close').mockImplementation(() => {
+    expect(retrySignal?.aborted).toBe(true)
+    closeApprovals()
+  })
+  const server = vi.spyOn(AgentControlServer.prototype, 'close')
+  try {
+    await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
+    await runtime.close()
+    expect(supervisor.mock.invocationCallOrder[0]).toBeLessThan(
+      approvals.mock.invocationCallOrder[0]!,
+    )
+    expect(approvals.mock.invocationCallOrder[0]).toBeLessThan(server.mock.invocationCallOrder[0]!)
+    expect(retrySignal?.aborted).toBe(true)
+    finish()
+    await gate
+    await Promise.resolve()
+    expect(projects).not.toHaveBeenCalled()
+  } finally {
+    finish()
+    await runtime.close()
+    supervisor.mockRestore()
+    approvals.mockRestore()
+    server.mockRestore()
+    retry.mockRestore()
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('does not schedule recovered orchestration after shutdown interrupts its session read', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-recovery-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  await store.append('root', {
+    type: 'session.created',
+    session: {
+      id: 'root',
+      projectId: 'project',
+      title: 'Root',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  })
+  await store.append('root', {
+    type: 'orchestration.operation.updated',
+    operation: {
+      operationId: 'old-op',
+      method: 'task.view',
+      fingerprint: '{}',
+      status: 'completed',
+      startedAt: 1,
+      completedAt: 2,
+      detail: null,
+    },
+  })
+  const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const load = store.loadExisting.bind(store)
+  const reading = vi.spyOn(store, 'loadExisting').mockImplementation(async (id) => {
+    const model = await load(id)
+    await gate
+    return model
+  })
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+  })
+  const schedule = vi.spyOn(runtime.orchestration, 'schedule')
+  try {
+    await vi.waitFor(() => expect(reading.mock.calls.length).toBeGreaterThanOrEqual(2))
+    await runtime.close()
+    finish()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(schedule).not.toHaveBeenCalled()
+  } finally {
+    finish()
+    await runtime.close()
+    reading.mockRestore()
+    schedule.mockRestore()
+    await store.closeJournal('root')
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('closes the server before removing the socket directory', async () => {
+  const socketDir = await mkdtemp(join(tmpdir(), 'ari-close-socket-'))
+  await writeFile(join(socketDir, 'socket'), 'fixture')
+  const events: string[] = []
+  try {
+    await closeControlTransport(async () => {
+      expect(existsSync(socketDir)).toBe(true)
+      events.push('server closed')
+    }, socketDir)
+    expect(events).toEqual(['server closed'])
+    expect(existsSync(socketDir)).toBe(false)
+  } finally {
+    await rm(socketDir, { recursive: true, force: true })
+  }
+})
+
+it('continues revoking archived sessions when one parked process fails to release', async () => {
+  const firstError = new Error('parked cleanup failed')
+  const revoke = vi.fn(async (id: string) => {
+    if (id === 'first') throw firstError
+    if (id === 'child') throw new Error('child cleanup failed')
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    await expect(
+      revokeArchivedSessions(['first', 'child', 'grandchild'], revoke),
+    ).resolves.toBeUndefined()
+    expect(revoke.mock.calls.map(([id]) => id)).toEqual(['first', 'child', 'grandchild'])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('archived session cleanup failed'),
+      expect.objectContaining({ sessionId: 'first', error: 'Error: parked cleanup failed' }),
+    )
+    expect(warn).toHaveBeenCalledTimes(2)
+  } finally {
+    warn.mockRestore()
+  }
+})
+
 it('awaits session teardown before release and retries failed removals during startup', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-release-retry-'))
   const orphan = join(dir, 'worktrees', 'project', 'old-child')
@@ -570,6 +831,8 @@ it('awaits session teardown before release and retries failed removals during st
   await mkdir(orphan, { recursive: true })
   await mkdir(live, { recursive: true })
   await writeFile(join(orphan, 'leftover.txt'), 'old\n')
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(orphan, old, old)
   await writeFile(join(live, 'keep.txt'), 'live\n')
   const store = new SessionStore({ rootDir: join(dir, 'sessions') })
   const engine = new Engine({
@@ -602,11 +865,17 @@ it('awaits session teardown before release and retries failed removals during st
   }
   let runtime = await startAgentRuntime(options)
   try {
-    await expect(readFile(join(orphan, 'leftover.txt'))).rejects.toThrow()
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(orphan, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
     const locked = join(dir, 'worktrees', 'project', 'locked-child')
     await mkdir(locked)
     await writeFile(join(locked, 'leftover.txt'), 'locked\n')
+    await utimes(locked, old, old)
     const effects: string[] = []
     let finish!: () => void
     await runtime.close()
@@ -620,6 +889,12 @@ it('awaits session teardown before release and retries failed removals during st
         effects.push(`stopped ${id}`)
       },
     })
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     // Startup sweeps unregistered folders, so recreate this future release.
     await mkdir(locked, { recursive: true })
     await writeFile(join(locked, 'leftover.txt'), 'locked\n')
@@ -647,8 +922,13 @@ it('awaits session teardown before release and retries failed removals during st
     await runtime.close()
     const dropped = vi.fn(async () => undefined)
     runtime = await startAgentRuntime({ ...options, onDrop: dropped })
-    expect(dropped).toHaveBeenCalledWith('locked-child')
-    await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+    await vi.waitFor(() => expect(dropped).toHaveBeenCalledWith('locked-child', 'release'))
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+      },
+      { timeout: 10_000 },
+    )
     expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
   } finally {
     vi.restoreAllMocks()
