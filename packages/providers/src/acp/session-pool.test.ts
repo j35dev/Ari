@@ -200,8 +200,36 @@ describe('pooled ACP sessions', () => {
     expect(pool.size).toBe(0)
     expect(pool.has('ari_1')).toBe(false)
     // The host hears of it, so it can end what the process still ran.
-    expect(ended).toHaveBeenCalledWith('ari_1')
+    await vi.waitFor(() => expect(ended).toHaveBeenCalledWith('ari_1'))
     await vi.waitFor(() => expect(child.killed).toBe(true))
+  }, 15_000)
+
+  it('awaits a parked process shutdown on release, including concurrent releases', async () => {
+    const pool = new AcpSessionPool()
+    const ended = vi.fn()
+    pool.onEnded = ended
+    const child = agent(standard)
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
+    await drain(adapter)
+    await adapter.dispose()
+    child.stdin.removeAllListeners('end')
+    let finish!: () => void
+    child.stdin.on('end', () => {
+      finish = () => child.kill()
+    })
+    const released = pool.release('ari_1')
+    const again = pool.release('ari_1')
+    let finished = false
+    void again.then(() => {
+      finished = true
+    })
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    expect(finished).toBe(false)
+    expect(child.killed).toBe(false)
+    finish()
+    await Promise.all([released, again])
+    expect(child.killed).toBe(true)
+    expect(ended).toHaveBeenCalledTimes(1)
   }, 15_000)
 
   it('reports a background shell from the turn and its end when the agent reports back', async () => {
