@@ -30,6 +30,19 @@ export async function dropSessionResources(
   if (reason !== 'archive') await releaseWorkspace(id)
 }
 
+export async function revokeArchivedSessions(
+  ids: Iterable<string>,
+  revoke: (id: string) => Promise<void>,
+): Promise<void> {
+  for (const id of ids) {
+    try {
+      await revoke(id)
+    } catch (error) {
+      log.warn('archived session cleanup failed', { sessionId: id, error: String(error) })
+    }
+  }
+}
+
 const scopedKeys = [
   'ARI_ENV',
   'ARI_SESSION_ID',
@@ -328,31 +341,38 @@ async function startControlTransport(
   })
   supervisor.start()
   const cleanupAbort = new AbortController()
-  void (async () => {
-    await workspaces.retryReleases((id) => dropSession(id, 'release'))
+  const cleanup = (async () => {
+    await workspaces.retryReleases((id) => dropSession(id, 'release'), cleanupAbort.signal)
     if (cleanupAbort.signal.aborted) return
     const rows = await store.listSessions()
+    if (cleanupAbort.signal.aborted) return
     const projects = (await options.projects?.(rows)) ?? []
+    if (cleanupAbort.signal.aborted) return
     const repositories = projects
       .filter((project) => project.available)
       .map((project) => project.path)
     for (const row of rows) {
       if (cleanupAbort.signal.aborted) return
       const session = (await store.loadExisting(row.id))?.session
+      if (cleanupAbort.signal.aborted) return
       const cwd = session ? await engine.workspace(session) : null
+      if (cleanupAbort.signal.aborted) return
       if (cwd) repositories.push(cwd)
     }
     await workspaces.sweepOrphans((id) => store.exists(id), repositories, cleanupAbort.signal)
   })().catch((error: unknown) => {
+    if (cleanupAbort.signal.aborted) return
     log.warn('managed workspace startup cleanup failed', { error: String(error) })
   })
   // Dependency waits have no queued provider message; explicitly recover them.
-  void store
+  const recovery = store
     .listSessions()
     .then(async (rows) => {
       for (const row of rows) {
-        if ((await store.loadExisting(row.id))?.orchestration)
-          await orchestration.schedule(row.id).catch(() => undefined)
+        if (cleanupAbort.signal.aborted) return
+        const model = await store.loadExisting(row.id)
+        if (cleanupAbort.signal.aborted) return
+        if (model?.orchestration) await orchestration.schedule(row.id).catch(() => undefined)
       }
     })
     .catch(() => undefined)
@@ -399,6 +419,17 @@ async function startControlTransport(
     close: async () => {
       cleanupAbort.abort()
       unsubscribe()
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          Promise.allSettled([cleanup, recovery]),
+          new Promise<void>((resolve) => {
+            timeout = setTimeout(resolve, 3_000)
+          }),
+        ])
+      } finally {
+        clearTimeout(timeout)
+      }
       supervisor.close()
       approvals.close()
       await server.close()

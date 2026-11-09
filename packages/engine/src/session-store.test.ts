@@ -357,7 +357,7 @@ describe('SessionStore', () => {
     expect(migrated['outputTokens']).toBe(3)
   })
 
-  it('keeps a v5 sidecar without new fields and fills them only after journal growth', async () => {
+  it('fills v5 lead identity without replay and leaves other fields until journal growth', async () => {
     const lead = {
       ...session,
       lead: true as const,
@@ -374,14 +374,17 @@ describe('SessionStore', () => {
       hierarchy: Record<string, unknown>
     }
     old.version = 5
-    for (const key of ['createdAt', 'permissionMode', 'effort', 'lead']) delete old.hierarchy[key]
+    for (const key of ['createdAt', 'permissionMode', 'effort', 'lead', 'createdBy'])
+      delete old.hierarchy[key]
     await writeFile(path, JSON.stringify(old))
     await store.closeJournal(lead.id)
     const fresh = new SessionStore({ rootDir })
     const replay = vi.spyOn(Journal.prototype, 'readAll')
     const opening = vi.spyOn(fresh, 'openJournal')
     try {
-      expect((await fresh.listSessions())[0]).not.toHaveProperty('lead')
+      const [row] = await fresh.listSessions()
+      expect(row).toMatchObject({ lead: true, createdBy: lead.createdBy })
+      expect(row).not.toHaveProperty('permissionMode')
       expect(replay).not.toHaveBeenCalled()
       expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(old)
       const { appendFile } = await import('node:fs/promises')
@@ -457,6 +460,109 @@ describe('SessionStore', () => {
     expect(await store.loadExisting('deleted')).toBeNull()
     const { readdir } = await import('node:fs/promises')
     expect(await readdir(rootDir)).toEqual([])
+  })
+
+  it.each(['directory', 'empty-journal', 'uncreated-journal', 'sidecar-only'])(
+    'treats a leftover %s as nonexistent without changing any files',
+    async (kind) => {
+      const { readdir, readFile } = await import('node:fs/promises')
+      const path = join(rootDir, session.id)
+      await mkdir(path)
+      if (kind === 'empty-journal') await writeFile(join(path, 'journal.0000.jsonl'), '')
+      if (kind === 'uncreated-journal')
+        await writeFile(
+          join(path, 'journal.0000.jsonl'),
+          JSON.stringify({
+            type: 'session.updated',
+            sessionId: session.id,
+            seq: 0,
+            at: 1,
+            title: 'Ghost',
+          }) + '\n',
+        )
+      if (kind === 'sidecar-only') await writeFile(join(path, 'index.json'), '{}')
+      const before = await Promise.all(
+        (await readdir(path)).map(async (name) => [name, await readFile(join(path, name), 'utf8')]),
+      )
+      const opening = vi.spyOn(store, 'openJournal')
+      expect(await store.exists(session.id)).toBe(false)
+      expect(await store.loadExisting(session.id)).toBeNull()
+      expect(await store.listSessions()).toEqual([])
+      expect(opening).not.toHaveBeenCalled()
+      expect(
+        await Promise.all(
+          (await readdir(path)).map(async (name) => [
+            name,
+            await readFile(join(path, name), 'utf8'),
+          ]),
+        ),
+      ).toEqual(before)
+      opening.mockRestore()
+    },
+  )
+
+  it('keeps the pre-replay byte count when a writer appends during index repair', async () => {
+    const { appendFile, readFile, stat } = await import('node:fs/promises')
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
+    const path = join(rootDir, session.id, 'journal.0000.jsonl')
+    const before = (await stat(path)).size
+    const journal = new Journal({ dir: join(rootDir, session.id), name: 'journal' })
+    const readAll = journal.readAll.bind(journal)
+    const replay = vi.spyOn(Journal.prototype, 'readAll').mockImplementationOnce(async () => {
+      const events = await readAll()
+      await appendFile(
+        path,
+        JSON.stringify({
+          type: 'session.updated',
+          sessionId: session.id,
+          seq: 1,
+          at: 2000,
+          title: 'Concurrent title',
+        }) + '\n',
+      )
+      return events
+    })
+    const fresh = new SessionStore({ rootDir })
+    try {
+      expect((await fresh.listSessions())[0]?.title).toBe(session.title)
+      expect(
+        JSON.parse(await readFile(join(rootDir, session.id, 'index.json'), 'utf8')),
+      ).toMatchObject({ journalBytes: before })
+      expect((await fresh.listSessions())[0]?.title).toBe('Concurrent title')
+      expect(replay).toHaveBeenCalledTimes(2)
+    } finally {
+      replay.mockRestore()
+    }
+  })
+
+  it('serves a warm listing while an append is waiting in the session queue', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    let finish!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const original = store.openJournal.bind(store)
+    const opening = vi.spyOn(store, 'openJournal').mockImplementationOnce(async (id) => {
+      await gate
+      return original(id)
+    })
+    const appending = store.append(session.id, { type: 'turn.started', turnId: 'waiting' })
+    let listed = false
+    try {
+      await vi.waitFor(() => expect(opening).toHaveBeenCalledOnce())
+      const listing = store.listSessions().then((rows) => {
+        listed = true
+        return rows
+      })
+      await vi.waitFor(() => expect(listed).toBe(true))
+      expect(await listing).toHaveLength(1)
+    } finally {
+      finish()
+      await appending
+      opening.mockRestore()
+    }
   })
 
   it('reads an index entry that still carries a removed Hive botId, and drops it', async () => {

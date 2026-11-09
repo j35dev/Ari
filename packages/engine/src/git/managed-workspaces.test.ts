@@ -337,6 +337,11 @@ it('keeps fresh folders and rechecks live session ids immediately before removal
   const raced = join(project, 'raced-spawn')
   const orphan = join(project, 'old-orphan')
   for (const path of [fresh, raced, orphan]) await mkdir(path, { recursive: true })
+  const external = join(dir, 'external')
+  await mkdir(external)
+  await writeFile(join(external, 'keep.txt'), 'shared')
+  const link = join(raced, 'linked')
+  await symlink(external, link, process.platform === 'win32' ? 'junction' : 'dir')
   const old = new Date(Date.now() - 10 * 60_000)
   for (const path of [raced, orphan]) await utimes(path, old, old)
   let checks = 0
@@ -344,7 +349,45 @@ it('keeps fresh folders and rechecks live session ids immediately before removal
   expect(checks).toBe(2)
   expect((await fs.lstat(fresh)).isDirectory()).toBe(true)
   expect((await fs.lstat(raced)).isDirectory()).toBe(true)
+  expect((await fs.lstat(link)).isSymbolicLink()).toBe(true)
+  expect(await readFile(join(external, 'keep.txt'), 'utf8')).toBe('shared')
   await expect(fs.lstat(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('cancels release retries after teardown without starting a release or the next session', async () => {
+  await mkdir(manager.rootDir)
+  const path = join(manager.rootDir, '.pending-releases.json')
+  await writeFile(path, JSON.stringify({ first: [], second: [] }))
+  const controller = new AbortController()
+  const stop = vi.fn(async () => {
+    controller.abort()
+  })
+  const release = vi.spyOn(manager, 'release').mockResolvedValue(undefined)
+  await manager.retryReleases(stop, controller.signal)
+  expect(stop).toHaveBeenCalledTimes(1)
+  expect(release).not.toHaveBeenCalled()
+  expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ first: [], second: [] })
+})
+
+it('cancels a release during repository inspection without stripping workspace links', async () => {
+  const path = join(manager.rootDir, root.projectId, 'cancelled')
+  const external = join(dir, 'external')
+  await mkdir(path, { recursive: true })
+  await mkdir(external)
+  const link = join(path, 'linked')
+  await symlink(external, link, process.platform === 'win32' ? 'junction' : 'dir')
+  const controller = new AbortController()
+  vi.spyOn(manager.git, 'listWorktrees').mockImplementationOnce(async () => {
+    controller.abort()
+    return { ok: true, value: [] }
+  })
+  await expect(manager.release('cancelled', controller.signal)).rejects.toMatchObject({
+    name: 'AbortError',
+  })
+  expect((await fs.lstat(link)).isSymbolicLink()).toBe(true)
+  expect(
+    JSON.parse(await readFile(join(manager.rootDir, '.pending-releases.json'), 'utf8')),
+  ).toEqual({ cancelled: [] })
 })
 
 it('aborts an orphan sweep while repository inspection is in flight', async () => {

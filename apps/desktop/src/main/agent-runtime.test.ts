@@ -20,6 +20,7 @@ import {
   SOCKET_ROOT,
   startAgentRuntime,
   dropSessionResources,
+  revokeArchivedSessions,
 } from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { RpcRegistry } from './rpc-registry'
@@ -640,9 +641,12 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
     const closing = runtime.close().then(() => {
       closed = true
     })
-    await vi.waitFor(() => expect(closed).toBe(true))
-    expect(sweepSignal?.aborted).toBe(true)
+    await vi.waitFor(() => expect(sweepSignal?.aborted).toBe(true))
+    expect(closed).toBe(false)
+    finish()
     await closing
+    expect(closed).toBe(true)
+    expect(sweepSignal?.aborted).toBe(true)
   } finally {
     finish()
     await (await starting).close()
@@ -650,6 +654,76 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
     release.mockRestore()
     warn.mockRestore()
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('bounds shutdown while a release retry is stuck and starts no cleanup after cancellation', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-retry-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  let retrySignal: AbortSignal | undefined
+  const retry = vi
+    .spyOn(ManagedWorkspaces.prototype, 'retryReleases')
+    .mockImplementationOnce(async (_drop, signal) => {
+      retrySignal = signal
+      await gate
+    })
+  const projects = vi.fn(async () => [])
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+    projects,
+  })
+  try {
+    await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let closed = false
+    const closing = runtime.close().then(() => {
+      closed = true
+    })
+    expect(retrySignal?.aborted).toBe(true)
+    await vi.advanceTimersByTimeAsync(2_999)
+    expect(closed).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await closing
+    expect(closed).toBe(true)
+    finish()
+    await gate
+    await Promise.resolve()
+    expect(projects).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+    finish()
+    await runtime.close()
+    retry.mockRestore()
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('continues revoking archived sessions when one parked process fails to release', async () => {
+  const revoke = vi.fn(async (id: string) => {
+    if (id === 'first') throw new Error('parked cleanup failed')
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    await revokeArchivedSessions(['first', 'child', 'grandchild'], revoke)
+    expect(revoke.mock.calls.map(([id]) => id)).toEqual(['first', 'child', 'grandchild'])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('archived session cleanup failed'),
+      expect.objectContaining({ sessionId: 'first', error: 'Error: parked cleanup failed' }),
+    )
+  } finally {
+    warn.mockRestore()
   }
 })
 

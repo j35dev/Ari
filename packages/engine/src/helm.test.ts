@@ -12,6 +12,7 @@ import {
   findSessions,
   helmSnapshot,
   helmReportRecipient,
+  helmTaskRecipient,
   turnRequester,
   type HelmView,
 } from './helm'
@@ -882,7 +883,7 @@ it('keeps lead tasks with the Aria that asked for the latest queued work', async
     text: 'Latest work',
     idempotencyKey: 'topic-latest',
   })
-  expect(await service.tasks('helm1')).toEqual([])
+  expect((await service.tasks('helm1')).map((task) => task.sessionId)).toEqual([id])
   expect((await service.tasks('helm2')).map((task) => task.sessionId)).toEqual([id])
   await service.invoke('helm1', 'session.status', {})
   expect((await store.load('helm1')).childEvents).toEqual(before)
@@ -893,13 +894,17 @@ it('keeps lead tasks with the Aria that asked for the latest queued work', async
       attachments: queued.attachments,
       origin: queued.origin,
     })
+  const latest = await startTurn(id, 'Latest work', { kind: 'session', sessionId: 'helm2' })
+  await reply(id, latest, 'Latest report')
   const human = await startTurn(id, 'My work')
   await reply(id, human, 'Human report')
-  expect(await service.tasks('helm1')).toEqual([])
-  expect(await service.tasks('helm2')).toEqual([])
+  expect((await service.tasks('helm1')).map((task) => task.sessionId)).toEqual([id])
+  expect((await service.tasks('helm2')).map((task) => task.sessionId)).toEqual([id])
 })
 
 it('discovers an orphaned lead from an old sidecar without replaying known non-leads', async () => {
+  for (let i = 0; i < 8; i++)
+    await store.append(`old${i}`, { type: 'session.created', session: { ...web, id: `old${i}` } })
   const first = await service.invoke('helm1', 'projects.ask', {
     projectId: 'web',
     text: 'Old work',
@@ -908,17 +913,23 @@ it('discovers an orphaned lead from an old sidecar without replaying known non-l
   const id = (first as { result: { sessionId: string } }).result.sessionId
   await store.destroy('helm1')
   await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
-  for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  const path = join(dir, id, 'index.json')
-  const index = JSON.parse(await readFile(path, 'utf8')) as { hierarchy: Record<string, unknown> }
-  delete index.hierarchy.lead
-  delete index.hierarchy.createdBy
-  await writeFile(path, JSON.stringify(index))
+  for (const row of await store.listSessions()) {
+    await store.closeJournal(row.id)
+    const path = join(dir, row.id, 'index.json')
+    const index = JSON.parse(await readFile(path, 'utf8')) as { hierarchy: Record<string, unknown> }
+    delete index.hierarchy.lead
+    delete index.hierarchy.createdBy
+    await writeFile(path, JSON.stringify(index))
+  }
   store = new SessionStore({ rootDir: dir })
   service.host.store = store
   const load = vi.spyOn(store, 'loadExisting')
   expect((await service.tasks('helm2')).map((task) => task.sessionId)).toEqual([id])
-  expect(load.mock.calls.some(([target]) => target === 'web1' || target === 'api1')).toBe(false)
+  expect(new Set(load.mock.calls.map(([target]) => target))).toEqual(new Set(['helm2', id]))
+  expect((await store.listSessions()).find((row) => row.id === 'old0')).toMatchObject({
+    lead: false,
+    createdBy: { kind: 'human' },
+  })
   expect(await store.exists('helm1')).toBe(false)
   load.mockRestore()
 })
@@ -938,6 +949,8 @@ it('adopts an orphaned lead only in the current Aria without recreating its requ
   })
   const turn = await startTurn(id, 'Old work', { kind: 'session', sessionId: 'helm1' })
   await reply(id, turn, 'Old report')
+  const human = await startTurn(id, 'Human follow-up')
+  await reply(id, human, 'Human report')
   await store.destroy('helm1')
   for (const [aria, updatedAt] of [
     ['helm2', 2],
@@ -964,6 +977,63 @@ it('reuses fetched provider data for project agent selection', async () => {
   // One selection catalog, plus the two launch checks around approval.
   expect(providers).toHaveBeenCalledTimes(3)
   providers.mockRestore()
+})
+
+it('uses listing rows for lead recipients without checking their journals', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Work',
+    idempotencyKey: 'listing-recipient',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  const turn = await startTurn(id, 'Work', { kind: 'session', sessionId: 'helm1' })
+  const model = await store.load(id)
+  const rows = await store.listSessions()
+  const exists = vi.spyOn(store, 'exists').mockRejectedValue(new Error('Unexpected existence read'))
+  const load = vi
+    .spyOn(store, 'loadExisting')
+    .mockRejectedValue(new Error('Unexpected journal read'))
+  try {
+    expect(await helmTaskRecipient(store, model, rows)).toBe('helm1')
+    expect(await helmReportRecipient(store, model, turn)).toBe('helm1')
+    expect(exists).not.toHaveBeenCalled()
+    expect(load).not.toHaveBeenCalled()
+  } finally {
+    exists.mockRestore()
+    load.mockRestore()
+  }
+})
+
+it('accepts model aliases consistently when creating and reusing a lead', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Work',
+    idempotencyKey: 'alias-old',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  service.host.providers = async () => [
+    {
+      driverKind: 'claude',
+      available: true,
+      models: [{ id: 'renamed', label: 'Renamed', aliases: ['model'] }],
+      defaultModelId: 'renamed',
+    },
+  ]
+  expect(
+    await service.invoke('helm1', 'projects.ask', {
+      projectId: 'web',
+      text: 'Follow up',
+      idempotencyKey: 'alias-reuse',
+    }),
+  ).toMatchObject({ ok: true, result: { reused: true, sessionId: id } })
+  expect(
+    await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      projectId: 'api',
+      modelId: 'model',
+      idempotencyKey: 'alias-launch',
+    }),
+  ).toMatchObject({ ok: true, result: { child: { modelId: 'model' } } })
 })
 
 it('resolves all snapshot project agents from one listing and provider catalog without journal reads', async () => {
@@ -1117,7 +1187,7 @@ it('lists who started a session, so the sidebar can mark what Aria began', async
   const id = (spawned as { result: { child: Session } }).result.child.id
   const row = (await store.listSessions()).find((entry) => entry.id === id)
   expect(row?.createdBy).toEqual({ kind: 'session', sessionId: 'helm1' })
-  expect(
-    (await store.listSessions()).find((entry) => entry.id === 'web1')?.createdBy,
-  ).toBeUndefined()
+  expect((await store.listSessions()).find((entry) => entry.id === 'web1')?.createdBy).toEqual({
+    kind: 'human',
+  })
 })

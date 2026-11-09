@@ -39,15 +39,9 @@ export async function helmReportRecipient(
   return helmRecipient(store, model, turnRequester(model, turnId))
 }
 
-/** Old sidecars may lack lead identity; known human and child rows need no replay. */
+/** Listing identity is filled from the creation event without replaying a journal. */
 export function isProjectLeadCandidate(row: SessionListEntry): boolean {
-  return (
-    !row.archived &&
-    !row.parentSessionId &&
-    !isHelmSession(row) &&
-    row.lead !== false &&
-    row.createdBy?.kind !== 'human'
-  )
+  return !row.archived && isHelmProjectLead(row)
 }
 
 export async function helmTaskRecipient(
@@ -55,18 +49,20 @@ export async function helmTaskRecipient(
   model: SessionReadModel,
   rows: readonly SessionListEntry[],
 ): Promise<string | null> {
-  const queued = model.queuedMessages.at(-1)
-  const turn = model.activeTurnId ?? model.lastTurn?.turnId
+  const queued = [...model.queuedMessages]
+    .reverse()
+    .find((message) => message.origin?.kind === 'session')
+  const asked = [...model.messages]
+    .reverse()
+    .find((message) => message.role === 'user' && message.origin?.kind === 'session')
   const requester =
-    queued && (!queued.origin || queued.origin.kind === 'human')
-      ? null
-      : queued?.origin?.kind === 'session'
-        ? queued.origin.sessionId
-        : turn
-          ? turnRequester(model, turn)
-          : model.session?.createdBy?.kind === 'session'
-            ? model.session.createdBy.sessionId
-            : null
+    queued?.origin?.kind === 'session'
+      ? queued.origin.sessionId
+      : asked?.origin?.kind === 'session'
+        ? asked.origin.sessionId
+        : model.session?.createdBy?.kind === 'session'
+          ? model.session.createdBy.sessionId
+          : null
   return helmRecipient(store, model, requester, rows)
 }
 
@@ -77,16 +73,18 @@ async function helmRecipient(
   rows?: readonly SessionListEntry[],
 ): Promise<string | null> {
   if (!requester) return null
+  const listing = rows ?? (await store.listSessions())
+  const row = listing.find((row) => row.id === requester)
+  if (row) return isHelmSession(row) ? requester : null
   if (await store.exists(requester)) {
-    const asked =
-      rows?.find((row) => row.id === requester) ?? (await store.loadExisting(requester))?.session
+    const asked = (await store.loadExisting(requester))?.session
     if (asked) return isHelmSession(asked) ? requester : null
   }
   if (!isHelmProjectLead(model.session)) return null
-  const current = [...(rows ?? (await store.listSessions()))]
+  const current = [...listing]
     .filter((row) => isHelmSession(row) && !row.archived)
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  return current && (await store.exists(current.id)) ? current.id : null
+  return current?.id ?? null
 }
 
 /** Where a session stands, from its journal. */
