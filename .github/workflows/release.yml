@@ -4,6 +4,12 @@
 name: release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to rebuild
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
@@ -26,6 +32,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       # Pinned by `packageManager` in the root package.json.
       - uses: pnpm/action-setup@v4
@@ -44,10 +52,9 @@ jobs:
       - name: Build mobile PWA
         run: pnpm --filter @ari/mobile build
 
-      - name: Rebuild native deps for Electron
-        run: npx electron-builder install-app-deps
-        working-directory: apps/desktop
-
+      # Native addons ship Node-API prebuilds and npmRebuild is false in the
+      # packaging config. install-app-deps overrides that and tries to compile
+      # the keyboard hook, unnecessarily requiring X11 development headers.
       - name: Package
         run: npx electron-builder ${{ matrix.args }} --publish never
         working-directory: apps/desktop
@@ -55,6 +62,7 @@ jobs:
       - name: Attach installers to the release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             dist/*.exe
             dist/*.dmg
