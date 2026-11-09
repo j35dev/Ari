@@ -26,6 +26,12 @@ import { promptHistory, stepPromptHistory } from './prompt-history'
 import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
 import { SpeechButton } from './SpeechButton'
+import {
+  useSessionDraftIntent,
+  updateSessionDraftIntent,
+  type DraftImage,
+  type DraftDelivery,
+} from './draft-recovery-store'
 import { rpc } from '../../lib/rpc'
 
 /**
@@ -41,6 +47,7 @@ export interface ComposerSeed {
   text: string
   nonce: number
   files?: File[]
+  images?: DraftImage[]
   sessionId?: string
   /** Recovery swaps the complete draft, including an empty image set. */
   replaceFiles?: boolean
@@ -53,11 +60,13 @@ export interface ComposerSeed {
 export interface ComposerDraft {
   text: string
   files: File[]
+  images?: DraftImage[]
 }
 
 export interface ComposerRecovery extends ComposerDraft {
   id: string
   autoRestore?: boolean
+  delivery?: DraftDelivery
 }
 
 const NO_RECOVERIES: ComposerRecovery[] = []
@@ -76,7 +85,7 @@ export interface QueuedMessageView {
 
 export interface ComposerProps {
   /** Called with the message text and pending image files when the user sends. */
-  onSend: (text: string, files: File[]) => boolean | void
+  onSend: (text: string, files: File[], images?: DraftImage[]) => boolean | void
   /** Waiting for preparation/dispatch; typing and Stop remain available. */
   sendPending?: boolean
   recoveries?: ComposerRecovery[]
@@ -175,7 +184,11 @@ export function Composer({
   recoveries = NO_RECOVERIES,
   onRecover,
 }: ComposerProps) {
-  const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
+  const {
+    draft: text,
+    setDraft: setText,
+    storageIssue: textStorageIssue,
+  } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [stash, setStash] = useState<StashEntry[]>(() => loadStash())
@@ -184,7 +197,13 @@ export function Composer({
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
-  const { images, addFiles, removeAt, clear } = useImageAttachments()
+  const { images, intents, addFiles, removeAt, removeIntentAt, replace, clear } =
+    useImageAttachments(sessionId)
+  const draftIntent = useSessionDraftIntent(sessionId ?? '')
+  const missingImages =
+    draftIntent.reattachRequired ||
+    intents.some((image) => !image.file && !image.ref) ||
+    draftIntent.picks.some((pick) => pick.imageIntent && !pick.image && !pick.imageIntent.ref)
   const [focused, setFocused] = useState(false)
 
   /**
@@ -202,8 +221,12 @@ export function Composer({
     !focused &&
     !attentionRequired &&
     text.trim().length === 0 &&
-    images.length === 0 &&
+    intents.length === 0 &&
     recoveries.length === 0 &&
+    !draftIntent.delivery &&
+    !draftIntent.reattachRequired &&
+    !draftIntent.storageIssue &&
+    !textStorageIssue &&
     !sendPending
 
   /** Puts the caret back in the field and lets focus expand the plate. */
@@ -388,8 +411,11 @@ export function Composer({
     const key = `${seed.sessionId ?? sessionId ?? ''}:${seed.nonce}`
     if (seededNonceRef.current === key) return
     seededNonceRef.current = key
-    if (seed.replaceFiles) clear()
-    if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
+    if (seed.images !== undefined) replace(seed.images)
+    else {
+      if (seed.replaceFiles) clear()
+      if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
+    }
     const el = textareaRef.current
     if (seed.mode === 'insert') {
       const at = el?.selectionStart ?? 0
@@ -409,7 +435,7 @@ export function Composer({
       el?.focus()
       el?.setSelectionRange(end, end)
     }
-  }, [seed, sessionId, addFiles, clear, setText])
+  }, [seed, sessionId, addFiles, clear, replace, setText])
 
   const seenRecoveriesRef = useRef(new Set<string>())
   useEffect(() => {
@@ -417,20 +443,36 @@ export function Composer({
     const added = recoveries.filter((message) => !seenRecoveriesRef.current.has(message.id))
     seenRecoveriesRef.current = new Set(recoveries.map((message) => message.id))
     const next = added.find((message) => message.autoRestore !== false)
-    if (next && text.length === 0 && images.length === 0) {
+    if (next && text.length === 0 && intents.length === 0) {
       onRecover?.(next, { text, files: [] }, false)
     }
-  }, [recoveries, sendPending, text, images.length, onRecover])
+  }, [recoveries, sendPending, text, intents.length, onRecover])
 
   const send = useCallback(() => {
     const trimmed = text.trim()
-    if ((trimmed.length === 0 && images.length === 0) || disabled || sendPending) return
-    if (onSend(trimmed, [...images]) === false) return
+    if ((trimmed.length === 0 && intents.length === 0) || disabled || sendPending || missingImages)
+      return
+    const accepted = intents.some((image) => image.ref)
+      ? onSend(trimmed, [...images], intents)
+      : onSend(trimmed, [...images])
+    if (accepted === false) return
     setText('')
     setCaret(0)
     clear()
+    if (sessionId) updateSessionDraftIntent(sessionId, (prev) => ({ ...prev, delivery: undefined }))
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [text, images, disabled, sendPending, onSend, clear, setText])
+  }, [
+    text,
+    images,
+    intents,
+    disabled,
+    sendPending,
+    missingImages,
+    sessionId,
+    onSend,
+    clear,
+    setText,
+  ])
 
   /**
    * Inserts text at the live caret (event target wins over stale state),
@@ -781,9 +823,65 @@ export function Composer({
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
           </div>
         )}
-        {images.length > 0 && (
+        {(intents.length > 0 ||
+          draftIntent.reattachRequired ||
+          draftIntent.delivery ||
+          draftIntent.storageIssue ||
+          textStorageIssue) && (
           <div className="px-3 pt-2">
             <AttachmentStrip images={images} onRemove={removeAt} />
+            {draftIntent.reattachRequired ? (
+              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+                Saved attachment context is unreadable. Reattach expected images before sending.{' '}
+                <button
+                  type="button"
+                  onClick={() =>
+                    sessionId &&
+                    updateSessionDraftIntent(sessionId, (prev) => ({
+                      ...prev,
+                      reattachRequired: false,
+                    }))
+                  }
+                  className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                >
+                  Clear unreadable attachment intent
+                </button>
+              </p>
+            ) : null}
+            {intents.map((image, index) =>
+              !image.file ? (
+                <div
+                  key={`${image.metadata.name}:${index}`}
+                  role="status"
+                  className="flex items-center gap-2 px-4 py-1 text-xs text-fg-muted"
+                >
+                  <span>
+                    {image.ref
+                      ? `Attached: ${image.metadata.name}`
+                      : `Reattach ${image.metadata.name} (${image.metadata.size} bytes) — paste or drop the image`}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${image.metadata.name}`}
+                    onClick={() => removeIntentAt(index)}
+                    className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : null,
+            )}
+            {draftIntent.delivery === 'uncertain' ? (
+              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+                Delivery unknown — check the conversation before sending again.
+              </p>
+            ) : null}
+            {draftIntent.storageIssue || textStorageIssue ? (
+              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+                Draft is kept in memory. Local storage is unavailable or full; keep this window
+                open.
+              </p>
+            ) : null}
           </div>
         )}
         <div className="relative">
@@ -835,7 +933,12 @@ export function Composer({
             type="button"
             aria-label="Send message"
             onClick={send}
-            disabled={(text.trim().length === 0 && images.length === 0) || disabled || sendPending}
+            disabled={
+              (text.trim().length === 0 && intents.length === 0) ||
+              disabled ||
+              sendPending ||
+              missingImages
+            }
             tabIndex={-1}
             className="sr-only"
           >
@@ -855,12 +958,12 @@ export function Composer({
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
-                aria-label={`Prompt stash (${stash.length})${recoveries.length > 0 ? ` · ${recoveries.length} unsent message${recoveries.length === 1 ? '' : 's'}` : ''}`}
+                aria-label={`Prompt stash (${stash.length})${recoveries.length > 0 ? ` · ${recoveries.length} saved message${recoveries.length === 1 ? '' : 's'}` : ''}`}
                 aria-haspopup="menu"
                 aria-expanded={stashOpen}
                 title={
                   recoveries.length > 0
-                    ? `${recoveries.length} unsent message${recoveries.length === 1 ? '' : 's'} — open to restore`
+                    ? `${recoveries.length} saved message${recoveries.length === 1 ? '' : 's'} — open to restore`
                     : 'Stash this prompt (Mod+S) or reuse a stashed one'
                 }
                 onClick={() => setStashOpen((o) => !o)}
@@ -887,30 +990,64 @@ export function Composer({
                   {recoveries.length > 0 ? (
                     <>
                       <p className="px-2 py-1 text-2xs text-fg-subtle">
-                        Unsent messages · restoring keeps your current draft here
+                        Saved messages · restoring keeps your current draft here
                       </p>
                       {recoveries.map((message, index) => (
-                        <button
+                        <div
                           key={message.id}
-                          type="button"
-                          role="menuitem"
-                          aria-label={`Restore unsent message ${index + 1}`}
-                          disabled={sendPending}
-                          onClick={() => {
-                            if (onRecover?.(message, { text, files: [...images] }, true))
-                              setStashOpen(false)
-                          }}
-                          className="block w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                          role="none"
+                          className="group flex items-start gap-1 rounded-sm"
                         >
-                          <span className="line-clamp-2 block whitespace-pre-wrap break-words text-fg">
-                            {message.text || 'Saved context'}
-                          </span>
-                          {message.files.length > 0 ? (
-                            <span className="text-2xs text-fg-subtle">
-                              {message.files.length} image{message.files.length === 1 ? '' : 's'}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label={`Restore ${message.delivery === 'uncertain' ? 'uncertain' : 'unsent'} message ${index + 1}`}
+                            disabled={sendPending}
+                            onClick={() => {
+                              if (
+                                onRecover?.(
+                                  message,
+                                  { text, files: [...images], images: intents },
+                                  true,
+                                )
+                              )
+                                setStashOpen(false)
+                            }}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                          >
+                            <span className="line-clamp-2 block whitespace-pre-wrap break-words text-fg">
+                              {message.text || 'Saved context'}
                             </span>
-                          ) : null}
-                        </button>
+                            {message.delivery === 'uncertain' ? (
+                              <span className="block text-2xs text-fg-muted">
+                                Delivery unknown · check the conversation before sending again
+                              </span>
+                            ) : null}
+                            {(message.images?.length ?? message.files.length) > 0 ? (
+                              <span className="text-2xs text-fg-subtle">
+                                {message.images?.length ?? message.files.length} image
+                                {(message.images?.length ?? message.files.length) === 1 ? '' : 's'}
+                              </span>
+                            ) : null}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Remove saved message ${index + 1}`}
+                            disabled={sendPending || !sessionId}
+                            onClick={() =>
+                              sessionId &&
+                              updateSessionDraftIntent(sessionId, (prev) => ({
+                                ...prev,
+                                recoveries: prev.recoveries.filter(
+                                  (entry) => entry.id !== message.id,
+                                ),
+                              }))
+                            }
+                            className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
                       ))}
                     </>
                   ) : null}
@@ -958,7 +1095,7 @@ export function Composer({
               running={running}
               onSend={send}
               onStop={onStop}
-              canSend={text.trim().length > 0 || images.length > 0}
+              canSend={!missingImages && (text.trim().length > 0 || intents.length > 0)}
               pending={sendPending}
             />
           </div>
