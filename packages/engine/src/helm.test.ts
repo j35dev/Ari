@@ -364,6 +364,60 @@ it('creates one persistent project lead, reuses it across Aria topics and persis
   expect(Object.values((await store.load('helm1')).inbox ?? {})).toHaveLength(0)
 })
 
+it('reuses a project lead after its creating Aria chat is destroyed', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'before-reset',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  const lead = (await store.load(id)).session!
+  expect(lead.createdBy).toEqual({ kind: 'session', sessionId: 'helm1' })
+  const turn = await startTurn(id, 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  await reply(id, turn, 'Login fixed.')
+  await store.destroy('helm1')
+  await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+  service = new AgentControlService(service.host)
+  const next = await service.invoke('helm2', 'projects.ask', {
+    projectId: 'web',
+    text: 'Also fix logout',
+    idempotencyKey: 'after-reset',
+  })
+  expect(next).toMatchObject({ ok: true, result: { sessionId: id } })
+  expect(
+    (await store.load(id)).messages.some((message) =>
+      JSON.stringify(message.parts).includes('Login fixed.'),
+    ),
+  ).toBe(true)
+  expect((await store.load(id)).queuedMessages.at(-1)?.origin).toEqual({
+    kind: 'session',
+    sessionId: 'helm2',
+  })
+  expect(
+    (await store.listSessions()).filter((row) => row.projectId === 'web' && row.id !== web.id),
+  ).toHaveLength(1)
+})
+
+it('counts working project leads after their creating Aria chat is destroyed', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'reset-cap-a',
+  })
+  expect(first.ok).toBe(true)
+  await store.destroy('helm1')
+  await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+  service.host.policy = () =>
+    delegationSettingsSchema.parse({ approvalMode: 'never', maxConcurrentChildren: 1 })
+  expect(
+    await service.invoke('helm2', 'projects.ask', {
+      projectId: 'api',
+      text: 'Fix API',
+      idempotencyKey: 'reset-cap-b',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+})
+
 it('serializes simultaneous asks from different Aria topics into one project lead', async () => {
   await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
   const results = await Promise.all([

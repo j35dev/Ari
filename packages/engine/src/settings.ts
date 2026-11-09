@@ -27,7 +27,6 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
-  aria?: Settings['aria']
   onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
@@ -119,7 +118,6 @@ export class SettingsStore {
     // Window geometry can save before boot has loaded the user's preferences.
     if (!this.#loaded) await this.#read()
     const next: Settings = {
-      aria: patch.aria !== undefined ? patch.aria : this.#current.aria,
       onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },
       version: 1,

@@ -1174,7 +1174,7 @@ export class AgentControlService {
     }
   }
 
-  /** Aria's mutation chain keeps different topics on one live project lead. */
+  /** Aria's mutation chain keeps fresh chats on one live project lead. */
   async #askProject(
     caller: Session,
     p: ControlParams<'projects.ask'>,
@@ -1191,7 +1191,8 @@ export class AgentControlService {
       if (row.projectId !== p.projectId || row.archived || row.parentSessionId) continue
       const lead = (await this.host.store.load(row.id)).session
       if (!lead?.lead || lead.createdBy?.kind !== 'session') continue
-      if (!isHelmSession((await this.host.store.load(lead.createdBy.sessionId)).session)) continue
+      // Only Aria creates top-level sessions with a session creator. Its chat
+      // may have been deleted; the project's lead keeps its context.
       await this.#checkLaunch(caller, lead)
       await this.#approveDelegation(caller, this.host.policy(), signal)
       const current = await this.#get(caller.id)
@@ -1272,14 +1273,7 @@ export class AgentControlService {
       const model = await this.host.store.load(row.id)
       const creator = model.session?.createdBy
       if (creator?.kind !== 'session') continue
-      if (
-        creator.sessionId !== helmId &&
-        !(
-          model.session?.lead === true &&
-          isHelmSession((await this.host.store.load(creator.sessionId)).session)
-        )
-      )
-        continue
+      if (creator.sessionId !== helmId && model.session?.lead !== true) continue
       let live =
         model.activeTurnId !== null ||
         model.queuedMessages.length > 0 ||

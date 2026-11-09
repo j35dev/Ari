@@ -1,22 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import type { Session } from '@ari/contracts/session'
 import { defaultSettings } from '@ari/contracts/settings'
 import { AriaThread, type AriaThreadDeps } from './aria-thread'
 
 let rows: SessionSummary[]
+let saved: Map<string, Session>
 let deps: AriaThreadDeps
 let aria: AriaThread
 
 beforeEach(() => {
   rows = []
+  saved = new Map()
   deps = {
     listSessions: async () => rows,
+    loadSession: vi.fn(async (id) => saved.get(id) ?? null),
     loadProject: vi.fn(async () => undefined),
     createSession: vi.fn(async (session) => {
+      saved.set(session.id, session)
       rows.push({ ...session, messageCount: 0 })
     }),
-    archive: vi.fn(async (id) => {
-      rows = rows.map((row) => (row.id === id ? { ...row, archived: true } : row))
+    destroySession: vi.fn(async (id) => {
+      saved.delete(id)
+      rows = rows.filter((row) => row.id !== id)
     }),
     settings: async () => defaultSettings,
     defaults: vi.fn<AriaThreadDeps['defaults']>(async () => ({
@@ -30,7 +36,7 @@ beforeEach(() => {
 })
 
 describe('AriaThread', () => {
-  it('creates once across concurrent opens and windows, then reuses the current topic', async () => {
+  it('creates once across concurrent opens and windows, then reuses the current chat', async () => {
     const [first, second] = await Promise.all([aria.open(), new AriaThread(deps).open()])
     expect(first).toEqual(second)
     expect(await aria.open()).toEqual(first)
@@ -45,22 +51,11 @@ describe('AriaThread', () => {
     })
   })
 
-  it('uses Settings Aria before the renderer pick or the provider fallback', async () => {
+  it('uses the app new-session provider and model with the app default permission', async () => {
     deps.settings = async () => ({
       ...defaultSettings,
-      aria: { driverKind: 'claude', modelId: 'opus', effort: 'high', permissionMode: 'full' },
+      sessions: { defaultDriverKind: null, defaultPermissionMode: 'allow-edits' },
     })
-    await aria.open({ driverKind: 'codex', modelId: null, permissionMode: 'ask' })
-    expect(rows[0]).toMatchObject({
-      driverKind: 'claude',
-      modelId: 'opus',
-      effort: 'high',
-      permissionMode: 'full',
-    })
-    expect(deps.defaults).not.toHaveBeenCalled()
-  })
-
-  it('uses the app new-session provider and model when Aria is unset', async () => {
     await aria.open({
       driverKind: 'claude',
       modelId: 'sonnet',
@@ -70,51 +65,68 @@ describe('AriaThread', () => {
     expect(rows[0]).toMatchObject({
       driverKind: 'claude',
       modelId: 'sonnet',
-      permissionMode: 'ask',
+      permissionMode: 'allow-edits',
       effort: 'medium',
     })
+    expect(deps.defaults).not.toHaveBeenCalled()
   })
 
-  it('archives the current topic before creating a fresh one', async () => {
+  it('deletes the current chat before creating a fresh one with its composer choices', async () => {
     const first = await aria.open()
-    const next = await aria.newTopic()
+    saved.set(first.sessionId, {
+      ...saved.get(first.sessionId)!,
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'medium',
+      permissionMode: 'full',
+    })
+    deps.createSession = vi.fn(async (session) => {
+      expect(saved.has(first.sessionId)).toBe(false)
+      saved.set(session.id, session)
+      rows.push({ ...session, messageCount: 0 })
+    })
+    const next = await aria.newChat()
     expect(next.sessionId).not.toBe(first.sessionId)
-    expect(deps.archive).toHaveBeenCalledWith(first.sessionId)
-    expect(rows.find((row) => row.id === first.sessionId)?.archived).toBe(true)
+    expect(deps.destroySession).toHaveBeenCalledWith(first.sessionId)
+    expect(rows).toHaveLength(1)
+    expect(saved.get(next.sessionId)).toMatchObject({
+      driverKind: 'claude',
+      modelId: 'opus',
+      effort: 'medium',
+      permissionMode: 'full',
+    })
     expect(await aria.open()).toEqual(next)
   })
 
-  it('lists only past Aria topics, newest first', async () => {
-    rows = [
-      { id: 'older', projectId: 'helm', title: 'Legacy topic', updatedAt: 1, messageCount: 1 },
-      { id: 'current', projectId: 'helm', title: 'Current', updatedAt: 4, messageCount: 1 },
-      {
-        id: 'other',
-        projectId: 'project',
-        title: 'Archived project session',
-        updatedAt: 5,
-        messageCount: 1,
-        archived: true,
-      },
-      {
-        id: 'newer',
-        projectId: 'helm',
-        title: 'Recent topic',
-        updatedAt: 3,
-        messageCount: 1,
-        archived: true,
-      },
-    ]
-    expect((await aria.topics()).map((row) => row.id)).toEqual(['newer', 'older'])
+  it('serializes a reset and another window opening into one fresh chat', async () => {
+    const first = await aria.open()
+    const [next, opened] = await Promise.all([aria.newChat(), new AriaThread(deps).open()])
+    expect(opened).toEqual(next)
+    expect(next.sessionId).not.toBe(first.sessionId)
+    expect(rows).toHaveLength(1)
   })
 
-  it('preserves the topic when archiving is refused', async () => {
+  it('creates from app defaults when there is no chat to replace', async () => {
+    const next = await aria.newChat()
+    expect(deps.destroySession).not.toHaveBeenCalled()
+    expect(saved.get(next.sessionId)).toMatchObject({ driverKind: 'codex', permissionMode: 'ask' })
+  })
+
+  it('preserves the chat when deletion is refused', async () => {
     const first = await aria.open()
-    deps.archive = vi.fn(async () => {
+    deps.destroySession = vi.fn(async () => {
       throw new Error('busy')
     })
-    await expect(aria.newTopic()).rejects.toThrow('busy')
+    await expect(aria.newChat()).rejects.toThrow('busy')
     expect(await aria.open()).toEqual(first)
+    expect(deps.createSession).toHaveBeenCalledOnce()
+  })
+
+  it('does not delete a chat whose composer choices could not be loaded', async () => {
+    await aria.open()
+    deps.loadSession = vi.fn(async () => null)
+    await expect(aria.newChat()).rejects.toThrow('Could not load')
+    expect(deps.destroySession).not.toHaveBeenCalled()
     expect(deps.createSession).toHaveBeenCalledOnce()
   })
 })
