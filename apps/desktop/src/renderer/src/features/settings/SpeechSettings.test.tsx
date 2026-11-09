@@ -268,6 +268,21 @@ it('uses the agreed macOS hold-to-talk chord', () => {
   )
 })
 
+it('saves the discoverable ducking opt-out on Windows', async () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+  render(<SpeechSettings />)
+  fireEvent.click(screen.getByRole('switch', { name: 'Lower other apps while listening' }))
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ speech: { duckAudio: false } }))
+  expect(screen.getByText(/25% of their volume/)).toBeInTheDocument()
+})
+
+it('explains unsupported macOS output control without enabling it', () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
+  render(<SpeechSettings />)
+  expect(screen.getByRole('switch', { name: 'Lower other apps while listening' })).toBeDisabled()
+  expect(screen.getByText(/Unavailable on macOS/)).toBeInTheDocument()
+})
+
 it('refuses the macOS input-source shortcut and records Cmd+Shift+Space in canonical order', async () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)

@@ -15,7 +15,7 @@ export interface SettingsIndexEntry {
 
 /**
  * Static search index over every settings surface (M12.9). Section ids are
- * emitted by each page's `SettingsPage` wrapper (`settings-appearance`, …).
+ * emitted by each page's `SettingsPage` wrapper (`settings-appearance`, â€¦).
  * Shell-owned sections (Providers, Endpoints) resolve once their wrappers
  * carry matching ids; until then clicks fall through harmlessly.
  */
@@ -24,7 +24,7 @@ export const SETTINGS_SEARCH_INDEX = [
     section: 'settings-speech',
     label: 'Speech to text',
     keywords:
-      'speech microphone dictate dictation aria general external handy whisper parakeet model download shortcut hold talk',
+      'speech microphone dictate dictation aria general external handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
   },
   {
     section: 'settings-appearance',

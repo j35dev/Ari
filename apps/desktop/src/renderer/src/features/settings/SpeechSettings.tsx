@@ -22,11 +22,11 @@ function sizeLabel(bytes: number): string {
     : `${Math.round(bytes / 1_000_000)} MB`
 }
 function progressLabel(frame: SpeechProgress): string {
-  if (frame.phase === 'verifying') return 'Verifying…'
-  if (frame.phase === 'installing') return 'Preparing…'
+  if (frame.phase === 'verifying') return 'Verifyingâ€¦'
+  if (frame.phase === 'installing') return 'Preparingâ€¦'
   return frame.total
     ? `${Math.min(100, Math.round((frame.received / frame.total) * 100))}%`
-    : 'Downloading…'
+    : 'Downloadingâ€¦'
 }
 function inProgress(
   frame?: SpeechProgress,
@@ -193,7 +193,7 @@ export function SpeechSettings() {
           {status.engine === 'downloading' || inProgress(engineProgress) ? (
             <>
               <span role="status" className="text-xs text-fg-muted">
-                {engineProgress ? progressLabel(engineProgress) : 'Downloading…'}
+                {engineProgress ? progressLabel(engineProgress) : 'Downloadingâ€¦'}
               </span>
               <Button
                 size="sm"
@@ -207,7 +207,7 @@ export function SpeechSettings() {
             <span className="text-xs text-fg-muted">Ready</span>
           ) : !status.engineInstallable && !status.engineError ? (
             <span role="status" className="text-xs text-fg-muted">
-              Checking…
+              Checkingâ€¦
             </span>
           ) : (
             <>
@@ -251,7 +251,7 @@ export function SpeechSettings() {
         >
           {status.loading && (
             <span role="status" className="text-xs text-fg-muted">
-              Loading…
+              Loadingâ€¦
             </span>
           )}
           <Switch
@@ -331,6 +331,25 @@ export function SpeechSettings() {
             </SettingsRow>
           )
         })}
+        <SettingsRow
+          label="Lower other apps while listening"
+          hint={
+            platform === 'darwin'
+              ? 'Unavailable on macOS. Audio output stays unchanged.'
+              : platform === 'win32'
+                ? 'Aria lowers other apps to 25% of their volume during shortcut dictation, then restores them. Your volume changes are preserved.'
+                : 'Aria lowers playback streams to 25% during shortcut dictation. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
+          }
+        >
+          <Switch
+            aria-label="Lower other apps while listening"
+            checked={settings?.speech.duckAudio ?? true}
+            disabled={platform === 'darwin' || !settings}
+            onCheckedChange={(duckAudio) =>
+              void run('duck-audio', () => update({ speech: { duckAudio } }))
+            }
+          />
+        </SettingsRow>
       </SettingsSection>
       <SettingsSection
         title="Found on this computer"
@@ -346,7 +365,7 @@ export function SpeechSettings() {
             <SettingsRow
               key={model.id}
               label={model.name}
-              hint={`${model.installed ? (model.installed.source === 'handy' ? 'Handy' : 'Local model') : ''} · ${sizeLabel(model.size)}`}
+              hint={`${model.installed ? (model.installed.source === 'handy' ? 'Handy' : 'Local model') : ''} Â· ${sizeLabel(model.size)}`}
             >
               <Button
                 size="sm"
@@ -368,7 +387,7 @@ export function SpeechSettings() {
         ) : (
           <SettingsRow
             label="No compatible models found"
-            hint="Handy’s older .bin and ONNX models cannot be used. Download a GGUF model below."
+            hint="Handyâ€™s older .bin and ONNX models cannot be used. Download a GGUF model below."
           />
         )}
       </SettingsSection>
@@ -384,8 +403,8 @@ export function SpeechSettings() {
             return (
               <SettingsRow
                 key={model.id}
-                label={`${model.name}${model.recommended ? ' · Recommended' : ''}`}
-                hint={`${sizeLabel(model.size)} · ${model.languages.length === 1 && model.languages[0] === 'en' ? 'English' : `${model.languages.length} languages`} · ${model.description}`}
+                label={`${model.name}${model.recommended ? ' Â· Recommended' : ''}`}
+                hint={`${sizeLabel(model.size)} Â· ${model.languages.length === 1 && model.languages[0] === 'en' ? 'English' : `${model.languages.length} languages`} Â· ${model.description}`}
               >
                 {inProgress(frame) ? (
                   <>

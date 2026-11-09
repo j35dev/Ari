@@ -155,7 +155,16 @@ it('keeps long composer dictation active until Enter stops it', async () => {
   mocks.ready = true
   vi.useFakeTimers()
   const insert = vi.fn()
-  render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+  render(
+    <SpeechButton
+      captureTarget={() => ({
+        cancel() {},
+        async insert(text) {
+          insert(text)
+        },
+      })}
+    />,
+  )
   await act(async () => fireEvent.click(screen.getByRole('button')))
   act(() => vi.advanceTimersByTime(10 * 60_000))
   expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled()
@@ -209,11 +218,39 @@ it.each(['result', 'error'] as const)(
         }),
     )
     const insert = vi.fn()
-    const view = render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+    const view = render(
+      <SpeechButton
+        captureTarget={() => ({
+          cancel() {},
+          async insert(text) {
+            insert(text)
+          },
+        })}
+      />,
+    )
     await act(async () => fireEvent.click(screen.getByRole('button')))
     await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
-    view.rerender(<SpeechButton disabled captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
-    view.rerender(<SpeechButton captureTarget={() => ({ cancel() {}, async insert(text) { insert(text) } })} />)
+    view.rerender(
+      <SpeechButton
+        disabled
+        captureTarget={() => ({
+          cancel() {},
+          async insert(text) {
+            insert(text)
+          },
+        })}
+      />,
+    )
+    view.rerender(
+      <SpeechButton
+        captureTarget={() => ({
+          cancel() {},
+          async insert(text) {
+            insert(text)
+          },
+        })}
+      />,
+    )
     await act(async () => fireEvent.click(screen.getByRole('button')))
     await act(async () => {
       if (outcome === 'result') finish({ text: 'Old dictation' })
