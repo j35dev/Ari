@@ -38,6 +38,7 @@ import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
 import { AriaThread } from './aria-thread'
+import { queryAriaOverview } from './aria-overview'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1645,6 +1646,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('aria.open', (params) => aria.open(params))
   r.register('aria.newTopic', (params) => aria.newTopic(params))
   r.register('aria.topics', () => aria.topics())
+  r.register('aria.overview', async ({ sessionId }) =>
+    queryAriaOverview(getSessionStore(), await helmProjects(), sessionId),
+  )
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
