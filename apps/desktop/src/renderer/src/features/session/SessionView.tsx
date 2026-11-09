@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ComponentProps,
 } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
@@ -38,6 +37,15 @@ import {
   type QueuedMessageView,
 } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
+import { readSessionDraftText } from '../composer/use-drafts'
+import {
+  imageIntent,
+  MAX_RECOVERIES,
+  readSessionDraftIntent,
+  updateSessionDraftIntent,
+  useSessionDraftIntent,
+  type DraftImage,
+} from '../composer/draft-recovery-store'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard, type ApprovalAnswer } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
@@ -63,8 +71,6 @@ import { ElementChips } from '../browser/ElementChips'
 import {
   browserPicksState,
   promptForPicks,
-  restoreBrowserPicks,
-  subscribeBrowserPicks,
   takeBrowserPicks,
   type BrowserPick,
 } from '../browser/browser-picks'
@@ -287,11 +293,15 @@ export function SessionView({
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
-  const [unsent, setUnsent] = useState<UnsentMessage[]>([])
-  const unsentRef = useRef<UnsentMessage[]>([])
-  const pendingSendRef = useRef(new Set<string>())
-  const [pendingSends, setPendingSends] = useState(new Set<string>())
-  const sendPending = pendingSends.has(sessionId)
+  const draftIntent = useSessionDraftIntent(sessionId)
+  const sendPending = draftIntent.pendingId !== undefined
+  const viewMountedRef = useRef(true)
+  useEffect(() => {
+    viewMountedRef.current = true
+    return () => {
+      viewMountedRef.current = false
+    }
+  }, [])
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
   const [catalogModels, setCatalogModels] = useState<
@@ -303,7 +313,7 @@ export function SessionView({
   // Review notes (M21.1): inline diff comments and review ranges attached to
   // the next message. They live in session storage so a reload keeps them.
   const reviewNotes = useReviewDrafts(sessionId)
-  const elementPicks = useSyncExternalStore(subscribeBrowserPicks, browserPicksState)
+  const elementPicks = draftIntent.picks
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
@@ -877,11 +887,15 @@ export function SessionView({
     (
       command: Record<string, unknown>,
       failureTitle: string,
-      onRejected?: (reason: string) => void,
+      onRejected?: (reason: string, uncertain?: boolean) => void,
     ): Promise<boolean> => {
-      const fail = (reason: string): void => {
-        onRejected?.(reason)
-        if (!hiddenRef.current && command.sessionId === sessionIdRef.current) {
+      const fail = (reason: string, uncertain = false): void => {
+        onRejected?.(reason, uncertain)
+        if (
+          viewMountedRef.current &&
+          !hiddenRef.current &&
+          command.sessionId === sessionIdRef.current
+        ) {
           toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
         }
       }
@@ -895,7 +909,7 @@ export function SessionView({
           return true
         })
         .catch((err: unknown) => {
-          fail(err instanceof Error ? err.message : String(err))
+          fail(err instanceof Error ? err.message : String(err), true)
           return false
         })
     },
@@ -903,8 +917,18 @@ export function SessionView({
   )
 
   const rememberUnsent = useCallback((message: Omit<UnsentMessage, 'id'>) => {
-    unsentRef.current = [...unsentRef.current, { ...message, id: crypto.randomUUID() }]
-    setUnsent(unsentRef.current)
+    updateSessionDraftIntent(message.sessionId, (state) => ({
+      ...state,
+      recoveries: [
+        ...state.recoveries,
+        {
+          ...message,
+          id: crypto.randomUUID(),
+          images: message.images ?? message.files.map(imageIntent),
+          delivery: message.delivery ?? 'unsent',
+        },
+      ],
+    }))
   }, [])
 
   const recoverMessage = useCallback(
@@ -912,37 +936,51 @@ export function SessionView({
       if (
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        pendingSendRef.current.has(sessionId)
+        readSessionDraftIntent(sessionId).pendingId
       )
         return false
-      const saved = unsentRef.current.find(
-        (entry) => entry.id === message.id && entry.sessionId === sessionId,
-      )
+      const state = readSessionDraftIntent(sessionId)
+      const saved = state.recoveries.find((entry) => entry.id === message.id)
       if (!saved) return false
+      const latest = {
+        ...current,
+        text: readSessionDraftText(sessionId),
+        files: state.images.flatMap((image) => (image.file ? [image.file] : [])),
+        images: state.images,
+      }
+      if (!focus && (latest.text.length > 0 || latest.images.length > 0)) return false
       const notes = readReviewDrafts(sessionId)
-      const picks = takeBrowserPicks()
-      unsentRef.current = unsentRef.current.filter((entry) => entry.id !== saved.id)
+      const picks = browserPicksState(sessionId)
+      const remaining = state.recoveries.filter((entry) => entry.id !== saved.id)
       if (
-        current.text.length > 0 ||
-        current.files.length > 0 ||
+        latest.text.length > 0 ||
+        latest.images.length > 0 ||
         notes.length > 0 ||
         picks.length > 0
       ) {
-        unsentRef.current.push({
-          ...current,
-          sessionId,
+        remaining.push({
+          ...latest,
           notes,
           picks,
           id: crypto.randomUUID(),
           autoRestore: false,
+          delivery: state.delivery ?? 'saved',
+          reattachRequired: state.reattachRequired,
         })
       }
-      setUnsent(unsentRef.current)
+      updateSessionDraftIntent(sessionId, (prev) => ({
+        ...prev,
+        images: saved.images,
+        picks: saved.picks,
+        recoveries: remaining,
+        delivery: saved.delivery === 'uncertain' ? 'uncertain' : undefined,
+        reattachRequired: saved.reattachRequired,
+      }))
       writeReviewDrafts(sessionId, saved.notes)
-      restoreBrowserPicks(saved.picks)
       setComposerSeed((prev) => ({
         text: saved.text,
         files: saved.files,
+        images: saved.images,
         sessionId,
         nonce: (prev?.nonce ?? 0) + 1,
         replaceFiles: true,
@@ -954,40 +992,152 @@ export function SessionView({
   )
 
   const recoveries = useMemo(
-    () => unsent.filter((message) => message.sessionId === sessionId),
-    [unsent, sessionId],
+    () => draftIntent.recoveries.filter((message) => message.id !== draftIntent.pendingId),
+    [draftIntent.recoveries, draftIntent.pendingId],
   )
 
   const dispatchSend = useCallback(
-    (text: string, attachments: AttachmentRef[], files: File[], fromComposer = true): boolean => {
+    (
+      text: string,
+      attachments: AttachmentRef[],
+      files: File[],
+      fromComposer = true,
+      images?: DraftImage[],
+    ): boolean => {
       // Reserve synchronously: repeated Enter/clicks can precede React's render.
       if (
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        pendingSendRef.current.has(sessionId)
+        readSessionDraftIntent(sessionId).pendingId
       )
         return false
-      pendingSendRef.current.add(sessionId)
-      setPendingSends(new Set(pendingSendRef.current))
       // Snapshot context before asynchronous image preparation. New notes/picks
       // belong to the next draft, including when another session becomes active.
       const notes = fromComposer ? readReviewDrafts(sessionId) : []
-      const picks = fromComposer ? takeBrowserPicks() : []
+      const picks = fromComposer ? browserPicksState(sessionId) : []
+      const composerImages = images ?? files.map(imageIntent)
+      const pickImages = picks.flatMap((pick) =>
+        pick.imageIntent ? [pick.imageIntent] : pick.image ? [imageIntent(pick.image)] : [],
+      )
+      const allImages = [...pickImages, ...composerImages]
+      if (allImages.some((image) => !image.file && !image.ref)) return false
+      if (allImages.length + attachments.length > 4) {
+        toast({
+          title: 'Too many images',
+          description: 'Attach at most four images, including selected page elements.',
+          tone: 'danger',
+        })
+        return false
+      }
+      const state = readSessionDraftIntent(sessionId)
+      if (fromComposer && state.reattachRequired) return false
+      if (fromComposer && state.recoveries.length >= MAX_RECOVERIES) {
+        toast({
+          title: 'Saved messages are full',
+          description: 'Restore or remove a saved message before sending another.',
+          tone: 'danger',
+        })
+        return false
+      }
+      const receiptId = crypto.randomUUID()
+      updateSessionDraftIntent(sessionId, (prev) => ({
+        ...prev,
+        pendingId: receiptId,
+        recoveries: fromComposer
+          ? [
+              ...prev.recoveries,
+              {
+                id: receiptId,
+                text,
+                files,
+                images: composerImages,
+                notes,
+                picks,
+                delivery: 'preparing',
+                autoRestore: false,
+              },
+            ]
+          : prev.recoveries,
+      }))
+      if (fromComposer) takeBrowserPicks(sessionId)
       const elementBlock = promptForPicks(picks)
       const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
       if (notes.length > 0) writeReviewDrafts(sessionId, [])
-      const restoreDraft = (): void => {
+      const restoreDraft = (_reason?: string, uncertain = false): void => {
         // Regenerate/retry already has its complete message in the transcript.
         // Recovery never merges a failed message into a newer draft.
-        if (fromComposer) rememberUnsent({ sessionId, text, files, notes, picks })
+        if (fromComposer)
+          updateSessionDraftIntent(sessionId, (prev) => ({
+            ...prev,
+            recoveries: prev.recoveries.map((entry) =>
+              entry.id === receiptId
+                ? {
+                    ...entry,
+                    delivery: uncertain ? 'uncertain' : 'unsent',
+                    autoRestore: !uncertain,
+                  }
+                : entry,
+            ),
+          }))
       }
-      const allFiles = [...picks.flatMap((pick) => (pick.image ? [pick.image] : [])), ...files]
-      const prepared = allFiles.length > 0 ? stageImages(allFiles) : Promise.resolve(attachments)
+      const prepared = (async (): Promise<DraftImage[]> => {
+        // A durable ref can outlive bytes removed from disk. Verify restored refs
+        // through the existing attachment reader before a prompt can use them.
+        const checked = await Promise.all(
+          allImages.map(async (image) => {
+            if (!image.ref) return image
+            const result = await rpc.invoke('attachments.read', { id: image.ref.id })
+            return result.attachment ? image : { ...image, ref: undefined }
+          }),
+        )
+        if (checked.some((image) => !image.file && !image.ref)) return checked
+        const filesToStage = checked.flatMap((image) =>
+          !image.ref && image.file ? [image.file] : [],
+        )
+        const refs = filesToStage.length ? await stageImages(filesToStage) : []
+        if (refs.length !== filesToStage.length)
+          throw new Error('Some images were not staged. Your message has been saved.')
+        let index = 0
+        return checked.map((image) => ({ ...image, ref: image.ref ?? refs[index++] }))
+      })()
       void prepared
         .then(
-          (refs) => {
+          (staged) => {
+            if (readSessionDraftIntent(sessionId).pendingId !== receiptId) return false
+            const refs = [
+              ...attachments,
+              ...staged.flatMap((image) => (image.ref ? [image.ref] : [])),
+            ]
+            let pickIndex = 0
+            const stagedPicks = picks.map((pick) =>
+              pick.image || pick.imageIntent ? { ...pick, imageIntent: staged[pickIndex++] } : pick,
+            )
+            updateSessionDraftIntent(sessionId, (prev) => ({
+              ...prev,
+              recoveries: prev.recoveries.map((entry) =>
+                entry.id === receiptId
+                  ? {
+                      ...entry,
+                      images: staged.slice(pickImages.length),
+                      picks: stagedPicks,
+                      delivery: staged.some((image) => !image.ref) ? 'preparing' : 'pending',
+                    }
+                  : entry,
+              ),
+            }))
+            if (staged.some((image) => !image.ref)) {
+              restoreDraft()
+              if (viewMountedRef.current && !hiddenRef.current)
+                toast({
+                  title: 'Images need reattachment',
+                  description:
+                    'Staged image bytes are unavailable. Restore the saved message and reattach its images.',
+                  tone: 'danger',
+                })
+              return false
+            }
             return dispatch(
               {
                 type: running ? 'message.enqueue' : 'turn.start',
@@ -998,13 +1148,28 @@ export function SessionView({
               running ? 'Couldn’t queue message' : 'Couldn’t send message',
               restoreDraft,
             ).then((accepted) => {
-              if (accepted && !running && sessionIdRef.current === sessionId) setTurnError(null)
+              if (accepted)
+                updateSessionDraftIntent(sessionId, (prev) => ({
+                  ...prev,
+                  recoveries: prev.recoveries.filter((entry) => entry.id !== receiptId),
+                }))
+              if (
+                accepted &&
+                viewMountedRef.current &&
+                !running &&
+                sessionIdRef.current === sessionId
+              )
+                setTurnError(null)
               return accepted
             })
           },
           (err: unknown) => {
             restoreDraft()
-            if (!hiddenRef.current && sessionIdRef.current === sessionId) {
+            if (
+              viewMountedRef.current &&
+              !hiddenRef.current &&
+              sessionIdRef.current === sessionId
+            ) {
               toast({
                 title: 'Couldn’t attach images',
                 description: err instanceof Error ? err.message : String(err),
@@ -1015,16 +1180,18 @@ export function SessionView({
           },
         )
         .finally(() => {
-          pendingSendRef.current.delete(sessionId)
-          setPendingSends(new Set(pendingSendRef.current))
+          updateSessionDraftIntent(sessionId, (prev) =>
+            prev.pendingId === receiptId ? { ...prev, pendingId: undefined } : prev,
+          )
         })
       return true
     },
-    [sessionId, running, dispatch, rememberUnsent, toast],
+    [sessionId, running, dispatch, toast],
   )
 
   const handleSend = useCallback(
-    (text: string, files: File[]) => dispatchSend(text, [], files),
+    (text: string, files: File[], images?: DraftImage[]) =>
+      dispatchSend(text, [], files, true, images),
     [dispatchSend],
   )
 
@@ -1123,6 +1290,7 @@ export function SessionView({
   const handleEditQueued = useCallback(
     (message: QueuedMessageView) => {
       if (message.attachments.length > 0) return
+      if (readSessionDraftIntent(sessionId).recoveries.length >= MAX_RECOVERIES) return
       // The draft changes only after the engine accepts the dequeue. Applying
       // it first wipes an in-progress draft when the row was already sent.
       void dispatch(
@@ -1657,7 +1825,7 @@ export function SessionView({
             resume={turnResume}
           />
         ) : null}
-        <ElementChips picks={elementPicks} />
+        <ElementChips picks={elementPicks} sessionId={sessionId} />
         {reviewNotes.length > 0 ? (
           <div
             className="mx-4 mb-1 flex flex-wrap items-center gap-1"

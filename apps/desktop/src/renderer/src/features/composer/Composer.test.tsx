@@ -7,6 +7,13 @@ import { FILE_MIME } from './drag-file'
 import { PASTE_FILE_MIN_BYTES } from './paste-as-file'
 import { applyAppearance } from '../../lib/appearance'
 import { defaultSettings } from '@ari/contracts/settings'
+import { dropDraftIntentMemory, RECOVERY_STORAGE_KEY } from './draft-recovery-store'
+import { dropDraftTextMemory } from './use-drafts'
+
+beforeEach(() => {
+  dropDraftIntentMemory()
+  dropDraftTextMemory()
+})
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -1114,6 +1121,17 @@ describe('Composer file drag-drop', () => {
 describe('Composer session drafts', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  it('keeps corrupt session attachment intent out of an unscoped welcome composer', () => {
+    localStorage.setItem(RECOVERY_STORAGE_KEY, '{broken')
+    const scoped = render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    expect(screen.getByText(/Saved attachment context is unreadable/)).toBeInTheDocument()
+    scoped.unmount()
+    render(<Composer onSend={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'start here' } })
+    expect(screen.queryByText(/Saved attachment context is unreadable/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
   })
 
   it('restores unsent text after unmount for the same session', async () => {
