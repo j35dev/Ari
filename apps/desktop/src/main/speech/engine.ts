@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
-import { setTimeout } from 'node:timers/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import { t, x } from 'tar'
 import type { SpeechProgress } from '@ari/contracts/rpc'
 import releaseData from './engine-releases.json'
@@ -15,6 +15,8 @@ import {
 
 export const ENGINE_VERSION = '0.4.1'
 export const ENGINE_HEADER_HASH = 'f99ad4169374b8f3'
+export const ENGINE_READ_ERROR =
+  "Couldn't read the speech engine files. Close apps that may be using them, then Retry."
 export interface EngineRelease {
   filename: string
   size: number
@@ -25,15 +27,47 @@ export interface EngineRelease {
 const releases = releaseData as unknown as EngineRelease[]
 export class EngineIoError extends Error {}
 class EngineMismatchError extends Error {}
-const TRANSIENT_IO_CODES = new Set([
-  'EBUSY',
-  'EPERM',
-  'EACCES',
-  'EMFILE',
-  'ENFILE',
-  'EIO',
-  'ETXTBSY',
-])
+const TRANSIENT_READ_ERRORS = new Set(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'EIO'])
+
+async function retryEngineRead<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await read()
+    } catch (error) {
+      if (attempt >= 2 || !TRANSIENT_READ_ERRORS.has((error as NodeJS.ErrnoException).code ?? ''))
+        throw error
+      await delay(100 * (attempt + 1))
+    }
+  }
+}
+
+async function engineFiles(directory: string, expected: Set<string>): Promise<string[]> {
+  const found: string[] = []
+  const walk = async (relative = ''): Promise<void> => {
+    for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
+      const key = relative ? `${relative}/${entry.name}` : entry.name
+      if (
+        !expected.has(key) &&
+        entry.isFile() &&
+        (entry.name === '.DS_Store' ||
+          entry.name.startsWith('._') ||
+          ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
+      )
+        continue
+      if (entry.isDirectory()) {
+        if (![...expected].some((path) => path.startsWith(`${key}/`)))
+          throw new EngineMismatchError('Unexpected engine directory.')
+        await walk(key)
+      } else {
+        if (!entry.isFile() || !expected.has(key))
+          throw new EngineMismatchError('Unexpected engine file.')
+        found.push(key)
+      }
+    }
+  }
+  await walk()
+  return found
+}
 export function engineRelease(platform = process.platform, arch = process.arch) {
   const host = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : platform
   const cpu =
@@ -52,42 +86,23 @@ export async function verifyInstalledEngine(
   verified?: (stamp: string) => void,
 ): Promise<string | null> {
   const expected = (release ?? engineRelease()).files
-  for (let attempt = 0; ; attempt++) {
-    try {
+  try {
+    return await retryEngineRead(async () => {
       if (!(await lstat(directory)).isDirectory()) return null
-      const found = new Set<string>()
+      const found = await engineFiles(directory, new Set(Object.keys(expected)))
+      if (found.length !== Object.keys(expected).length) return null
       const stamps: string[] = []
-      const walk = async (relative = ''): Promise<void> => {
-        for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
-          const key = relative ? `${relative}/${entry.name}` : entry.name
-          if (
-            !expected[key] &&
-            entry.isFile() &&
-            (entry.name === '.DS_Store' ||
-              entry.name.startsWith('._') ||
-              ['thumbs.db', 'desktop.ini'].includes(entry.name.toLowerCase()))
-          )
-            continue
-          if (entry.isDirectory()) {
-            if (!Object.keys(expected).some((path) => path.startsWith(`${key}/`)))
-              throw new EngineMismatchError('Unexpected engine directory.')
-            await walk(key)
-          } else {
-            const file = expected[key]
-            if (!entry.isFile() || !file) throw new EngineMismatchError('Unexpected engine file.')
-            const path = join(directory, key)
-            const info = await lstat(path)
-            if (info.size !== file.size) throw new EngineMismatchError('Incomplete engine file.')
-            stamps.push(`${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`)
-            if (full) await verifyDownload(path, file.sha256)
-            found.add(key)
-          }
-        }
+      for (const key of found) {
+        const file = expected[key]
+        if (!file) throw new EngineMismatchError('Unexpected engine file.')
+        const path = join(directory, key)
+        const info = await lstat(path)
+        if (info.size !== file.size) throw new EngineMismatchError('Incomplete engine file.')
+        stamps.push(`${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`)
+        if (full) await verifyDownload(path, file.sha256)
       }
-      await walk()
-      if (found.size !== Object.keys(expected).length) return null
-      const contractKey = [...found].find((key) => basename(key) === 'contract.json')
-      const libraryKey = [...found].find((key) =>
+      const contractKey = found.find((key) => basename(key) === 'contract.json')
+      const libraryKey = found.find((key) =>
         /^(transcribe\.dll|libtranscribe\.(dylib|so))$/.test(basename(key)),
       )
       if (!contractKey || !libraryKey) return null
@@ -103,25 +118,41 @@ export async function verifyInstalledEngine(
         return null
       verified?.(stamps.sort().join('\n'))
       return join(directory, libraryKey)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (
-        code === 'ENOENT' ||
-        code === 'ENOTDIR' ||
-        error instanceof DownloadChecksumError ||
-        error instanceof EngineMismatchError ||
-        error instanceof SyntaxError
+    })
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (
+      code === 'ENOENT' ||
+      code === 'ENOTDIR' ||
+      error instanceof DownloadChecksumError ||
+      error instanceof EngineMismatchError ||
+      error instanceof SyntaxError
+    )
+      return null
+    throw new EngineIoError(ENGINE_READ_ERROR, { cause: error })
+  }
+}
+
+export async function engineStampMatches(directory: string, stamp: string): Promise<boolean> {
+  try {
+    return await retryEngineRead(async () => {
+      const expected = new Set(stamp.split('\n').map((line) => line.slice(0, line.indexOf(':'))))
+      const found = await engineFiles(directory, expected)
+      if (found.length !== expected.size) return false
+      const current = await Promise.all(
+        stamp.split('\n').map(async (line) => {
+          const key = line.slice(0, line.indexOf(':'))
+          const info = await lstat(join(directory, key))
+          return info.isFile() ? `${key}:${info.size}:${info.mtimeMs}:${info.ctimeMs}` : ''
+        }),
       )
-        return null
-      if (code && TRANSIENT_IO_CODES.has(code) && attempt < 2) {
-        await setTimeout(100 * (attempt + 1))
-        continue
-      }
-      throw new EngineIoError(
-        'Could not read the speech engine files. Close apps using these files and retry.',
-        { cause: error },
-      )
-    }
+      return current.sort().join('\n') === stamp
+    })
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR' || error instanceof EngineMismatchError)
+      return false
+    throw new EngineIoError(ENGINE_READ_ERROR, { cause: error })
   }
 }
 
@@ -191,7 +222,9 @@ export async function installEngine(
       throw new Error('The speech engine files did not pass verification. Download it again.')
     await rm(destination, { recursive: true, force: true })
     await rename(staging, destination)
-    await rm(archive, { force: true })
+    await rm(archive, { force: true }).catch((error: unknown) =>
+      console.warn('Could not clean the speech engine archive:', archive, error),
+    )
     return join(destination, relative(staging, library))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOSPC')

@@ -65,3 +65,16 @@ it('refuses reserved combinations before saving them', () => {
     error: expect.stringContaining('reserved'),
   })
 })
+
+it('keeps genuine Ctrl plus Right Alt as a key combination', () => {
+  expect(shortcutFromKey(key('ControlLeft', { key: 'Control', ctrlKey: true }), 'win32')).toBeNull()
+  expect(
+    shortcutFromKey(
+      key('AltRight', { key: 'Alt', ctrlKey: true, altKey: true, getModifierState: () => false }),
+      'win32',
+    ),
+  ).toBeNull()
+  expect(shortcutFromKey(key('KeyD', { ctrlKey: true, altKey: true }), 'win32')).toEqual({
+    shortcut: 'ctrl+alt+d',
+  })
+})

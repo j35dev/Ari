@@ -10,6 +10,7 @@ const listeners = new Set<() => void>()
 let unsubscribe: (() => void) | null = null
 let reading: Promise<void> | null = null
 let revision = 0
+let statusRevision = 0
 let generation = 0
 
 function emit(): void {
@@ -22,16 +23,19 @@ async function refresh(): Promise<void> {
   const currentGeneration = generation
   reading = (async () => {
     let readRevision: number
-    do {
+    for (let attempt = 0; attempt < 2; attempt++) {
       readRevision = revision
+      const frameRevision = statusRevision
       const status = await rpc.invoke('speech.status')
       if (currentGeneration !== generation) return
-      if (readRevision !== revision) continue
+      if (frameRevision !== statusRevision) return
+      if (readRevision !== revision && attempt === 0) continue
       // A missing reply keeps the last known status rather than crashing every composer.
-      if (!status) continue
+      if (!status) return
       snapshot = { ...snapshot, status }
       emit()
-    } while (revision !== readRevision)
+      if (revision === readRevision) break
+    }
   })().finally(() => {
     if (currentGeneration === generation) reading = null
   })
@@ -45,7 +49,7 @@ function subscribe(listener: () => void): () => void {
     unsubscribe = rpc.subscribe('speech.progress', {}, (payload) => {
       if (currentGeneration !== generation) return
       const frame = payload as SpeechProgress
-      if (frame.status) revision++
+      if (frame.status) statusRevision++
       snapshot = {
         ...snapshot,
         ...(frame.status ? { status: frame.status } : {}),

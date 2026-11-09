@@ -2,13 +2,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechSettings } from './SpeechSettings'
 import { defaultSettings } from '@ari/contracts/settings'
-import type { SpeechModel } from '@ari/contracts/rpc'
+import type { SpeechModel, SpeechStatus, SpeechProgress } from '@ari/contracts/rpc'
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   update: vi.fn(),
   refresh: vi.fn(),
-  ready: false,
+  status: { engine: 'missing', engineInstallable: true, model: null, ready: false } as SpeechStatus,
+  progress: {} as Record<string, SpeechProgress>,
 }))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke: mocks.invoke } }))
 vi.mock('./useEngineSettings', () => ({
@@ -16,8 +17,8 @@ vi.mock('./useEngineSettings', () => ({
 }))
 vi.mock('../speech/useSpeech', () => ({
   useSpeech: () => ({
-    status: { engine: 'missing', model: null, ready: mocks.ready },
-    progress: {},
+    status: mocks.status,
+    progress: mocks.progress,
     refresh: mocks.refresh,
   }),
 }))
@@ -44,6 +45,8 @@ const downloadable: SpeechModel = {
   installed: false,
 }
 beforeEach(() => {
+  mocks.status = { engine: 'missing', engineInstallable: true, model: null, ready: false }
+  mocks.progress = {}
   mocks.invoke
     .mockReset()
     .mockImplementation((method: string) =>
@@ -59,6 +62,74 @@ it('offers existing models in place and a separate engine download', async () =>
   expect(screen.getByRole('button', { name: 'Download engine' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Use model' }))
+  await waitFor(() =>
+    expect(mocks.invoke).toHaveBeenCalledWith('speech.select', { modelId: 'found' }),
+  )
+})
+it.each(['missing', 'ready'] as const)(
+  'offers Retry for an engine read error instead of reinstall (%s)',
+  async (engine) => {
+    mocks.status = {
+      engine,
+      engineInstallable: false,
+      model: null,
+      ready: false,
+      error:
+        "Couldn't read the speech engine files. Close apps that may be using them, then Retry.",
+      engineError:
+        "Couldn't read the speech engine files. Close apps that may be using them, then Retry.",
+    }
+    render(<SpeechSettings />)
+    expect(screen.queryByRole('button', { name: 'Download engine' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
+    expect(mocks.invoke).toHaveBeenCalledWith('speech.engine.check')
+    expect(screen.queryByRole('button', { name: 'Reinstall engine' })).not.toBeInTheDocument()
+    expect(mocks.invoke).not.toHaveBeenCalledWith('speech.engine.download')
+  },
+)
+it('offers an explicit reinstall after Retry could not read the engine', async () => {
+  mocks.status = {
+    engine: 'missing',
+    engineError: 'Files still locked',
+    engineReinstallable: true,
+    engineInstallable: false,
+    model: null,
+    ready: false,
+  }
+  render(<SpeechSettings />)
+  fireEvent.click(screen.getByRole('button', { name: 'Reinstall engine' }))
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('speech.engine.reinstall'))
+})
+it('waits for completed startup inspection and shows a background model load', () => {
+  mocks.status = { engine: 'missing', engineInstallable: false, model: null, ready: false }
+  const view = render(<SpeechSettings />)
+  expect(screen.getByRole('status')).toHaveTextContent('Checking')
+  expect(screen.queryByRole('button', { name: 'Download engine' })).not.toBeInTheDocument()
+  mocks.status = {
+    engine: 'ready',
+    engineInstallable: false,
+    model: found,
+    loading: true,
+    ready: false,
+  }
+  view.rerender(<SpeechSettings />)
+  expect(screen.getByRole('status')).toHaveTextContent('Loading')
+})
+
+it('keeps the engine ready when the active model has a load error', async () => {
+  mocks.status = {
+    engine: 'ready',
+    engineError: null,
+    engineInstallable: false,
+    model: found,
+    ready: false,
+    error: 'Invalid GGUF model',
+  }
+  render(<SpeechSettings />)
+  await screen.findByText('Found model')
+  expect(screen.getByText('Ready')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await waitFor(() =>
     expect(mocks.invoke).toHaveBeenCalledWith('speech.select', { modelId: 'found' }),
   )
