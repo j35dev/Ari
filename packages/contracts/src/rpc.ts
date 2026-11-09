@@ -304,6 +304,7 @@ export type PickedElement = z.infer<typeof pickedElementSchema>
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
   'projects.changed',
+  'speech.progress',
   'orchestration.changed',
   'session.events',
   'terminal.data',
@@ -315,6 +316,37 @@ export const streamNames = [
   'scm.changed',
 ] as const
 export type StreamName = (typeof streamNames)[number]
+
+export interface SpeechModel {
+  id: string
+  name: string
+  description: string
+  languages: string[]
+  filename: string
+  size: number
+  sha256: string | null
+  repository: string | null
+  revision: string | null
+  recommended?: boolean
+  partial?: { size: number; updatedAt: number }
+  installed: false | { path: string; source: 'ari' | 'handy' | 'other' }
+}
+
+export interface SpeechStatus {
+  engine: 'missing' | 'downloading' | 'ready' | 'error'
+  model: SpeechModel | null
+  ready: boolean
+  error?: string | null
+}
+
+export interface SpeechProgress {
+  id: string
+  phase: 'downloading' | 'verifying' | 'installing' | 'complete' | 'cancelled' | 'error'
+  received: number
+  total: number
+  error?: string
+  status?: SpeechStatus
+}
 
 /** Payload delivered on the app.navigate stream: the main process asking to show a session. */
 export interface NavigateFrame {
@@ -885,6 +917,23 @@ export const rpcParams = {
     defaultModel: z.string().min(1).optional(),
   }),
   'settings.get': z.undefined(),
+  'speech.status': z.undefined(),
+  'speech.models': z.undefined(),
+  'speech.engine.download': z.undefined(),
+  'speech.engine.cancel': z.undefined(),
+  'speech.download': z.object({ modelId: z.string().min(1) }),
+  'speech.cancel': z.object({ modelId: z.string().min(1) }),
+  'speech.select': z
+    .object({ modelId: z.string().optional(), path: z.string().optional() })
+    .refine((value) => Boolean(value.modelId) !== Boolean(value.path), 'Choose a model id or path'),
+  'speech.remove': z.object({ modelId: z.string().min(1) }),
+  'speech.discard': z.object({ modelId: z.string().min(1) }),
+  'speech.transcribe': z.object({
+    pcm: z
+      .union([z.instanceof(Float32Array), z.array(z.number().finite().min(-1).max(1))])
+      .refine((pcm) => pcm.length > 0 && pcm.length <= 16_000 * 300, 'Record up to five minutes'),
+    language: z.string().max(20).optional(),
+  }),
   'settings.update': settingsUpdateSchema,
   'git.status': gitScopeSchema,
   'scm.summary': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
@@ -1332,6 +1381,16 @@ export interface RpcResults extends OrchestrationResults {
   }
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
+  'speech.status': SpeechStatus
+  'speech.models': SpeechModel[]
+  'speech.engine.download': { started: boolean }
+  'speech.engine.cancel': { cancelled: boolean }
+  'speech.download': { started: boolean }
+  'speech.cancel': { cancelled: boolean }
+  'speech.select': SpeechStatus
+  'speech.remove': { removed: boolean }
+  'speech.discard': { discarded: boolean }
+  'speech.transcribe': { text: string }
   'settings.update': Settings
   'scm.summary': SourceControlResult<GitSummary>
   'scm.requests': SourceControlResult<HostConnection>

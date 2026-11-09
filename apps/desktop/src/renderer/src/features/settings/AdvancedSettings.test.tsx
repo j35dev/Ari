@@ -25,6 +25,7 @@ vi.mock('../../lib/rpc', () => ({
 }))
 
 const engineSettings: Settings = {
+  speech: defaultSettings.speech,
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {

@@ -66,6 +66,8 @@ import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
+import { SpeechService } from './speech/service'
+import { grantSpeechMicrophone } from './speech/permissions'
 import { createPullRequest } from './gh-pr'
 import { listHubItems, viewHubItem } from './github-hub'
 import {
@@ -170,6 +172,7 @@ import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
 import { todoFilenameFor } from '@ari/ari-core/todo'
 
 const log = createLogger('desktop:rpc')
+let speechService: SpeechService | null = null
 
 /**
  * Kinds whose ACP server is probed for the agent's own model list. Adapters
@@ -919,6 +922,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   rpcRegistryRef = rpcRegistry
+  const speech = (speechService ??= new SpeechService(app.getPath('userData'), getSettingsStore()))
+  speech.publish = (frame) => {
+    rpcRegistryRef?.publish('speech.progress', frame)
+    // Automatic setup writes the store directly; the global shortcut host
+    // must hear when that model becomes usable, too.
+    if (frame.phase === 'complete' || frame.phase === 'error' || frame.phase === 'cancelled') {
+      options.onSettingsChanged?.(getSettingsStore().current)
+    }
+  }
+  grantSpeechMicrophone(contents.session)
+  app.once('will-quit', () => speech.dispose())
   appUpdaterRef ??= createAppUpdater((frame) => rpcRegistryRef?.publish('app.updates', frame))
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
@@ -1446,6 +1460,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return store.current
   })
 
+  r.register('speech.status', () => speech.status())
+  r.register('speech.models', () => speech.models())
+  r.register('speech.engine.download', () => speech.install())
+  r.register('speech.engine.cancel', () => speech.cancel('engine'))
+  r.register('speech.download', ({ modelId }) => speech.download(modelId))
+  r.register('speech.cancel', ({ modelId }) => speech.cancel(modelId))
+  r.register('speech.select', (choice) => speech.select(choice))
+  r.register('speech.remove', ({ modelId }) => speech.remove(modelId))
+  r.register('speech.discard', ({ modelId }) => speech.discard(modelId))
+  r.register('speech.transcribe', ({ pcm, language }) =>
+    speech.transcribe(new Float32Array(pcm), language),
+  )
+
   r.register('settings.update', async (params) => {
     const settings = await getSettingsStore().update(params)
     if (params.providers !== undefined) {
@@ -1461,6 +1488,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         .catch((error: unknown) => log.warn('provider redetect failed', { error: String(error) }))
     }
     options.onSettingsChanged?.(settings)
+    if (params.speech)
+      rpcRegistry.publish('speech.progress', {
+        id: 'configuration',
+        phase: 'complete',
+        received: 0,
+        total: 0,
+      })
     return settings
   })
 
@@ -2686,6 +2720,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       name: params.name,
       params: params.params,
     })
+    if (params.name === 'speech.progress') {
+      for (const frame of speech.snapshot()) rpcRegistry.sendTo(params.id, frame)
+    }
     // Replay the journal so late subscribers get full history first. Frames
     // are tagged `replay` and terminated by a `replayDone` sentinel so the
     // renderer can order the burst against live events that arrive while the

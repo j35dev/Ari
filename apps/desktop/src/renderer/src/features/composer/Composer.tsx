@@ -25,6 +25,7 @@ import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-
 import { promptHistory, stepPromptHistory } from './prompt-history'
 import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
+import { SpeechButton } from './SpeechButton'
 import { rpc } from '../../lib/rpc'
 
 /**
@@ -722,7 +723,7 @@ export function Composer({
               resting
                 ? // Symmetric padding centres the single line, and the right
                   // inset keeps the placeholder clear of the overlaid send.
-                  'pb-3 pl-4 pr-12 pt-3.5'
+                  'pb-3 pl-4 pr-20 pt-3.5'
                 : 'px-4 pt-3.5 pb-2'
             }`}
           />
@@ -754,6 +755,11 @@ export function Composer({
               resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
             }
           >
+            <SpeechButton
+              key={sessionId ?? ''}
+              disabled={disabled}
+              onTranscript={(transcript) => insertAtCaret(textareaRef.current, caret, transcript)}
+            />
             <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
