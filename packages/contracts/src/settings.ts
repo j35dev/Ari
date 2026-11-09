@@ -3,6 +3,72 @@ import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent
 import { driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
 
+export function defaultSpeechShortcut(platform: string): string {
+  return platform === 'darwin' ? 'shift+meta+space' : 'ctrl+alt+space'
+}
+
+const speechModifierOrder = ['ctrl', 'alt', 'shift', 'meta']
+const speechModifiers = new Set(speechModifierOrder)
+const speechPunctuation = new Set([
+  'comma',
+  'period',
+  'slash',
+  'semicolon',
+  'quote',
+  'backquote',
+  'minus',
+  'equal',
+  'bracketleft',
+  'bracketright',
+  'backslash',
+])
+const reservedSpeechShortcuts = new Set([
+  'alt+tab',
+  'alt+f4',
+  'ctrl+alt+delete',
+  'meta+tab',
+  'meta',
+])
+
+export function speechShortcutError(shortcut: string, platform?: string): string | null {
+  if (shortcut !== shortcut.trim() || shortcut !== shortcut.toLowerCase())
+    return 'Use a lowercase shortcut without spaces around the + signs.'
+  if (
+    reservedSpeechShortcuts.has(shortcut) ||
+    (platform === 'darwin' && ['meta+q', 'meta+space', 'ctrl+space'].includes(shortcut)) ||
+    (platform !== undefined && platform !== 'darwin' && ['meta+l', 'meta+d'].includes(shortcut))
+  )
+    return `${shortcut} is reserved by the operating system. Choose another shortcut.`
+  const parts = shortcut.split('+')
+  const key = parts.pop() ?? ''
+  if (speechModifiers.has(key))
+    return 'Add a key to the modifier, or use F1–F24 alone. Modifier-only shortcuts are not supported.'
+  if (
+    parts.some((modifier) => !speechModifiers.has(modifier)) ||
+    new Set(parts).size !== parts.length
+  )
+    return 'Use each modifier once, before exactly one key.'
+  if (
+    parts.join('+') !== speechModifierOrder.filter((modifier) => parts.includes(modifier)).join('+')
+  )
+    return 'Use modifiers in this order: ctrl, alt, shift, meta.'
+  if (key === 'tab') return 'Tab cannot be used as the hold-to-talk shortcut.'
+  const functionKey = /^f([1-9]|1[0-9]|2[0-4])$/.test(key)
+  if (
+    !functionKey &&
+    !/^[a-z0-9]$/.test(key) &&
+    !['space', 'enter'].includes(key) &&
+    !speechPunctuation.has(key)
+  )
+    return 'Use a letter, number, punctuation key, Space, Enter, or F1–F24.'
+  if (!parts.length && !functionKey) return 'Add at least one modifier, or use F1–F24 alone.'
+  return null
+}
+
+export function migrateSpeechShortcut(shortcut: string, platform: string): string {
+  return speechShortcutError(shortcut, platform) ? defaultSpeechShortcut(platform) : shortcut
+}
+
 /**
  * Theme identifiers. Mirrors `themeIds` in packages/ui/src/themes.ts, which
  * owns the palettes; contracts keeps its own literal list so the engine never
@@ -158,8 +224,17 @@ const defaultAppearance = {
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
 const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
 
+export const speechSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  modelId: z.string().nullable().default(null),
+  modelPath: z.string().nullable().default(null),
+  // Empty in older files means use the host's default chord.
+  shortcut: z.string().trim().max(80).default(''),
+})
+
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  speech: speechSettingsSchema.default(() => speechSettingsSchema.parse({})),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
@@ -266,6 +341,21 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  speech: z
+    .object({
+      enabled: z.boolean(),
+      modelId: z.string().nullable(),
+      modelPath: z.string().nullable(),
+      shortcut: z
+        .string()
+        .max(80)
+        .superRefine((value, context) => {
+          const error = speechShortcutError(value)
+          if (error) context.addIssue({ code: 'custom', message: error })
+        }),
+    })
+    .partial()
+    .optional(),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
@@ -350,6 +440,7 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  speech: speechSettingsSchema.parse({}),
   delegation: delegationSettingsSchema.parse({}),
   version: 1,
   appearance: { ...defaultAppearance },
