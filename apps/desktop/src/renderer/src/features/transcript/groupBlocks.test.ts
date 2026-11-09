@@ -255,6 +255,31 @@ describe('turn diff cards', () => {
     expect(groupBlocks(blocks, { turn_1: '' })).toHaveLength(1)
   })
 
+  it('keeps a large turn summary visible and reuses its row while unchanged', () => {
+    const blocks = splitBlocks([
+      { ...assistantMessage([{ type: 'text', text: 'Done.' }]), turnId: 'turn_1' },
+    ])
+    const summary = {
+      baseOid: 'a'.repeat(40),
+      headOid: 'b'.repeat(40),
+      files: [
+        {
+          path: 'large.txt',
+          kind: 'modified' as const,
+          additions: 10000,
+          deletions: 2,
+          binary: false,
+          staged: false,
+          unstaged: false,
+        },
+      ],
+    }
+    const diffs = { turn_1: { summary, sessionId: 'sess_1' } }
+    const rows = groupBlocks(blocks, diffs)
+    expect(rows.at(-1)).toMatchObject({ kind: 'turn-diff', summary, sessionId: 'sess_1' })
+    expect(groupBlocks(blocks, diffs, rows).at(-1)).toBe(rows.at(-1))
+  })
+
   it('leaves turns without an entry untouched and skips empty diffs', () => {
     const base = splitBlocks([
       userMessage('hello'),
