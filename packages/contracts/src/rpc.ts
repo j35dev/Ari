@@ -334,7 +334,12 @@ export interface SpeechModel {
 
 export interface SpeechStatus {
   engine: 'missing' | 'downloading' | 'ready' | 'error'
+  engineError?: string | null
+  /** An inspection must confirm missing or mismatched files before a download is offered. */
+  engineInstallable?: boolean
+  engineReinstallable?: boolean
   model: SpeechModel | null
+  loading?: boolean
   ready: boolean
   error?: string | null
 }
@@ -918,6 +923,8 @@ export const rpcParams = {
   'speech.status': z.undefined(),
   'speech.models': z.undefined(),
   'speech.engine.download': z.undefined(),
+  'speech.engine.check': z.undefined(),
+  'speech.engine.reinstall': z.undefined(),
   'speech.engine.cancel': z.undefined(),
   'speech.download': z.object({ modelId: z.string().min(1) }),
   'speech.cancel': z.object({ modelId: z.string().min(1) }),
@@ -1382,6 +1389,8 @@ export interface RpcResults extends OrchestrationResults {
   'speech.status': SpeechStatus
   'speech.models': SpeechModel[]
   'speech.engine.download': { started: boolean }
+  'speech.engine.check': SpeechStatus
+  'speech.engine.reinstall': { started: boolean }
   'speech.engine.cancel': { cancelled: boolean }
   'speech.download': { started: boolean }
   'speech.cancel': { cancelled: boolean }
