@@ -195,9 +195,10 @@ describe('SettingsStore', () => {
     expect(settings.appearance.themeId).toBe('obsidian')
     expect(settings.appearance.mode).toBe('system')
     expect(settings.appearance).not.toHaveProperty('glass')
-    expect(settings.sessions.defaultPermissionMode).toBe('ask')
+    expect(settings.sessions.defaultPermissionMode).toBe('full')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
+    expect((await new SettingsStore({ dir }).load()).sessions.defaultPermissionMode).toBe('full')
   })
 
   it('updates sections with merge semantics and persists atomically', async () => {

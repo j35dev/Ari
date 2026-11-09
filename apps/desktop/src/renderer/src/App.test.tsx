@@ -1328,12 +1328,11 @@ describe('Shell live sidebar feed', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('command.dispatch', expect.anything())
   })
 
-  describe('with Full access as the default permission mode', () => {
+  describe('with fresh default permissions', () => {
     beforeEach(() => {
       const base = invokeMock.getMockImplementation()
       invokeMock.mockImplementation(async (method, params) => {
-        if (method === 'settings.get')
-          return settingsSchema.parse({ version: 1, sessions: { defaultPermissionMode: 'full' } })
+        if (method === 'settings.get') return settingsSchema.parse({ version: 1 })
         if (method === 'command.dispatch') return { accepted: true }
         return base?.(method, params)
       })
