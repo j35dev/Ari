@@ -10,9 +10,7 @@ import type {
   ResolvedProjectAgent,
   StoredProject,
 } from '@ari/contracts/project'
-import type { Session } from '@ari/contracts/session'
-import { exceedsPermission, type DriverKind, type PermissionMode } from '@ari/contracts/common'
-import { isHelmSession } from '@ari/contracts/helm'
+import { exceedsPermission, type PermissionMode } from '@ari/contracts/common'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
@@ -27,27 +25,28 @@ export interface ProjectAgentProvider {
 }
 
 export interface ProjectAgentDefaults {
-  driverKind: DriverKind | null
   permissionMode: PermissionMode
 }
 
-export type ProjectAgentSession = Pick<Session, 'projectId'> &
-  Partial<
-    Pick<
-      Session,
-      'driverKind' | 'modelId' | 'effort' | 'permissionMode' | 'createdBy' | 'createdAt'
-    >
-  >
-
-/** Pick from known user choices only; an installed provider is not a preference. */
+/** Project work requires a user choice or a saved project default. */
 export function resolveProjectAgent(input: {
   project: { projectId: string; defaultAgent?: ProjectAgent | null }
   arguments?: Partial<ProjectAgent>
-  sessions: readonly ProjectAgentSession[]
   providers: readonly ProjectAgentProvider[]
   app: ProjectAgentDefaults
   maxPermissionMode?: PermissionMode
 }): ResolvedProjectAgent | null {
+  const sameModel = (
+    driverKind: string | undefined,
+    first: string | null | undefined,
+    second: string | null | undefined,
+  ): boolean => {
+    if (!first || !second) return first === second
+    const models = input.providers.find((provider) => provider.driverKind === driverKind)?.models
+    const canonical = (id: string) =>
+      models?.find((model) => model.id === id || model.aliases?.includes(id))?.id ?? id
+    return canonical(first) === canonical(second)
+  }
   const resolve = (
     candidate: Partial<ProjectAgent>,
     source: ResolvedProjectAgent['source'],
@@ -61,6 +60,10 @@ export function resolveProjectAgent(input: {
     ) {
       candidate = {
         ...candidate,
+        ...(args.modelId !== undefined &&
+        !sameModel(candidate.driverKind, args.modelId, candidate.modelId)
+          ? { effort: null }
+          : {}),
         ...(args.modelId === undefined ? {} : { modelId: args.modelId }),
         ...(args.effort === undefined ? {} : { effort: args.effort }),
         ...(args.permissionMode === undefined ? {} : { permissionMode: args.permissionMode }),
@@ -72,7 +75,7 @@ export function resolveProjectAgent(input: {
       (p) => p.available && p.driverKind === candidate.driverKind,
     )
     if (!provider) return null
-    const selected = candidate.modelId ?? provider.defaultModelId
+    const selected = candidate.modelId
     const model = provider.models.find(
       (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
     )
@@ -94,35 +97,26 @@ export function resolveProjectAgent(input: {
   }
   const explicit = input.arguments
   if (explicit?.driverKind) {
-    const picked = resolve(explicit, 'arguments')
-    if (picked) return picked
+    const saved = input.project.defaultAgent
+    return resolve(
+      saved?.driverKind === explicit.driverKind
+        ? {
+            ...saved,
+            ...(explicit.modelId !== undefined &&
+            !sameModel(explicit.driverKind, explicit.modelId, saved.modelId)
+              ? { effort: null }
+              : {}),
+            ...explicit,
+          }
+        : explicit,
+      'arguments',
+    )
   }
   if (input.project.defaultAgent) {
     const picked = resolve(input.project.defaultAgent, 'project')
     if (picked) return picked
   }
-  const recent = input.sessions
-    .filter(
-      (s) =>
-        s.projectId === input.project.projectId &&
-        (!s.createdBy || s.createdBy.kind === 'human') &&
-        !isHelmSession(s),
-    )
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-    .slice(0, 10)
-  const choices = new Map<string, { agent: ResolvedProjectAgent; count: number }>()
-  for (const session of recent) {
-    const agent = resolve(session, 'recent')
-    if (!agent) continue
-    const key = `${agent.driverKind}:${agent.modelId}`
-    const choice = choices.get(key)
-    if (choice) choice.count++
-    else choices.set(key, { agent, count: 1 })
-  }
-  // Map insertion order breaks a tie in favor of the most recent user choice.
-  const usual = [...choices.values()].sort((a, b) => b.count - a.count)[0]
-  if (usual) return usual.agent
-  return input.app.driverKind ? resolve({ driverKind: input.app.driverKind }, 'app') : null
+  return null
 }
 
 export interface ProjectStoreOptions {

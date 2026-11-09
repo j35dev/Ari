@@ -26,6 +26,7 @@ function parse(argv) {
     'tools',
     'include-consumed',
     'active',
+    'reset',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -146,6 +147,8 @@ function parse(argv) {
     } else if (verb === 'default') {
       if (!target) throw new Error('project default needs a project id')
       if (!flags.agent) throw new Error('project default needs --agent')
+      if (!flags.model)
+        throw new Error('project default needs --model. Ask the user which model to use.')
       method = 'projects.setDefault'
       params = {
         projectId: target,
@@ -155,7 +158,27 @@ function parse(argv) {
         ...(flags.effort ? { effort: flags.effort } : {}),
         ...(flags.permission ? { permissionMode: flags.permission } : {}),
       }
-    } else throw new Error('Use ari project create, ari project ask or ari project default')
+    } else if (verb === 'lead') {
+      if (!target) throw new Error('project lead needs a project id')
+      if (rest.length) throw new Error('project lead does not accept prompt text')
+      if (flags.reset && (flags.agent || flags.model || flags.effort))
+        throw new Error('Use either --reset or --agent with --model and optional --effort')
+      if (!flags.reset && !flags.agent) throw new Error('project lead needs --agent or --reset')
+      if (flags.permission) throw new Error('project lead keeps the lead permissions')
+      if (!flags.reset && !flags.model)
+        throw new Error('project lead needs --model. Ask the user which model to use.')
+      method = 'projects.lead'
+      params = {
+        projectId: target,
+        idempotencyKey: key,
+        ...(flags.reset ? { reset: true } : { driverKind: flags.agent }),
+        ...(flags.model ? { modelId: flags.model } : {}),
+        ...(flags.effort ? { effort: flags.effort } : {}),
+      }
+    } else
+      throw new Error(
+        'Use ari project create, ari project ask, ari project default or ari project lead',
+      )
   } else if (group === 'sessions') {
     const words = positional.slice(1).join(' ')
     if (words && flags.query) throw new Error('Use either query words or --query')
@@ -243,6 +266,19 @@ function parse(argv) {
           ...(flags.permission ? { permissionMode: flags.permission } : {}),
           ...(flags.workspace ? { workspaceMode: flags.workspace } : {}),
           ...(flags.prompt || flags['prompt-file'] ? { prompt: promptText(flags.prompt) } : {}),
+        }
+        break
+      case 'switch':
+        if (!target) throw new Error('session switch needs a session id')
+        if (!flags.agent) throw new Error('session switch needs --agent')
+        if (!flags.model)
+          throw new Error('session switch needs --model. Ask the user which model to use.')
+        params = {
+          targetSessionId: target,
+          driverKind: flags.agent,
+          idempotencyKey: key,
+          ...(flags.model ? { modelId: flags.model } : {}),
+          ...(flags.effort ? { effort: flags.effort } : {}),
         }
         break
       case 'prompt':

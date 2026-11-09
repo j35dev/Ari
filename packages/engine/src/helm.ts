@@ -7,7 +7,7 @@ import {
   type HelmProjectContext,
   type HelmSessionRow,
   isHelmSession,
-  isHelmProjectLead,
+  isHelmProjectSession,
 } from '@ari/contracts/helm'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel } from './projection'
@@ -30,18 +30,13 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
   return null
 }
 
-/** A new Aria topic inherits reports from project leads whose requester was deleted. */
+/** A new Aria topic inherits reports from project sessions whose requester was deleted. */
 export async function helmReportRecipient(
   store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
   model: SessionReadModel,
   turnId: string,
 ): Promise<string | null> {
   return helmRecipient(store, model, turnRequester(model, turnId))
-}
-
-/** Listing identity is filled from the creation event without replaying a journal. */
-export function isProjectLeadCandidate(row: SessionListEntry): boolean {
-  return !row.archived && isHelmProjectLead(row)
 }
 
 export async function helmTaskRecipient(
@@ -77,7 +72,7 @@ async function helmRecipient(
   if (row) return isHelmSession(row) ? requester : null
   const asked = (await store.loadExisting(requester))?.session
   if (asked) return isHelmSession(asked) ? requester : null
-  if (!isHelmProjectLead(model.session)) return null
+  if (!isHelmProjectSession(model.session)) return null
   if (!rows) return store.currentHelmSession()
   const current = [...rows]
     .filter((row) => isHelmSession(row) && !row.archived)
@@ -195,19 +190,21 @@ function projectLine(
     name: string
     available: boolean
     agent?: ResolvedProjectAgent | null
+    agentError?: string
   },
 ): string {
   const source = {
     arguments: 'explicit choice',
     project: 'project setting',
-    recent: 'recent sessions',
-    app: 'app default',
+    lead: 'current lead',
   } as const
-  const agent = p.agent
-    ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
-    : p.agent === null
-      ? ', agent unset'
-      : ''
+  const agent = p.agentError
+    ? ', saved default is missing a model; ask the user'
+    : p.agent
+      ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
+      : p.agent === null
+        ? ', agent unset'
+        : ''
   const clues = [
     ...(p.description ? [compact(p.description, HELM_DESCRIPTION_CHARS)] : []),
     ...(p.repository ? [`repo: ${compact(p.repository, 100)}`] : []),
@@ -237,6 +234,7 @@ export async function helmSnapshot(
     name: string
     available: boolean
     agent?: ResolvedProjectAgent | null
+    agentError?: string
   })[],
   now = Date.now(),
 ): Promise<string> {

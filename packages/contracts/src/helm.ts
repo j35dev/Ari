@@ -1,6 +1,6 @@
 /**
- * Aria coordinates the user's projects through one long-lived lead per
- * project. Its own sessions use a built-in home under Ari's data directory;
+ * Aria runs sessions in the user's projects, with leads available on request.
+ * Its own sessions use a built-in home under Ari's data directory;
  * membership of that home identifies Aria independently of its UI.
  *
  * In code it goes by its code name, Helm (`isHelmSession`, `HELM_PROJECT_ID`),
@@ -27,8 +27,8 @@ export function isHelmSession(session: { projectId: string } | null | undefined)
   return session?.projectId === HELM_PROJECT_ID
 }
 
-/** Project leads survive the Aria chat that created them. */
-export function isHelmProjectLead(
+/** Only Aria creates top-level project sessions with a session creator. */
+export function isHelmProjectSession(
   session:
     | {
         projectId: string
@@ -43,9 +43,18 @@ export function isHelmProjectLead(
     session &&
     !isHelmSession(session) &&
     !session.parentSessionId &&
-    session.lead &&
     session.createdBy?.kind === 'session',
   )
+}
+
+/** Project leads survive the Aria chat that created them. */
+export function isHelmProjectLead(session: Parameters<typeof isHelmProjectSession>[0]): boolean {
+  return isHelmProjectSession(session) && session?.lead === true
+}
+
+/** These coordinators can carry their conversation to a different provider. */
+export function canSwitchProvider(session: Parameters<typeof isHelmProjectSession>[0]): boolean {
+  return isHelmSession(session) || isHelmProjectSession(session)
 }
 
 /** Aria has its own entry point, outside the project's navigation surfaces. */

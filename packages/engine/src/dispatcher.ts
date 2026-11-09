@@ -9,7 +9,7 @@ import {
   type SessionReadModel,
 } from './projection'
 import { deriveSliceTitle } from './title'
-import { isHelmSession } from '@ari/contracts/helm'
+import { canSwitchProvider } from '@ari/contracts/helm'
 import { hasProviderContext } from '@ari/contracts/session'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
@@ -192,8 +192,10 @@ export function decideCommand(
 
     case 'session.provider.switch': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
-      if (!isHelmSession(model.session))
-        return reject('provider switching is only available to Aria')
+      if (!canSwitchProvider(model.session))
+        return reject(
+          'provider switching is only available to Aria and the project sessions it launched',
+        )
       return accept(providerSwitch(model, command))
     }
 
@@ -203,9 +205,9 @@ export function decideCommand(
         command.driverKind !== undefined && command.driverKind !== model.session.driverKind
       if (switched && sessionHasContext(model)) {
         return reject(
-          isHelmSession(model.session)
-            ? 'use session.provider.switch to change Aria’s provider'
-            : 'provider switching is only available to Aria',
+          canSwitchProvider(model.session)
+            ? 'use session.provider.switch to change the provider'
+            : 'provider switching is only available to Aria and the project sessions it launched',
         )
       }
       const patch: UnstampedJournalEvent = {

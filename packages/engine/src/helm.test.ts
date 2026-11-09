@@ -8,6 +8,7 @@ import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { SessionStore } from './session-store'
 import { decideCommand } from './dispatcher'
+import { providerTurnContext } from './provider-context'
 import {
   findSessions,
   helmSnapshot,
@@ -22,6 +23,7 @@ let store: SessionStore
 let service: AgentControlService
 let seq = 0
 let projects: HelmProject[]
+let running: Set<string>
 
 const base: Omit<Session, 'id' | 'projectId' | 'title'> = {
   driverKind: 'claude',
@@ -44,7 +46,12 @@ const apiChild: Session = {
   createdBy: { kind: 'session', sessionId: 'api1' },
 }
 
-async function startTurn(id: string, text: string, origin?: Session['createdBy']): Promise<string> {
+async function startTurn(
+  id: string,
+  text: string,
+  origin?: Session['createdBy'],
+  at?: number,
+): Promise<string> {
   const turnId = `t${++seq}`
   const decision = decideCommand(
     await store.load(id),
@@ -52,11 +59,14 @@ async function startTurn(id: string, text: string, origin?: Session['createdBy']
     { turnId, messageId: `m${seq}` },
     origin ?? undefined,
   )
-  for (const event of decision.events) await store.append(id, event)
+  for (const event of decision.events)
+    await store.append(id, { ...event, ...(at === undefined ? {} : { at }) })
+  if (decision.accepted) running.add(id)
   return turnId
 }
 
 async function reply(id: string, turnId: string, text: string): Promise<void> {
+  running.delete(id)
   await store.append(id, {
     type: 'assistant.parts.appended',
     messageId: `reply-${turnId}`,
@@ -71,14 +81,37 @@ async function reply(id: string, turnId: string, text: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  running = new Set()
   dir = await mkdtemp(join(tmpdir(), 'ari-helm-'))
   store = new SessionStore({ rootDir: dir })
   for (const session of [helm, web, api, apiChild])
     await store.append(session.id, { type: 'session.created', session })
   projects = [
     { projectId: HELM_PROJECT_ID, name: 'Aria', path: dir, available: true },
-    { projectId: 'web', name: 'Web', path: dir, available: true },
-    { projectId: 'api', name: 'API', path: dir, available: true },
+    {
+      projectId: 'web',
+      name: 'Web',
+      path: dir,
+      available: true,
+      defaultAgent: {
+        driverKind: 'claude',
+        modelId: 'model',
+        effort: null,
+        permissionMode: 'allow-edits',
+      },
+    },
+    {
+      projectId: 'api',
+      name: 'API',
+      path: dir,
+      available: true,
+      defaultAgent: {
+        driverKind: 'claude',
+        modelId: 'model',
+        effort: null,
+        permissionMode: 'allow-edits',
+      },
+    },
     { projectId: 'gone', name: 'Gone', path: dir, available: false },
   ]
   const host: ControlHost = {
@@ -111,6 +144,7 @@ beforeEach(async () => {
     record: (id, event) => store.append(id, event),
     subscribe: (listener) => store.subscribe(listener),
     workspace: async () => dir,
+    isRunning: (id) => running.has(id),
     isolate: async () => {
       throw new Error('unexpected isolated spawn')
     },
@@ -140,6 +174,7 @@ it('starts a top-level session in another project that answers to Aria', async (
   const id = (result as { result: { child: Session } }).result.child.id
   const model = await store.load(id)
   expect(model.session?.parentSessionId).toBeUndefined()
+  expect(model.session?.lead).toBeUndefined()
   expect(model.session).toMatchObject({
     projectId: 'web',
     createdBy: { kind: 'session', sessionId: 'helm1' },
@@ -173,14 +208,19 @@ it('refuses Aria spawns it cannot place, and cross-project spawns from anyone el
 })
 
 it('caps how many sessions Aria keeps working at once', async () => {
-  projects = [...projects]
-  for (let i = 0; i < 4; i++)
-    expect(
-      (await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: `cap-${i}` }))
-        .ok,
-    ).toBe(true)
+  for (let i = 0; i < 5; i++) projects.push({ ...projects[1]!, projectId: `cap-project-${i}` })
+  for (let i = 0; i < 4; i++) {
+    const result = await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      projectId: `cap-project-${i}`,
+      idempotencyKey: `cap-${i}`,
+    })
+    expect(result.ok).toBe(true)
+    await startTurn((result as { result: { child: Session } }).result.child.id, 'Work')
+  }
   const over = await service.invoke('helm1', 'session.spawn', {
     ...launch,
+    projectId: 'cap-project-4',
     idempotencyKey: 'cap-4',
   })
   expect(over.ok ? null : over.error.code).toBe('delegation_limit')
@@ -348,6 +388,7 @@ it('creates one persistent project lead, reuses it across Aria topics and persis
     idempotencyKey: 'ask-2',
   })
   expect((followup as { result: { sessionId: string } }).result.sessionId).toBe(id)
+  expect(followup).toMatchObject({ result: { agent: { source: 'lead', modelId: 'model' } } })
   expect((await store.load(id)).queuedMessages[1]?.origin).toEqual({
     kind: 'session',
     sessionId: 'helm2',
@@ -412,6 +453,7 @@ it('counts working project leads after their creating Aria chat is destroyed', a
     idempotencyKey: 'reset-cap-a',
   })
   expect(first.ok).toBe(true)
+  await startTurn((first as { result: { sessionId: string } }).result.sessionId, 'Fix login')
   await store.destroy('helm1')
   await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
   service.host.policy = () =>
@@ -459,11 +501,14 @@ it('keeps project asks and legacy spawns idempotent when their keys match', asyn
   service = new AgentControlService(service.host)
   expect(await service.invoke('helm1', 'projects.ask', ask)).toEqual(lead)
   expect(
-    await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: 'same-key' }),
+    await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      idempotencyKey: 'same-key',
+    }),
   ).toEqual(spawned)
 })
 
-it('enforces one project concurrency cap across simultaneous Aria topics', async () => {
+it('does not count queued project work against the live concurrency cap across Aria topics', async () => {
   await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
   service.host.policy = () =>
     delegationSettingsSchema.parse({ approvalMode: 'never', maxConcurrentChildren: 1 })
@@ -479,11 +524,7 @@ it('enforces one project concurrency cap across simultaneous Aria topics', async
       idempotencyKey: 'global-cap-b',
     }),
   ])
-  expect(results.filter((result) => result.ok)).toHaveLength(1)
-  expect(results.find((result) => !result.ok)).toMatchObject({
-    ok: false,
-    error: { code: 'delegation_limit' },
-  })
+  expect(results.every((result) => result.ok)).toBe(true)
 })
 
 it('replaces archived leads and does not adopt a user-created lead', async () => {
@@ -506,7 +547,8 @@ it('replaces archived leads and does not adopt a user-created lead', async () =>
   expect((await store.load(nextId)).session?.title).toBe('New web lead')
 })
 
-it('limits project commands to Aria and asks for a user choice when no agent resolves', async () => {
+it('limits project commands to Aria and asks for a user choice when Aria and the project have no valid model', async () => {
+  await store.append('helm1', { type: 'session.updated', modelId: 'unavailable' })
   projects.push({ projectId: 'fresh', name: 'Fresh', path: dir, available: true })
   const ask = { projectId: 'fresh', text: 'Build it', idempotencyKey: 'unknown-agent' }
   const missing = await service.invoke('helm1', 'projects.ask', ask)
@@ -525,6 +567,7 @@ it('limits project commands to Aria and asks for a user choice when no agent res
     await service.invoke('web1', 'projects.setDefault', {
       projectId: 'web',
       driverKind: 'claude',
+      modelId: 'model',
       idempotencyKey: 'default',
     }),
   ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
@@ -609,12 +652,14 @@ it('caps inherited lead permissions but refuses an explicit elevation on creatio
   expect(
     await service.invoke('helm1', 'projects.ask', { ...ask, idempotencyKey: 'permission-inherit' }),
   ).toMatchObject({ ok: true, result: { reused: false, lead: { permissionMode: 'allow-edits' } } })
-  service.host.projectAgentDefaults = () => ({ driverKind: 'claude', permissionMode: 'full' })
+  service.host.projectAgentDefaults = () => ({ permissionMode: 'full' })
   projects.push({ projectId: 'fresh', name: 'Fresh', path: dir, available: true })
   expect(
     await service.invoke('helm1', 'projects.ask', {
       projectId: 'fresh',
       text: 'Build it',
+      driverKind: 'claude',
+      modelId: 'model',
       idempotencyKey: 'app-permission',
     }),
   ).toMatchObject({ ok: true, result: { lead: { permissionMode: 'allow-edits' } } })
@@ -638,9 +683,17 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
       defaultModelId: 'gpt',
     },
   ]
-  service.host.projectAgentDefaults = () => ({ driverKind: 'codex', permissionMode: 'ask' })
+  service.host.projectAgentDefaults = () => ({ permissionMode: 'ask' })
+  await store.append('helm1', {
+    type: 'session.updated',
+    driverKind: 'codex',
+    modelId: 'gpt',
+    permissionMode: 'ask',
+  })
   const next = await service.invoke('helm1', 'projects.ask', {
     ...ask,
+    driverKind: 'codex',
+    modelId: 'gpt',
     idempotencyKey: 'stale-next',
   })
   expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { driverKind: 'codex' } } })
@@ -786,6 +839,7 @@ it('refuses saving a project default above Aria permission before writing it', a
       driverKind: 'claude',
       permissionMode: 'full',
       idempotencyKey: 'default-high',
+      modelId: 'model',
     }),
   ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
   expect(save).not.toHaveBeenCalled()
@@ -796,6 +850,7 @@ it('refuses saving a project default above Aria permission before writing it', a
         driverKind: 'claude',
         permissionMode: 'ask',
         idempotencyKey: 'default-safe',
+        modelId: 'model',
       })
     ).ok,
   ).toBe(true)
@@ -822,6 +877,8 @@ it('replaces a lead with a removed catalog model while preserving the old lead',
   ]
   const next = await service.invoke('helm1', 'projects.ask', {
     ...ask,
+    driverKind: 'claude',
+    modelId: 'new',
     idempotencyKey: 'model-new',
   })
   expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { modelId: 'new' } } })
@@ -1098,7 +1155,7 @@ it('accepts model aliases consistently when creating and reusing a lead', async 
       modelId: 'model',
       idempotencyKey: 'alias-launch',
     }),
-  ).toMatchObject({ ok: true, result: { child: { modelId: 'model' } } })
+  ).toMatchObject({ ok: true, result: { child: { modelId: 'renamed' } } })
 })
 
 it('resolves all snapshot project agents from one listing and provider catalog without journal reads', async () => {
@@ -1114,7 +1171,7 @@ it('resolves all snapshot project agents from one listing and provider catalog w
   expect(resolved.find((project) => project.projectId === 'web')?.agent).toMatchObject({
     driverKind: 'claude',
     modelId: 'model',
-    source: 'recent',
+    source: 'project',
   })
   expect(listing).toHaveBeenCalledOnce()
   expect(providers).toHaveBeenCalledOnce()
@@ -1178,7 +1235,7 @@ it('shows the resolved project agent and its source compactly in the snapshot', 
     projectName: () => null,
   }
   const text = await helmSnapshot(view, await store.load('helm1'), resolved)
-  expect(text).toContain('Web (web, claude/model, recent sessions)')
+  expect(text).toContain('Web (web, claude/model, project setting)')
 })
 
 it('formats routing clues on one project line and marks the last viewed project', async () => {
@@ -1255,4 +1312,881 @@ it('lists who started a session, so the sidebar can mark what Aria began', async
   expect((await store.listSessions()).find((entry) => entry.id === 'web1')?.createdBy).toEqual({
     kind: 'human',
   })
+})
+
+it('uses the saved project model rather than Aria current model or recent project sessions', async () => {
+  await store.append('helm1', {
+    type: 'session.updated',
+    driverKind: 'codex',
+    modelId: 'gpt',
+    effort: 'high',
+  })
+  const result = await service.invoke('helm1', 'session.spawn', {
+    ...launch,
+    driverKind: undefined,
+    idempotencyKey: 'saved-agent',
+  })
+  expect(result).toMatchObject({
+    ok: true,
+    result: {
+      child: {
+        driverKind: 'claude',
+        modelId: 'model',
+        effort: null,
+        permissionMode: 'allow-edits',
+      },
+      agent: { source: 'project', driverKind: 'claude', modelId: 'model' },
+    },
+  })
+})
+
+it('switches a running project lead without approval or interruption and carries its history', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'lead-first',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  const turnId = await startTurn(id, 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  await store.append(id, {
+    type: 'assistant.parts.appended',
+    messageId: 'lead-reply',
+    parts: [{ type: 'text', text: 'Working on login.' }],
+  })
+  service.host.providers = async () => [
+    {
+      driverKind: 'codex',
+      available: true,
+      models: [{ id: 'gpt', label: 'GPT', aliases: ['latest'] }],
+      defaultModelId: 'gpt',
+    },
+  ]
+  service.host.policy = () => delegationSettingsSchema.parse({ approvalMode: 'always' })
+  const approve = vi.spyOn(service.host, 'approve')
+  const switched = await service.invoke('helm1', 'projects.lead', {
+    projectId: 'web',
+    driverKind: 'codex',
+    modelId: 'latest',
+    effort: 'high',
+    idempotencyKey: 'lead-switch',
+  })
+  expect(switched).toMatchObject({
+    ok: true,
+    result: {
+      switched: true,
+      sessionId: id,
+      lead: { driverKind: 'codex', modelId: 'gpt', effort: 'high', permissionMode: 'allow-edits' },
+      agent: { source: 'arguments', modelId: 'gpt' },
+    },
+  })
+  const model = await store.load(id)
+  expect(model.activeTurnId).toBe(turnId)
+  expect(model.providerHandoffPending).toBe(true)
+  expect(providerTurnContext(model).handoff).toContain('Lead: Working on login.')
+  expect(approve).not.toHaveBeenCalled()
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      driverKind: 'codex',
+      modelId: 'latest',
+      effort: 'high',
+      idempotencyKey: 'lead-switch',
+    }),
+  ).toEqual(switched)
+  approve.mockRestore()
+})
+
+it('can switch a broken lead and rejects unavailable choices without changing it', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'broken-first',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  await store.append(id, { type: 'session.updated', modelId: 'broken' })
+  for (const choice of [
+    { driverKind: 'codex', modelId: 'gpt', code: 'provider_unavailable' },
+    { driverKind: 'claude', modelId: 'missing', code: 'model_unavailable' },
+  ]) {
+    expect(
+      await service.invoke('helm1', 'projects.lead', {
+        projectId: 'web',
+        driverKind: choice.driverKind,
+        modelId: choice.modelId,
+        idempotencyKey: choice.code,
+      }),
+    ).toMatchObject({ ok: false, error: { code: choice.code } })
+    expect((await store.load(id)).session?.modelId).toBe('broken')
+  }
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      driverKind: 'claude',
+      modelId: 'model',
+      idempotencyKey: 'recover-model',
+    }),
+  ).toMatchObject({ ok: true, result: { sessionId: id, lead: { modelId: 'model' } } })
+})
+
+it('resets the current lead and its workers through the destroy path, then creates a fresh lead', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'reset-first',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  await store.append('lead-worker', {
+    type: 'session.created',
+    session: {
+      ...web,
+      id: 'lead-worker',
+      parentSessionId: id,
+      rootSessionId: id,
+      createdBy: { kind: 'session', sessionId: id },
+      workspace: {
+        kind: 'managed-worktree',
+        path: dir,
+        branch: 'ari/worker',
+        baseRef: 'main',
+        baseCommit: 'a'.repeat(40),
+      },
+    },
+  })
+  await startTurn('lead-worker', 'Work on login')
+  const revoke = vi.fn<NonNullable<ControlHost['revoke']>>(async () => undefined)
+  service.host.revoke = revoke
+  const release = vi.spyOn(service.host, 'release')
+  service.host.policy = () => delegationSettingsSchema.parse({ approvalMode: 'always' })
+  const approve = vi.spyOn(service.host, 'approve')
+  const reset = { projectId: 'web', reset: true, idempotencyKey: 'lead-reset' }
+  expect(await service.invoke('helm1', 'projects.lead', reset)).toMatchObject({
+    ok: true,
+    result: { projectId: 'web', sessionId: id, destroyed: true, count: 2 },
+  })
+  expect(await store.exists(id)).toBe(false)
+  expect(await store.exists('lead-worker')).toBe(false)
+  expect(release.mock.calls.map(([session]) => session.id)).toEqual(['lead-worker', id])
+  expect(revoke.mock.calls.map(([sessionId]) => sessionId)).toEqual(['lead-worker', id])
+  expect(approve).not.toHaveBeenCalled()
+  expect((await service.invoke('helm1', 'projects.lead', reset)).ok).toBe(true)
+  service.host.policy = () => delegationSettingsSchema.parse({ approvalMode: 'never' })
+  const next = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Try again',
+    idempotencyKey: 'reset-next',
+  })
+  expect(next).toMatchObject({ ok: true, result: { reused: false } })
+  expect((next as { result: { sessionId: string } }).result.sessionId).not.toBe(id)
+  release.mockRestore()
+  approve.mockRestore()
+})
+
+it('lets a new Aria topic destroy its project lead, while refusing unrelated sessions', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'destroy-first',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+  expect(
+    await service.invoke('helm2', 'session.destroy', {
+      targetSessionId: id,
+      idempotencyKey: 'destroy-lead',
+    }),
+  ).toMatchObject({ ok: true, result: { sessionId: id, destroyed: true } })
+  expect(
+    await service.invoke('helm2', 'session.destroy', {
+      targetSessionId: 'web1',
+      idempotencyKey: 'destroy-unrelated',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+})
+
+it('limits lead mutations to Aria and preserves the permission cap when switching', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'switch-permissions',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  for (const choice of [{ reset: true }, { driverKind: 'claude', modelId: 'model' }]) {
+    expect(
+      await service.invoke('web1', 'projects.lead', {
+        projectId: 'web',
+        ...choice,
+        idempotencyKey: JSON.stringify(choice),
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  }
+  await store.append(id, { type: 'session.updated', permissionMode: 'full' })
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      driverKind: 'claude',
+      modelId: 'model',
+      idempotencyKey: 'switch-higher',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect((await store.load(id)).session?.permissionMode).toBe('full')
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'api',
+      reset: true,
+      idempotencyKey: 'reset-user',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'session_not_found' } })
+  expect(await store.exists('api1')).toBe(true)
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      reset: true,
+      driverKind: 'claude',
+      idempotencyKey: 'mixed',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+})
+
+it('requires a model choice for direct sessions and leads, then reuses the saved project default', async () => {
+  projects.push({ projectId: 'fresh', name: 'Fresh', path: dir, available: true })
+  for (const request of [
+    {
+      method: 'session.spawn' as const,
+      params: {
+        projectId: 'fresh',
+        title: 'Work',
+        prompt: 'Build it',
+        idempotencyKey: 'model-direct',
+      },
+    },
+    {
+      method: 'projects.ask' as const,
+      params: { projectId: 'fresh', text: 'Build it', idempotencyKey: 'model-lead' },
+    },
+  ]) {
+    const result = await service.invoke('helm1', request.method, request.params)
+    expect(result).toMatchObject({ ok: false, error: { code: 'model_unavailable' } })
+    expect(result.ok ? '' : result.error.message).toContain('Ask the user once')
+    expect(result.ok ? '' : result.error.message).toContain(
+      'suggesting your current model as an option',
+    )
+    expect(result.ok ? '' : result.error.message).toContain('ari project default')
+  }
+  expect((await store.listSessions()).filter((row) => row.projectId === 'fresh')).toHaveLength(0)
+  service.host.setProjectDefault = async (id, agent) => {
+    const project = projects.find((project) => project.projectId === id)
+    if (!project) return false
+    project.defaultAgent = agent
+    return true
+  }
+  expect(
+    await service.invoke('helm1', 'projects.setDefault', {
+      projectId: 'fresh',
+      driverKind: 'claude',
+      modelId: 'model',
+      effort: 'high',
+      idempotencyKey: 'chosen',
+    }),
+  ).toMatchObject({ ok: true })
+  const first = await service.invoke('helm1', 'session.spawn', {
+    projectId: 'fresh',
+    title: 'First task',
+    idempotencyKey: 'configured-first',
+  })
+  expect(first).toMatchObject({
+    ok: true,
+    result: { child: { modelId: 'model', effort: 'high' }, agent: { source: 'project' } },
+  })
+  expect(
+    await service.invoke('helm1', 'session.spawn', {
+      projectId: 'fresh',
+      title: 'Second task',
+      idempotencyKey: 'configured-next',
+    }),
+  ).toMatchObject({
+    ok: true,
+    result: { child: { modelId: 'model', effort: 'high' }, agent: { source: 'project' } },
+  })
+})
+
+it('refuses a second session while project work is live and allows follow-ups across Aria topics', async () => {
+  await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+  const accepted = (await service.invoke('helm1', 'session.spawn', {
+    ...launch,
+    idempotencyKey: 'code-one',
+  })) as { result: { child: Session } }
+  const id = accepted.result.child.id
+  await startTurn(id, 'Continue working', { kind: 'session', sessionId: 'helm1' })
+  const refused = await service.invoke('helm2', 'session.spawn', {
+    ...launch,
+    idempotencyKey: 'code-two',
+  })
+  expect(refused).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  expect(refused.ok ? '' : refused.error.message).toContain(`ari session prompt ${id}`)
+  expect(refused.ok ? '' : refused.error.message).toContain('wait for it to finish')
+  expect(
+    await service.invoke('helm2', 'session.prompt', {
+      targetSessionId: id,
+      text: 'Also cover logout',
+      idempotencyKey: 'code-followup',
+    }),
+  ).toMatchObject({ ok: true, result: { sessionId: id } })
+  expect((await store.load(id)).queuedMessages).toHaveLength(2)
+  expect(
+    await service.invoke('helm2', 'projects.ask', {
+      projectId: 'web',
+      text: 'Set up a lead',
+      idempotencyKey: 'concurrent-lead',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  await store.append(id, { type: 'session.updated', archived: true })
+  expect(
+    await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'archived-code' }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+})
+
+it('holds the code slot while a direct session waits for workers and refuses restarting another session', async () => {
+  const idle = await service.invoke('helm1', 'session.spawn', {
+    ...launch,
+    prompt: undefined,
+    idempotencyKey: 'old-idle',
+  })
+  const idleId = (idle as { result: { child: Session } }).result.child.id
+  const active = await service.invoke('helm1', 'session.spawn', {
+    ...launch,
+    prompt: undefined,
+    idempotencyKey: 'waiting-root',
+  })
+  const id = (active as { result: { child: Session } }).result.child.id
+  await store.append('worker', {
+    type: 'session.created',
+    session: {
+      ...web,
+      id: 'worker',
+      parentSessionId: id,
+      rootSessionId: id,
+      createdBy: { kind: 'session', sessionId: id },
+    },
+  })
+  await startTurn('worker', 'Fix login')
+  expect(
+    await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      idempotencyKey: 'waiting-blocked',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  expect(
+    await service.invoke('helm1', 'session.prompt', {
+      targetSessionId: idleId,
+      text: 'Start old work',
+      idempotencyKey: 'restart-blocked',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  expect(
+    await service.invoke('helm1', 'session.prompt', {
+      targetSessionId: id,
+      text: 'Follow up',
+      idempotencyKey: 'waiting-followup',
+    }),
+  ).toMatchObject({ ok: true })
+})
+
+it('lets Aria switch and destroy its direct sessions, while refusing user sessions and workers', async () => {
+  const launched = await service.invoke('helm1', 'session.spawn', launch)
+  const id = (launched as { result: { child: Session } }).result.child.id
+  const turn = await startTurn(id, 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  await store.append(id, {
+    type: 'assistant.parts.appended',
+    messageId: 'direct-reply',
+    parts: [{ type: 'text', text: 'Working.' }],
+  })
+  service.host.providers = async () => [
+    {
+      driverKind: 'codex',
+      available: true,
+      models: [{ id: 'gpt', label: 'GPT' }],
+      defaultModelId: 'gpt',
+    },
+  ]
+  service.host.policy = () => delegationSettingsSchema.parse({ approvalMode: 'always' })
+  const approve = vi.spyOn(service.host, 'approve')
+  expect(
+    await service.invoke('helm1', 'session.switch', {
+      targetSessionId: id,
+      driverKind: 'codex',
+      modelId: 'gpt',
+      effort: 'high',
+      idempotencyKey: 'switch-direct',
+    }),
+  ).toMatchObject({
+    ok: true,
+    result: {
+      sessionId: id,
+      switched: true,
+      session: { modelId: 'gpt', effort: 'high', permissionMode: 'allow-edits' },
+    },
+  })
+  const model = await store.load(id)
+  expect(model.activeTurnId).toBe(turn)
+  expect(providerTurnContext(model).handoff).toContain('Agent: Working.')
+  for (const targetSessionId of ['web1', 'api2'])
+    expect(
+      await service.invoke('helm1', 'session.switch', {
+        targetSessionId,
+        driverKind: 'codex',
+        modelId: 'gpt',
+        idempotencyKey: `deny-${targetSessionId}`,
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(
+    await service.invoke('web1', 'session.switch', {
+      targetSessionId: id,
+      driverKind: 'codex',
+      modelId: 'gpt',
+      idempotencyKey: 'deny-caller',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  await store.append(id, { type: 'session.updated', permissionMode: 'full' })
+  expect(
+    await service.invoke('helm1', 'session.switch', {
+      targetSessionId: id,
+      driverKind: 'codex',
+      modelId: 'gpt',
+      idempotencyKey: 'deny-permission',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(
+    await service.invoke('helm1', 'session.destroy', {
+      targetSessionId: id,
+      idempotencyKey: 'destroy-direct-higher',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(await store.exists(id)).toBe(true)
+  await store.append(id, { type: 'session.updated', permissionMode: 'allow-edits' })
+  expect(
+    await service.invoke('helm1', 'session.destroy', {
+      targetSessionId: id,
+      idempotencyKey: 'destroy-direct',
+    }),
+  ).toMatchObject({ ok: true, result: { destroyed: true, sessionId: id } })
+  expect(await store.exists(id)).toBe(false)
+  expect(approve).not.toHaveBeenCalled()
+  approve.mockRestore()
+})
+
+it('keeps direct sessions reachable and counted when the Aria topic that launched them is deleted', async () => {
+  const first = await service.invoke('helm1', 'session.spawn', launch)
+  const id = (first as { result: { child: Session } }).result.child.id
+  const turn = await startTurn(id, 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  const model = await store.load(id)
+  await store.destroy('helm1')
+  await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
+  expect(await helmReportRecipient(store, model, turn)).toBe('helm2')
+  expect((await service.tasks('helm2')).map((task) => task.sessionId)).toContain(id)
+  expect(
+    await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'orphan-code' }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  expect(
+    await service.invoke('helm2', 'session.switch', {
+      targetSessionId: id,
+      driverKind: 'claude',
+      modelId: 'model',
+      idempotencyKey: 'orphan-switch',
+    }),
+  ).toMatchObject({ ok: true })
+  expect(
+    await service.invoke('helm2', 'session.destroy', {
+      targetSessionId: id,
+      idempotencyKey: 'orphan-destroy',
+    }),
+  ).toMatchObject({ ok: true })
+})
+
+it('reports a model-less saved default in launches, project listings and Aria snapshots', async () => {
+  projects[1]!.defaultAgent!.modelId = null
+  for (const request of [
+    {
+      method: 'session.spawn' as const,
+      params: { ...launch, idempotencyKey: 'missing-default-direct' },
+    },
+    {
+      method: 'projects.ask' as const,
+      params: { projectId: 'web', text: 'Fix login', idempotencyKey: 'missing-default-lead' },
+    },
+  ]) {
+    const result = await service.invoke('helm1', request.method, request.params)
+    expect(result).toMatchObject({ ok: false, error: { code: 'model_unavailable' } })
+    expect(result.ok ? '' : result.error.message).toContain('saved default is missing a model')
+    expect(result.ok ? '' : result.error.message).toContain('Ask the user')
+  }
+  const listed = await service.projects(helm)
+  const missingProject = listed.find((project) => project.projectId === 'web')
+  expect(missingProject?.agent).toBeNull()
+  expect(missingProject?.agentError).toContain('missing a model')
+  const snapshot = await helmSnapshot(
+    { rows: await store.listSessions(), load: (id) => store.load(id), projectName: () => null },
+    await store.load('helm1'),
+    listed,
+  )
+  expect(snapshot).toContain('saved default is missing a model; ask the user')
+  expect(
+    await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      modelId: 'model',
+      idempotencyKey: 'chosen-explicit-model',
+    }),
+  ).toMatchObject({ ok: true })
+})
+
+it('requires models when saving defaults or switching sessions and leads without catalog guesses', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Fix login',
+    idempotencyKey: 'switch-model-required',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  const save = vi.fn<NonNullable<ControlHost['setProjectDefault']>>(async () => true)
+  service.host.setProjectDefault = save
+  for (const modelId of [undefined, null])
+    for (const request of [
+      { method: 'projects.setDefault' as const, params: { projectId: 'web' } },
+      { method: 'projects.lead' as const, params: { projectId: 'web' } },
+      { method: 'session.switch' as const, params: { targetSessionId: id } },
+    ]) {
+      const result = await service.invoke('helm1', request.method, {
+        ...request.params,
+        driverKind: 'claude',
+        modelId,
+        idempotencyKey: `${request.method}-${modelId}`,
+      })
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_request' },
+      })
+      expect(result.ok ? '' : result.error.message).toContain('requires --model')
+      expect(result.ok ? '' : result.error.message).toContain('Ask the user')
+    }
+  expect(save).not.toHaveBeenCalled()
+  expect((await store.load(id)).providerContextSeq).toBeUndefined()
+  expect((await store.load(id)).session?.modelId).toBe('model')
+})
+
+it.each(['destroy', 'reset'] as const)(
+  'refuses %s above Aria permissions or from archived Aria before any cleanup',
+  async (method) => {
+    const first = await service.invoke('helm1', 'projects.ask', {
+      projectId: 'web',
+      text: 'Fix login',
+      idempotencyKey: 'ceiling-first',
+    })
+    const id = (first as { result: { sessionId: string } }).result.sessionId
+    const release = vi.spyOn(service.host, 'release')
+    await store.append(id, { type: 'session.updated', permissionMode: 'full' })
+    const request = (key: string) =>
+      method === 'destroy'
+        ? service.invoke('helm1', 'session.destroy', { targetSessionId: id, idempotencyKey: key })
+        : service.invoke('helm1', 'projects.lead', {
+            projectId: 'web',
+            reset: true,
+            idempotencyKey: key,
+          })
+    const ceiling = await request('ceiling-refused')
+    expect(ceiling).toMatchObject({
+      ok: false,
+      error: { code: 'scope_denied' },
+    })
+    expect(ceiling.ok ? '' : ceiling.error.message).toContain('higher permissions than Aria')
+    await store.append(id, { type: 'session.updated', permissionMode: 'ask' })
+    await store.append('helm1', { type: 'session.updated', archived: true })
+    const archived = await request('archived-refused')
+    expect(archived).toMatchObject({
+      ok: false,
+      error: { code: 'scope_denied' },
+    })
+    expect(archived.ok ? '' : archived.error.message).toContain('Restore Aria')
+    expect(await store.exists(id)).toBe(true)
+    expect(release).not.toHaveBeenCalled()
+    release.mockRestore()
+  },
+)
+
+it.each(['project', 'managed-worktree'] as const)(
+  'counts human code work only when it shares the project folder (%s)',
+  async (kind) => {
+    await store.append('human-code', {
+      type: 'session.created',
+      session: {
+        ...web,
+        id: 'human-code',
+        title: 'Human login task',
+        workspace:
+          kind === 'project'
+            ? { kind }
+            : { kind, path: dir, branch: 'ari/human', baseRef: 'main', baseCommit: 'a'.repeat(40) },
+      },
+    })
+    await startTurn('human-code', 'Fix login')
+    const result = await service.invoke('helm1', 'session.spawn', launch)
+    if (kind === 'project') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: 'delegation_limit' },
+      })
+      expect(result.ok ? '' : result.error.message).toContain('Human login task')
+      expect(result.ok ? '' : result.error.message).toContain('human-code')
+      expect(
+        await service.invoke('helm1', 'session.prompt', {
+          targetSessionId: 'human-code',
+          text: 'Also inspect logout',
+          idempotencyKey: 'human-code-followup',
+        }),
+      ).toMatchObject({ ok: true })
+    } else expect(result.ok).toBe(true)
+  },
+)
+
+it('switches the latest Aria lead and resets live project leads while preserving archived leads and workers', async () => {
+  for (const [id, createdAt, askedAt, archived] of [
+    ['older-lead', 100, 400, false],
+    ['current-lead', 200, 600, false],
+    ['archived-lead', 300, 800, true],
+  ] as const) {
+    await store.append(id, {
+      type: 'session.created',
+      session: {
+        ...web,
+        id,
+        createdAt,
+        lead: true,
+        archived,
+        modelId: 'model',
+        createdBy: { kind: 'session', sessionId: 'helm1' },
+      },
+    })
+    await store.append(id, {
+      type: 'message.enqueued',
+      text: 'Lead assignment',
+      held: true,
+      attachments: [],
+      origin: { kind: 'session', sessionId: 'helm1' },
+      at: askedAt,
+    })
+    await store.append(`${id}-worker`, {
+      type: 'session.created',
+      session: { ...web, id: `${id}-worker`, parentSessionId: id, rootSessionId: id },
+    })
+  }
+  // More recent provider output, user work and title changes are not Aria assignments.
+  const humanTurn = await startTurn('older-lead', 'Explain this code')
+  await reply('older-lead', humanTurn, 'Explanation')
+  await store.append('older-lead', { type: 'session.updated', title: 'Recently renamed', at: 1000 })
+  await store.append('user-lead', {
+    type: 'session.created',
+    session: { ...web, id: 'user-lead', lead: true },
+  })
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      driverKind: 'claude',
+      modelId: 'model',
+      effort: 'high',
+      idempotencyKey: 'switch-current',
+    }),
+  ).toMatchObject({ ok: true, result: { sessionId: 'current-lead', lead: { effort: 'high' } } })
+  expect((await store.load('older-lead')).session?.effort).toBeUndefined()
+  await store.append('archived-lead', { type: 'session.updated', permissionMode: 'full' })
+  await store.append('older-lead', { type: 'session.updated', permissionMode: 'full' })
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      reset: true,
+      idempotencyKey: 'reset-all-ceiling',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(await store.exists('current-lead')).toBe(true)
+  await store.append('older-lead', { type: 'session.updated', permissionMode: 'ask' })
+  const release = vi.spyOn(service.host, 'release')
+  expect(
+    await service.invoke('helm1', 'projects.lead', {
+      projectId: 'web',
+      reset: true,
+      idempotencyKey: 'reset-all',
+    }),
+  ).toMatchObject({
+    ok: true,
+    result: {
+      count: 4,
+      destroyed: true,
+      sessionIds: ['current-lead', 'older-lead'],
+    },
+  })
+  expect(release.mock.calls.map(([session]) => session.id)).toHaveLength(4)
+  expect(await store.exists('archived-lead')).toBe(true)
+  expect(await store.exists('archived-lead-worker')).toBe(true)
+  expect(await store.exists('user-lead')).toBe(true)
+  expect(await store.exists('api1')).toBe(true)
+  const next = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Start fresh',
+    idempotencyKey: 'reset-all-next',
+  })
+  expect(next).toMatchObject({ ok: true, result: { reused: false } })
+  release.mockRestore()
+})
+
+it.each(['human', 'aria', 'worker'] as const)(
+  'does not count a stale %s turn without a live provider',
+  async (kind) => {
+    let id = 'web1'
+    if (kind !== 'human') {
+      await store.append('stale-root', {
+        type: 'session.created',
+        session: {
+          ...web,
+          id: 'stale-root',
+          createdBy: { kind: 'session', sessionId: 'helm1' },
+        },
+      })
+      id = 'stale-root'
+      if (kind === 'worker') {
+        id = 'stale-worker'
+        await store.append(id, {
+          type: 'session.created',
+          session: {
+            ...web,
+            id,
+            parentSessionId: 'stale-root',
+            rootSessionId: 'stale-root',
+          },
+        })
+      }
+    }
+    await startTurn(id, 'Stuck turn')
+    running.delete(id)
+    expect((await store.load(id)).activeTurnId).not.toBeNull()
+    expect(await service.invoke('helm1', 'session.spawn', launch)).toMatchObject({ ok: true })
+  },
+)
+
+it('does not assume a stale turn is live when the host has no live check', async () => {
+  await startTurn('web1', 'Stuck turn')
+  delete service.host.isRunning
+  expect(await service.invoke('helm1', 'session.spawn', launch)).toMatchObject({ ok: true })
+})
+
+it('ignores queued work and pending worker reports when no turn is actually running', async () => {
+  const first = await service.invoke('helm1', 'session.spawn', launch)
+  const id = (first as { result: { child: Session } }).result.child.id
+  await store.append(id, {
+    type: 'child.session.settled',
+    childSessionId: 'finished-worker',
+    turnId: 'finished-turn',
+    stopReason: 'completed',
+  })
+  expect((await store.load(id)).queuedMessages).toHaveLength(1)
+  expect(
+    await service.invoke('helm1', 'session.spawn', {
+      ...launch,
+      idempotencyKey: 'queued-does-not-block',
+    }),
+  ).toMatchObject({ ok: true })
+})
+
+it.each(['approval', 'question'] as const)(
+  'stops counting a live turn after a three-minute human %s wait, even with fresh provider activity',
+  async (kind) => {
+    const now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      await startTurn('web1', 'Work until human input', undefined, now)
+      const request = () =>
+        kind === 'approval'
+          ? store.append('web1', {
+              type: 'approval.requested',
+              approvalId: 'wait-input',
+              toolName: 'Bash',
+              summaryJson: '{}',
+              options: [],
+            })
+          : store.append('web1', {
+              type: 'input.requested',
+              inputId: 'wait-input',
+              prompt: 'Which approach?',
+              choicesJson: null,
+            })
+      const answer = () =>
+        kind === 'approval'
+          ? store.append('web1', {
+              type: 'approval.responded',
+              approvalId: 'wait-input',
+              decision: 'allow',
+            })
+          : store.append('web1', {
+              type: 'input.responded',
+              inputId: 'wait-input',
+              value: 'Continue',
+            })
+      await request()
+      clock.mockReturnValue(now + 2 * 60_000)
+      const blocked = await service.invoke('helm1', 'session.spawn', {
+        ...launch,
+        idempotencyKey: 'short-wait',
+      })
+      expect(blocked).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+      expect(blocked.ok ? '' : blocked.error.message).toContain(web.title)
+      clock.mockReturnValue(now + 3 * 60_000)
+      await store.append('web1', {
+        type: 'assistant.parts.appended',
+        messageId: 'waiting-status',
+        parts: [{ type: 'text', text: 'Still waiting.' }],
+      })
+      // A repeated provider request is still the same uninterrupted human wait.
+      await request()
+      expect(
+        await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: 'long-wait' }),
+      ).toMatchObject({ ok: true })
+      await answer()
+      await request()
+      expect(
+        await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: 'new-wait' }),
+      ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+    } finally {
+      clock.mockRestore()
+    }
+  },
+)
+
+it('lets Aria prompt a lead worker in the project folder while the lead is running', async () => {
+  const first = await service.invoke('helm1', 'projects.ask', {
+    projectId: 'web',
+    text: 'Lead login work',
+    idempotencyKey: 'worker-prompt-lead',
+  })
+  const id = (first as { result: { sessionId: string } }).result.sessionId
+  await startTurn(id, 'Coordinate work')
+  await store.append('shared-worker', {
+    type: 'session.created',
+    session: {
+      ...web,
+      id: 'shared-worker',
+      parentSessionId: id,
+      rootSessionId: id,
+      createdBy: { kind: 'session', sessionId: id },
+      workspace: { kind: 'project' },
+    },
+  })
+  expect(
+    await service.invoke('helm1', 'session.prompt', {
+      targetSessionId: 'shared-worker',
+      text: 'Cover logout',
+      idempotencyKey: 'prompt-shared-worker',
+    }),
+  ).toMatchObject({ ok: true })
+  expect(
+    await service.invoke('helm1', 'session.prompt', {
+      targetSessionId: 'web1',
+      text: 'Start a different top-level task',
+      idempotencyKey: 'prompt-other-root',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
 })
