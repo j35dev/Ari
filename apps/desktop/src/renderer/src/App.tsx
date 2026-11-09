@@ -1236,6 +1236,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 selected={isHelmSession(activeSession)}
                 activity={ariaStatus}
                 onOpen={() => openAria()}
+                onNewTopic={() => openAria(true)}
+                onOpenSession={selectSession}
               />
               <SessionsUnderProjects
                 sessions={sessions}
@@ -1479,14 +1481,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 render={(sessionId, hidden) => (
                                   <SessionView
                                     sessionId={sessionId}
-                                    aria={
-                                      isHelmSession(sessions.find((row) => row.id === sessionId))
-                                        ? {
-                                            state: ariaStatus.state,
-                                            onNewTopic: () => openAria(true),
-                                          }
-                                        : undefined
-                                    }
                                     onOpenAria={() => openAria()}
                                     startedByAria={ariaStartedIds.has(sessionId)}
                                     hidden={hidden}
