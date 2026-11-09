@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent-control'
-import { driverKindSchema, permissionModeSchema } from './common'
+import { DEFAULT_PERMISSION_MODE, driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
 
 /**
@@ -188,9 +188,9 @@ export const settingsSchema = z.object({
   sessions: z
     .object({
       defaultDriverKind: driverKindSchema.nullable().default(null),
-      defaultPermissionMode: permissionModeSchema.default('ask'),
+      defaultPermissionMode: permissionModeSchema.default(DEFAULT_PERMISSION_MODE),
     })
-    .default({ defaultDriverKind: null, defaultPermissionMode: 'ask' }),
+    .default({ defaultDriverKind: null, defaultPermissionMode: DEFAULT_PERMISSION_MODE }),
   providers: providerConnectionsSchema.default(defaultConnections),
   /** How the titlebar Git control and the diff panel behave. */
   sourceControl: z
@@ -353,7 +353,7 @@ export const defaultSettings: Settings = {
   delegation: delegationSettingsSchema.parse({}),
   version: 1,
   appearance: { ...defaultAppearance },
-  sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  sessions: { defaultDriverKind: null, defaultPermissionMode: DEFAULT_PERMISSION_MODE },
   providers: defaultConnections(),
   sourceControl: {
     confirmDefaultPush: true,
