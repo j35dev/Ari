@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { c } from 'tar'
 import { afterEach, expect, it, vi } from 'vitest'
-import { ENGINE_HEADER_HASH, ENGINE_VERSION, installEngine } from './engine'
+import { ENGINE_HEADER_HASH, ENGINE_VERSION, installEngine, verifyInstalledEngine } from './engine'
 import * as download from './download'
 
 const fixture = vi.hoisted(() => ({
@@ -59,7 +59,8 @@ it.each([true, false])(
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(bytes)))
     }
     const hashes = vi.spyOn(download, 'verifyDownload')
-    const library = await installEngine(engine, new AbortController().signal, vi.fn())
+    const verified = vi.fn()
+    const library = await installEngine(engine, new AbortController().signal, vi.fn(), verified)
     expect(library).toBe(join(engine, ENGINE_VERSION, 'native/transcribe.dll'))
     expect(await readFile(library, 'utf8')).toBe('native library')
     expect(hashes.mock.calls.filter(([path]) => path.endsWith('.dll'))).toHaveLength(1)
@@ -67,5 +68,7 @@ it.each([true, false])(
     expect(
       hashes.mock.calls.some(([path]) => path.startsWith(`${join(engine, ENGINE_VERSION)}${sep}`)),
     ).toBe(false)
+    await verifyInstalledEngine(join(engine, ENGINE_VERSION), false, undefined, verified)
+    expect(verified.mock.calls[1]![0]).toBe(verified.mock.calls[0]![0])
   },
 )

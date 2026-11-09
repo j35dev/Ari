@@ -26,6 +26,7 @@ async function refresh(): Promise<void> {
       readRevision = revision
       const status = await rpc.invoke('speech.status')
       if (currentGeneration !== generation) return
+      if (readRevision !== revision) continue
       snapshot = { ...snapshot, status }
       emit()
     } while (revision !== readRevision)
@@ -42,9 +43,14 @@ function subscribe(listener: () => void): () => void {
     unsubscribe = rpc.subscribe('speech.progress', {}, (payload) => {
       if (currentGeneration !== generation) return
       const frame = payload as SpeechProgress
-      snapshot = { ...snapshot, progress: { ...snapshot.progress, [frame.id]: frame } }
+      if (frame.status) revision++
+      snapshot = {
+        ...snapshot,
+        ...(frame.status ? { status: frame.status } : {}),
+        progress: { ...snapshot.progress, [frame.id]: frame },
+      }
       emit()
-      if (['complete', 'error', 'cancelled'].includes(frame.phase)) {
+      if (!frame.status && ['complete', 'error', 'cancelled'].includes(frame.phase)) {
         void refresh().catch(() => undefined)
       }
     })

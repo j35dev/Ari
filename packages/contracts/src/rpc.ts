@@ -344,6 +344,7 @@ export interface SpeechProgress {
   received: number
   total: number
   error?: string
+  status?: SpeechStatus
 }
 
 /** Payload delivered on the app.navigate stream: the main process asking to show a session. */
