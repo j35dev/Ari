@@ -37,6 +37,25 @@ function ScopedRequests({
   const [selected, setSelected] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const invalidate = (): void => {
+      if (document.hidden || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        setAttempt((value) => value + 1)
+      }, 300)
+    }
+    const off = rpc.subscribe('scm.changed', scope, invalidate)
+    window.addEventListener('focus', invalidate)
+    document.addEventListener('visibilitychange', invalidate)
+    return () => {
+      off()
+      clearTimeout(timer)
+      window.removeEventListener('focus', invalidate)
+      document.removeEventListener('visibilitychange', invalidate)
+    }
+  }, [scope])
+  useEffect(() => {
     let live = true
     const requestId = crypto.randomUUID()
     setState((state) => ({ ...state, loading: true, error: null }))
@@ -211,14 +230,14 @@ function ScopedRequests({
                     ? 'No matching requests'
                     : state.value?.repository
                       ? 'No open requests'
-                      : 'Connect your hosting service'}
+                      : 'Repository remote unavailable'}
                 </h3>
                 <p className="max-w-sm text-xs leading-relaxed text-fg-muted">
                   {query
                     ? 'Try a title, branch name or request number.'
                     : state.value?.repository
                       ? 'Publish a feature branch, then create a pull or merge request from Git actions.'
-                      : 'Add a hosting connection in Settings → Source control for your repository.'}
+                      : state.value?.detail}
                 </p>
               </div>
             ) : null}

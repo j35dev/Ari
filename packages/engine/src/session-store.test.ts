@@ -84,6 +84,66 @@ describe('SessionStore', () => {
     expect(list.every((s) => s.messageCount === 0)).toBe(true)
   })
 
+  it.each(['empty', 'usage-only'] as const)(
+    'keeps %s journals out of repeated listings and usage summaries',
+    async (kind) => {
+      await store.append(session.id, { type: 'session.created', session })
+      const missingId = 'sess_missing'
+      // Looking up a stale session id opens an empty journal. Other events
+      // can also exist without a session.created event.
+      await store.load(missingId)
+      if (kind === 'usage-only') {
+        await store.append(missingId, {
+          type: 'usage.recorded',
+          inputTokens: 7,
+          outputTokens: 3,
+          costUsd: 0.02,
+        })
+      }
+
+      const cold = new SessionStore({ rootDir })
+      try {
+        // Exercise both replay-built and disk-read negative indexes, then
+        // their cached paths. A missing session must never become a blank
+        // sidebar row with updatedAt: 0 just because the index is warm.
+        for (const reader of [store, cold]) {
+          const replay = vi.spyOn(await reader.openJournal(missingId), 'readAll')
+          for (let pass = 0; pass < 2; pass++) {
+            const ids = (await reader.listSessions()).map((entry) => entry.id)
+            expect(ids).toEqual([session.id])
+            expect(await reader.usageSummary()).toEqual({
+              rows: [],
+              totals: { inputTokens: 0, outputTokens: 0, costUsd: null },
+            })
+            if (pass === 0) replay.mockClear()
+          }
+          expect(replay).not.toHaveBeenCalled()
+        }
+
+        // A negative cache entry must not hide a subsequently created session.
+        await store.append(missingId, {
+          type: 'session.created',
+          session: { ...session, id: missingId },
+        })
+        for (const reader of [store, cold]) {
+          expect(
+            (await reader.listSessions()).find((entry) => entry.id === missingId),
+          ).toMatchObject({
+            projectId: session.projectId,
+            title: session.title,
+            updatedAt: session.updatedAt,
+            messageCount: 0,
+          })
+        }
+      } finally {
+        for (const reader of [store, cold]) {
+          await reader.closeJournal(missingId)
+          await reader.closeJournal(session.id)
+        }
+      }
+    },
+  )
+
   it('serves listSessions from the index and replays only stale journals', async () => {
     const s2: Session = { ...session, id: 'sess_test2', title: 'Second', updatedAt: 2000 }
     await store.append(session.id, { type: 'session.created', session })

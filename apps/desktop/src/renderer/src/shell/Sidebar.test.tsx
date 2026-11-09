@@ -198,6 +198,85 @@ describe('SessionsUnderProjects', () => {
     expect(within(header).getByRole('status', { name: 'Working' })).toBeInTheDocument()
   })
 
+  it.each(['approval', 'input'] as const)(
+    'keeps a %s decision visible in a collapsed project with running and queued sessions',
+    async (pauseReason) => {
+      renderSidebar(
+        [
+          session('run', 0, 'proj-1'),
+          session('queue', 1, 'proj-1'),
+          session('blocked', 2, 'proj-1'),
+        ],
+        null,
+        {
+          activityOf: (id) =>
+            id === 'run'
+              ? { phase: 'working', startedAt: Date.now() }
+              : id === 'queue'
+                ? { phase: 'queued', startedAt: null }
+                : { phase: 'paused', startedAt: Date.now(), pauseReason },
+        },
+      )
+      const project = screen.getByRole('region', { name: 'Ari' })
+      const header = within(project).getByRole('button', { expanded: true })
+      await userEvent.setup().click(header)
+      expect(header).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('Session blocked')).not.toBeInTheDocument()
+      expect(within(header).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
+      expect(within(header).queryByRole('status', { name: 'Working' })).not.toBeInTheDocument()
+      expect(within(header).queryByRole('status', { name: 'Queued' })).not.toBeInTheDocument()
+    },
+  )
+
+  it('shows a queued session card without an execution timer', async () => {
+    renderSidebar([session('queue', 0, 'proj-1')], null, {
+      activityOf: () => ({ phase: 'queued', startedAt: null }),
+    })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sessions' }))
+    const card = screen.getByText('Session queue').closest('button') as HTMLElement
+    expect(within(card).getByRole('status', { name: 'Queued' })).toBeInTheDocument()
+    expect(within(card).getByText('Queued')).toBeInTheDocument()
+    expect(within(card).getByText('Queued').querySelector('.tabular-nums')).toBeNull()
+    expect(card.querySelector('.ari-forge-cell')).toBeNull()
+  })
+
+  it('folds queued child activity through collapsed child and project groups as it starts', async () => {
+    localStorage.clear()
+    const sessions = [
+      session('root', 0, 'proj-1'),
+      session('child', 1, 'proj-1', { parentSessionId: 'root' }),
+    ]
+    const view = (activity: SessionActivity) => (
+      <SessionsUnderProjects
+        sessions={sessions}
+        projects={projects}
+        activeSessionId={null}
+        onSelect={() => {}}
+        onRename={() => {}}
+        onDelete={() => {}}
+        onTogglePin={() => {}}
+        onToggleArchive={() => {}}
+        activityOf={(id) => (id === 'child' ? activity : undefined)}
+      />
+    )
+    const { rerender } = render(view({ phase: 'queued', startedAt: null }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /children of Session root/i }))
+    expect(screen.queryByText('Session child')).not.toBeInTheDocument()
+    const root = screen.getByText('Session root').closest('button') as HTMLElement
+    expect(within(root).getByRole('status', { name: 'Queued' })).toBeInTheDocument()
+    const header = within(screen.getByRole('region', { name: 'Ari' })).getByRole('button', {
+      expanded: true,
+    })
+    await user.click(header)
+    expect(within(header).getByRole('status', { name: 'Queued' })).toBeInTheDocument()
+    rerender(view({ phase: 'working', startedAt: Date.now() }))
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(within(header).getByRole('status', { name: 'Working' })).toBeInTheDocument()
+    rerender(view({ phase: 'paused', startedAt: Date.now(), pauseReason: 'input' }))
+    expect(within(header).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
+  })
+
   it('shows an archived context caret on the Archived shelf header', async () => {
     const archived = { ...session('old', 2, 'proj-1'), archived: true }
     renderSidebar([session('live', 1, 'proj-1'), archived])
@@ -724,7 +803,7 @@ describe('SessionsUnderProjects', () => {
     const ari = screen.getByRole('region', { name: 'Ari' })
     const sketch = screen.getByRole('region', { name: 'Sketch' })
     expect(within(ari).getAllByRole('status', { name: 'Working' }).length).toBeGreaterThanOrEqual(1)
-    expect(within(ari).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
+    expect(within(ari).getAllByRole('status', { name: 'Waiting for you' })).toHaveLength(2)
     expect(
       within(sketch).getAllByRole('status', { name: 'Turn complete' }).length,
     ).toBeGreaterThanOrEqual(1)

@@ -4,16 +4,12 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useId,
   useRef,
   useState,
   useSyncExternalStore,
   type ComponentProps,
 } from 'react'
-import { WorkPanel } from './WorkPanel'
-import { WorkStatusLine } from './WorkStatusLine'
-import type { OrchestrationView } from '@ari/contracts/orchestration'
-import { invokeWork, workActionKey } from './work-actions'
+import { ChildSessionActivity } from './ChildSessionActivity'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
@@ -37,7 +33,13 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
-import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
+import {
+  Composer,
+  type ComposerDraft,
+  type ComposerRecovery,
+  type ComposerSeed,
+  type QueuedMessageView,
+} from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard, type ApprovalAnswer } from '../approvals/ApprovalCard'
@@ -51,7 +53,7 @@ import { PlanPanel } from './PlanPanel'
 import { ParentSessionLink } from './ParentSessionLink'
 import { ComposerDock } from './ComposerDock'
 import { SessionStatusCapsule } from './SessionStatusCapsule'
-import { createMessageFold } from './message-fold'
+import { historyJournal, type HistoryJournal } from './history-journal'
 import {
   transcriptStore,
   useTranscriptMessages,
@@ -67,6 +69,7 @@ import {
   restoreBrowserPicks,
   subscribeBrowserPicks,
   takeBrowserPicks,
+  type BrowserPick,
 } from '../browser/browser-picks'
 import {
   appendReviewNote,
@@ -75,7 +78,14 @@ import {
   reviewDraftChipLabel,
   useReviewDrafts,
   writeReviewDrafts,
+  type ReviewDraft,
 } from '../changes/review-drafts'
+
+interface UnsentMessage extends ComposerRecovery {
+  sessionId: string
+  notes: readonly ReviewDraft[]
+  picks: readonly BrowserPick[]
+}
 
 interface PendingApproval {
   approvalId: string
@@ -264,11 +274,18 @@ export function SessionView({
   hidden?: boolean
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
+  const [historyRetrying, setHistoryRetrying] = useState(false)
+  const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
+  const [metadataRetrying, setMetadataRetrying] = useState(false)
+  const retryHistoryRef = useRef<() => void>(() => {})
+  const retryMetadataRef = useRef<() => void>(() => {})
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
   const loading = historyReadySession !== sessionId
-  const messageFoldRef = useRef(createMessageFold())
+  const historyJournalRef = useRef<HistoryJournal | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
   const [providerSwitchable, setProviderSwitchable] = useState(false)
@@ -279,11 +296,20 @@ export function SessionView({
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
+  const errorTurnIdRef = useRef<string | null>(null)
+  const dismissedErrorTurnIdRef = useRef<string | null>(null)
   const { toast } = useToast()
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
+  const [unsent, setUnsent] = useState<UnsentMessage[]>([])
+  const unsentRef = useRef<UnsentMessage[]>([])
+  const pendingSendRef = useRef(new Set<string>())
+  const [pendingSends, setPendingSends] = useState(new Set<string>())
+  const sendPending = pendingSends.has(sessionId)
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
@@ -316,11 +342,7 @@ export function SessionView({
   // Null until the first snapshot lands: a card drawn before it would have
   // to guess, and reads as idle for the moment it takes to arrive.
   const [tasks, setTasks] = useState<ChildTask[] | null>(null)
-  const workPanelId = useId()
   const stopChildrenKeyRef = useRef<string | null>(null)
-  const [workOpen, setWorkOpen] = useState(false)
-  const [workView, setWorkView] = useState<OrchestrationView | null>(null)
-  const [workError, setWorkError] = useState<string | null>(null)
   const [stoppingChildren, setStoppingChildren] = useState(false)
   // The agent harness's own sub-agents and background shells, and whether it
   // is reporting back between turns right now (output with no turn live).
@@ -392,7 +414,14 @@ export function SessionView({
 
   useEffect(() => {
     let cancelled = false
-    messageFoldRef.current = store.begin()
+    const history = historyJournal(store)
+    history.begin()
+    historyJournalRef.current = history
+    setHistoryReadySession(null)
+    setHistoryFailureSession(null)
+    setHistoryRetrying(false)
+    setMetadataFailureSession(null)
+    setMetadataRetrying(false)
     setRunning(false)
     setProviderSwitchable(false)
     setProviderSwitches([])
@@ -410,15 +439,14 @@ export function SessionView({
     setApprovals([])
     setPendingQuestion(null)
     setTurnError(null)
+    errorTurnIdRef.current = null
+    dismissedErrorTurnIdRef.current = null
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
     setSpawns([])
     setTasks(null)
-    setWorkOpen(false)
     stopChildrenKeyRef.current = null
     setStoppingChildren(false)
-    setWorkView(null)
-    setWorkError(null)
     setBackground(EMPTY_BACKGROUND)
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
@@ -436,17 +464,6 @@ export function SessionView({
       tasksTimer = setTimeout(() => {
         tasksTimer = null
         const request = ++taskRequest
-        void invokeWork('orchestration.view', { sessionId })
-          .then((next) => {
-            if (!cancelled && request === taskRequest && next && Array.isArray(next.tasks)) {
-              setWorkView(next)
-              setWorkError(null)
-            }
-          })
-          .catch(() => {
-            if (!cancelled && request === taskRequest)
-              setWorkError('Work details could not be refreshed. The last known state is shown.')
-          })
         void rpc
           .invoke('session.tasks', { sessionId })
           .then((next) => {
@@ -463,13 +480,17 @@ export function SessionView({
     replayDoneRef.current = false
     liveBufferRef.current = []
 
-    const ingest = (raw: JournalEvent, live: boolean): void => {
+    const ingest = (raw: JournalEvent, live: boolean, recovering = false): void => {
+      if (!raw || raw.sessionId !== sessionId) return
       const seq = typeof raw.seq === 'number' ? raw.seq : null
       if (seq !== null) {
         if (appliedSeqsRef.current.has(seq)) return // replay/live overlap
         appliedSeqsRef.current.add(seq)
       }
-      applyEvent(raw, live)
+      history.add(raw)
+      // Retry folds controls once in journal order at its terminal. Applying a
+      // recovered older request now could overwrite a newer live answer.
+      if (!recovering || raw.type.startsWith('child.session.')) applyEvent(raw, live)
       if (raw.type.startsWith('orchestration.')) refreshTasksRef.current()
     }
     // One transcript update per IPC frame, and live deltas at most once per
@@ -479,47 +500,118 @@ export function SessionView({
     const publishMessages = (): void => {
       if (publishFrame !== null) cancelAnimationFrame(publishFrame)
       publishFrame = null
-      store.publish()
+      history.publish()
     }
     const publishSoon = (): void => {
       publishFrame ??= requestAnimationFrame(() => {
         publishFrame = null
-        store.publish()
+        history.publish()
       })
     }
 
-    const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
-      const frame = payload as SessionEventFrame
-      if (frame.sessionId !== sessionId) return
-      if (frame.replayDone === true) {
-        replayDoneRef.current = true
-        setHistoryReadySession(sessionId)
-        const buffered = liveBufferRef.current
-        liveBufferRef.current = []
-        for (const event of buffered) ingest(event, true)
+    let generation = 0
+    let unsubscribe: (() => void) | null = null
+    let retiring: { attempt: number; stop: () => void } | null = null
+    const subscribeHistory = (): void => {
+      if (generation > 0 && !replayDoneRef.current) return
+      const attempt = ++generation
+      if (unsubscribe) {
+        // Keep the previous live source until the new subscription's terminal.
+        // Otherwise async unsubscribe/subscribe IPC leaves a gap on failed reads.
+        retiring = { attempt: attempt - 1, stop: unsubscribe }
         publishMessages()
-        return
       }
-      if (frame.replay === true) {
-        // The burst is seq-ordered but split across bounded frames: each
-        // chunk folds and lands before the next one, so a long session
-        // paints progressively instead of waiting for one serialization.
-        for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
-        publishMessages()
-        return
-      }
-      const event = frame.event as JournalEvent
-      // Live frame: hold until the replay burst has drained so history and
-      // live events interleave in journal order, not arrival order.
-      if (!replayDoneRef.current) {
-        liveBufferRef.current.push(event)
-        return
-      }
-      ingest(event, true)
-      // A prompt lands at once; streamed parts wait for the next frame.
-      if (event.type === 'assistant.parts.appended') publishSoon()
-      else publishMessages()
-    })
+      replayDoneRef.current = false
+      // A retry starts only after a terminal drained the previous buffer.
+      setHistoryRetrying(true)
+      unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
+        if (cancelled) return
+        const frame = payload as SessionEventFrame
+        if (frame.sessionId !== sessionId) return
+        if (
+          attempt !== generation &&
+          (retiring?.attempt !== attempt || frame.replay === true || frame.replayDone === true)
+        )
+          return
+        if (frame.replayDone === true) {
+          if (replayDoneRef.current) return
+          replayDoneRef.current = true
+          retiring?.stop()
+          retiring = null
+          setHistoryReadySession(sessionId)
+          setHistoryRetrying(false)
+          setHistoryFailureSession(frame.replayOutcome === 'incomplete' ? sessionId : null)
+          const buffered = liveBufferRef.current
+          liveBufferRef.current = []
+          for (const event of buffered.sort((a, b) => a.seq - b.seq)) ingest(event, true)
+          history.finish(frame.replayOutcome !== 'incomplete')
+          const { model, telemetry, settledTurnIds } = history.controls()
+          settledTurnIdsRef.current = settledTurnIds
+          for (const turnId of turnsInView)
+            if (settledTurnIds.has(turnId)) fetchTurnDiffRef.current(turnId)
+          // Retry can recover a settlement that never reached the live applier.
+          // Derive its banner without replaying notifications or undoing dismissal.
+          const failure =
+            frame.liveTurnId == null &&
+            model.activeTurnId === null &&
+            model.lastTurn?.stopReason === 'error'
+              ? model.lastTurn
+              : null
+          errorTurnIdRef.current = failure?.turnId ?? null
+          setTurnError(
+            failure && failure.turnId !== dismissedErrorTurnIdRef.current
+              ? (failure.errorMessage ?? null)
+              : null,
+          )
+          setTelemetry(telemetry)
+          setApprovals(model.pendingApprovals)
+          setPendingQuestion(model.pendingInputs.at(-1) ?? null)
+          if (attempt > 1) {
+            setQueued(model.queuedMessages)
+            setBackground((prev) => ({ ...prev, tasks: model.backgroundTasks ?? [] }))
+          }
+          // All buffered events predate this runtime boundary. Journaled starts
+          // (including a process that died mid-read) cannot resurrect execution.
+          if (frame.liveTurnId !== undefined) {
+            activeTurnIdRef.current = frame.liveTurnId
+            setRunning(frame.liveTurnId !== null)
+            if (frame.liveTurnId === null) {
+              setPendingQuestion(null)
+              setApprovals([])
+              setTelemetry((prev) => ({ ...prev, startedAt: null }))
+            }
+          }
+          publishMessages()
+          lastPartRef.current = history.lastPart
+          return
+        }
+        if (frame.replay === true) {
+          // The burst is seq-ordered but split across bounded frames: each
+          // chunk folds and lands before the next one, so a long session
+          // paints progressively instead of waiting for one serialization.
+          for (const event of (frame.events ?? []) as JournalEvent[])
+            ingest(event, false, attempt > 1)
+          // A retry retains the current transcript until the ordered merge can
+          // commit once, rather than rebuilding a long history per old chunk.
+          if (attempt === 1) publishMessages()
+          return
+        }
+        const event = frame.event as JournalEvent
+        if (!event || event.sessionId !== sessionId) return
+        // Live frame: hold until the replay burst has drained so history and
+        // live events interleave in journal order, not arrival order.
+        if (!replayDoneRef.current) {
+          liveBufferRef.current.push(event)
+          return
+        }
+        ingest(event, true)
+        // A prompt lands at once; streamed parts wait for the next frame.
+        if (event.type === 'assistant.parts.appended') publishSoon()
+        else publishMessages()
+      })
+    }
+    retryHistoryRef.current = subscribeHistory
+    subscribeHistory()
 
     // Per-turn diff cards: query once after settle. An empty diff stays silent.
     // A failure stays on screen with its reason so it cannot look like a clean turn.
@@ -536,7 +628,10 @@ export function SessionView({
             return
           }
           const diffText = result.diffText
-          if (typeof diffText === 'string' && diffText.length > 0) {
+          const summary = result.summary
+          if (summary && summary.files.length > 0) {
+            setTurnDiffs((prev) => ({ ...prev, [turnId]: { summary, sessionId } }))
+          } else if (typeof diffText === 'string' && diffText.length > 0) {
             setTurnDiffs((prev) => ({ ...prev, [turnId]: diffText }))
           }
         })
@@ -553,44 +648,61 @@ export function SessionView({
 
     // Metadata only — message history comes exclusively from the replayed
     // stream above, so this can never clobber or duplicate it.
-    void rpc
-      .invoke('session.load', { sessionId })
-      .then((model) => {
-        if (cancelled || !model) return
-        const m = model as {
-          session: Session
-          activeTurnId: string | null
-          messages?: Message[]
-          lastTurn?: unknown
-          providerSessionId?: string | null
-        }
-        if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
-        setProviderSwitchable(canSwitchProvider(m.session))
-        setRunning(m.activeTurnId !== null)
-        setProviderContext((previous) => ({
-          hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
-          hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
-          providerSessionId: m.providerSessionId ?? previous.providerSessionId,
-        }))
-        onDefaultsChange({
-          driverKind: m.session.driverKind,
-          modelId: m.session.modelId,
-          permissionMode: m.session.permissionMode,
-          effort: m.session.effort ?? null,
+    let metadataRequest = 0
+    const loadMetadata = (): void => {
+      const request = ++metadataRequest
+      setMetadataRetrying(true)
+      void rpc
+        .invoke('session.load', { sessionId })
+        .then((model) => {
+          if (cancelled || request !== metadataRequest) return
+          if (!model) throw new Error('Session details unavailable')
+          const m = model as {
+            session: Session
+            activeTurnId: string | null
+            messages?: Message[]
+            lastTurn?: unknown
+            providerSessionId?: string | null
+          }
+          if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+          setMetadataFailureSession(null)
+          setProviderSwitchable(canSwitchProvider(m.session))
+          setProviderContext((previous) => ({
+            hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
+            hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
+            providerSessionId: m.providerSessionId ?? previous.providerSessionId,
+          }))
+          onDefaultsChange({
+            driverKind: m.session.driverKind,
+            modelId: m.session.modelId,
+            permissionMode: m.session.permissionMode,
+            effort: m.session.effort ?? null,
+          })
         })
-      })
-      .catch(() => undefined)
+        .catch(() => {
+          if (!cancelled && request === metadataRequest) setMetadataFailureSession(sessionId)
+        })
+        .finally(() => {
+          if (!cancelled && request === metadataRequest) setMetadataRetrying(false)
+        })
+    }
+    retryMetadataRef.current = loadMetadata
+    loadMetadata()
 
     return () => {
       cancelled = true
+      generation++
+      retryHistoryRef.current = () => {}
+      retryMetadataRef.current = () => {}
       if (tasksTimer !== null) clearTimeout(tasksTimer)
       if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
       reportingTimerRef.current = null
       refreshTasksRef.current = () => {}
       if (publishFrame !== null) cancelAnimationFrame(publishFrame)
-      unsubscribe()
+      unsubscribe?.()
+      retiring?.stop()
     }
-  }, [sessionId, store])
+  }, [sessionId, store, turnsInView])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
@@ -646,8 +758,7 @@ export function SessionView({
         setProviderContext((previous) =>
           previous.hasMessages ? previous : { ...previous, hasMessages: true },
         )
-        lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
-        messageFoldRef.current.addUser(event.message)
+        lastPartRef.current = historyJournalRef.current?.lastPart ?? null
         break
       case 'assistant.parts.appended': {
         setProviderContext((previous) =>
@@ -655,14 +766,7 @@ export function SessionView({
         )
         // Counted per message: a steered user message lands in the middle of
         // a turn, and the assistant message it interrupts keeps growing after.
-        const parts = messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
-          id: event.messageId,
-          sessionId: event.sessionId,
-          turnId: activeTurnIdRef.current,
-          role: 'assistant',
-          createdAt: event.at,
-        }))
-        lastPartRef.current = { messageId: event.messageId, parts }
+        lastPartRef.current = historyJournalRef.current?.lastPart ?? null
         // Output with no turn live is the agent reporting back on its own;
         // the rail says so while it streams, and a little after.
         if (live && activeTurnIdRef.current === null) {
@@ -688,28 +792,33 @@ export function SessionView({
         )
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
-        setRunning(true)
-        activeTurnIdRef.current = event.turnId
-        setBackground((prev) => ({ ...prev, reporting: false, since: event.at }))
+        errorTurnIdRef.current = null
+        if (live) {
+          setRunning(true)
+          activeTurnIdRef.current = event.turnId
+          setBackground((prev) => ({ ...prev, reporting: false, since: event.at }))
+        }
         setTelemetry((t) => ({
           ...t,
           turnCount: t.turnCount + 1,
-          startedAt: event.at,
+          startedAt: live ? event.at : t.startedAt,
         }))
         break
       case 'turn.settled': {
-        setRunning(false)
         // A settled turn owns no live prompts: stopping (or failing) while
         // a question or approval is parked unmounts its card at once, so a
         // later answer can never strand a card no dispatch can satisfy.
-        setPendingQuestion(null)
-        setApprovals([])
-        activeTurnIdRef.current = null
+        if (live) {
+          setRunning(false)
+          setPendingQuestion(null)
+          setApprovals([])
+          activeTurnIdRef.current = null
+        }
         setTelemetry((t) => ({
           ...t,
           lastDurationMs:
             t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
-          startedAt: null,
+          startedAt: live ? null : t.startedAt,
         }))
         // History turns query their diff once the transcript scrolls them
         // near view (see handleTurnInView); a session with N past turns would
@@ -719,9 +828,10 @@ export function SessionView({
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
           // Raw text is kept: the banner's Details disclosure shows it verbatim.
+          errorTurnIdRef.current = event.turnId
           setTurnError(event.errorMessage)
-          if (!hiddenRef.current) notifySettledRef.current({ error: event.errorMessage })
-        } else if (!hiddenRef.current) {
+          if (live && !hiddenRef.current) notifySettledRef.current({ error: event.errorMessage })
+        } else if (live && !hiddenRef.current) {
           notifySettledRef.current()
         }
         // Settle chime — live settles only, so remounting a session never
@@ -759,6 +869,9 @@ export function SessionView({
         })
         break
       case 'approval.requested':
+        // Replayed requests wait for the runtime boundary before becoming
+        // actionable; a historical journal alone cannot own an approval.
+        if (!live) break
         setApprovals((prev) => [
           ...prev.filter((a) => a.approvalId !== event.approvalId),
           {
@@ -768,7 +881,7 @@ export function SessionView({
             options: event.options,
           },
         ])
-        if (hiddenRef.current) break
+        if (!live || hiddenRef.current) break
         // An approval blocks the turn silently while away — say so.
         notifyNeedsAttention(sessionTitleRef.current, {
           detail: `${event.toolName} approval`,
@@ -817,8 +930,9 @@ export function SessionView({
       default: {
         const question = asInputRequested(event)
         if (question) {
+          if (!live) break
           setPendingQuestion(question)
-          if (hiddenRef.current) break
+          if (!live || hiddenRef.current) break
           notifyNeedsAttention(sessionTitleRef.current, {
             detail: question.prompt.slice(0, 80),
           })
@@ -846,7 +960,9 @@ export function SessionView({
     ): Promise<boolean> => {
       const fail = (reason: string): void => {
         onRejected?.(reason)
-        toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+        if (!hiddenRef.current && command.sessionId === sessionIdRef.current) {
+          toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+        }
       }
       return rpc
         .invoke('command.dispatch', { command })
@@ -865,85 +981,140 @@ export function SessionView({
     [toast],
   )
 
-  const dispatchSend = useCallback(
-    (text: string, attachments: AttachmentRef[], files: File[]) => {
-      // Review notes ride along with the next outgoing message, then clear.
-      // Read from state here rather than through a state updater: React may
-      // defer an updater, and one that has not run yet would leave `outgoing`
-      // without the notes this dispatch is about to send.
-      const notes = reviewNotes
+  const rememberUnsent = useCallback((message: Omit<UnsentMessage, 'id'>) => {
+    unsentRef.current = [...unsentRef.current, { ...message, id: crypto.randomUUID() }]
+    setUnsent(unsentRef.current)
+  }, [])
+
+  const recoverMessage = useCallback(
+    (message: ComposerRecovery, current: ComposerDraft, focus: boolean): boolean => {
+      if (
+        hiddenRef.current ||
+        sessionIdRef.current !== sessionId ||
+        pendingSendRef.current.has(sessionId)
+      )
+        return false
+      const saved = unsentRef.current.find(
+        (entry) => entry.id === message.id && entry.sessionId === sessionId,
+      )
+      if (!saved) return false
+      const notes = readReviewDrafts(sessionId)
       const picks = takeBrowserPicks()
+      unsentRef.current = unsentRef.current.filter((entry) => entry.id !== saved.id)
+      if (
+        current.text.length > 0 ||
+        current.files.length > 0 ||
+        notes.length > 0 ||
+        picks.length > 0
+      ) {
+        unsentRef.current.push({
+          ...current,
+          sessionId,
+          notes,
+          picks,
+          id: crypto.randomUUID(),
+          autoRestore: false,
+        })
+      }
+      setUnsent(unsentRef.current)
+      writeReviewDrafts(sessionId, saved.notes)
+      restoreBrowserPicks(saved.picks)
+      setComposerSeed((prev) => ({
+        text: saved.text,
+        files: saved.files,
+        sessionId,
+        nonce: (prev?.nonce ?? 0) + 1,
+        replaceFiles: true,
+        focus,
+      }))
+      return true
+    },
+    [sessionId],
+  )
+
+  const recoveries = useMemo(
+    () => unsent.filter((message) => message.sessionId === sessionId),
+    [unsent, sessionId],
+  )
+
+  const dispatchSend = useCallback(
+    (text: string, attachments: AttachmentRef[], files: File[], fromComposer = true): boolean => {
+      // Reserve synchronously: repeated Enter/clicks can precede React's render.
+      if (
+        hiddenRef.current ||
+        sessionIdRef.current !== sessionId ||
+        pendingSendRef.current.has(sessionId)
+      )
+        return false
+      pendingSendRef.current.add(sessionId)
+      setPendingSends(new Set(pendingSendRef.current))
+      // Snapshot context before asynchronous image preparation. New notes/picks
+      // belong to the next draft, including when another session becomes active.
+      const notes = fromComposer ? readReviewDrafts(sessionId) : []
+      const picks = fromComposer ? takeBrowserPicks() : []
       const elementBlock = promptForPicks(picks)
       const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
       if (notes.length > 0) writeReviewDrafts(sessionId, [])
-      // A rejected send must cost a retry, not the message: the composer
-      // already cleared its draft — text, images and the notes above — so put
-      // all of it back and the retry carries the same context.
       const restoreDraft = (): void => {
-        if (notes.length > 0 && readReviewDrafts(sessionId).length === 0) {
-          writeReviewDrafts(sessionId, notes)
-        }
-        if (picks.length > 0) restoreBrowserPicks(picks)
-        setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
+        // Regenerate/retry already has its complete message in the transcript.
+        // Recovery never merges a failed message into a newer draft.
+        if (fromComposer) rememberUnsent({ sessionId, text, files, notes, picks })
       }
-      if (running) {
-        // The engine journals the queue (and dequeues immediately when the
-        // transport confirms the steer); the mirrored events update the view.
-        // With no turn actually live it promotes the message to the next turn
-        // rather than rejecting, so a send racing a settle is never lost.
-        void dispatch(
-          { type: 'message.enqueue', sessionId, text: outgoing, attachments },
-          'Couldn’t queue message',
-          restoreDraft,
+      const allFiles = [...picks.flatMap((pick) => (pick.image ? [pick.image] : [])), ...files]
+      const prepared = allFiles.length > 0 ? stageImages(allFiles) : Promise.resolve(attachments)
+      void prepared
+        .then(
+          (refs) => {
+            return dispatch(
+              {
+                type: running ? 'message.enqueue' : 'turn.start',
+                sessionId,
+                text: outgoing,
+                attachments: refs,
+              },
+              running ? 'Couldn’t queue message' : 'Couldn’t send message',
+              restoreDraft,
+            ).then((accepted) => {
+              if (accepted && !running && sessionIdRef.current === sessionId) setTurnError(null)
+              return accepted
+            })
+          },
+          (err: unknown) => {
+            restoreDraft()
+            if (!hiddenRef.current && sessionIdRef.current === sessionId) {
+              toast({
+                title: 'Couldn’t attach images',
+                description: err instanceof Error ? err.message : String(err),
+                tone: 'danger',
+                durationMs: 6000,
+              })
+            }
+          },
         )
-        return
-      }
-      setTurnError(null)
-      void dispatch(
-        { type: 'turn.start', sessionId, text: outgoing, attachments },
-        'Couldn’t send message',
-        restoreDraft,
-      )
+        .finally(() => {
+          pendingSendRef.current.delete(sessionId)
+          setPendingSends(new Set(pendingSendRef.current))
+        })
+      return true
     },
-    [sessionId, running, dispatch, reviewNotes],
+    [sessionId, running, dispatch, rememberUnsent, toast],
   )
 
   const handleSend = useCallback(
-    (text: string, files: File[]) => {
-      const pickImages = browserPicksState()
-        .map((pick) => pick.image)
-        .filter((file): file is File => file !== null)
-      const allFiles = [...pickImages, ...files]
-      // Staging is async; imageless sends skip it and dispatch synchronously.
-      if (allFiles.length === 0) {
-        dispatchSend(text, [], [])
-        return
-      }
-      void stageImages(allFiles).then(
-        (attachments) => dispatchSend(text, attachments, allFiles),
-        (err: unknown) => {
-          // The composer already cleared: restore the draft so the failure
-          // costs a retry, not the message, and never send text-only behind
-          // images the user explicitly attached. The notes were never spent —
-          // no dispatch happened — so they are still in state.
-          setComposerSeed((prev) => ({ text, files: allFiles, nonce: (prev?.nonce ?? 0) + 1 }))
-          toast({
-            title: 'Couldn’t attach images',
-            description: err instanceof Error ? err.message : String(err),
-            tone: 'danger',
-            durationMs: 6000,
-          })
-        },
-      )
-    },
-    [dispatchSend, toast],
+    (text: string, files: File[]) => dispatchSend(text, [], files),
+    [dispatchSend],
   )
 
-  const handleTurnInView = useCallback((turnId: string) => {
-    if (settledTurnIdsRef.current.has(turnId)) fetchTurnDiffRef.current(turnId)
-  }, [])
+  const handleTurnInView = useCallback(
+    (turnId: string) => {
+      turnsInView.add(turnId)
+      if (historyReadySession === sessionId && settledTurnIdsRef.current.has(turnId))
+        fetchTurnDiffRef.current(turnId)
+    },
+    [historyReadySession, sessionId, turnsInView],
+  )
 
   const retryTurnDiff = useCallback((turnId: string) => {
     fetchedTurnIdsRef.current.delete(turnId)
@@ -1043,26 +1214,33 @@ export function SessionView({
         'Couldn’t edit queued message',
       ).then((accepted) => {
         if (!accepted) return
-        setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+        rememberUnsent({ sessionId, text: message.text, files: [], notes: [], picks: [] })
       })
     },
-    [sessionId, dispatch],
+    [sessionId, dispatch, rememberUnsent],
   )
 
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
-  const handleEditMessage = useCallback((text: string) => {
-    setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
-  }, [])
+  const handleEditMessage = useCallback(
+    (text: string) => {
+      setComposerSeed((prev) => ({ text, sessionId, nonce: (prev?.nonce ?? 0) + 1 }))
+    },
+    [sessionId],
+  )
 
   // Quote splices a blockquote at the caret and keeps whatever is already drafted.
-  const handleQuoteAssistant = useCallback((quote: string) => {
-    setComposerSeed((prev) => ({
-      text: quote,
-      nonce: (prev?.nonce ?? 0) + 1,
-      mode: 'insert',
-    }))
-  }, [])
+  const handleQuoteAssistant = useCallback(
+    (quote: string) => {
+      setComposerSeed((prev) => ({
+        text: quote,
+        nonce: (prev?.nonce ?? 0) + 1,
+        mode: 'insert',
+        sessionId,
+      }))
+    },
+    [sessionId],
+  )
 
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
   // message's text plus its staged image refs (null when the transcript has
@@ -1096,7 +1274,7 @@ export function SessionView({
   const resendLastPrompt = useCallback(() => {
     if (running || lastUserMessage === null) return
     // No composer Files to restore: the resend does not come from the draft.
-    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [])
+    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [], false)
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
@@ -1281,6 +1459,14 @@ export function SessionView({
 
   // A parent that ended its turn to wait has no Stop of its own, yet its
   // children may run for a long time. The rail offers one for all of them.
+  const delegatedWorkLive =
+    delegations.some(
+      (child) => !['idle', 'done', 'failed', 'stopped', 'removed'].includes(child.state),
+    ) ||
+    childSessions.some((child) => {
+      const phase = activityOf?.(child.id)?.phase
+      return phase === 'working' || phase === 'paused'
+    })
   const stopChildren = useCallback(() => {
     if (stoppingChildren) return
     setStoppingChildren(true)
@@ -1288,7 +1474,7 @@ export function SessionView({
       .invoke('orchestration.stop', {
         sessionId,
         tree: true,
-        idempotencyKey: (stopChildrenKeyRef.current ??= workActionKey()),
+        idempotencyKey: (stopChildrenKeyRef.current ??= `work_${crypto.randomUUID()}`),
       })
       .then(() => {
         stopChildrenKeyRef.current = null
@@ -1306,10 +1492,6 @@ export function SessionView({
     () => rpc.subscribe('orchestration.changed', { sessionId }, () => refreshTasksRef.current()),
     [sessionId],
   )
-
-  useEffect(() => {
-    if (workOpen) refreshTasksRef.current()
-  }, [workOpen])
 
   const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
 
@@ -1345,6 +1527,8 @@ export function SessionView({
     (pendingQuestion !== null && pendingPlan === null) || approvals.length > 0
   const centered =
     !loading &&
+    historyFailureSession !== sessionId &&
+    metadataFailureSession !== sessionId &&
     transcriptEmpty &&
     !running &&
     !composerAttentionRequired &&
@@ -1379,6 +1563,9 @@ export function SessionView({
         centered={centered}
         sessionId={sessionId}
         onSend={handleSend}
+        sendPending={sendPending}
+        recoveries={recoveries}
+        onRecover={recoverMessage}
         onStop={handleStop}
         running={running}
         queued={queuedForComposer}
@@ -1393,7 +1580,7 @@ export function SessionView({
           // A plan approval is answered in the side panel, so it mounts no
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
-          composerAttentionRequired || backgroundShown ? (
+          composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
             <>
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
@@ -1427,9 +1614,19 @@ export function SessionView({
                   ))}
                 </div>
               ) : null}
+              {childSessions.length > 0 ? (
+                <ChildSessionActivity
+                  sessions={childSessions}
+                  activityOf={activityOf}
+                  onOpen={onOpenSession}
+                  // While this session runs, its own Stop reaches the children.
+                  onStopAll={!running && delegatedWorkLive ? stopChildren : undefined}
+                  stopping={stoppingChildren}
+                />
+              ) : null}
               {backgroundShown ? (
                 <>
-                  {composerAttentionRequired ? (
+                  {composerAttentionRequired || childSessions.length > 0 ? (
                     <div className="mx-3 border-t border-border/60" />
                   ) : null}
                   <BackgroundWork
@@ -1469,6 +1666,9 @@ export function SessionView({
       centered,
       sessionId,
       handleSend,
+      sendPending,
+      recoveries,
+      recoverMessage,
       handleStop,
       running,
       queuedForComposer,
@@ -1488,7 +1688,9 @@ export function SessionView({
       respondApproval,
       activityOf,
       onOpenSession,
+      delegatedWorkLive,
       stopChildren,
+      stoppingChildren,
       backgroundShown,
       background,
       defaults.driverKind,
@@ -1503,9 +1705,12 @@ export function SessionView({
       providerLocked,
     ],
   )
-  const startFromStarter = useCallback((text: string) => {
-    setComposerSeed({ text, nonce: Date.now() })
-  }, [])
+  const startFromStarter = useCallback(
+    (text: string) => {
+      setComposerSeed({ text, sessionId, nonce: Date.now() })
+    },
+    [sessionId],
+  )
 
   const view = (
     <div className="ari-session-workspace relative flex h-full min-h-0">
@@ -1518,18 +1723,7 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <div className="flex h-7 shrink-0 items-center pr-3">
-          <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
-          <button
-            type="button"
-            aria-expanded={workOpen}
-            aria-controls={workPanelId}
-            onClick={() => setWorkOpen((value) => !value)}
-            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            Work
-          </button>
-        </div>
+        <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
         {startedByAria ? (
           <button
             type="button"
@@ -1543,33 +1737,19 @@ export function SessionView({
           <StoreTranscript
             sessionId={sessionId}
             store={store}
-            loading={loading}
+            loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
             onQuoteAssistant={handleQuoteAssistant}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
-            regenerateDisabled={running}
+            regenerateDisabled={running || sendPending}
             running={running}
             chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
             onUndoTurn={undoTurn}
-            working={
-              running || (workView?.tasks.length ?? tasks?.length ?? 0) > 0 ? (
-                <>
-                  {running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
-                  <WorkStatusLine
-                    panelId={workPanelId}
-                    tasks={workView?.tasks ?? tasks ?? []}
-                    open={workOpen}
-                    onOpen={() => setWorkOpen((value) => !value)}
-                    onStopAll={stopChildren}
-                    stopping={stoppingChildren}
-                  />
-                </>
-              ) : null
-            }
+            working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
             providerSwitches={providerSwitches}
             modelLabel={modelLabel}
@@ -1579,13 +1759,48 @@ export function SessionView({
             hidden={hidden}
           />
         </div>
+        {historyFailureSession === sessionId ? (
+          <div
+            role="status"
+            className="mx-4 mb-2 flex items-center justify-between gap-3 text-xs text-fg-muted"
+          >
+            <span>History is incomplete. Some saved messages could not be loaded.</span>
+            <button
+              type="button"
+              disabled={historyRetrying}
+              onClick={() => retryHistoryRef.current()}
+              className="shrink-0 rounded px-2 py-1 text-fg hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+            >
+              {historyRetrying ? 'Retrying history…' : 'Retry history'}
+            </button>
+          </div>
+        ) : null}
+        {metadataFailureSession === sessionId ? (
+          <div
+            role="status"
+            className="mx-4 mb-2 flex items-center justify-between gap-3 text-xs text-fg-muted"
+          >
+            <span>Session details could not be loaded.</span>
+            <button
+              type="button"
+              disabled={metadataRetrying}
+              onClick={() => retryMetadataRef.current()}
+              className="shrink-0 rounded px-2 py-1 text-fg hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+            >
+              {metadataRetrying ? 'Retrying session details…' : 'Retry session details'}
+            </button>
+          </div>
+        ) : null}
         {turnError ? (
           <TurnErrorBanner
             message={turnError}
             canRetry={lastUserMessage !== null}
-            retryDisabled={running}
+            retryDisabled={running || sendPending}
             onRetry={resendLastPrompt}
-            onDismiss={() => setTurnError(null)}
+            onDismiss={() => {
+              dismissedErrorTurnIdRef.current = errorTurnIdRef.current
+              setTurnError(null)
+            }}
             resume={turnResume}
           />
         ) : null}
@@ -1643,18 +1858,6 @@ export function SessionView({
           {composer}
         </ComposerDock>
       </div>
-      {workOpen && pendingPlan === null ? (
-        <WorkPanel
-          panelId={workPanelId}
-          sessionId={sessionId}
-          view={workView}
-          loadError={workError}
-          defaults={defaults}
-          onClose={() => setWorkOpen(false)}
-          onOpen={onOpenSession}
-          onChanged={() => refreshTasksRef.current()}
-        />
-      ) : null}
       {pendingPlan !== null ? (
         <PlanReviewRail
           prompt={pendingPlan.prompt}

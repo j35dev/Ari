@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { getProviderCapabilities } from '@ari/providers/driver'
 import { AriCoreDriver } from './ari-core-driver'
 import { MemoryConversationStore, type ConversationStore } from './conversation-store'
 import { EndpointStore } from './endpoints'
@@ -32,6 +33,52 @@ async function collect(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]>
   for await (const event of events) out.push(event)
   return out
 }
+
+describe('ari core transport capabilities', () => {
+  it.each(['openai-chat', 'anthropic-messages', 'ollama'] as const)(
+    'declares only available turn controls and no restart continuity for %s',
+    async (flavor) => {
+      const dir = await mkdtemp(join(tmpdir(), 'ari-core-capabilities-'))
+      try {
+        const endpoints = new EndpointStore({ dir })
+        await endpoints.upsert({
+          id: 'ep',
+          name: 'Local fixture',
+          baseUrl: 'http://127.0.0.1:1',
+          flavor,
+          model: 'fixture',
+          headers: {},
+        })
+        const driver = new AriCoreDriver(endpoints)
+        const adapter = await driver.create(makeSession(dir, 'fixture', 'ep'))
+        const expected = {
+          steering: 'live',
+          liveResponses: flavor === 'ollama' ? false : 'approvals-and-input',
+          responsesAfterReconnect: false,
+          nativeChildren: {
+            visibility: false,
+            inspect: false,
+            message: false,
+            stop: false,
+            approvals: false,
+          },
+          nativeFork: false,
+          nativeHandoff: false,
+          processContinuity: 'turn-only',
+          terminalStatus: 'inferred',
+        }
+        expect(getProviderCapabilities(driver)).toEqual({ ...expected, liveResponses: 'unknown' })
+        expect(getProviderCapabilities(adapter)).toEqual(expected)
+        expect(typeof adapter.respondApproval).toBe('function')
+        expect(typeof adapter.respondInput).toBe('function')
+        expect(typeof adapter.steer).toBe('function')
+        await adapter.dispose()
+      } finally {
+        await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+      }
+    },
+  )
+})
 
 describe('ari core driver flavor routing', () => {
   it('routes openai-chat endpoints through streamChatCompletion shape', async () => {
@@ -331,9 +378,7 @@ describe('ari core driver flavor routing', () => {
 
       expect(events.at(-1)).toEqual({ type: 'done' })
       const secondRound = requests[1]?.messages ?? []
-      expect(
-        secondRound.some((m) => m.content === TRIMMED_TOOL_RESULTS_PLACEHOLDER),
-      ).toBe(true)
+      expect(secondRound.some((m) => m.content === TRIMMED_TOOL_RESULTS_PLACEHOLDER)).toBe(true)
       expect(secondRound.some((m) => m.content.includes('secret file body'))).toBe(false)
       // latest user message survives trimming
       expect(secondRound.some((m) => m.role === 'user' && m.content === 'read note')).toBe(true)
@@ -431,7 +476,8 @@ describe('ari core driver flavor routing', () => {
     }
   })
 
-  it('anchors the system prompt to the session workspace', async () => {    const dir = await mkdtemp(join(tmpdir(), 'ari-core-prompt-'))
+  it('anchors the system prompt to the session workspace', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-core-prompt-'))
     try {
       await writeFile(join(dir, 'AGENTS.md'), 'Prefer pnpm.', 'utf8')
       const endpoints = new EndpointStore({ dir })
@@ -501,7 +547,9 @@ describe('ari core driver conversation memory', () => {
       const conversations = new MemoryConversationStore()
       const requests: ChatRequest[] = []
       const first = await memoryDriver(dir, conversations, requests, 'the answer is 42')
-      await collect((await first.create(makeSession(dir, 'what is the answer?', 'ep:ep-mem'))).start())
+      await collect(
+        (await first.create(makeSession(dir, 'what is the answer?', 'ep:ep-mem'))).start(),
+      )
 
       const second = await memoryDriver(dir, conversations, requests, 'still 42')
       await collect((await second.create(makeSession(dir, 'are you sure?', 'ep:ep-mem'))).start())
@@ -509,12 +557,7 @@ describe('ari core driver conversation memory', () => {
       // Round two carries turn one's exchange ahead of the new prompt, so the
       // model is not answering "are you sure?" with an empty conversation.
       const secondMessages = requests[1]?.messages ?? []
-      expect(secondMessages.map((m) => m.role)).toEqual([
-        'system',
-        'user',
-        'assistant',
-        'user',
-      ])
+      expect(secondMessages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
       expect(secondMessages[1]?.content).toBe('what is the answer?')
       expect(secondMessages[2]?.content).toBe('the answer is 42')
       expect(secondMessages.at(-1)?.content).toBe('are you sure?')
@@ -589,7 +632,8 @@ describe('ari core driver conversation memory', () => {
     }
   })
 
-  it('persists the transcript even when the turn is interrupted', async () => {    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-abort-'))
+  it('persists the transcript even when the turn is interrupted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-abort-'))
     try {
       const conversations = new MemoryConversationStore()
       const endpoints = new EndpointStore({ dir })
@@ -913,7 +957,9 @@ describe('ari core skills on a turn', () => {
       expect(requests[0]?.tools?.some((tool) => tool.name === 'skill')).toBe(true)
       const saved = await conversations.load('s1')
       expect(JSON.stringify(saved)).not.toContain('Hello body')
-      expect(saved.some((message) => message.role === 'user' && message.content === '/hello please')).toBe(true)
+      expect(
+        saved.some((message) => message.role === 'user' && message.content === '/hello please'),
+      ).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

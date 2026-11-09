@@ -784,6 +784,8 @@ function renderRowBody({
         <TurnDiffCard
           turnId={row.turnId}
           diffText={row.diffText}
+          summary={row.summary}
+          sessionId={row.sessionId}
           error={row.error}
           onRetry={onRetryTurnDiff ? () => onRetryTurnDiff(row.turnId) : undefined}
           onComment={onDiffComment}

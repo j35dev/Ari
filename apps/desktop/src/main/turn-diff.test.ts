@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { GitService } from '@ari/engine/git'
-import { queryTurnDiff } from './turn-diff'
+import { DIFF_MAX_BYTES, GitService } from '@ari/engine/git'
+import { queryTurnDiff, queryTurnDiffFile } from './turn-diff'
 
 const git = new GitService()
 let repo: string
@@ -46,6 +46,97 @@ function filesIn(diffText: string | null): string[] {
 }
 
 describe('turn checkpoints over a dirty working tree', () => {
+  it('summarizes a large turn and loads complete files from immutable trees', async () => {
+    await dirtyRepo()
+    const start = await capture('turn_large')
+    const first = 'first ' + 'x'.repeat(300_000) + '\n'
+    const second = 'second ' + 'y'.repeat(300_000) + '\n'
+    await writeFile(join(repo, 'a.txt'), first)
+    await writeFile(join(repo, 'b.txt'), second)
+    const end = await git.captureTurnEnd(repo, 'sess_1', 'turn_large')
+    if (!end.ok || !end.value) throw new Error('end not captured')
+    const card = await queryTurnDiff(git, {
+      path: repo,
+      turnId: start.turnId,
+      checkpoints: [{ ...start, endRef: end.value }],
+    })
+    expect(card.error).toBeUndefined()
+    expect(card.diffText).toBeNull()
+    expect(card.summary?.files).toMatchObject([
+      { path: 'a.txt', additions: 1, deletions: 3 },
+      { path: 'b.txt', additions: 1, deletions: 2 },
+    ])
+    await writeFile(join(repo, 'a.txt'), 'later work\n')
+    const summary = card.summary!
+    const patch = await queryTurnDiffFile(repo, { ...summary, path: 'a.txt' })
+    expect(filesIn(patch.diffText)).toEqual(['a.txt'])
+    expect(patch.diffText).toContain('+' + first)
+    expect(patch.diffText).not.toContain('later work')
+    expect(patch.diffText).not.toContain(second)
+  })
+
+  it('keeps other files reviewable when one file exceeds the per-file limit', async () => {
+    await dirtyRepo()
+    const start = await capture('turn_large_file')
+    await writeFile(join(repo, 'a.txt'), 'x'.repeat(DIFF_MAX_BYTES + 4096) + '\n')
+    await writeFile(join(repo, 'b.txt'), 'small change\n')
+    const card = await queryTurnDiff(git, {
+      path: repo,
+      turnId: start.turnId,
+      checkpoints: [start],
+    })
+    expect(card.error).toBeUndefined()
+    const summary = card.summary!
+    expect(summary.files).toHaveLength(2)
+    expect(await queryTurnDiffFile(repo, { ...summary, path: 'a.txt' })).toEqual({
+      diffText: null,
+      tooLarge: true,
+    })
+    const small = await queryTurnDiffFile(repo, { ...summary, path: 'b.txt' })
+    expect(small.diffText).toContain('+small change')
+  })
+
+  it('pins the legacy live fallback before later work and treats pathspecs literally', async () => {
+    await dirtyRepo()
+    const start = await capture('turn_literal')
+    await writeFile(join(repo, 'a.txt'), 'x'.repeat(DIFF_MAX_BYTES + 4096))
+    const filename = '[note] with space.txt'
+    await writeFile(join(repo, filename), 'original turn\n')
+    const card = await queryTurnDiff(git, {
+      path: repo,
+      turnId: start.turnId,
+      checkpoints: [start],
+    })
+    const summary = card.summary!
+    expect(summary.files.find((file) => file.path === filename)?.additions).toBe(1)
+    await writeFile(join(repo, filename), 'later turn\n')
+    const patch = await queryTurnDiffFile(repo, { ...summary, path: filename })
+    expect(patch.diffText).toContain('+original turn')
+    expect(patch.diffText).not.toContain('later turn')
+  })
+
+  it('keeps large turn summaries and file patches inside a nested workspace', async () => {
+    await dirtyRepo()
+    const workspace = join(repo, 'nested')
+    await mkdir(workspace)
+    await writeFile(join(workspace, 'small.txt'), 'before\n')
+    const captured = await git.captureCheckpoint(workspace, 'sess_1', 'turn_nested')
+    if (!captured.ok || !captured.value) throw new Error('checkpoint not captured')
+    await writeFile(join(workspace, 'large.txt'), 'x'.repeat(DIFF_MAX_BYTES + 4096))
+    await writeFile(join(workspace, 'small.txt'), 'inside workspace\n')
+    await writeFile(join(repo, 'outside.txt'), 'outside workspace\n')
+    const card = await queryTurnDiff(git, {
+      path: workspace,
+      turnId: 'turn_nested',
+      checkpoints: [{ turnId: 'turn_nested', gitRef: captured.value }],
+    })
+    const summary = card.summary!
+    expect(summary.files.map((file) => file.path)).toEqual(['large.txt', 'small.txt'])
+    const patch = await queryTurnDiffFile(workspace, { ...summary, path: 'small.txt' })
+    expect(patch.diffText).toContain('+inside workspace')
+    expect(patch.diffText).not.toContain('outside workspace')
+  })
+
   it('an untouched turn shows no edits and reverts to a no-op', async () => {
     await dirtyRepo()
     const head = run('rev-parse', 'HEAD')
