@@ -34,6 +34,7 @@ export class AriaWidget {
   private settings: WidgetSettings | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null
+  private readyTimer: ReturnType<typeof setTimeout> | null = null
   private recoveryDelay = 1_000
   private ready: (() => void) | null = null
   private boot: Promise<void> | null = null
@@ -177,13 +178,28 @@ export class AriaWidget {
     if (configuration === this.configuration && (this.hook || this.recoveryTimer)) return
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
     this.recoveryTimer = null
+    if (this.readyTimer) clearTimeout(this.readyTimer)
+    this.readyTimer = null
     this.configuration = configuration
     const revision = ++this.revision
     this.stopHook()
     if (!speech?.enabled || this.disposed) return
     try {
       const status = (await this.deps.invoke('speech.status')) as { ready: boolean }
-      if (revision !== this.revision || this.disposed || !status.ready) return
+      if (revision !== this.revision || this.disposed) return
+      if (!status.ready) {
+        // Speech can become ready without a status frame reaching us (engine
+        // checks at boot), so look again rather than stay unarmed all session.
+        this.readyTimer = setTimeout(() => {
+          this.readyTimer = null
+          if (this.settings && revision === this.revision) {
+            this.configuration = ''
+            void this.configure(this.settings)
+          }
+        }, 30_000)
+        this.readyTimer.unref()
+        return
+      }
       const { uIOhook, UiohookKey } = await import('uiohook-napi')
       if (revision !== this.revision || this.disposed) return
       const shortcut = speech.shortcut || defaultShortcut(process.platform)
@@ -319,6 +335,8 @@ export class AriaWidget {
     if (this.timer) clearTimeout(this.timer)
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
     this.recoveryTimer = null
+    if (this.readyTimer) clearTimeout(this.readyTimer)
+    this.readyTimer = null
     powerMonitor.removeListener('lock-screen', this.resetInput)
     powerMonitor.removeListener('suspend', this.resetInput)
     this.destroyWindow()

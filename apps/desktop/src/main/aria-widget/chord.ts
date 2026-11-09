@@ -1,3 +1,5 @@
+import { defaultSpeechShortcut, speechShortcutError } from '@ari/contracts/settings'
+
 export interface HookKey {
   keycode: number
   ctrlKey?: boolean
@@ -15,7 +17,7 @@ export interface Chord {
 }
 
 export function defaultShortcut(platform: string): string {
-  return platform === 'darwin' ? 'shift+meta+space' : 'ctrl+alt+space'
+  return defaultSpeechShortcut(platform)
 }
 
 const modifiersByName: Record<string, Modifier> = {
@@ -30,39 +32,10 @@ const modifierNames: Record<Modifier, readonly string[]> = {
   shiftKey: ['Shift', 'ShiftRight'],
   metaKey: ['Meta', 'MetaRight'],
 }
-const keyPattern =
-  /^(space|[a-z0-9]|f([1-9]|1[0-9]|2[0-4])|enter|comma|period|slash|semicolon|quote|backquote|minus|equal|bracketleft|bracketright|backslash)$/
 
+/** Settings and the widget share one rule for which shortcuts can arm. */
 export function shortcutError(shortcut: string, platform: string): string | null {
-  const reserved = new Set([
-    'alt+tab',
-    'alt+f4',
-    'ctrl+alt+delete',
-    'meta+l',
-    'meta+d',
-    'meta+tab',
-    'meta',
-  ])
-  if (platform === 'darwin') {
-    reserved.add('meta+q')
-    reserved.add('meta+space')
-    reserved.add('ctrl+space')
-  }
-  if (reserved.has(shortcut)) return 'This shortcut is reserved by the operating system.'
-  const parts = shortcut.split('+')
-  const key = parts.pop()!
-  if (key === 'tab') return 'Tab cannot be used for hold-to-talk.'
-  if (!keyPattern.test(key))
-    return 'Choose a letter, digit, function key, Space, Enter, or punctuation key.'
-  if (!parts.length && !/^f([1-9]|1[0-9]|2[0-4])$/.test(key))
-    return 'Add a modifier, or use a function key alone.'
-  const names = Object.keys(modifiersByName)
-  if (parts.some((part) => !names.includes(part)) || new Set(parts).size !== parts.length)
-    return 'Use lowercase ctrl, alt, shift, and meta modifiers once each, before the key.'
-  const ordered = [...parts].sort((a, b) => names.indexOf(a) - names.indexOf(b))
-  if (parts.join('+') !== ordered.join('+'))
-    return 'Put modifiers in the order ctrl, alt, shift, meta.'
-  return null
+  return speechShortcutError(shortcut, platform)
 }
 
 /** Accept only the shared settings format, never silently arm a different shortcut. */

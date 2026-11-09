@@ -3,14 +3,20 @@ import { pathToFileURL } from 'node:url'
 import { app, type Session } from 'electron'
 import { isAppUrl } from '../external-links'
 
+/** The two pages that record: the main window and the hold-to-talk widget. */
+const SPEECH_ENTRIES = ['../renderer/index.html', '../renderer/widget/index.html']
+
 export function isSpeechPage(
   url: string,
   devUrl = process.env['ELECTRON_RENDERER_URL'],
-  appFileUrl = pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href,
+  appFileUrls = SPEECH_ENTRIES.map((entry) => pathToFileURL(join(import.meta.dirname, entry)).href),
 ): boolean {
   try {
     const page = new URL(url)
-    return ['file:', 'http:', 'https:'].includes(page.protocol) && isAppUrl(url, devUrl, appFileUrl)
+    return (
+      ['file:', 'http:', 'https:'].includes(page.protocol) &&
+      appFileUrls.some((appFileUrl) => isAppUrl(url, devUrl, appFileUrl))
+    )
   } catch {
     return false
   }

@@ -143,7 +143,9 @@ export class AcpSessionPool {
 
   async #close(ariSessionId: string, entry: PooledAcpSession): Promise<void> {
     this.#idle.delete(ariSessionId)
-    const task = entry.connection.shutdown().then(() => this.#ended(ariSessionId))
+    // The process is gone either way, so its background work ends even when
+    // shutdown reports a failure.
+    const task = entry.connection.shutdown().finally(() => this.#ended(ariSessionId))
     this.#closing.set(ariSessionId, task)
     try {
       await task
