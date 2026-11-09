@@ -44,7 +44,6 @@ describe('session projection', () => {
     expect(switched.providerSessionId).toBeNull()
     expect(switched.providerContextSeq).toBe(3)
     expect(switched.providerHandoffPending).toBe(true)
-    expect(switched.providerSwitches).toEqual([events[3]])
     expect(switched.activeTurnId).toBe('running')
     const next = applyEvent(switched, ev(5, { type: 'turn.started', turnId: 'next' }))
     expect(next.providerHandoffPending).toBe(true)
@@ -60,6 +59,10 @@ describe('session projection', () => {
       applyEvent(next, ev(6, { type: 'session.ref.observed', ref: 'opencode-new', contextSeq: 3 }))
         .providerSessionId,
     ).toBe('opencode-new')
+    expect(
+      applyEvent(next, ev(6, { type: 'session.ref.observed', ref: 'opencode-new', contextSeq: 3 }))
+        .providerHandoffPending,
+    ).toBe(false)
     const back = applyEvent(
       next,
       ev(7, {

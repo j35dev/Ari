@@ -22,6 +22,7 @@ import {
   type TitleStrategy,
 } from '@ari/engine/title'
 import { Engine } from './engine'
+import { acpSessionPool } from '@ari/providers/acp'
 
 let dir: string
 let store: SessionStore
@@ -95,6 +96,265 @@ async function seedSession(
 }
 
 describe('Aria provider switching', () => {
+  it.each(['throw', 'error', 'stop'] as const)(
+    'retries the handoff after %s inside the new adapter start without a thread id',
+    async (failure) => {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      let retry = false
+      let started = false
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      registry.register({
+        kind: 'opencode',
+        create: async (session) => {
+          created.push(session)
+          return {
+            start: () =>
+              (async function* (): AsyncGenerator<AgentEvent> {
+                started = true
+                if (!retry) {
+                  if (failure === 'throw') throw new Error('Start failed')
+                  if (failure === 'error') {
+                    yield { type: 'error', message: 'Start failed', rawJson: null }
+                    return
+                  }
+                  await gate
+                  return
+                }
+                yield { type: 'session-ref', ref: 'new-thread' }
+                yield { type: 'done' }
+              })(),
+            interrupt: release,
+            dispose: async () => undefined,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'Remember the existing work.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: 'chosen',
+        effort: null,
+      })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Continue.',
+        attachments: [],
+      })
+      await expect.poll(() => started).toBe(true)
+      if (failure === 'stop') await engine.dispatch({ type: 'turn.interrupt', sessionId: 'aria' })
+      await engine.quiesce('aria')
+      expect((await store.load('aria')).providerSessionId).toBeNull()
+      expect((await store.load('aria')).providerHandoffPending).toBe(true)
+      retry = true
+      await turn(engine, 'Try again.')
+      expect(created.at(-1)!.resumeOf).toBeNull()
+      expect(created.at(-1)!.prompt).toContain('User: Remember the existing work.')
+      expect((await store.load('aria')).providerHandoffPending).toBe(false)
+    },
+  )
+
+  it('consumes a ref-less handoff only after a completed turn', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    registry.register({
+      kind: 'opencode',
+      create: async (session) => {
+        created.push(session)
+        return {
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            })(),
+          interrupt: () => undefined,
+          dispose: async () => undefined,
+        }
+      },
+    })
+    const engine = engineWith(registry)
+    await seedSession(store, 'aria', 'helm')
+    await turn(engine, 'Existing conversation.')
+    await engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: null,
+      effort: null,
+    })
+    await turn(engine, 'Continue.')
+    expect((await store.load('aria')).providerHandoffPending).toBe(false)
+    await turn(engine, 'Next.')
+    expect(created.at(-1)!.prompt).not.toContain('Conversation so far')
+  })
+
+  it('serializes a provider switch behind turn authorization and journals the same provider the turn uses', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver('claude', created))
+    registry.register(recordingDriver('opencode', created))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const authorize = vi.fn(async () => {
+      await gate
+      return null
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      authorizeTurn: authorize,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    await seedSession(store, 'aria', 'helm')
+    const starting = engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'aria',
+      text: 'First.',
+      attachments: [],
+    })
+    await expect.poll(() => authorize.mock.calls.length).toBe(1)
+    const switching = engine.dispatch({
+      type: 'session.provider.switch',
+      sessionId: 'aria',
+      driverKind: 'opencode',
+      modelId: 'chosen',
+      effort: null,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(published).toEqual([])
+    release()
+    expect(await starting).toEqual({ accepted: true })
+    expect(await switching).toEqual({ accepted: true })
+    await engine.quiesce('aria')
+    expect(created[0]!.modelId).toBeNull()
+    expect(published.findIndex((entry) => entry.event.type === 'turn.started')).toBeLessThan(
+      published.findIndex((entry) => entry.event.type === 'session.provider.switched'),
+    )
+    await turn(engine, 'Second.')
+    expect(created[1]!.modelId).toBe('chosen')
+    expect(created[1]!.resumeOf).toBeNull()
+  })
+
+  it('releases a parked connection on switching and releases one parked by the finishing old turn', async () => {
+    const releasePool = vi.spyOn(acpSessionPool, 'release')
+    try {
+      const created: AdapterSession[] = []
+      const registry = new DriverRegistry()
+      registry.register(recordingDriver('claude', created))
+      registry.register(recordingDriver('opencode', created))
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await turn(engine, 'First.')
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      expect(releasePool).toHaveBeenCalledWith('aria')
+      await turn(engine, 'Second.')
+      releasePool.mockClear()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let started = false
+      registry.register({
+        kind: 'opencode',
+        create: async () => ({
+          start: () =>
+            (async function* (): AsyncGenerator<AgentEvent> {
+              started = true
+              await gate
+              yield { type: 'done' }
+            })(),
+          interrupt: release,
+          dispose: async () => undefined,
+          keepsBackgroundWork: () => true,
+        }),
+      })
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'Working.',
+        attachments: [],
+      })
+      await expect.poll(() => started).toBe(true)
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'claude',
+        modelId: null,
+        effort: null,
+      })
+      release()
+      await engine.quiesce('aria')
+      expect(releasePool).toHaveBeenCalledTimes(2)
+    } finally {
+      releasePool.mockRestore()
+    }
+  })
+
+  it('releases the old connection when Stop and a switch arrive during adapter creation', async () => {
+    const releasePool = vi.spyOn(acpSessionPool, 'release')
+    try {
+      const registry = new DriverRegistry()
+      let creating = false
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const dispose = vi.fn(async () => undefined)
+      registry.register({
+        kind: 'claude',
+        create: async () => {
+          creating = true
+          await gate
+          return {
+            start: () => (async function* (): AsyncGenerator<AgentEvent> {})(),
+            interrupt: () => undefined,
+            dispose,
+          }
+        },
+      })
+      const engine = engineWith(registry)
+      await seedSession(store, 'aria', 'helm')
+      await engine.dispatch({
+        type: 'turn.start',
+        sessionId: 'aria',
+        text: 'First.',
+        attachments: [],
+      })
+      await expect.poll(() => creating).toBe(true)
+      await engine.dispatch({
+        type: 'session.provider.switch',
+        sessionId: 'aria',
+        driverKind: 'opencode',
+        modelId: null,
+        effort: null,
+      })
+      await engine.dispatch({ type: 'turn.interrupt', sessionId: 'aria' })
+      release()
+      await engine.quiesce('aria')
+      expect(dispose).toHaveBeenCalledOnce()
+      expect(releasePool).toHaveBeenCalledTimes(2)
+    } finally {
+      releasePool.mockRestore()
+    }
+  })
+
   function recordingDriver(
     kind: 'claude' | 'opencode',
     created: AdapterSession[],

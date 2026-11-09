@@ -15,7 +15,7 @@ function message(role: Message['role'], text: string): Message {
 }
 
 describe('provider handoff', () => {
-  it('carries user and Aria text in order, excluding tool traffic, reasoning and automatic wakes', () => {
+  it('carries conversation and work reports in order, excluding unrelated tool traffic and reasoning', () => {
     const assistant = message('assistant', 'The fix is ready.')
     assistant.parts.push(
       { type: 'thinking', text: 'private reasoning' },
@@ -33,15 +33,81 @@ describe('provider handoff', () => {
       assistant,
     ])
     expect(handoff).toContain('Conversation so far')
-    expect(handoff).toContain('User: Please fix it.\n\nAria: The fix is ready.')
-    for (const hidden of [
-      'tool chatter',
-      'tool output',
-      'private reasoning',
-      'automatic wake',
-      'system text',
-    ])
+    expect(handoff).toContain(
+      'User: Please fix it.\n\nWork reports (child): automatic wake\n\nAria: The fix is ready.',
+    )
+    for (const hidden of ['tool chatter', 'tool output', 'private reasoning', 'system text'])
       expect(handoff).not.toContain(hidden)
+  })
+
+  it('keeps session messages and compact assignments with the returned session title and id', () => {
+    const assignment = message('assistant', 'I assigned this.')
+    assignment.parts.push(
+      {
+        type: 'tool-call',
+        callId: 'spawn',
+        name: 'Bash',
+        argsJson: JSON.stringify({
+          command: 'ari session spawn --title "Fix parser" --prompt "Fix the parser"',
+        }),
+      },
+      {
+        type: 'tool-result',
+        callId: 'spawn',
+        resultJson: JSON.stringify({
+          child: { id: 'sess_parser', title: 'Fix parser' },
+          output: 'unrelated tool output',
+        }),
+        isError: false,
+      },
+      {
+        type: 'tool-call',
+        callId: 'prompt',
+        name: 'Bash',
+        argsJson: JSON.stringify({ command: 'ari session prompt sess_parser "Add checks"' }),
+      },
+    )
+    const report = {
+      ...message('user', 'Parser checks passed.'),
+      origin: { kind: 'session' as const, sessionId: 'sess_parser' },
+    }
+    const handoff = conversationHandoff([assignment, report])!
+    expect(handoff).toContain('Work: ari session spawn --title "Fix parser"')
+    expect(handoff).toContain('sessionId=sess_parser')
+    expect(handoff).toContain('title=Fix parser')
+    expect(handoff).toContain('Work: ari session prompt sess_parser "Add checks"')
+    expect(handoff).toContain('Session sess_parser: Parser checks passed.')
+    expect(handoff).not.toContain('unrelated tool output')
+  })
+
+  it('reads work-routing clues from ACP input and text content envelopes', () => {
+    const assignment = message('assistant', '')
+    assignment.parts = [
+      {
+        type: 'tool-call',
+        callId: 'acp',
+        name: 'execute',
+        argsJson: JSON.stringify({
+          title: 'Ask the project lead',
+          input: { command: 'ari project ask proj_web "Fix it"' },
+        }),
+      },
+      {
+        type: 'tool-result',
+        callId: 'acp',
+        resultJson: JSON.stringify([
+          {
+            type: 'text',
+            text: JSON.stringify({ sessionId: 'sess_lead', lead: { title: 'Web lead' } }),
+          },
+        ]),
+        isError: false,
+      },
+    ]
+    const handoff = conversationHandoff([assignment])!
+    expect(handoff).toContain('Work: ari project ask proj_web "Fix it"')
+    expect(handoff).toContain('sessionId=sess_lead')
+    expect(handoff).toContain('title=Web lead')
   })
 
   it('keeps the newest text within the full character budget', () => {

@@ -26,6 +26,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
+import { hasProviderContext } from '@ari/contracts/session'
 import { isHelmSession } from '@ari/contracts/helm'
 import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
@@ -177,6 +178,11 @@ function StoreTranscript({
 }
 
 const EMPTY_BACKGROUND = { tasks: [] as BackgroundTask[], reporting: false, since: null }
+const EMPTY_PROVIDER_CONTEXT = {
+  hasMessages: false,
+  hasTurns: false,
+  providerSessionId: null as string | null,
+}
 /** How long the rail keeps saying the agent reports back after its last output. */
 const REPORTING_LINGER_MS = 4000
 
@@ -267,6 +273,8 @@ export function SessionView({
   const [running, setRunning] = useState(false)
   const [ariaSession, setAriaSession] = useState(false)
   const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
+  const [providerContext, setProviderContext] = useState(EMPTY_PROVIDER_CONTEXT)
+  const providerLocked = !ariaSession && hasProviderContext(providerContext)
   const [queued, setQueued] = useState<QueuedMessageView[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
@@ -378,6 +386,7 @@ export function SessionView({
     setRunning(false)
     setAriaSession(false)
     setProviderSwitches([])
+    setProviderContext(EMPTY_PROVIDER_CONTEXT)
     setQueued([])
     setApprovals([])
     setPendingQuestion(null)
@@ -532,10 +541,18 @@ export function SessionView({
         const m = model as {
           session: Session
           activeTurnId: string | null
+          messages?: Message[]
+          lastTurn?: unknown
+          providerSessionId?: string | null
         }
         if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
         setAriaSession(isHelmSession(m.session))
         setRunning(m.activeTurnId !== null)
+        setProviderContext((previous) => ({
+          hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
+          hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
+          providerSessionId: m.providerSessionId ?? previous.providerSessionId,
+        }))
         onDefaultsChange({
           driverKind: m.session.driverKind,
           modelId: m.session.modelId,
@@ -607,10 +624,16 @@ export function SessionView({
         refreshTasksRef.current()
         break
       case 'user.message.added':
+        setProviderContext((previous) =>
+          previous.hasMessages ? previous : { ...previous, hasMessages: true },
+        )
         lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
         messageFoldRef.current.addUser(event.message)
         break
       case 'assistant.parts.appended': {
+        setProviderContext((previous) =>
+          previous.hasMessages ? previous : { ...previous, hasMessages: true },
+        )
         // Counted per message: a steered user message lands in the middle of
         // a turn, and the assistant message it interrupts keeps growing after.
         const parts = messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
@@ -641,6 +664,9 @@ export function SessionView({
         }))
         break
       case 'turn.started':
+        setProviderContext((previous) =>
+          previous.hasTurns ? previous : { ...previous, hasTurns: true },
+        )
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
         setRunning(true)
@@ -747,6 +773,9 @@ export function SessionView({
             permissionMode: event.permissionMode,
           })
         }
+        break
+      case 'session.ref.observed':
+        setProviderContext((previous) => ({ ...previous, providerSessionId: event.ref }))
         break
       case 'usage.recorded':
         setTelemetry((t) => ({
@@ -1119,24 +1148,38 @@ export function SessionView({
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
       const switched = next.driverKind !== defaults.driverKind
-      if (telemetry.turnCount > 0 && switched && !ariaSession) return
-      const switchProvider = ariaSession && switched
+      if (switched && providerLocked) return
+      const switchProvider = ariaSession && switched && hasProviderContext(providerContext)
+      const effort = ariaSession && switched ? { effort: null } : {}
+      if (!switchProvider) {
+        onDefaultsChange({ ...defaultsRef.current, ...next, ...effort })
+        onPick?.({ ...next, ...effort })
+      }
       void dispatch(
         switchProvider
           ? { type: 'session.provider.switch', sessionId, ...next, effort: null }
-          : { type: 'session.update', sessionId, ...next },
+          : { type: 'session.update', sessionId, ...next, ...effort },
         'Couldn’t change model',
       ).then((accepted) => {
-        if (!accepted) return
+        if (!accepted || !switchProvider) return
         onDefaultsChange({
           ...defaultsRef.current,
           ...next,
-          ...(switchProvider ? { effort: null } : {}),
+          effort: null,
         })
-        onPick?.(switchProvider ? { ...next, effort: null } : next)
+        onPick?.({ ...next, effort: null })
       })
     },
-    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults, ariaSession, dispatch],
+    [
+      sessionId,
+      onDefaultsChange,
+      onPick,
+      defaults,
+      ariaSession,
+      providerContext,
+      providerLocked,
+      dispatch,
+    ],
   )
 
   const changeEffort = useCallback(
@@ -1346,7 +1389,7 @@ export function SessionView({
               driverKind={defaults.driverKind}
               modelId={defaults.modelId}
               onChange={changeModel}
-              lockedTo={telemetry.turnCount > 0 && !ariaSession ? defaults.driverKind : null}
+              lockedTo={providerLocked ? defaults.driverKind : null}
             />
             <EffortChip
               driverKind={defaults.driverKind}
@@ -1398,6 +1441,7 @@ export function SessionView({
       changePermissionMode,
       telemetry.turnCount,
       ariaSession,
+      providerLocked,
     ],
   )
   const startFromStarter = useCallback((text: string) => {

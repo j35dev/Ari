@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProviderSwitch, TranscriptBlock } from './types'
 import { insertProviderSwitchRows } from './provider-switch-rows'
+import type { DelegationRow } from './types'
 
 const change: ProviderSwitch = {
   type: 'session.provider.switched',
@@ -44,6 +45,14 @@ describe('provider switch rows', () => {
         [change, { ...change, seq: 6, driverKind: 'opencode' }],
       ).map((row) => row.key),
     ).toEqual([old.key, 'provider-switch:5', 'provider-switch:6', next.key])
+  })
+
+  it('places the divider after delegation cards attached to the old turn’s last row', () => {
+    const first: DelegationRow = { kind: 'delegation', key: 'delegation:first', children: [] }
+    const second: DelegationRow = { kind: 'delegation', key: 'delegation:second', children: [] }
+    expect(
+      insertProviderSwitchRows([old, first, second, next], [change]).map((row) => row.key),
+    ).toEqual([old.key, first.key, second.key, 'provider-switch:5', next.key])
   })
 
   it('uses a message anchor for history without turn ids and handles an empty conversation', () => {

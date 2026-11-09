@@ -22,6 +22,7 @@ import { controlPreamble } from '@ari/engine/control-preamble'
 import { turnRequester } from '@ari/engine/helm'
 import { isHelmSession } from '@ari/contracts/helm'
 import { providerTurnContext, type ProviderTurnContext } from '@ari/engine/provider-context'
+import { acpSessionPool } from '@ari/providers/acp'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -555,6 +556,9 @@ export class Engine {
     }
     releaseTurn?.(true)
 
+    if (decision.events.some((event) => event.type === 'session.provider.switched'))
+      await acpSessionPool.release(command.sessionId)
+
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
       this.#onFirstSettle(command.sessionId, null)
@@ -883,6 +887,7 @@ export class Engine {
         sessionId: session.id,
         workspacePath,
         prompt: preamble === null || viaSystem ? body : `${preamble}\n\n${body}`,
+        ...(handoff ? { handoff } : {}),
         ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,
@@ -901,6 +906,8 @@ export class Engine {
     if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
       adapter.interrupt()
       await adapter.dispose()
+      if (((await this.#deps.store.load(session.id)).providerContextSeq ?? 0) !== contextSeq)
+        await acpSessionPool.release(session.id)
       await this.#captureTurnEnd(session.id, turnId)
       return
     }
@@ -1033,11 +1040,6 @@ export class Engine {
     let providerStopReason: 'completed' | 'interrupted' | 'error' | undefined
     let errorMessage: string | null
     try {
-      // Keep the handoff pending through failed or cancelled startup. Only an
-      // adapter actually given this turn can consume it; a later switch has
-      // its own generation and cannot be consumed by this one.
-      if (providerContext.handoffPending)
-        await append({ type: 'session.provider.context.started', contextSeq })
       let firstErrorMessage: string | null = null
       for await (const event of interrupted ? [] : adapter.start()) {
         // A timed flush that could not journal fails the turn like any other.
@@ -1229,10 +1231,17 @@ export class Engine {
     // snapshot follow. Disposal still fences the snapshot against late provider
     // writes, and the next turn on this session waits for both (#turnTasks).
     try {
+      // A failed or stopped transport without a native thread must retry with
+      // the handoff. A ref consumes it in projection; completed ref-less
+      // transports need this explicit acknowledgement instead.
+      if (!interrupted && stopReason === 'completed' && providerContext.handoffPending)
+        await append({ type: 'session.provider.context.started', contextSeq })
       if (!interrupted) await this.#settle(session.id, turnId, stopReason, errorMessage)
     } finally {
       try {
         await adapter.dispose()
+        if (((await this.#deps.store.load(session.id)).providerContextSeq ?? 0) !== contextSeq)
+          await acpSessionPool.release(session.id)
       } catch (error) {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
       }

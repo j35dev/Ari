@@ -8,7 +8,66 @@ import {
   buildShellSpawnArgs,
   needsWindowsShell,
   spawnCli,
+  argsWithWindowsHandoffBudget,
 } from './spawn-cli'
+import type { AdapterSession } from './driver'
+import { buildCodexArgs } from './codex/codex-driver'
+import { buildOpencodeArgs } from './opencode/opencode-driver'
+import { buildPiArgs } from './pi/pi-driver'
+import { buildGrokArgs } from './grok/grok-driver'
+import { buildHermesArgs } from './hermes/hermes-driver'
+
+describe('Windows handoff budget', () => {
+  const realPlatform = process.platform
+  afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
+  const handoff =
+    '[Conversation so far]\n\n' + 'older & % report '.repeat(800) + '\nAria: latest work'
+  const session: AdapterSession = {
+    sessionId: 'aria',
+    workspacePath: '/w',
+    prompt: `Preamble\n\n${handoff}\n\n[Ari now]\n\nCurrent request`,
+    handoff,
+    modelId: 'chosen',
+    permissionMode: 'ask',
+    resumeOf: null,
+  }
+
+  it.each([
+    ['codex', buildCodexArgs],
+    ['opencode', buildOpencodeArgs],
+    ['pi', buildPiArgs],
+    ['grok', buildGrokArgs],
+    ['hermes', buildHermesArgs],
+  ] as const)(
+    'fits %s fallback argv after Windows escaping and keeps the newest history',
+    (kind, buildArgs) => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      const binary = `C:\\project\\node_modules\\.bin\\${kind}.cmd`
+      const args = argsWithWindowsHandoffBudget(binary, session, buildArgs)
+      const wrapped = buildCmdSpawnArgs(binary, args)
+      expect(wrapped.file.length + 1 + wrapped.args.join(' ').length).toBeLessThanOrEqual(8_191)
+      const prompt = args.find((arg) => arg.includes('Current request'))!
+      expect(prompt).toContain('Preamble')
+      expect(prompt).toContain('[Conversation so far]')
+      expect(prompt).toContain('Aria: latest work')
+      expect(prompt).toContain('[Ari now]\n\nCurrent request')
+      expect(prompt.length).toBeLessThan(session.prompt.length)
+      expect(session.prompt).toContain(handoff)
+    },
+  )
+
+  it('keeps the full history for direct executables, PowerShell and non-Windows argv', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    for (const binary of ['agent.exe', 'agent.ps1'])
+      expect(argsWithWindowsHandoffBudget(binary, session, buildPiArgs)).toEqual(
+        buildPiArgs(session),
+      )
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    expect(argsWithWindowsHandoffBudget('agent.cmd', session, buildPiArgs)).toEqual(
+      buildPiArgs(session),
+    )
+  })
+})
 
 describe('buildCmdSpawnArgs', () => {
   it('wraps the command line in an escaped cmd.exe invocation', () => {

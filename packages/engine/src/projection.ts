@@ -70,7 +70,6 @@ export interface SessionReadModel {
   /** Journal sequence of the latest switch; scopes native refs to one fresh context. */
   providerContextSeq?: number
   providerHandoffPending?: boolean
-  providerSwitches?: Extract<JournalEvent, { type: 'session.provider.switched' }>[]
   usage: UsageTotals
   lastSeq: number
   lastTurn?: {
@@ -341,8 +340,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'session.ref.observed':
       // A running turn may still report its old thread after a switch. It
       // belongs to that turn, never to the provider selected for the next one.
-      if ((event.contextSeq ?? 0) === (state.providerContextSeq ?? 0))
+      if ((event.contextSeq ?? 0) === (state.providerContextSeq ?? 0)) {
         next.providerSessionId = event.ref
+        next.providerHandoffPending = false
+      }
       break
 
     case 'session.provider.context.started':
@@ -360,7 +361,6 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       next.providerSessionId = null
       next.providerContextSeq = event.seq
       next.providerHandoffPending = true
-      next.providerSwitches = [...(state.providerSwitches ?? []), event]
       break
 
     case 'background.task.updated':

@@ -13,7 +13,7 @@ import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter }
 import { UNKNOWN_PROVIDER_CAPABILITIES, ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
-import { spawnCli } from '../spawn-cli'
+import { argsWithWindowsHandoffBudget, spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
@@ -118,10 +118,11 @@ export class CodexDriver implements Driver {
 
   /** One-shot `exec --json` transport; stdin is not writable in this mode. */
   private createLegacy(session: AdapterSession): ProviderAdapter {
+    const args = argsWithWindowsHandoffBudget(this.binaryPath, session, buildCodexArgs)
     const child =
       this.options.spawnLegacy !== undefined
-        ? this.options.spawnLegacy(this.binaryPath, buildCodexArgs(session))
-        : spawnCli(this.binaryPath, buildCodexArgs(session), {
+        ? this.options.spawnLegacy(this.binaryPath, args)
+        : spawnCli(this.binaryPath, args, {
             cwd: session.workspacePath,
             ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
             stdio: ['ignore', 'pipe', 'pipe'],
