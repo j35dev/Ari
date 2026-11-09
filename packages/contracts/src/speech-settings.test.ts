@@ -20,9 +20,13 @@ it('migrates settings without a configured speech model', () => {
     modelPath: null,
     shortcut: '',
     dictationShortcut: '',
+    duckAudio: true,
   })
 })
 it('keeps speech patches default-free and validates PCM bounds', () => {
+  expect(settingsUpdateSchema.parse({ speech: { duckAudio: false } }).speech).toEqual({
+    duckAudio: false,
+  })
   expect(settingsUpdateSchema.parse({ speech: { shortcut: 'ctrl+space' } }).speech).toEqual({
     shortcut: 'ctrl+space',
   })

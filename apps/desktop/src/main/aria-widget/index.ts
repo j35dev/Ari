@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { BrowserWindow, ipcMain, powerMonitor, screen } from 'electron'
 import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
@@ -12,6 +13,7 @@ import { defaultDictationShortcut, speechBindingsError } from '@ari/contracts/se
 import { CaptureLease } from '../speech/capture-lease'
 import { captureDictationTarget, prepareDictation } from '../speech/dictation-target'
 import type { DictationTarget } from '../../shared/dictation'
+import { getAudioDucking, type AudioDucking } from '../speech/audio-ducking'
 
 const log = createLogger('desktop:aria-widget')
 const METHODS = [
@@ -20,6 +22,7 @@ const METHODS = [
   'ariaWidget.error',
   'ariaWidget.settings',
   'ariaWidget.speech',
+  'ariaWidget.capture',
 ]
 
 export interface AriaWidgetDeps {
@@ -28,6 +31,7 @@ export interface AriaWidgetDeps {
   mainWindow?(): BrowserWindow | null
   captureTarget?(id: string): Promise<DictationTarget>
   prepareTarget?(): Promise<void>
+  ducking?: AudioDucking
 }
 
 type WidgetSettings = Settings
@@ -55,6 +59,9 @@ export class AriaWidget {
   private sending: number | null = null
   private disposed = false
   private configuration = ''
+  private readonly audioOwner = randomUUID()
+  private readonly ducking: AudioDucking
+  private capturing: number | null = null
 
   constructor(private readonly deps: AriaWidgetDeps) {
     for (const action of ['acquire', 'release']) {
@@ -71,6 +78,7 @@ export class AriaWidget {
     }
     this.deps.mainWindow?.()?.webContents.on('render-process-gone', this.resetCapture)
     this.deps.mainWindow?.()?.webContents.on('did-start-navigation', this.resetCapture)
+    this.ducking = deps.ducking ?? getAudioDucking()
     for (const method of METHODS) {
       ipcMain.handle(`ari:${method}`, (event, params: unknown) => {
         if (event.sender !== this.window?.webContents || event.sender.isDestroyed())
@@ -150,6 +158,14 @@ export class AriaWidget {
 
   private publish(): void {
     if (this.hold.canStart) this.releaseCapture()
+    if (!this.hold.active) this.capturing = null
+    this.ducking.setActive(
+      this.audioOwner,
+      this.hold.active &&
+        this.capturing === this.hold.state.id &&
+        this.settings?.speech.duckAudio !== false &&
+        !this.disposed,
+    )
     this.scheduleDeadline()
     const win = this.window
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
@@ -203,6 +219,7 @@ export class AriaWidget {
     win.once('closed', () => {
       ready()
       if (this.window !== win) return
+      this.stopHook()
       this.window = null
       this.ready = null
       this.boot = null
@@ -223,7 +240,8 @@ export class AriaWidget {
     this.settings = settings
     this.publish()
     const speech = this.settings.speech
-    const configuration = JSON.stringify(speech) ?? ''
+    const configuration =
+      JSON.stringify(speech ? { ...speech, duckAudio: undefined } : speech) ?? ''
     if (configuration === this.configuration && (this.hook || this.recoveryTimer)) return
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
     this.recoveryTimer = null
@@ -346,6 +364,16 @@ export class AriaWidget {
   }
 
   private async handle(method: string, raw: unknown): Promise<unknown> {
+    if (method === 'ariaWidget.capture') {
+      const params = raw as { id?: unknown; active?: unknown } | null
+      if (!params || !Number.isInteger(params.id) || typeof params.active !== 'boolean')
+        throw new Error('Invalid widget capture')
+      if (params.id === this.hold.state.id) {
+        this.capturing = params.active && this.hold.active ? this.hold.state.id : null
+        this.publish()
+      }
+      return undefined
+    }
     if (method === 'ariaWidget.speech') {
       const params = raw as { method?: unknown; payload?: unknown } | null
       // Keep the auxiliary renderer out of the application's privileged RPC surface.

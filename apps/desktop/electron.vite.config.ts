@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        // Bundle workspace sources (@ari/*) into out/main — Node's runtime
+        // Bundle workspace sources (@ari/*) into out/main â€” Node's runtime
         // loader cannot execute the raw TS sources, and the packaged asar
         // only ships out/**. Only true runtime externals stay external.
         external: [
@@ -22,6 +22,7 @@ export default defineConfig({
           index: 'src/main/index.ts',
           'speech-worker': 'src/main/speech/worker.ts',
           'dictation-worker': 'src/main/speech/dictation-worker.ts',
+          'audio-ducking-worker': 'src/main/speech/audio-ducking-worker.ts',
         },
       },
     },

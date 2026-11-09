@@ -5,11 +5,18 @@ afterEach(() => vi.unstubAllGlobals())
 
 function microphone() {
   const stopTrack = vi.fn()
+  const trackEvents = new Map<string, () => void>()
+  const processorEvents = new Map<string, () => void>()
+  const track = {
+    stop: stopTrack,
+    addEventListener: (event: string, callback: () => void) => trackEvents.set(event, callback),
+    removeEventListener: (event: string) => trackEvents.delete(event),
+  }
   const close = vi.fn(async () => undefined)
   const disconnect = vi.fn()
   const addModule = vi.fn(async () => undefined)
   const port = { onmessage: null as ((event: MessageEvent<Float32Array>) => void) | null }
-  const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] }))
+  const getUserMedia = vi.fn(async () => ({ getTracks: () => [track] }))
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
   vi.stubGlobal(
     'AudioContext',
@@ -29,10 +36,15 @@ function microphone() {
       port = port
       connect = vi.fn()
       disconnect = vi.fn()
+      addEventListener = (event: string, callback: () => void) =>
+        processorEvents.set(event, callback)
     },
   )
   return {
     stopTrack,
+    stop: stopTrack,
+    trackEvents,
+    processorEvents,
     close,
     disconnect,
     addModule,
@@ -98,4 +110,43 @@ describe('16 kHz mono resampling', () => {
     expect(resampleMono(input, 16_000)).not.toBe(input)
     expect(() => resampleMono(input, 0)).toThrow('sample rate')
   })
+})
+
+it('signals readiness on first samples and stops exactly once on cancellation', async () => {
+  const mic = microphone()
+  const onReady = vi.fn()
+  const onStopped = vi.fn()
+  const recording = await startRecording({ onReady, onStopped })
+  expect(onReady).not.toHaveBeenCalled()
+  mic.emit(new Float32Array([0.2]))
+  mic.emit(new Float32Array([0.3]))
+  expect(onReady).toHaveBeenCalledOnce()
+  recording.cancel()
+  recording.cancel()
+  expect(await recording.stop()).toHaveLength(0)
+  expect(onStopped).toHaveBeenCalledOnce()
+  expect(mic.stop).toHaveBeenCalledOnce()
+})
+
+it.each(['track', 'processor'])('stops and reports an unexpected %s failure', async (source) => {
+  const mic = microphone()
+  const onStopped = vi.fn()
+  const onError = vi.fn()
+  const recording = await startRecording({ onStopped, onError })
+  mic.emit(new Float32Array([0.2]))
+  if (source === 'track') mic.trackEvents.get('ended')!()
+  else mic.processorEvents.get('processorerror')!()
+  expect(onStopped).toHaveBeenCalledOnce()
+  expect(onError).toHaveBeenCalledWith(expect.any(Error))
+  await expect(recording.stop()).rejects.toThrow('stopped unexpectedly')
+})
+
+it('reports cleanup without readiness when microphone setup fails', async () => {
+  const mic = microphone()
+  const onReady = vi.fn()
+  const onStopped = vi.fn()
+  mic.addModule.mockRejectedValueOnce(new Error('Worklet unavailable'))
+  await expect(startRecording({ onReady, onStopped })).rejects.toThrow('Worklet unavailable')
+  expect(onReady).not.toHaveBeenCalled()
+  expect(onStopped).toHaveBeenCalledOnce()
 })

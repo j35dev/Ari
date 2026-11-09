@@ -84,7 +84,7 @@ export function speechShortcutError(shortcut: string, platform?: string): string
   const parts = shortcut.split('+')
   const key = parts.pop() ?? ''
   if (speechModifiers.has(key))
-    return 'Add a key to the modifier, or use F1–F24 alone. Modifier-only shortcuts are not supported.'
+    return 'Add a key to the modifier, or use F1â€“F24 alone. Modifier-only shortcuts are not supported.'
   if (
     parts.some((modifier) => !speechModifiers.has(modifier)) ||
     new Set(parts).size !== parts.length
@@ -102,8 +102,8 @@ export function speechShortcutError(shortcut: string, platform?: string): string
     !['space', 'enter'].includes(key) &&
     !speechPunctuation.has(key)
   )
-    return 'Use a letter, number, punctuation key, Space, Enter, or F1–F24.'
-  if (!parts.length && !functionKey) return 'Add at least one modifier, or use F1–F24 alone.'
+    return 'Use a letter, number, punctuation key, Space, Enter, or F1â€“F24.'
+  if (!parts.length && !functionKey) return 'Add at least one modifier, or use F1â€“F24 alone.'
   return null
 }
 
@@ -273,6 +273,7 @@ export const speechSettingsSchema = z.object({
   // The legacy key keeps its Aria-specific intent. Empty files use the host default.
   shortcut: z.string().trim().max(80).default(''),
   dictationShortcut: z.string().trim().max(80).default(''),
+  duckAudio: z.boolean().default(true),
 })
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -350,7 +351,7 @@ export const settingsSchema = z.object({
     })
     .default({ allowlist: [] }),
   /**
-   * Remote access (ADR §5). The gateway listens on loopback and is off until
+   * Remote access (ADR Â§5). The gateway listens on loopback and is off until
    * the user turns it on; `allowedOrigins` names the exact extra origins a
    * client may call from, which the managed PWA needs and a phone on the
    * tailnet does not (that one is served by the gateway itself).
@@ -387,6 +388,7 @@ export const settingsUpdateSchema = z.object({
   speech: z
     .object({
       enabled: z.boolean(),
+      duckAudio: z.boolean(),
       modelId: z.string().nullable(),
       modelPath: z.string().nullable(),
       shortcut: z
