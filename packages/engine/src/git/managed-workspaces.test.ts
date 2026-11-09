@@ -1,10 +1,18 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { join, resolve } from 'node:path'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import { ManagedWorkspaces } from './managed-workspaces'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof fs>()
+  return { ...original, rm: vi.fn(original.rm) }
+})
+
+const actualFs = await vi.importActual<typeof fs>('node:fs/promises')
 
 let dir: string
 let repo: string
@@ -24,6 +32,7 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }).trim()
 
 beforeEach(async () => {
+  vi.mocked(fs.rm).mockReset().mockImplementation(actualFs.rm)
   dir = await mkdtemp(join(tmpdir(), 'ari-managed-'))
   repo = join(dir, 'parent space')
   await mkdir(repo)
@@ -38,6 +47,8 @@ beforeEach(async () => {
   manager = new ManagedWorkspaces(join(dir, 'worktrees'))
 })
 afterEach(async () => {
+  vi.restoreAllMocks()
+  vi.mocked(fs.rm).mockReset().mockImplementation(actualFs.rm)
   await rm(dir, { recursive: true, force: true, maxRetries: 3 })
 })
 
@@ -170,16 +181,105 @@ it('preserves shared dependency directories linked into a released worktree', as
   await mkdir(join(shared, '.bin'), { recursive: true })
   await writeFile(join(shared, '.bin', 'tool.cmd'), 'shared tool\n')
   await mkdir(join(workspace.path, 'packages', 'engine'), { recursive: true })
-  for (const link of [
-    join(workspace.path, 'node_modules'),
+  const modules = join(workspace.path, 'node_modules')
+  await mkdir(join(modules, '.pnpm', 'fixture', 'node_modules', 'fixture'), { recursive: true })
+  await writeFile(
+    join(modules, '.pnpm', 'fixture', 'node_modules', 'fixture', 'index.js'),
+    'export {}\n',
+  )
+  await symlink(shared, join(modules, 'shared'), process.platform === 'win32' ? 'junction' : 'dir')
+  await symlink(
+    shared,
     join(workspace.path, 'packages', 'engine', 'node_modules'),
-  ])
-    await symlink(shared, link, process.platform === 'win32' ? 'junction' : 'dir')
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
 
   await manager.release('linked-dependencies')
   expect(await readFile(join(shared, '.bin', 'tool.cmd'), 'utf8')).toBe('shared tool\n')
   expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(workspace.path)
+  await expect(fs.lstat(workspace.path)).rejects.toMatchObject({ code: 'ENOENT' })
   await manager.release('linked-dependencies')
+}, 30_000)
+
+it('removes remaining files even when Git reports a successful removal', async () => {
+  const workspace = await manager.isolate(root, repo, 'leftovers')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  await mkdir(join(workspace.path, 'node_modules', 'fixture'), { recursive: true })
+  await writeFile(join(workspace.path, 'node_modules', 'fixture', 'index.js'), 'fixture\n')
+  vi.spyOn(manager.git, 'removeWorktree').mockResolvedValue({ ok: true, value: undefined })
+  const remove = vi.mocked(fs.rm)
+  await manager.release('leftovers')
+  expect(remove).toHaveBeenCalledWith(
+    workspace.path,
+    expect.objectContaining({ maxRetries: 6, retryDelay: 200 }),
+  )
+  await expect(fs.lstat(workspace.path)).rejects.toMatchObject({ code: 'ENOENT' })
+}, 30_000)
+
+it('retries a failed removal on the next manager, including Git refs after .git is gone', async () => {
+  const workspace = await manager.isolate(root, repo, 'retry-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  vi.spyOn(manager.git, 'removeWorktree').mockImplementation(async () => {
+    await rm(join(workspace.path, '.git'))
+    return { ok: true, value: undefined }
+  })
+  vi.mocked(fs.rm).mockImplementation(async (path, options) => {
+    if (path === workspace.path) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+    return actualFs.rm(path, options)
+  })
+  await expect(manager.release('retry-child')).rejects.toMatchObject({ code: 'EBUSY' })
+  const pending = JSON.parse(
+    await readFile(join(manager.rootDir, '.pending-releases.json'), 'utf8'),
+  ) as Record<string, string[]>
+  expect(pending['retry-child']?.map((path) => resolve(path))).toEqual([repo])
+  vi.restoreAllMocks()
+  vi.mocked(fs.rm).mockImplementation(actualFs.rm)
+  const stop = vi.fn(async () => undefined)
+  await new ManagedWorkspaces(manager.rootDir).retryReleases(stop)
+  expect(stop).toHaveBeenCalledWith('retry-child')
+  await expect(fs.lstat(workspace.path)).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(fs.lstat(join(manager.rootDir, '.pending-releases.json'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  })
+  expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+  expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/retry-child/')).toBe('')
+  expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(
+    workspace.path.replaceAll('\\', '/'),
+  )
+}, 30_000)
+
+it('sweeps only unregistered orphans while preserving live folders and external junction targets', async () => {
+  const workspace = await manager.isolate(root, repo, 'registered-orphan')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  await rm(join(workspace.path, '.git'))
+  const project = join(manager.rootDir, root.projectId)
+  const orphan = join(project, 'old-child')
+  const live = join(project, 'live-child')
+  const external = join(dir, 'external')
+  for (const path of [orphan, live, external]) await mkdir(path, { recursive: true })
+  await writeFile(join(external, 'keep.txt'), 'keep\n')
+  await writeFile(join(orphan, 'leftover.txt'), 'old\n')
+  await writeFile(join(live, 'keep.txt'), 'live\n')
+  await symlink(external, join(orphan, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+  await symlink(
+    external,
+    join(project, 'external-child'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+  await symlink(
+    external,
+    join(manager.rootDir, 'external-project'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+  await manager.sweepOrphans(new Set(['live-child']), [repo])
+  await expect(fs.lstat(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
+  expect(await readFile(join(external, 'keep.txt'), 'utf8')).toBe('keep\n')
+  expect((await fs.lstat(workspace.path)).isDirectory()).toBe(true)
+  await manager.release('external-child')
+  await expect(fs.lstat(join(project, 'external-child'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(join(external, 'keep.txt'), 'utf8')).toBe('keep\n')
+  await expect(manager.release('../external')).rejects.toMatchObject({ code: 'invalid_request' })
 }, 30_000)
 
 it('prunes snapshots keeping only the current commit', async () => {

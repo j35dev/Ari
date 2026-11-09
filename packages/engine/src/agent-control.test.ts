@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema, type ScheduledRoutine } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
@@ -396,6 +396,55 @@ it('preserves an isolated orphan for inspection when session create outcome is u
   ).toMatchObject({ ok: false, error: { code: 'internal_error' } })
   expect(released).toHaveLength(0)
   expect((await store.listSessions()).map((s) => s.id)).toEqual(['root'])
+})
+
+it('awaits the host stopping a parked child before destroying its session and releasing its workspace', async () => {
+  await host.create({ ...root, id: 'parked-child', parentSessionId: root.id })
+  const effects: string[] = []
+  let finish!: () => void
+  host.revoke = async (id) => {
+    expect((await store.load(id)).session?.id).toBe(id)
+    effects.push('stopping')
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    effects.push('stopped')
+  }
+  host.release = async (session) => {
+    expect((await store.load(session.id)).session).toBeNull()
+    effects.push('released')
+  }
+  const destroyed = service.invoke('root', 'session.destroy', {
+    targetSessionId: 'parked-child',
+    idempotencyKey: 'parked',
+  })
+  await vi.waitFor(() => expect(effects).toEqual(['stopping']))
+  finish()
+  expect(await destroyed).toMatchObject({ ok: true, result: { destroyed: true } })
+  expect(effects).toEqual(['stopping', 'stopped', 'released'])
+})
+
+it('logs failed workspace removal without failing session destroy', async () => {
+  await host.create({ ...root, id: 'locked-child', parentSessionId: root.id })
+  host.release = async () => {
+    throw new Error('workspace locked')
+  }
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    expect(
+      await service.invoke('root', 'session.destroy', {
+        targetSessionId: 'locked-child',
+        idempotencyKey: 'locked',
+      }),
+    ).toMatchObject({ ok: true, result: { destroyed: true } })
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('cleanup deferred'),
+      expect.objectContaining({ sessionId: 'locked-child', error: 'Error: workspace locked' }),
+    )
+    expect((await store.load('locked-child')).session).toBeNull()
+  } finally {
+    warn.mockRestore()
+  }
 })
 
 it('retries the same spawn key after a transient provider failure', async () => {

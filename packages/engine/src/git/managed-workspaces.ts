@@ -8,19 +8,28 @@ import {
   stat,
   lstat,
   unlink,
+  readFile,
+  rename,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import { createLogger } from '@ari/shared/logger'
 import { GitService } from './git-service'
 import { branchBelongsToSession, orchestrationBranch } from './orchestration-branch'
 
 const oid = /^[a-f0-9]{40,64}$/
 const component = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+const log = createLogger('engine:managed-workspaces')
+const removalOptions = { recursive: true, force: true, maxRetries: 6, retryDelay: 200 } as const
+const comparable = (path: string): string =>
+  process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
 export class ManagedWorkspaces {
+  readonly #releases = new Map<string, Promise<void>>()
+  #cleanupTail: Promise<unknown> = Promise.resolve()
   constructor(
     readonly rootDir: string,
     readonly git = new GitService({ timeoutMs: 60_000 }),
@@ -111,38 +120,49 @@ export class ManagedWorkspaces {
    * and repeat it safely.
    */
   async release(sessionId: string): Promise<void> {
+    this.#ref(sessionId)
+    const previous = this.#releases.get(sessionId)
+    if (previous) return previous
+    const task = this.#release(sessionId)
+    this.#releases.set(sessionId, task)
+    try {
+      await task
+    } finally {
+      if (this.#releases.get(sessionId) === task) this.#releases.delete(sessionId)
+    }
+  }
+
+  async #release(sessionId: string): Promise<void> {
     const prefix = this.#ref(sessionId)
+    const repos = (await this.#pendingReleases())[sessionId] ?? []
+    await this.#savePending(sessionId, repos)
     const paths = await this.#sessionPaths(sessionId)
-    const repos: string[] = []
+    for (const path of paths) {
+      if ((await lstat(path)).isSymbolicLink()) continue
+      await this.#assertOwned(path)
+      const repo = await this.#mainRepo(path)
+      if (repo && !repos.includes(repo)) repos.push(repo)
+    }
+    // Keep the repository even if Git removes .git before directory removal
+    // fails. A later retry must still prune its registration, branch and refs.
+    await this.#savePending(sessionId, repos)
     for (const path of paths) {
       if ((await lstat(path)).isSymbolicLink()) {
         await unlink(path)
         continue
       }
-      const root = await realpath(this.rootDir)
-      const target = await realpath(path)
-      const inside = relative(root, target)
-      if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside))
-        throw new ControlFailure(
-          'invalid_request',
-          'Managed workspace is outside its cleanup root.',
-        )
+      await this.#assertOwned(path)
       const repo = await this.#mainRepo(path)
-      if (repo && !repos.includes(repo)) repos.push(repo)
       // Git for Windows can descend through junctions while removing a worktree.
       // Unlink them first without walking targets such as shared dependencies.
       await this.#detachLinks(path)
-      if (repo) {
-        const removed = await this.git.removeWorktree(repo, path)
-        if (!removed.ok) {
-          await rm(path, { recursive: true, force: true })
-          await this.git.runPlumbing(repo, ['worktree', 'prune'])
-        }
-      } else {
-        await rm(path, { recursive: true, force: true })
-      }
+      if (repo) await this.git.removeWorktree(repo, path)
+      // Git can report success after dropping its registration while leaving
+      // files behind. Always finish removing the directory with lock retries.
+      await rm(path, removalOptions)
     }
     for (const repo of repos) {
+      await this.git.runPlumbing(repo, ['worktree', 'prune'])
       await this.#deleteSessionBranches(repo, sessionId)
       const refs = await this.git.runPlumbing(repo, [
         'for-each-ref',
@@ -154,6 +174,123 @@ export class ManagedWorkspaces {
         const name = line.trim()
         if (!name.startsWith(`${prefix}/`)) continue
         await this.git.runPlumbing(repo, ['update-ref', '-d', name])
+      }
+    }
+    await this.#savePending(sessionId, null)
+  }
+
+  async #assertOwned(path: string): Promise<void> {
+    const root = await realpath(this.rootDir)
+    const target = await realpath(path)
+    const inside = relative(root, target)
+    if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside))
+      throw new ControlFailure('invalid_request', 'Managed workspace is outside its cleanup root.')
+  }
+
+  async #pendingReleases(): Promise<Record<string, string[]>> {
+    await this.#cleanupTail
+    return this.#readPending()
+  }
+
+  async #readPending(): Promise<Record<string, string[]>> {
+    const raw = await readFile(join(this.rootDir, '.pending-releases.json'), 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return '{}'
+        throw error
+      },
+    )
+    const entries: unknown = JSON.parse(raw)
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries))
+      throw new Error('Invalid managed workspace cleanup queue.')
+    for (const [id, repos] of Object.entries(entries)) {
+      if (
+        !component.test(id) ||
+        !Array.isArray(repos) ||
+        !repos.every((repo) => typeof repo === 'string')
+      )
+        throw new Error('Invalid managed workspace cleanup queue entry.')
+    }
+    return entries as Record<string, string[]>
+  }
+
+  async #savePending(sessionId: string, repos: string[] | null): Promise<void> {
+    const task = this.#cleanupTail
+      .catch(() => undefined)
+      .then(async () => {
+        const pending = await this.#readPending()
+        if (repos === null) delete pending[sessionId]
+        else pending[sessionId] = repos
+        if (Object.keys(pending).length === 0) {
+          await rm(join(this.rootDir, '.pending-releases.json'), { force: true })
+          return
+        }
+        await mkdir(this.rootDir, { recursive: true })
+        const temporary = join(this.rootDir, '.pending-releases.json.tmp')
+        await writeFile(temporary, JSON.stringify(pending), 'utf8')
+        await rename(temporary, join(this.rootDir, '.pending-releases.json'))
+      })
+    this.#cleanupTail = task
+    await task
+  }
+
+  /** Retries cleanup interrupted by locks or a previous process exit. */
+  async retryReleases(beforeRelease?: (id: string) => Promise<void>): Promise<void> {
+    for (const id of Object.keys(await this.#pendingReleases())) {
+      try {
+        await beforeRelease?.(id)
+        await this.release(id)
+      } catch (error) {
+        log.warn('managed workspace cleanup will retry on startup', {
+          sessionId: id,
+          error: String(error),
+        })
+      }
+    }
+  }
+
+  /** Removes only abandoned directories; registered Git worktrees remain inspectable. */
+  async sweepOrphans(
+    sessionIds: ReadonlySet<string>,
+    repositories: readonly string[],
+  ): Promise<void> {
+    const registered = new Set<string>()
+    for (const repo of new Set(repositories)) {
+      const inside = await this.git.isRepo(repo)
+      if (!inside.ok)
+        throw new Error(`Could not inspect repository ${repo}: ${inside.error.message}`)
+      if (!inside.value) continue
+      const list = await this.git.listWorktrees(repo)
+      if (!list.ok) throw new Error(`Could not list worktrees in ${repo}: ${list.error.message}`)
+      for (const worktree of list.value) registered.add(comparable(worktree.path))
+    }
+    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return []
+        throw error
+      },
+    )
+    for (const project of projects) {
+      if (!project.isDirectory()) continue
+      const projectPath = join(this.rootDir, project.name)
+      await this.#assertOwned(projectPath)
+      for (const entry of await readdir(projectPath, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !component.test(entry.name) || sessionIds.has(entry.name))
+          continue
+        const path = join(projectPath, entry.name)
+        if (registered.has(comparable(path))) continue
+        // A removed project's repository may not be in the supplied list.
+        // A surviving .git marker keeps it inspectable even when Git fails.
+        if (await lstat(join(path, '.git')).catch(() => null)) continue
+        try {
+          await this.#assertOwned(path)
+          await this.#detachLinks(path)
+          await rm(path, removalOptions)
+        } catch (error) {
+          log.warn('orphaned workspace cleanup will retry on startup', {
+            path,
+            error: String(error),
+          })
+        }
       }
     }
   }
@@ -199,13 +336,21 @@ export class ManagedWorkspaces {
 
   /** Worktree directories owned by a session under the managed root. */
   async #sessionPaths(sessionId: string): Promise<string[]> {
-    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(() => null)
-    if (!projects) return []
+    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return []
+        throw error
+      },
+    )
     const paths: string[] = []
     for (const entry of projects) {
       if (!entry.isDirectory()) continue
       const candidate = join(this.rootDir, entry.name, sessionId)
-      if (await stat(candidate).catch(() => null)) paths.push(candidate)
+      const info = await lstat(candidate).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      if (info) paths.push(candidate)
     }
     return paths
   }
@@ -214,8 +359,6 @@ export class ManagedWorkspaces {
   async #mainRepo(worktreePath: string): Promise<string | null> {
     const list = await this.git.listWorktrees(worktreePath)
     if (!list.ok) return null
-    const comparable = (path: string) =>
-      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
     const others = list.value.filter(
       (worktree) => comparable(worktree.path) !== comparable(worktreePath),
     )

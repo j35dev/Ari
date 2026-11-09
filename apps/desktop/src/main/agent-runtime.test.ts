@@ -11,6 +11,7 @@ import type { Session } from '@ari/contracts/session'
 import type { OrchestrationView, ResultPackage } from '@ari/contracts/orchestration'
 import type { StreamFrame } from '@ari/contracts/rpc'
 import { SessionStore } from '@ari/engine/session-store'
+import { ManagedWorkspaces } from '@ari/engine/git'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
@@ -520,7 +521,9 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
         defaultWorkspaceMode: 'shared',
       }),
     providers: async () => [{ driverKind: 'claude', available: true, models: [] }],
-    onDrop: (id) => dropped.push(id),
+    onDrop: (id) => {
+      dropped.push(id)
+    },
   })
   try {
     await engine.createSession({
@@ -549,7 +552,7 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
 
     // A remote archive reaches the engine directly, without the desktop RPC.
     await engine.dispatch({ type: 'session.update', sessionId: 'root', archived: true })
-    expect(dropped).toContain('root')
+    await vi.waitFor(() => expect(dropped).toContain('root'))
   } finally {
     await runtime.close()
     for (const session of await store.listSessions()) {
@@ -559,3 +562,98 @@ it('drops a session through onDrop when it is destroyed or archived', async () =
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
   }
 }, 60_000)
+
+it('awaits session teardown before release and retries failed removals during startup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-release-retry-'))
+  const orphan = join(dir, 'worktrees', 'project', 'old-child')
+  const live = join(dir, 'worktrees', 'project', 'root')
+  await mkdir(orphan, { recursive: true })
+  await mkdir(live, { recursive: true })
+  await writeFile(join(orphan, 'leftover.txt'), 'old\n')
+  await writeFile(join(live, 'keep.txt'), 'live\n')
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const engine = new Engine({
+    store,
+    registry: new DriverRegistry(),
+    publish: () => undefined,
+    resolveWorkspace: async () => dir,
+    git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+  })
+  await engine.createSession({
+    id: 'root',
+    projectId: 'project',
+    title: 'Root',
+    driverKind: 'claude',
+    modelId: null,
+    permissionMode: 'ask',
+    status: 'idle',
+    createdAt: 1,
+    updatedAt: 1,
+  })
+  const options = {
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [],
+  }
+  let runtime = await startAgentRuntime(options)
+  try {
+    await expect(readFile(join(orphan, 'leftover.txt'))).rejects.toThrow()
+    expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
+    const locked = join(dir, 'worktrees', 'project', 'locked-child')
+    await mkdir(locked)
+    await writeFile(join(locked, 'leftover.txt'), 'locked\n')
+    const effects: string[] = []
+    let finish!: () => void
+    await runtime.close()
+    runtime = await startAgentRuntime({
+      ...options,
+      onDrop: async (id) => {
+        effects.push(`stopping ${id}`)
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        effects.push(`stopped ${id}`)
+      },
+    })
+    // Startup sweeps unregistered folders, so recreate this future release.
+    await mkdir(locked, { recursive: true })
+    await writeFile(join(locked, 'leftover.txt'), 'locked\n')
+    const release = vi
+      .spyOn(ManagedWorkspaces.prototype, 'release')
+      .mockImplementationOnce(async (id) => {
+        effects.push(`release ${id}`)
+        await writeFile(
+          join(dir, 'worktrees', '.pending-releases.json'),
+          JSON.stringify({ [id]: [] }),
+        )
+        throw new Error('folder locked')
+      })
+    const releasing = runtime.release('locked-child')
+    await vi.waitFor(() => expect(effects).toEqual(['stopping locked-child']))
+    expect(release).not.toHaveBeenCalled()
+    finish()
+    await releasing
+    expect(effects).toEqual([
+      'stopping locked-child',
+      'stopped locked-child',
+      'release locked-child',
+    ])
+    release.mockRestore()
+    await runtime.close()
+    const dropped = vi.fn(async () => undefined)
+    runtime = await startAgentRuntime({ ...options, onDrop: dropped })
+    expect(dropped).toHaveBeenCalledWith('locked-child')
+    await expect(readFile(join(locked, 'leftover.txt'))).rejects.toThrow()
+    expect(await readFile(join(live, 'keep.txt'), 'utf8')).toBe('live\n')
+  } finally {
+    vi.restoreAllMocks()
+    await runtime.close()
+    await store.closeJournal('root')
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+}, 30_000)

@@ -13,6 +13,9 @@ import type { Engine } from './engine'
 import { DelegationApprovals } from './delegation-approvals'
 import { createOrchestrationRuntime } from './orchestration-runtime'
 import type { OrchestrationMethod } from '@ari/contracts/orchestration'
+import { createLogger } from '@ari/shared/logger'
+
+const log = createLogger('desktop:agent-runtime')
 
 const scopedKeys = [
   'ARI_ENV',
@@ -55,7 +58,7 @@ export interface AgentRuntimeOptions {
    */
   socketRoot?: string
   /** Called whenever a session loses its access: destroyed, released, or archived. */
-  onDrop?: (id: string) => void
+  onDrop?: (id: string) => void | Promise<void>
 }
 
 /**
@@ -139,9 +142,6 @@ async function startControlTransport(
     if (!cwd)
       throw new ControlFailure('managed_worktree_missing', 'Session workspace is unavailable.')
     return cwd
-  }
-  let dropSession = (id: string): void => {
-    approvals.cancel(id)
   }
   const spendOf = async (rootId: string) => {
     const rows = await store.listSessions()
@@ -254,8 +254,8 @@ async function startControlTransport(
     quiesce: (id) => engine.quiesce(id),
     revoke: (id) => dropSession(id),
     release: async (child) => {
+      await dropSession(child.id)
       await workspaces.release(child.id)
-      dropSession(child.id)
     },
     waitEnded: (callerId) => supervisor.schedule(callerId),
   })
@@ -264,10 +264,22 @@ async function startControlTransport(
     endpoint,
     invoke: (caller, method, params, signal) => service.invoke(caller, method, params, signal),
   })
-  dropSession = (id) => {
+  const dropping = new Map<string, Promise<void>>()
+  const dropSession = (id: string): Promise<void> => {
     approvals.cancel(id)
     server.revoke(id)
-    options.onDrop?.(id)
+    const previous = dropping.get(id)
+    if (previous) return previous
+    const task = Promise.resolve()
+      .then(() => options.onDrop?.(id))
+      .then(() => undefined)
+    dropping.set(id, task)
+    void task
+      .finally(() => {
+        if (dropping.get(id) === task) dropping.delete(id)
+      })
+      .catch(() => undefined)
+    return task
   }
   try {
     await server.listen()
@@ -281,7 +293,13 @@ async function startControlTransport(
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
     // Archives that bypass the desktop RPC (mobile) still have to drop access.
-    if (event.type === 'session.updated' && event.archived === true) dropSession(event.sessionId)
+    if (event.type === 'session.updated' && event.archived === true)
+      void dropSession(event.sessionId).catch((error: unknown) =>
+        log.warn('archived session cleanup failed', {
+          sessionId: event.sessionId,
+          error: String(error),
+        }),
+      )
     if (event.type === 'turn.settled') {
       void engine
         .quiesce(event.sessionId)
@@ -294,6 +312,22 @@ async function startControlTransport(
         .catch(() => undefined)
     }
   })
+  try {
+    await workspaces.retryReleases(dropSession)
+    const rows = await store.listSessions()
+    const projects = (await options.projects?.()) ?? []
+    const repositories = projects
+      .filter((project) => project.available)
+      .map((project) => project.path)
+    for (const row of rows) {
+      const session = (await store.load(row.id)).session
+      const cwd = session ? await engine.workspace(session) : null
+      if (cwd) repositories.push(cwd)
+    }
+    await workspaces.sweepOrphans(new Set(rows.map((row) => row.id)), repositories)
+  } catch (error) {
+    log.warn('managed workspace startup cleanup failed', { error: String(error) })
+  }
   supervisor.start()
   // Dependency waits have no queued provider message; explicitly recover them.
   void store
@@ -335,8 +369,15 @@ async function startControlTransport(
     },
     revoke: (id: string) => dropSession(id),
     release: async (id: string) => {
-      await workspaces.release(id)
-      dropSession(id)
+      try {
+        await dropSession(id)
+        await workspaces.release(id)
+      } catch (error) {
+        log.warn('released session workspace cleanup deferred', {
+          sessionId: id,
+          error: String(error),
+        })
+      }
     },
     close: async () => {
       unsubscribe()
