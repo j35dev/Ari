@@ -300,10 +300,32 @@ export class RequestSupervisor {
         result: { messageIds },
       }
       await this.host.record(id, { type: 'orchestration.operation.updated', operation })
-      const current = await this.#reads.store.loadExisting(id)
       let stillPending = true
       for (const message of messages) {
         if (!(await this.#eligible(message, id))) stillPending = false
+      }
+      // Source reads and operation persistence can yield to delivery/acknowledgement.
+      // Recheck the exact inbox batch last, without another await before dispatch.
+      const current = await this.#reads.store.loadExisting(id)
+      const currentMessages: CoordinationMessage[] = []
+      for (const message of messages) {
+        const fresh = current?.inbox?.[message.messageId]
+        if (
+          !fresh ||
+          fresh.messageId !== message.messageId ||
+          fresh.senderSessionId !== message.senderSessionId ||
+          fresh.recipientSessionId !== id ||
+          fresh.status !== 'pending' ||
+          (fresh.request && fresh.request.resolvedAt !== null) ||
+          fresh.request?.kind !== message.request?.kind ||
+          fresh.request?.requestId !== message.request?.requestId ||
+          fresh.request?.sourceTurnId !== message.request?.sourceTurnId ||
+          fresh.request?.ownerSessionId !== message.request?.ownerSessionId
+        ) {
+          stillPending = false
+          break
+        }
+        currentMessages.push(fresh)
       }
       if (
         this.#closed ||
@@ -323,13 +345,16 @@ export class RequestSupervisor {
             result: { messageIds, accepted: false },
           },
         })
+        // A changed batch was not submitted. Its other notices stay pending and
+        // receive a new delivery identity on the next evaluation.
+        if (!stillPending) this.#schedule(id)
         return
       }
       const outcome = await this.host.dispatch(
         {
           type: 'turn.start',
           sessionId: id,
-          text: `[Ari coordination update: current requests from work you coordinate. These are notices, not new assignments. Approvals remain human decisions; inbox delivery is not consumption.]\n\n${messages.map((message) => `[Inbox ${message.messageId}]\n${message.text}`).join('\n\n')}\n\nAcknowledge each exact inbox id only after acting on it with ari session ack.`,
+          text: `[Ari coordination update: current requests from work you coordinate. These are notices, not new assignments. Approvals remain human decisions; inbox delivery is not consumption.]\n\n${currentMessages.map((message) => `[Inbox ${message.messageId}]\n${message.text}`).join('\n\n')}\n\nAcknowledge each exact inbox id only after acting on it with ari session ack.`,
           attachments: [],
         },
         { kind: 'coordination', deliveryId: operationId, messageIds },

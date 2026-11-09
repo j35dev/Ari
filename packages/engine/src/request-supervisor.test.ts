@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { MessageOrigin } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
@@ -246,6 +246,143 @@ it('cancels a stale wake when the request resolves during delivery preparation',
   await supervisor.evaluate('aria')
   expect(await notices('aria')).toHaveLength(0)
   await expect.poll(async () => (await inbox('aria'))[0]?.request?.resolvedAt).not.toBeNull()
+})
+
+it.each(['consumed', 'delivered', 'resolved'] as const)(
+  'cancels a wake when its inbox notice becomes %s during preparation while the source question stays pending',
+  async (status) => {
+    supervisor.start()
+    await question()
+    await ready()
+    const notice = (await inbox('aria'))[0]!
+    const sourceTurnId = (await store.load('worker')).activeTurnId
+    const record = host.record.bind(host)
+    host.record = async (id, event) => {
+      const result = await record(id, event)
+      if (
+        id === 'aria' &&
+        event.type === 'orchestration.operation.updated' &&
+        event.operation.method === 'request.notice.delivery' &&
+        event.operation.status === 'started'
+      )
+        await record(id, {
+          type: 'coordination.updated',
+          message:
+            status === 'resolved'
+              ? { ...notice, request: { ...notice.request!, resolvedAt: Date.now() } }
+              : {
+                  ...notice,
+                  status,
+                  consumedAt: status === 'consumed' ? Date.now() : null,
+                },
+        })
+      return result
+    }
+    await supervisor.evaluate('aria')
+    host.record = record
+    expect(await notices('aria')).toHaveLength(0)
+    expect(await store.load('worker')).toMatchObject({
+      activeTurnId: sourceTurnId,
+      pendingInputs: [{ inputId: 'question' }],
+    })
+    expect(
+      Object.values((await store.load('aria')).orchestration?.operations ?? {}).find(
+        (operation) => operation.method === 'request.notice.delivery',
+      ),
+    ).toMatchObject({ status: 'completed', result: { accepted: false } })
+  },
+)
+
+it.each(['consumed', 'delivered'] as const)(
+  'retains other pending batch notices for a later wake after one becomes %s during preparation',
+  async (status) => {
+    supervisor.start()
+    await question()
+    await ready()
+    const notice = (await inbox('aria'))[0]!
+    await question('worker', 'other-question')
+    await expect.poll(async () => (await inbox('aria')).length).toBe(2)
+    const other = (await inbox('aria')).find((message) => message.messageId !== notice.messageId)!
+    const record = host.record.bind(host)
+    host.record = async (id, event) => {
+      const result = await record(id, event)
+      if (
+        id === 'aria' &&
+        event.type === 'orchestration.operation.updated' &&
+        event.operation.method === 'request.notice.delivery' &&
+        event.operation.status === 'started'
+      )
+        await record(id, {
+          type: 'coordination.updated',
+          message: { ...notice, status, consumedAt: status === 'consumed' ? Date.now() : null },
+        })
+      return result
+    }
+    await supervisor.evaluate('aria')
+    host.record = record
+    expect(await notices('aria')).toHaveLength(0)
+    expect((await store.load('aria')).inbox?.[other.messageId]?.status).toBe('pending')
+    expect(
+      Object.values((await store.load('aria')).orchestration?.operations ?? {}).find(
+        (operation) => operation.method === 'request.notice.delivery',
+      ),
+    ).toMatchObject({
+      status: 'completed',
+      result: { messageIds: [notice.messageId, other.messageId], accepted: false },
+    })
+    await supervisor.evaluate('aria')
+    expect(await notices('aria')).toHaveLength(1)
+    expect((await notices('aria'))[0]?.origin).toMatchObject({ messageIds: [other.messageId] })
+    expect(JSON.stringify((await notices('aria'))[0]?.parts)).not.toContain(
+      `[Inbox ${notice.messageId}]`,
+    )
+    expect((await store.load('aria')).inbox?.[other.messageId]?.status).toBe('delivering')
+    await settle('aria')
+    await supervisor.evaluate('aria')
+    expect(await notices('aria')).toHaveLength(1)
+  },
+)
+
+it('rechecks the inbox after source eligibility reads yield to an acknowledgement', async () => {
+  supervisor.start()
+  await question()
+  await ready()
+  const notice = (await inbox('aria'))[0]!
+  const sourceTurnId = (await store.load('worker')).activeTurnId
+  let prepared = false
+  const record = host.record.bind(host)
+  host.record = async (id, event) => {
+    const result = await record(id, event)
+    if (
+      id === 'aria' &&
+      event.type === 'orchestration.operation.updated' &&
+      event.operation.method === 'request.notice.delivery' &&
+      event.operation.status === 'started'
+    )
+      prepared = true
+    return result
+  }
+  const loadExisting = store.loadExisting.bind(store)
+  const read = vi.spyOn(store, 'loadExisting').mockImplementation(async (id) => {
+    const result = await loadExisting(id)
+    if (prepared && id === 'worker') {
+      prepared = false
+      await record('aria', {
+        type: 'coordination.updated',
+        message: { ...notice, status: 'consumed', consumedAt: Date.now() },
+      })
+    }
+    return result
+  })
+  await supervisor.evaluate('aria')
+  read.mockRestore()
+  host.record = record
+  expect(await notices('aria')).toHaveLength(0)
+  expect(await store.load('worker')).toMatchObject({
+    activeTurnId: sourceTurnId,
+    pendingInputs: [{ inputId: 'question' }],
+  })
+  expect((await inbox('aria'))[0]?.status).toBe('consumed')
 })
 
 it('reconciles an accepted wake after a lost delivery receipt without a duplicate provider submission', async () => {
