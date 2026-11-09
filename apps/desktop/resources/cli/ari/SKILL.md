@@ -126,8 +126,26 @@ repositories, recent session titles and "you were last in" for requests such as
 "fix this". If two or more projects plausibly fit, ask the user one short question
 naming them; never guess.
 
+When the user asks to build something new and no existing project fits (none
+named and nothing in the snapshot or `ari sessions --query` matches), create a
+project with a short, clear name, then send the work with `ari project ask`.
+Tell the user the project's name and where it lives. If it is unclear whether
+they mean an existing project or a new one, ask one short question. Do not create
+projects for questions or small tasks that need no code.
+
+`project create` is Aria only and runs without a permission prompt. Without
+`--path`, it creates a unique folder under the parent most existing projects
+share, or `~/Projects`. Use an absolute `--path` only when the user named a
+folder; an existing folder is adopted as is. New folders get Git and an initial
+empty commit so the lead can create isolated workers. Existing repositories
+are left as is. System folders, drive roots, the home folder itself and Ari's
+data folder are refused. The result is `{ projectId, name, path, created }`;
+retries with the same `--key` return the same result.
+
 ```sh
 ari projects --json                                   # ids, folders, resolved agent and source
+ari project create --name "Garden planner" --key garden-1 --json
+ari project create --name "Storefront" --path "D:/Projects/storefront" --key store-1 --json
 ari sessions --query "login bug" --json               # find earlier work by title or last reply
 ari sessions --active --project PROJECT_ID --json     # what is running in one project
 ari project ask PROJECT_ID "Fix the login redirect and verify it" --key login-1 --json

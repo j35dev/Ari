@@ -123,12 +123,27 @@ export interface HelmProject extends HelmProjectContext {
   agent?: ResolvedProjectAgent | null
 }
 
+export interface CreatedProject {
+  projectId: string
+  name: string
+  path: string
+  created: boolean
+}
+
 export const controlParams = {
   ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
   'providers.list': z.object({}).strict(),
   /** Aria only: the projects it can start and steer work in. */
   'projects.list': z.object({}).strict(),
+  /** Aria only: create a workspace or adopt a folder the user named. */
+  'projects.create': z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      path: z.string().trim().min(1).max(4096).optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
   'projects.setDefault': z
     .object({
       projectId: target,
