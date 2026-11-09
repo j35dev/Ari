@@ -16,6 +16,7 @@ import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
 import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
 import type {
+  GitReviewFile,
   GitReviewManifest,
   HostConnection,
   RequestCheckout,
@@ -25,6 +26,12 @@ import type {
   ChangeRequest,
 } from './source-control'
 export { sourceControlSchemas, gitMutationSchema }
+/** File metadata for a turn whose complete patch is too large for chat. */
+export interface GitTurnDiffSummary {
+  baseOid: string
+  headOid: string
+  files: GitReviewFile[]
+}
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
 export type {
   ChangeRequest,
@@ -331,8 +338,12 @@ export interface SessionEventFrame {
   events?: unknown[]
   /** True on the frame carrying `events`. */
   replay?: boolean
-  /** Sentinel: the replay burst for this session is complete. */
+  /** Sentinel: the replay attempt ended; this alone does not imply success. */
   replayDone?: boolean
+  /** Terminal outcome. Absent on older hosts, whose sentinel implied completion. */
+  replayOutcome?: 'complete' | 'incomplete'
+  /** Runtime-owned turn at the terminal boundary; journal execution is not live. */
+  liveTurnId?: string | null
 }
 
 /** Payload delivered on the terminal.data stream. */
@@ -922,6 +933,13 @@ export const rpcParams = {
     sessionId: checkpointComponentSchema,
     turnId: checkpointComponentSchema,
   }),
+  'git.turnDiffFile': z.object({
+    sessionId: checkpointComponentSchema,
+    baseOid: sourceControlSchemas.oid,
+    headOid: sourceControlSchemas.oid,
+    path: sourceControlSchemas.path,
+    oldPath: sourceControlSchemas.path.optional(),
+  }),
   'git.add': gitScopeSchema.extend({
     /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
     paths: z.array(z.string().min(1)).min(1),
@@ -1342,7 +1360,8 @@ export interface RpcResults extends OrchestrationResults {
     error?: string
   }
   'git.diffWorktree': { diffText: string; error?: string }
-  'git.turnDiff': { diffText: string | null; error?: string }
+  'git.turnDiff': { diffText: string | null; summary?: GitTurnDiffSummary; error?: string }
+  'git.turnDiffFile': { diffText: string | null; tooLarge?: boolean; error?: string }
   'git.add': GitActionResult
   'git.commit': GitActionResult
   'git.push': GitActionResult

@@ -4,6 +4,7 @@ import type { SessionActivity } from '../session/session-activity'
 import { agentModelLabel } from './agent-label'
 import { summarizeDelegation } from './delegation-rows'
 import type { DelegatedChild, DelegatedChildState, DelegationRow } from './types'
+import { DelegatedResult } from './DelegatedResult'
 
 const STATE_LABEL: Record<DelegatedChildState, string> = {
   working: 'Working',
@@ -135,9 +136,11 @@ function ChildRow({ child, onOpen }: { child: DelegatedChild; onOpen?: (id: stri
 export function DelegationCard({
   row,
   onOpenSession,
+  sessionId,
 }: {
   row: DelegationRow
   onOpenSession?: (id: string) => void
+  sessionId?: string
 }) {
   const live = row.children.some((child) =>
     [
@@ -164,6 +167,13 @@ export function DelegationCard({
         {row.children.map((child) => (
           <li key={child.sessionId}>
             <ChildRow child={child} onOpen={onOpenSession} />
+            {sessionId ? (
+              <DelegatedResult
+                key={`${sessionId}:${child.sessionId}`}
+                sessionId={sessionId}
+                child={child}
+              />
+            ) : null}
           </li>
         ))}
       </ul>

@@ -6,8 +6,13 @@ import { PACKAGED_APP_NAME } from './dev-instance'
  */
 
 /** Human-readable tray summary: idle, or the live count of mid-turn turns. */
-export function trayTooltip(runningCount: number, productName = PACKAGED_APP_NAME): string {
-  return runningCount > 0 ? `${productName} — ${runningCount} running` : `${productName} — idle`
+export function trayTooltip(
+  runningCount: number,
+  productName = PACKAGED_APP_NAME,
+  backgrounded = false,
+): string {
+  const status = runningCount > 0 ? `${runningCount} running` : 'idle'
+  return `${productName} — ${backgrounded ? 'in background · ' : ''}${status}`
 }
 
 export interface TrayStatusSink {

@@ -1,4 +1,5 @@
 import type { Message } from '@ari/contracts/message'
+import type { GitTurnDiffSummary } from '@ari/contracts/rpc'
 
 /** The visual row kinds the transcript renders. */
 export type TranscriptBlockKind =
@@ -102,8 +103,9 @@ export interface ToolGroupRow {
   resultsByCallId: Map<string, TranscriptBlock>
 }
 
-/** A successful diff, or an explicit failure that must stay visible and retryable. */
-export type TurnDiffValue = string | { error: string }
+/** A complete patch, a large turn's file summary, or an explicit failure. */
+export type TurnDiffValue =
+  string | { error: string } | { summary: GitTurnDiffSummary; sessionId: string }
 
 /** A settled turn's git changes rendered as one collapsed diff card. */
 export interface TurnDiffRow {
@@ -111,8 +113,10 @@ export interface TurnDiffRow {
   /** Stable key derived from the turn id (`turn-diff:<turnId>`). */
   key: string
   turnId: string
-  /** Raw unified diff text for the turn's checkpoint. Empty when `error` is set. */
+  /** Raw unified diff; empty when the card carries a summary or an error. */
   diffText: string
+  summary?: GitTurnDiffSummary
+  sessionId?: string
   /** Why the comparison could not be read. Absent when `diffText` is the diff. */
   error?: string
 }

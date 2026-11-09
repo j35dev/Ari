@@ -18,6 +18,7 @@ import type {
   SessionSummary,
 } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
@@ -253,7 +254,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [defaults, setDefaults] = useState<SessionDefaults>(() => ({
     driverKind: lastPickAtBoot?.driverKind ?? 'ari-core',
     modelId: lastPickAtBoot?.modelId ?? null,
-    permissionMode: 'ask',
+    permissionMode: DEFAULT_PERMISSION_MODE,
     effort: lastPickAtBoot?.effort ?? null,
   }))
 

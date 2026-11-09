@@ -152,12 +152,13 @@ export class RemoteTerminals {
     }
   }
 
-  close(): void {
+  close(): Promise<void> {
     clearInterval(this.#watchdog)
-    for (const id of this.#entries.keys()) this.#kill(id)
+    this.#entries.clear()
+    return this.#terminals.close()
   }
   #kill(id: string): void {
-    this.#terminals.kill(id)
+    void this.#terminals.kill(id)
     this.#entries.delete(id)
   }
 }

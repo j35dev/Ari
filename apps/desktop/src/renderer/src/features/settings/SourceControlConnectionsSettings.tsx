@@ -77,11 +77,12 @@ export function SourceControlConnectionsSettings({
               : null
         const connected = connections.length > 0 || !!cli?.account
         return (
-          <div key={provider.id}>
+          <div key={provider.id} className="first:[&>button]:rounded-t-xl">
             <button
               type="button"
-              className="flex w-full items-center gap-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+              className="grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring disabled:opacity-50 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto_auto]"
               aria-expanded={active === provider.id}
+              aria-controls={`source-control-connection-${provider.id}`}
               aria-label={`Configure ${provider.label}`}
               disabled={busy}
               onClick={() => select(provider)}
@@ -91,24 +92,28 @@ export function SourceControlConnectionsSettings({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-fg">{provider.label}</span>
-                <span className="mt-0.5 block text-xs text-fg-subtle">{provider.description}</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-fg-subtle">
+                  {provider.description}
+                </span>
               </span>
               {connected ? (
-                <span className="flex items-center gap-1.5 text-xs text-success">
+                <span className="col-start-2 row-start-2 flex w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-success-subtle px-2 py-1 text-xs text-success sm:col-start-3 sm:row-start-1">
                   <Check size={12} aria-hidden />
                   {connections.length ? `${connections.length} connected` : 'CLI connected'}
                 </span>
               ) : (
-                <span className="text-xs text-fg-muted">Connect</span>
+                <span className="col-start-2 row-start-2 w-fit shrink-0 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-muted sm:col-start-3 sm:row-start-1">
+                  Connect
+                </span>
               )}
               <ChevronDown
                 size={13}
-                className={`text-fg-subtle transition-transform ${active === provider.id ? 'rotate-180' : ''}`}
+                className={`col-start-3 row-start-1 shrink-0 text-fg-subtle transition-transform sm:col-start-4 ${active === provider.id ? 'rotate-180' : ''}`}
                 aria-hidden
               />
             </button>
             {active === provider.id ? (
-              <div className="pb-4 pl-12">
+              <div id={`source-control-connection-${provider.id}`} className="px-4 pb-4 sm:pl-16">
                 {connections.map((connection) => (
                   <div
                     key={connection.id}
@@ -142,7 +147,10 @@ export function SourceControlConnectionsSettings({
                     void connect()
                   }}
                 >
-                  <fieldset disabled={busy} className="space-y-3">
+                  <fieldset
+                    disabled={busy}
+                    className="space-y-3 rounded-lg border border-border/60 bg-bg/40 p-4"
+                  >
                     {connections.length ? (
                       <p className="flex items-center gap-1.5 text-xs font-medium text-fg">
                         <Plus size={12} />
@@ -233,7 +241,7 @@ export function SourceControlConnectionsSettings({
         )
       })}
       {error && !active ? (
-        <p role="alert" className="py-3 text-xs text-danger">
+        <p role="alert" className="px-4 py-3 text-xs text-danger">
           {error}
         </p>
       ) : null}

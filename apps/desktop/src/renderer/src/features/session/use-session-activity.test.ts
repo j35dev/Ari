@@ -48,6 +48,42 @@ afterEach(() => {
 })
 
 describe('useSessionActivity', () => {
+  it('keeps queued work through acknowledgement and settle fades until it runs or is removed', () => {
+    vi.useFakeTimers()
+    const { api, fire } = renderActivity(['s1'])
+    fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed' } })
+    fire({ sessionId: 's1', event: { type: 'message.enqueued' } })
+    act(() => {
+      api().acknowledge('s1')
+      vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS)
+    })
+    expect(api().activityOf('s1')).toEqual({ phase: 'queued', startedAt: null, queuedCount: 1 })
+    fire({ sessionId: 's1', event: { type: 'message.dequeued' } })
+    expect(api().activityOf('s1')).toBeUndefined()
+    fire({ sessionId: 's1', event: { type: 'turn.started', at: 30 } })
+    expect(api().activityOf('s1')).toEqual({ phase: 'working', startedAt: 30 })
+  })
+
+  it.each([true, false])(
+    'preserves pending messages after an error badge is cleared (visible: %s)',
+    (visible) => {
+      vi.useFakeTimers()
+      const { api, fire } = renderActivity(visible ? ['s1'] : [])
+      fire({ sessionId: 's1', event: { type: 'turn.started' } })
+      fire({ sessionId: 's1', event: { type: 'message.enqueued' } })
+      fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'error' } })
+      expect(api().activityOf('s1')?.phase).toBe('error')
+      act(() => {
+        if (visible) vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS)
+        else api().acknowledge('s1')
+      })
+      expect(api().activityOf('s1')).toEqual({ phase: 'queued', startedAt: null, queuedCount: 1 })
+      act(() => {
+        api().forget('s1')
+      })
+      expect(api().activityOf('s1')).toBeUndefined()
+    },
+  )
   it('keeps the lookup identity until some activity changes', () => {
     const { api, fire, rerender } = renderActivity()
     const before = api().activityOf

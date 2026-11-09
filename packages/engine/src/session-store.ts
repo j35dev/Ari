@@ -529,7 +529,7 @@ export class SessionStore {
   async #indexFor(id: string): Promise<SessionIndex | null> {
     const bytes = await this.#measureJournalBytes(id)
     const cached = this.#indexCache.get(id)
-    if (cached && cached.journalBytes === bytes) return cached
+    if (cached && cached.journalBytes === bytes) return cached.hasSession ? cached : null
     const { readFile } = await import('node:fs/promises')
     let disk: SessionIndex | null
     try {
