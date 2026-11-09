@@ -201,12 +201,6 @@ export function decideCommand(
 
     case 'session.update': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
-      if (
-        model.session.readOnly &&
-        command.permissionMode !== undefined &&
-        command.permissionMode !== 'ask'
-      )
-        return reject('read-only sessions require ask permissions')
       const switched =
         command.driverKind !== undefined && command.driverKind !== model.session.driverKind
       if (switched && sessionHasContext(model)) {

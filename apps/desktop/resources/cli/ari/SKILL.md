@@ -91,7 +91,7 @@ ari session spawn --title "Settings persistence" --role implementation --agent c
 
 Coding children default to isolated worktrees containing your spawn-time workspace,
 including tracked and non-ignored untracked changes. Shared workspaces require an
-explicit `--workspace shared` and policy allowance; shared does not mean read-only.
+explicit `--workspace shared` and policy allowance.
 Children inherit your permissions and cannot silently elevate them.
 
 Use stable `--key` values when retrying a mutation after a connection failure. The
@@ -123,14 +123,13 @@ Reuse a related session when appropriate and send follow-ups to the same session
 with `ari session prompt`. Sessions report back to Aria, which reports outcomes
 to the user.
 
-Only one code session may work in a project folder at a time, including human
-sessions running there, and while Aria's workers are running or its reports are pending. A new code spawn or
-restart of a different session is refused: prompt the working session or wait
-for it to finish. Research may run alongside it only with an explicit
-`--read-only` flag. That session always runs with `ask` permissions: edits and
-mutating commands need the user's approval. It cannot spawn children or integrate
-changes. Read-only sessions still count toward the
-overall concurrency cap.
+Only one session may work in a project folder at a time, including human sessions
+running there and Aria's running workers. A new spawn or restart of a different
+session is refused: prompt the working session or wait for it to finish.
+Research happens inside that session or after it. Only turns the host is actually
+running count; stale journal turns, queued messages and pending reports do not.
+A turn waiting on human approval or a question for three minutes stops blocking
+new work, even if its provider remains connected.
 
 Create or use a project lead only when the user asks for one, such as "set up a
 lead" or "have a lead handle this". For large multi-part work, you may propose a
@@ -183,7 +182,6 @@ ari sessions --query "login bug" --project PROJECT_ID --json
 ari project default PROJECT_ID --agent claude --model MODEL_ID --effort high --permission allow-edits
 ari session spawn --project PROJECT_ID --title "Fix login" --prompt "Fix the login redirect and verify it" --key login-1 --json
 ari session prompt SESSION_ID "Also cover logout" --key login-2 --json
-ari session spawn --project PROJECT_ID --title "Review login" --read-only --role research --prompt "Inspect the login flow and report; do not edit" --key review-1 --json
 ari session switch SESSION_ID --agent codex --model MODEL_ID --effort high
 ari session destroy SESSION_ID --key cleanup-1 --json
 # Only after the user asks for a lead:
@@ -214,8 +212,9 @@ For requested leads, `project ask` options `--agent`, `--model`, `--effort`,
 `--permission` and `--title` apply only when creating a lead. The result includes
 `reused`, `lead` and `agent`. Send lead follow-ups through `project ask`.
 `project lead --agent` switches the lead most recently assigned work for Aria.
-`project lead --reset` destroys every Aria lead in the project, including archived
-leads and all their workers and worktrees; the next `project ask` creates a fresh lead. Both lead management
+`project lead --reset` destroys live Aria leads in the project and their workers
+and worktrees, preserving archived leads and their workers; the next `project ask`
+creates a fresh lead. Both lead management
 commands are Aria only.
 
 When a session or lead fails with a provider or model error, recover instead of

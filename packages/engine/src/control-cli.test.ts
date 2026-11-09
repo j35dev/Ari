@@ -15,7 +15,7 @@ const orchestrationCommands = [
   'ari project lead proj_1 --agent codex --model gpt --effort high',
   'ari project lead proj_1 --reset',
   'ari session switch sess_1 --agent codex --model gpt --effort high',
-  'ari session spawn --project proj_1 --read-only --title Research --prompt Inspect',
+  'ari session spawn --project proj_1 --title Research --prompt Inspect',
   'ari task integrate --params \'{"taskId":"task_1","resultId":"result_1","snapshotCommit":"abc"}\' --key i',
   'ari orchestration integrate --params \'{"taskId":"task_1","resultId":"result_1","snapshotCommit":"abc"}\' --key i',
   'ari task routine.add --params \'{"prompt":"Check the worker","at":1234}\' --key r',
