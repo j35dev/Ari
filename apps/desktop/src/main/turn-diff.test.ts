@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitService } from '@ari/engine/git'
 import { queryTurnDiff } from './turn-diff'
 
@@ -11,7 +11,7 @@ const git = new GitService()
 let repo: string
 
 afterEach(async () => {
-  await rm(repo, { recursive: true, force: true })
+  if (repo) await rm(repo, { recursive: true, force: true })
 })
 
 function run(...args: string[]): string {
@@ -100,9 +100,107 @@ describe('turn checkpoints over a dirty working tree', () => {
     expect(filesIn(two.diffText)).toEqual(['created.txt'])
   })
 
-  it('reports a turn without a checkpoint as unavailable', async () => {
+  it('leaves a turn without a checkpoint silent even when other turns have one', async () => {
     await dirtyRepo()
-    const result = await queryTurnDiff(git, { path: repo, turnId: 'turn_9', checkpoints: [] })
-    expect(result).toEqual({ diffText: null, error: 'no checkpoint for that turn' })
+    const checkpoints = [await capture('turn_1')]
+    const result = await queryTurnDiff(git, { path: repo, turnId: 'turn_9', checkpoints })
+    expect(result).toEqual({ diffText: null })
+  })
+
+  it('leaves a non-repository workspace silent when checkpoint capture is skipped', async () => {
+    repo = await mkdtemp(join(tmpdir(), 'ari-turn-diff-'))
+    expect(await git.captureCheckpoint(repo, 'sess_1', 'turn_1')).toEqual({
+      ok: true,
+      value: null,
+    })
+    expect(await queryTurnDiff(git, { path: repo, turnId: 'turn_1', checkpoints: [] })).toEqual({
+      diffText: null,
+    })
+  })
+
+  it.each([{}, { endRef: 'refs/ari/sess_1/end' }, { endError: 'end capture failed' }])(
+    'leaves a non-repository workspace silent even with an old checkpoint: %j',
+    async (end) => {
+      repo = await mkdtemp(join(tmpdir(), 'ari-turn-diff-'))
+      expect(
+        await queryTurnDiff(git, {
+          path: repo,
+          turnId: 'turn_1',
+          checkpoints: [{ turnId: 'turn_1', gitRef: 'refs/ari/sess_1/turn_1', ...end }],
+        }),
+      ).toEqual({ diffText: null })
+    },
+  )
+})
+
+describe('turn diff failures with a checkpoint', () => {
+  function service() {
+    return {
+      isRepo: vi.fn<GitService['isRepo']>().mockResolvedValue({ ok: true, value: true }),
+      worktreeTree: vi
+        .fn<GitService['worktreeTree']>()
+        .mockResolvedValue({ ok: true, value: 'end' }),
+      diffForRef: vi.fn<GitService['diffForRef']>().mockResolvedValue({ ok: true, value: '' }),
+    }
+  }
+
+  const params = {
+    path: '/repo',
+    turnId: 'turn_1',
+    checkpoints: [{ turnId: 'turn_1', gitRef: 'start' }],
+  }
+
+  it('preserves an end capture error in a git workspace', async () => {
+    const git = service()
+    expect(
+      await queryTurnDiff(git, {
+        ...params,
+        checkpoints: [{ ...params.checkpoints[0]!, endError: 'end capture failed' }],
+      }),
+    ).toEqual({ diffText: null, error: 'end capture failed' })
+    expect(git.worktreeTree).not.toHaveBeenCalled()
+    expect(git.diffForRef).not.toHaveBeenCalled()
+  })
+
+  it('preserves a diff failure between captured snapshots', async () => {
+    const git = service()
+    git.diffForRef.mockResolvedValue({
+      ok: false,
+      error: { code: 'diff_too_large', message: 'diff exceeds byte cap' },
+    })
+    expect(
+      await queryTurnDiff(git, {
+        ...params,
+        checkpoints: [{ ...params.checkpoints[0]!, endRef: 'end' }],
+      }),
+    ).toEqual({ diffText: null, error: 'diff exceeds byte cap' })
+    expect(git.diffForRef).toHaveBeenCalledWith('/repo', 'start', 'end')
+    expect(git.worktreeTree).not.toHaveBeenCalled()
+  })
+
+  it('preserves a live snapshot failure for a legacy checkpoint', async () => {
+    const git = service()
+    git.worktreeTree.mockResolvedValue({
+      ok: false,
+      error: { code: 'command_failed', message: 'could not capture working tree' },
+    })
+    expect(await queryTurnDiff(git, params)).toEqual({
+      diffText: null,
+      error: 'could not capture working tree',
+    })
+    expect(git.diffForRef).not.toHaveBeenCalled()
+  })
+
+  it('preserves repository probe failures when a checkpoint exists', async () => {
+    const git = service()
+    git.isRepo.mockResolvedValue({
+      ok: false,
+      error: { code: 'git_missing', message: 'git is unavailable' },
+    })
+    expect(await queryTurnDiff(git, params)).toEqual({
+      diffText: null,
+      error: 'git is unavailable',
+    })
+    expect(git.diffForRef).not.toHaveBeenCalled()
   })
 })

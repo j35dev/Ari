@@ -572,6 +572,32 @@ describe('TranscriptView per-turn diff cards', () => {
     expect(container.querySelector('[data-turn-diff]')).toBeNull()
   })
 
+  it('renders no card for a shell-only turn without a checkpoint diff', () => {
+    const { container } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [
+          {
+            ...turnMessage('m2', 'turn_7'),
+            parts: [
+              {
+                type: 'tool-call',
+                callId: 'c1',
+                name: 'exec_command',
+                argsJson: '{"cmd":"ari projects"}',
+              },
+              { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+            ],
+          },
+        ],
+        turnDiffs: {},
+      }),
+    )
+
+    expect(container.querySelector('[data-turn-diff]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry turn diff' })).not.toBeInTheDocument()
+  })
+
   it('expands into the shared unified diff viewer when clicked', async () => {
     const user = userEvent.setup()
     render(
