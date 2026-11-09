@@ -1,118 +1,52 @@
-.ari-aria-mark {
+﻿.ari-aria-mark {
   display: inline-block;
   flex-shrink: 0;
   vertical-align: middle;
-  /* The awaken highlight stays warm; the body and rim follow the active theme. */
-  --aria-mark-top: color-mix(in oklab, var(--ari-accent) 18%, var(--ari-awaken-ink));
-  --aria-mark-middle: color-mix(in oklab, var(--ari-accent) 55%, var(--ari-awaken-glitch-soft));
-  --aria-mark-bottom: color-mix(in oklab, var(--ari-accent) 66%, var(--ari-info));
-  --aria-mark-rim: color-mix(in oklab, var(--ari-accent) 65%, var(--ari-surface-0));
+  color: var(--ari-fg);
 }
 
-.ari-aria-mark-top {
-  stop-color: var(--aria-mark-top);
+.ari-aria-mark[data-state='attention'] {
+  color: var(--ari-accent);
 }
 
-.ari-aria-mark-middle {
-  stop-color: var(--aria-mark-middle);
-}
-
-.ari-aria-mark-bottom {
-  stop-color: var(--aria-mark-bottom);
-}
-
-.ari-aria-mark-rim {
-  stroke: var(--aria-mark-rim);
-  stroke-width: 0.65;
-  vector-effect: non-scaling-stroke;
-}
-
-.ari-aria-mark[data-small='true'] .ari-aria-mark-rim {
-  stroke-width: 0.7;
-}
-
-.ari-aria-mark-glint {
-  fill: var(--ari-awaken-ink);
-  opacity: 0.76;
-}
-
-.ari-aria-mark-body,
-.ari-aria-mark-core {
+.ari-aria-mark-circle {
   transform-box: view-box;
-  transform-origin: 12px 12px;
+  transform-origin: 10.5px 12.5px;
 }
 
-.ari-aria-mark[data-state='idle'] .ari-aria-mark-body {
-  animation: ari-aria-breathe 4.2s ease-in-out infinite;
+.ari-aria-mark[data-state='thinking'] .ari-aria-mark-circle {
+  /* The frozen gap differs from the closed idle circle under reduced motion. */
+  transform: rotate(180deg);
+  animation: ari-aria-think 6s linear infinite;
 }
 
-.ari-aria-mark[data-state='thinking'] .ari-aria-mark-body {
-  animation: ari-aria-breathe 2.3s ease-in-out infinite;
-}
-
-.ari-aria-mark-core {
-  stroke: var(--ari-awaken-ink);
-  opacity: 0.9;
-  animation: ari-aria-think 2.3s ease-in-out infinite;
-}
-
-.ari-aria-mark[data-state='working'] .ari-aria-mark-body {
-  animation: ari-aria-breathe 2.8s ease-in-out infinite;
-}
-
-.ari-aria-mark-wake {
-  stroke: var(--ari-accent);
-  opacity: 0.72;
-  animation: ari-aria-work 2.8s ease-in-out infinite;
-}
-
-.ari-aria-mark[data-state='attention'] .ari-aria-mark-body {
-  transform: scale(0.94);
-}
-
-.ari-aria-mark-attention {
-  fill: var(--ari-warning);
-  paint-order: stroke fill;
-  /* A stroke separates the signal on both a bare surface and a selected row. */
-  stroke: var(--ari-surface-0);
-}
-
-@keyframes ari-aria-breathe {
-  0%,
-  100% {
-    transform: scale(0.98);
-  }
-  50% {
-    transform: scale(1.025);
-  }
+.ari-aria-mark[data-state='working'] .ari-aria-mark-stem {
+  transform: translateX(3.2px);
+  animation: ari-aria-work 3.2s ease-in-out infinite;
 }
 
 @keyframes ari-aria-think {
-  0%,
-  100% {
-    opacity: 0.5;
-    transform: scale(0.92);
+  from {
+    transform: rotate(180deg);
   }
-  50% {
-    opacity: 1;
-    transform: scale(1.04);
+  to {
+    transform: rotate(540deg);
   }
 }
 
 @keyframes ari-aria-work {
   0%,
   100% {
-    opacity: 0.45;
+    transform: translateX(3.2px);
   }
   50% {
-    opacity: 0.95;
+    transform: translateX(3.6px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ari-aria-mark[data-state] .ari-aria-mark-body,
-  .ari-aria-mark .ari-aria-mark-core,
-  .ari-aria-mark .ari-aria-mark-wake {
+  .ari-aria-mark[data-state] .ari-aria-mark-circle,
+  .ari-aria-mark[data-state] .ari-aria-mark-stem {
     animation: none;
   }
 }

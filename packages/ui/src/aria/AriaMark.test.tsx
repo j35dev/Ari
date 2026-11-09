@@ -26,7 +26,7 @@ describe('AriaMark', () => {
     expect(mark.querySelector('title')).toHaveTextContent('Aria needs your input')
   })
 
-  it('keeps gradient references separate when several marks share a page', () => {
+  it('keeps the closed idle circle and opens a gap only for thinking', () => {
     const { container } = render(
       <>
         <AriaMark size={64} />
@@ -34,11 +34,10 @@ describe('AriaMark', () => {
       </>,
     )
     const marks = Array.from(container.querySelectorAll('svg'))
-    const ids = marks.map((mark) => mark.querySelector('radialGradient')?.id)
-    expect(new Set(ids).size).toBe(2)
-    marks.forEach((mark, index) => {
-      expect(mark.querySelector('[fill^="url"]')).toHaveAttribute('fill', `url(#${ids[index]})`)
-      expect(mark.querySelector('filter')).toBeNull()
-    })
+    expect(marks[0]?.querySelector('circle')).not.toHaveAttribute('stroke-dasharray')
+    expect(marks[1]?.querySelector('circle')).toHaveAttribute('stroke-dasharray', '78 22')
+    expect(marks[0]).toHaveAttribute('stroke-width', '2.3')
+    expect(marks[1]).toHaveAttribute('stroke-width', '2.6')
+    expect(container.querySelector('defs, filter, image')).toBeNull()
   })
 })
