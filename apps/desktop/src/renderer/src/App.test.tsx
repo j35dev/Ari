@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -12,6 +12,13 @@ import { AppProviders, App } from './App'
 import { ParentSessionLink } from './features/session/ParentSessionLink'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { MAX_PANES, paneCount } from './features/split/split-layout'
+import { Composer } from './features/composer/Composer'
+import {
+  dropDraftIntentMemory,
+  readSessionDraftIntent,
+  RECOVERY_STORAGE_KEY,
+} from './features/composer/draft-recovery-store'
+import { dropDraftTextMemory, DRAFTS_STORAGE_KEY } from './features/composer/use-drafts'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -116,6 +123,9 @@ describe('ParentSessionLink', () => {
 describe('Shell session navigation keys', () => {
   const NOW = Date.now()
   beforeEach(() => {
+    dropDraftIntentMemory()
+    dropDraftTextMemory()
+    localStorage.clear()
     splitLayoutActions.reset()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
@@ -157,6 +167,50 @@ describe('Shell session navigation keys', () => {
           throw new Error(`unexpected method: ${String(method)}`)
       }
     })
+  })
+
+  it('cleans durable draft entries only after confirmed session deletion', async () => {
+    const user = userEvent.setup()
+    const first = render(<Composer sessionId="sess-alpha" onSend={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+      target: { value: 'delete my draft' },
+    })
+    fireEvent.paste(screen.getByRole('textbox', { name: 'Message' }), {
+      clipboardData: { files: [new File(['image'], 'delete.png', { type: 'image/png' })] },
+    })
+    first.unmount()
+    const second = render(<Composer sessionId="sess-beta" onSend={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+      target: { value: 'keep the other draft' },
+    })
+    second.unmount()
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const original = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.destroy' ? pending : original(method, params),
+    )
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Session actions for Alpha' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete session' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    expect(readSessionDraftIntent('sess-alpha').images).toHaveLength(1)
+    await act(async () => finish())
+    await vi.waitFor(() => expect(readSessionDraftIntent('sess-alpha').images).toHaveLength(0))
+    expect(JSON.parse(localStorage.getItem(DRAFTS_STORAGE_KEY) ?? '{}')).toEqual({
+      'sess-beta': 'keep the other draft',
+    })
+    expect(
+      JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) ?? '{}').sessions['sess-alpha'],
+    ).toBeUndefined()
+    cleanup()
+    dropDraftIntentMemory()
+    dropDraftTextMemory()
+    render(<Composer sessionId="sess-alpha" onSend={vi.fn()} />)
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
+    expect(screen.queryByRole('img', { name: 'delete.png' })).not.toBeInTheDocument()
   })
 
   it('Mod+2 opens the second session in sidebar order', async () => {

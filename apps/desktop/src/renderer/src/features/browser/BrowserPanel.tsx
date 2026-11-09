@@ -61,7 +61,7 @@ const EMPTY: BrowserTabState = {
  * registered overlays hide it before they first paint, anything else once the
  * hit-test sweep finds it.
  */
-export function BrowserPanel({ onClose }: { onClose?: () => void }) {
+export function BrowserPanel({ onClose, sessionId }: { onClose?: () => void; sessionId?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
   const [draft, setDraft] = useState('')
@@ -89,9 +89,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
     visibleRef.current = visible
     // Keyed to the page being up at all, so a menu opening over it does not shuffle the toasts.
     avoidForToasts(showGuest && placed ? bounds : null)
-    void rpc
-      .invoke('browser.layout', { id: TAB_ID, visible, ...bounds })
-      .catch(() => undefined)
+    void rpc.invoke('browser.layout', { id: TAB_ID, visible, ...bounds }).catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -208,7 +206,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
             result.pngBase64 !== null
               ? fileFromPngBase64(result.pngBase64, `${result.element.tag}.png`)
               : null
-          addBrowserPick(result.element, image)
+          addBrowserPick(result.element, image, sessionId)
         }
       })
       .catch(() => undefined)

@@ -39,6 +39,9 @@ import {
 } from './features/session/session-nav'
 import { descendantIds, parentOf } from './features/session/session-tree'
 import { BrowserPanel } from './features/browser/BrowserPanel'
+import { deleteSessionDraftIntent } from './features/composer/draft-recovery-store'
+import { deleteSessionDraftText } from './features/composer/use-drafts'
+import { writeReviewDrafts } from './features/changes/review-drafts'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
   openTerminalTab,
@@ -1209,7 +1212,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   void rpc
                     .invoke('session.destroy', { sessionId: id })
                     // The refreshed list blanks the panes those sessions were in.
-                    .then(refreshSessions)
+                    .then(() => {
+                      for (const gone of dropped) {
+                        deleteSessionDraftIntent(gone)
+                        deleteSessionDraftText(gone)
+                        writeReviewDrafts(gone, [])
+                      }
+                      refreshSessions()
+                    })
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
                 onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
@@ -1226,6 +1236,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     for (const id of ids) {
                       try {
                         await rpc.invoke('session.destroy', { sessionId: id })
+                        for (const gone of [id, ...descendantIds(sessions, id)]) {
+                          deleteSessionDraftIntent(gone)
+                          deleteSessionDraftText(gone)
+                          writeReviewDrafts(gone, [])
+                        }
                       } catch (error: unknown) {
                         log.warn('rpc call failed', error)
                       }
@@ -1464,7 +1479,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     ) : inspector === 'browser' ? (
                       <div className="min-h-0 flex-1">
                         <ErrorBoundary label="Browser">
-                          <BrowserPanel onClose={() => setInspector(null)} />
+                          <BrowserPanel
+                            sessionId={activeSessionId ?? undefined}
+                            onClose={() => setInspector(null)}
+                          />
                         </ErrorBoundary>
                       </div>
                     ) : (
