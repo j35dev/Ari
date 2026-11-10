@@ -25,6 +25,8 @@ let pauseFirst: boolean
 let pauseFollowing: boolean
 let finishFirst: () => void
 let finishFollowing: () => void
+let firstCreated: Promise<void>
+let secondCreated: Promise<void>
 let interrupt: Mock<() => void>
 let steer: Mock<() => Promise<boolean>>
 
@@ -61,6 +63,10 @@ beforeEach(async () => {
   pauseFollowing = false
   const first = gate()
   const following = gate()
+  const firstStarted = gate()
+  const secondStarted = gate()
+  firstCreated = firstStarted.promise
+  secondCreated = secondStarted.promise
   finishFirst = first.release
   finishFollowing = following.release
   interrupt = vi.fn(first.release)
@@ -73,6 +79,8 @@ beforeEach(async () => {
         created.push(input)
         createdProviders.push(kind)
         const index = created.length
+        if (index === 1) firstStarted.release()
+        if (index === 2) secondStarted.release()
         return {
           start: () =>
             (async function* (): AsyncGenerator<AgentEvent> {
@@ -159,7 +167,8 @@ async function start(id: string, paused = false): Promise<string> {
       attachments: [],
     }),
   ).toMatchObject({ accepted: true })
-  await expect.poll(() => created.length).toBeGreaterThan(0)
+  await firstCreated
+  expect(created.length).toBeGreaterThan(0)
   return (await store.load(id)).activeTurnId!
 }
 
@@ -216,8 +225,9 @@ it('reports a busy assignment as future work, with the observed turn kept separa
     },
   })
   finishFirst()
-  await expect.poll(() => created.length).toBe(2)
+  await secondCreated
   await engine.quiesce('worker')
+  expect(created).toHaveLength(2)
   expect((await store.load('worker')).queuedMessages).toEqual([])
   expect(created[1]!.prompt).toContain(params.text)
   await reload()
@@ -390,8 +400,9 @@ it.each(['work', 'aria'])(
       attachments: [],
     })
     finishFirst()
-    await expect.poll(() => created.length).toBe(2)
+    await secondCreated
     await engine.quiesce(target)
+    expect(created).toHaveLength(2)
     expect(created[1]).toMatchObject({ modelId: 'new', effort: 'low', resumeOf: null })
     expect(createdProviders).toEqual(['claude', 'codex'])
     expect(created[1]!.prompt).toContain('Original task')
@@ -419,8 +430,9 @@ it('fences a same-provider model/effort switch even when it produces no provider
     attachments: [],
   })
   finishFirst()
-  await expect.poll(() => created.length).toBe(2)
+  await secondCreated
   await engine.quiesce('work')
+  expect(created).toHaveLength(2)
   expect(created[1]).toMatchObject({ modelId: 'second', effort: 'low' })
   expect(createdProviders).toEqual(['claude', 'claude'])
   expect(interrupt).not.toHaveBeenCalled()
