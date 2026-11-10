@@ -9,7 +9,8 @@ import {
 import { rpc } from './lib/rpc'
 
 interface Options {
-  intent: string
+  // Ref-backed user intent can change without a Shell render.
+  intent(): string
   userIntent(): void
   prepare(target: AppOpenTarget): Promise<boolean>
   apply(target: AppOpenTarget): void
@@ -65,7 +66,7 @@ export function useAppNavigation(options: Options): void {
         seen.current.add(frame.requestId)
         if (seen.current.size > 200) seen.current.delete(seen.current.values().next().value!)
         finish.current('superseded', 'new_request')
-        const request: Pending = { frame, intent: latest.current.intent, stage: 'loading' }
+        const request: Pending = { frame, intent: latest.current.intent(), stage: 'loading' }
         pending.current = request
         const current = () => mounted.current && pending.current === request
         void (async () => {
@@ -76,7 +77,7 @@ export function useAppNavigation(options: Options): void {
             }
             const prepared = await latest.current.prepare(frame.target)
             if (!current()) return
-            if (request.intent !== latest.current.intent) {
+            if (request.intent !== latest.current.intent()) {
               finish.current('superseded', 'user_navigation')
               return
             }
@@ -99,7 +100,7 @@ export function useAppNavigation(options: Options): void {
               finish.current('stale', 'expired')
               return
             }
-            if (request.intent !== latest.current.intent) {
+            if (request.intent !== latest.current.intent()) {
               finish.current('superseded', 'user_navigation')
               return
             }
@@ -143,7 +144,7 @@ export function useAppNavigation(options: Options): void {
       return
     }
     if (request.stage === 'loading') {
-      if (request.intent !== options.intent) finish.current('superseded', 'user_navigation')
+      if (request.intent !== options.intent()) finish.current('superseded', 'user_navigation')
       return
     }
     const observed = options.observe(request.frame.target)
