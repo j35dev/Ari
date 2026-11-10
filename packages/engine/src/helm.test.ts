@@ -631,7 +631,7 @@ it('uses delegation approval and refuses an existing lead above Aria permission'
   service.host.providers = async () => []
   expect(
     await service.invoke('helm1', 'projects.ask', { ...ask, idempotencyKey: 'approval-e' }),
-  ).toMatchObject({ ok: false, error: { code: 'model_unavailable' } })
+  ).toMatchObject({ ok: false, error: { code: 'provider_unavailable' } })
 })
 
 it('caps inherited lead permissions but refuses an explicit elevation on creation', async () => {
@@ -1828,7 +1828,7 @@ it('reports a model-less saved default in launches, project listings and Aria sn
     await store.load('helm1'),
     listed,
   )
-  expect(snapshot).toContain('saved default is missing a model; ask the user')
+  expect(snapshot).toContain('saved default is missing a model. Ask the user')
   expect(
     await service.invoke('helm1', 'session.spawn', {
       ...launch,
