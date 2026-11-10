@@ -109,9 +109,26 @@ export class ManagedWorkspaces {
     const path = join(this.rootDir, parent.projectId, childId)
     const branch = await this.#uniqueBranch(cwd, orchestrationBranch(title, childId))
     await mkdir(join(this.rootDir, parent.projectId), { recursive: true })
-    const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', baseCommit)
-    if (!result.ok) throw new ControlFailure('worktree_create_failed', result.error.message)
-    return { kind: 'managed-worktree', path, branch, baseRef, baseCommit }
+    const workspace = { kind: 'managed-worktree' as const, path, branch, baseRef, baseCommit }
+    try {
+      const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', baseCommit)
+      if (!result.ok) throw new Error('Worktree creation was not acknowledged.')
+    } catch {
+      // Git can create the checkout before failing or losing its acknowledgement.
+      // The computed identity is recovery context, not proof the checkout exists.
+      throw new ControlFailure(
+        'uncertain_outcome',
+        'Worker workspace creation may have partially completed. Inspect the preserved workspace before recovery.',
+        {
+          childSessionId: childId,
+          projectId: parent.projectId,
+          stage: 'workspace_preparing',
+          workspace,
+          workspacePath: path,
+        },
+      )
+    }
+    return workspace
   }
 
   /**

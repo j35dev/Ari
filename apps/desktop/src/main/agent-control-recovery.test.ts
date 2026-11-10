@@ -9,6 +9,7 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import { SessionStore } from '@ari/engine/session-store'
 import { ProjectStore } from '@ari/engine/projects'
 import { GitService, ManagedWorkspaces } from '@ari/engine/git'
+import { err } from '@ari/shared/result'
 import { DriverRegistry } from '@ari/providers/registry'
 import { Engine } from './engine'
 import { startAgentRuntime } from './agent-runtime'
@@ -27,6 +28,161 @@ type ProjectCreator = (
 ) => Promise<CreatedProject>
 let create: Mock<ProjectCreator>
 const params = { name: 'Recover', idempotencyKey: 'recover' }
+
+it.each(['returned', 'thrown', 'before checkout'] as const)(
+  'retains one isolated worker identity across reload after %s worktree failure',
+  async (failure) => {
+    const project = await createProject(
+      { projects, home, userData },
+      { name: 'Worker project', path: join(dir, 'worker-project') },
+    )
+    await engine.createSession({
+      id: 'root',
+      projectId: project.projectId,
+      title: 'Root',
+      driverKind: 'codex',
+      modelId: 'fixture',
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const original = GitService.prototype.addWorktree
+    const add = vi
+      .spyOn(GitService.prototype, 'addWorktree')
+      .mockImplementationOnce(async function (this: GitService, ...args) {
+        if (failure !== 'before checkout') {
+          const result = await original.apply(this, args)
+          expect(result.ok).toBe(true)
+        }
+        if (failure === 'thrown') throw new Error('untrusted checkout failure detail')
+        return err({ code: 'command_failed', message: 'git timed out while adding worktree' })
+      })
+    const creating = vi.spyOn(engine, 'createSession')
+    const request = {
+      title: 'Worker',
+      driverKind: 'codex',
+      modelId: 'fixture',
+      workspaceMode: 'isolated',
+      idempotencyKey: 'checkout-loss',
+    }
+    const first = await runtime.service.invoke('root', 'session.spawn', request)
+    const receipt = await operation('root')
+    const [, path, branch, , baseCommit] = add.mock.calls[0]!
+    const childSessionId = path.split(/[\\/]/).at(-1)!
+    const recovery = {
+      childSessionId,
+      projectId: project.projectId,
+      stage: 'workspace_preparing',
+      workspacePath: path,
+      workspace: {
+        kind: 'managed-worktree',
+        path,
+        branch,
+        baseRef: `refs/ari/orchestration/${childSessionId}/base`,
+        baseCommit,
+      },
+    }
+    expect(first).toMatchObject({
+      ok: false,
+      error: {
+        code: 'uncertain_outcome',
+        details: { operationId: receipt.operationId, ...recovery },
+      },
+    })
+    expect(receipt).toMatchObject({ status: 'uncertain', result: { recovery } })
+    expect(creating).not.toHaveBeenCalled()
+    expect(await store.loadExisting(childSessionId)).toBeNull()
+    const inspectFolder = async () => {
+      if (failure === 'before checkout')
+        await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+      else {
+        expect((await stat(path)).isDirectory()).toBe(true)
+        expect(await readFile(join(path, '.git'), 'utf8')).toContain('gitdir:')
+      }
+    }
+    await inspectFolder()
+    await reload()
+    const replayCreate = vi.spyOn(engine, 'createSession')
+    expect(await runtime.service.invoke('root', 'session.spawn', request)).toMatchObject({
+      ok: false,
+      error: {
+        code: 'uncertain_outcome',
+        details: { operationId: receipt.operationId, ...recovery },
+      },
+    })
+    expect(
+      await runtime.service.invoke('root', 'session.spawn', {
+        ...request,
+        title: 'Different worker',
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(replayCreate).not.toHaveBeenCalled()
+    await inspectFolder()
+  },
+)
+
+it('retries a pre-worktree repository validation failure with the same key after Git is ready', async () => {
+  const folder = join(dir, 'worker-project')
+  await mkdir(folder)
+  const project = await projects.open(folder, 'Worker project')
+  await engine.createSession({
+    id: 'root',
+    projectId: project.id,
+    title: 'Root',
+    driverKind: 'codex',
+    modelId: 'fixture',
+    permissionMode: 'ask',
+    status: 'idle',
+    createdAt: 1,
+    updatedAt: 1,
+  })
+  const add = vi.spyOn(GitService.prototype, 'addWorktree')
+  const request = {
+    title: 'Worker',
+    driverKind: 'codex',
+    modelId: 'fixture',
+    workspaceMode: 'isolated',
+    idempotencyKey: 'git-not-ready',
+  }
+  expect(await runtime.service.invoke('root', 'session.spawn', request)).toMatchObject({
+    ok: false,
+    error: { code: 'workspace_not_git' },
+  })
+  expect(add).not.toHaveBeenCalled()
+  const git = new GitService()
+  expect((await git.runPlumbing(folder, ['init', '--template='])).ok).toBe(true)
+  expect(
+    (
+      await git.runPlumbing(
+        folder,
+        [
+          '-c',
+          'core.hooksPath=',
+          '-c',
+          'commit.gpgsign=false',
+          'commit',
+          '--allow-empty',
+          '-m',
+          'Fixture',
+        ],
+        {
+          ...process.env,
+          GIT_AUTHOR_NAME: 'Ari fixture',
+          GIT_AUTHOR_EMAIL: 'fixture@localhost',
+          GIT_COMMITTER_NAME: 'Ari fixture',
+          GIT_COMMITTER_EMAIL: 'fixture@localhost',
+        },
+      )
+    ).ok,
+  ).toBe(true)
+  await reload()
+  const result = await runtime.service.invoke('root', 'session.spawn', request)
+  expect(result).toMatchObject({ ok: true, result: { child: { projectId: project.id } } })
+  expect(await runtime.service.invoke('root', 'session.spawn', request)).toEqual(result)
+  expect(add).toHaveBeenCalledTimes(1)
+})
 
 it.each(['session.spawn', 'projects.ask'] as const)(
   'retains top-level %s shared workspace identity after a lost completion receipt',

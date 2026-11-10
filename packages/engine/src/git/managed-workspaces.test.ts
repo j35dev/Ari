@@ -13,7 +13,9 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import { err } from '@ari/shared/result'
 import { ManagedWorkspaces } from './managed-workspaces'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -59,6 +61,61 @@ afterEach(async () => {
   vi.restoreAllMocks()
   vi.mocked(fs.rm).mockReset().mockImplementation(actualFs.rm)
   await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+})
+
+it.each(['returned', 'thrown'] as const)(
+  'preserves the computed workspace when %s acknowledgement fails after checkout',
+  async (failure) => {
+    const original = manager.git.addWorktree.bind(manager.git)
+    const add = vi.spyOn(manager.git, 'addWorktree').mockImplementationOnce(async (...args) => {
+      const result = await original(...args)
+      expect(result.ok).toBe(true)
+      if (failure === 'thrown') throw new Error('untrusted worktree failure detail')
+      return err({ code: 'command_failed', message: 'git timed out after checkout' })
+    })
+    const outcome: unknown = await manager
+      .isolate(root, repo, 'uncertain-child', 'Worker')
+      .catch((e: unknown) => e)
+    const path = join(manager.rootDir, root.projectId, 'uncertain-child')
+    const [, , branch, , baseCommit] = add.mock.calls[0]!
+    expect(outcome).toMatchObject({
+      code: 'uncertain_outcome',
+      details: {
+        childSessionId: 'uncertain-child',
+        projectId: root.projectId,
+        stage: 'workspace_preparing',
+        workspacePath: path,
+        workspace: {
+          kind: 'managed-worktree',
+          path,
+          branch,
+          baseRef: 'refs/ari/orchestration/uncertain-child/base',
+          baseCommit,
+        },
+      },
+    })
+    expect(outcome).toBeInstanceOf(ControlFailure)
+    if (!(outcome instanceof ControlFailure)) throw new Error('Expected uncertain worktree failure')
+    expect(outcome.message).not.toContain('untrusted')
+    expect(await readFile(join(path, 'file.txt'), 'utf8')).toBe('base\n')
+    expect(git(repo, 'worktree', 'list', '--porcelain')).toContain(path.replaceAll('\\', '/'))
+    expect(add).toHaveBeenCalledTimes(1)
+  },
+)
+
+it('rejects invalid frozen bases before attempting a worktree', async () => {
+  const add = vi.spyOn(manager.git, 'addWorktree')
+  await expect(
+    manager.isolate(root, repo, 'invalid-child', 'Worker', 'invalid'),
+  ).rejects.toMatchObject({
+    code: 'invalid_request',
+  })
+  expect(add).not.toHaveBeenCalled()
+  await expect(
+    fs.stat(join(manager.rootDir, root.projectId, 'invalid-child')),
+  ).rejects.toMatchObject({
+    code: 'ENOENT',
+  })
 })
 
 it('captures committed, deleted, renamed and binary worker files without importing ignored files', async () => {
