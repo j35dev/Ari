@@ -104,3 +104,31 @@ it('replaces a retired shortcut on load and persists the migration without chang
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+it.each(['ctrl+alt+k', 'ctrl+shift+s', 'ctrl+alt+shift+1', 'ctrl+enter', 'f20'])(
+  'migrates general binding %s when it conflicts with Ari or the saved Aria binding',
+  async (dictationShortcut) => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-general-binding-'))
+    try {
+      const path = join(dir, 'settings.json')
+      await writeFile(
+        path,
+        JSON.stringify({
+          ...defaultSettings,
+          speech: { enabled: true, modelPath: '/model.gguf', shortcut: 'f20', dictationShortcut },
+        }),
+      )
+      const store = new SettingsStore({ dir })
+      const settings = await store.load()
+      expect(settings.speech).toMatchObject({
+        shortcut: 'f20',
+        dictationShortcut: defaultDictationShortcut(process.platform),
+        enabled: true,
+        modelPath: '/model.gguf',
+      })
+      expect(JSON.parse(await readFile(path, 'utf8')).speech).toEqual(settings.speech)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  },
+)

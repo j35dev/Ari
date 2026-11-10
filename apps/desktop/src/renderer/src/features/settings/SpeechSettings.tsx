@@ -59,7 +59,8 @@ export function SpeechSettings() {
     bindingMounted.current = true
     return () => {
       bindingMounted.current = false
-      if (bindingLease.current) void window.ari?.dictation?.release(bindingLease.current)
+      if (bindingLease.current)
+        void window.ari?.dictation?.release(bindingLease.current).catch(() => undefined)
     }
   }, [])
   useEffect(() => {
@@ -309,7 +310,7 @@ export function SpeechSettings() {
                   void window.ari.dictation.acquire().then(
                     (token) => {
                       if (!bindingMounted.current) {
-                        void window.ari?.dictation?.release(token)
+                        void window.ari?.dictation?.release(token).catch(() => undefined)
                         return
                       }
                       setBindingPending(false)

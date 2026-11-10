@@ -4,10 +4,13 @@ The installed `D:/ari/resources/app.asar` identifies itself as v0.3.12. Its
 `AriaWidget.complete` path unconditionally calls `sendToAria`, which opens Aria
 and dispatches `message.enqueue`. Fresh upstream main (`50ee55d2`) has the same
 route and one configurable speech shortcut. A composer microphone uses a
-different recorder, but previously invoked its live callback and read the live
-caret when transcription completed. Changing the selection while transcription
-was pending reproduced insertion at the later caret. The two renderers also
-had no shared capture ownership.
+different recorder. Its ordinary insertion already uses the textarea's live
+selection and `setText`, so that path can work. The concrete regression reproduced
+here is moving the selection while transcription is pending: completion inserts
+at the later caret instead of the captured insertion point. There is also no shared
+capture ownership between the composer and widget, or focus/draft invalidation at
+completion. These are routing/lifecycle defects; the user's physical microphone
+failure was not independently reproduced with a real microphone.
 
 ## Behavior and settings
 
@@ -88,8 +91,7 @@ be run with explicit permission. No additional visible or audible checks ran
 after the user prohibited them. Physical microphone, final focus-loss UI behavior,
 unsupported Windows providers, and macOS/Linux runtime checks remain unverified.
 
-The final Node routing/speech suite passed 370 tests in 25 files; a subsequent
-binding validation run passed 41 tests in two of those files. Contracts passed
+The final Node routing/speech suite passed 377 tests in 25 files. Contracts passed
 53 speech-settings tests, and the engine passed 24 SettingsStore tests. Desktop,
 contracts, and engine typechecks, ESLint on every changed TypeScript file, and
 the production desktop build passed. React emitted `act(...)` warnings in some

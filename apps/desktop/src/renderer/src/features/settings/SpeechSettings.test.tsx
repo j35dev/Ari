@@ -122,6 +122,37 @@ it('keeps the capture lease while recording a binding and releases it on cancell
     window.ari = previous
   }
 })
+it.each([false, true])(
+  'handles a rejected lease release after unmount (pending=%s)',
+  async (pending) => {
+    let acquired!: (token: string) => void
+    const acquire = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          acquired = resolve
+        }),
+    )
+    const release = vi.fn(async () => {
+      throw new Error('renderer closed')
+    })
+    const previous = window.ari
+    window.ari = {
+      invoke: async () => undefined,
+      subscribe: () => () => undefined,
+      dictation: { acquire, release },
+    }
+    try {
+      const view = render(<SpeechSettings />)
+      fireEvent.click(screen.getByRole('button', { name: 'Record General dictation shortcut' }))
+      if (!pending) await act(async () => acquired('binding-token'))
+      view.unmount()
+      if (pending) await act(async () => acquired('binding-token'))
+      await waitFor(() => expect(release).toHaveBeenCalledWith('binding-token'))
+    } finally {
+      window.ari = previous
+    }
+  },
+)
 it.each(['missing', 'ready'] as const)(
   'offers Retry for an engine read error instead of reinstall (%s)',
   async (engine) => {
