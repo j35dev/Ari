@@ -46,7 +46,9 @@ jobs:
       - name: Install locked workspace
         run: pnpm install --frozen-lockfile
       - name: Validate release gate fixtures
-        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs
+        env:
+          RELEASE_FUNCTIONAL_FIXTURE: ${{ github.workspace }}/apps/desktop/src/main/testing/release-profile-0312.fixture.json
+        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs scripts/release-functional-smoke.test.mjs scripts/release-functional-ci.test.mjs
       - name: Build desktop bundle
         run: pnpm --filter @ari/desktop build
       - name: Build mobile PWA
@@ -67,6 +69,18 @@ jobs:
       - name: Verify Linux artifacts and native modules on disposable display
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/release-artifacts.mjs
+      - name: Verify packaged first run and copied upgrade profile
+        if: runner.os != 'Linux'
+        timeout-minutes: 8
+        env:
+          RELEASE_FUNCTIONAL_CI: '1'
+        run: node scripts/release-functional-ci.mjs
+      - name: Verify Linux packaged profiles on disposable display
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          RELEASE_FUNCTIONAL_CI: '1'
+        run: xvfb-run -a node scripts/release-functional-ci.mjs
       - name: Record Windows installer signature
         if: runner.os == 'Windows'
         shell: pwsh
@@ -96,3 +110,10 @@ jobs:
             dist/signature.*
             dist/macos-preflight.json
           if-no-files-found: error
+      - name: Retain isolated functional profiles and receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-functional-${{ matrix.os }}-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/ari-release-functional/**
+          if-no-files-found: warn
