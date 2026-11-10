@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { app, BrowserWindow } from 'electron'
 import { hostedBrowserGuestFactory } from '../browser-electron'
 import { startBrowserMcpServer } from '../browser-mcp'
-import { BrowserService } from '../browser-service'
+import { BrowserService, type BrowserGuest } from '../browser-service'
 
 // Real-Electron check that browser_pointer and browser_key input to an offscreen
 // agent tab shows up in browser_state, and only in that tab. Run under a display:
@@ -19,6 +19,7 @@ const FIXTURE = `<!doctype html>
 const tab = new URLSearchParams(location.search).get('tab')
 const state = { player: { x: 0 }, clicks: 0, lastPointer: null }
 const pending = []
+let frames = 0
 addEventListener('keydown', (event) => {
   if (event.key === 'ArrowRight') pending.push({ type: 'key' })
 })
@@ -26,6 +27,7 @@ addEventListener('pointerdown', (event) => {
   pending.push({ type: 'pointer', x: event.clientX, y: event.clientY })
 })
 function frame() {
+  frames++
   for (const item of pending.splice(0)) {
     if (item.type === 'key') state.player.x += 1
     else {
@@ -50,6 +52,8 @@ window.__ari = {
     return { tab, ...structuredClone(state) }
   },
 }
+window.__fixtureDiagnostics = () => ({ tab, frames, readyState: document.readyState,
+  hidden: document.hidden, paint: performance.getEntriesByType('paint').map(p => p.name) })
 </script></body></html>`
 
 interface ToolResponse {
@@ -66,7 +70,16 @@ async function main(): Promise<void> {
 
   await app.whenReady()
   const win = new BrowserWindow({ width: 1200, height: 800 })
-  const browsers = new BrowserService(hostedBrowserGuestFactory(win.webContents), () => {})
+  const guests = new Map<string, BrowserGuest>()
+  const createGuest = hostedBrowserGuestFactory(win.webContents)
+  const browsers = new BrowserService(
+    (id, updated) => {
+      const guest = createGuest(id, updated)
+      guests.set(id, guest)
+      return guest
+    },
+    () => {},
+  )
   const mcp = await startBrowserMcpServer(browsers)
 
   const callTool = async (
@@ -89,8 +102,28 @@ async function main(): Promise<void> {
     if (result?.isError === true || text === '') throw new Error(`${name} failed: ${text}`)
     return text
   }
-  const state = async (token: string): Promise<unknown> =>
-    JSON.parse(await callTool(token, 'browser_state'))
+  const state = async (token: string): Promise<unknown> => {
+    try {
+      return JSON.parse(await callTool(token, 'browser_state'))
+    } catch (error) {
+      // Observe the failed first-paint/rAF boundary without retrying the tool,
+      // changing its timeout, or exposing authentication tokens in CI logs.
+      for (const [id, guest] of guests) {
+        try {
+          console.error(
+            'E2E state diagnostics',
+            id,
+            await guest.executeJavaScript(
+              'window.__fixtureDiagnostics?.() ?? {readyState:document.readyState, missingFixture:true}',
+            ),
+          )
+        } catch (diagnosticError) {
+          console.error('E2E diagnostics failed', id, String(diagnosticError))
+        }
+      }
+      throw error
+    }
+  }
 
   const a = mcp.tokenFor('a')
   const b = mcp.tokenFor('b')
