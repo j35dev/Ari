@@ -361,14 +361,18 @@ async function runProfile(options, suiteRoot, fixturePath) {
       })
     })
     await main.send('Debugger.resume')
+    // These values are booleans or a plain object. awaitPromise would wait on the
+    // paused #asyncInstantiate job and can reject -32000 before main is observable.
     await poll(
       'real packaged main ready',
-      () => main.evaluate('globalThis.__ariFunctional.ready'),
+      () => main.evaluate('globalThis.__ariFunctional.ready', 10_000, false),
       30_000,
     )
     await poll('packaged window created', () =>
       main.evaluate(
         `process.getBuiltinModule('module').createRequire(process.execPath)('electron').BrowserWindow.getAllWindows().length > 0`,
+        10_000,
+        false,
       ),
     )
     const normalized = normalizeScriptURL
@@ -378,13 +382,17 @@ async function runProfile(options, suiteRoot, fixturePath) {
       ),
       'Selected archived production main did not execute',
     )
-    receipt.main = await main.evaluate(`(() => {
+    receipt.main = await main.evaluate(
+      `(() => {
       const { app, BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron');
       const windows = BrowserWindow.getAllWindows();
       return { ...globalThis.__ariFunctional, isPackaged: app.isPackaged, appVersion: app.getVersion(),
         userData: app.getPath('userData'), name: app.getName(),
         windows: windows.map(w => (${observeWindow.toString()})(w, process.versions.electron)) };
-    })()`)
+    })()`,
+      10_000,
+      false,
+    )
     assert.ok(receipt.main.isPackaged)
     assert.equal(receipt.main.appVersion, options.version)
     assert.equal(receipt.main.userData, profile)

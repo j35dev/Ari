@@ -98,6 +98,8 @@ async function installation(executable, resources, platform, version) {
   const archives = []
   for (const arch of arches) {
     const archive = archivePath(resources, arch)
+    // @electron/asar caches header offsets by path. The upgrade extract replaces that path.
+    asar.uncache(archive)
     const bytes = asar.extractFile(archive, 'package.json')
     assert.ok(bytes.length < 128 * 1024, 'Unbounded archived package manifest')
     assert.equal(JSON.parse(bytes).version, version, 'Installed package version mismatch')
