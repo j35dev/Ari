@@ -1,6 +1,8 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechButton } from './SpeechButton'
+import { CaptureLease } from '../../../../main/speech/capture-lease'
+import type { RecordingEvents } from '../speech/recorder'
 
 const mocks = vi.hoisted(() => ({
   ready: false,
@@ -272,4 +274,71 @@ it('reports a genuine transcription failure and lets the user retry', async () =
   await act(async () => fireEvent.keyDown(window, { key: 'Enter' }))
   expect(screen.getByRole('alert')).toHaveTextContent('Speech engine stopped')
   expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
+})
+
+it.each(['stop', 'cancel', 'failure', 'capture-error', 'stale', 'unmount'])(
+  'holds the long composer target lease until %s and leaves no capture timer',
+  async (outcome) => {
+    mocks.ready = true
+    vi.useFakeTimers()
+    const capture = new CaptureLease()
+    const acquire = vi.fn(async () => capture.acquire())
+    const release = vi.fn(async (token: string) => capture.release(token))
+    const previous = window.ari
+    window.ari = {
+      invoke: async () => undefined,
+      subscribe: () => () => undefined,
+      dictation: { acquire, release },
+    }
+    const cancel = vi.fn()
+    const insert = vi.fn(async () => {
+      if (outcome === 'stale') throw new Error('The dictation target changed.')
+    })
+    if (outcome === 'failure')
+      mocks.invoke.mockRejectedValueOnce(new Error('Speech engine stopped'))
+    try {
+      const view = render(<SpeechButton captureTarget={() => ({ insert, cancel })} />)
+      await act(async () => fireEvent.click(screen.getByRole('button')))
+      act(() => vi.advanceTimersByTime(10 * 60_000))
+      expect(capture.busy).toBe(true)
+      await expect(acquire()).rejects.toThrow('Another dictation')
+      expect(mocks.stop).not.toHaveBeenCalled()
+      expect(cancel).not.toHaveBeenCalled()
+      if (outcome === 'unmount') view.unmount()
+      else if (outcome === 'capture-error') {
+        const events = mocks.start.mock.calls[0]![0] as RecordingEvents
+        act(() => events.onError?.(new Error('Microphone disconnected')))
+        expect(screen.getByRole('alert')).toHaveTextContent('Microphone disconnected')
+        expect(mocks.invoke).not.toHaveBeenCalled()
+      } else
+        await act(async () =>
+          fireEvent.keyDown(window, { key: outcome === 'cancel' ? 'Escape' : 'Enter' }),
+        )
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(capture.busy).toBe(false)
+      expect(release).toHaveBeenCalledOnce()
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(insert).toHaveBeenCalledTimes(['stop', 'stale'].includes(outcome) ? 1 : 0)
+      view.unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      window.ari = previous
+    }
+  },
+)
+
+it('ignores a late microphone failure from a cancelled capture after a new one starts', async () => {
+  mocks.ready = true
+  const cancel = vi.fn()
+  render(<SpeechButton captureTarget={() => ({ cancel, async insert() {} })} />)
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  const previous = mocks.start.mock.calls[0]![0] as RecordingEvents
+  fireEvent.keyDown(window, { key: 'Escape' })
+  await act(async () => fireEvent.click(screen.getByRole('button')))
+  act(() => previous.onError?.(new Error('Old microphone failure')))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled()
+  expect(cancel).toHaveBeenCalledOnce()
 })

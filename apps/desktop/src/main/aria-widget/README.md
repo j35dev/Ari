@@ -26,7 +26,8 @@ message through one `message.enqueue` command.
 
 Modifier flags reconcile missed releases after the source first sets each flag;
 unmasked injected modifiers use tracked keycodes. Lock and suspend reset input
-tracking while preserving already released dictations. After a reset, the
+tracking while preserving already released Aria dictation; general dictation is
+cancelled to protect its focused target. After a reset, the
 shortcut key must be released or stay quiet for one second before another hold.
 Renderer crashes recover
 with a capped backoff. All main-window
@@ -44,6 +45,13 @@ Linux's hook uses X11. Platform checks remain necessary on macOS and Linux.
 The production recorder uses a microphone stream and AudioWorklet; transcription
 runs in the native speech worker. General dictation never uses the Aria handoff
 as an error fallback.
+
+Both global shortcuts share the optional audio-ducking path. Only current-hold
+first samples lower other apps, and stopping capture restores audio before
+transcription. Composer microphones keep their existing output behavior. See
+[combined speech compatibility](../../../../../docs/research/speech-compatibility.md)
+for joint headless verification and limitations. Previous Windows native checks
+do not verify the combined compatibility head.
 
 After a desktop build, run the screenshot and native background checks from
 `apps/desktop`:
