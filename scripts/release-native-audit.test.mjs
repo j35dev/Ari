@@ -93,12 +93,16 @@ test('launch environment excludes credentials, dictation flags and Node startup 
   const env = isolatedEnvironment('/isolated', {
     PATH: 'fixture-path',
     SystemRoot: 'fixture-system',
+    DISPLAY: ':99',
+    XAUTHORITY: '/isolated/xauth',
     NODE_OPTIONS: '--require unsafe',
     ARIA_DICTATION_VISIBLE_FIXTURE: '1',
     ARIA_DICTATION_NATIVE_ONLY: '1',
     ARI_CONTROL_TOKEN: 'synthetic-test-only',
   })
   assert.equal(env.PATH, 'fixture-path')
+  assert.equal(env.DISPLAY, ':99')
+  assert.equal(env.XAUTHORITY, '/isolated/xauth')
   assert.equal(env.ELECTRON_RUN_AS_NODE, '1')
   for (const key of [
     'NODE_OPTIONS',

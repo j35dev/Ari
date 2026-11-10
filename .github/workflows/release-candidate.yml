@@ -56,7 +56,14 @@ jobs:
         run: pnpm exec electron-builder ${{ matrix.args }} --publish never
         working-directory: apps/desktop
       - name: Verify artifact metadata and both native macOS slices
+        if: runner.os != 'Linux'
         run: node scripts/release-artifacts.mjs
+      - name: Install disposable Linux display
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Verify Linux artifacts and native modules on disposable display
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/release-artifacts.mjs
       - name: Record Windows installer signature
         if: runner.os == 'Windows'
         shell: pwsh
