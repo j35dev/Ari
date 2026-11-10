@@ -178,6 +178,10 @@ describe('visualization contract', () => {
       )
       expect(wrapped.ok).toBe(true)
       if (wrapped.ok) expect(wrapped.value.type).toBe(type)
+      // A whole spec nested under one top-level `data` key is the same envelope.
+      const nested = parseVisualization(JSON.stringify({ data: { version: 1, ...flat } }))
+      expect(nested.ok).toBe(true)
+      if (nested.ok) expect(nested.value).toEqual(visualizationSchema.parse(flat))
     },
   )
 

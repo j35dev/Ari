@@ -1,4 +1,4 @@
-import { memo, useId, useMemo, useState } from 'react'
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { parseVisualization, type VisualizationSpec } from '@ari/contracts/visualization'
 import { Dialog } from '../components/Dialog'
@@ -36,6 +36,44 @@ const typeLabels: Record<VisualizationSpec['type'], string> = {
   comparison: 'Comparison',
 }
 
+/** Measures its own width so each chart draws at 1:1 in the inline reply and the dialog. */
+function MeasuredVisual({
+  diagram,
+  label,
+  render,
+}: {
+  diagram: boolean
+  label: string
+  render: (width: number | null) => ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const read = (): void => {
+      const next = Math.floor(el.clientWidth)
+      setWidth(next > 0 ? next : null)
+    }
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div
+      ref={ref}
+      tabIndex={diagram ? undefined : 0}
+      role={diagram ? undefined : 'region'}
+      aria-label={diagram ? undefined : label}
+      className={diagram ? 'ari-viz-diagram-view' : 'ari-viz-scroll ari-viz-visual-scroll'}
+    >
+      {render(width)}
+    </div>
+  )
+}
+
 function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
   const titleId = useId()
   const [mode, setMode] = useState<'visual' | 'data'>('visual')
@@ -66,54 +104,41 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
     })
     inspect('')
   }
-  let chart: ReactNode
-  switch (spec.type) {
-    case 'bar':
-      chart =
-        orientation === 'horizontal' ? (
-          <HorizontalBarsChart spec={spec} hidden={hidden} inspect={inspect} />
+  const renderChart = (width: number | null): ReactNode => {
+    switch (spec.type) {
+      case 'bar':
+        return orientation === 'horizontal' ? (
+          <HorizontalBarsChart spec={spec} hidden={hidden} inspect={inspect} width={width} />
         ) : (
-          <CartesianChart spec={spec} hidden={hidden} inspect={inspect} />
+          <CartesianChart spec={spec} hidden={hidden} inspect={inspect} width={width} />
         )
-      break
-    case 'line':
-    case 'area':
-      chart = <CartesianChart spec={spec} hidden={hidden} inspect={inspect} />
-      break
-    case 'radar':
-      chart = <RadarChart spec={spec} hidden={hidden} inspect={inspect} />
-      break
-    case 'scatter':
-      chart = <ScatterChart spec={spec} hidden={hidden} inspect={inspect} />
-      break
-    case 'pie':
-    case 'donut':
-      chart = <PartsChart spec={spec} inspect={inspect} />
-      break
-    case 'funnel':
-      chart = <FunnelChart spec={spec} inspect={inspect} />
-      break
-    case 'treemap':
-      chart = <TreemapChart spec={spec} inspect={inspect} />
-      break
-    case 'heatmap':
-      chart = <HeatmapChart spec={spec} inspect={inspect} />
-      break
-    case 'graph':
-      chart = <GraphDiagram spec={spec} inspect={inspect} />
-      break
-    case 'gantt':
-      chart = <GanttDiagram spec={spec} inspect={inspect} />
-      break
-    case 'timeline':
-      chart = <TimelineDiagram spec={spec} />
-      break
-    case 'metrics':
-      chart = <MetricCards spec={spec} />
-      break
-    case 'comparison':
-      chart = null
-      break
+      case 'line':
+      case 'area':
+        return <CartesianChart spec={spec} hidden={hidden} inspect={inspect} width={width} />
+      case 'radar':
+        return <RadarChart spec={spec} hidden={hidden} inspect={inspect} width={width} />
+      case 'scatter':
+        return <ScatterChart spec={spec} hidden={hidden} inspect={inspect} width={width} />
+      case 'pie':
+      case 'donut':
+        return <PartsChart spec={spec} inspect={inspect} />
+      case 'funnel':
+        return <FunnelChart spec={spec} inspect={inspect} />
+      case 'treemap':
+        return <TreemapChart spec={spec} inspect={inspect} width={width} />
+      case 'heatmap':
+        return <HeatmapChart spec={spec} inspect={inspect} width={width} />
+      case 'graph':
+        return <GraphDiagram spec={spec} inspect={inspect} width={width} />
+      case 'gantt':
+        return <GanttDiagram spec={spec} inspect={inspect} width={width} />
+      case 'timeline':
+        return <TimelineDiagram spec={spec} />
+      case 'metrics':
+        return <MetricCards spec={spec} />
+      case 'comparison':
+        return null
+    }
   }
   const view = (
     <>
@@ -159,20 +184,11 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
           <DataTable spec={spec} />
         ) : (
           <InteractiveSurface resetKey={`${[...hidden].join(',')}:${orientation}`}>
-            <div
-              tabIndex={spec.type === 'graph' || spec.type === 'gantt' ? undefined : 0}
-              role={spec.type === 'graph' || spec.type === 'gantt' ? undefined : 'region'}
-              aria-label={
-                spec.type === 'graph' || spec.type === 'gantt' ? undefined : `${spec.title} visual`
-              }
-              className={
-                spec.type === 'graph' || spec.type === 'gantt'
-                  ? 'ari-viz-diagram-view'
-                  : 'ari-viz-scroll ari-viz-visual-scroll'
-              }
-            >
-              {chart}
-            </div>
+            <MeasuredVisual
+              diagram={spec.type === 'graph' || spec.type === 'gantt'}
+              label={`${spec.title} visual`}
+              render={renderChart}
+            />
           </InteractiveSurface>
         )}
       </div>
