@@ -12,11 +12,31 @@ import {
 } from './graph-layout'
 import { pointDetail } from './interaction'
 
-export function GraphDiagram({ spec, inspect }: { spec: GraphSpec; inspect: Inspect }) {
+/** The canvas frame, padding and scrollbar gutter take this much of the reply's width. */
+const CANVAS_INSET = 64
+
+export function GraphDiagram({
+  spec,
+  inspect,
+  width = null,
+}: {
+  spec: GraphSpec
+  inspect: Inspect
+  width?: number | null
+}) {
   const marker = `viz-arrow-${useId().replace(/:/g, '')}`
-  const [direction, setDirection] = useState<GraphDirection>(spec.direction)
+  const [chosen, setDirection] = useState<GraphDirection | null>(null)
   const [hovered, setHovered] = useState<string[]>([])
   const [selected, setSelected] = useState<string | null>(null)
+  // A left-to-right flow that cannot fit a narrow reply starts top-to-bottom instead.
+  const direction = useMemo<GraphDirection>(() => {
+    if (chosen !== null) return chosen
+    if (width === null || spec.direction !== 'right') return spec.direction
+    const room = width - CANVAS_INSET
+    return layoutGraph(spec, 'right').width > room && layoutGraph(spec, 'down').width <= room
+      ? 'down'
+      : 'right'
+  }, [chosen, spec, width])
   const layout = useMemo(() => layoutGraph(spec, direction), [spec, direction])
   const names = new Map(spec.nodes.map((node) => [node.id, node.label]))
   const active = selected ? [selected] : hovered

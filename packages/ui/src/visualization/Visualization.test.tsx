@@ -12,6 +12,7 @@ import {
   heatCellWidth,
   heatFillOpacity,
   heatShowsValue,
+  textWidth,
 } from './charts'
 
 const bar = visualizationExamples[0]?.spec
@@ -200,6 +201,9 @@ describe('inline visualizations', () => {
     expect(screen.getByText(/The field "type" is set both/)).toBeInTheDocument()
     expect(screen.queryByText('Hidden')).toBeNull()
     expect(screen.queryByText('Visible')).toBeNull()
+    rerender(<Visualization source={JSON.stringify({ data: bar })} />)
+    expect(screen.getByRole('figure', { name: bar.title as string })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Before' })).toBeInTheDocument()
   })
 
   it('separates heatmap magnitudes and keeps long digits out of narrow cells', () => {
@@ -334,6 +338,139 @@ describe('inline visualizations', () => {
     )
     expect(screen.getByText(timelineLabel)).toHaveClass('ari-viz-timeline-label')
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+  })
+
+  it('draws charts 1:1 in the measured reply width instead of stretching a fixed canvas', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+    try {
+      for (const room of [368, 1246]) {
+        width.mockReturnValue(room)
+        const { unmount } = render(<Visualization source={source} />)
+        const svg = screen.getByRole('img', { name: bar.title as string })
+        // Text stays 12px at every width: the chart widens, its height does not grow.
+        expect(svg).toHaveStyle({ width: `${room}px`, height: '320px' })
+        expect(svg.getAttribute('viewBox')).toBe(`0 0 ${room} 320`)
+        unmount()
+      }
+      width.mockReturnValue(368)
+      const { container } = render(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'line',
+            title: 'Long ends',
+            labels: ['First '.repeat(12).trim(), 'Middle', 'Last '.repeat(12).trim()],
+            series: [{ name: 'S', values: [1, 2, 3] }],
+          })}
+        />,
+      )
+      const svg = screen.getByRole('img', { name: 'Long ends' })
+      const labels = [...container.querySelectorAll('text.ari-viz-axis-label')]
+      expect(labels).toHaveLength(3)
+      for (const label of labels) {
+        const text = [...label.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent)
+          .join('')
+        const half = textWidth(text) / 2
+        const x = Number(label.getAttribute('x'))
+        expect(x - half).toBeGreaterThanOrEqual(0)
+        expect(x + half).toBeLessThanOrEqual(parseFloat(svg.style.width))
+      }
+    } finally {
+      width.mockRestore()
+    }
+  })
+
+  it('fits schedules, pie charts and flows to a phone-width reply', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(368)
+    try {
+      const { container, rerender } = render(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'gantt',
+            title: 'Plan',
+            unit: 'days',
+            tasks: [
+              { label: 'Design', start: 0, end: 2 },
+              { label: 'Build', start: 2, end: 5 },
+            ],
+          })}
+        />,
+      )
+      const gantt = screen.getByRole('img', { name: 'Plan' })
+      expect(Number(gantt.getAttribute('viewBox')?.split(' ')[2])).toBeLessThanOrEqual(368 - 48)
+      rerender(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'graph',
+            title: 'Flow',
+            nodes: [
+              { id: 'a', label: 'User prompt' },
+              { id: 'b', label: 'Agent' },
+              { id: 'c', label: 'Answer' },
+            ],
+            edges: [
+              { from: 'a', to: 'b' },
+              { from: 'b', to: 'c' },
+            ],
+          })}
+        />,
+      )
+      expect(screen.getByRole('button', { name: 'Vertical' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Horizontal' }))
+      expect(screen.getByRole('button', { name: 'Horizontal' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      rerender(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'radar',
+            title: 'Tradeoffs',
+            labels: ['Speed', 'Quality', 'Cost'],
+            series: [{ name: 'Option', values: [3, 4, 2] }],
+          })}
+        />,
+      )
+      expect(
+        parseFloat(screen.getByRole('img', { name: 'Tradeoffs' }).style.width),
+      ).toBeLessThanOrEqual(368)
+      expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+    } finally {
+      width.mockRestore()
+    }
+  })
+
+  it('keeps a left-to-right flow when the reply width is unknown', () => {
+    render(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'graph',
+          title: 'Flow',
+          nodes: [
+            { id: 'a', label: 'A' },
+            { id: 'b', label: 'B' },
+            { id: 'c', label: 'C' },
+          ],
+          edges: [
+            { from: 'a', to: 'b' },
+            { from: 'b', to: 'c' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Horizontal' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   it('uses legible axis steps and retains small values in the original data', () => {

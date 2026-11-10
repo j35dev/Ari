@@ -214,10 +214,15 @@
 }
 .ari-viz-parts {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 1fr);
+  grid-template-columns: minmax(180px, 320px) minmax(140px, 520px);
   align-items: center;
-  gap: 20px;
+  gap: 32px;
   padding: 0 12px;
+}
+/* Pie and donut draw at their natural size; stretching them clipped the circle on desktop. */
+.ari-viz-parts .ari-viz-svg {
+  max-width: 320px;
+  margin: 0 auto;
 }
 .ari-viz-item-legend {
   display: grid;
@@ -268,7 +273,6 @@
   display: grid;
   gap: 14px;
   padding: 12px 4px;
-  min-width: 380px;
 }
 .ari-viz-funnel-row {
   display: grid;
@@ -510,6 +514,10 @@
   .ari-viz-item-legend {
     padding: 0 8px 16px;
   }
+  .ari-viz-funnel-row {
+    grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto;
+    gap: 10px;
+  }
   .ari-viz-modal {
     padding: 16px;
   }
@@ -605,6 +613,17 @@
   max-height: 430px;
   overflow: auto;
   overscroll-behavior: contain;
+}
+/* Text-led visuals flow with the reply; a nested scroller cut their legends and lines mid-way. */
+.ari-viz:is(
+    [data-type='pie'],
+    [data-type='donut'],
+    [data-type='funnel'],
+    [data-type='timeline'],
+    [data-type='metrics']
+  )
+  .ari-viz-visual-scroll {
+  max-height: none;
 }
 .ari-viz-bar-options {
   padding: 0 20px 10px;
