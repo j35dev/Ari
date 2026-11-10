@@ -44,6 +44,7 @@ it('migrates the legacy binding to Aria, picks an unused general default, and re
           enabled: true,
           modelPath: '/model.gguf',
           shortcut: defaultDictationShortcut(process.platform),
+          duckAudio: false,
         },
       }),
     )
@@ -66,6 +67,7 @@ it('migrates the legacy binding to Aria, picks an unused general default, and re
       dictationShortcut: 'f20',
       enabled: true,
       modelPath: '/model.gguf',
+      duckAudio: false,
     })
   } finally {
     await rm(dir, { recursive: true, force: true })

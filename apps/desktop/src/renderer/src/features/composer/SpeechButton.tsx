@@ -129,7 +129,17 @@ export function SpeechButton({
         return
       }
       lease.current = token ?? null
-      const active = await startRecording()
+      const active = await startRecording({
+        onError: (reason) => {
+          if (!mounted.current || generation.current !== attempt) return
+          generation.current++
+          recording.current?.cancel()
+          recording.current = null
+          release()
+          setError(reason.message)
+          setState('idle')
+        },
+      })
       if (!mounted.current || generation.current !== attempt) {
         active.cancel()
         return

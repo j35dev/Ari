@@ -1,5 +1,10 @@
 # Aria recording audio attenuation
 
+This records the original #497 research and checks. The compatibility branch
+shares ducking between Aria and general shortcut recording; see
+[combined speech compatibility](speech-compatibility.md). No native audio checks
+were rerun for that branch.
+
 ## Handy evidence
 
 Inspected the public canonical [cjpais/Handy repository](https://github.com/cjpais/Handy), whose README identifies the offline desktop app and links handy.computer. The source checkout was pinned to commit **73cc8579cff74e97e08de9d86035a92e4335ff7f**, inspected on 2026-11-10.

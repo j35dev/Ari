@@ -337,8 +337,8 @@ export function SpeechSettings() {
             platform === 'darwin'
               ? 'Unavailable on macOS. Audio output stays unchanged.'
               : platform === 'win32'
-                ? 'Aria lowers other apps to 25% of their volume during shortcut dictation, then restores them. Your volume changes are preserved.'
-                : 'Aria lowers playback streams to 25% during shortcut dictation. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
+                ? 'Both dictation shortcuts lower other apps to 25% of their volume while listening, then restore them. Your volume changes are preserved.'
+                : 'Both dictation shortcuts lower playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
           }
         >
           <Switch

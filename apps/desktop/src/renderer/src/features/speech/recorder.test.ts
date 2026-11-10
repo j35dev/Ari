@@ -73,6 +73,22 @@ it('captures audio beyond five minutes until explicit stop, including the final 
   expect(recording.level()).toBe(0)
 })
 
+it('keeps a long capture ready until stop and balances ducking callbacks exactly once', async () => {
+  const mic = microphone()
+  const onReady = vi.fn()
+  const onStopped = vi.fn()
+  const recording = await startRecording({ onReady, onStopped })
+  const second = new Float32Array(16_000).fill(0.25)
+  for (let i = 0; i < 360; i++) mic.emit(second)
+  expect(onReady).toHaveBeenCalledOnce()
+  expect(onStopped).not.toHaveBeenCalled()
+  expect(mic.stopTrack).not.toHaveBeenCalled()
+  expect(await recording.stop()).toHaveLength(16_000 * 360)
+  recording.cancel()
+  expect(onStopped).toHaveBeenCalledOnce()
+  expect(mic.close).toHaveBeenCalledOnce()
+})
+
 it('discards captured audio and releases the microphone on explicit cancellation', async () => {
   const mic = microphone()
   const recording = await startRecording()
