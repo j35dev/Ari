@@ -274,6 +274,8 @@ export const speechSettingsSchema = z.object({
   shortcut: z.string().trim().max(80).default(''),
   dictationShortcut: z.string().trim().max(80).default(''),
   duckAudio: z.boolean().default(true),
+  formatText: z.boolean().default(true),
+  spokenFormatting: z.boolean().default(false),
 })
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -389,6 +391,8 @@ export const settingsUpdateSchema = z.object({
     .object({
       enabled: z.boolean(),
       duckAudio: z.boolean(),
+      formatText: z.boolean(),
+      spokenFormatting: z.boolean(),
       modelId: z.string().nullable(),
       modelPath: z.string().nullable(),
       shortcut: z

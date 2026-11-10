@@ -1,5 +1,6 @@
 import { createWindowsDictation } from './windows-dictation'
 import type { WindowsDictationTarget } from './windows-dictation'
+import { dictationInsertion } from '../../shared/dictation-format'
 
 const targets = new Map<string, WindowsDictationTarget>()
 try {
@@ -25,8 +26,9 @@ try {
             if (request.kind === 'snapshot') result = target.snapshot()
             else if (request.kind === 'insert') {
               try {
+                const { text, start, end } = target.snapshot()
                 await target.insert(
-                  request.text ?? '',
+                  dictationInsertion(text.slice(0, start), request.text ?? '', text.slice(end)),
                   () => targets.get(request.target) === target,
                 )
               } finally {

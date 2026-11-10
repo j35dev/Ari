@@ -14,6 +14,14 @@ import {
   EngineIoError,
 } from './engine'
 import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
+import { finalizeDictation } from '../../shared/dictation-format'
+import type { DictationWord } from '../../shared/dictation-format'
+
+interface SpeechResult {
+  text: string
+  language?: string
+  words?: DictationWord[]
+}
 
 const WORKER_ACK_TIMEOUT_MS = 60_000
 
@@ -72,7 +80,7 @@ export class SpeechService {
   #pending = new Map<
     number,
     {
-      resolve: (result: { text: string }) => void
+      resolve: (result: SpeechResult) => void
       reject: (error: Error) => void
       worker: UtilityProcess
       kind: 'load' | 'transcribe' | 'unload'
@@ -713,7 +721,24 @@ export class SpeechService {
       this.#error
     )
       throw new Error(this.#error ?? 'Set up speech to text in Settings.')
-    return this.#request('transcribe', model.installed.path, pcm, language, model.size)
+    const { formatText, spokenFormatting } = this.#settings.current.speech
+    const result = await this.#request(
+      'transcribe',
+      model.installed.path,
+      pcm,
+      language,
+      model.size,
+      formatText,
+    )
+    if (!result.text.trim()) return { text: '' }
+    return {
+      text: finalizeDictation(result.text, {
+        formatText,
+        spokenFormatting,
+        language: language || result.language,
+        words: result.words,
+      }),
+    }
   }
 
   async #request(
@@ -722,7 +747,8 @@ export class SpeechService {
     pcm?: Float32Array,
     language?: string,
     modelSize?: number,
-  ): Promise<{ text: string }> {
+    formatText?: boolean,
+  ): Promise<SpeechResult> {
     let worker = await this.#getWorker()
     while (worker !== this.#worker || this.#workerState.get(worker)?.stopping)
       worker = await this.#getWorker()
@@ -737,7 +763,7 @@ export class SpeechService {
       })
       this.#watchAcknowledgment(worker)
       try {
-        worker.postMessage({ id, kind, path, pcm, language })
+        worker.postMessage({ id, kind, path, pcm, language, formatText })
       } catch {
         this.#stopWorker(worker, 'The speech engine could not receive the request. Please retry.')
       }
@@ -809,12 +835,7 @@ export class SpeechService {
         this.#workerState.set(child, state)
         child.on(
           'message',
-          (message: {
-            id: number
-            started?: boolean
-            result?: { text: string }
-            error?: string
-          }) => {
+          (message: { id: number; started?: boolean; result?: SpeechResult; error?: string }) => {
             const pending = this.#pending.get(message.id)
             if (!pending || pending.worker !== child) return
             if (message.started) {

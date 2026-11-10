@@ -27,6 +27,8 @@ it('persists speech selection and merges shortcut updates without losing the mod
       shortcut: 'ctrl+alt+space',
       dictationShortcut: defaultDictationShortcut(process.platform),
       duckAudio: false,
+      formatText: true,
+      spokenFormatting: false,
     })
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -98,6 +100,8 @@ it('replaces a retired shortcut on load and persists the migration without chang
       shortcut: defaultSpeechShortcut(process.platform),
       dictationShortcut: defaultDictationShortcut(process.platform),
       duckAudio: true,
+      formatText: true,
+      spokenFormatting: false,
     })
     expect(JSON.parse(await readFile(path, 'utf8')).speech.shortcut).toBe(
       defaultSpeechShortcut(process.platform),

@@ -68,3 +68,32 @@ it('rejects a field that became a password input after capture', async () => {
   await expect(target.insert('dictated')).rejects.toThrow('target changed')
   expect(field.value).toBe('draft')
 })
+
+it('appends repeated utterances with one space and moves the caret past the inserted text', async () => {
+  const field = input()
+  field.value = 'First sentence.'
+  field.setSelectionRange(field.value.length, field.value.length)
+  await captureTextTarget(field).insert('Second sentence.')
+  await captureTextTarget(field).insert('Third sentence.')
+  expect(field.value).toBe('First sentence. Second sentence. Third sentence.')
+  expect(field.selectionStart).toBe(field.value.length)
+})
+
+it('keeps neighboring draft text when replacing an inline selection with multiline speech', async () => {
+  const field = input()
+  field.value = 'prefixOLDsuffix'
+  field.setSelectionRange(6, 9)
+  const text = 'Please check:\n1. Logs.\n2. Tests.'
+  await captureTextTarget(field).insert(text)
+  expect(field.value).toBe('prefix ' + text + ' suffix')
+  expect(field.selectionStart).toBe(6 + text.length + 2)
+})
+
+it('inserts a standalone paragraph command, then continues repeated speech on the new paragraph', async () => {
+  const field = input()
+  field.value = 'First sentence.'
+  field.setSelectionRange(field.value.length, field.value.length)
+  await captureTextTarget(field).insert('\n\n')
+  await captureTextTarget(field).insert('Second sentence.')
+  expect(field.value).toBe('First sentence.\n\nSecond sentence.')
+})

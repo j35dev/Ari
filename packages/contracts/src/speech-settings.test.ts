@@ -21,6 +21,8 @@ it('migrates settings without a configured speech model', () => {
     shortcut: '',
     dictationShortcut: '',
     duckAudio: true,
+    formatText: true,
+    spokenFormatting: false,
   })
 })
 it('keeps speech patches default-free and validates PCM bounds', () => {

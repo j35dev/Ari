@@ -1,4 +1,5 @@
 import type { DictationTarget } from '../../../../shared/dictation'
+import { dictationInsertion, hasDictationText } from '../../../../shared/dictation-format'
 
 type TextInput = HTMLTextAreaElement | HTMLInputElement
 const INPUT_TYPES = new Set(['text', 'search', 'url', 'tel'])
@@ -38,7 +39,7 @@ export function captureTextTarget(element: Element | null): DictationTarget {
   return {
     cancel,
     insert(text, current = () => true) {
-      if (!text.trim()) {
+      if (!hasDictationText(text)) {
         cancel()
         return Promise.resolve()
       }
@@ -59,7 +60,10 @@ export function captureTextTarget(element: Element | null): DictationTarget {
         return Promise.reject(
           new Error('The dictation target changed. Dictate again in the intended field.'),
         )
-      const next = value.slice(0, start) + text + value.slice(end)
+      const before = value.slice(0, start)
+      const after = value.slice(end)
+      const inserted = dictationInsertion(before, text, after)
+      const next = before + inserted + after
       // The native setter lets React's controlled onChange observe this input event.
       const prototype =
         input instanceof HTMLTextAreaElement
@@ -67,7 +71,7 @@ export function captureTextTarget(element: Element | null): DictationTarget {
           : HTMLInputElement.prototype
       Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, next)
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.setSelectionRange(start + text.length, start + text.length)
+      input.setSelectionRange(start + inserted.length, start + inserted.length)
       return Promise.resolve()
     },
   }

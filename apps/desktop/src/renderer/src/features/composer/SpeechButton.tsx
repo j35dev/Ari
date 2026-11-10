@@ -4,6 +4,7 @@ import { rpc } from '../../lib/rpc'
 import { startRecording } from '../speech/recorder'
 import { useSpeech } from '../speech/useSpeech'
 import type { DictationTarget } from '../../../../shared/dictation'
+import { hasDictationText } from '../../../../shared/dictation-format'
 
 export function SpeechButton({
   disabled = false,
@@ -19,6 +20,7 @@ export function SpeechButton({
   const [state, setState] = useState<'idle' | 'starting' | 'recording' | 'transcribing'>('idle')
   const [level, setLevel] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [uninserted, setUninserted] = useState<string[]>([])
   const target = useRef<DictationTarget | null>(null)
   const lease = useRef<string | null>(null)
   const busy = useRef(false)
@@ -61,18 +63,22 @@ export function SpeechButton({
     recording.current = null
     const attempt = generation.current
     setState('transcribing')
+    let transcript = ''
     try {
       const pcm = await active.stop()
       if (!mounted.current || generation.current !== attempt || !pcm.length) return
       const result = await rpc.invoke('speech.transcribe', { pcm })
-      if (mounted.current && generation.current === attempt && result.text.trim())
+      transcript = result.text
+      if (mounted.current && generation.current === attempt && hasDictationText(result.text))
         await target.current?.insert(
           result.text,
           () => mounted.current && generation.current === attempt,
         )
     } catch (reason) {
-      if (mounted.current && generation.current === attempt)
+      if (mounted.current && generation.current === attempt) {
         setError(reason instanceof Error ? reason.message : String(reason))
+        if (transcript.trim()) setUninserted((previous) => [...previous, transcript])
+      }
     } finally {
       if (generation.current === attempt) {
         release()
@@ -192,6 +198,24 @@ export function SpeechButton({
         <span role="alert" className="max-w-40 px-1 text-2xs text-danger">
           {error}
         </span>
+      )}
+      {uninserted.length > 0 && (
+        <details className="absolute bottom-full right-0 z-10 mb-2 w-80 rounded-md border border-border bg-surface-0 p-3 text-xs text-fg shadow-lg">
+          <summary className="cursor-pointer">Dictated text kept for review</summary>
+          <p className="my-2">
+            Your draft changed, so this text was kept here. Select and copy it into the intended
+            field.
+          </p>
+          <textarea
+            aria-label="Uninserted dictated text"
+            readOnly
+            value={uninserted.join('\n\n')}
+            className="h-32 w-full resize-y rounded border border-border bg-surface-1 p-2"
+          />
+          <button type="button" className="mt-2 underline" onClick={() => setUninserted([])}>
+            Dismiss kept text
+          </button>
+        </details>
       )}
     </span>
   )
