@@ -34,7 +34,8 @@ export function isolatedEnvironment(data, source = process.env) {
     TMPDIR: join(data, 'temp'),
   }
   // No Ari control credentials, NODE_OPTIONS, loader overrides or dictation flags.
-  for (const key of ['PATH', 'SystemRoot', 'WINDIR'])
+  // Linux addons open the disposable CI X display even when hooks are not started.
+  for (const key of ['PATH', 'SystemRoot', 'WINDIR', 'DISPLAY', 'XAUTHORITY'])
     if (source[key] !== undefined) env[key] = source[key]
   return env
 }
