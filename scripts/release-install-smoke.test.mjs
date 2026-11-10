@@ -134,6 +134,10 @@ async function setup(platform = 'win32', mutate) {
         stderr: 'The system was unable to find the specified registry key or value.',
       })
     }
+    if (executable.endsWith('powershell.exe')) {
+      assert.match(commandOptions.env.PSModulePath, /WindowsPowerShell[\\/]v1\.0[\\/]Modules$/)
+      return { stdout: '', stderr: '' }
+    }
     if (executable.endsWith('tasklist.exe'))
       return {
         stdout: 'INFO: No tasks are running which match the specified criteria.',

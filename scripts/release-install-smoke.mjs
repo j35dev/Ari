@@ -14,7 +14,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { promisify } from 'node:util'
 import { archivePath, launchArches } from './release-native-smoke.mjs'
@@ -257,6 +257,17 @@ export async function installSmoke(input, dependencies = {}) {
   const commandEnv = isolatedEnvironment(join(root, 'environment'), env)
   for (const path of new Set(Object.values(commandEnv).filter((value) => value.startsWith(root))))
     await mkdir(path, { recursive: true })
+  const systemRoot = env.SystemRoot ?? 'C:/Windows'
+  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  if (platform === 'win32') {
+    // NSIS checks for a running app with Windows PowerShell (Get-Command, then
+    // Get-CimInstance). Under the disposable profile its module analysis cache is
+    // cold, and scanning every module on the hosted runner can outlast the install
+    // budget. CimCmdlets ships in-box, so limit discovery to the in-box modules.
+    commandEnv.PSModulePath = join(dirname(powershell), 'Modules')
+    for (const key of ['SystemDrive', 'ProgramData', 'ComSpec', 'PATHEXT', 'USERNAME'])
+      if (env[key] !== undefined) commandEnv[key] = env[key]
+  }
   async function command(executable, args, label, timeout = 120_000) {
     const record = {
       label,
@@ -267,6 +278,7 @@ export async function installSmoke(input, dependencies = {}) {
       completed: false,
     }
     output.commands.push(record)
+    const started = Date.now()
     try {
       const result = await run(executable, args, {
         cwd: root,
@@ -276,12 +288,30 @@ export async function installSmoke(input, dependencies = {}) {
         maxBuffer: 1024 * 1024,
       })
       record.completed = true
+      record.elapsedMs = Date.now() - started
       return result
     } catch (error) {
+      record.elapsedMs = Date.now() - started
       record.exitCode = error?.code ?? null
       record.timedOut = Boolean(error?.killed)
       record.stdout = commandText(error?.stdout)
       record.stderr = commandText(error?.stderr)
+      if (record.timedOut && platform === 'win32')
+        // Leftover installer children (PowerShell, uninstaller) name the stalled step.
+        record.processesAfterTimeout = await run(
+          join(systemRoot, 'System32', 'tasklist.exe'),
+          ['/FO', 'CSV', '/NH'],
+          {
+            cwd: root,
+            env: commandEnv,
+            windowsHide: true,
+            timeout: 20_000,
+            maxBuffer: 1024 * 1024,
+          },
+        ).then(
+          ({ stdout }) => commandText(stdout),
+          (failure) => `tasklist failed: ${String(failure).slice(0, 200)}`,
+        )
       const detail = record.stderr || record.stdout || 'no child output'
       throw new Error(`Install command failed: ${label}: ${detail}`, { cause: error })
     }
@@ -325,6 +355,12 @@ export async function installSmoke(input, dependencies = {}) {
         10_000,
       )
       assert.ok(!/"ari\.exe"/i.test(tasklist.stdout), 'Ari is already running on hosted runner')
+      // Build the disposable profile's PowerShell module cache before the timed installs.
+      await command(
+        powershell,
+        ['-NoLogo', '-NonInteractive', '-Command', 'Get-Command Get-CimInstance | Out-Null'],
+        'powershell-module-cache',
+      )
       output.installationKind = 'windows-nsis-per-user-install-and-upgrade'
       output.launchPolicy = 'Assisted NSIS /S without --force-run; final unquoted /D, /currentuser'
     } else
