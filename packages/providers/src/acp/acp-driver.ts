@@ -557,8 +557,8 @@ export async function createAcpAdapter(
 
   /**
    * Injects one text into the live prompt through the ACP steering extension.
-   * `promptRequired` (and any extension failure) means the text did not join
-   * the turn; the caller keeps it queued instead of losing it.
+   * `promptRequired` or an explicit refusal keeps the text queued. Lost
+   * acknowledgements remain uncertain; they must not imply safe resubmission.
    */
   const injectSteer = async (text: string): Promise<boolean> => {
     try {
@@ -573,14 +573,26 @@ export async function createAcpAdapter(
         log.debug('acp steering injected into the live turn', { sessionId })
         return true
       }
-      log.debug('acp steering not injected', { sessionId, outcome: result?.outcome })
-      return false
+      if (result?.outcome === 'promptRequired') {
+        log.debug('acp steering not injected', { sessionId, outcome: result.outcome })
+        return false
+      }
+      throw new AcpConnectionError(
+        'ACP steering response did not confirm delivery or refusal',
+        null,
+        'uncertain',
+      )
     } catch (error) {
       log.debug('acp steering request failed', {
         sessionId,
         error: formatUnknownError(error),
       })
-      return false
+      if (
+        error instanceof AcpConnectionError &&
+        (error.requestOutcome === 'refused' || error.requestOutcome === 'not_submitted')
+      )
+        return false
+      throw error
     }
   }
 
