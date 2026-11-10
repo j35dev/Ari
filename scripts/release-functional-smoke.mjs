@@ -173,7 +173,23 @@ export function launchCommand(
 
 const rpcExpression = (method, params) =>
   `window.ari.invoke(${JSON.stringify(method)}, ${params === undefined ? 'undefined' : JSON.stringify(params)})`
-const visible = `(el) => !!el && !el.closest('[hidden], [inert]') && el.getClientRects().length > 0`
+// The splash is a fixed overlay, not hidden or inert, so shell rects stay nonempty under it.
+export function startupOverlay(document) {
+  return Boolean(
+    document.documentElement?.hasAttribute('data-ari-booting') ||
+    document.querySelector('.ari-awaken'),
+  )
+}
+export function intendedSurface(element) {
+  if (!element || element.closest('[hidden], [inert]')) return false
+  if (element.getClientRects().length === 0) return false
+  const doc = element.ownerDocument
+  if (startupOverlay(doc)) return false
+  const rect = element.getBoundingClientRect()
+  const hit = doc.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+  return hit === element || Boolean(hit && element.contains(hit))
+}
+const visible = intendedSurface.toString()
 async function click(renderer, selector, text) {
   await poll(`visible clickable ${selector}`, () =>
     renderer.evaluate(`(() => {
@@ -185,6 +201,13 @@ async function click(renderer, selector, text) {
   )
 }
 async function screenshot(renderer, root, name) {
+  if (name !== 'failure') {
+    assert.equal(
+      await renderer.evaluate(`(${startupOverlay.toString()})(document)`),
+      false,
+      'Startup splash still covers the intended surface',
+    )
+  }
   const { data } = await renderer.send('Page.captureScreenshot', {
     format: 'png',
     captureBeyondViewport: false,
@@ -197,6 +220,7 @@ async function pageReady(renderer) {
     'painted packaged renderer and preload',
     () =>
       renderer.evaluate(`(() => {
+    if ((${startupOverlay.toString()})(document)) return false;
     if (document.readyState !== 'complete' || typeof window.ari?.invoke !== 'function') return false;
     const paint = performance.getEntriesByType('paint').find(p => p.name === 'first-contentful-paint');
     return paint && document.querySelector('#root')?.textContent.length > 0
@@ -463,7 +487,10 @@ async function runProfile(options, suiteRoot, fixturePath) {
       await renderer.send('Page.removeScriptToEvaluateOnNewDocument', { identifier })
     } else {
       await poll('clean onboarding', () =>
-        renderer.evaluate("document.body.innerText.includes('Meet your coding agents.')"),
+        renderer.evaluate(`(() => {
+          if ((${startupOverlay.toString()})(document)) return false;
+          return document.body.innerText.includes('Meet your coding agents.');
+        })()`),
       )
       receipt.cleanOnboardingObserved = true
       await renderer.evaluate(
@@ -501,22 +528,32 @@ async function runProfile(options, suiteRoot, fixturePath) {
         // Composer drafts hydrate before the independent replayed history stream.
         // Observe the saved response within the existing poll/lifetime budgets.
         await poll('saved transcript rendered', () =>
-          renderer.evaluate("document.body.innerText.includes('Synthetic transcript response')"),
+          renderer.evaluate(`(() => {
+            if ((${startupOverlay.toString()})(document)) return false;
+            return document.body.innerText.includes('Synthetic transcript response');
+          })()`),
         )
     }
     await selectChat()
     await screenshot(renderer, root, '02-chat')
     await click(renderer, 'nav[aria-label="Workspace"] button[aria-label="Settings"]')
     await poll('Settings mounted', () =>
-      renderer.evaluate('!!document.querySelector(\'nav[aria-label="Settings sections"]\')'),
+      renderer.evaluate(`(() => {
+        const el = document.querySelector('nav[aria-label="Settings sections"]');
+        return (${intendedSurface.toString()})(el);
+      })()`),
     )
     await screenshot(renderer, root, '03-settings')
     await click(renderer, 'button[aria-label="Close settings"]')
     await selectChat()
     await click(renderer, 'nav[aria-label="Workspace"] button[aria-label^="Review changes"]')
     await poll('Changes mounted and read settled', () =>
-      renderer.evaluate(`!!document.querySelector('[aria-label="Source control view"]') &&
-      document.querySelector('#scm-tab-changes')?.getAttribute('aria-selected') === 'true' && !document.body.innerText.includes('Reading repository…')`),
+      renderer.evaluate(`(() => {
+        const view = document.querySelector('[aria-label="Source control view"]');
+        return (${intendedSurface.toString()})(view) &&
+          document.querySelector('#scm-tab-changes')?.getAttribute('aria-selected') === 'true' &&
+          !document.body.innerText.includes('Reading repository…');
+      })()`),
     )
     await screenshot(renderer, root, '04-changes')
     await click(renderer, 'button[aria-label="Close source control"]')

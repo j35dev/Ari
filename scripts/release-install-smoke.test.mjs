@@ -371,7 +371,11 @@ for (const defect of ['executable', 'native', 'fixture', 'archive'])
 test('failed baseline installer never proceeds to candidate installation', async () => {
   const env = await setup('win32', async ({ version }) => {
     if (version === '0.3.12')
-      throw Object.assign(new Error('injected timeout'), { code: 'ETIMEDOUT', killed: true })
+      throw Object.assign(new Error('injected timeout'), {
+        code: 'ETIMEDOUT',
+        killed: true,
+        stderr: 'installer still running',
+      })
   })
   await assert.rejects(installSmoke(env.options, env.dependencies), /Install verification failed/)
   assert.equal(env.calls.filter((call) => call.args[0] === '/S').length, 1)
@@ -380,6 +384,8 @@ test('failed baseline installer never proceeds to candidate installation', async
   assert.equal(receipt.passed, false)
   assert.equal(receipt.sequence.length, 0)
   assert.equal(receipt.commands.at(-1).timedOut, true)
+  assert.equal(receipt.commands.at(-1).stderr, 'installer still running')
+  assert.match(receipt.failure, /nsis-0\.3\.12: installer still running/)
 })
 
 test('existing Windows registration refuses before any installer execution', async () => {

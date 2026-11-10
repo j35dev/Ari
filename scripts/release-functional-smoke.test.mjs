@@ -25,6 +25,7 @@ import {
 } from './release-functional-support.mjs'
 import {
   assertCleanExit,
+  intendedSurface,
   launchCommand,
   observeWindow,
   profileTemporaryDirectory,
@@ -657,3 +658,46 @@ setInterval(() => {}, 1000)
     }
   },
 )
+
+test('startup splash does not count as the intended shell surface', () => {
+  const rects = () => ({ length: 1 })
+  const box = { left: 0, top: 0, width: 10, height: 10 }
+  const legacyVisible = (element) =>
+    Boolean(element) && !element.closest('[hidden], [inert]') && element.getClientRects().length > 0
+  const covered = {
+    closest: () => null,
+    getClientRects: rects,
+    getBoundingClientRect: () => box,
+    contains: () => false,
+    ownerDocument: {
+      documentElement: { hasAttribute: (name) => name === 'data-ari-booting' },
+      querySelector: (selector) => (selector === '.ari-awaken' ? { splash: true } : null),
+      elementFromPoint: () => ({ splash: true }),
+    },
+  }
+  assert.equal(legacyVisible(covered), true)
+  assert.equal(intendedSurface(covered), false)
+  const shell = {
+    closest: () => null,
+    getClientRects: rects,
+    getBoundingClientRect: () => box,
+    contains(hit) {
+      return hit === shell
+    },
+    ownerDocument: {
+      documentElement: { hasAttribute: () => false },
+      querySelector: () => null,
+      elementFromPoint: () => shell,
+    },
+  }
+  assert.equal(intendedSurface(shell), true)
+  assert.equal(
+    intendedSurface({
+      ...shell,
+      contains: () => false,
+      ownerDocument: { ...shell.ownerDocument, elementFromPoint: () => ({ other: true }) },
+    }),
+    false,
+  )
+  assert.equal(intendedSurface({ ...shell, closest: () => ({ hidden: true }) }), false)
+})

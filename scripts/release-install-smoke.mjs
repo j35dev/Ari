@@ -36,6 +36,10 @@ const asar = packagingRequire('@electron/asar') // Existing packaging dependency
 const GUID = 'fd055408-59d9-59bf-b984-065eaf3c68a4' // Builder UUID v5(com.ari.desktop).
 const candidateName = (platform) => BASELINE[platform].name.replace('0.3.12', '0.3.13')
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const commandText = (value) => {
+  const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? '')
+  return text.slice(0, 2048)
+}
 
 export function nsisArguments(destination) {
   // NSIS /D is last and unquoted. Do not rely on Node's quoting of paths with spaces.
@@ -273,7 +277,10 @@ export async function installSmoke(input, dependencies = {}) {
     } catch (error) {
       record.exitCode = error?.code ?? null
       record.timedOut = Boolean(error?.killed)
-      throw new Error(`Install command failed: ${label}`, { cause: error })
+      record.stdout = commandText(error?.stdout)
+      record.stderr = commandText(error?.stderr)
+      const detail = record.stderr || record.stdout || 'no child output'
+      throw new Error(`Install command failed: ${label}: ${detail}`, { cause: error })
     }
   }
   const destination = join(root, 'application')
