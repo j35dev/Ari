@@ -1285,12 +1285,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
-        createProject: async (input) => {
+        createProject: async (input, onProgress) => {
           const result = await createProject(
             {
               projects: getProjectStore(),
               home: homedir(),
               userData: app.getPath('userData'),
+              ...(onProgress === undefined ? {} : { onProgress }),
             },
             input,
           )
