@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import type { Session } from '@ari/contracts/session'
+import { driverKindSchema } from '@ari/contracts/common'
+import { delegationRoleSchema, type Session } from '@ari/contracts/session'
 import { controlPreamble } from './control-preamble'
 
 const root: Session = {
@@ -255,5 +256,54 @@ it('teaches roots, leads and workers to use the same themed visualization format
       expect(text).toContain('Do not include HTML, scripts, or custom colors')
       expect(text).toContain('exact data fields and examples')
     }
+  }
+})
+
+it('teaches every provider, channel and role the same flat visualization object', () => {
+  const types = [
+    'bar',
+    'line',
+    'area',
+    'scatter',
+    'pie',
+    'donut',
+    'radar',
+    'heatmap',
+    'treemap',
+    'funnel',
+    'graph',
+    'timeline',
+    'gantt',
+    'metrics',
+    'comparison',
+  ]
+  const sessions: Session[] = [
+    root,
+    { ...root, lead: true },
+    { ...root, projectId: 'helm' },
+    { ...root, projectId: 'helm', lead: true },
+    { ...root, createdBy: { kind: 'session', sessionId: 'helm1' } },
+    { ...root, lead: true, createdBy: { kind: 'session', sessionId: 'helm1' } },
+    ...delegationRoleSchema.options.map((role) => ({ ...child, role })),
+  ]
+  for (const session of sessions) {
+    for (const channel of ['prompt', 'system'] as const) {
+      const text = controlPreamble(session, 'Parent title', channel, channel === 'prompt')
+      expect(text).toContain('one JSON object')
+      expect(text).toContain('on the same object')
+      expect(text).toContain('Do not nest those fields under a `data` object')
+      expect(text).toContain('do not add extra keys')
+      expect(text).toContain('matches the active theme automatically')
+      expect(text).toContain('exact data fields and examples')
+      expect(text).not.toContain('title, and data')
+      for (const type of types) expect(text).toContain(type)
+      if (channel === 'system') expect(text).not.toContain('\n')
+    }
+  }
+  const reference = controlPreamble(root, null, 'system')
+  const clause = reference.slice(reference.indexOf('When a visual helps'))
+  for (const driverKind of driverKindSchema.options) {
+    const text = controlPreamble({ ...root, driverKind }, null, 'system')
+    expect(text.slice(text.indexOf('When a visual helps'))).toBe(clause)
   }
 })

@@ -1,6 +1,6 @@
 import type { VisualizationSpec } from '@ari/contracts/visualization'
 import type { Inspect } from './charts'
-import { axis, color, formatNumber } from './charts'
+import { axis, clipLabel, color, formatNumber } from './charts'
 import { pointDetail } from './interaction'
 
 type Cartesian = Extract<VisualizationSpec, { labels: string[] }>
@@ -23,6 +23,7 @@ export function HorizontalBarsChart({
     visible.flatMap((series) => series.values),
     true,
   )
+  const axisCaption = spec.yLabel ?? spec.unit
   const width = 720,
     left = 190,
     plot = 490,
@@ -46,9 +47,10 @@ export function HorizontalBarsChart({
             </text>
           </g>
         ))}
-        {(spec.yLabel ?? spec.unit) && (
+        {axisCaption && (
           <text x={left + plot / 2} y={height - 7} textAnchor="middle">
-            {spec.yLabel ?? spec.unit}
+            <title>{axisCaption}</title>
+            {clipLabel(axisCaption, 48)}
           </text>
         )}
       </g>

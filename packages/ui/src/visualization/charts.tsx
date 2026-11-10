@@ -24,8 +24,24 @@ export const formatNumber = (value: number): string =>
           ? 'scientific'
           : 'standard',
   }).format(value)
-const short = (text: string, max = 16): string =>
+export const clipLabel = (text: string, max = 16): string =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text
+const short = clipLabel
+/** Cell width grows with few columns and stays wide enough to scroll many columns. */
+export const heatCellWidth = (columnCount: number): number => Math.max(52, 500 / columnCount)
+/**
+ * Zero is a neutral full-opacity cell. Other cells share one theme color, so
+ * opacity has to cover most of the 0–1 range or a large value looks like a small one.
+ */
+export function heatFillOpacity(value: number, peak: number): number {
+  if (value === 0) return 1
+  const scale = Math.max(Math.abs(peak), 1e-300)
+  return 0.24 + Math.min(1, Math.abs(value) / scale) * 0.68
+}
+/** 13px digits need about 7px each, plus the cell's inset, before they collide. */
+export function heatShowsValue(printed: string, cellWidth: number): boolean {
+  return printed.length * 7 <= cellWidth - 8
+}
 const W = 640,
   H = 320,
   L = 68,
@@ -477,7 +493,8 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
               {formatNumber(total)}
             </text>
             <text className="ari-viz-axis-label" x="160" y="161" textAnchor="middle">
-              {spec.unit ?? 'Total'}
+              <title>{spec.unit ?? 'Total'}</title>
+              {short(spec.unit ?? 'Total', 16)}
             </text>
           </g>
         )}
@@ -513,7 +530,7 @@ export function FunnelChart({ spec, inspect }: { spec: Parts; inspect: Inspect }
     <div className="ari-viz-funnel">
       {spec.items.map((item, i) => (
         <div className="ari-viz-funnel-row" key={i}>
-          <span>{item.label}</span>
+          <span className="ari-viz-funnel-label">{item.label}</span>
           <div className="ari-viz-funnel-track">
             <button
               type="button"
@@ -640,8 +657,8 @@ export function HeatmapChart({
   const values = spec.values.flat()
   const min = Math.min(...values),
     max = Math.max(...values),
-    maximum = Math.max(1e-300, ...values.map(Math.abs))
-  const cw = Math.max(52, 500 / spec.xLabels.length),
+    peak = Math.max(...values.map(Math.abs))
+  const cw = heatCellWidth(spec.xLabels.length),
     ch = 42,
     left = 120,
     top = 38
@@ -715,16 +732,18 @@ export function HeatmapChart({
                         ? 'var(--ari-info)'
                         : 'var(--ari-accent)'
                   }
-                  fillOpacity={value === 0 ? 1 : 0.1 + (Math.abs(value) / maximum) * 0.2}
+                  fillOpacity={heatFillOpacity(value, peak)}
                 />
-                <text
-                  className="ari-viz-heat-value"
-                  x={left + cw * (x + 0.5)}
-                  y={top + ch * (y + 0.5) + 4}
-                  textAnchor="middle"
-                >
-                  {formatNumber(value)}
-                </text>
+                {heatShowsValue(formatNumber(value), cw) && (
+                  <text
+                    className="ari-viz-heat-value"
+                    x={left + cw * (x + 0.5)}
+                    y={top + ch * (y + 0.5) + 4}
+                    textAnchor="middle"
+                  >
+                    {formatNumber(value)}
+                  </text>
+                )}
               </Mark>
             ))}
           </g>

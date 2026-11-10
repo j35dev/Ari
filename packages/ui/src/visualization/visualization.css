@@ -256,10 +256,14 @@
 }
 .ari-viz-funnel-row {
   display: grid;
-  grid-template-columns: minmax(70px, 120px) 1fr 55px;
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr) auto;
   gap: 14px;
   align-items: center;
   font-size: var(--ari-text-xs);
+}
+.ari-viz-funnel-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ari-viz-funnel-track {
   display: flex;
@@ -583,6 +587,7 @@
 }
 .ari-viz-heatmap-key {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 9px;

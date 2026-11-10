@@ -47,9 +47,11 @@ Keep the surrounding explanation useful, use accurate data, and state units,
 sources and assumptions. Do not make up measurements to fill a chart.
 
 Every object has `version: 1`, `type`, and `title`. Optional common fields are
-`description` (plain text) and `source` (plain text attribution).
+`description` (plain text) and `source` (plain text attribution). Put every
+field on that same object. Do not nest fields under a `data` object or add
+extra keys; both are rejected.
 
-| Type                                | Required data                                                                                                      | Optional fields                                                                         |
+| Type                                | Required fields                                                                                                    | Optional fields                                                                         |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | `bar`, `line`, `area`, `radar`      | `labels: string[]`, `series: {name, values: number[]}[]`                                                           | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
 | `scatter`                           | `series: {name, points: {x: number, y: number, label?: string}[]}[]`                                               | `xLabel`, `yLabel`                                                                      |
@@ -62,7 +64,8 @@ Every object has `version: 1`, `type`, and `title`. Optional common fields are
 | `comparison`                        | `columns: string[]`, `rows: {label, values: string[]}[]`                                                           | —                                                                                       |
 
 All names and labels are strings. `tone` is `accent`, `info`, `success`,
-`warning`, or `danger` and defaults to `accent`. Never provide CSS colors,
+`warning`, or `danger`. Timeline events and metric cards default to `accent`.
+An omitted graph-node tone uses the series palette. Never provide CSS colors,
 HTML, JavaScript, URLs for assets, or extra keys; visuals are declarative data.
 Each series needs one value per label. Radar charts need 3–12 nonnegative
 axes. Pie, donut, funnel and treemap values must be nonnegative and have a
@@ -73,9 +76,13 @@ architecture, dependencies and concept maps. Graph direction defaults to
 `decision`, `start`, or `end`; optional node tones use the same theme roles.
 Use horizontal bars for long category names. Gantt endpoints use a shared
 numeric scale (for example days from the project start); end is at least start.
-Comparison rows need one string per column. Keep charts legible: at most 64
-categories, 8 series, 32 heatmap rows/columns, 40 diagram nodes/events/tasks,
-80 edges, and 12 metric cards. Blocks are limited to 64,000 characters.
+Comparison rows need one string per column. Keep charts inside the validator:
+at most 64 categories and 8 series, 3–12 radar axes, 128 points on each scatter
+series, 32 slices for pie, donut, funnel and treemap, 32 heatmap rows and
+columns, 40 graph nodes, timeline events, schedule tasks or comparison rows,
+8 comparison columns, 80 edges, and 12 metric cards. Labels are at most 120
+characters and units at most 30. Numbers must be finite and from -1e12 through
+1e12. Blocks are limited to 64,000 characters.
 
 For example, a comparison of hypothetical timings (explicitly labeled):
 
