@@ -78,6 +78,10 @@ jobs:
         with:
           pattern: ari-functional-*-${{ env.CANDIDATE_SHA }}
           path: release-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-install-*-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
       - name: Verify complete platform proofs and assemble checksummed assets
         run: node scripts/release-publish-assets.mjs assemble
       - name: Upload complete assets to a draft release
