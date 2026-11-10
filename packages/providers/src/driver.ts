@@ -125,11 +125,13 @@ export interface ProviderAdapter {
    * (M17.1). Optional: transports without a writable control channel
    * cannot accept steering.
    *
-   * Resolves true only when the text is durably in the provider's hands and
-   * will be processed — either inside the running turn or as a prompt chained
-   * onto it. False means the transport could not take it (missing control
-   * channel, dead stdin, provider rejected the steer), and the caller must
-   * keep the message queued so it still runs as the follow-up turn.
+   * Resolves true when the adapter confirms acceptance — inside the running
+   * turn or as a prompt chained onto it. This is not proof of consumption or
+   * completed effects. False means confirmed refusal or no submission (missing
+   * channel, unavailable stdin); the caller may keep the message queued.
+   * Throws/rejects when submission may have happened but its acknowledgement
+   * is unavailable. Preserve that uncertain outcome; do not automatically
+   * resubmit it or turn a steering error into a terminal stream error.
    */
   steer?(text: string): boolean | Promise<boolean>
   /**

@@ -92,7 +92,11 @@ export interface AcpConnectOptions {
 
 export class AcpConnectionError extends Error {
   readonly code: number | null
-  constructor(message: string, code: number | null = null) {
+  constructor(
+    message: string,
+    code: number | null = null,
+    readonly requestOutcome?: 'not_submitted' | 'refused' | 'uncertain',
+  ) {
     super(message)
     this.name = 'AcpConnectionError'
     this.code = code
@@ -108,7 +112,7 @@ export class AcpConnectionError extends Error {
 export class AcpAuthRequiredError extends AcpConnectionError {
   readonly logins: AcpTerminalLogin[]
   constructor(message: string, logins: AcpTerminalLogin[]) {
-    super(message, AUTH_REQUIRED_ERROR)
+    super(message, AUTH_REQUIRED_ERROR, 'refused')
     this.name = 'AcpAuthRequiredError'
     this.logins = logins
   }
@@ -409,7 +413,7 @@ export class AcpConnection {
     for (const [id, pending] of this.#pending) {
       if (pending.timer !== null) clearTimeout(pending.timer)
       if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
-      pending.reject(error)
+      pending.reject(new AcpConnectionError(error.message, error.code, 'uncertain'))
       this.#pending.delete(id)
     }
   }
@@ -449,7 +453,9 @@ export class AcpConnection {
         if (error.code === AUTH_REQUIRED_ERROR) {
           pending.reject(this.#authRequired())
         } else {
-          pending.reject(new AcpConnectionError(error.message ?? 'agent error', error.code ?? null))
+          pending.reject(
+            new AcpConnectionError(error.message ?? 'agent error', error.code ?? null, 'refused'),
+          )
         }
       } else {
         pending.resolve(message['result'])
@@ -527,7 +533,9 @@ export class AcpConnection {
     stallSilenceMs?: number,
   ): Promise<unknown> {
     if (this.#closed) {
-      return Promise.reject(new AcpConnectionError(`${this.launch.label} connection is closed`))
+      return Promise.reject(
+        new AcpConnectionError(`${this.launch.label} connection is closed`, null, 'not_submitted'),
+      )
     }
     const id = this.#nextId++
     return new Promise<unknown>((resolve, reject) => {
@@ -541,6 +549,8 @@ export class AcpConnection {
           reject(
             new AcpConnectionError(
               `${this.launch.label}: ${method} timed out after ${timeoutMs}ms`,
+              null,
+              'uncertain',
             ),
           )
         }, timeoutMs)
@@ -566,6 +576,8 @@ export class AcpConnection {
               new AcpConnectionError(
                 `${this.launch.label} went silent for ${quiet} mid-${method} — ` +
                   `the agent may be wedged or waiting for login${this.#tailReport()}`,
+                null,
+                'uncertain',
               ),
             )
           },
@@ -575,11 +587,25 @@ export class AcpConnection {
         stallTimer = interval
       }
       this.#pending.set(id, { resolve, reject, timer, stallTimer })
-      if (!this.#write({ jsonrpc: '2.0', id, method, params })) {
+      const fail = (error: AcpConnectionError): void => {
         this.#pending.delete(id)
         if (timer !== null) clearTimeout(timer)
         if (stallTimer !== null) clearInterval(stallTimer)
-        reject(new AcpConnectionError(`${this.launch.label} stdin unavailable`))
+        reject(error)
+      }
+      try {
+        if (!this.#write({ jsonrpc: '2.0', id, method, params }))
+          fail(
+            new AcpConnectionError(`${this.launch.label} stdin unavailable`, null, 'not_submitted'),
+          )
+      } catch (error) {
+        fail(
+          new AcpConnectionError(
+            `${this.launch.label} request write failed: ${String(error)}`,
+            null,
+            'uncertain',
+          ),
+        )
       }
     })
   }
