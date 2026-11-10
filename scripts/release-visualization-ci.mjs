@@ -128,6 +128,111 @@ function stressSource(type) {
       })),
     }
   }
+  if (type === 'line' || type === 'area') {
+    const labels = Array.from({ length: 8 }, (_, index) => longLabel(`${type} ${index + 1}`))
+    return {
+      version: 1,
+      type,
+      title: `Long ${type} labels`,
+      labels,
+      unit: 'hours',
+      series: [
+        { name: longLabel('Before the change'), values: labels.map((_, index) => index + 1) },
+        { name: longLabel('After the change'), values: labels.map((_, index) => index) },
+      ],
+    }
+  }
+  if (type === 'scatter') {
+    return {
+      version: 1,
+      type,
+      title: 'Long point labels',
+      series: [
+        {
+          name: longLabel('Observed points'),
+          points: Array.from({ length: 8 }, (_, index) => ({
+            x: index,
+            y: index + 1,
+            label: longLabel(`Point ${index + 1}`),
+          })),
+        },
+      ],
+    }
+  }
+  if (type === 'donut') {
+    return {
+      version: 1,
+      type,
+      title: 'Long donut labels',
+      items: Array.from({ length: 8 }, (_, index) => ({
+        label: longLabel(`Slice ${index + 1}`),
+        value: index + 1,
+      })),
+    }
+  }
+  if (type === 'radar') {
+    const labels = Array.from({ length: 6 }, (_, index) => longLabel(`Axis ${index + 1}`))
+    return {
+      version: 1,
+      type,
+      title: 'Long axis labels',
+      labels,
+      series: [{ name: longLabel('Option'), values: labels.map((_, index) => index + 1) }],
+    }
+  }
+  if (type === 'treemap') {
+    return {
+      version: 1,
+      type,
+      title: 'Long treemap labels',
+      items: Array.from({ length: 8 }, (_, index) => ({
+        label: longLabel(`Area ${index + 1}`),
+        value: index + 1,
+      })),
+    }
+  }
+  if (type === 'graph') {
+    return {
+      version: 1,
+      type,
+      title: 'Long node labels',
+      direction: 'down',
+      nodes: Array.from({ length: 6 }, (_, index) => ({
+        id: `n${index}`,
+        label: longLabel(`Node ${index + 1}`),
+        description: longLabel('What this step does'),
+      })),
+      edges: Array.from({ length: 5 }, (_, index) => ({
+        from: `n${index}`,
+        to: `n${index + 1}`,
+      })),
+    }
+  }
+  if (type === 'gantt') {
+    return {
+      version: 1,
+      type,
+      title: 'Long task labels',
+      unit: 'days',
+      tasks: Array.from({ length: 6 }, (_, index) => ({
+        label: longLabel(`Task ${index + 1}`),
+        start: index,
+        end: index + 2,
+      })),
+    }
+  }
+  if (type === 'metrics') {
+    return {
+      version: 1,
+      type,
+      title: 'Long metric labels',
+      items: Array.from({ length: 6 }, (_, index) => ({
+        label: longLabel(`Metric ${index + 1}`),
+        value: index + 1,
+        detail: longLabel('Detail for this metric'),
+      })),
+    }
+  }
   return null
 }
 
@@ -184,6 +289,26 @@ export function resolveEsbuild(root) {
   }
 }
 
+/** JS API beside the bin. Never executes the bin and never downloads a binary. */
+export function esbuildApiEntry(binPath) {
+  const api = join(dirname(binPath), '..', 'lib', 'main.js')
+  if (!existsSync(api)) throw new Error('esbuild JS API is missing from the existing install')
+  return api
+}
+
+export function assertCaptureTools({ chrome, esbuild }) {
+  if (!chrome) {
+    throw new Error(
+      'No system Chrome is installed. Screenshots were not captured and Chrome was not downloaded.',
+    )
+  }
+  if (!esbuild) {
+    throw new Error(
+      'esbuild from the existing install could not be resolved. Screenshots were not captured.',
+    )
+  }
+}
+
 function caseId(kind, type, theme, width) {
   return `${kind}-${type}-${theme}-${width}`
 }
@@ -214,8 +339,10 @@ export function reviewPlan({ commit, skill }) {
     }
   }
   for (const type of VISUAL_TYPES) push('documented', type, byType.get(type))
-  for (const type of ['bar', 'pie', 'funnel', 'timeline', 'heatmap', 'comparison']) {
-    push('stress', type, JSON.stringify(stressSource(type)))
+  for (const type of VISUAL_TYPES) {
+    const source = stressSource(type)
+    if (source === null) throw new Error(`Stress case missing for ${type}`)
+    push('stress', type, JSON.stringify(source))
   }
   push('historical', 'timeline', JSON.stringify(HISTORICAL_TIMELINE))
   push(
@@ -265,6 +392,51 @@ export function pairedReviewPlan({ before, after, skill }) {
     captured: false,
     caseCount: cases.length,
     cases,
+    skillSource: 'after',
+    surface: 'shared-component',
+    surfaceLimit:
+      'Hosted PNGs render packages/ui Visualization in a plain HTML page. They are not native desktop, delegated-result, or mobile app screenshots. Those reply surfaces are covered by jsdom tests of MarkdownBlock, DelegatedResult, and mobile Markdown.',
+  }
+}
+
+export function readReviewMarker(dom) {
+  const match = dom.match(/<script[^>]*id="ari-viz-review"[^>]*>([\s\S]*?)<\/script>/)
+  if (!match?.[1]) throw new Error('Visualization review marker is missing')
+  let value
+  try {
+    value = JSON.parse(match[1])
+  } catch {
+    throw new Error('Visualization review marker is not JSON')
+  }
+  if (value?.ready !== true) throw new Error('Visualization review did not become ready')
+  return value
+}
+
+export function assertReviewResult(marker, item) {
+  const failures = Array.isArray(marker.failures) ? marker.failures : []
+  if (failures.length > 0) throw new Error(`Renderer failure for ${item.id}: ${failures[0]}`)
+  const error = typeof marker.error === 'string' ? marker.error : ''
+  if (error.includes('<')) throw new Error(`Review error echoes markup for ${item.id}`)
+  if (error.length > 240) throw new Error(`Review error is unbounded for ${item.id}`)
+  const expectsVisual =
+    item.kind !== 'error' && !(item.sourceRole === 'before' && item.kind === 'historical')
+  if (expectsVisual) {
+    if (marker.ok !== true || marker.unavailable === true) {
+      throw new Error(`Expected a rendered ${item.type} chart for ${item.id}`)
+    }
+    const title = JSON.parse(item.source).title
+    if (marker.title !== title) throw new Error(`Expected title ${title} for ${item.id}`)
+    return
+  }
+  if (marker.unavailable !== true || marker.ok !== false || error.length === 0) {
+    throw new Error(`Expected a readable error card for ${item.id}`)
+  }
+  if (
+    item.sourceRole === 'after' &&
+    item.kind === 'error' &&
+    error !== 'Timeline charts need events.'
+  ) {
+    throw new Error(`Expected the named missing-events error for ${item.id}`)
   }
 }
 
@@ -316,19 +488,58 @@ export async function bundleRenderer(installRoot, esbuildBin, outDir, options = 
   const uiRequire = createRequire(join(installRoot, 'packages/ui/package.json'))
   const react = dirname(uiRequire.resolve('react/package.json')).replaceAll('\\', '/')
   const reactDom = dirname(uiRequire.resolve('react-dom/package.json')).replaceAll('\\', '/')
-  const contracts = join(sourceRoot, 'packages/contracts/src/visualization.ts').replaceAll('\\', '/')
+  const contracts = join(sourceRoot, 'packages/contracts/src/visualization.ts').replaceAll(
+    '\\',
+    '/',
+  )
   await mkdir(outDir, { recursive: true })
   await writeFile(
     entry,
     `import { createRoot } from 'react-dom/client'
 import { Visualization } from ${JSON.stringify(visualization)}
 const source = document.getElementById('viz-source')?.textContent ?? ''
-const root = document.getElementById('root')
-if (!root) throw new Error('missing root')
-createRoot(root).render(<Visualization source={source} />)
+const mount = document.getElementById('root')
+const failures = []
+window.addEventListener('error', (event) => {
+  failures.push(String(event.message ?? '').replace(/\\s+/g, ' ').trim().slice(0, 180))
+})
+function publish(result) {
+  const node = document.createElement('script')
+  node.id = 'ari-viz-review'
+  node.type = 'application/json'
+  node.textContent = JSON.stringify(result)
+  document.body.appendChild(node)
+}
+if (!mount) {
+  publish({ ready: true, ok: false, title: '', error: 'missing root', unavailable: true, failures })
+} else {
+  try {
+    createRoot(mount).render(<Visualization source={source} />)
+    const figure = mount.querySelector('figure.ari-viz')
+    const errorNode = mount.querySelector('.ari-viz-error p')
+    const error = (errorNode?.textContent ?? '').replace(/\\s+/g, ' ').trim().slice(0, 240)
+    publish({
+      ready: true,
+      ok: figure !== null && errorNode === null,
+      title: figure?.querySelector('.ari-viz-title')?.textContent ?? '',
+      error,
+      unavailable: errorNode !== null,
+      failures,
+    })
+  } catch (error) {
+    publish({
+      ready: true,
+      ok: false,
+      title: '',
+      error: (error instanceof Error ? error.message : String(error)).slice(0, 240),
+      unavailable: true,
+      failures,
+    })
+  }
+}
 `,
   )
-  const esbuildUrl = pathToFileURL(join(dirname(esbuildBin), '..', 'lib', 'main.js')).href
+  const esbuildUrl = pathToFileURL(esbuildApiEntry(esbuildBin)).href
   const loaded = await import(esbuildUrl)
   const esbuild = loaded.default?.build ? loaded.default : loaded
   await esbuild.build({
@@ -398,13 +609,17 @@ async function main() {
     files: [],
   }
   if (!chrome || !esbuildBin) {
-    status.reason = !chrome
-      ? 'No system Chrome is installed. Screenshots were not captured and Chrome was not downloaded.'
-      : 'esbuild from the existing install could not be resolved. Screenshots were not captured.'
-    logLines.push(status.reason)
-    await writeReview(outDir, plan, status, logLines)
-    console.log(JSON.stringify(status))
-    return
+    try {
+      assertCaptureTools({ chrome, esbuild: esbuildBin })
+    } catch (error) {
+      status.reason = error instanceof Error ? error.message : String(error)
+      logLines.push(status.reason)
+      logLines.push(
+        'surface shared-component; PNGs are not native desktop, delegated, or mobile screenshots',
+      )
+      await writeReview(outDir, plan, status, logLines)
+      throw error
+    }
   }
   const beforeRoot = join(outDir, 'before-source')
   const groups = [
@@ -425,7 +640,7 @@ async function main() {
         const page = join(outDir, `${item.id}.html`)
         const png = join(outDir, `${item.id}.png`)
         await writeFile(page, htmlPage({ bundleHref, tokensHref, visualHref, item }))
-        execFileSync(
+        const dom = execFileSync(
           chrome,
           [
             '--headless=new',
@@ -437,11 +652,20 @@ async function main() {
             `--user-data-dir=${join(process.env.RUNNER_TEMP, 'ari-visualization-chrome', item.id)}`,
             `--window-size=${item.width},${item.height}`,
             `--screenshot=${png}`,
+            '--dump-dom',
             pathToFileURL(page).href,
           ],
-          { cwd: outDir, windowsHide: true, timeout: 60_000 },
+          {
+            cwd: outDir,
+            windowsHide: true,
+            timeout: 60_000,
+            encoding: 'utf8',
+            maxBuffer: 8_000_000,
+          },
         )
         if (!existsSync(png)) throw new Error(`Screenshot missing for ${item.id}`)
+        const marker = readReviewMarker(dom)
+        assertReviewResult(marker, item)
         status.files.push({
           id: item.id,
           sourceRole: item.sourceRole,
@@ -453,9 +677,14 @@ async function main() {
           height: item.height,
           commit: item.commit,
           png,
+          ok: marker.ok,
+          title: marker.title,
+          error: marker.error,
+          unavailable: marker.unavailable,
+          failures: marker.failures,
         })
         logLines.push(
-          `${item.id} ${item.commit} ${item.theme} ${item.width} ${item.kind} ${item.type}`,
+          `${item.id} ${item.commit} ${item.theme} ${item.width} ${item.kind} ${item.type} ok=${marker.ok} unavailable=${marker.unavailable} error=${marker.error}`,
         )
       }
     }
