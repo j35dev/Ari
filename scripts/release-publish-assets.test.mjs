@@ -26,7 +26,7 @@ async function releaseFixture() {
       ['x64'],
     ],
     [
-      'macos-15',
+      'macos-latest',
       'darwin',
       'Ari-0.3.13-universal.zip',
       'latest-mac.yml',
