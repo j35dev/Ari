@@ -25,6 +25,80 @@ function ev(seq: number, partial: UnstampedEvent): JournalEvent {
 }
 
 describe('session projection', () => {
+  it('does not regress confirmed delivery, consumption or request resolution under stale updates', () => {
+    const message = {
+      messageId: 'inbox',
+      senderSessionId: 'worker',
+      recipientSessionId: session.id,
+      text: 'Question',
+      createdAt: 1,
+      status: 'pending' as const,
+      turnId: null,
+      consumedAt: null,
+      request: {
+        kind: 'input' as const,
+        requestId: 'question',
+        sourceTurnId: 'source',
+        ownerSessionId: session.id,
+        resolvedAt: null,
+      },
+    }
+    const state = projectEvents([
+      ev(0, { type: 'coordination.updated', message }),
+      ev(1, {
+        type: 'coordination.updated',
+        message: { ...message, status: 'delivered', turnId: 'target' },
+      }),
+      ev(2, { type: 'coordination.updated', message: { ...message, status: 'delivering' } }),
+      ev(3, {
+        type: 'coordination.updated',
+        message: {
+          ...message,
+          status: 'consumed',
+          consumedAt: 42,
+          request: { ...message.request, resolvedAt: 43 },
+        },
+      }),
+      ev(4, { type: 'coordination.updated', message }),
+    ])
+    expect(state.inbox?.inbox).toMatchObject({
+      status: 'consumed',
+      consumedAt: 42,
+      request: { resolvedAt: 43 },
+    })
+    const delivered = projectEvents([
+      ev(0, {
+        type: 'coordination.updated',
+        message: { ...message, status: 'delivered', turnId: 'target' },
+      }),
+      ev(1, { type: 'coordination.updated', message: { ...message, status: 'delivering' } }),
+    ])
+    expect(delivered.inbox?.inbox).toMatchObject({ status: 'delivered', turnId: 'target' })
+  })
+
+  it('keeps the newest source completion when an older mirror arrives later', () => {
+    const state = projectEvents([
+      ev(0, {
+        type: 'child.session.settled',
+        childSessionId: 'worker',
+        turnId: 'new',
+        stopReason: 'completed',
+        settledAt: 200,
+      }),
+      ev(1, {
+        type: 'child.session.settled',
+        childSessionId: 'worker',
+        turnId: 'old',
+        stopReason: 'error',
+        settledAt: 100,
+      }),
+    ])
+    expect(state.childCompletions?.worker).toMatchObject({
+      turnId: 'new',
+      stopReason: 'completed',
+      settledAt: 200,
+    })
+  })
   it('replays switches, discards stale refs, and consumes the handoff once', () => {
     const events = [
       ev(0, { type: 'session.created', session: { ...session, projectId: 'helm' } }),

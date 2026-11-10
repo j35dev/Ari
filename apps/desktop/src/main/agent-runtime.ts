@@ -195,14 +195,8 @@ async function startControlTransport(
     subscribe: (listener) => store.subscribe(listener),
     ...(options.recover === false ? {} : { isRunning: (id: string) => engine.hasLiveTurn(id) }),
     isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
-    coordinate: async (senderId, recipientId, text, key) => {
-      const result = await service.invoke(senderId, 'session.message', {
-        targetSessionId: recipientId,
-        text,
-        idempotencyKey: key,
-      })
-      if (!result.ok) throw new ControlFailure(result.error.code, result.error.message)
-    },
+    notifyRequest: (senderId, recipientId, text, request, key) =>
+      service.notifyRequest(senderId, recipientId, text, request, key),
     treeSpend: spendOf,
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })
@@ -352,6 +346,13 @@ async function startControlTransport(
         .catch(() => undefined)
     }
   })
+  const unsubscribeReady = engine.subscribeLiveTurnReady((id) => {
+    void service
+      .deliverPendingCoordination(id)
+      .catch((error: unknown) =>
+        log.warn('pending coordination delivery deferred', { sessionId: id, error: String(error) }),
+      )
+  })
   supervisor.start()
   const cleanupAbort = new AbortController()
   void (async () => {
@@ -432,7 +433,8 @@ async function startControlTransport(
     close: async () => {
       cleanupAbort.abort()
       unsubscribe()
-      supervisor.close()
+      unsubscribeReady()
+      await supervisor.close()
       approvals.close()
       await closeControlTransport(() => server.close(), socketDir)
     },

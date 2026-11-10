@@ -4,6 +4,7 @@ import {
   HELM_DESCRIPTION_CHARS,
   HELM_RECENT_SESSIONS,
   HELM_SESSION_TITLE_CHARS,
+  HELM_ERROR_MESSAGE_CHARS,
   type HelmProjectContext,
   type HelmSessionRow,
   isHelmSession,
@@ -11,7 +12,7 @@ import {
 } from '@ari/contracts/helm'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel } from './projection'
-import { finalAssistantText } from './delegation-state'
+import { childWorkState, finalAssistantText } from './delegation-state'
 import type { ResolvedProjectAgent } from '@ari/contracts/project'
 
 /**
@@ -25,7 +26,31 @@ export function turnRequester(model: SessionReadModel, turnId: string): string |
   for (let i = start; i >= 0; i--) {
     const origin = asks[i]?.origin
     if (origin?.kind === 'session') return origin.sessionId
-    if (origin?.kind !== 'completion' && origin?.kind !== 'question') return null
+    if (!origin || !['completion', 'question', 'coordination'].includes(origin.kind)) return null
+  }
+  return null
+}
+
+/** Follow the work's requesters through leads, never through a human-started turn. */
+export async function helmAttentionRecipient(
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
+  source: SessionReadModel,
+): Promise<string | null> {
+  const seen = new Set<string>()
+  let model = source
+  while (model.session && !seen.has(model.session.id)) {
+    seen.add(model.session.id)
+    const turnId = model.activeTurnId ?? model.lastTurn?.turnId
+    if (!turnId) return null
+    const requester = turnRequester(model, turnId)
+    if (!requester) return null
+    const recipient = await helmRecipient(store, model, requester)
+    if (recipient) return recipient
+    // A worker only inherits coordination ownership through its real parent.
+    if (requester !== model.session.parentSessionId) return null
+    const parent = await store.loadExisting(requester)
+    if (!parent) return null
+    model = parent
   }
   return null
 }
@@ -37,6 +62,17 @@ export async function helmReportRecipient(
   turnId: string,
 ): Promise<string | null> {
   return helmRecipient(store, model, turnRequester(model, turnId))
+}
+
+/** The only agent allowed to answer the active question; null means a human decision. */
+export async function questionOwnerSessionId(
+  store: Pick<SessionStore, 'loadExisting' | 'currentHelmSession'>,
+  model: SessionReadModel,
+): Promise<string | null> {
+  if (!model.activeTurnId) return null
+  const requester = turnRequester(model, model.activeTurnId)
+  if (requester && requester === model.session?.parentSessionId) return requester
+  return helmReportRecipient(store, model, model.activeTurnId)
 }
 
 export async function helmTaskRecipient(
@@ -69,9 +105,10 @@ async function helmRecipient(
 ): Promise<string | null> {
   if (!requester) return null
   const row = rows?.find((row) => row.id === requester)
-  if (row) return isHelmSession(row) ? requester : null
+  if (row && !row.archived) return isHelmSession(row) ? requester : null
   const asked = (await store.loadExisting(requester))?.session
-  if (asked) return isHelmSession(asked) ? requester : null
+  if (asked && !asked.archived) return isHelmSession(asked) ? requester : null
+  if (asked && !isHelmSession(asked)) return null
   if (!isHelmProjectSession(model.session)) return null
   if (!rows) return store.currentHelmSession()
   const current = [...rows]
@@ -81,16 +118,22 @@ async function helmRecipient(
 }
 
 /** Where a session stands, from its journal. */
-export function sessionState(model: SessionReadModel): HelmSessionRow['state'] {
+export function sessionState(
+  model: SessionReadModel,
+  questionOwner: string | null = model.activeTurnId
+    ? turnRequester(model, model.activeTurnId)
+    : null,
+): HelmSessionRow['state'] {
   if (model.activeTurnId !== null)
-    return model.pendingApprovals.length > 0 || model.pendingInputs.length > 0
+    return model.pendingApprovals.length > 0
       ? 'needs_user'
-      : 'working'
+      : model.pendingInputs.length > 0
+        ? questionOwner !== null
+          ? 'needs_agent'
+          : 'needs_user'
+        : 'working'
   return model.queuedMessages.length > 0 ? 'queued' : 'idle'
 }
-
-/** Listing statuses that mean a turn is running or about to; cheap to read for every session. */
-const ACTIVE = new Set(['queued', 'running', 'waiting-approval', 'waiting-input'])
 
 export interface HelmView {
   rows: readonly SessionListEntry[]
@@ -102,7 +145,60 @@ export interface HelmView {
 export async function helmRow(view: HelmView, row: SessionListEntry): Promise<HelmSessionRow> {
   const model = await view.load(row.id)
   const session = model.session
-  const preview = finalAssistantText(model, model.lastTurn?.turnId, 240).text
+  const questionOwner = await questionOwnerSessionId(
+    {
+      // A missing requester must not be opened as a new journal by view.load.
+      loadExisting: (id) =>
+        view.rows.some((member) => member.id === id) ? view.load(id) : Promise.resolve(null),
+      currentHelmSession: () =>
+        Promise.resolve(
+          [...view.rows]
+            .filter((member) => isHelmSession(member) && !member.archived)
+            .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null,
+        ),
+    },
+    model,
+  )
+  const descendants = new Set<string>([row.id])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const member of view.rows)
+      if (
+        member.parentSessionId &&
+        descendants.has(member.parentSessionId) &&
+        !descendants.has(member.id)
+      ) {
+        descendants.add(member.id)
+        changed = true
+      }
+  }
+  let liveDescendants = 0
+  for (const id of descendants)
+    if (id !== row.id) {
+      const child = await view.load(id)
+      if (child.activeTurnId || child.queuedMessages.length) liveDescendants++
+    }
+  const workState = childWorkState(model, liveDescendants, questionOwner !== null)
+  const lastTurn =
+    model.activeTurnId === null &&
+    model.queuedMessages.length === 0 &&
+    workState !== 'waiting_for_children'
+      ? model.lastTurn
+      : undefined
+  const latestTurn: HelmSessionRow['latestTurn'] = lastTurn
+    ? {
+        turnId: lastTurn.turnId,
+        stopReason: lastTurn.stopReason,
+        settledAt: lastTurn.settledAt,
+        errorMessage:
+          lastTurn.stopReason === 'error' && lastTurn.errorMessage
+            ? compact(lastTurn.errorMessage, HELM_ERROR_MESSAGE_CHARS) || null
+            : null,
+      }
+    : null
+  const previewTurnId = model.activeTurnId ?? latestTurn?.turnId
+  const preview = previewTurnId ? finalAssistantText(model, previewTurnId, 240).text : ''
   return {
     sessionId: row.id,
     title: row.title,
@@ -111,11 +207,17 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
     parentSessionId: row.parentSessionId ?? null,
     driverKind: row.driverKind ?? session?.driverKind ?? 'unknown',
     modelId: row.modelId ?? session?.modelId ?? null,
-    state: sessionState(model),
+    state: sessionState(model, questionOwner),
+    workState,
+    lastSeq: model.lastSeq,
+    questionOwnerSessionId: questionOwner,
+    pendingInputs: model.pendingInputs,
+    pendingApprovals: model.pendingApprovals,
+    latestTurn,
     startedByAria: Boolean(
       session && !session.parentSessionId && session.createdBy?.kind === 'session',
     ),
-    updatedAt: model.lastTurn?.settledAt ?? row.updatedAt,
+    updatedAt: Math.max(model.lastObservedAt ?? 0, row.updatedAt),
     preview: preview.length > 0 ? preview : null,
   }
 }
@@ -142,12 +244,16 @@ export async function findSessions(view: HelmView, find: FindSessions): Promise<
   for (const row of reachable(view)) {
     if (out.length >= find.limit) break
     if (find.projectId !== undefined && row.projectId !== find.projectId) continue
-    if (find.scope === 'active' && !ACTIVE.has(row.status ?? 'idle')) continue
     const haystack = `${row.title} ${row.lastMessagePreview ?? ''}`.toLowerCase()
     if (!words.every((word) => haystack.includes(word))) continue
     const entry = await helmRow(view, row)
     // The listing can trail the journal by a turn; the journal decides.
-    if (find.scope === 'active' && entry.state === 'idle') continue
+    if (
+      find.scope === 'active' &&
+      entry.state === 'idle' &&
+      entry.workState !== 'waiting_for_children'
+    )
+      continue
     out.push(entry)
   }
   return out
@@ -157,7 +263,14 @@ const STATE = {
   working: 'working',
   queued: 'queued',
   needs_user: 'waiting on the user',
+  needs_agent: 'waiting on the requesting agent',
   idle: 'idle',
+} as const
+
+const OUTCOME = {
+  completed: 'completed',
+  interrupted: 'interrupted',
+  error: 'failed',
 } as const
 
 function ago(ms: number): string {
@@ -172,7 +285,24 @@ function line(entry: HelmSessionRow, titles: ReadonlyMap<string, string>): strin
   const parent = entry.parentSessionId ? titles.get(entry.parentSessionId) : undefined
   const under = parent ? `, child of "${parent}"` : ''
   const mine = entry.startedByAria ? ', started by you' : ''
-  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${STATE[entry.state]}`
+  const settled = entry.state === 'idle' ? entry.latestTurn : null
+  const state =
+    entry.workState === 'waiting_for_children'
+      ? 'waiting for delegated work'
+      : settled
+        ? OUTCOME[settled.stopReason]
+        : STATE[entry.state]
+  const error = settled?.errorMessage ? `: ${settled.errorMessage}` : ''
+  const requests = [
+    ...(entry.pendingInputs ?? []).map(
+      (input) =>
+        `question ${input.inputId}, owner ${entry.questionOwnerSessionId ?? 'human'}: ${compact(input.prompt, 300)}`,
+    ),
+    ...(entry.pendingApprovals ?? []).map(
+      (approval) => `human approval ${approval.approvalId}: ${compact(approval.toolName, 80)}`,
+    ),
+  ]
+  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${state}${error}${requests.length ? `; ${requests.join('; ')}. Current context: ari session read ${entry.sessionId} --turns 1 --json` : ''}`
 }
 
 const MAX_ACTIVE = 25
@@ -243,9 +373,8 @@ export async function helmSnapshot(
   const active: HelmSessionRow[] = []
   for (const row of rows) {
     if (active.length >= MAX_ACTIVE) break
-    if (!ACTIVE.has(row.status ?? 'idle')) continue
     const entry = await helmRow(view, row)
-    if (entry.state !== 'idle') active.push(entry)
+    if (entry.state !== 'idle' || entry.workState === 'waiting_for_children') active.push(entry)
   }
   const reported = Object.entries(helm.childCompletions ?? {})
     .filter(([, completion]) => now - (completion.settledAt ?? 0) < DAY_MS)
@@ -256,7 +385,7 @@ export async function helmSnapshot(
     const row = rows.find((candidate) => candidate.id === id)
     if (!row) continue
     const entry = await helmRow(view, row)
-    if (entry.state === 'idle') finished.push(entry)
+    if (entry.state === 'idle' && entry.workState !== 'waiting_for_children') finished.push(entry)
   }
   const others = projects
     .filter((project) => project.projectId !== HELM_PROJECT_ID)

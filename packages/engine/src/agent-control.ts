@@ -33,7 +33,14 @@ import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
 import { childWorkState, finalAssistantText } from './delegation-state'
 import type { TreeSpend } from './tree-budget'
-import { findSessions, turnRequester, helmTaskRecipient, type HelmView } from './helm'
+import {
+  findSessions,
+  turnRequester,
+  helmTaskRecipient,
+  helmReportRecipient,
+  questionOwnerSessionId,
+  type HelmView,
+} from './helm'
 import {
   resolveProjectAgent,
   type ProjectAgentDefaults,
@@ -173,6 +180,45 @@ export class AgentControlService {
   readonly #gone = new Map<string, Set<() => void>>()
   readonly #waiting = new Map<string, Map<string, number>>()
   constructor(readonly host: ControlHost) {}
+
+  /** Trusted supervisor path; agents cannot manufacture provider request metadata. */
+  async notifyRequest(
+    senderId: string,
+    recipientId: string,
+    text: string,
+    request: NonNullable<CoordinationMessage['request']>,
+    key: string,
+  ): Promise<CoordinationMessage> {
+    return this.#coordinate(
+      await this.#get(senderId),
+      await this.#get(recipientId),
+      { text, targetSessionId: recipientId, idempotencyKey: key },
+      request,
+    )
+  }
+
+  /** Retry only known-unsubmitted inbox entries when a new live adapter becomes ready. */
+  async deliverPendingCoordination(recipientId: string): Promise<void> {
+    const model = await this.host.store.loadExisting(recipientId)
+    if (!model?.session || model.session.archived || !this.host.policy().enabled) return
+    for (const message of Object.values(model.inbox ?? {})) {
+      if (message.status !== 'pending' || (message.request && message.request.resolvedAt !== null))
+        continue
+      if (message.request) {
+        const source = await this.host.store.loadExisting(message.senderSessionId)
+        if (
+          source?.activeTurnId !== message.request.sourceTurnId ||
+          !(message.request.kind === 'input'
+            ? source.pendingInputs.some((input) => input.inputId === message.request!.requestId)
+            : source.pendingApprovals.some(
+                (approval) => approval.approvalId === message.request!.requestId,
+              ))
+        )
+          continue
+      }
+      await this.#deliverInbox(message)
+    }
+  }
 
   /** True while `parentId` is blocked in `session wait` on `childId`. */
   isWaiting(parentId: string, childId: string): boolean {
@@ -387,7 +433,7 @@ export class AgentControlService {
             'invalid_request',
             'Idempotency key already used with different parameters.',
           )
-        return { ok: true, result: await previous.result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await previous.result) }
       }
       if (this.#receipts.size >= 10_000)
         throw new ControlFailure(
@@ -401,14 +447,14 @@ export class AgentControlService {
             'invalid_request',
             'Idempotency key already used with different parameters.',
           )
-        return { ok: true, result: await raced.result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await raced.result) }
       }
       const result = this.#chain(caller, () =>
         this.#durable(caller.id, receiptKey, method, fingerprint, params, run),
       )
       this.#receipts.set(receiptKey, { fingerprint, result })
       try {
-        return { ok: true, result: await result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await result) }
       } catch (error) {
         if (this.#receipts.get(receiptKey)?.result === result) this.#receipts.delete(receiptKey)
         throw error
@@ -422,6 +468,24 @@ export class AgentControlService {
       log.error('control operation failed', { method })
       return { ok: false, error: { code: 'internal_error', message: 'Control operation failed.' } }
     }
+  }
+
+  /** Mutation receipts retain identity; current inbox state decides message delivery status. */
+  async #freshReceiptResult(method: ControlMethod, result: unknown): Promise<unknown> {
+    if (
+      method !== 'session.message' ||
+      !result ||
+      typeof result !== 'object' ||
+      !('messageId' in result) ||
+      !('recipientSessionId' in result) ||
+      typeof result.messageId !== 'string' ||
+      typeof result.recipientSessionId !== 'string'
+    )
+      return result
+    const accepted = (await this.host.store.loadExisting(result.recipientSessionId))?.inbox?.[
+      result.messageId
+    ]
+    return accepted ? this.#coordinationState(accepted) : result
   }
 
   /** Journal barriers surround effects whose repetition could submit or integrate twice. */
@@ -835,10 +899,7 @@ export class AgentControlService {
             'Only the direct parent can answer a child question.',
           )
         const model = await this.host.store.load(child.id)
-        const asked = model.messages.find(
-          (message) => message.role === 'user' && message.turnId === model.activeTurnId,
-        )
-        if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== caller.id)
+        if ((await questionOwnerSessionId(this.host.store, model)) !== caller.id)
           throw new ControlFailure(
             'scope_denied',
             'This question belongs to the human, not the lead.',
@@ -856,6 +917,7 @@ export class AgentControlService {
             sessionId: child.id,
             inputId: p.inputId,
             value: p.value,
+            expectedTurnId: model.activeTurnId!,
           },
           { kind: 'session', sessionId: caller.id },
         )
@@ -1786,15 +1848,27 @@ export class AgentControlService {
       !caller.parentSessionId && caller.createdBy?.kind === 'session'
         ? caller.createdBy.sessionId
         : null
+    const aria =
+      model.activeTurnId || model.lastTurn
+        ? await helmReportRecipient(
+            this.host.store,
+            model,
+            model.activeTurnId ?? model.lastTurn!.turnId,
+          )
+        : null
     const target = await this.#get(
       id === 'self'
         ? caller.id
         : id === 'parent'
-          ? (asker ?? caller.parentSessionId ?? launcher ?? '')
+          ? (aria ?? asker ?? caller.parentSessionId ?? launcher ?? '')
           : id,
     )
     if (isHelmSession(caller) && !isHelmSession(target)) return target
-    if ((target.id === launcher || target.id === asker) && isHelmSession(target)) return target
+    if (
+      (target.id === launcher || target.id === asker || target.id === aria) &&
+      isHelmSession(target)
+    )
+      return target
     if (target.projectId !== caller.projectId)
       throw new ControlFailure('scope_denied', 'Cross-project coordination is denied.')
     const directParent = target.id === caller.parentSessionId
@@ -1813,6 +1887,18 @@ export class AgentControlService {
   async #coordinationState(message: CoordinationMessage): Promise<CoordinationMessage> {
     if (message.status !== 'delivering' || this.#activeDeliveries.has(message.messageId))
       return message
+    const recipient = await this.host.store.loadExisting(message.recipientSessionId)
+    if (
+      recipient?.activeTurnId === message.turnId &&
+      this.host.isRunning?.(message.recipientSessionId) !== false &&
+      recipient.messages.some(
+        (entry) =>
+          entry.turnId === message.turnId &&
+          entry.origin?.kind === 'coordination' &&
+          entry.origin.messageIds.includes(message.messageId),
+      )
+    )
+      return message
     const uncertain = { ...message, status: 'uncertain' as const }
     await this.host.record(message.recipientSessionId, {
       type: 'coordination.updated',
@@ -1825,6 +1911,7 @@ export class AgentControlService {
     caller: Session,
     target: Session,
     p: ControlParams<'session.message'>,
+    request?: NonNullable<CoordinationMessage['request']>,
   ): Promise<CoordinationMessage> {
     if (target.archived)
       throw new ControlFailure('scope_denied', 'Restore the recipient before messaging it.')
@@ -1834,7 +1921,7 @@ export class AgentControlService {
     const inbox = (await this.host.store.load(target.id)).inbox ?? {}
     const previous = inbox[messageId]
     if (previous) {
-      if (previous.text !== p.text || previous.senderSessionId !== caller.id)
+      if ((!request && previous.text !== p.text) || previous.senderSessionId !== caller.id)
         throw new ControlFailure(
           'invalid_request',
           'Message identity was already used with different input.',
@@ -1843,12 +1930,16 @@ export class AgentControlService {
     }
     const rate = this.#rates.get(caller.id)
     const bucket = rate && Date.now() - rate.at < 60_000 ? rate : { at: Date.now(), count: 0 }
-    if (++bucket.count > 60)
+    if (!request && ++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    if (Object.values(inbox).filter((entry) => entry.status !== 'consumed').length >= 100)
+    if (
+      Object.values(inbox).filter(
+        (entry) => entry.status !== 'consumed' && entry.request?.resolvedAt == null,
+      ).length >= 100
+    )
       throw new ControlFailure('delegation_limit', 'Recipient coordination inbox is full.')
-    let message: CoordinationMessage = {
+    const message: CoordinationMessage = {
       messageId,
       senderSessionId: caller.id,
       recipientSessionId: target.id,
@@ -1857,29 +1948,44 @@ export class AgentControlService {
       status: 'pending',
       turnId: null,
       consumedAt: null,
+      ...(request ? { request } : {}),
     }
     await this.host.record(target.id, { type: 'coordination.updated', message })
-    // Pure inbox delivery works while either agent is blocked in a cooperative wait.
-    // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.
-    if (this.host.canDeliverCoordination?.(target.id) && this.host.deliverCoordination) {
-      message = {
-        ...message,
-        status: 'delivering',
-        turnId: (await this.host.store.load(target.id)).activeTurnId,
+    return this.#deliverInbox(message)
+  }
+
+  async #deliverInbox(accepted: CoordinationMessage): Promise<CoordinationMessage> {
+    const messageId = accepted.messageId
+    const targetId = accepted.recipientSessionId
+    if (this.#activeDeliveries.has(messageId))
+      return this.#coordinationState(
+        (await this.host.store.load(targetId)).inbox?.[messageId] ?? accepted,
+      )
+    this.#activeDeliveries.add(messageId)
+    try {
+      let message = (await this.host.store.load(targetId)).inbox?.[messageId] ?? accepted
+      if (message.status !== 'pending') return this.#coordinationState(message)
+      // Pure inbox delivery works while either agent is blocked in a cooperative wait.
+      // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.
+      if (this.host.canDeliverCoordination?.(targetId) && this.host.deliverCoordination) {
+        message = {
+          ...message,
+          status: 'delivering',
+          turnId: (await this.host.store.load(targetId)).activeTurnId,
+        }
+        try {
+          await this.host.record(targetId, { type: 'coordination.updated', message })
+          const delivered = await this.host.deliverCoordination(message)
+          message = { ...message, status: delivered ? 'delivered' : 'pending' }
+        } catch {
+          message = { ...message, status: 'uncertain' }
+        }
+        await this.host.record(targetId, { type: 'coordination.updated', message })
       }
-      await this.host.record(target.id, { type: 'coordination.updated', message })
-      this.#activeDeliveries.add(messageId)
-      try {
-        const delivered = await this.host.deliverCoordination(message)
-        message = { ...message, status: delivered ? 'delivered' : 'pending' }
-      } catch {
-        message = { ...message, status: 'uncertain' }
-      } finally {
-        this.#activeDeliveries.delete(messageId)
-      }
-      await this.host.record(target.id, { type: 'coordination.updated', message })
+      return (await this.host.store.load(targetId)).inbox?.[messageId] ?? message
+    } finally {
+      this.#activeDeliveries.delete(messageId)
     }
-    return (await this.host.store.load(target.id)).inbox?.[messageId] ?? message
   }
 
   async #prompt(caller: Session, target: Session, text: string) {
@@ -1960,6 +2066,10 @@ export class AgentControlService {
       session: target,
       activeTurnId: state.activeTurnId,
       latestTurn: state.lastTurn ?? null,
+      lastSeq: state.lastSeq,
+      pendingInputs: state.pendingInputs,
+      pendingApprovals: state.pendingApprovals,
+      questionOwnerSessionId: await questionOwnerSessionId(this.host.store, state),
       messages,
       renderedText: messages
         .map((message) => `${message.role}: ${message.text}`)
@@ -2000,13 +2110,9 @@ export class AgentControlService {
       }
       for (const target of targets) {
         const state = await this.host.store.load(target.id)
-        const asked = state.messages.find(
-          (entry) => entry.role === 'user' && entry.turnId === state.activeTurnId,
-        )
         if (
           (target.parentSessionId === caller.id || isHelmSession(caller)) &&
-          asked?.origin?.kind === 'session' &&
-          asked.origin.sessionId === caller.id &&
+          (await questionOwnerSessionId(this.host.store, state)) === caller.id &&
           state.pendingInputs.length
         ) {
           wake([{ status: 'question', sessionId: target.id, questions: state.pendingInputs }])
@@ -2095,6 +2201,7 @@ export class AgentControlService {
         total: tasks.length,
         working: count('working'),
         blockedOnUser: count('blocked_on_user'),
+        blockedOnParent: count('blocked_on_parent'),
         waitingForChildren: count('waiting_for_children'),
         resultAvailable: count('result_available'),
         notStarted: count('not_started'),
@@ -2144,14 +2251,16 @@ export class AgentControlService {
       ...roots.flatMap((id) => descendantIds(rows, id)),
     ]
     const ids = recursive
-      ? [...descendantIds(rows, parentId).reverse(), ...roots]
+      ? [...new Set([...below.reverse(), ...roots])]
       : [...rows.filter((row) => row.parentSessionId === parentId).map((row) => row.id), ...roots]
     // Read from the journal alone. A provider that is still shutting down
     // after its turn settled is not work, and saying so would keep a finished
     // child's card on "working".
     const live = new Set<string>()
-    for (const id of [...below, ...roots])
-      if ((await this.host.store.loadExisting(id))?.activeTurnId) live.add(id)
+    for (const id of [...below, ...roots]) {
+      const model = await this.host.store.loadExisting(id)
+      if (model?.activeTurnId || model?.queuedMessages.length) live.add(id)
+    }
     const completions = parentModel.childCompletions ?? {}
     const tasks: ChildTask[] = []
     for (const id of ids) {
@@ -2159,13 +2268,11 @@ export class AgentControlService {
       if (!model) continue
       const session = model.session
       if (!session) continue
-      const asked = model.messages.find(
-        (message) => message.role === 'user' && message.turnId === model.activeTurnId,
-      )
+      const questionOwner = await questionOwnerSessionId(this.host.store, model)
       const workState = childWorkState(
         model,
         descendantIds(rows, id).filter((nested) => live.has(nested)).length,
-        asked?.origin?.kind === 'session',
+        questionOwner !== null,
       )
       const settled = workState === 'result_available' || workState === 'waiting_for_children'
       const report =
@@ -2179,8 +2286,12 @@ export class AgentControlService {
         driverKind: session.driverKind,
         modelId: session.modelId,
         workState,
+        lastSeq: model.lastSeq,
+        questionOwnerSessionId: questionOwner,
+        pendingInputs: model.pendingInputs,
+        pendingApprovals: model.pendingApprovals,
         blockedOn:
-          workState !== 'blocked_on_user'
+          workState !== 'blocked_on_user' && workState !== 'blocked_on_parent'
             ? null
             : model.pendingApprovals.length > 0
               ? 'approval'

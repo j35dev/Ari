@@ -179,8 +179,13 @@ describe('App onboarding integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Aria' }))
     expect(await screen.findByText('Opened session aria')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: /^Restored session/ }))
+    expect(await screen.findByText('Opened session restored')).toBeVisible()
     fireEvent.keyDown(window, { key: '0', ctrlKey: true })
-    await waitFor(() => expect(screen.getByText('Opened session aria')).toBeVisible())
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('selects the known Aria chat by pointer and shortcut without waiting for discovery', async () => {
