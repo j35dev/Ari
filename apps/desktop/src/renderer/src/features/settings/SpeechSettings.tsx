@@ -351,6 +351,36 @@ export function SpeechSettings() {
           />
         </SettingsRow>
       </SettingsSection>
+      <SettingsSection title="Dictated text">
+        <SettingsRow
+          label="Format dictated text"
+          hint="Clean up spacing and sentence casing, and arrange clear spoken lists. Runs locally after transcription; your words and technical names stay intact."
+        >
+          <Switch
+            aria-label="Format dictated text"
+            checked={settings?.speech.formatText ?? true}
+            disabled={!settings}
+            onCheckedChange={(formatText) =>
+              void run('format-text', () => update({ speech: { formatText } }))
+            }
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Spoken formatting commands"
+          hint={
+            'Interpret English commands such as “new paragraph”, “new line”, “bullet point”, “numbered list”, “next item”, “end list”, “full stop” and “question mark”. Say “literal” before a command to keep its words.'
+          }
+        >
+          <Switch
+            aria-label="Spoken formatting commands"
+            checked={settings?.speech.spokenFormatting ?? false}
+            disabled={!settings}
+            onCheckedChange={(spokenFormatting) =>
+              void run('spoken-formatting', () => update({ speech: { spokenFormatting } }))
+            }
+          />
+        </SettingsRow>
+      </SettingsSection>
       <SettingsSection
         title="Found on this computer"
         description="Use existing Handy and Hugging Face GGUF models in place, without another copy."

@@ -67,6 +67,18 @@ it('offers existing models in place and a separate engine download', async () =>
   )
 })
 
+it('enables local text formatting by default while spoken commands are opt-in', async () => {
+  render(<SpeechSettings />)
+  expect(screen.getByRole('switch', { name: 'Format dictated text' })).toBeChecked()
+  expect(screen.getByRole('switch', { name: 'Spoken formatting commands' })).not.toBeChecked()
+  fireEvent.click(screen.getByRole('switch', { name: 'Format dictated text' }))
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ speech: { formatText: false } }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Spoken formatting commands' }))
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledWith({ speech: { spokenFormatting: true } }),
+  )
+})
+
 it('shows separate Aria and general defaults and edits only the selected binding', async () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
   render(<SpeechSettings />)

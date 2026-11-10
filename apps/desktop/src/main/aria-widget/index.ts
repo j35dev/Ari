@@ -14,6 +14,8 @@ import { CaptureLease } from '../speech/capture-lease'
 import { captureDictationTarget, prepareDictation } from '../speech/dictation-target'
 import type { DictationTarget } from '../../shared/dictation'
 import { getAudioDucking, type AudioDucking } from '../speech/audio-ducking'
+import { recoverDictation } from '../speech/recovery'
+import { hasDictationText } from '../../shared/dictation-format'
 
 const log = createLogger('desktop:aria-widget')
 const METHODS = [
@@ -410,7 +412,10 @@ export class AriaWidget {
       this.sending !== params.id
     ) {
       const id = params.id
-      const text = params.text.trim()
+      const text =
+        this.destination === 'dictation' && hasDictationText(params.text)
+          ? params.text
+          : params.text.trim()
       this.sending = id
       try {
         if (text) {
@@ -451,6 +456,8 @@ export class AriaWidget {
           false,
           performance.now(),
         )
+        if (text && id === this.hold.state.id && this.hold.visible() && !this.disposed)
+          void recoverDictation(text).catch(() => undefined)
       } finally {
         this.sending = null
       }
