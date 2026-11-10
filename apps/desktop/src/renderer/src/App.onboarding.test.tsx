@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { settingsSchema, type Settings, type SettingsUpdate } from '@ari/contracts/settings'
 import { projectViewSchema, type Project } from '@ari/contracts/project'
@@ -179,10 +180,156 @@ describe('App onboarding integration', () => {
     expect(await screen.findByText('Opened session aria')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: /^Restored session/ }))
     fireEvent.keyDown(window, { key: '0', ctrlKey: true })
-    await waitFor(() =>
-      expect(invoke.mock.calls.filter(([method]) => method === 'aria.open')).toHaveLength(2),
-    )
+    await waitFor(() => expect(screen.getByText('Opened session aria')).toBeVisible())
   })
+
+  it('selects the known Aria chat by pointer and shortcut without waiting for discovery', async () => {
+    const user = userEvent.setup()
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    projects = [project]
+    sessions = [
+      {
+        id: 'restored',
+        projectId: project.id,
+        title: 'Restored session',
+        messageCount: 1,
+        updatedAt: 1,
+      },
+      { id: 'old-aria', projectId: 'helm', title: 'Old Aria', messageCount: 1, updatedAt: 1 },
+      { id: 'aria', projectId: 'helm', title: 'Aria', messageCount: 1, updatedAt: 2 },
+      {
+        id: 'archived-aria',
+        projectId: 'helm',
+        title: 'Archived Aria',
+        messageCount: 1,
+        updatedAt: 3,
+        archived: true,
+      },
+    ]
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
+    render(<App />)
+    await screen.findByText('Opened session restored')
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation((method, params) =>
+      method === 'aria.open' || method === 'session.list'
+        ? new Promise(() => {})
+        : original(method, params),
+    )
+    const calls = invoke.mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+    expect(screen.getByText('Opened session aria')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await user.click(screen.getByRole('button', { name: /^Restored session/ }))
+    expect(screen.getByText('Opened session restored')).toBeVisible()
+    await user.keyboard('{Control>}0{/Control}')
+    expect(screen.getByText('Opened session aria')).toBeVisible()
+    expect(
+      invoke.mock.calls
+        .slice(calls)
+        .some(([method]) => method === 'aria.open' || method === 'session.list'),
+    ).toBe(false)
+  })
+
+  it('does not let a late Aria open replace a newer session selection', async () => {
+    const user = userEvent.setup()
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    projects = [project]
+    sessions = [
+      {
+        id: 'restored',
+        projectId: project.id,
+        title: 'Restored session',
+        messageCount: 1,
+        updatedAt: 1,
+      },
+      { id: 'other', projectId: project.id, title: 'Other session', messageCount: 1, updatedAt: 2 },
+    ]
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (method, params) => {
+      if (method === 'aria.open') await pending
+      return original(method, params)
+    })
+    render(<App />)
+    await screen.findByText('Opened session restored')
+    await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+    await user.click(screen.getByRole('button', { name: /^Other session/ }))
+    expect(screen.getByText('Opened session other')).toBeVisible()
+    finish()
+    await waitFor(() => expect(sessions.some((session) => session.id === 'aria')).toBe(true))
+    await waitFor(() =>
+      expect(
+        invoke.mock.calls.filter(([method]) => method === 'session.list').length,
+      ).toBeGreaterThanOrEqual(2),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Open Aria' })).not.toHaveAttribute(
+        'aria-current',
+        'page',
+      ),
+    )
+    expect(screen.getByText('Opened session other')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Open Aria' })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
+  })
+
+  it.each(['aria.open', 'session.list'])(
+    'can retry a failed %s without losing the selected chat',
+    async (failure) => {
+      const user = userEvent.setup()
+      settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+      projects = [project]
+      sessions = [
+        {
+          id: 'restored',
+          projectId: project.id,
+          title: 'Restored session',
+          messageCount: 1,
+          updatedAt: 1,
+        },
+      ]
+      splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
+      const original = invoke.getMockImplementation()!
+      let openRequested = false
+      let rejected = false
+      let rejectDiscovery!: (error: Error) => void
+      const pendingFailure = new Promise<never>((_, reject) => {
+        rejectDiscovery = reject
+      })
+      invoke.mockImplementation(async (method, params) => {
+        if (method === 'aria.open') openRequested = true
+        if (openRequested && method === failure && !rejected) {
+          rejected = true
+          return pendingFailure
+        }
+        return original(method, params)
+      })
+      render(<App />)
+      await screen.findByText('Opened session restored')
+      await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+      // Fail this click's discovery after userEvent finishes. Initial list
+      // refreshes cannot consume the failure, and slow pointer processing
+      // cannot let the transient toast expire before the assertion.
+      await waitFor(() => expect(rejected).toBe(true))
+      await act(async () => rejectDiscovery(new Error('Transient discovery failure')))
+      await screen.findByText('Could not open Aria')
+      expect(screen.getByText('Opened session restored')).toBeVisible()
+      await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+      expect(await screen.findByText('Opened session aria')).toBeVisible()
+      expect(sessions.filter((session) => session.projectId === 'helm')).toHaveLength(1)
+    },
+  )
   it('finishes first run into the selected agent’s empty session, then reopens setup without losing it', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Meet your coding agents.' })
