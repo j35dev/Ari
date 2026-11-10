@@ -228,10 +228,13 @@ export function NewSessionLauncher({
                   const meta =
                     openCount > 0 ? `${openCount} open` : (openedLabel(project.lastOpenedAt) ?? '')
                   const missing = project.status === 'missing'
+                  // A pointer pick must focus inside this overlay before click.
+                  // Blurring search to body makes the start-intent guard cancel it.
                   return (
                     <div
                       key={project.id}
                       role="option"
+                      tabIndex={-1}
                       aria-selected={index === activeIndex}
                       aria-label={project.name}
                       title={project.path}
