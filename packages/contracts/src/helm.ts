@@ -12,6 +12,7 @@ export const HELM_MAX_PROJECTS = 15
 export const HELM_DESCRIPTION_CHARS = 100
 export const HELM_RECENT_SESSIONS = 3
 export const HELM_SESSION_TITLE_CHARS = 80
+export const HELM_ERROR_MESSAGE_CHARS = 300
 
 /** Compact routing clues gathered by the desktop, without reading folders during a turn. */
 export interface HelmProjectContext {
@@ -76,9 +77,17 @@ export interface HelmSessionRow {
   driverKind: string
   modelId: string | null
   state: 'working' | 'queued' | 'needs_user' | 'idle'
+  /** Latest settled turn; null while newer work is active or queued, or before any turn. */
+  latestTurn: {
+    turnId: string
+    stopReason: 'completed' | 'interrupted' | 'error'
+    settledAt: number
+    /** Whitespace-collapsed provider failure, bounded by HELM_ERROR_MESSAGE_CHARS. */
+    errorMessage: string | null
+  } | null
   /** Started by Aria, so its reports come back to Aria. */
   startedByAria: boolean
   updatedAt: number
-  /** The start of the session's last assistant message. */
+  /** The current turn's last assistant text, or the latest settled turn's; null while queued. */
   preview: string | null
 }

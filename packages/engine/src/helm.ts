@@ -4,6 +4,7 @@ import {
   HELM_DESCRIPTION_CHARS,
   HELM_RECENT_SESSIONS,
   HELM_SESSION_TITLE_CHARS,
+  HELM_ERROR_MESSAGE_CHARS,
   type HelmProjectContext,
   type HelmSessionRow,
   isHelmSession,
@@ -102,7 +103,21 @@ export interface HelmView {
 export async function helmRow(view: HelmView, row: SessionListEntry): Promise<HelmSessionRow> {
   const model = await view.load(row.id)
   const session = model.session
-  const preview = finalAssistantText(model, model.lastTurn?.turnId, 240).text
+  const lastTurn =
+    model.activeTurnId === null && model.queuedMessages.length === 0 ? model.lastTurn : undefined
+  const latestTurn: HelmSessionRow['latestTurn'] = lastTurn
+    ? {
+        turnId: lastTurn.turnId,
+        stopReason: lastTurn.stopReason,
+        settledAt: lastTurn.settledAt,
+        errorMessage:
+          lastTurn.stopReason === 'error' && lastTurn.errorMessage
+            ? compact(lastTurn.errorMessage, HELM_ERROR_MESSAGE_CHARS) || null
+            : null,
+      }
+    : null
+  const previewTurnId = model.activeTurnId ?? latestTurn?.turnId
+  const preview = previewTurnId ? finalAssistantText(model, previewTurnId, 240).text : ''
   return {
     sessionId: row.id,
     title: row.title,
@@ -112,6 +127,7 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
     driverKind: row.driverKind ?? session?.driverKind ?? 'unknown',
     modelId: row.modelId ?? session?.modelId ?? null,
     state: sessionState(model),
+    latestTurn,
     startedByAria: Boolean(
       session && !session.parentSessionId && session.createdBy?.kind === 'session',
     ),
@@ -160,6 +176,12 @@ const STATE = {
   idle: 'idle',
 } as const
 
+const OUTCOME = {
+  completed: 'completed',
+  interrupted: 'interrupted',
+  error: 'failed',
+} as const
+
 function ago(ms: number): string {
   const minutes = Math.max(1, Math.round(ms / 60_000))
   if (minutes < 60) return `${minutes}m ago`
@@ -172,7 +194,10 @@ function line(entry: HelmSessionRow, titles: ReadonlyMap<string, string>): strin
   const parent = entry.parentSessionId ? titles.get(entry.parentSessionId) : undefined
   const under = parent ? `, child of "${parent}"` : ''
   const mine = entry.startedByAria ? ', started by you' : ''
-  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${STATE[entry.state]}`
+  const settled = entry.state === 'idle' ? entry.latestTurn : null
+  const state = settled ? OUTCOME[settled.stopReason] : STATE[entry.state]
+  const error = settled?.errorMessage ? `: ${settled.errorMessage}` : ''
+  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${state}${error}`
 }
 
 const MAX_ACTIVE = 25
