@@ -15,6 +15,8 @@ import {
 } from './engine'
 import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
 
+const WORKER_ACK_TIMEOUT_MS = 60_000
+
 export function speechRequestTimeout(kind: string, samples = 0, modelSize = 0): number {
   if (kind !== 'transcribe') return 15 * 60_000
   // CPU-only machines can take many times the recording length on larger models.
@@ -81,7 +83,12 @@ export class SpeechService {
   #downloads = new Map<string, { controller: AbortController; done: Promise<void> }>()
   #workerState = new WeakMap<
     UtilityProcess,
-    { hasLoaded: boolean; knownCause: boolean; stopping: boolean }
+    {
+      hasLoaded: boolean
+      knownCause: boolean
+      stopping: boolean
+      acknowledgment?: ReturnType<typeof setTimeout>
+    }
   >()
   #progress = new Map<string, SpeechProgress>()
   #models: { at: number; value: SpeechModel[] } | null = null
@@ -728,11 +735,34 @@ export class SpeechService {
         kind,
         budget: speechRequestTimeout(kind, pcm?.length, modelSize),
       })
-      worker.postMessage({ id, kind, path, pcm, language })
+      this.#watchAcknowledgment(worker)
+      try {
+        worker.postMessage({ id, kind, path, pcm, language })
+      } catch {
+        this.#stopWorker(worker, 'The speech engine could not receive the request. Please retry.')
+      }
     })
   }
 
+  #watchAcknowledgment(worker: UtilityProcess): void {
+    const state = this.#workerState.get(worker)
+    if (!state) return
+    const pending = [...this.#pending.values()].filter((request) => request.worker === worker)
+    // The worker posts started before model loading/inference. Queued work must
+    // never spend this idle/bootstrap budget while another request is running.
+    if (state.stopping || !pending.length || pending.some((request) => request.timeout)) {
+      clearTimeout(state.acknowledgment)
+      state.acknowledgment = undefined
+      return
+    }
+    // Additional queued requests do not extend an already stalled dispatch.
+    state.acknowledgment ??= setTimeout(() => {
+      this.#stopWorker(worker, 'The speech engine did not start the request. Please retry.')
+    }, WORKER_ACK_TIMEOUT_MS)
+  }
+
   async #getWorker(): Promise<UtilityProcess> {
+    if (this.#disposed) throw new Error('Speech service stopped.')
     if (this.#worker && !this.#workerState.get(this.#worker)?.stopping) return this.#worker
     this.#workerStarting ??= this.#spawnWorker().finally(() => {
       this.#workerStarting = null
@@ -792,14 +822,12 @@ export class SpeechService {
               if (!state.stopping) state.knownCause = false
               // A queued request gets its own budget only after inference dequeues it.
               pending.timeout = setTimeout(() => {
-                this.#pending.delete(message.id)
-                pending.reject(
-                  new Error(
-                    'Speech to text took too long. Try a smaller model or a shorter recording.',
-                  ),
+                this.#stopWorker(
+                  child,
+                  'Speech to text took too long. Try a smaller model or a shorter recording.',
                 )
-                this.#stopWorker(child)
               }, pending.budget)
+              this.#watchAcknowledgment(child)
               return
             }
             clearTimeout(pending.timeout)
@@ -811,9 +839,11 @@ export class SpeechService {
               if (pending.kind === 'load') state.hasLoaded = true
               pending.resolve(message.result ?? { text: '' })
             }
+            this.#watchAcknowledgment(child)
           },
         )
         child.on('exit', (code: number) => {
+          clearTimeout(this.#workerState.get(child)?.acknowledgment)
           const message = speechWorkerExitError(
             process.platform,
             code,
@@ -837,25 +867,53 @@ export class SpeechService {
     })
   }
 
-  #stopWorker(worker: UtilityProcess): boolean {
+  #stopWorker(
+    worker: UtilityProcess,
+    message = 'The speech engine stopped. Please retry.',
+  ): boolean {
     const state = this.#workerState.get(worker)
+    if (state?.stopping) return true
     if (state) {
       state.knownCause = true
       state.stopping = true
+      clearTimeout(state.acknowledgment)
+      state.acknowledgment = undefined
     }
-    return worker.kill()
+    // kill/exit is not an acknowledgment guarantee. Settle our requests now,
+    // and ignore late messages by removing their worker-scoped identities.
+    for (const [id, pending] of this.#pending) {
+      if (pending.worker !== worker) continue
+      clearTimeout(pending.timeout)
+      this.#pending.delete(id)
+      pending.reject(new Error(message))
+    }
+    try {
+      return worker.kill()
+    } catch {
+      return false
+    }
   }
 
   async #stopWorkerAndWait(worker: UtilityProcess): Promise<void> {
-    await new Promise<void>((resolve) => {
-      worker.once('exit', () => resolve())
+    await new Promise<void>((resolve, reject) => {
+      const finish = () => {
+        clearTimeout(timeout)
+        worker.removeListener('exit', finish)
+        resolve()
+      }
+      const timeout = setTimeout(() => {
+        worker.removeListener('exit', finish)
+        // Keep the stopping identity rather than spawning a duplicate worker.
+        reject(new Error('The speech engine did not stop. Please retry.'))
+      }, 5000)
+      worker.once('exit', finish)
       if (!this.#stopWorker(worker)) {
         if (this.#worker === worker) {
           this.#worker = null
           this.#validated = null
           this.#publishStatus()
         }
-        resolve()
+        finish()
       }
     })
   }
@@ -863,6 +921,6 @@ export class SpeechService {
   dispose(): void {
     this.#disposed = true
     for (const { controller } of this.#downloads.values()) controller.abort()
-    if (this.#worker) this.#stopWorker(this.#worker)
+    if (this.#worker) this.#stopWorker(this.#worker, 'Speech service stopped.')
   }
 }
