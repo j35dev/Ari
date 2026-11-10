@@ -184,7 +184,9 @@ export function intendedSurface(element) {
   if (!element || element.closest('[hidden], [inert]')) return false
   if (element.getClientRects().length === 0) return false
   const doc = element.ownerDocument
-  if (startupOverlay(doc)) return false
+  // This function is serialized into CDP renderer expressions; keep it self-contained.
+  if (doc.documentElement?.hasAttribute('data-ari-booting') || doc.querySelector('.ari-awaken'))
+    return false
   const rect = element.getBoundingClientRect()
   const hit = doc.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
   return hit === element || Boolean(hit && element.contains(hit))

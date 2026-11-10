@@ -7,7 +7,10 @@ import { findTool, parseAskUserToolArgs } from './tools'
 
 async function workspace(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'ari-tools-'))
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+  return {
+    dir,
+    cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+  }
 }
 
 /** Full-permission context: these tests exercise tool behavior, not gating. */
@@ -133,7 +136,10 @@ describe('edit tool', () => {
         tool?.execute({ path: 'dup.txt', edits: [{ oldText: 'x', newText: 'y' }] }, READ_CTX(dir)),
       ).rejects.toThrow(/matches 2 times/)
       await expect(
-        tool?.execute({ path: 'dup.txt', edits: [{ oldText: 'zzz', newText: 'y' }] }, READ_CTX(dir)),
+        tool?.execute(
+          { path: 'dup.txt', edits: [{ oldText: 'zzz', newText: 'y' }] },
+          READ_CTX(dir),
+        ),
       ).rejects.toThrow(/not found/)
     } finally {
       await cleanup()
@@ -227,13 +233,19 @@ describe('bash tool', () => {
   it('keeps the tail of oversized output', async () => {
     const { dir, cleanup } = await workspace()
     try {
-      const spew =
-        process.platform === 'win32'
-          ? 'for /l %i in (1,1,3000) do @echo line%i'
-          : 'i=1; while [ $i -le 3000 ]; do echo "line$i"; i=$((i+1)); done'
+      const output = Array.from({ length: 3000 }, (_, i) => `line${i + 1}`).join('\n') + '\n'
+      // Exercise the real shell/pipe with one write, rather than 3000 shell echo operations.
+      await writeFile(
+        join(dir, 'oversized-output.cjs'),
+        `process.stdout.write(${JSON.stringify(output)})`,
+      )
+      const spew = 'node oversized-output.cjs'
       const result = await findTool('bash')?.execute({ command: spew }, READ_CTX(dir))
       expect(result).toContain('line3000')
-      expect(result).toContain('output truncated')
+      expect(result).not.toMatch(/^line1\r?$/m)
+      expect(result).toContain('[Showing lines 1001-3000 of 3000 (output truncated)]')
+      expect(result).not.toContain('[Command exited')
+      expect(result).not.toContain('[Command timed out')
     } finally {
       await cleanup()
     }
