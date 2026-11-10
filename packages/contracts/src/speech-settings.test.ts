@@ -6,6 +6,9 @@ import {
   defaultSpeechShortcut,
   speechShortcutError,
   migrateSpeechShortcut,
+  defaultDictationShortcut,
+  speechBindingsError,
+  speechBindingError,
 } from './settings'
 import { rpcParams } from './rpc'
 
@@ -16,9 +19,14 @@ it('migrates settings without a configured speech model', () => {
     modelId: null,
     modelPath: null,
     shortcut: '',
+    dictationShortcut: '',
+    duckAudio: true,
   })
 })
 it('keeps speech patches default-free and validates PCM bounds', () => {
+  expect(settingsUpdateSchema.parse({ speech: { duckAudio: false } }).speech).toEqual({
+    duckAudio: false,
+  })
   expect(settingsUpdateSchema.parse({ speech: { shortcut: 'ctrl+space' } }).speech).toEqual({
     shortcut: 'ctrl+space',
   })
@@ -28,6 +36,14 @@ it('keeps speech patches default-free and validates PCM bounds', () => {
   expect(rpcParams['speech.transcribe'].safeParse({ pcm: [NaN] }).success).toBe(false)
   expect(rpcParams['speech.select'].safeParse({}).success).toBe(false)
   expect(rpcParams['speech.select'].safeParse({ modelId: 'one', path: '/two' }).success).toBe(false)
+})
+
+it('accepts recordings beyond five minutes and still rejects empty or invalid PCM', () => {
+  expect(
+    rpcParams['speech.transcribe'].safeParse({ pcm: new Float32Array(16_000 * 360) }).success,
+  ).toBe(true)
+  for (const pcm of [new Float32Array(), [], [NaN], [Infinity], [1.1], [-1.1]])
+    expect(rpcParams['speech.transcribe'].safeParse({ pcm }).success).toBe(false)
 })
 
 it.each(['win32', 'linux', 'darwin'])('migrates old speech shortcuts on %s', (platform) => {
@@ -46,6 +62,27 @@ it('uses the coordinated platform defaults', () => {
   expect(defaultSpeechShortcut('linux')).toBe('ctrl+alt+space')
   expect(defaultSpeechShortcut('darwin')).toBe('shift+meta+space')
 })
+
+it.each(['win32', 'linux', 'darwin'])(
+  'gives general dictation a distinct unused default on %s',
+  (platform) => {
+    expect(
+      speechBindingsError(
+        defaultSpeechShortcut(platform),
+        defaultDictationShortcut(platform),
+        platform,
+      ),
+    ).toBeNull()
+    expect(defaultDictationShortcut(platform)).toBe(
+      platform === 'darwin' ? 'shift+meta+d' : 'ctrl+alt+d',
+    )
+    expect(speechBindingsError('f20', 'f20', platform)).toContain('different shortcuts')
+    expect(
+      settingsUpdateSchema.safeParse({ speech: { shortcut: 'f20', dictationShortcut: 'f20' } })
+        .success,
+    ).toBe(false)
+  },
+)
 
 it('enforces ctrl, alt, shift, meta ordering and migrates shortcuts with reversed modifiers', () => {
   for (const chord of [
@@ -67,6 +104,23 @@ it('enforces ctrl, alt, shift, meta ordering and migrates shortcuts with reverse
     expect(settingsUpdateSchema.safeParse({ speech: { shortcut: chord } }).success).toBe(false)
     expect(migrateSpeechShortcut(chord, 'darwin')).toBe('shift+meta+space')
   }
+})
+
+it.each([
+  'ctrl+alt+k',
+  'ctrl+shift+k',
+  'shift+meta+k',
+  'ctrl+alt+shift+f',
+  'ctrl+alt+s',
+  'ctrl+shift+meta+s',
+  'ctrl+b',
+  'ctrl+alt+shift+1',
+  'alt+shift+meta+1',
+  'ctrl+enter',
+  'shift+meta+enter',
+])('rejects %s when Ari handles the same key with those modifiers', (chord) => {
+  expect(speechBindingError(chord, 'darwin')).toContain('already used by Ari')
+  expect(speechBindingsError('f20', chord, 'darwin')).toContain('already used by Ari')
 })
 
 it.each([
