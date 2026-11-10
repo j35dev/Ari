@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import {
   CDP,
@@ -262,6 +263,131 @@ test('bootstrap classification admits only framework and selected archive code',
     'app',
   )
 })
+
+// Feed real CDP request/reply/event parsing with a deterministic bootstrap,
+// without Electron. The existing real Node CJS/ESM cases cover execution safety.
+async function bootstrapProtocol(framework, pauseDelayMs = 0) {
+  const root = await fresh()
+  const archive = join(root, 'synthetic.asar')
+  await mkdir(archive)
+  const app = { scriptId: 'app', url: pathToFileURL(join(archive, 'out/main/index.js')).href }
+  class Socket extends EventEmitter {
+    position = -1
+    appResumed = false
+    commands = []
+    addEventListener(event, callback) {
+      this.on(event, callback)
+    }
+    send(bytes) {
+      const request = JSON.parse(bytes)
+      this.commands.push(request.method)
+      const current = framework[this.position]
+      if (request.method === 'Debugger.resume' && current === app) this.appResumed = true
+      if (['Runtime.runIfWaitingForDebugger', 'Debugger.resume'].includes(request.method)) {
+        const frame = framework[++this.position]
+        if (frame) {
+          const emitPause = () => {
+            this.emit('message', {
+              data: JSON.stringify({ method: 'Debugger.scriptParsed', params: frame }),
+            })
+            this.emit('message', {
+              data: JSON.stringify({
+                method: 'Debugger.paused',
+                params: {
+                  reason: 'instrumentation',
+                  callFrames: [
+                    { location: { scriptId: frame.scriptId, lineNumber: 0, columnNumber: 0 } },
+                  ],
+                },
+              }),
+            })
+          }
+          if (pauseDelayMs) this.pauseTimer = setTimeout(emitPause, pauseDelayMs)
+          else emitPause()
+        }
+      }
+      this.emit('message', {
+        data: JSON.stringify({ id: request.id, result: { breakpointId: 'before-script' } }),
+      })
+    }
+    close() {
+      clearTimeout(this.pauseTimer)
+      this.emit('close')
+    }
+  }
+  const socket = new Socket()
+  return { root, archive, app, frames: framework, socket, client: new CDP(socket) }
+}
+
+const frameworkModules = (count = 150) =>
+  Array.from({ length: count }, (_, index) => ({
+    scriptId: String(index),
+    url: `node:internal/bootstrap-regression/module-${index}`,
+  }))
+
+test('CDP bootstrap allows >100 distinct framework modules and leaves the app paused', async () => {
+  const fixture = await bootstrapProtocol(frameworkModules())
+  fixture.frames.push(fixture.app)
+  try {
+    const { trace } = await pauseBeforeArchivedApp(fixture.client, fixture.archive, fixture.root)
+    assert.equal(trace.length, 151)
+    assert.ok(trace.slice(0, -1).every((entry) => entry.kind === 'framework'))
+    assert.equal(trace.at(-1).kind, 'app')
+    assert.equal(fixture.socket.appResumed, false)
+    assert.equal(fixture.socket.commands.at(-1), 'Debugger.removeBreakpoint')
+  } finally {
+    fixture.client.close()
+  }
+})
+
+test('CDP bootstrap refuses a repeated pause without resuming it', async () => {
+  const repeated = { scriptId: 'same', url: 'node:internal/bootstrap-regression/repeated' }
+  const fixture = await bootstrapProtocol([repeated, repeated])
+  fixture.frames.push(fixture.app)
+  try {
+    await assert.rejects(
+      pauseBeforeArchivedApp(fixture.client, fixture.archive, fixture.root),
+      /no progress/i,
+    )
+    assert.equal(fixture.socket.commands.filter((method) => method === 'Debugger.resume').length, 1)
+    assert.equal(fixture.socket.appResumed, false)
+  } finally {
+    fixture.client.close()
+  }
+})
+
+test('CDP bootstrap still refuses unknown filesystem and eval code', async () => {
+  for (const url of ['file:///outside/bootstrap.js', 'evalmachine.<anonymous>']) {
+    const fixture = await bootstrapProtocol([{ scriptId: 'unknown', url }])
+    try {
+      await assert.rejects(
+        pauseBeforeArchivedApp(fixture.client, fixture.archive, fixture.root),
+        /Unknown code/,
+      )
+      assert.ok(!fixture.socket.commands.includes('Debugger.resume'))
+    } finally {
+      fixture.client.close()
+    }
+  }
+})
+
+test(
+  'CDP bootstrap has one finite budget despite continued module progress',
+  { timeout: 25_000 },
+  async () => {
+    const fixture = await bootstrapProtocol(frameworkModules(1000), 30)
+    try {
+      await assert.rejects(
+        pauseBeforeArchivedApp(fixture.client, fixture.archive, fixture.root),
+        /bootstrap time budget/i,
+      )
+      assert.ok(fixture.socket.position > 100 && fixture.socket.position < 1000)
+      assert.equal(fixture.socket.appResumed, false)
+    } finally {
+      fixture.client.close()
+    }
+  },
+)
 
 for (const mode of ['cjs', 'esm', 'unknown', 'cjs-alias', 'esm-alias'])
   test(
