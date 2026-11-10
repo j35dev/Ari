@@ -69,6 +69,15 @@ jobs:
       - name: Verify Linux artifacts and native modules on disposable display
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/release-artifacts.mjs
+      # Unpacked output has not run the deb installer ownership/mode setup.
+      # Preserve Chromium sandboxing on this disposable hosted runner.
+      - name: Configure packaged Linux sandbox helper on disposable runner
+        if: runner.os == 'Linux'
+        run: |
+          test -f dist/linux-unpacked/chrome-sandbox
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+          stat -c '%U:%G %a' dist/linux-unpacked/chrome-sandbox
       - name: Verify packaged first run and copied upgrade profile
         if: runner.os != 'Linux'
         timeout-minutes: 8
