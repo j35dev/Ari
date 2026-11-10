@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -315,6 +315,25 @@ for (const platform of ['win32', 'darwin', 'linux'])
     const receipt = JSON.parse(await readFile(join(result.root, 'install-receipt.json'), 'utf8'))
     assert.equal(receipt.passed, true)
   })
+
+test('linux upgrade reads the archive now at the install path', async () => {
+  const env = await setup('linux')
+  const input = join(env.root, 'old', 'asar-input')
+  await writeFile(join(input, 'pad.json'), `${JSON.stringify({ pad: 'p'.repeat(8192) })}\n`)
+  const baselineArchive = join(env.root, 'old', 'resources', 'app.asar')
+  const candidateArchive = join(env.root, 'candidate', 'resources', 'app.asar')
+  asar.uncache(baselineArchive)
+  await asar.createPackage(input, baselineArchive)
+  assert.ok((await stat(baselineArchive)).size > (await stat(candidateArchive)).size + 8000)
+  const result = await installSmoke(env.options, env.dependencies)
+  assert.equal(result.passed, true)
+  assert.equal(result.extractionOnly, true)
+  assert.equal(result.osInstallerBehaviorTested, false)
+  assert.deepEqual(
+    result.sequence.map((stage) => stage.version),
+    ['0.3.12', '0.3.13'],
+  )
+})
 
 for (const defect of ['executable', 'native', 'fixture', 'archive'])
   test(`rejects installed ${defect} corruption and retains failure without further stages`, async () => {

@@ -560,3 +560,100 @@ for (const mode of ['cjs', 'esm', 'unknown', 'cjs-alias', 'esm-alias'])
       }
     },
   )
+
+test(
+  'sync main readiness does not await the paused async module job (not Electron proof)',
+  { timeout: 10_000 },
+  async () => {
+    const root = await fresh()
+    const entry = join(root, 'main.mjs')
+    await writeFile(
+      entry,
+      `await new Promise((resolve) => setImmediate(resolve))
+if (globalThis.__ariFunctional) globalThis.__ariFunctional.ready = true
+setInterval(() => {}, 1000)
+`,
+    )
+    const child = spawn(process.execPath, ['--inspect-brk=127.0.0.1:0', entry], {
+      cwd: root,
+      env: isolatedEnvironment(root),
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let client
+    let nodeStderr = ''
+    const watchdog = setTimeout(() => child.kill('SIGKILL'), 8000)
+    try {
+      const url = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('inspector did not open')), 5000)
+        child.once('error', reject)
+        child.stderr.on('data', (bytes) => {
+          nodeStderr += bytes
+          const match = nodeStderr.match(/ws:\/\/127\.0\.0\.1:\d+\/[^\s]+/)
+          if (match) {
+            clearTimeout(timer)
+            resolve(match[0])
+          }
+        })
+      })
+      client = await CDP.connect(url)
+      await client.send('Runtime.enable')
+      await client.send('Debugger.enable')
+      const paused = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('inspector did not pause')), 5000)
+        client.once('Debugger.paused', (pause) => {
+          clearTimeout(timer)
+          resolve(pause)
+        })
+      })
+      await client.send('Runtime.runIfWaitingForDebugger')
+      const pause = await paused
+      assert.equal(pause.reason, 'Break on start')
+      assert.ok(
+        pause.callFrames.some((frame) => frame.functionName?.includes('asyncInstantiate')),
+        'Expected the ESM bootstrap pause',
+      )
+      await client.send('Runtime.evaluate', {
+        expression: 'globalThis.__ariFunctional = { ready: false }',
+        awaitPromise: false,
+        returnByValue: true,
+      })
+      let settled = false
+      const pending = client
+        .send(
+          'Runtime.evaluate',
+          {
+            expression: 'globalThis.__ariFunctional.ready',
+            awaitPromise: true,
+            returnByValue: true,
+          },
+          3000,
+        )
+        .then((value) => {
+          settled = true
+          return value
+        })
+        .catch((error) => {
+          settled = true
+          return error
+        })
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      assert.equal(settled, false, 'awaitPromise waited on the paused bootstrap job')
+      assert.equal(await client.evaluate('globalThis.__ariFunctional.ready', 1000, false), false)
+      await client.send('Debugger.resume')
+      assert.equal(
+        await poll(
+          'ready after resume',
+          () => client.evaluate('globalThis.__ariFunctional.ready', 1000, false),
+          2000,
+        ),
+        true,
+      )
+      await pending
+    } finally {
+      child.kill()
+      client?.close()
+      clearTimeout(watchdog)
+    }
+  },
+)
