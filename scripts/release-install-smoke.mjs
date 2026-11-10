@@ -18,6 +18,8 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { promisify } from 'node:util'
 import { archivePath } from './release-native-smoke.mjs'
+import { BASELINE } from './release-install-baseline.mjs'
+export { BASELINE } from './release-install-baseline.mjs'
 import {
   contained,
   isolatedEnvironment,
@@ -31,23 +33,6 @@ const builderRequire = createRequire(desktopRequire.resolve('electron-builder/pa
 const packagingRequire = createRequire(builderRequire.resolve('app-builder-lib/package.json'))
 const asar = packagingRequire('@electron/asar') // Existing packaging dependency; pure filesystem IO.
 
-export const BASELINE = {
-  win32: {
-    name: 'Ari-Setup-0.3.12.exe',
-    bytes: 123180599,
-    sha256: 'f8f48d7c8d55f7387032ce2bc862407d8f54b437717eeca9fc0bef5301735f1b',
-  },
-  darwin: {
-    name: 'Ari-0.3.12-universal.dmg',
-    bytes: 248990035,
-    sha256: '8a757d8d44c2e2730fa3d479871964cd149635a765b7f5b78a04fecf7e120759',
-  },
-  linux: {
-    name: 'Ari-0.3.12.deb',
-    bytes: 120014144,
-    sha256: '5c18e1bb03aa30e37fc89a366f5a3afb34f69de6bb9f84cd060727dfef2f6520',
-  },
-}
 const GUID = 'fd055408-59d9-59bf-b984-065eaf3c68a4' // Builder UUID v5(com.ari.desktop).
 const candidateName = (platform) => BASELINE[platform].name.replace('0.3.12', '0.3.13')
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')

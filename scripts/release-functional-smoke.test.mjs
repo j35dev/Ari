@@ -23,7 +23,13 @@ import {
   poll,
   normalizeScriptURL,
 } from './release-functional-support.mjs'
-import { assertCleanExit, launchCommand, smoke } from './release-functional-smoke.mjs'
+import {
+  assertCleanExit,
+  launchCommand,
+  observeWindow,
+  profileTemporaryDirectory,
+  smoke,
+} from './release-functional-smoke.mjs'
 
 const fixturePath = process.env.RELEASE_FUNCTIONAL_FIXTURE
 const testRoot =
@@ -32,6 +38,56 @@ async function fresh() {
   await mkdir(testRoot, { recursive: true })
   return realpath(await mkdtemp(join(testRoot, 'retained-')))
 }
+
+test('preload observation uses the configured frame path and fails closed on unsupported runtime', () => {
+  const window = {
+    webContents: {
+      getURL: () => 'file:///synthetic/app.asar/out/renderer/index.html',
+      getLastWebPreferences: () => ({
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      }),
+      _getPreloadScript: () => ({
+        filePath: '/synthetic/app.asar/out/preload/index.cjs',
+        type: 'frame',
+      }),
+    },
+  }
+  const observed = observeWindow(window, '43.4.1')
+  assert.equal(observed.preload, '/synthetic/app.asar/out/preload/index.cjs')
+  assert.equal(observed.preferences.preload, undefined)
+  assert.throws(() => observeWindow(window, '44.0.0'), /Unsupported/)
+  assert.throws(() => observeWindow({ webContents: {} }, '43.4.1'), /Unsupported/)
+  for (const value of [
+    undefined,
+    { filePath: '', type: 'frame' },
+    { filePath: '/wrong', type: 'service-worker' },
+  ]) {
+    assert.throws(
+      () =>
+        observeWindow(
+          { webContents: { ...window.webContents, _getPreloadScript: () => value } },
+          '43.4.1',
+        ),
+      /Missing/,
+    )
+  }
+})
+
+test('Linux uses a new short runner-owned temp path without moving profile evidence', async () => {
+  const runner = await fresh()
+  const root = join(runner, 'deep'.repeat(30))
+  const first = await profileTemporaryDirectory(root, runner, 'linux')
+  const second = await profileTemporaryDirectory(root, runner, 'linux')
+  assert.notEqual(first, second)
+  assert.equal(first.startsWith(join(runner, 'aft-')), true)
+  assert.ok(Buffer.byteLength(join(first, 'scoped_dirXXXXXX', 'SingletonSocket')) < 108)
+  assert.equal(await profileTemporaryDirectory(root, runner, 'darwin'), join(root, 'temp'))
+  const longRunner = join(runner, 'x'.repeat(110))
+  await mkdir(longRunner)
+  await assert.rejects(profileTemporaryDirectory(root, longRunner, 'linux'), /socket path/)
+})
 
 test('local execution is rejected before even invalid artifact paths are inspected', async () => {
   assert.throws(() => requireHostedCI({ CI: 'true', RELEASE_FUNCTIONAL_CI: '1' }), /GitHub-hosted/)

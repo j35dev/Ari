@@ -5,14 +5,44 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIXTURE_SHA256 } from './release-functional-support.mjs'
+import { BASELINE } from './release-install-smoke.mjs'
 import {
   validateIdentity,
   validateFunctional,
+  validateInstalled,
   validateRemote,
   assemble,
 } from './release-publish-assets.mjs'
 const head = 'a'.repeat(40)
 const hash = 'b'.repeat(64)
+function installProof(platform, native, candidate, functional) {
+  return {
+    sourceHead: head,
+    platform,
+    passed: true,
+    native,
+    functional,
+    installation: {
+      sourceHead: head,
+      platform,
+      passed: true,
+      kind: 'installed-candidate-equivalence',
+      previous: BASELINE[platform],
+      candidate,
+      sequence: [{ version: '0.3.12' }, { version: '0.3.13' }],
+      fixture: { beforeSha256: hash, afterSha256: hash },
+      osInstallerBehaviorTested: platform === 'win32',
+      extractionOnly: platform === 'linux',
+      updaterBehaviorTested: false,
+      applicationProfileStartupTested: false,
+      nativeBehaviorTested: false,
+      installed: {
+        executableSha256: hash,
+        archives: native.map((entry) => ({ arch: entry.arch, archive: entry.archive })),
+      },
+    },
+  }
+}
 async function releaseFixture() {
   const root = await mkdtemp(join(tmpdir(), 'ari-release-assets-'))
   const { verifyArtifacts } = await import('./release-artifacts.mjs')
@@ -48,8 +78,10 @@ async function releaseFixture() {
   ]) {
     const packageRoot = join(root, `ari-candidate-${os}-${head}`)
     const functionalRoot = join(root, `ari-functional-${os}-${head}`)
+    const installRoot = join(root, `ari-install-${os}-${head}`)
     await mkdir(packageRoot)
     await mkdir(functionalRoot)
+    await mkdir(installRoot)
     const bytes = Buffer.from('synthetic installer data; never executable')
     for (const name of [update, ...extra]) await writeFile(join(packageRoot, name), bytes)
     await writeFile(
@@ -75,17 +107,23 @@ async function releaseFixture() {
       physicalBehaviorTested: false,
       executableSha256: hash,
       asarSha256: hash,
+      archive: `/synthetic/installed/${platform}/${arch}/app.asar`,
+      modules: Object.fromEntries(
+        ['@lydell/node-pty', 'koffi', 'uiohook-napi'].map((name) => [name, { loaded: true }]),
+      ),
     }))
     await writeFile(
       join(packageRoot, 'candidate-artifacts.json'),
       JSON.stringify({ ...verified, sourceHead: head, native }),
     )
+    const installedSuites = []
     for (const arch of arches) {
       const folder = join(functionalRoot, arch)
       await mkdir(folder)
       await writeFile(
         join(folder, 'suite.json'),
         JSON.stringify({
+          suiteRoot: folder,
           sourceHead: head,
           executableSha256: hash,
           asarSha256: hash,
@@ -101,7 +139,25 @@ async function releaseFixture() {
           })),
         }),
       )
+      const installedFolder = join(installRoot, arch)
+      await mkdir(installedFolder)
+      const suite = JSON.parse(await readFile(join(folder, 'suite.json'), 'utf8'))
+      suite.suiteRoot = installedFolder
+      await writeFile(join(installedFolder, 'suite.json'), JSON.stringify(suite))
+      installedSuites.push({ arch, suiteRoot: installedFolder })
     }
+    const installerName = BASELINE[platform].name.replace('0.3.12', '0.3.13')
+    await writeFile(
+      join(installRoot, 'installed-probes.json'),
+      JSON.stringify(
+        installProof(
+          platform,
+          native,
+          verified.files.find((file) => file.name === installerName),
+          installedSuites,
+        ),
+      ),
+    )
   }
   return root
 }
@@ -119,6 +175,66 @@ test('assembly rehashes the complete real file set before staging uploadable ass
   const manifest = JSON.parse(await readFile(join(output, 'release-manifest.json'), 'utf8'))
   assert.equal(manifest.platforms.length, 3)
   assert.equal(manifest.platforms[1].architectures.length, 2)
+})
+
+test('missing installed evidence cannot stage an otherwise valid package set', async () => {
+  const root = await releaseFixture()
+  await writeFile(
+    join(root, `ari-install-windows-latest-${head}`, 'installed-probes.json'),
+    JSON.stringify({ passed: false }),
+  )
+  const output = join(root, 'blocked-install')
+  await assert.rejects(assemble(root, output, head, '0.3.13'))
+  await assert.rejects(stat(output), { code: 'ENOENT' })
+})
+
+test('installed publication proof rejects wrong baseline, missing native slice, stale or failed suites', async () => {
+  const root = await releaseFixture()
+  const receipt = JSON.parse(
+    await readFile(
+      join(root, `ari-candidate-windows-latest-${head}`, 'candidate-artifacts.json'),
+      'utf8',
+    ),
+  )
+  const installRoot = join(root, `ari-install-windows-latest-${head}`)
+  const proof = JSON.parse(await readFile(join(installRoot, 'installed-probes.json'), 'utf8'))
+  const suite = JSON.parse(await readFile(join(installRoot, 'x64', 'suite.json'), 'utf8'))
+  const summary = validateInstalled(receipt, proof, [suite], head, 'win32')
+  assert.equal(summary.osInstallerBehaviorTested, true)
+  assert.equal(summary.chromiumProfileMigrationTested, false)
+  for (const mutate of [
+    (value) => {
+      value.passed = false
+    },
+    (value) => {
+      value.sourceHead = 'c'.repeat(40)
+    },
+    (value) => {
+      value.installation.previous.sha256 = hash
+    },
+    (value) => {
+      value.installation.candidate.sha256 = hash
+    },
+    (value) => {
+      value.installation.fixture.afterSha256 = 'c'.repeat(64)
+    },
+    (value) => {
+      value.native = []
+    },
+    (value) => {
+      value.native[0].modules.koffi.loaded = false
+    },
+    (value) => {
+      value.functional[0].suiteRoot = '/unrelated'
+    },
+  ]) {
+    const modified = globalThis.structuredClone(proof)
+    mutate(modified)
+    assert.throws(() => validateInstalled(receipt, modified, [suite], head, 'win32'))
+  }
+  assert.throws(() =>
+    validateInstalled(receipt, proof, [{ ...suite, passed: false }], head, 'win32'),
+  )
 })
 
 test('missing platform input or changed bytes cannot produce publication staging', async () => {

@@ -51,7 +51,7 @@ export function configureMain(options) {
     appData: path.join(options.root, 'appData'),
     userData: options.profile,
     sessionData: path.join(options.root, 'sessionData'),
-    temp: path.join(options.root, 'temp'),
+    temp: options.temp,
     logs: path.join(options.root, 'logs'),
     crashDumps: path.join(options.root, 'crashes'),
   })) {
@@ -239,10 +239,44 @@ export function assertCleanExit(exit, stdout, stderr) {
   return shutdown[0]
 }
 
+// Electron 43.4.1 keeps the configured preload outside last Blink preferences.
+// Pinned test instrumentation: shell/browser/api/electron_api_web_contents.cc
+// GetPreloadScript/_getPreloadScript and shell/browser/preload_script.cc filePath.
+// The renderer bridge/RPC and archived preload hash are checked separately.
+export function observeWindow(window, electronVersion) {
+  if (electronVersion !== '43.4.1' || typeof window.webContents._getPreloadScript !== 'function')
+    throw new Error('Unsupported pinned Electron preload observation')
+  const preload = window.webContents._getPreloadScript()
+  if (typeof preload?.filePath !== 'string' || !preload.filePath || preload.type !== 'frame')
+    throw new Error('Missing configured frame preload')
+  return {
+    url: window.webContents.getURL(),
+    preferences: window.webContents.getLastWebPreferences(),
+    preload: preload.filePath,
+  }
+}
+
+export async function profileTemporaryDirectory(root, runnerRoot, platform = process.platform) {
+  if (platform !== 'linux') return join(root, 'temp')
+  // Chromium appends scoped_dirXXXXXX/SingletonSocket to TMPDIR. A deep evidence
+  // path exceeds Linux sockaddr_un's 108-byte bound before the renderer starts.
+  const runner = await realpath(runnerRoot)
+  const temp = await realpath(await mkdtemp(join(runner, 'aft-')))
+  assert.ok(contained(runner, temp) && temp !== runner, 'Temporary directory escaped runner')
+  assert.ok(
+    Buffer.byteLength(join(temp, 'scoped_dirXXXXXX', 'SingletonSocket')) < 108,
+    'Disposable Chromium socket path exceeds Linux limit',
+  )
+  return temp
+}
+
 async function runProfile(options, suiteRoot, fixturePath) {
   const root = await mkdtemp(join(suiteRoot, fixturePath ? 'frozen-' : 'clean-'))
   const { profile, fixture, receipt: preparation } = await prepareProfile(root, fixturePath)
   const env = isolatedEnvironment(root)
+  const temp = await profileTemporaryDirectory(root, process.env.RUNNER_TEMP)
+  for (const key of ['TEMP', 'TMP', 'TMPDIR']) env[key] = temp
+  await mkdir(temp, { recursive: true })
   for (const value of new Set(
     Object.values(env).filter((value) => isAbsolute(value) && contained(root, value)),
   ))
@@ -250,7 +284,7 @@ async function runProfile(options, suiteRoot, fixturePath) {
   const mainPort = await freePort()
   const rendererPort = await freePort()
   const command = launchCommand(options.executable, options.arch, mainPort, rendererPort)
-  const receipt = { preparation, root, command, stages: [], observed: false }
+  const receipt = { preparation, root, temp, command, stages: [], observed: false }
   let main, renderer, child, exitPromise, lifetime
   let stdout = '',
     stderr = '',
@@ -314,6 +348,7 @@ async function runProfile(options, suiteRoot, fixturePath) {
         ...options,
         profile,
         root,
+        temp,
         name: `AriFunctional-${randomUUID()}`,
       })})`,
       10_000,
@@ -347,8 +382,8 @@ async function runProfile(options, suiteRoot, fixturePath) {
       const { app, BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron');
       const windows = BrowserWindow.getAllWindows();
       return { ...globalThis.__ariFunctional, isPackaged: app.isPackaged, appVersion: app.getVersion(),
-        userData: app.getPath('userData'), name: app.getName(), windows: windows.map(w => ({
-          url: w.webContents.getURL(), preferences: w.webContents.getLastWebPreferences() })) };
+        userData: app.getPath('userData'), name: app.getName(),
+        windows: windows.map(w => (${observeWindow.toString()})(w, process.versions.electron)) };
     })()`)
     assert.ok(receipt.main.isPackaged)
     assert.equal(receipt.main.appVersion, options.version)
@@ -362,7 +397,7 @@ async function runProfile(options, suiteRoot, fixturePath) {
     const preferences = receipt.main.windows[0].preferences
     assert.ok(preferences.sandbox && preferences.contextIsolation && !preferences.nodeIntegration)
     assert.equal(
-      normalized(preferences.preload),
+      normalized(receipt.main.windows[0].preload),
       `${normalized(options.archive)}/out/preload/index.cjs`,
     )
     const page = await discover(

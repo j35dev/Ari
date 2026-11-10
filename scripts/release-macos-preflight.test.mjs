@@ -1,12 +1,69 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 import { setImmediate } from 'node:timers'
-import { preflight } from './release-macos-preflight.mjs'
+import { cachedStockRuntime, preflight } from './release-macos-preflight.mjs'
+
+test('stock diagnostic requires cached exact bytes and never downloads or rewrites cache', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ari-stock-cache-test-'))
+  const cache = join(root, 'cache')
+  await mkdir(join(cache, 'entry'), { recursive: true })
+  const bytes = Buffer.from('synthetic ZIP; never native')
+  const expected = {
+    name: 'electron-test.zip',
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  }
+  const path = join(cache, 'entry', expected.name)
+  await writeFile(path, bytes)
+  let calls = 0
+  const run = async (file, args, options) => {
+    calls++
+    assert.equal(file, '/usr/bin/ditto')
+    assert.deepEqual(args.slice(0, 3), ['-x', '-k', path])
+    assert.equal(options.timeout, 30_000)
+    assert.equal(options.windowsHide, true)
+    await mkdir(join(args[3], 'Electron.app/Contents/MacOS'), { recursive: true })
+    await writeFile(join(args[3], 'Electron.app/Contents/MacOS/Electron'), 'synthetic executable')
+  }
+  const result = await cachedStockRuntime(cache, root, run, expected)
+  assert.equal(result.zipSha256, expected.sha256)
+  assert.equal(calls, 1)
+  await writeFile(path, Buffer.alloc(bytes.length))
+  await assert.rejects(cachedStockRuntime(cache, root, run, expected), /Pinned stock/)
+  assert.equal(calls, 1)
+})
+
+test('stock comparison cannot make a failed universal gate pass and keeps the same budget', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ari-stock-compare-test-'))
+  const executable = join(root, 'synthetic')
+  await writeFile(executable, 'synthetic executable')
+  const stock = { executable: '/synthetic/stock/Electron' }
+  const result = await preflight(
+    executable,
+    root,
+    async (_file, args, options) => {
+      assert.equal(options.timeout, 15_000)
+      if (args.includes(executable))
+        throw Object.assign(new Error('universal loader timeout'), { killed: true })
+      return { stdout: 'synthetic observation', stderr: '' }
+    },
+    stock,
+  )
+  assert.equal(result.commands[2].required, true)
+  assert.equal(result.commands[2].success, false)
+  assert.equal(result.commands[3].required, false)
+  assert.equal(result.commands[3].success, true)
+  assert.equal(
+    result.commands.every((entry) => !entry.required || entry.success),
+    false,
+  )
+})
 
 test('translation diagnostics preserve separate system and packaged startup failures without native execution', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ari-macos-diagnostics-'))

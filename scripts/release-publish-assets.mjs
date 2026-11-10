@@ -6,6 +6,7 @@ import { appendFile, copyFile, mkdir, readFile, readdir, writeFile } from 'node:
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FIXTURE_SHA256 } from './release-functional-support.mjs'
+import { BASELINE } from './release-install-baseline.mjs'
 
 export function validateIdentity({ tag, version, head, tagCommit, check }) {
   assert.match(tag ?? '', /^v\d+\.\d+\.\d+$/, 'Use a stable version tag')
@@ -18,15 +19,80 @@ export function validateIdentity({ tag, version, head, tagCommit, check }) {
   assert.equal(check?.conclusion, 'success', 'Latest required verify did not pass')
 }
 
-async function suites(root) {
+async function records(root, filename) {
   const results = []
   for (const entry of await readdir(root, { withFileTypes: true })) {
     assert.ok(!entry.isSymbolicLink(), 'Unexpected symlink in release evidence')
     const path = join(root, entry.name)
-    if (entry.isDirectory()) results.push(...(await suites(path)))
-    else if (entry.name === 'suite.json') results.push(JSON.parse(await readFile(path, 'utf8')))
+    if (entry.isDirectory()) results.push(...(await records(path, filename)))
+    else if (entry.name === filename) results.push(JSON.parse(await readFile(path, 'utf8')))
   }
   return results
+}
+
+export function validateInstalled(receipt, proof, results, sourceHead, platform) {
+  assert.equal(proof.sourceHead, sourceHead)
+  assert.equal(proof.platform, platform)
+  assert.equal(proof.passed, true, 'Installed-path probes did not pass')
+  const install = proof.installation
+  assert.equal(install.sourceHead, sourceHead)
+  assert.equal(install.platform, platform)
+  assert.equal(install.kind, 'installed-candidate-equivalence')
+  assert.equal(install.passed, true)
+  assert.equal(install.previous.name, BASELINE[platform].name)
+  assert.equal(install.previous.bytes, BASELINE[platform].bytes)
+  assert.equal(install.previous.sha256, BASELINE[platform].sha256)
+  const candidate = receipt.files.find((file) => file.name === install.candidate.name)
+  assert.ok(candidate, 'Installed artifact absent from tested package')
+  assert.equal(install.candidate.bytes, candidate.bytes)
+  assert.equal(install.candidate.sha256, candidate.sha256)
+  assert.deepEqual(
+    install.sequence.map((entry) => entry.version),
+    ['0.3.12', '0.3.13'],
+  )
+  assert.equal(install.fixture.beforeSha256, install.fixture.afterSha256)
+  assert.equal(install.osInstallerBehaviorTested, platform === 'win32')
+  assert.equal(install.extractionOnly, platform === 'linux')
+  assert.equal(install.updaterBehaviorTested, false)
+  assert.equal(install.applicationProfileStartupTested, false)
+  assert.equal(install.nativeBehaviorTested, false)
+  assert.equal(install.installed.executableSha256, receipt.native[0].executableSha256)
+  for (const native of proof.native) {
+    const packaged = receipt.native.find((entry) => entry.arch === native.arch)
+    assert.ok(packaged)
+    assert.equal(
+      native.archive,
+      install.installed.archives.find((entry) => entry.arch === native.arch)?.archive,
+    )
+    assert.equal(native.executableSha256, packaged.executableSha256)
+    assert.equal(native.asarSha256, packaged.asarSha256)
+    for (const name of ['@lydell/node-pty', 'koffi', 'uiohook-napi'])
+      assert.equal(native.modules?.[name]?.loaded, true)
+  }
+  assert.equal(proof.functional.length, receipt.native.length)
+  assert.deepEqual(
+    proof.functional.map((entry) => entry.arch).sort(),
+    receipt.native.map((entry) => entry.arch).sort(),
+  )
+  assert.equal(
+    new Set(proof.functional.map((entry) => entry.suiteRoot)).size,
+    proof.functional.length,
+  )
+  assert.deepEqual(
+    results.map((entry) => entry.suiteRoot).sort(),
+    proof.functional.map((entry) => entry.suiteRoot).sort(),
+  )
+  validateFunctional({ ...receipt, native: proof.native }, results, sourceHead, platform)
+  return {
+    installationKind: install.installationKind,
+    osInstallerBehaviorTested: install.osInstallerBehaviorTested,
+    extractionOnly: install.extractionOnly,
+    installedModuleLoadAndCopiedProfileSmoke: true,
+    updaterBehaviorTested: false,
+    preservedFixtureSibling: true,
+    chromiumProfileMigrationTested: false,
+    physicalBehaviorTested: false,
+  }
 }
 
 export function validateFunctional(receipt, results, sourceHead, platform) {
@@ -89,13 +155,24 @@ export async function assemble(inputRoot, outputRoot, sourceHead, version) {
     assert.deepEqual(receipt.files, verified.files, 'Artifacts differ from recorded package hashes')
     validateFunctional(
       receipt,
-      await suites(join(inputRoot, `ari-functional-${os}-${sourceHead}`)),
+      await records(join(inputRoot, `ari-functional-${os}-${sourceHead}`), 'suite.json'),
+      sourceHead,
+      platform,
+    )
+    const installRoot = join(inputRoot, `ari-install-${os}-${sourceHead}`)
+    const installedProofs = await records(installRoot, 'installed-probes.json')
+    assert.equal(installedProofs.length, 1, 'Missing or duplicate installed proof')
+    const installation = validateInstalled(
+      receipt,
+      installedProofs[0],
+      await records(installRoot, 'suite.json'),
       sourceHead,
       platform,
     )
     manifest.files.push(...verified.files.map((file) => ({ ...file, platform })))
     manifest.platforms.push({
       platform,
+      installation,
       architectures: receipt.native.map((entry) => ({
         arch: entry.arch,
         electron: entry.electron,
