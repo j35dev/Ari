@@ -212,9 +212,23 @@ describe('App onboarding integration', () => {
       },
     ]
     splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
-    render(<App />)
-    await screen.findByText('Opened session restored')
     const original = invoke.getMockImplementation()!
+    let finishList!: () => void
+    const initialList = new Promise<void>((resolve) => {
+      finishList = resolve
+    })
+    invoke.mockImplementation(async (method, params) => {
+      if (method === 'session.list') await initialList
+      return original(method, params)
+    })
+    render(<App />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('session.list'))
+    await act(async () => finishList())
+    await screen.findByText('Opened session restored')
+    // Establish loaded sidebar state before holding subsequent discovery calls.
+    // DOM observations await React's commit, while the unresolved RPCs still
+    // prevent a discovery-based navigation path from satisfying this regression.
+    await screen.findByRole('button', { name: /^Restored session/ })
     invoke.mockImplementation((method, params) =>
       method === 'aria.open' || method === 'session.list'
         ? new Promise(() => {})
@@ -222,15 +236,15 @@ describe('App onboarding integration', () => {
     )
     const calls = invoke.mock.calls.length
     await user.click(screen.getByRole('button', { name: 'Open Aria' }))
-    expect(screen.getByText('Opened session aria')).toBeVisible()
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
       'aria-current',
       'page',
     )
     await user.click(screen.getByRole('button', { name: /^Restored session/ }))
-    expect(screen.getByText('Opened session restored')).toBeVisible()
+    expect(await screen.findByText('Opened session restored')).toBeVisible()
     await user.keyboard('{Control>}0{/Control}')
-    expect(screen.getByText('Opened session aria')).toBeVisible()
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
     expect(
       invoke.mock.calls
         .slice(calls)

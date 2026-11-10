@@ -6,12 +6,17 @@ import { createRequire } from 'node:module'
 import { dirname, join, relative, isAbsolute, sep } from 'node:path'
 const nodeRequire = createRequire(import.meta.url)
 
+function stage(value) {
+  console.error(JSON.stringify({ kind: 'packaged-native-stage', stage: value, arch: process.arch }))
+}
+
 function contained(root, path) {
   const delta = relative(root, path)
   return delta !== '..' && !delta.startsWith(`..${sep}`) && !isAbsolute(delta)
 }
 
 try {
+  stage('runtime-entry')
   assert.ok(process.versions.electron, 'This probe requires the reviewed packaged Electron binary')
   assert.equal(process.env.ELECTRON_RUN_AS_NODE, '1')
   const [archive, expectedArch] = process.argv.slice(2)
@@ -34,10 +39,13 @@ try {
       path: physical,
       sha256: createHash('sha256').update(readFileSync(physical)).digest('hex'),
     })
+    stage(`addon-loading:${relative(unpacked, physical)}`)
     originalLoad(module, filename)
+    stage(`addon-loaded:${relative(unpacked, physical)}`)
   }
   const modules = {}
   for (const name of ['@lydell/node-pty', 'koffi', 'uiohook-napi']) {
+    stage(`module-loading:${name}`)
     const resolved = appRequire.resolve(name)
     assert.ok(
       contained(archive, resolved) || contained(unpacked, resolved),
@@ -51,6 +59,7 @@ try {
       assert.equal(api.UiohookKey.Space, 57)
     }
     modules[name] = { resolved, loaded: true }
+    stage(`module-loaded:${name}`)
   }
   // Windows PTY loading is lazy: requiring its JS entry does not load ConPTY.
   const ptyName = `@lydell/node-pty-${process.platform}-${process.arch}`
