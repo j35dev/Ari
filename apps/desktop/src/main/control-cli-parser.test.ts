@@ -67,6 +67,31 @@ it('reads whole selected turns up to the existing message cap, with explicit tai
   expect(cli.parse(['session', 'read', 'worker']).params).toEqual({ targetSessionId: 'worker' })
 })
 
+it('parses only the compact explicit navigation commands and preserves their keys', () => {
+  for (const [args, target] of [
+    [['session', 'exact'], { view: 'session', sessionId: 'exact' }],
+    [['aria'], { view: 'aria' }],
+    [['settings'], { view: 'settings' }],
+    [['changes', '--project', 'p'], { view: 'changes', projectId: 'p' }],
+    [['changes', '--session', 's'], { view: 'changes', sessionId: 's' }],
+  ] as const)
+    expect(cli.parse(['app', 'open', ...args, '--key', 'stable'])).toMatchObject({
+      method: 'app.open',
+      params: { ...target, idempotencyKey: 'stable' },
+    })
+  for (const args of [
+    ['session'],
+    ['session', 's', 'extra'],
+    ['changes'],
+    ['changes', '--project', 'p', '--session', 's'],
+    ['settings', '--project', 'p'],
+    ['aria', 'old'],
+    ['settings', '--model', 'm'],
+    ['url', 'https://example.com'],
+  ])
+    expect(() => cli.parse(['app', 'open', ...args])).toThrow()
+})
+
 it('parses project creation with an optional absolute folder and retry key', () => {
   expect(
     cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),

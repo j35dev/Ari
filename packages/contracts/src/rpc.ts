@@ -361,7 +361,87 @@ export interface SpeechProgress {
 }
 
 /** The main process asking to show a session or open speech configuration. */
-export type NavigateFrame = { sessionId: string } | { settingsSection: 'speech' }
+const navigationId = z.string().min(1).max(128)
+export const appOpenTargetSchema = z.discriminatedUnion('view', [
+  z.object({ view: z.literal('session'), sessionId: navigationId }).strict(),
+  z.object({ view: z.literal('aria'), sessionId: navigationId }).strict(),
+  z.object({ view: z.literal('settings') }).strict(),
+  z
+    .object({
+      view: z.literal('changes'),
+      projectId: navigationId,
+      sessionId: navigationId.optional(),
+    })
+    .strict(),
+])
+export type AppOpenTarget = z.infer<typeof appOpenTargetSchema>
+export const appOpenReceiptSchema = z
+  .object({
+    requestId: navigationId,
+    target: appOpenTargetSchema,
+    status: z.enum(['applied', 'unavailable', 'stale', 'superseded', 'failed', 'unconfirmed']),
+    reason: z
+      .enum([
+        'no_consumer',
+        'disconnected',
+        'expired',
+        'target_changed',
+        'scope_changed',
+        'user_navigation',
+        'new_request',
+        'load_failed',
+        'observation_failed',
+        'consumer_replaced',
+        'ack_timeout',
+      ])
+      .optional(),
+    observed: z
+      .object({
+        target: appOpenTargetSchema,
+        mode: z.enum(['chat', 'settings', 'sidebar', 'page']),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .refine((receipt) =>
+    receipt.status === 'applied'
+      ? receipt.observed !== undefined &&
+        JSON.stringify(receipt.target) === JSON.stringify(receipt.observed.target) &&
+        (receipt.target.view === 'settings'
+          ? receipt.observed.mode === 'settings'
+          : receipt.target.view === 'changes'
+            ? ['sidebar', 'page'].includes(receipt.observed.mode)
+            : receipt.observed.mode === 'chat')
+      : receipt.observed === undefined,
+  )
+export type AppOpenReceipt = z.infer<typeof appOpenReceiptSchema>
+export const navigateFrameSchema = z.union([
+  z.object({ sessionId: navigationId }).strict(),
+  z.object({ settingsSection: z.literal('speech') }).strict(),
+  z
+    .object({
+      kind: z.literal('app.open'),
+      requestId: navigationId,
+      consumerId: navigationId,
+      expiresAt: z.number().int().positive(),
+      target: appOpenTargetSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('app.open.cancel'),
+      requestId: navigationId,
+      consumerId: navigationId,
+    })
+    .strict(),
+])
+export type NavigateFrame = z.infer<typeof navigateFrameSchema>
+export type AppOpenFrame = Extract<NavigateFrame, { kind: 'app.open' }>
+export const appNavigationValidationSchema = z.discriminatedUnion('allowed', [
+  z.object({ allowed: z.literal(true) }).strict(),
+  z.object({ allowed: z.literal(false), receipt: appOpenReceiptSchema }).strict(),
+])
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
@@ -689,6 +769,15 @@ export const rpcParams = {
   ...orchestrationParams,
   ping: z.undefined(),
   'app.info': z.undefined(),
+  'app.navigation.consumer': z
+    .object({ consumerId: navigationId, connected: z.boolean() })
+    .strict(),
+  'app.navigation.validate': z
+    .object({ consumerId: navigationId, requestId: navigationId })
+    .strict(),
+  'app.navigation.ack': z
+    .object({ consumerId: navigationId, receipt: appOpenReceiptSchema })
+    .strict(),
   /** Kick a release check now; unpackaged builds reply `started: false`. */
   'app.update.check': z.undefined(),
   /** Begin downloading the release announced on the last `available` frame. */
@@ -1093,6 +1182,9 @@ export type RpcMethod = keyof typeof rpcParams
 
 export interface RpcResults extends OrchestrationResults {
   ping: { pong: boolean; at: number }
+  'app.navigation.consumer': { registered: boolean }
+  'app.navigation.validate': z.infer<typeof appNavigationValidationSchema>
+  'app.navigation.ack': { acknowledged: boolean }
   'app.info': {
     platform: string
     homeDir: string
