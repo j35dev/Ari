@@ -40,6 +40,14 @@ export function isolatedEnvironment(data, source = process.env) {
   return env
 }
 
+// Slices each hosted gate launches. Hosted macOS runners launch only their native
+// slice: x64 under Rosetta on the ARM64 runner stalls before any JS, stock Electron
+// included, so that path is diagnosed separately and never gates. Packaging and
+// inventory checks still require both universal slices.
+export function launchArches(platform = process.platform, hostArch = process.arch) {
+  return platform === 'darwin' ? [hostArch] : ['x64']
+}
+
 export function executionCommand(
   executable,
   args,

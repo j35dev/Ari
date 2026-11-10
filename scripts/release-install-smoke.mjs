@@ -17,7 +17,7 @@ import { createRequire } from 'node:module'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { promisify } from 'node:util'
-import { archivePath } from './release-native-smoke.mjs'
+import { archivePath, launchArches } from './release-native-smoke.mjs'
 import { BASELINE } from './release-install-baseline.mjs'
 export { BASELINE } from './release-install-baseline.mjs'
 import {
@@ -134,7 +134,7 @@ async function testedPackage(options, receipt) {
   assert.equal(receipt.version, '0.3.13')
   assert.equal(receipt.platform, options.platform)
   assert.ok(!receipt.nativeFailure, 'Packaged native gate failed')
-  const arches = options.platform === 'darwin' ? ['arm64', 'x64'] : ['x64']
+  const arches = launchArches(options.platform, options.hostArch)
   assert.deepEqual(
     receipt.native.map((entry) => entry.arch).sort(),
     [...arches].sort(),
@@ -172,30 +172,33 @@ async function testedPackage(options, receipt) {
 }
 
 export function installedPlans(installed, options, root) {
-  return installed.archives.map((entry) => ({
-    arch: entry.arch,
-    native: {
-      executable: installed.executable,
-      resources: installed.resources,
+  const arches = launchArches(options.platform, options.hostArch)
+  return installed.archives
+    .filter((entry) => arches.includes(entry.arch))
+    .map((entry) => ({
       arch: entry.arch,
-      executableSha256: installed.executableSha256,
-      asarSha256: entry.sha256,
-      dataRoot: join(root, 'native'),
-    },
-    functional: {
-      sourceHead: options.sourceHead,
-      version: '0.3.13',
-      arch: entry.arch,
-      executable: installed.executable,
-      resources: installed.resources,
-      archive: entry.archive,
-      executableSha256: installed.executableSha256,
-      asarSha256: entry.sha256,
-      bootstrapSha256: installed.bootstrapSha256,
-      fixture: options.fixture,
-      dataRoot: join(root, 'functional'),
-    },
-  }))
+      native: {
+        executable: installed.executable,
+        resources: installed.resources,
+        arch: entry.arch,
+        executableSha256: installed.executableSha256,
+        asarSha256: entry.sha256,
+        dataRoot: join(root, 'native'),
+      },
+      functional: {
+        sourceHead: options.sourceHead,
+        version: '0.3.13',
+        arch: entry.arch,
+        executable: installed.executable,
+        resources: installed.resources,
+        archive: entry.archive,
+        executableSha256: installed.executableSha256,
+        asarSha256: entry.sha256,
+        bootstrapSha256: installed.bootstrapSha256,
+        fixture: options.fixture,
+        dataRoot: join(root, 'functional'),
+      },
+    }))
 }
 
 export async function installSmoke(input, dependencies = {}) {

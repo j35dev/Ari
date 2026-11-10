@@ -571,7 +571,8 @@ test(
     const entry = join(root, 'main.mjs')
     await writeFile(
       entry,
-      `await new Promise((resolve) => setImmediate(resolve))
+      `globalThis.__ariEntryStarted = true
+await new Promise((resolve) => setImmediate(resolve))
 if (globalThis.__ariFunctional) globalThis.__ariFunctional.ready = true
 setInterval(() => {}, 1000)
 `,
@@ -611,9 +612,14 @@ setInterval(() => {}, 1000)
       await client.send('Runtime.runIfWaitingForDebugger')
       const pause = await paused
       assert.equal(pause.reason, 'Break on start')
-      assert.ok(
-        pause.callFrames.some((frame) => frame.functionName?.includes('asyncInstantiate')),
-        'Expected the ESM bootstrap pause',
+      // Node 24 pauses inside the loader's async instantiation and Node 22 at the
+      // entry's first statement. Either way no entry code may have run yet.
+      assert.equal(
+        await client.evaluate('globalThis.__ariEntryStarted === undefined', 1000, false),
+        true,
+        `Expected the pause before entry code: ${JSON.stringify(
+          pause.callFrames.map(({ functionName, url }) => ({ functionName, url })),
+        )}`,
       )
       await client.send('Runtime.evaluate', {
         expression: 'globalThis.__ariFunctional = { ready: false }',
