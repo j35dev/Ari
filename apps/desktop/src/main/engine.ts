@@ -5,7 +5,7 @@ import {
   type AttachmentRef,
   type QueuedMessage,
 } from '@ari/contracts/attachments'
-import type { Command } from '@ari/contracts/commands'
+import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import type { DriverKind } from '@ari/contracts/common'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
@@ -503,10 +503,7 @@ export class Engine {
     this.#deps = deps
   }
 
-  async dispatch(
-    command: Command,
-    origin?: MessageOrigin,
-  ): Promise<{ accepted: boolean; reason?: string }> {
+  async dispatch(command: Command, origin?: MessageOrigin): Promise<CommandReceipt> {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
@@ -535,10 +532,7 @@ export class Engine {
     return this.#append(sessionId, event)
   }
 
-  async #dispatch(
-    command: Command,
-    origin?: MessageOrigin,
-  ): Promise<{ accepted: boolean; reason?: string }> {
+  async #dispatch(command: Command, origin?: MessageOrigin): Promise<CommandReceipt> {
     if (this.#closing && command.type !== 'turn.interrupt')
       return { accepted: false, reason: 'Ari is shutting down' }
     if (!('sessionId' in command)) {
@@ -723,7 +717,16 @@ export class Engine {
       await this.#recordSteered(command.sessionId, model.activeTurnId, queued)
     }
 
-    return { accepted: true }
+    return {
+      accepted: true,
+      ...(command.type === 'session.provider.switch'
+        ? {
+            switchTiming: model.activeTurnId
+              ? { effective: 'next_turn' as const, afterTurnId: model.activeTurnId }
+              : { effective: 'ready' as const, afterTurnId: null },
+          }
+        : {}),
+    }
   }
 
   /**

@@ -328,6 +328,16 @@ blocked, cannot, need your or decide still wake Aria despite the marker.
 After eight consecutive automatic completion turns without a human message,
 Aria holds further reports pending until the user writes again; none are lost.
 
+Only when the user explicitly asks to change Aria's own model, use
+`ari session switch self --agent <provider> --model <model> [--effort <level>]`.
+This reaches only your current nonarchived Aria chat. Never self-switch for
+automatic failover or guess a provider/model. Switch receipts report
+`effective: "ready"` when no turn is active, or `effective: "next_turn"` with
+the exact active `afterTurnId` at accepted dispatch. The active turn keeps its
+original provider/model/effort. A same-key retry returns the original timing,
+including after reload; it is not a fresh status query. Ready means the choice
+is configured, not that a turn has started.
+
 ## Getting results
 
 **You are told when children finish.** When a child's turn ends and you are not
@@ -347,6 +357,15 @@ ari session wait --children CHILD_A,CHILD_B --any --timeout 1800 --json
 ari session read CHILD_ID --tail 6 --json
 ari session read CHILD_ID --turns 1 --tools --json
 ```
+
+`session read` includes `queuedMessages` in queue order, with text, origin,
+held state and per-entry truncation. `queuedMessageCount` includes omitted
+entries; `queuedMessagesTruncated` flags omitted or clipped entries. Summaries
+share the existing `--tail` count and `--max-chars` text budgets with transcript
+messages, queue first. These are observations, not new assignments or steering.
+`read --turns N` without `--tail` uses the existing 200-message cap; explicit
+`--tail` wins, and ordinary read still defaults to six. The character budget
+and `truncated` signal still apply.
 
 `session status` reports each child's `workState`:
 
@@ -377,7 +396,11 @@ ari session answer CHILD_ID --input INPUT_ID "Use the SettingsStore." --key answ
 ```
 
 A prompt to an idle child starts a new turn; to a busy child it queues behind the
-current one. Either way you are told when that turn finishes. If you are a child,
+current one. The acceptance receipt says `queued: true` and
+`execution: "future_turn"`. `observedActiveTurnId` (also returned as the legacy
+`turnId`) is an observed active turn, not the queued assignment's future turn
+identity. Same-key retries return that original receipt, even after reload.
+Either way you are told when that turn finishes. If you are a child,
 your final message of each turn is delivered to your parent automatically: ask the
 parent only for decisions it can resolve, and do not message it to say you are done.
 
