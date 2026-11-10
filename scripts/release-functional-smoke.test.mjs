@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
 import { pathToFileURL } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import {
   CDP,
@@ -700,4 +701,29 @@ test('startup splash does not count as the intended shell surface', () => {
     false,
   )
   assert.equal(intendedSurface({ ...shell, closest: () => ({ hidden: true }) }), false)
+})
+
+test('serialized renderer visibility expression has no outer-scope dependencies', () => {
+  const element = {
+    closest: () => null,
+    getClientRects: () => ({ length: 1 }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }),
+    contains: () => false,
+    ownerDocument: {
+      documentElement: { hasAttribute: () => false },
+      querySelector: () => null,
+      elementFromPoint: () => element,
+    },
+  }
+  // CDP receives this function's source, not this module's lexical scope.
+  const expression = `[element].filter(${intendedSurface.toString()}).length`
+  assert.equal(runInNewContext(expression, { element }), 1)
+  element.ownerDocument.documentElement.hasAttribute = () => true
+  assert.equal(runInNewContext(expression, { element }), 0)
+  element.ownerDocument.documentElement.hasAttribute = () => false
+  element.ownerDocument.querySelector = () => ({ splash: true })
+  assert.equal(runInNewContext(expression, { element }), 0)
+  element.ownerDocument.querySelector = () => null
+  element.ownerDocument.elementFromPoint = () => ({ overlay: true })
+  assert.equal(runInNewContext(expression, { element }), 0)
 })

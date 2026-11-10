@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { finished } from 'node:stream/promises'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 import { URL } from 'node:url'
@@ -35,7 +36,7 @@ async function bundle(root, version, platform) {
   const input = join(root, 'asar-input')
   await mkdir(input)
   await writeFile(join(input, 'package.json'), JSON.stringify({ name: '@ari/desktop', version }))
-  await asar.createPackage(input, join(resources, 'app.asar'))
+  await finished(await asar.createPackage(input, join(resources, 'app.asar')))
   await writeFile(join(resources, 'app-update.yml'), 'provider: github\nowner: j35dev\nrepo: Ari\n')
   const unpacked = join(resources, 'app.asar.unpacked', 'node_modules')
   await mkdir(unpacked, { recursive: true })
@@ -323,7 +324,8 @@ test('linux upgrade reads the archive now at the install path', async () => {
   const baselineArchive = join(env.root, 'old', 'resources', 'app.asar')
   const candidateArchive = join(env.root, 'candidate', 'resources', 'app.asar')
   asar.uncache(baselineArchive)
-  await asar.createPackage(input, baselineArchive)
+  // The locked ASAR writer returns its stream after end(), before the bytes finish flushing.
+  await finished(await asar.createPackage(input, baselineArchive))
   assert.ok((await stat(baselineArchive)).size > (await stat(candidateArchive)).size + 8000)
   const result = await installSmoke(env.options, env.dependencies)
   assert.equal(result.passed, true)
