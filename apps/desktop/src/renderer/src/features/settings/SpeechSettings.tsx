@@ -22,11 +22,11 @@ function sizeLabel(bytes: number): string {
     : `${Math.round(bytes / 1_000_000)} MB`
 }
 function progressLabel(frame: SpeechProgress): string {
-  if (frame.phase === 'verifying') return 'Verifyingâ€¦'
-  if (frame.phase === 'installing') return 'Preparingâ€¦'
+  if (frame.phase === 'verifying') return 'Verifying…'
+  if (frame.phase === 'installing') return 'Preparing…'
   return frame.total
     ? `${Math.min(100, Math.round((frame.received / frame.total) * 100))}%`
-    : 'Downloadingâ€¦'
+    : 'Downloading…'
 }
 function inProgress(
   frame?: SpeechProgress,
@@ -193,7 +193,7 @@ export function SpeechSettings() {
           {status.engine === 'downloading' || inProgress(engineProgress) ? (
             <>
               <span role="status" className="text-xs text-fg-muted">
-                {engineProgress ? progressLabel(engineProgress) : 'Downloadingâ€¦'}
+                {engineProgress ? progressLabel(engineProgress) : 'Downloading…'}
               </span>
               <Button
                 size="sm"
@@ -207,7 +207,7 @@ export function SpeechSettings() {
             <span className="text-xs text-fg-muted">Ready</span>
           ) : !status.engineInstallable && !status.engineError ? (
             <span role="status" className="text-xs text-fg-muted">
-              Checkingâ€¦
+              Checking…
             </span>
           ) : (
             <>
@@ -251,7 +251,7 @@ export function SpeechSettings() {
         >
           {status.loading && (
             <span role="status" className="text-xs text-fg-muted">
-              Loadingâ€¦
+              Loading…
             </span>
           )}
           <Switch
@@ -365,7 +365,7 @@ export function SpeechSettings() {
             <SettingsRow
               key={model.id}
               label={model.name}
-              hint={`${model.installed ? (model.installed.source === 'handy' ? 'Handy' : 'Local model') : ''} Â· ${sizeLabel(model.size)}`}
+              hint={`${model.installed ? (model.installed.source === 'handy' ? 'Handy' : 'Local model') : ''} · ${sizeLabel(model.size)}`}
             >
               <Button
                 size="sm"
@@ -387,7 +387,7 @@ export function SpeechSettings() {
         ) : (
           <SettingsRow
             label="No compatible models found"
-            hint="Handyâ€™s older .bin and ONNX models cannot be used. Download a GGUF model below."
+            hint="Handy’s older .bin and ONNX models cannot be used. Download a GGUF model below."
           />
         )}
       </SettingsSection>
@@ -403,8 +403,8 @@ export function SpeechSettings() {
             return (
               <SettingsRow
                 key={model.id}
-                label={`${model.name}${model.recommended ? ' Â· Recommended' : ''}`}
-                hint={`${sizeLabel(model.size)} Â· ${model.languages.length === 1 && model.languages[0] === 'en' ? 'English' : `${model.languages.length} languages`} Â· ${model.description}`}
+                label={`${model.name}${model.recommended ? ' · Recommended' : ''}`}
+                hint={`${sizeLabel(model.size)} · ${model.languages.length === 1 && model.languages[0] === 'en' ? 'English' : `${model.languages.length} languages`} · ${model.description}`}
               >
                 {inProgress(frame) ? (
                   <>
