@@ -490,11 +490,10 @@ async function runProfile(options, suiteRoot, fixturePath) {
       })()`),
       )
       if (fixture)
-        assert.ok(
-          await renderer.evaluate(
-            "document.body.innerText.includes('Synthetic transcript response')",
-          ),
-          'Saved transcript did not render',
+        // Composer drafts hydrate before the independent replayed history stream.
+        // Observe the saved response within the existing poll/lifetime budgets.
+        await poll('saved transcript rendered', () =>
+          renderer.evaluate("document.body.innerText.includes('Synthetic transcript response')"),
         )
     }
     await selectChat()
