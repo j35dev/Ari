@@ -162,6 +162,21 @@ including tracked and non-ignored untracked changes. Shared workspaces require a
 explicit `--workspace shared` and policy allowance.
 Children inherit your permissions and cannot silently elevate them.
 
+Assess each assignment and choose a supported per-model reasoning effort from
+`ari agents` using `--effort`: low for a routine extraction or typo, medium for
+ordinary work, high for implementation, diagnosis and reviews, and xhigh or
+stronger for demanding multi-part work when supported. Explicit requested effort
+takes priority. `--effort auto` asks Ari to assess task scope. Omitted effort
+uses task assessment with saved or same-model inherited effort as a minimum;
+complex work cannot silently inherit low. Unsupported explicit levels are refused.
+Launch results include the actual `permissionMode`, `effort` and
+`effortSelection` (source, supported levels and reason). A provider with no
+effort selector is reported explicitly; do not claim that it runs at high effort.
+`session prompt` assesses each follow-up to a session you launched or a direct
+worker too; use `--effort LEVEL` to override or `--effort auto` to reassess without
+the previous effort as a minimum. Its result reports the resolved agent. Existing
+messages, workers and permissions are preserved.
+
 Use stable `--key` values when retrying a mutation after a connection failure. The
 same key with the same arguments reuses its result; use a new key for a new operation.
 
@@ -276,8 +291,16 @@ messaging, answering or switching a session with higher permissions is refused;
 ask the user to send the instruction or raise Aria's permissions. Aria cannot
 start work in its own project.
 
-For requested leads, `project ask` options `--agent`, `--model`, `--effort`,
-`--permission` and `--title` apply only when creating a lead. The result includes
+Aria project sessions and new leads default to full/bypass permissions within
+Aria's cap, even when the app's new-chat default is ask. Explicit launch and
+saved project permissions take priority. A project default saved without
+`--permission` uses the caller's cap.
+
+For requested leads, `project ask` options `--agent`, `--model`, `--effort` and
+`--permission` also apply when reusing a lead; `--title` names new leads.
+Switches preserve the lead's conversation, workers and workspace, and a running
+turn finishes with its original settings before follow-up work uses the new ones.
+Changing providers requires a model. The result includes
 `reused`, `lead` and `agent`. Send lead follow-ups through `project ask`.
 `project lead --agent` switches the lead most recently assigned work for Aria.
 `project lead --reset` destroys live Aria leads in the project and their workers

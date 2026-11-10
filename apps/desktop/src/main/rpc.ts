@@ -37,6 +37,7 @@ import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from 
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
 import { createSession, type SessionCreateDeps } from './session-create'
+import { launchEffortLookup } from './launch-efforts'
 import { createProject } from './project-create'
 import { AriaThread } from './aria-thread'
 import { ProjectContextCache, ProjectSelection } from './project-context'
@@ -320,6 +321,10 @@ async function probeEffortsForModel(
       // Matched the way a turn applies it, so a registry id asks for the
       // levels of the agent's row for that model, not the default model's.
       const offered = resolveOfferedModel(modelId, modelsFromConfigOptions(configOptions))
+      if (modelOption?.id !== undefined && offered === null && modelId !== 'default')
+        throw new Error(
+          `Model ${modelId} is not advertised by the effort probe; refusing to use the default model's effort support.`,
+        )
       if (modelOption?.id !== undefined && offered !== null) {
         const refreshed = await connection.setConfigOption(
           created.sessionId as string,
@@ -1025,6 +1030,31 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // One answer per model for the life of the app: each ask is a full agent
   // handshake, and the composer's chip asks on every mount and catalog frame.
   const effortsForModel = cachedEffortLookup(probeEffortsForModel)
+  const launchEffortsForModel = launchEffortLookup({
+    known: (kind, modelId) => {
+      if (kind === 'ari-core') return []
+      // These legacy transports cannot apply an effort selector.
+      if (
+        (kind === 'opencode' || kind === 'hermes') &&
+        (process.env['ARI_ACP'] === '0' || process.env[`ARI_ACP_${kind.toUpperCase()}`] === '0')
+      )
+        return []
+      const model = modelsFor(kind).find(
+        (entry) => entry.id === modelId || (modelId != null && entry.aliases?.includes(modelId)),
+      )
+      return model?.effortsSource === 'agent' ? model.efforts : undefined
+    },
+    probe: async (kind, modelId) => {
+      if (kind === 'codex') {
+        const models = await probeAcpModels(kind)
+        const model = models?.find(
+          (entry) => entry.id === modelId || (modelId != null && entry.aliases?.includes(modelId)),
+        )
+        if (model?.efforts !== undefined) return model.efforts
+      }
+      return probeEffortsForModel(kind, modelId)
+    },
+  })
 
   // The running-turn counter feeds the tray from the same event flow the
   // renderer subscribes to; no extra engine coupling. Imports use the same
@@ -1303,6 +1333,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         projectAgentDefaults: () => ({
           permissionMode: getSettingsStore().current.sessions.defaultPermissionMode,
         }),
+        effortsForModel: launchEffortsForModel,
         setProjectDefault: async (id, agent) =>
           (await getProjectStore().setDefaultAgent(id, agent)) !== null,
         providers: async () => {
@@ -1330,6 +1361,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                     id: model.id,
                     label: model.label,
                     ...(model.aliases === undefined ? {} : { aliases: model.aliases }),
+                    ...(model.efforts === undefined ? {} : { efforts: model.efforts }),
                   })),
           }))
         },

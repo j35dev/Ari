@@ -40,6 +40,7 @@ import {
   type ProjectAgentProvider,
 } from './projects'
 import type { ProjectAgent, ResolvedProjectAgent } from '@ari/contracts/project'
+import { resolveLaunchEffort, type LaunchEffortOption } from './launch-effort'
 
 const log = createLogger('engine:control')
 
@@ -142,6 +143,11 @@ export interface ControlHost {
   projects?(rows?: readonly SessionListEntry[]): Promise<HelmProject[]>
   createProject?(input: { name: string; path?: string }): Promise<CreatedProject>
   projectAgentDefaults?(): ProjectAgentDefaults
+  /** Model-specific support from the active provider transport; failures must remain failures. */
+  effortsForModel?(
+    kind: Session['driverKind'],
+    modelId: string | null,
+  ): Promise<readonly LaunchEffortOption[]>
   setProjectDefault?(id: string, agent: ProjectAgent): Promise<boolean>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
@@ -288,11 +294,33 @@ export class AgentControlService {
       ...(args === undefined ? {} : { arguments: args }),
       providers: providers ?? (await this.host.providers()),
       maxPermissionMode: caller.permissionMode,
-      app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
+      app: { permissionMode: 'full' },
     })
     if (!agent && project.defaultAgent && !project.defaultAgent.modelId && !args?.modelId)
       throw new ControlFailure('model_unavailable', PROJECT_DEFAULT_MODEL_REQUIRED)
     return agent
+  }
+
+  async #effort(
+    agent: Pick<ProjectAgent, 'driverKind' | 'modelId' | 'effort'>,
+    requested?: string | null,
+    text?: string,
+    baselineSource: 'project' | 'inherited' | 'lead' = 'project',
+    providers?: readonly ProjectAgentProvider[],
+  ) {
+    if (requested === null) return resolveLaunchEffort({ requested, options: [] })
+    const provider = (providers ?? (await this.host.providers())).find(
+      (entry) => entry.driverKind === agent.driverKind,
+    )
+    const model = provider?.models.find(
+      (entry) =>
+        entry.id === agent.modelId ||
+        (agent.modelId != null && entry.aliases?.includes(agent.modelId)),
+    )
+    const options = this.host.effortsForModel
+      ? await this.host.effortsForModel(agent.driverKind, model?.id ?? agent.modelId)
+      : (model?.efforts ?? [])
+    return resolveLaunchEffort({ requested, baseline: agent.effort, baselineSource, text, options })
   }
 
   /** Shared with the live snapshot so it names the same agent as a launch. */
@@ -309,7 +337,7 @@ export class AgentControlService {
       const agent = resolveProjectAgent({
         project,
         providers,
-        app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
+        app: { permissionMode: 'full' },
         maxPermissionMode: caller.permissionMode,
       })
       return {
@@ -576,6 +604,10 @@ export class AgentControlService {
           caller: {
             sessionId: caller.id,
             projectId: caller.projectId,
+            driverKind: caller.driverKind,
+            modelId: caller.modelId,
+            effort: caller.effort ?? null,
+            permissionMode: caller.permissionMode,
             aria: isHelmSession(caller),
             parentSessionId: caller.parentSessionId ?? null,
             rootSessionId: root.id,
@@ -631,20 +663,36 @@ export class AgentControlService {
         const agent = {
           driverKind: p.driverKind,
           modelId: p.modelId,
-          effort: p.effort ?? null,
-          permissionMode: p.permissionMode ?? 'ask',
+          effort: p.effort === 'auto' ? null : (p.effort ?? null),
+          permissionMode: p.permissionMode ?? caller.permissionMode,
         }
         if (exceedsPermission(agent.permissionMode, caller.permissionMode))
           throw new ControlFailure(
             'scope_denied',
             'Project default permissions cannot exceed Aria permissions. Ask the user to raise Aria permissions.',
           )
+        const resolved = await this.#projectAgent({ ...project, defaultAgent: agent }, caller, p)
+        if (!resolved) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+        if (p.effort !== undefined && p.effort !== 'auto') await this.#effort(resolved, p.effort)
+        // Discovery can outlast a permission or archive change. Authorize the write
+        // against the current caller, without another discovery await in between.
+        const currentCaller = await this.#get(caller.id)
+        if (currentCaller.archived)
+          throw new ControlFailure('scope_denied', 'Restore Aria before saving a project default.')
+        if (exceedsPermission(agent.permissionMode, currentCaller.permissionMode))
+          throw new ControlFailure(
+            'scope_denied',
+            'Aria permissions changed while resolving the project default. The default was not saved.',
+          )
         if (!(await this.host.setProjectDefault(project.projectId, agent)))
           throw new ControlFailure('project_not_found', 'Project not found.')
         return {
           projectId: project.projectId,
           defaultAgent: agent,
-          agent: await this.#projectAgent({ ...project, defaultAgent: agent }, caller),
+          agent: await this.#projectAgent(
+            { ...project, defaultAgent: agent },
+            await this.#get(caller.id),
+          ),
         }
       }
       case 'projects.ask':
@@ -684,11 +732,51 @@ export class AgentControlService {
       }
       case 'session.prompt': {
         const p = raw as ControlParams<'session.prompt'>
-        return this.#prompt(
-          caller,
-          await this.#reach(caller, p.targetSessionId, false, true),
+        let target = await this.#reach(caller, p.targetSessionId, false, true)
+        const owned =
+          (isHelmSession(caller) && isHelmProjectSession(target)) ||
+          target.parentSessionId === caller.id
+        if (!owned) {
+          if (p.effort !== undefined)
+            throw new ControlFailure(
+              'scope_denied',
+              'Reasoning changes are limited to sessions you launched or direct workers.',
+            )
+          return this.#prompt(caller, target, p.text)
+        }
+        if (caller.archived || target.archived)
+          throw new ControlFailure('scope_denied', 'Restore the session before assigning work.')
+        if (!this.host.policy().enabled)
+          throw new ControlFailure('delegation_disabled', 'Delegation is disabled.')
+        const effortSelection = await this.#effort(
+          { ...target, effort: target.effort ?? null },
+          p.effort,
           p.text,
+          'inherited',
         )
+        const current = await this.#get(caller.id)
+        const fresh = await this.#reach(current, target.id, false, true)
+        if (current.archived || fresh.archived)
+          throw new ControlFailure('scope_denied', 'Restore the session before assigning work.')
+        if (fresh.driverKind !== target.driverKind || fresh.modelId !== target.modelId)
+          throw new ControlFailure(
+            'model_unavailable',
+            'The target model changed during effort discovery. Retry the assignment.',
+          )
+        if (isHelmSession(current) && !fresh.parentSessionId)
+          await this.#checkProjectCode(fresh.projectId, fresh.id)
+        if ((fresh.effort ?? null) !== effortSelection.resolved) {
+          const updated = await this.host.dispatch({
+            type: 'session.update',
+            sessionId: fresh.id,
+            effort: effortSelection.resolved,
+          })
+          if (!updated.accepted)
+            throw new ControlFailure('turn_refused', updated.reason ?? 'Reasoning update refused.')
+        }
+        target = await this.#get(fresh.id)
+        const prompted = await this.#prompt(current, target, p.text)
+        return { ...prompted, agent: { ...leadAgent(target), effortSelection } }
       }
       case 'session.message': {
         const p = raw as ControlParams<'session.message'>
@@ -910,6 +998,7 @@ export class AgentControlService {
       const child = await this.#get(spawned.childSessionId)
       return {
         child,
+        agent: leadAgent(child),
         workspace: { ...child.workspace, path: await this.host.workspace(child) },
         initialTurn: null,
       }
@@ -983,7 +1072,10 @@ export class AgentControlService {
     )
     if (!provider)
       throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
-    if (p.modelId && !provider.models.some((m) => m.id === p.modelId))
+    if (
+      p.modelId &&
+      !provider.models.some((m) => m.id === p.modelId || m.aliases?.includes(p.modelId!))
+    )
       throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
     const permissionMode = p.permissionMode ?? caller.permissionMode
     if (exceedsPermission(permissionMode, caller.permissionMode))
@@ -991,6 +1083,24 @@ export class AgentControlService {
         'scope_denied',
         'Child permissions cannot exceed parent permissions.',
       )
+    const selectedModel = provider.models.find(
+      (model) =>
+        model.id === p.modelId || (p.modelId != null && model.aliases?.includes(p.modelId)),
+    )
+    const sameModel =
+      caller.driverKind === p.driverKind &&
+      (caller.modelId === (selectedModel?.id ?? p.modelId ?? null) ||
+        (caller.modelId != null && selectedModel?.aliases?.includes(caller.modelId)))
+    const effortSelection = await this.#effort(
+      {
+        driverKind: p.driverKind,
+        modelId: selectedModel?.id ?? p.modelId ?? null,
+        effort: sameModel ? (caller.effort ?? null) : null,
+      },
+      p.effort,
+      p.prompt ?? p.title,
+      'inherited',
+    )
     const mode = p.workspaceMode ?? policy.defaultWorkspaceMode
     if (mode === 'shared' && !policy.allowSharedWorkspace)
       throw new ControlFailure('scope_denied', 'Shared workspaces are disabled.')
@@ -1035,6 +1145,12 @@ export class AgentControlService {
       // longer there to receive the id, so no child is minted for it.
       if (signal?.aborted)
         throw new ControlFailure('request_cancelled', 'The caller disconnected before the spawn.')
+      const launchCaller = await this.#get(caller.id)
+      if (launchCaller.archived || exceedsPermission(permissionMode, launchCaller.permissionMode))
+        throw new ControlFailure(
+          'scope_denied',
+          'Parent permissions changed while preparing the worker workspace.',
+        )
       child = {
         id,
         projectId: caller.projectId,
@@ -1045,8 +1161,8 @@ export class AgentControlService {
         workspace,
         title: p.title,
         driverKind: p.driverKind,
-        modelId: p.modelId ?? null,
-        effort: p.effort ?? null,
+        modelId: selectedModel?.id ?? p.modelId ?? null,
+        effort: effortSelection.resolved,
         permissionMode,
         status: 'idle',
         createdAt: Date.now(),
@@ -1072,6 +1188,7 @@ export class AgentControlService {
       const initialTurn = p.prompt ? await this.#prompt(caller, child, p.prompt) : null
       return {
         child,
+        agent: { ...leadAgent(child), source: 'arguments', effortSelection },
         workspace: { ...workspace, path: await this.host.workspace(child) },
         initialTurn,
       }
@@ -1082,7 +1199,7 @@ export class AgentControlService {
         !child &&
         isolated &&
         error instanceof ControlFailure &&
-        error.code === 'request_cancelled'
+        (error.code === 'request_cancelled' || error.code === 'scope_denied')
       )
         await this.host.release({ ...caller, id }).catch(() => undefined)
       if (child && error instanceof ControlFailure)
@@ -1155,8 +1272,11 @@ export class AgentControlService {
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const agent = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
-    if (!agent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const selected = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
+    if (!selected) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const effortSelection =
+      selected.effortSelection ?? (await this.#effort(selected, p.effort, p.prompt ?? p.title))
+    const agent = { ...selected, effort: effortSelection.resolved, effortSelection }
     const { permissionMode } = agent
     const launch = {
       ...agent,
@@ -1310,27 +1430,80 @@ export class AgentControlService {
     if (!project.available)
       throw new ControlFailure('project_unavailable', 'That project folder is missing.')
     if (caller.archived) throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
+    if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
+      throw new ControlFailure(
+        'scope_denied',
+        'Session permissions cannot exceed Aria permissions.',
+      )
     for (const lead of await this.#projectLeads(rows, p.projectId)) {
       // Only Aria creates top-level sessions with a session creator. Its chat
       // may have been deleted; the project's lead keeps its context.
-      if (leadUsable(lead, providers) !== true) continue
-      await this.#checkLaunch(caller, lead, true, providers)
+      const changingModel = p.driverKind !== undefined || p.modelId !== undefined
+      if (!changingModel && leadUsable(lead, providers) !== true) continue
+      this.#checkReachPermission(caller, lead)
+      const driverKind = p.driverKind ?? lead.driverKind
+      const modelId = p.modelId ?? (driverKind === lead.driverKind ? lead.modelId : null)
+      if (!modelId)
+        throw new ControlFailure('model_unavailable', 'Changing a lead provider requires --model.')
+      const proposed = {
+        ...lead,
+        driverKind,
+        modelId,
+        permissionMode: p.permissionMode ?? lead.permissionMode,
+      }
+      await this.#checkLaunch(caller, proposed, true, providers)
+      const selection = await this.#effort(
+        { driverKind, modelId, effort: lead.effort ?? null },
+        p.effort,
+        p.text,
+        'lead',
+        providers,
+      )
       await this.#approveDelegation(caller, this.host.policy(), signal)
       const current = await this.#get(caller.id)
       if (current.archived)
         throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
-      const currentLead = await this.#get(lead.id)
-      await this.#checkLaunch(current, currentLead, true)
+      let currentLead = await this.#get(lead.id)
+      this.#checkReachPermission(current, currentLead)
+      await this.#checkLaunch(current, proposed, true)
+      if (
+        currentLead.driverKind !== driverKind ||
+        currentLead.modelId !== modelId ||
+        (currentLead.effort ?? null) !== selection.resolved
+      ) {
+        await this.#switchProjectSession(current, currentLead, {
+          driverKind,
+          modelId,
+          effort: selection.resolved,
+        })
+      }
+      if (p.permissionMode !== undefined && p.permissionMode !== currentLead.permissionMode) {
+        const updated = await this.host.dispatch({
+          type: 'session.update',
+          sessionId: lead.id,
+          permissionMode: p.permissionMode,
+        })
+        if (!updated.accepted)
+          throw new ControlFailure('turn_refused', updated.reason ?? 'Permission update refused.')
+      }
+      currentLead = await this.#get(lead.id)
       const prompted = await this.#prompt(current, currentLead, p.text)
-      return { ...prompted, reused: true, lead: currentLead, agent: leadAgent(currentLead) }
+      return {
+        ...prompted,
+        reused: true,
+        lead: currentLead,
+        agent: { ...leadAgent(currentLead), effortSelection: selection },
+      }
     }
     if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const agent = await this.#projectAgent(project, caller, p, providers)
-    if (!agent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const selected = await this.#projectAgent(project, caller, p, providers)
+    if (!selected) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const effortSelection = await this.#effort(selected, p.effort, p.text, 'project', providers)
+    const agent = { ...selected, effort: effortSelection.resolved, effortSelection }
     const launched = (await this.#launch(
       caller,
       {
@@ -1445,6 +1618,14 @@ export class AgentControlService {
       (entry) => entry.id === selected || entry.aliases?.includes(selected),
     )
     if (!model) throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
+    const beforeDiscovery = await this.#get(target.id)
+    const effortSelection = await this.#effort(
+      { driverKind: p.driverKind, modelId: model.id, effort: beforeDiscovery.effort ?? null },
+      p.effort,
+      undefined,
+      'lead',
+      providers,
+    )
     const current = await this.#get(caller.id)
     const currentTarget = await this.#get(target.id)
     if (current.archived)
@@ -1453,7 +1634,8 @@ export class AgentControlService {
     const agent: ResolvedProjectAgent = {
       driverKind: p.driverKind,
       modelId: model.id,
-      effort: p.effort ?? null,
+      effort: effortSelection.resolved,
+      effortSelection,
       permissionMode: currentTarget.permissionMode,
       source: 'arguments',
     }

@@ -16,6 +16,10 @@ const log = createLogger('providers:opencode')
  * escalates. The args-builder tests pin this behavior.
  */
 export function buildOpencodeArgs(session: AdapterSession): string[] {
+  if (session.effort)
+    throw new Error(
+      'The legacy OpenCode transport cannot apply reasoning effort. Enable ACP or select a supported provider.',
+    )
   const args = ['run', '--format', 'json', '--thinking']
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)

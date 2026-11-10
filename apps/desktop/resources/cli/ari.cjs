@@ -282,6 +282,13 @@ function parse(argv) {
         }
         break
       case 'prompt':
+        params = {
+          targetSessionId: target,
+          text: promptText(rest.join(' ')),
+          idempotencyKey: key,
+          ...(flags.effort ? { effort: flags.effort } : {}),
+        }
+        break
       case 'message':
         params = { targetSessionId: target, text: promptText(rest.join(' ')), idempotencyKey: key }
         break

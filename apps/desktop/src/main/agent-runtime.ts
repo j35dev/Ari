@@ -79,6 +79,7 @@ export interface AgentRuntimeOptions {
   projects?: ControlHost['projects']
   createProject?: ControlHost['createProject']
   projectAgentDefaults?: ControlHost['projectAgentDefaults']
+  effortsForModel?: ControlHost['effortsForModel']
   setProjectDefault?: ControlHost['setProjectDefault']
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
@@ -214,6 +215,7 @@ async function startControlTransport(
     version: options.version,
     policy: () => options.policy(),
     providers: options.providers,
+    ...(options.effortsForModel === undefined ? {} : { effortsForModel: options.effortsForModel }),
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
     ...(options.createProject === undefined ? {} : { createProject: options.createProject }),

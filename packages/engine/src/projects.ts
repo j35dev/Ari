@@ -20,7 +20,11 @@ const log = createLogger('engine:projects')
 export interface ProjectAgentProvider {
   driverKind: string
   available: boolean
-  models: readonly { id: string; aliases?: readonly string[] }[]
+  models: readonly {
+    id: string
+    aliases?: readonly string[]
+    efforts?: readonly { id: string; label?: string; current?: boolean }[]
+  }[]
   defaultModelId?: string | null
 }
 
