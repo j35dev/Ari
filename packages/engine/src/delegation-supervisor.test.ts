@@ -634,7 +634,7 @@ it('tries a refused wake-up again when any turn settles', async () => {
   await expect.poll(async () => (await notices('root')).length).toBe(1)
   // Seeing the notice precedes its acknowledgement and delivery receipt.
   // Stop new schedules and finish the existing serialized writes before teardown.
-  supervisor.close()
+  await supervisor.close()
   await supervisor.evaluate('root')
   await supervisor.evaluate('b')
   expect((await store.load('root')).childCompletions?.a?.acknowledged).toBe(true)
