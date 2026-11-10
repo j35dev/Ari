@@ -836,7 +836,9 @@ export class AgentControlService {
       if (!known && (hasRecovery || method === 'app.open'))
         throw new ControlFailure(
           'uncertain_outcome',
-          'The effect may have completed before the durable outcome. Inspect the preserved identity before recovery.',
+          method === 'app.open'
+            ? 'The previous operation may have completed. It will not be repeated automatically.'
+            : 'The effect may have completed before the durable outcome. Inspect the preserved identity before recovery.',
           {
             operationId,
             ...recovery,
