@@ -543,8 +543,13 @@ it('records interrupted turns after restart without replaying provider submissio
   await start('b', 'mine', 'person')
   host.isRunning = () => false
   supervisor.start()
-  await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
-  await expect.poll(async () => (await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
+  // `evaluate` runs only after startup recovery has finished, so it is the
+  // barrier for every interrupt recovery journals; the root's turn is still
+  // active, so it delivers nothing itself. Polling each child instead gave
+  // the second one only the default poll window on a loaded runner.
+  await supervisor.evaluate('root')
+  expect((await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
 
   expect((await store.load('a')).queuedMessages).toEqual([])
   expect((await store.load('b')).queuedMessages).toEqual([])
