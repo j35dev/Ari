@@ -141,7 +141,7 @@ import {
   attachModelEfforts,
   modelsFromConfigOptions,
 } from '@ari/providers/acp'
-import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
+import { resolveAcpLaunch, probeLaunch, probeSessionMeta } from '@ari/providers/acp/launches'
 import { openProviderSetupTerminal } from './provider-setup'
 import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
@@ -254,6 +254,7 @@ async function probeAcpModels(
   const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
     launch: probe,
+    sessionMeta: probeSessionMeta(kind),
     cwd: homedir(),
     initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     // probeEnv adds the PATH detection resolved, but `connect` spreads
@@ -309,6 +310,7 @@ async function probeEffortsForModel(
   const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
     launch: probe,
+    sessionMeta: probeSessionMeta(kind),
     cwd: homedir(),
     initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     runtimeEnv: { ...probeEnv, ...probe.env },
@@ -410,6 +412,7 @@ const authProbeDeps: AuthProbeDeps = {
     const { AcpConnection } = await import('@ari/providers/acp/connection')
     return AcpConnection.connect({
       launch: probeLaunch(launch),
+      sessionMeta: probeSessionMeta(kind),
       cwd: homedir(),
       initializeTimeoutMs: 20_000,
       runtimeEnv: providerEnvironment(kind),
