@@ -49,6 +49,24 @@ it.each([
   if (argv.includes('--permission')) expect(parsed.params.permissionMode).toBe(argv.at(-1))
 })
 
+it('reads whole selected turns up to the existing message cap, with explicit tails taking precedence', () => {
+  expect(cli.parse(['session', 'read', 'worker', '--turns', '1'])).toMatchObject({
+    method: 'session.read',
+    params: { targetSessionId: 'worker', tailTurns: 1, tailMessages: 200 },
+  })
+  for (const args of [
+    ['--turns', '1', '--tail', '3'],
+    ['--tail', '3', '--turns', '1'],
+  ]) {
+    expect(cli.parse(['session', 'read', 'worker', ...args]).params).toEqual({
+      targetSessionId: 'worker',
+      tailTurns: 1,
+      tailMessages: 3,
+    })
+  }
+  expect(cli.parse(['session', 'read', 'worker']).params).toEqual({ targetSessionId: 'worker' })
+})
+
 it('parses project creation with an optional absolute folder and retry key', () => {
   expect(
     cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),

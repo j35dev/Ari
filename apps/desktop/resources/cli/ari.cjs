@@ -304,7 +304,11 @@ function parse(argv) {
       case 'read':
         params = {
           targetSessionId: target,
-          ...(flags.tail ? { tailMessages: Number(flags.tail) } : {}),
+          ...(flags.tail
+            ? { tailMessages: Number(flags.tail) }
+            : flags.turns
+              ? { tailMessages: 200 }
+              : {}),
           ...(flags.turns ? { tailTurns: Number(flags.turns) } : {}),
           ...(flags['max-chars'] ? { maxChars: Number(flags['max-chars']) } : {}),
           ...(flags.tools ? { includeToolSummaries: true } : {}),
