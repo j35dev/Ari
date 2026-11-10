@@ -25,7 +25,7 @@ export function TimelineDiagram({
         >
           <span className="ari-viz-timeline-dot" />
           {event.date && <span className="ari-viz-date">{event.date}</span>}
-          <strong>{event.label}</strong>
+          <strong className="ari-viz-timeline-label">{event.label}</strong>
           {event.description && <p>{event.description}</p>}
         </li>
       ))}
@@ -137,7 +137,7 @@ export function MetricCards({ spec }: { spec: Extract<VisualizationSpec, { type:
             rows: [{ label: 'Value', value: item.value, color: `var(--ari-${item.tone})` }],
           })}
         >
-          <dt>{item.label}</dt>
+          <dt className="ari-viz-metric-label">{item.label}</dt>
           <dd style={{ color: `var(--ari-${item.tone})` }}>
             {typeof item.value === 'number' ? formatNumber(item.value) : item.value}
           </dd>

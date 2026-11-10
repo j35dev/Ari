@@ -149,7 +149,7 @@ function Panel({ spec, source }: { spec: VisualizationSpec; source: string }) {
               title="Click to toggle; Shift-click to isolate"
             >
               <span className="ari-viz-swatch" style={{ background: color(i) }} />
-              {s.name}
+              <span className="ari-viz-series-name">{s.name}</span>
             </button>
           ))}
         </div>
@@ -269,12 +269,6 @@ export const Visualization = memo(function Visualization({
       <div className="ari-viz ari-viz-error">
         <strong>Visualization unavailable</strong>
         <p>{parsed.error}</p>
-        <details>
-          <summary>View source</summary>
-          <pre>
-            <code>{source.slice(0, 64_000)}</code>
-          </pre>
-        </details>
       </div>
     )
   // New source resets interactive state; appending ordinary reply text preserves it.

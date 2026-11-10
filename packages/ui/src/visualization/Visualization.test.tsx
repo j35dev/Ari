@@ -150,20 +150,56 @@ describe('inline visualizations', () => {
     expect(domain([0, 0])).toEqual([-1, 1])
   })
 
-  it('rejects a nested data wrapper instead of drawing a chart', () => {
-    render(
+  it('renders one historical data wrapper and refuses conflicts without echoing markup', () => {
+    const historical =
+      '{"version":1,"type":"timeline","title":"Release progress","data":{"events":[{"label":"v0.2.0","date":"2026-08-30","description":"Previous release"},{"label":"v0.3.13","date":"in progress","tone":"warning"}]}}'
+    const { rerender } = render(<Visualization source={historical} />)
+    expect(screen.getByRole('figure')).toBeInTheDocument()
+    expect(screen.getByText('v0.2.0')).toBeInTheDocument()
+    expect(screen.getByText('Previous release')).toBeInTheDocument()
+    expect(screen.getByText('v0.3.13').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-warning)',
+    )
+    expect(screen.getByText('v0.2.0').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-accent)',
+    )
+    const script = '<script>alert(1)</script>'
+    rerender(
       <Visualization
         source={JSON.stringify({
           version: 1,
-          type: 'bar',
-          title: 'Wrapped',
-          data: { labels: ['A'], series: [{ name: 'S', values: [1] }] },
+          type: 'timeline',
+          title: script,
+          events: [{ label: 'A' }],
+          html: script,
         })}
       />,
     )
     expect(screen.getByText('Visualization unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Timeline charts cannot include "html".')).toBeInTheDocument()
     expect(screen.queryByRole('figure')).toBeNull()
-    expect(screen.getByText(/data/)).toBeInTheDocument()
+    expect(document.body.querySelector('script')).toBeNull()
+    expect(document.body.textContent).not.toContain(script)
+    expect(document.body.textContent).not.toContain('Invalid input')
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'bar',
+          title: 'Conflict',
+          labels: ['Visible'],
+          data: {
+            type: 'bar',
+            title: 'Conflict',
+            labels: ['Hidden'],
+            series: [{ name: 'S', values: [1] }],
+          },
+        })}
+      />,
+    )
+    expect(screen.getByText(/The field "type" is set both/)).toBeInTheDocument()
+    expect(screen.queryByText('Hidden')).toBeNull()
+    expect(screen.queryByText('Visible')).toBeNull()
   })
 
   it('separates heatmap magnitudes and keeps long digits out of narrow cells', () => {
@@ -260,6 +296,43 @@ describe('inline visualizations', () => {
       />,
     )
     expect(screen.getByText(funnelLabel)).toHaveClass('ari-viz-funnel-label')
+    const pieLabel = 'p'.repeat(120)
+    const seriesName = 's'.repeat(120)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'pie',
+          title: 'Share',
+          items: [{ label: pieLabel, value: 1 }],
+        })}
+      />,
+    )
+    expect(screen.getByText(pieLabel)).toHaveClass('ari-viz-legend-label')
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'bar',
+          title: 'Series',
+          labels: ['A'],
+          series: [{ name: seriesName, values: [1] }],
+        })}
+      />,
+    )
+    expect(screen.getByText(seriesName)).toHaveClass('ari-viz-series-name')
+    const timelineLabel = 't'.repeat(120)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'timeline',
+          title: 'Long',
+          events: [{ label: timelineLabel }],
+        })}
+      />,
+    )
+    expect(screen.getByText(timelineLabel)).toHaveClass('ari-viz-timeline-label')
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
   })
 
