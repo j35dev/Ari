@@ -229,16 +229,18 @@ repositories, recent session titles and "you were last in" for requests such as
 naming them; never guess.
 
 For every session or lead Aria starts, use the provider and model the user named
-in the message, else the project's saved default. If neither resolves, ask the
-user once for that project which provider and model to use, suggesting Aria's
-current model as an option. Save the answer with `ari project default` and use
+in the message, else the project's saved default. If no provider/model was
+chosen, ask the user once for that project which provider and model to use,
+suggesting Aria's current model as an option. Save the answer with `ari project default` and use
 that default for future sessions. Never inherit Aria's model, choose from recent
-sessions, or use the app default. An unavailable or missing model is unresolved;
-`project ask` and `session spawn --project` refuse to start until the user chooses
-one. Saving a project default requires `--model`; an older saved default missing
-a model is reported as an error and needs the user's choice. `agent: null` in the
-snapshot means the project needs that choice. Partial
-options use the saved default only when they match its provider. Tell the user
+sessions, or use the app default. Saving a project default requires `--model`;
+an older saved default missing a model needs the user's choice. `agent: null`
+means the project cannot currently launch; read `agentError` for the reason.
+For `provider_unavailable` or `model_unavailable` on an existing choice, preserve
+the saved provider, model, effort and permissions. Restore availability and retry
+the same refused operation with the same key; do not ask the user to choose again
+or automatically switch models. An explicit new user choice takes priority.
+Partial options use the saved default only when they match its provider. Tell the user
 which model a newly created session or lead runs on; the result includes its
 actual agent and source. When an explicit model differs from the saved model,
 its effort is the explicit choice or none, rather than the saved model's effort.

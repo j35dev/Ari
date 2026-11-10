@@ -329,7 +329,7 @@ function projectLine(
     lead: 'current lead',
   } as const
   const agent = p.agentError
-    ? ', saved default is missing a model; ask the user'
+    ? `, ${compact(p.agentError, 200)}`
     : p.agent
       ? `, ${p.agent.driverKind}/${p.agent.modelId}${p.agent.effort ? ` ${p.agent.effort}` : ''}, ${source[p.agent.source]}`
       : p.agent === null
