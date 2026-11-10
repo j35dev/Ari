@@ -3,11 +3,6 @@ name: release-candidate
 on:
   pull_request:
     branches: [main]
-    paths:
-      - apps/desktop/package.json
-      - apps/desktop/packaging/**
-      - scripts/release-*.mjs
-      - .github/workflows/release-candidate.yml
   workflow_dispatch:
     inputs:
       sha:
