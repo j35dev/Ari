@@ -118,12 +118,17 @@ async function helmRecipient(
 }
 
 /** Where a session stands, from its journal. */
-export function sessionState(model: SessionReadModel): HelmSessionRow['state'] {
+export function sessionState(
+  model: SessionReadModel,
+  questionOwner: string | null = model.activeTurnId
+    ? turnRequester(model, model.activeTurnId)
+    : null,
+): HelmSessionRow['state'] {
   if (model.activeTurnId !== null)
     return model.pendingApprovals.length > 0
       ? 'needs_user'
       : model.pendingInputs.length > 0
-        ? turnRequester(model, model.activeTurnId)
+        ? questionOwner !== null
           ? 'needs_agent'
           : 'needs_user'
         : 'working'
@@ -140,6 +145,20 @@ export interface HelmView {
 export async function helmRow(view: HelmView, row: SessionListEntry): Promise<HelmSessionRow> {
   const model = await view.load(row.id)
   const session = model.session
+  const questionOwner = await questionOwnerSessionId(
+    {
+      // A missing requester must not be opened as a new journal by view.load.
+      loadExisting: (id) =>
+        view.rows.some((member) => member.id === id) ? view.load(id) : Promise.resolve(null),
+      currentHelmSession: () =>
+        Promise.resolve(
+          [...view.rows]
+            .filter((member) => isHelmSession(member) && !member.archived)
+            .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null,
+        ),
+    },
+    model,
+  )
   const descendants = new Set<string>([row.id])
   let changed = true
   while (changed) {
@@ -160,11 +179,7 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
       const child = await view.load(id)
       if (child.activeTurnId || child.queuedMessages.length) liveDescendants++
     }
-  const workState = childWorkState(
-    model,
-    liveDescendants,
-    model.activeTurnId !== null && turnRequester(model, model.activeTurnId) !== null,
-  )
+  const workState = childWorkState(model, liveDescendants, questionOwner !== null)
   const lastTurn =
     model.activeTurnId === null &&
     model.queuedMessages.length === 0 &&
@@ -192,10 +207,10 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
     parentSessionId: row.parentSessionId ?? null,
     driverKind: row.driverKind ?? session?.driverKind ?? 'unknown',
     modelId: row.modelId ?? session?.modelId ?? null,
-    state: sessionState(model),
+    state: sessionState(model, questionOwner),
     workState,
     lastSeq: model.lastSeq,
-    questionOwnerSessionId: model.activeTurnId ? turnRequester(model, model.activeTurnId) : null,
+    questionOwnerSessionId: questionOwner,
     pendingInputs: model.pendingInputs,
     pendingApprovals: model.pendingApprovals,
     latestTurn,

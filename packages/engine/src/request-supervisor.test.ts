@@ -1,15 +1,15 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { delegationSettingsSchema } from '@ari/contracts/agent-control'
+import { delegationSettingsSchema, type ChildTask } from '@ari/contracts/agent-control'
 import type { MessageOrigin } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { RequestSupervisor, type RequestHost } from './request-supervisor'
 import { SessionStore } from './session-store'
 import { decideCommand } from './dispatcher'
-import { helmSnapshot, turnRequester } from './helm'
+import { helmRow, helmSnapshot, turnRequester } from './helm'
 
 let dir: string
 let store: SessionStore
@@ -45,12 +45,16 @@ async function start(id: string, origin?: MessageOrigin): Promise<string> {
   await host.dispatch({ type: 'turn.start', sessionId: id, text: 'work', attachments: [] }, origin)
   return (await store.load(id)).activeTurnId!
 }
-async function settle(id: string): Promise<void> {
+async function settle(
+  id: string,
+  stopReason: 'completed' | 'interrupted' | 'error' = 'completed',
+  errorMessage: string | null = null,
+): Promise<void> {
   await store.append(id, {
     type: 'turn.settled',
     turnId: (await store.load(id)).activeTurnId!,
-    stopReason: 'completed',
-    errorMessage: null,
+    stopReason,
+    errorMessage,
   })
 }
 async function question(id = 'worker', inputId = 'question'): Promise<void> {
@@ -72,6 +76,42 @@ async function restart(): Promise<void> {
   service = new AgentControlService({ ...service.host, store })
   supervisor = new RequestSupervisor(host)
   supervisor.start()
+}
+
+/** Compare the real control and snapshot surfaces over the same saved journals. */
+async function surfaces(callerId: string, targetId: string) {
+  const context = await service.invoke(callerId, 'session.read', { targetSessionId: targetId })
+  expect(context.ok).toBe(true)
+  const read = (
+    context as {
+      result: Pick<
+        ChildTask,
+        'questionOwnerSessionId' | 'pendingInputs' | 'pendingApprovals' | 'lastSeq'
+      >
+    }
+  ).result
+  const status = await service.invoke(callerId, 'session.status', { recursive: true })
+  expect(status.ok).toBe(true)
+  const task = (status as { result: { tasks: ChildTask[] } }).result.tasks.find(
+    (task) => task.sessionId === targetId,
+  )!
+  expect(task).toBeDefined()
+  const rows = (await store.listSessions()).map((row) => ({ ...row, status: 'idle' as const }))
+  const view = { rows, load: (id: string) => store.load(id), projectName: () => 'Project' }
+  const row = await helmRow(
+    view,
+    rows.find((row) => row.id === targetId)!,
+  )
+  const current = {
+    questionOwnerSessionId: read.questionOwnerSessionId,
+    pendingInputs: read.pendingInputs,
+    pendingApprovals: read.pendingApprovals,
+    lastSeq: read.lastSeq,
+  }
+  expect(task).toMatchObject(current)
+  expect(row).toMatchObject({ ...current, workState: task.workState })
+  const snapshot = await helmSnapshot(view, await store.load(callerId), [])
+  return { read, task, row, snapshot }
 }
 
 beforeEach(async () => {
@@ -142,6 +182,9 @@ it('recovers an idle lead and Aria from a descendant question without granting A
     consumedAt: null,
     request: { kind: 'input', ownerSessionId: 'lead', resolvedAt: null },
   })
+  const current = await surfaces('aria', 'worker')
+  expect(current.row).toMatchObject({ state: 'needs_agent', questionOwnerSessionId: 'lead' })
+  expect(current.snapshot).toContain('question question, owner lead')
   expect(
     await service.invoke('aria', 'session.answer', {
       targetSessionId: 'worker',
@@ -213,6 +256,9 @@ it('surfaces descendant approvals with human ownership and never answers them', 
     request: { kind: 'approval', ownerSessionId: null },
   })
   expect((await inbox('aria'))[0]?.text).toContain('Do not answer it')
+  const current = await surfaces('aria', 'worker')
+  expect(current.row).toMatchObject({ state: 'needs_user', workState: 'blocked_on_user' })
+  expect(current.snapshot).toContain('human approval permission: shell')
   expect(
     await service.invoke('lead', 'session.answer', {
       targetSessionId: 'worker',
@@ -474,6 +520,9 @@ it('keeps human-started questions with the human and refuses a stopped coordinat
   await question()
   await supervisor.evaluate('aria')
   expect(await inbox('aria')).toHaveLength(0)
+  const current = await surfaces('aria', 'worker')
+  expect(current.row).toMatchObject({ state: 'needs_user', questionOwnerSessionId: null })
+  expect(current.snapshot).toContain('question question, owner human')
   expect(
     await service.invoke('aria', 'session.answer', {
       targetSessionId: 'worker',
@@ -582,28 +631,42 @@ it('refuses a stale answer if a later human turn reuses the provider input id', 
   expect((await store.load('lead')).pendingInputs).toHaveLength(1)
 })
 
-it('routes an active project question to the current Aria after the old topic was deleted', async () => {
-  await start('lead', { kind: 'session', sessionId: 'aria' })
-  await store.append('aria2', {
-    type: 'session.created',
-    session: { ...session('aria'), id: 'aria2' },
-  })
-  await start('aria2')
-  await settle('aria2')
-  await store.destroy('aria')
-  supervisor.start()
-  await question('lead')
-  await expect.poll(async () => (await inbox('aria2')).length).toBe(1)
-  expect((await inbox('aria2'))[0]?.request?.ownerSessionId).toBe('aria2')
-  expect(
-    await service.invoke('aria2', 'session.answer', {
-      targetSessionId: 'lead',
-      inputId: 'question',
-      value: 'Settings',
-      idempotencyKey: 'new-topic-answer',
-    }),
-  ).toMatchObject({ ok: true })
-})
+it.each(['deleted', 'archived'] as const)(
+  'keeps notice, read, status and snapshot owners consistent after the old Aria topic was %s',
+  async (removed) => {
+    await start('lead', { kind: 'session', sessionId: 'aria' })
+    await store.append('aria2', {
+      type: 'session.created',
+      session: { ...session('aria'), id: 'aria2' },
+    })
+    await start('aria2')
+    await settle('aria2')
+    if (removed === 'deleted') await store.destroy('aria')
+    else await store.append('aria', { type: 'session.updated', archived: true })
+    supervisor.start()
+    await question('lead')
+    await expect.poll(async () => (await inbox('aria2')).length).toBe(1)
+    expect((await inbox('aria2'))[0]?.request?.ownerSessionId).toBe('aria2')
+    const load = vi.spyOn(store, 'load')
+    const current = await surfaces('aria2', 'lead')
+    expect(current.row).toMatchObject({ state: 'needs_agent', questionOwnerSessionId: 'aria2' })
+    expect(current.snapshot).toContain('question question, owner aria2')
+    expect(current.snapshot).not.toContain('question question, owner aria:')
+    if (removed === 'deleted') {
+      expect(load.mock.calls.some(([id]) => id === 'aria')).toBe(false)
+      await expect(access(join(dir, 'aria'))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+    load.mockRestore()
+    expect(
+      await service.invoke('aria2', 'session.answer', {
+        targetSessionId: 'lead',
+        inputId: 'question',
+        value: 'Settings',
+        idempotencyKey: 'new-topic-answer',
+      }),
+    ).toMatchObject({ ok: true })
+  },
+)
 
 it('keeps a root waiting for its queued descendants instead of reporting a final result', async () => {
   await settle('worker')
@@ -616,6 +679,115 @@ it('keeps a root waiting for its queued descendants instead of reporting a final
   expect(tasks.find((task) => task.sessionId === 'lead')?.workState).toBe('waiting_for_children')
   expect(tasks.find((task) => task.sessionId === 'worker')?.queuedMessages).toBe(1)
 })
+
+it.each([
+  ['completed', 'completed'],
+  ['interrupted', 'interrupted'],
+  ['error', 'failed'],
+] as const)(
+  'keeps a %s root outcome behind descendant work and newer assignments',
+  async (stopReason, label) => {
+    const turnId = await start('lead', { kind: 'session', sessionId: 'aria' })
+    await store.append('lead', {
+      type: 'assistant.parts.appended',
+      messageId: 'old-root-reply',
+      parts: [{ type: 'text', text: 'Old root reply' }],
+    })
+    await settle('lead', stopReason, stopReason === 'error' ? 'Old root error' : null)
+    await store.append('aria', {
+      type: 'child.session.settled',
+      childSessionId: 'lead',
+      turnId,
+      stopReason,
+    })
+    const waiting = async () => {
+      const current = await surfaces('aria', 'lead')
+      expect(current.row).toMatchObject({
+        state: 'idle',
+        workState: 'waiting_for_children',
+        latestTurn: null,
+        preview: null,
+      })
+      expect(current.snapshot).toContain('waiting for delegated work')
+      expect(current.snapshot).not.toContain('Old root error')
+      expect(current.snapshot).not.toContain('Finished in the last day')
+    }
+    // A settled root still coordinates a live, parent-owned question.
+    supervisor.start()
+    await question()
+    await ready()
+    expect((await inbox('aria'))[0]?.request?.ownerSessionId).toBe('lead')
+    expect((await surfaces('aria', 'worker')).row.questionOwnerSessionId).toBe('lead')
+    await waiting()
+
+    await settle('worker')
+    expect(
+      await service.invoke('lead', 'session.prompt', {
+        targetSessionId: 'worker',
+        text: 'Queued continuation',
+        idempotencyKey: 'joint-queued-worker',
+      }),
+    ).toMatchObject({ ok: true })
+    await waiting()
+    await host.dispatch({
+      type: 'message.dequeue',
+      sessionId: 'worker',
+      text: 'Queued continuation',
+      attachments: [],
+    })
+
+    // An undelivered descendant completion also keeps the root waiting.
+    await store.append('lead', {
+      type: 'child.session.settled',
+      childSessionId: 'worker',
+      turnId: (await store.load('worker')).lastTurn!.turnId,
+      stopReason: 'completed',
+    })
+    await waiting()
+    expect(
+      await service.invoke('lead', 'session.read', { targetSessionId: 'worker' }),
+    ).toMatchObject({ ok: true })
+    const finished = await surfaces('aria', 'lead')
+    expect(finished.row).toMatchObject({
+      state: 'idle',
+      workState: 'result_available',
+      latestTurn: { turnId, stopReason },
+      preview: 'Old root reply',
+    })
+    expect(finished.snapshot).toContain(`started by you: ${label}`)
+
+    await host.dispatch(
+      {
+        type: 'message.enqueue',
+        sessionId: 'lead',
+        text: 'New assignment',
+        attachments: [],
+        hold: true,
+      },
+      { kind: 'session', sessionId: 'aria' },
+    )
+    const queued = await surfaces('aria', 'lead')
+    expect(queued.row).toMatchObject({ state: 'queued', latestTurn: null, preview: null })
+    expect(queued.snapshot).not.toContain('Old root error')
+    await host.dispatch({
+      type: 'message.dequeue',
+      sessionId: 'lead',
+      text: 'New assignment',
+      attachments: [],
+    })
+    await start('lead', { kind: 'session', sessionId: 'aria' })
+    await question('lead', 'new-question')
+    const active = await surfaces('aria', 'lead')
+    expect(active.row).toMatchObject({
+      state: 'needs_agent',
+      questionOwnerSessionId: 'aria',
+      latestTurn: null,
+      preview: null,
+    })
+    expect(active.snapshot).toContain('question new-question, owner aria')
+    expect(active.snapshot).not.toContain('Old root error')
+  },
+)
 
 it('awaits in-flight request persistence on shutdown and starts no late coordinator turn', async () => {
   let entered!: () => void
