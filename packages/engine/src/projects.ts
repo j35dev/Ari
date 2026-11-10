@@ -32,14 +32,44 @@ export interface ProjectAgentDefaults {
   permissionMode: PermissionMode
 }
 
-/** Project work requires a user choice or a saved project default. */
-export function resolveProjectAgent(input: {
+type ProjectAgentInput = {
   project: { projectId: string; defaultAgent?: ProjectAgent | null }
   arguments?: Partial<ProjectAgent>
   providers: readonly ProjectAgentProvider[]
   app: ProjectAgentDefaults
   maxPermissionMode?: PermissionMode
-}): ResolvedProjectAgent | null {
+}
+
+export interface ProjectAgentFailure {
+  reason: 'model_required' | 'provider_unavailable' | 'model_unavailable'
+  driverKind: string | null
+  modelId: string | null
+  source: 'arguments' | 'project'
+}
+
+type ProjectAgentResolution =
+  { agent: ResolvedProjectAgent; error?: never } | { agent: null; error: ProjectAgentFailure }
+
+/** Project work requires a user choice or a saved project default. */
+export function resolveProjectAgent(input: ProjectAgentInput): ResolvedProjectAgent | null {
+  return resolveProjectAgentSelection(input).agent
+}
+
+/** The same resolution, retaining why a selected agent cannot currently launch. Never changes defaults. */
+export function resolveProjectAgentSelection(input: ProjectAgentInput): ProjectAgentResolution {
+  const unavailable = (
+    reason: ProjectAgentFailure['reason'],
+    candidate: Partial<ProjectAgent>,
+    source: ProjectAgentFailure['source'],
+  ): ProjectAgentResolution => ({
+    agent: null,
+    error: {
+      reason,
+      driverKind: candidate.driverKind ?? null,
+      modelId: candidate.modelId ?? null,
+      source,
+    },
+  })
   const sameModel = (
     driverKind: string | undefined,
     first: string | null | undefined,
@@ -53,8 +83,8 @@ export function resolveProjectAgent(input: {
   }
   const resolve = (
     candidate: Partial<ProjectAgent>,
-    source: ResolvedProjectAgent['source'],
-  ): ResolvedProjectAgent | null => {
+    source: ProjectAgentFailure['source'],
+  ): ProjectAgentResolution => {
     const args = input.arguments
     if (
       source !== 'arguments' &&
@@ -74,16 +104,17 @@ export function resolveProjectAgent(input: {
       }
       source = 'arguments'
     }
-    if (!candidate.driverKind) return null
+    if (!candidate.driverKind || !candidate.modelId)
+      return unavailable('model_required', candidate, source)
     const provider = input.providers.find(
       (p) => p.available && p.driverKind === candidate.driverKind,
     )
-    if (!provider) return null
+    if (!provider) return unavailable('provider_unavailable', candidate, source)
     const selected = candidate.modelId
     const model = provider.models.find(
       (m) => m.id === selected || (selected != null && m.aliases?.includes(selected)),
     )
-    if (!model) return null
+    if (!model) return unavailable('model_unavailable', candidate, source)
     const permission = candidate.permissionMode ?? input.app.permissionMode
     const permissionMode =
       input.maxPermissionMode &&
@@ -92,11 +123,13 @@ export function resolveProjectAgent(input: {
         ? input.maxPermissionMode
         : permission
     return {
-      driverKind: candidate.driverKind,
-      modelId: model.id,
-      effort: candidate.effort ?? null,
-      permissionMode,
-      source,
+      agent: {
+        driverKind: candidate.driverKind,
+        modelId: model.id,
+        effort: candidate.effort ?? null,
+        permissionMode,
+        source,
+      },
     }
   }
   const explicit = input.arguments
@@ -117,10 +150,9 @@ export function resolveProjectAgent(input: {
     )
   }
   if (input.project.defaultAgent) {
-    const picked = resolve(input.project.defaultAgent, 'project')
-    if (picked) return picked
+    return resolve(input.project.defaultAgent, 'project')
   }
-  return null
+  return unavailable('model_required', {}, 'project')
 }
 
 export interface ProjectStoreOptions {
