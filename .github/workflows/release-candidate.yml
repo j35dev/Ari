@@ -55,18 +55,23 @@ jobs:
         env:
           RELEASE_FUNCTIONAL_FIXTURE: ${{ github.workspace }}/apps/desktop/src/main/testing/release-profile-0312.fixture.json
           RELEASE_FUNCTIONAL_TEST_ROOT: ${{ runner.temp }}/afn
-        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs scripts/release-functional-smoke.test.mjs scripts/release-functional-ci.test.mjs scripts/release-install-smoke.test.mjs scripts/release-install-ci.test.mjs scripts/release-publish-assets.test.mjs
+        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs scripts/release-macos-intel-diagnostic.test.mjs scripts/release-functional-smoke.test.mjs scripts/release-functional-ci.test.mjs scripts/release-install-smoke.test.mjs scripts/release-install-ci.test.mjs scripts/release-publish-assets.test.mjs
       - name: Build desktop bundle
         run: pnpm --filter @ari/desktop build
       - name: Build mobile PWA
         run: pnpm --filter @ari/mobile build
       # Node-API prebuilds are collected without install-app-deps or native rebuilds.
       - name: Package without publishing
+        id: package-binary
         run: pnpm exec electron-builder ${{ matrix.args }} --publish never
         working-directory: apps/desktop
       - name: Diagnose macOS translated packaged runtime startup
         if: runner.os == 'macOS'
         run: node scripts/release-macos-preflight.mjs
+      # Pure ZIP receipt so a failed translated preflight can still pin this build.
+      - name: Record universal ZIP transfer receipt
+        if: always() && !cancelled() && runner.os == 'macOS' && steps.package-binary.outcome == 'success'
+        run: node scripts/release-macos-intel-diagnostic.mjs receipt
       - name: Verify artifact metadata and both native macOS slices
         if: runner.os != 'Linux'
         run: node scripts/release-artifacts.mjs
@@ -137,6 +142,7 @@ jobs:
             dist/candidate-artifacts.json
             dist/signature.*
             dist/macos-preflight.json
+            dist/macos-intel-transfer.json
           if-no-files-found: error
       - name: Retain isolated functional profiles and receipts
         if: always()
@@ -158,4 +164,43 @@ jobs:
         with:
           name: ari-macos-startup-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/ari-macos-preflight/**
+          if-no-files-found: warn
+
+  # Evidence only. Publication still requires the package job; this job does not
+  # upload ari-candidate, ari-functional, or ari-install artifacts.
+  macos-intel-x64:
+    needs: package
+    if: always() && !cancelled() && needs.package.result == 'failure'
+    runs-on: macos-26-intel
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || inputs.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked tools without scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Check transfer pins before any launch
+        run: node --test scripts/release-macos-intel-diagnostic.test.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: ari-candidate-macos-latest-${{ env.CANDIDATE_SHA }}
+          path: dist
+      - name: Diagnose the transferred universal x64 slice
+        timeout-minutes: 10
+        env:
+          RELEASE_FUNCTIONAL_CI: '1'
+        run: node scripts/release-macos-intel-diagnostic.mjs diagnose
+      - name: Retain Intel x64 diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-macos-intel-x64-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/ari-macos-intel-diagnostic/**
           if-no-files-found: warn
