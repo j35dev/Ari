@@ -1,6 +1,12 @@
 name: release-candidate
 
 on:
+  workflow_call:
+    inputs:
+      sha:
+        description: Exact tested release commit
+        required: true
+        type: string
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -19,7 +25,7 @@ concurrency:
 
 jobs:
   package:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/release-candidate-')
+    if: inputs.sha != '' || github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/release-candidate-')
     strategy:
       fail-fast: false
       matrix:
@@ -125,4 +131,11 @@ jobs:
         with:
           name: ari-functional-${{ matrix.os }}-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/ari-release-functional/**
+          if-no-files-found: warn
+      - name: Retain bounded macOS startup samples
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-macos-startup-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/ari-macos-preflight/**
           if-no-files-found: warn
