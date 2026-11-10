@@ -180,6 +180,13 @@ messages, workers and permissions are preserved.
 Use stable `--key` values when retrying a mutation after a connection failure. The
 same key with the same arguments reuses its result; use a new key for a new operation.
 
+An `uncertain_outcome` stays uncertain on retry and is never submitted again by
+that key. Inspect `details.operationId` and the preserved identity before an
+explicit recovery action; changing the key alone is not recovery. Worker/lead
+details may include `childSessionId`, `stage`, `projectId`, `workspace` and
+`workspacePath`: use `session get` or `session read` to inspect existing work.
+These identities do not grant permissions or authorize another assignment.
+
 ## Leading a team
 
 A session created as a lead ("Lead session" in the new-session menu) starts
@@ -260,6 +267,16 @@ empty commit so sessions can create isolated workers. Existing repositories
 are left as is. System folders, drive roots, the home folder itself and Ari's
 data folder are refused. The result is `{ projectId, name, path, created }`;
 retries with the same `--key` return the same result.
+
+Partial project creation instead returns `uncertain_outcome` with
+`details.projectCreation` (`name`, exact `path`, `created`, `phase`, and
+`projectId` when registered), plus `failureCode` when known. Inspect that folder
+and `ari projects --json`; a registered folder can exist despite a lost success
+receipt. The phase names the boundary reached, whose action may have begun.
+Same-key retry returns the preserved identity without another folder, Git init
+or registration attempt. Missing/corrupt progress supplies no guessed identity.
+Folder creation and its first progress receipt are not atomic: a process exit
+in that gap can leave a folder without a recorded path.
 
 ```sh
 ari projects --json
