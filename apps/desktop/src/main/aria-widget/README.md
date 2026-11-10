@@ -2,13 +2,21 @@
 
 The native hook runs only while `settings.speech.enabled` is true and
 `speech.status` reports ready. It observes key events without suppressing them,
-including when Ari has focus. Dictation always goes to the shared Aria thread;
+including when Ari has focus. The Aria binding goes to the shared Aria thread;
 existing browser and OS actions for the chord still run.
 Windows and Linux default to `ctrl+alt+space`; macOS defaults to
 `shift+meta+space`. Settings lets the user record a different shortcut. The widget
 accepts a modifier chord with one supported key, or a function key alone, and
 refuses reserved OS shortcuts. Modifier-only and side-specific shortcuts are
 not supported.
+
+Settings also exposes a separate general dictation binding: `ctrl+alt+d` on
+Windows/Linux and `shift+meta+d` on macOS. It inserts into the captured focused
+text field without sending. External fields currently use Windows UI Automation
+and Unicode input; other platforms support Ari text fields only. The widget and
+session microphone share capture ownership. See
+[dictation routing](../../../../../docs/research/dictation-routing.md) for migration,
+target guards, native verification evidence, and platform limits.
 
 The non-focusable renderer records while held. Releasing the chord stops and
 transcribes; Esc while held cancels. A new hold replaces a sent or error pill;
@@ -30,9 +38,9 @@ unpacks the hook and its loader, and preserves both macOS architecture slices.
 Windows was verified with Electron 43.4.1. macOS requires Accessibility permission;
 Linux's hook uses X11. Platform checks remain necessary on macOS and Linux.
 
-The recorder and missing speech RPC fallback are temporary integration stubs.
-Replace the recorder with the speech worker's implementation; its real registered
-RPC handlers automatically take precedence over the missing-method fallback.
+The production recorder uses a microphone stream and AudioWorklet; transcription
+runs in the native speech worker. General dictation never uses the Aria handoff
+as an error fallback.
 
 After a desktop build, run the screenshot and native background checks from
 `apps/desktop`:

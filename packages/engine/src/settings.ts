@@ -5,6 +5,8 @@ import {
   defaultSettings,
   settingsSchema,
   defaultSpeechShortcut,
+  defaultDictationShortcut,
+  speechBindingsError,
   migrateSpeechShortcut,
   speechShortcutError,
 } from '@ari/contracts/settings'
@@ -67,7 +69,11 @@ export class SettingsStore {
     this.#path = join(options.dir, 'settings.json')
     this.#current = {
       ...defaultSettings,
-      speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+      speech: {
+        ...defaultSettings.speech,
+        shortcut: defaultSpeechShortcut(process.platform),
+        dictationShortcut: defaultDictationShortcut(process.platform),
+      },
     }
   }
 
@@ -102,7 +108,11 @@ export class SettingsStore {
       }
       this.#current = {
         ...defaultSettings,
-        speech: { ...defaultSettings.speech, shortcut: defaultSpeechShortcut(process.platform) },
+        speech: {
+          ...defaultSettings.speech,
+          shortcut: defaultSpeechShortcut(process.platform),
+          dictationShortcut: defaultDictationShortcut(process.platform),
+        },
       }
       await this.save(this.#current)
       this.#loaded = true
@@ -126,9 +136,23 @@ export class SettingsStore {
       throw error
     }
     const shortcut = migrateSpeechShortcut(this.#current.speech.shortcut, process.platform)
-    const migrateShortcut = shortcut !== this.#current.speech.shortcut
+    let dictationShortcut = this.#current.speech.dictationShortcut
+    if (
+      speechShortcutError(dictationShortcut, process.platform) ||
+      dictationShortcut === shortcut
+    ) {
+      dictationShortcut = defaultDictationShortcut(process.platform)
+      // Preserve a user's existing Aria binding, even if it uses the new default.
+      if (dictationShortcut === shortcut) dictationShortcut = 'ctrl+alt+shift+d'
+    }
+    const migrateShortcut =
+      shortcut !== this.#current.speech.shortcut ||
+      dictationShortcut !== this.#current.speech.dictationShortcut
     if (migrateShortcut)
-      this.#current = { ...this.#current, speech: { ...this.#current.speech, shortcut } }
+      this.#current = {
+        ...this.#current,
+        speech: { ...this.#current.speech, shortcut, dictationShortcut },
+      }
     if (migrateDelegationApproval || migrateShortcut) await this.save(this.#current)
     this.#loaded = true
     return this.#current
@@ -147,8 +171,12 @@ export class SettingsStore {
   async #apply(patch: SettingsPatch): Promise<Settings> {
     // Window geometry can save before boot has loaded the user's preferences.
     if (!this.#loaded) await this.#read()
-    if (patch.speech?.shortcut !== undefined) {
-      const error = speechShortcutError(patch.speech.shortcut, process.platform)
+    if (patch.speech) {
+      const error = speechBindingsError(
+        patch.speech.shortcut ?? this.#current.speech.shortcut,
+        patch.speech.dictationShortcut ?? this.#current.speech.dictationShortcut,
+        process.platform,
+      )
       if (error) throw new Error(error)
     }
     const next: Settings = {

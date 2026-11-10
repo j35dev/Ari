@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SpeechSettings } from './SpeechSettings'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -65,6 +65,62 @@ it('offers existing models in place and a separate engine download', async () =>
   await waitFor(() =>
     expect(mocks.invoke).toHaveBeenCalledWith('speech.select', { modelId: 'found' }),
   )
+})
+
+it('shows separate Aria and general defaults and edits only the selected binding', async () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+  render(<SpeechSettings />)
+  expect(screen.getByRole('textbox', { name: 'Aria dictation shortcut' })).toHaveValue(
+    'ctrl+alt+space',
+  )
+  expect(screen.getByRole('textbox', { name: 'General dictation shortcut' })).toHaveValue(
+    'ctrl+alt+d',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Record General dictation shortcut' }))
+  fireEvent.keyDown(window, { key: 'F20', code: 'F20' })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledWith({ speech: { dictationShortcut: 'f20' } }),
+  )
+})
+
+it('rejects the other dictation binding and existing Ari actions', () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+  render(<SpeechSettings />)
+  fireEvent.click(screen.getByRole('button', { name: 'Record General dictation shortcut' }))
+  fireEvent.keyDown(window, { key: ' ', code: 'Space', ctrlKey: true, altKey: true })
+  expect(screen.getByRole('alert')).toHaveTextContent('different shortcuts')
+  fireEvent.keyDown(window, { key: 'k', code: 'KeyK', ctrlKey: true })
+  expect(screen.getByRole('alert')).toHaveTextContent('already used by Ari')
+  expect(mocks.update).not.toHaveBeenCalled()
+})
+
+it('keeps the capture lease while recording a binding and releases it on cancellation', async () => {
+  const acquire = vi.fn(async () => 'binding-token')
+  const release = vi.fn(async () => undefined)
+  const previous = window.ari
+  window.ari = {
+    invoke: async () => undefined,
+    subscribe: () => () => undefined,
+    dictation: { acquire, release },
+  }
+  try {
+    render(<SpeechSettings />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Record General dictation shortcut' }))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Record General dictation shortcut' }),
+      ).toHaveAttribute('aria-pressed', 'true'),
+    )
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(release).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(release).toHaveBeenCalledWith('binding-token'))
+  } finally {
+    window.ari = previous
+  }
 })
 it.each(['missing', 'ready'] as const)(
   'offers Retry for an engine read error instead of reinstall (%s)',
@@ -141,7 +197,7 @@ it('downloads the chosen model and saves a lowercase hold-to-talk chord', async 
   await waitFor(() =>
     expect(mocks.invoke).toHaveBeenCalledWith('speech.download', { modelId: 'tiny' }),
   )
-  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
   fireEvent.keyDown(window, {
     key: ' ',
     code: 'Space',
@@ -176,7 +232,7 @@ it('shows the saved size with Resume and Discard actions', async () => {
 it('uses the agreed macOS hold-to-talk chord', () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)
-  expect(screen.getByRole('textbox', { name: 'Hold-to-talk shortcut' })).toHaveValue(
+  expect(screen.getByRole('textbox', { name: 'Aria dictation shortcut' })).toHaveValue(
     'shift+meta+space',
   )
 })
@@ -184,7 +240,7 @@ it('uses the agreed macOS hold-to-talk chord', () => {
 it('refuses the macOS input-source shortcut and records Cmd+Shift+Space in canonical order', async () => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
   render(<SpeechSettings />)
-  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
   fireEvent.keyDown(window, { key: ' ', code: 'Space', ctrlKey: true })
   expect(screen.getByRole('alert')).toHaveTextContent('reserved')
   expect(mocks.update).not.toHaveBeenCalled()
@@ -200,19 +256,19 @@ it('requires Record shortcut, saves the next valid key, and stops recording', as
   render(<SpeechSettings />)
   fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
   expect(mocks.update).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
   fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
   await waitFor(() =>
     expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ speech: { shortcut: 'f8' } }),
   )
   fireEvent.keyDown(window, { key: 'F9', code: 'F9' })
   expect(mocks.update).toHaveBeenCalledOnce()
-  expect(screen.getByRole('button', { name: 'Record shortcut' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Record Aria dictation shortcut' })).toBeInTheDocument()
 })
 
 it('explains invalid and reserved keys, then accepts another shortcut', async () => {
   render(<SpeechSettings />)
-  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
   fireEvent.keyDown(window, { key: 'a', code: 'KeyA' })
   expect(screen.getByRole('alert')).toHaveTextContent('modifier')
   fireEvent.keyDown(window, { key: 'F4', code: 'F4', altKey: true })
@@ -226,12 +282,12 @@ it('explains invalid and reserved keys, then accepts another shortcut', async ()
 
 it('rejects a modifier alone and allows Esc to cancel without saving', () => {
   render(<SpeechSettings />)
-  fireEvent.click(screen.getByRole('button', { name: 'Record shortcut' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
   fireEvent.keyDown(window, { key: 'Alt', code: 'AltRight', altKey: true })
   fireEvent.keyUp(window, { key: 'Alt', code: 'AltRight' })
   expect(screen.getByRole('alert')).toHaveTextContent('modifier')
   fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
   fireEvent.keyDown(window, { key: 'F8', code: 'F8' })
   expect(mocks.update).not.toHaveBeenCalled()
-  expect(screen.getByRole('button', { name: 'Record shortcut' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Record Aria dictation shortcut' })).toBeInTheDocument()
 })

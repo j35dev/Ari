@@ -26,6 +26,7 @@ import { promptHistory, stepPromptHistory } from './prompt-history'
 import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
 import { SpeechButton } from './SpeechButton'
+import { captureTextTarget } from '../speech/target'
 import {
   useSessionDraftIntent,
   updateSessionDraftIntent,
@@ -894,6 +895,7 @@ export function Composer({
         <div className="relative">
           <MentionOverlay ref={overlayRef} text={text} resting={resting} />
           <textarea
+            data-dictation-session={sessionId ?? ''}
             ref={textareaRef}
             value={text}
             onChange={(e) => {
@@ -958,8 +960,12 @@ export function Composer({
           >
             <SpeechButton
               key={sessionId ?? ''}
+              captureTarget={() => {
+                const input = textareaRef.current
+                input?.focus()
+                return captureTextTarget(input)
+              }}
               disabled={disabled}
-              onTranscript={(transcript) => insertAtCaret(textareaRef.current, caret, transcript)}
             />
             <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
               <motion.button

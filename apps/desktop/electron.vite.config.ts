@@ -18,7 +18,11 @@ export default defineConfig({
           'transcribe-cpp',
           'uiohook-napi',
         ],
-        input: { index: 'src/main/index.ts', 'speech-worker': 'src/main/speech/worker.ts' },
+        input: {
+          index: 'src/main/index.ts',
+          'speech-worker': 'src/main/speech/worker.ts',
+          'dictation-worker': 'src/main/speech/dictation-worker.ts',
+        },
       },
     },
   },

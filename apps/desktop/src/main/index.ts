@@ -167,6 +167,7 @@ if (!gotLock) {
         backgroundReady: firstPaint,
       })
       widget = new AriaWidget({
+        mainWindow: () => mainWindow,
         invoke: runtime.invoke,
         openSettings: () => {
           if (mainWindow && !mainWindow.isDestroyed()) openSpeechSettings(mainWindow.webContents)

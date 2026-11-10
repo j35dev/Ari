@@ -3,13 +3,14 @@ import { LoaderCircle, Mic, Square } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
 import { startRecording } from '../speech/recorder'
 import { useSpeech } from '../speech/useSpeech'
+import type { DictationTarget } from '../../../../shared/dictation'
 
 export function SpeechButton({
   disabled = false,
-  onTranscript,
+  captureTarget,
 }: {
   disabled?: boolean
-  onTranscript: (text: string) => void
+  captureTarget: () => DictationTarget
 }) {
   const { status } = useSpeech()
   const recording = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
@@ -18,8 +19,17 @@ export function SpeechButton({
   const [state, setState] = useState<'idle' | 'starting' | 'recording' | 'transcribing'>('idle')
   const [level, setLevel] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const insert = useRef(onTranscript)
-  insert.current = onTranscript
+  const target = useRef<DictationTarget | null>(null)
+  const lease = useRef<string | null>(null)
+  const busy = useRef(false)
+  const release = (): void => {
+    target.current?.cancel()
+    target.current = null
+    const token = lease.current
+    lease.current = null
+    if (token) void window.ari?.dictation?.release(token).catch(() => undefined)
+    busy.current = false
+  }
 
   useEffect(() => {
     mounted.current = true
@@ -28,6 +38,7 @@ export function SpeechButton({
       generation.current++
       recording.current?.cancel()
       recording.current = null
+      release()
     }
   }, [])
   useEffect(() => {
@@ -35,6 +46,7 @@ export function SpeechButton({
     generation.current++
     recording.current?.cancel()
     recording.current = null
+    release()
     setState('idle')
   }, [disabled, status.ready])
   useEffect(() => {
@@ -51,20 +63,35 @@ export function SpeechButton({
     setState('transcribing')
     try {
       const pcm = await active.stop()
-      if (!pcm.length) return
+      if (!mounted.current || generation.current !== attempt || !pcm.length) return
       const result = await rpc.invoke('speech.transcribe', { pcm })
-      if (mounted.current && generation.current === attempt && result.text)
-        insert.current(result.text)
+      if (mounted.current && generation.current === attempt && result.text.trim())
+        await target.current?.insert(
+          result.text,
+          () => mounted.current && generation.current === attempt,
+        )
     } catch (reason) {
-      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason))
+      if (mounted.current && generation.current === attempt)
+        setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      if (mounted.current) setState('idle')
+      if (generation.current === attempt) {
+        release()
+        if (mounted.current) setState('idle')
+      }
     }
   }
 
   useEffect(() => {
+    const blur = (): void => {
+      if (!busy.current) return
+      generation.current++
+      recording.current?.cancel()
+      recording.current = null
+      release()
+      setState('idle')
+    }
     const key = (event: KeyboardEvent): void => {
-      if (!recording.current) return
+      if (!busy.current) return
       if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -75,18 +102,33 @@ export function SpeechButton({
         generation.current++
         recording.current?.cancel()
         recording.current = null
+        release()
         setState('idle')
       }
     }
     window.addEventListener('keydown', key, true)
-    return () => window.removeEventListener('keydown', key, true)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('blur', blur)
+    }
   }, [])
 
   const start = async (): Promise<void> => {
+    if (busy.current || disabled || !status.ready) return
+    busy.current = true
     setError(null)
     setState('starting')
     const attempt = ++generation.current
     try {
+      // Capture synchronously, before microphone acquisition or any focus change.
+      target.current = captureTarget()
+      const token = await window.ari?.dictation?.acquire()
+      if (!mounted.current || generation.current !== attempt) {
+        if (token) void window.ari?.dictation?.release(token).catch(() => undefined)
+        return
+      }
+      lease.current = token ?? null
       const active = await startRecording()
       if (!mounted.current || generation.current !== attempt) {
         active.cancel()
@@ -95,7 +137,8 @@ export function SpeechButton({
       recording.current = active
       setState('recording')
     } catch (reason) {
-      if (mounted.current) {
+      if (mounted.current && generation.current === attempt) {
+        release()
         setError(reason instanceof Error ? reason.message : String(reason))
         setState('idle')
       }
@@ -116,6 +159,7 @@ export function SpeechButton({
         aria-label={state === 'recording' ? 'Stop dictation' : 'Dictate a message'}
         aria-pressed={state === 'recording'}
         disabled={unavailable || state === 'starting' || state === 'transcribing'}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={() => void (state === 'recording' ? stop() : start())}
         className={`relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40 ${state === 'recording' ? 'text-accent' : 'text-fg-subtle hover:text-fg'}`}
       >
