@@ -9,6 +9,46 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
 }
 
+it.each([
+  [
+    'session',
+    'spawn',
+    '--title',
+    'Search',
+    '--project',
+    'project',
+    '--agent',
+    'codex',
+    '--model',
+    'sol',
+    '--effort',
+    'auto',
+    '--permission',
+    'full',
+  ],
+  [
+    'project',
+    'ask',
+    'project',
+    'Implement search',
+    '--agent',
+    'codex',
+    '--model',
+    'sol',
+    '--effort',
+    'xhigh',
+    '--permission',
+    'ask',
+  ],
+  ['project', 'lead', 'project', '--agent', 'codex', '--model', 'sol', '--effort', 'auto'],
+])('passes launch reasoning and explicit choices through the CLI: %j', (...argv) => {
+  const parsed = cli.parse(argv)
+  expect(parsed.params.driverKind).toBe('codex')
+  expect(parsed.params.modelId).toBe('sol')
+  expect(parsed.params.effort).toBe(argv.includes('xhigh') ? 'xhigh' : 'auto')
+  if (argv.includes('--permission')) expect(parsed.params.permissionMode).toBe(argv.at(-1))
+})
+
 it('parses project creation with an optional absolute folder and retry key', () => {
   expect(
     cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),
@@ -35,6 +75,15 @@ it('parses project creation with an optional absolute folder and retry key', () 
   expect(() => cli.parse(['project', 'create'])).toThrow('needs --name')
   expect(() => cli.parse(['project', 'create', '--name', '  '])).toThrow('needs --name')
   expect(() => cli.parse(['project', 'create', 'folder', '--name', 'Garden'])).toThrow('Use --path')
+})
+
+it('passes a follow-up effort override without changing coordination messages', () => {
+  expect(
+    cli.parse(['session', 'prompt', 'worker', 'Investigate regression', '--effort', 'auto']).params,
+  ).toMatchObject({ effort: 'auto', text: 'Investigate regression' })
+  expect(cli.parse(['session', 'message', 'worker', 'Use the cache']).params).not.toHaveProperty(
+    'effort',
+  )
 })
 
 it('exposes recipient inbox acknowledgement and sender delivery inspection with exact identities', () => {

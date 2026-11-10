@@ -9,8 +9,17 @@ export const projectAgentSchema = z.object({
 })
 export type ProjectAgent = z.infer<typeof projectAgentSchema>
 
+export interface EffortSelection {
+  resolved: string | null
+  source:
+    'explicit' | 'project' | 'inherited' | 'lead' | 'task' | 'provider-default' | 'unsupported'
+  reason: string
+  supported: string[]
+}
+
 export interface ResolvedProjectAgent extends ProjectAgent {
   source: 'arguments' | 'project' | 'lead'
+  effortSelection?: EffortSelection
 }
 
 /**

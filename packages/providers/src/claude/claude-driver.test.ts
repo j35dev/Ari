@@ -115,6 +115,13 @@ describe('buildClaudeArgs', () => {
     expect(buildClaudeArgs({ ...base, permissionMode: 'full' })).toContain('bypassPermissions')
   })
 
+  it('passes reasoning effort on fresh and resumed native turns', () => {
+    for (const resumeOf of [null, 'thread']) {
+      const args = buildClaudeArgs({ ...base, effort: 'high', resumeOf })
+      expect(args[args.indexOf('--effort') + 1]).toBe('high')
+    }
+  })
+
   it('includes model and resume when provided', () => {
     const args = buildClaudeArgs({
       ...base,
