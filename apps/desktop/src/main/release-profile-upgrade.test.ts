@@ -358,7 +358,7 @@ it('recovers interrupted child state and drains held work only through the scrip
     const userQueue = (await store.load(fixture.expected.parentId)).queuedMessages
     supervisor.start()
     await recovered.wait()
-    supervisor.close()
+    await Promise.resolve(supervisor.close())
     const interrupted = await store.load(fixture.expected.runningId)
     expect(interrupted).toMatchObject({
       activeTurnId: null,
@@ -392,7 +392,7 @@ it('recovers interrupted child state and drains held work only through the scrip
   } finally {
     recovered.cancel()
     heldSettled.cancel()
-    supervisor.close()
+    await Promise.resolve(supervisor.close())
     unsubscribe()
     await engine.shutdown()
   }
