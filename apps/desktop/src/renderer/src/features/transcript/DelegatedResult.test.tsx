@@ -608,4 +608,66 @@ describe('delegated result continuity', () => {
     )
     expect(calls('orchestration.view').at(-1)?.[1]).toEqual({ sessionId: 'other-parent' })
   })
+
+  // A settled child result is a MarkdownBlock reply inside the parent transcript.
+  it('renders flat and wrapped visuals from the child result summary', async () => {
+    const flat =
+      '{"version":1,"type":"metrics","title":"Saved","items":[{"label":"Hours","value":4}]}'
+    const wrapped =
+      '{"version":1,"type":"timeline","title":"Release progress","data":{"events":[{"label":"v0.2.0","date":"2026-08-30","description":"Previous release"},{"label":"v0.3.13","date":"in progress","tone":"warning"}]}}'
+    const summary = [
+      'Before',
+      '',
+      '```ari-viz',
+      flat,
+      '```',
+      '',
+      '```ari-viz',
+      wrapped,
+      '```',
+      '',
+      'After',
+    ].join('\n')
+    task = taskFixture({ results: [resultFixture({ summary })] })
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: 'Inspect result for Search API' }))
+    expect(await screen.findByRole('figure', { name: 'Saved' })).toBeInTheDocument()
+    expect(screen.getByText('Hours')).toBeInTheDocument()
+    const timeline = screen.getByRole('figure', { name: 'Release progress' })
+    expect(within(timeline).getByText('v0.2.0').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-accent)',
+    )
+    expect(within(timeline).getByText('v0.3.13').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-warning)',
+    )
+    expect(document.querySelector('code.language-ari-viz')).toBeNull()
+  })
+
+  it('names a child-result visualization error without echoing markup', async () => {
+    task = taskFixture({
+      results: [
+        resultFixture({
+          summary: '```ari-viz\n{"version":1,"type":"timeline","title":"Missing events"}\n```',
+        }),
+      ],
+    })
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: 'Inspect result for Search API' }))
+    expect(await screen.findByText('Timeline charts need events.')).toBeInTheDocument()
+    expect(screen.queryByText('Invalid input')).toBeNull()
+    task = taskFixture({
+      results: [
+        resultFixture({
+          summary:
+            '```ari-viz\n{"version":1,"type":"timeline","title":"Marked up","events":[{"label":"A"}],"html":"<script>alert(1)</script>"}\n```',
+        }),
+      ],
+    })
+    cleanup()
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: 'Inspect result for Search API' }))
+    expect(await screen.findByText('Timeline charts cannot include "html".')).toBeInTheDocument()
+    expect(screen.queryByText(/alert\(1\)/)).toBeNull()
+    expect(document.querySelector('script')).toBeNull()
+  })
 })

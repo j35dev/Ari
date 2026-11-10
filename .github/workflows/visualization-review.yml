@@ -43,3 +43,15 @@ jobs:
           GITHUB_ACTIONS: 'true'
           RUNNER_ENVIRONMENT: github-hosted
         run: node scripts/release-visualization-ci.mjs
+
+      - name: Upload visualization review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-visualization-review-${{ github.event.pull_request.head.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ari-visualization-review/*.png
+            ${{ runner.temp }}/ari-visualization-review/*.json
+            ${{ runner.temp }}/ari-visualization-review/*.log

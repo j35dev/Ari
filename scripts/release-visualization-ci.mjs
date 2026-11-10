@@ -1,7 +1,7 @@
 // Plans hosted visualization screenshots. Importing this file never launches a browser.
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -27,6 +27,8 @@ export const DESKTOP_WIDTH = 1280
 export const MOBILE_WIDTH = 390
 export const REVIEW_HEIGHT = 1600
 export const MOBILE_BREAKPOINT = 600
+/** Branch base, before the shared visual-quality repair. */
+export const BEFORE_COMMIT = 'ed8380b3a097576c5744c5b9e6196556d32651bc'
 export const THEMES = [
   { theme: 'light', themeId: 'porcelain' },
   { theme: 'dark', themeId: 'obsidian' },
@@ -233,6 +235,52 @@ export function reviewPlan({ commit, skill }) {
   }
 }
 
+export function pairedReviewPlan({ before, after, skill }) {
+  if (!/^[a-f0-9]{40}$/.test(before) || !/^[a-f0-9]{40}$/.test(after)) {
+    throw new Error('Review plan needs the full before and after commits')
+  }
+  if (before === after) throw new Error('Before and after commits must differ')
+  const beforePlan = reviewPlan({ commit: before, skill })
+  const afterPlan = reviewPlan({ commit: after, skill })
+  if (beforePlan.cases.length !== afterPlan.cases.length) {
+    throw new Error('Before and after case counts differ')
+  }
+  const tag = (sourceRole, plan) =>
+    plan.cases.map((item, index) => {
+      const other = sourceRole === 'before' ? afterPlan.cases[index] : beforePlan.cases[index]
+      if (item.source !== other.source || item.kind !== other.kind || item.width !== other.width) {
+        throw new Error(`Case ${item.id} is not the same input at both commits`)
+      }
+      return { ...item, sourceRole, id: `${sourceRole}-${item.id}`, commit: plan.commit }
+    })
+  const cases = [...tag('before', beforePlan), ...tag('after', afterPlan)]
+  return {
+    before,
+    after,
+    desktopWidth: DESKTOP_WIDTH,
+    mobileWidth: MOBILE_WIDTH,
+    height: REVIEW_HEIGHT,
+    mobileBreakpoint: MOBILE_BREAKPOINT,
+    themes: THEMES,
+    captured: false,
+    caseCount: cases.length,
+    cases,
+  }
+}
+
+export async function extractSource(root, commit, dest) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Source extract needs the full commit')
+  await mkdir(dest, { recursive: true })
+  const archive = join(dest, 'source.tar')
+  execFileSync(
+    'git',
+    ['archive', '--format=tar', '-o', archive, commit, 'packages/ui', 'packages/contracts'],
+    { cwd: root, windowsHide: true },
+  )
+  execFileSync('tar', ['-xf', archive, '-C', dest], { cwd: root, windowsHide: true })
+  await rm(archive)
+}
+
 function repoRoot() {
   return resolve(dirname(fileURLToPath(import.meta.url)), '..')
 }
@@ -260,12 +308,16 @@ function htmlPage({ bundleHref, tokensHref, visualHref, item }) {
 `
 }
 
-export async function bundleRenderer(root, esbuildBin, outDir) {
-  const entry = join(outDir, 'render-visualization.tsx')
-  const visualization = join(root, 'packages/ui/src/visualization/Visualization.tsx')
-  const uiRequire = createRequire(join(root, 'packages/ui/package.json'))
+export async function bundleRenderer(installRoot, esbuildBin, outDir, options = {}) {
+  const sourceRoot = options.sourceRoot ?? installRoot
+  const outfile = options.outfile ?? 'bundle.js'
+  const entry = join(outDir, options.entryName ?? 'render-visualization.tsx')
+  const visualization = join(sourceRoot, 'packages/ui/src/visualization/Visualization.tsx')
+  const uiRequire = createRequire(join(installRoot, 'packages/ui/package.json'))
   const react = dirname(uiRequire.resolve('react/package.json')).replaceAll('\\', '/')
   const reactDom = dirname(uiRequire.resolve('react-dom/package.json')).replaceAll('\\', '/')
+  const contracts = join(sourceRoot, 'packages/contracts/src/visualization.ts').replaceAll('\\', '/')
+  await mkdir(outDir, { recursive: true })
   await writeFile(
     entry,
     `import { createRoot } from 'react-dom/client'
@@ -276,24 +328,38 @@ if (!root) throw new Error('missing root')
 createRoot(root).render(<Visualization source={source} />)
 `,
   )
-  execFileSync(
-    process.execPath,
-    [
-      esbuildBin,
-      entry,
-      '--bundle',
-      '--format=iife',
-      '--platform=browser',
-      '--jsx=automatic',
-      '--resolve-extensions=.tsx,.ts,.jsx,.js,.mjs,.json',
-      '--loader:.css=empty',
-      `--alias:react=${react}`,
-      `--alias:react-dom=${reactDom}`,
-      `--outfile=${join(outDir, 'bundle.js')}`,
-      '--log-level=warning',
+  const esbuildUrl = pathToFileURL(join(dirname(esbuildBin), '..', 'lib', 'main.js')).href
+  const loaded = await import(esbuildUrl)
+  const esbuild = loaded.default?.build ? loaded.default : loaded
+  await esbuild.build({
+    absWorkingDir: installRoot,
+    entryPoints: [entry],
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    jsx: 'automatic',
+    resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
+    loader: { '.css': 'empty' },
+    alias: {
+      react,
+      'react-dom': reactDom,
+      '@ari/contracts/visualization': contracts,
+    },
+    nodePaths: [
+      join(installRoot, 'node_modules'),
+      join(installRoot, 'packages/ui/node_modules'),
+      join(installRoot, 'packages/contracts/node_modules'),
     ],
-    { cwd: root, windowsHide: true },
-  )
+    outfile: join(outDir, outfile),
+    logLevel: 'warning',
+    tsconfigRaw: { compilerOptions: { jsx: 'react-jsx' } },
+  })
+}
+
+async function writeReview(outDir, plan, status, logLines) {
+  await mkdir(outDir, { recursive: true })
+  await writeFile(join(outDir, 'plan.json'), JSON.stringify({ ...plan, ...status }, null, 2) + '\n')
+  await writeFile(join(outDir, 'review.log'), `${logLines.join('\n')}\n`)
 }
 
 async function main() {
@@ -301,21 +367,29 @@ async function main() {
     throw new Error('Visualization screenshots require an explicitly opted-in GitHub-hosted runner')
   }
   const root = repoRoot()
-  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
+  const after = execFileSync('git', ['rev-parse', 'HEAD'], {
     cwd: root,
     windowsHide: true,
     encoding: 'utf8',
   }).trim()
   const skill = await readFile(join(root, 'apps/desktop/resources/cli/ari/SKILL.md'), 'utf8')
-  const plan = reviewPlan({ commit, skill })
+  const plan = pairedReviewPlan({ before: BEFORE_COMMIT, after, skill })
   const outDir = join(process.env.RUNNER_TEMP, 'ari-visualization-review')
-  await mkdir(outDir, { recursive: true })
+  const logLines = [
+    `before ${plan.before}`,
+    `after ${plan.after}`,
+    `cases ${plan.caseCount}`,
+    `desktop ${plan.desktopWidth}`,
+    `mobile ${plan.mobileWidth}`,
+    `height ${plan.height}`,
+  ]
   const chrome = selectBrowser(chromeCandidates(process.env), existsSync)
   const esbuildBin = resolveEsbuild(root)
   const status = {
-    commit,
+    before: plan.before,
+    after: plan.after,
     captured: false,
-    caseCount: plan.cases.length,
+    caseCount: plan.caseCount,
     desktopWidth: plan.desktopWidth,
     mobileWidth: plan.mobileWidth,
     height: plan.height,
@@ -327,55 +401,73 @@ async function main() {
     status.reason = !chrome
       ? 'No system Chrome is installed. Screenshots were not captured and Chrome was not downloaded.'
       : 'esbuild from the existing install could not be resolved. Screenshots were not captured.'
-    await writeFile(
-      join(outDir, 'plan.json'),
-      JSON.stringify({ ...plan, ...status }, null, 2) + '\n',
-    )
+    logLines.push(status.reason)
+    await writeReview(outDir, plan, status, logLines)
     console.log(JSON.stringify(status))
     return
   }
-  await bundleRenderer(root, esbuildBin, outDir)
-  const bundleHref = pathToFileURL(join(outDir, 'bundle.js')).href
-  const tokensHref = pathToFileURL(join(root, 'packages/ui/src/tokens.css')).href
-  const visualHref = pathToFileURL(
-    join(root, 'packages/ui/src/visualization/visualization.css'),
-  ).href
-  for (const item of plan.cases) {
-    const page = join(outDir, `${item.id}.html`)
-    const png = join(outDir, `${item.id}.png`)
-    await writeFile(page, htmlPage({ bundleHref, tokensHref, visualHref, item }))
-    execFileSync(
-      chrome,
-      [
-        '--headless=new',
-        '--disable-gpu',
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-        '--hide-scrollbars',
-        '--force-device-scale-factor=1',
-        `--user-data-dir=${join(outDir, `chrome-${item.id}`)}`,
-        `--window-size=${item.width},${item.height}`,
-        `--screenshot=${png}`,
-        pathToFileURL(page).href,
-      ],
-      { cwd: outDir, windowsHide: true, timeout: 60_000 },
-    )
-    if (!existsSync(png)) throw new Error(`Screenshot missing for ${item.id}`)
-    status.files.push({
-      id: item.id,
-      kind: item.kind,
-      type: item.type,
-      theme: item.theme,
-      themeId: item.themeId,
-      width: item.width,
-      height: item.height,
-      commit,
-      png,
-    })
+  const beforeRoot = join(outDir, 'before-source')
+  const groups = [
+    { sourceRole: 'before', sourceRoot: beforeRoot, bundleDir: join(outDir, 'before-bundle') },
+    { sourceRole: 'after', sourceRoot: root, bundleDir: join(outDir, 'after-bundle') },
+  ]
+  try {
+    await extractSource(root, plan.before, beforeRoot)
+    for (const group of groups) {
+      await bundleRenderer(root, esbuildBin, group.bundleDir, { sourceRoot: group.sourceRoot })
+      const bundleHref = pathToFileURL(join(group.bundleDir, 'bundle.js')).href
+      const tokensHref = pathToFileURL(join(group.sourceRoot, 'packages/ui/src/tokens.css')).href
+      const visualHref = pathToFileURL(
+        join(group.sourceRoot, 'packages/ui/src/visualization/visualization.css'),
+      ).href
+      const cases = plan.cases.filter((candidate) => candidate.sourceRole === group.sourceRole)
+      for (const item of cases) {
+        const page = join(outDir, `${item.id}.html`)
+        const png = join(outDir, `${item.id}.png`)
+        await writeFile(page, htmlPage({ bundleHref, tokensHref, visualHref, item }))
+        execFileSync(
+          chrome,
+          [
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--hide-scrollbars',
+            '--force-device-scale-factor=1',
+            `--user-data-dir=${join(process.env.RUNNER_TEMP, 'ari-visualization-chrome', item.id)}`,
+            `--window-size=${item.width},${item.height}`,
+            `--screenshot=${png}`,
+            pathToFileURL(page).href,
+          ],
+          { cwd: outDir, windowsHide: true, timeout: 60_000 },
+        )
+        if (!existsSync(png)) throw new Error(`Screenshot missing for ${item.id}`)
+        status.files.push({
+          id: item.id,
+          sourceRole: item.sourceRole,
+          kind: item.kind,
+          type: item.type,
+          theme: item.theme,
+          themeId: item.themeId,
+          width: item.width,
+          height: item.height,
+          commit: item.commit,
+          png,
+        })
+        logLines.push(
+          `${item.id} ${item.commit} ${item.theme} ${item.width} ${item.kind} ${item.type}`,
+        )
+      }
+    }
+    status.captured = true
+    await writeReview(outDir, plan, status, logLines)
+    console.log(JSON.stringify({ ...status, files: status.files.length }))
+  } catch (error) {
+    status.reason = error instanceof Error ? error.message : String(error)
+    logLines.push(status.reason)
+    await writeReview(outDir, plan, status, logLines)
+    throw error
   }
-  status.captured = true
-  await writeFile(join(outDir, 'plan.json'), JSON.stringify({ ...plan, ...status }, null, 2) + '\n')
-  console.log(JSON.stringify({ ...status, files: status.files.length }))
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
