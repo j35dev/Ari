@@ -415,6 +415,31 @@ it('does not let unknown acknowledgments extend stalled dispatch or duplicate a 
   expect(child.kill).toHaveBeenCalledOnce()
 })
 
+it.each(['false', 'throw'])(
+  'retains the stopping worker after kill %s until a confirmed exit',
+  async (failure) => {
+    const { service, child, pending } = await idleRequestFixture()
+    child.kill.mockImplementation(() => {
+      if (failure === 'throw') throw new Error('Kill unsuccessful')
+      return false
+    })
+    const outcome = pending.catch((error: Error) => error.message)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(await outcome).toContain('did not start the request')
+    const retry = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(await retry).toContain('did not stop')
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    expect(child.kill).toHaveBeenCalledOnce()
+    child.emit('exit', 0)
+    mocks.manual = false
+    expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+    expect(mocks.fork).toHaveBeenCalledTimes(2)
+  },
+)
+
 it('transcribes more than five minutes of valid audio with a duration-scaled failure budget', async () => {
   const { dir, service } = await setup()
   const path = join(dir, 'custom.gguf')

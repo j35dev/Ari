@@ -867,12 +867,9 @@ export class SpeechService {
     })
   }
 
-  #stopWorker(
-    worker: UtilityProcess,
-    message = 'The speech engine stopped. Please retry.',
-  ): boolean {
+  #stopWorker(worker: UtilityProcess, message = 'The speech engine stopped. Please retry.'): void {
     const state = this.#workerState.get(worker)
-    if (state?.stopping) return true
+    if (state?.stopping) return
     if (state) {
       state.knownCause = true
       state.stopping = true
@@ -888,9 +885,10 @@ export class SpeechService {
       pending.reject(new Error(message))
     }
     try {
-      return worker.kill()
+      worker.kill()
     } catch {
-      return false
+      // A failed kill is not an exit. The stop waiter retains the identity and
+      // reports its bounded failure without spawning another inference worker.
     }
   }
 
@@ -907,14 +905,7 @@ export class SpeechService {
         reject(new Error('The speech engine did not stop. Please retry.'))
       }, 5000)
       worker.once('exit', finish)
-      if (!this.#stopWorker(worker)) {
-        if (this.#worker === worker) {
-          this.#worker = null
-          this.#validated = null
-          this.#publishStatus()
-        }
-        finish()
-      }
+      this.#stopWorker(worker)
     })
   }
 
