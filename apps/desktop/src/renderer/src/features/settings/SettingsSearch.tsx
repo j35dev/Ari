@@ -15,7 +15,7 @@ export interface SettingsIndexEntry {
 
 /**
  * Static search index over every settings surface (M12.9). Section ids are
- * emitted by each page's `SettingsPage` wrapper (`settings-appearance`, â€¦).
+ * emitted by each page's `SettingsPage` wrapper (`settings-appearance`, …).
  * Shell-owned sections (Providers, Endpoints) resolve once their wrappers
  * carry matching ids; until then clicks fall through harmlessly.
  */
