@@ -9,6 +9,31 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
 }
 
+it('parses only the compact explicit navigation commands and preserves their keys', () => {
+  for (const [args, target] of [
+    [['session', 'exact'], { view: 'session', sessionId: 'exact' }],
+    [['aria'], { view: 'aria' }],
+    [['settings'], { view: 'settings' }],
+    [['changes', '--project', 'p'], { view: 'changes', projectId: 'p' }],
+    [['changes', '--session', 's'], { view: 'changes', sessionId: 's' }],
+  ] as const)
+    expect(cli.parse(['app', 'open', ...args, '--key', 'stable'])).toMatchObject({
+      method: 'app.open',
+      params: { ...target, idempotencyKey: 'stable' },
+    })
+  for (const args of [
+    ['session'],
+    ['session', 's', 'extra'],
+    ['changes'],
+    ['changes', '--project', 'p', '--session', 's'],
+    ['settings', '--project', 'p'],
+    ['aria', 'old'],
+    ['settings', '--model', 'm'],
+    ['url', 'https://example.com'],
+  ])
+    expect(() => cli.parse(['app', 'open', ...args])).toThrow()
+})
+
 it('parses project creation with an optional absolute folder and retry key', () => {
   expect(
     cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),
