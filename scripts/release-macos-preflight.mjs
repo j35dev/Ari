@@ -16,7 +16,7 @@ export async function preflight(executable, dataRoot, run) {
     await mkdir(value, { recursive: true })
   const receipt = { executableSha256: await sha256(executable), commands: [] }
   const expression =
-    "if(process.arch!=='x64'||!process.versions.electron)process.exit(2);console.log(JSON.stringify({arch:process.arch,electron:process.versions.electron,node:process.versions.node}))"
+    "require('node:fs').writeSync(2,'entered-eval\\n');if(process.arch!=='x64'||!process.versions.electron)process.exit(2);require('node:fs').writeSync(1,JSON.stringify({arch:process.arch,electron:process.versions.electron,node:process.versions.node})+'\\n');require('node:fs').writeSync(2,'completed-eval\\n')"
   const plans = [
     {
       name: 'rosetta-package',
@@ -38,14 +38,47 @@ export async function preflight(executable, dataRoot, run) {
   ]
   for (const plan of plans) {
     const started = Date.now()
+    let sampleTimer, sampleTask
     try {
-      const output = await run(plan.executable, plan.args, {
+      const execution = run(plan.executable, plan.args, {
         cwd: data,
         env,
         windowsHide: true,
         timeout: 15_000,
         maxBuffer: 64 * 1024,
       })
+      if (
+        plan.name === 'translated-packaged-node' &&
+        Number.isInteger(execution.child?.pid) &&
+        execution.child.pid > 0
+      ) {
+        const pid = execution.child.pid
+        receipt.ownedChildPid = pid
+        sampleTimer = globalThis.setTimeout(() => {
+          if (execution.child.exitCode !== null || execution.child.signalCode !== null) return
+          const report = join(data, 'owned-x64-startup-sample.txt')
+          sampleTask = run('/usr/bin/sample', [String(pid), '1', '1', '-file', report], {
+            cwd: data,
+            env,
+            windowsHide: true,
+            timeout: 3000,
+            maxBuffer: 256 * 1024,
+          }).then(
+            () => {
+              receipt.sample = { pid, report, success: true }
+            },
+            (error) => {
+              receipt.sample = {
+                pid,
+                report,
+                success: false,
+                message: String(error).slice(0, 2000),
+              }
+            },
+          )
+        }, 5000)
+      }
+      const output = await execution
       receipt.commands.push({
         name: plan.name,
         required: plan.required,
@@ -66,6 +99,9 @@ export async function preflight(executable, dataRoot, run) {
         stdout: String(error?.stdout ?? '').slice(0, 4096),
         stderr: String(error?.stderr ?? '').slice(0, 4096),
       })
+    } finally {
+      globalThis.clearTimeout(sampleTimer)
+      if (sampleTask) await sampleTask
     }
   }
   return receipt
