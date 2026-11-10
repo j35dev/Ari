@@ -3,12 +3,42 @@ import { describe, expect, it, vi } from 'vitest'
 import { visualizationSchema } from '@ari/contracts/visualization'
 import { Visualization } from './Visualization'
 import { visualizationExamples } from './examples'
-import { axis, domain, formatNumber } from './charts'
+import {
+  axis,
+  clipLabel,
+  color,
+  domain,
+  formatNumber,
+  heatCellWidth,
+  heatFillOpacity,
+  heatShowsValue,
+} from './charts'
 
 const bar = visualizationExamples[0]?.spec
 if (bar === undefined) throw new Error('Missing example')
 const source = JSON.stringify(bar)
+const visualTypes = [
+  'bar',
+  'line',
+  'area',
+  'scatter',
+  'pie',
+  'donut',
+  'radar',
+  'heatmap',
+  'treemap',
+  'funnel',
+  'graph',
+  'timeline',
+  'gantt',
+  'metrics',
+  'comparison',
+] as const
+
 describe('inline visualizations', () => {
+  it('covers each supported type once', () => {
+    expect(visualizationExamples.map((example) => example.spec.type)).toEqual(visualTypes)
+  })
   it.each(visualizationExamples)(
     'renders a $spec.type visualization with inspectable data',
     ({ spec }) => {
@@ -93,6 +123,11 @@ describe('inline visualizations', () => {
       />,
     )
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+    expect(
+      [...container.querySelectorAll('rect')]
+        .map((rect) => rect.getAttribute('fill'))
+        .filter((fill) => fill === color(0) || fill === color(1)),
+    ).toEqual([color(0), color(1)])
     rerender(
       <Visualization
         source={JSON.stringify({
@@ -113,6 +148,119 @@ describe('inline visualizations', () => {
     )
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
     expect(domain([0, 0])).toEqual([-1, 1])
+  })
+
+  it('rejects a nested data wrapper instead of drawing a chart', () => {
+    render(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'bar',
+          title: 'Wrapped',
+          data: { labels: ['A'], series: [{ name: 'S', values: [1] }] },
+        })}
+      />,
+    )
+    expect(screen.getByText('Visualization unavailable')).toBeInTheDocument()
+    expect(screen.queryByRole('figure')).toBeNull()
+    expect(screen.getByText(/data/)).toBeInTheDocument()
+  })
+
+  it('separates heatmap magnitudes and keeps long digits out of narrow cells', () => {
+    expect(heatFillOpacity(100, 100) - heatFillOpacity(1, 100)).toBeGreaterThan(0.6)
+    expect(heatFillOpacity(0, 100)).toBe(1)
+    expect(heatFillOpacity(-8, 8)).toBe(heatFillOpacity(8, 8))
+    const wide = {
+      version: 1,
+      type: 'heatmap',
+      title: 'Load',
+      xLabels: ['Low', 'High'],
+      yLabels: ['Row'],
+      values: [[1, 100]],
+      unit: 'requests',
+    }
+    const { container, rerender } = render(<Visualization source={JSON.stringify(wide)} />)
+    const opacities = [...container.querySelectorAll('rect')].map((rect) =>
+      Number(rect.getAttribute('fill-opacity')),
+    )
+    expect(opacities).toEqual([heatFillOpacity(1, 100), heatFillOpacity(100, 100)])
+    expect(container.querySelector('.ari-viz-heat-value')).toHaveTextContent(formatNumber(1))
+    const narrowValue = 0.0000123
+    const printed = formatNumber(narrowValue)
+    const columns = Array.from({ length: 32 }, (_, i) => `C${i}`)
+    expect(heatShowsValue(printed, heatCellWidth(columns.length))).toBe(false)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'heatmap',
+          title: 'Dense',
+          xLabels: columns,
+          yLabels: ['Row'],
+          values: [Array.from({ length: 32 }, () => narrowValue)],
+        })}
+      />,
+    )
+    expect(container.querySelector('.ari-viz-heat-value')).toBeNull()
+    expect(
+      [...container.querySelectorAll('title')].some((node) => node.textContent?.includes(printed)),
+    ).toBe(true)
+    expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+  })
+
+  it('keeps long labels and units inside the chart without dropping them', () => {
+    const unit = 'u'.repeat(30)
+    const yLabel = 'y'.repeat(120)
+    const funnelLabel = 'f'.repeat(120)
+    const { container, rerender } = render(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'donut',
+          title: 'Share',
+          unit,
+          items: [{ label: 'All', value: 1 }],
+        })}
+      />,
+    )
+    const caption = container.querySelector('.ari-viz-total')?.nextElementSibling
+    expect(caption?.querySelector('title')?.textContent).toBe(unit)
+    expect(
+      [...(caption?.childNodes ?? [])]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join(''),
+    ).toBe(clipLabel(unit, 16))
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          ...bar,
+          orientation: 'horizontal',
+          yLabel,
+        })}
+      />,
+    )
+    const axisTitle = [...container.querySelectorAll('title')].find(
+      (node) => node.textContent === yLabel,
+    )
+    expect(
+      [...(axisTitle?.parentElement?.childNodes ?? [])]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join(''),
+    ).toBe(clipLabel(yLabel, 48))
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'funnel',
+          title: 'Steps',
+          items: [{ label: funnelLabel, value: 4 }],
+        })}
+      />,
+    )
+    expect(screen.getByText(funnelLabel)).toHaveClass('ari-viz-funnel-label')
+    expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
   })
 
   it('uses legible axis steps and retains small values in the original data', () => {

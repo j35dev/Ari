@@ -12,7 +12,8 @@ const base = {
 }
 const series = z.strictObject({ name: label, values: z.array(number).min(1).max(64) })
 const item = z.strictObject({ label, value: positive })
-const tone = z.enum(['accent', 'info', 'success', 'warning', 'danger']).default('accent')
+const toneName = z.enum(['accent', 'info', 'success', 'warning', 'danger'])
+const tone = toneName.default('accent')
 
 export const visualizationSchema = z
   .discriminatedUnion('type', [
@@ -69,7 +70,7 @@ export const visualizationSchema = z
             label,
             description: z.string().max(300).optional(),
             shape: z.enum(['process', 'decision', 'start', 'end']).default('process'),
-            tone: tone.optional(),
+            tone: toneName.optional(),
           }),
         )
         .min(1)
