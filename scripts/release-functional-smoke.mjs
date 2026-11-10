@@ -593,22 +593,29 @@ async function runProfile(options, suiteRoot, fixturePath) {
 
 export async function smoke(options) {
   requireHostedCI() // First operation: no filesystem preparation or launch on a local host.
-  const { executable, resources, archive, fixture, dataRoot, version, arch } = options
-  for (const path of [executable, resources, archive, fixture, dataRoot])
-    assert.ok(isAbsolute(path), 'Absolute reviewed artifact/fixture/evidence paths required')
+  const { version, arch } = options
+  for (const key of ['executable', 'resources', 'archive', 'fixture', 'dataRoot'])
+    assert.ok(
+      isAbsolute(options[key]),
+      'Absolute reviewed artifact/fixture/evidence paths required',
+    )
   assert.match(options.sourceHead ?? '', /^[a-f0-9]{40}$/i, 'Exact reviewed source head required')
   assert.equal(version, '0.3.13', 'This harness is scoped to candidate 0.3.13')
   assert.ok(['x64', 'arm64'].includes(arch))
-  const runnerRoot = await realpath(process.env.RUNNER_TEMP)
-  const outputRoot = await realpath(dataRoot)
+  const [runnerRoot, outputRoot, executable, resources, archive, fixture] = await Promise.all([
+    realpath(process.env.RUNNER_TEMP),
+    realpath(options.dataRoot),
+    realpath(options.executable),
+    realpath(options.resources),
+    realpath(options.archive),
+    realpath(options.fixture),
+  ])
+  options = { ...options, executable, resources, archive, fixture, dataRoot: outputRoot }
   assert.ok(
     contained(runnerRoot, outputRoot),
     'Evidence/profile root must be on disposable RUNNER_TEMP',
   )
-  assert.ok(
-    contained(await realpath(resources), await realpath(archive)),
-    'Archive escaped selected resources',
-  )
+  assert.ok(contained(resources, archive), 'Archive escaped selected resources')
   const bootstrap = join(resources, 'app.asar')
   for (const [path, hash] of [
     [executable, options.executableSha256],

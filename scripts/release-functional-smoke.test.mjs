@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
@@ -20,6 +20,7 @@ import {
   startupScriptKind,
   pauseBeforeArchivedApp,
   poll,
+  normalizeScriptURL,
 } from './release-functional-support.mjs'
 import { assertCleanExit, launchCommand, smoke } from './release-functional-smoke.mjs'
 
@@ -28,7 +29,7 @@ const testRoot =
   process.env.RELEASE_FUNCTIONAL_TEST_ROOT ?? join(tmpdir(), 'ari-functional-node-tests')
 async function fresh() {
   await mkdir(testRoot, { recursive: true })
-  return mkdtemp(join(testRoot, 'retained-'))
+  return realpath(await mkdtemp(join(testRoot, 'retained-')))
 }
 
 test('local execution is rejected before even invalid artifact paths are inspected', async () => {
@@ -262,29 +263,40 @@ test('bootstrap classification admits only framework and selected archive code',
   )
 })
 
-for (const mode of ['cjs', 'esm', 'unknown'])
+for (const mode of ['cjs', 'esm', 'unknown', 'cjs-alias', 'esm-alias'])
   test(
     `real Node inspector ${mode}: shared pre-execution guard protects dependency side effects (not Electron proof)`,
     { timeout: 10_000 },
     async () => {
-      const root = await fresh()
+      const container = await fresh()
+      const aliased = mode.endsWith('-alias')
+      let root = container
+      if (aliased) {
+        const physical = join(container, 'physical')
+        await mkdir(physical)
+        root = join(container, 'alias')
+        // A retained alias of this test's own new directory, never a dependency
+        // or existing worktree link. Windows directory aliases use junctions.
+        await symlink(physical, root, process.platform === 'win32' ? 'junction' : 'dir')
+      }
       // Ordinary synthetic directories, not actual ASAR/Electron packages.
       const archive = join(root, 'synthetic.asar')
       await mkdir(archive)
       const sentinel = join(root, 'executed.json')
-      const extension = mode === 'esm' ? 'mjs' : 'cjs'
+      const esm = mode.startsWith('esm')
+      const extension = esm ? 'mjs' : 'cjs'
       const entry = join(mode === 'unknown' ? root : archive, `main.${extension}`)
       const dependency = join(archive, `dependency.${extension}`)
       const writer = `writeFileSync(${JSON.stringify(sentinel)}, JSON.stringify({ value: process.env.RELEASE_FUNCTIONAL_NODE_PROOF }))`
       await writeFile(
         dependency,
-        mode === 'esm'
+        esm
           ? `import { writeFileSync } from 'node:fs'; ${writer}`
           : `const { writeFileSync } = require('node:fs'); ${writer}`,
       )
       await writeFile(
         entry,
-        mode === 'esm'
+        esm
           ? "import './dependency.mjs'"
           : mode === 'unknown'
             ? `require(${JSON.stringify(dependency)})`
@@ -329,6 +341,14 @@ for (const mode of ['cjs', 'esm', 'unknown'])
         }
         assert.equal(trace.at(-1).kind, 'app')
         assert.ok(['instrumentation', 'Break on start'].includes(trace.at(-1).reason))
+        if (aliased) {
+          assert.notEqual(root, await realpath(root), 'Regression must use a real directory alias')
+          assert.ok(
+            normalizeScriptURL(trace.at(-1).url).startsWith(
+              `${normalizeScriptURL(await realpath(archive))}/`,
+            ),
+          )
+        }
         await assert.rejects(readFile(sentinel), { code: 'ENOENT' })
         assert.equal(
           await client.evaluate(

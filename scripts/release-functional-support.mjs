@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { EventEmitter } from 'node:events'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
@@ -239,6 +239,9 @@ export async function debuggerTargets(port) {
 }
 
 export async function pauseBeforeArchivedApp(client, archive, resources, trace = []) {
+  // Node/Electron script URLs use physical paths (macOS /private/var), even
+  // when the selected archive was supplied through an alias (/var).
+  ;[archive, resources] = await Promise.all([realpath(archive), realpath(resources)])
   const scripts = [],
     scriptURLs = new Map()
   client.on('Debugger.scriptParsed', ({ url, scriptId }) => {
