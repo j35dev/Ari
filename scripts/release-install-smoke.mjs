@@ -436,9 +436,12 @@ export async function installSmoke(input, dependencies = {}) {
     return output
   } catch (error) {
     output.failure = String(error).slice(0, 2048)
-    throw new Error(`Install verification failed; retained ${root}/install-receipt.json`, {
-      cause: error,
-    })
+    throw new Error(
+      `Install verification failed; retained ${root}/install-receipt.json: ${output.failure}`,
+      {
+        cause: error,
+      },
+    )
   } finally {
     await writeFile(join(root, 'install-receipt.json'), JSON.stringify(output, null, 2) + '\n', {
       flag: 'wx',
