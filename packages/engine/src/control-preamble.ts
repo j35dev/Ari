@@ -13,7 +13,7 @@ const COMMANDS =
   'env, agents, session spawn|status|wait|read|prompt|message|answer|inbox|diff|integrate|stop|destroy, task, routine'
 
 const HELM_COMMANDS =
-  'projects, project create|ask|default|lead, sessions [--query <words>] [--project <id>] [--active], session spawn --project <id>, session prompt|switch|message|read|wait|stop|answer|destroy'
+  'projects, project create|ask|default|lead, sessions [--query <words>] [--project <id>] [--active], session spawn --project <id>, session prompt|switch|message|read|wait|stop|answer|destroy, app open session <id>|aria|settings|changes --project <id>|--session <id> (only on explicit user navigation instruction; inspect the receipt status)'
 
 const CLI_PERMISSIONS =
   "Ari's own commands run without shell permission prompts by default, except `ari skill install`, which writes your agent configuration. Safe `ari` commands may be chained with `&&` or `||`; trailing `2>&1` and `| head` or `| tail` are allowed. Delegation needs no approval by default; Settings → Permissions can change either policy."

@@ -58,6 +58,7 @@ import type { SessionListEntry } from '@ari/engine/session-store'
 import { isHelmSession } from '@ari/contracts/helm'
 import type { HelmProject } from '@ari/contracts/agent-control'
 import { RpcRegistry } from './rpc-registry'
+import { AppNavigation } from './app-navigation'
 import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -1078,6 +1079,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  const appNavigation = new AppNavigation({
+    registry: rpcRegistry,
+    validate: async (callerId, target) => {
+      if (!runtime) throw new Error('Navigation runtime is unavailable.')
+      await runtime.service.validateAppOpen(callerId, target)
+    },
+  })
+  contents.on('render-process-gone', () => appNavigation.reset())
+  contents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) appNavigation.reset()
+  })
+  contents.once('destroyed', () => appNavigation.reset())
+  shutdownTasks.push(() => appNavigation.reset())
   const projectContext = new ProjectContextCache()
   const projectSelection = new ProjectSelection()
   const refreshProjectContext = async (): Promise<void> => {
@@ -1285,6 +1299,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
+        openApp: (callerId, target, requestId, signal) =>
+          appNavigation.open(callerId, target, requestId, signal),
         createProject: async (input) => {
           const result = await createProject(
             {
@@ -1435,6 +1451,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   const r = rpcRegistry
+  r.register('app.navigation.consumer', ({ consumerId, connected }) =>
+    appNavigation.consumer(consumerId, connected),
+  )
+  r.register('app.navigation.validate', ({ consumerId, requestId }) =>
+    appNavigation.validate(consumerId, requestId),
+  )
+  r.register('app.navigation.ack', ({ consumerId, receipt }) =>
+    appNavigation.acknowledge(consumerId, receipt),
+  )
   r.register('ping', () => ({ pong: true, at: Date.now() }))
 
   // P0 path jail: renderer-supplied absolute paths are untrusted input. Every

@@ -27,6 +27,12 @@ import type { Session, SessionWorkspace } from '@ari/contracts/session'
 import type { Message } from '@ari/contracts/message'
 import type { Command } from '@ari/contracts/commands'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
+import {
+  appOpenTargetSchema,
+  appOpenReceiptSchema,
+  type AppOpenTarget,
+  type AppOpenReceipt,
+} from '@ari/contracts/rpc'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
@@ -48,6 +54,11 @@ const PROJECT_MODEL_REQUIRED =
 const PROJECT_DEFAULT_MODEL_REQUIRED =
   'The project saved default is missing a model. Ask the user which model to use, then save it with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
 const PROJECT_HUMAN_WAIT_MS = 3 * 60_000
+
+function navigationRecovery(result: unknown): { appOpen?: AppOpenReceipt } {
+  const parsed = appOpenReceiptSchema.safeParse((result as { appOpen?: unknown } | null)?.appOpen)
+  return parsed.success ? { appOpen: parsed.data } : {}
+}
 
 /**
  * Reported when the requesting call went away (control timeout, disconnect)
@@ -142,6 +153,13 @@ export interface ControlHost {
   projects?(rows?: readonly SessionListEntry[]): Promise<HelmProject[]>
   createProject?(input: { name: string; path?: string }): Promise<CreatedProject>
   projectAgentDefaults?(): ProjectAgentDefaults
+  /** Specific renderer navigation, with an observed or explicitly unconfirmed receipt. */
+  openApp?(
+    callerId: string,
+    target: AppOpenTarget,
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<AppOpenReceipt>
   setProjectDefault?(id: string, agent: ProjectAgent): Promise<boolean>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
@@ -167,6 +185,110 @@ export class AgentControlService {
   readonly #gone = new Map<string, Set<() => void>>()
   readonly #waiting = new Map<string, Map<string, number>>()
   constructor(readonly host: ControlHost) {}
+
+  /** Revalidate at consumption; a receipt target never redirects to a newer topic. */
+  async validateAppOpen(callerId: string, raw: AppOpenTarget): Promise<void> {
+    const target = appOpenTargetSchema.parse(raw)
+    const caller = await this.#get(callerId)
+    await this.#appNavigationCaller(caller)
+    if (target.view === 'settings') return
+    if (target.view === 'session' || target.view === 'aria' || target.sessionId !== undefined) {
+      const session = await this.#reach(caller, target.sessionId!, false, true)
+      if (session.archived)
+        throw new ControlFailure('scope_denied', 'Restore the target chat before opening it.')
+      if (target.view === 'aria' && (await this.host.store.currentHelmSession()) !== session.id)
+        throw new ControlFailure('scope_denied', 'The current Aria topic changed.')
+      if (target.view === 'changes' && session.projectId !== target.projectId)
+        throw new ControlFailure('scope_denied', 'The Changes session context changed.')
+    }
+    if (target.view === 'changes') {
+      const project = (await this.#helmProjects(caller)).find(
+        (project) => project.projectId === target.projectId,
+      )
+      if (!project)
+        throw new ControlFailure(
+          'project_not_found',
+          'Changes needs an explicitly identified registered project or session.',
+        )
+      if (!project.available)
+        throw new ControlFailure('project_unavailable', 'That project folder is unavailable.')
+    }
+    // Store and project reads may yield; stale callers cannot take over navigation.
+    await this.#appNavigationCaller(await this.#get(callerId))
+  }
+
+  async #appNavigationCaller(caller: Session): Promise<void> {
+    if (
+      !isHelmSession(caller) ||
+      caller.archived ||
+      (await this.host.store.currentHelmSession()) !== caller.id
+    )
+      throw new ControlFailure(
+        'scope_denied',
+        'Only the current nonarchived Aria chat opens app views on explicit user instruction.',
+      )
+  }
+
+  async #appOpen(
+    caller: Session,
+    params: ControlParams<'app.open'>,
+    signal?: AbortSignal,
+  ): Promise<AppOpenReceipt> {
+    if (signal?.aborted)
+      throw new ControlFailure('invalid_request', 'Navigation request ended before dispatch.')
+    await this.#appNavigationCaller(caller)
+    if (!this.host.openApp)
+      throw new ControlFailure('unsupported', 'App navigation is unavailable in this runtime.')
+    let target: AppOpenTarget
+    if (params.view === 'aria') {
+      const sessionId = await this.host.store.currentHelmSession()
+      if (!sessionId) throw new ControlFailure('session_not_found', 'No current Aria chat exists.')
+      target = { view: 'aria', sessionId }
+    } else if (params.view === 'session') {
+      target = {
+        view: 'session',
+        sessionId: (await this.#reach(caller, params.sessionId, false, true)).id,
+      }
+    } else if (params.view === 'changes') {
+      if (params.sessionId !== undefined) {
+        const session = await this.#reach(caller, params.sessionId, false, true)
+        target = { view: 'changes', sessionId: session.id, projectId: session.projectId }
+      } else target = { view: 'changes', projectId: params.projectId! }
+    } else target = { view: 'settings' }
+    target = appOpenTargetSchema.parse(target)
+    await this.validateAppOpen(caller.id, target)
+    const requestId = `navigation_${createHash('sha256').update(`${caller.id}:${params.idempotencyKey}`).digest('hex').slice(0, 32)}`
+    await this.#appOpenProgress(caller.id, params.idempotencyKey, {
+      requestId,
+      target,
+      status: 'unconfirmed',
+    })
+    const receipt = appOpenReceiptSchema.parse(
+      signal?.aborted
+        ? { requestId, target, status: 'unavailable', reason: 'disconnected' }
+        : await this.host.openApp(caller.id, target, requestId, signal),
+    )
+    if (
+      receipt.requestId !== requestId ||
+      JSON.stringify(receipt.target) !== JSON.stringify(target)
+    )
+      throw new ControlFailure(
+        'uncertain_outcome',
+        'Navigation acknowledgement did not match the requested target.',
+      )
+    await this.#appOpenProgress(caller.id, params.idempotencyKey, receipt)
+    return receipt
+  }
+
+  async #appOpenProgress(callerId: string, key: string, appOpen: AppOpenReceipt): Promise<void> {
+    const operationId = `control_${createHash('sha256').update(`${callerId}:app.open:${key}`).digest('hex').slice(0, 32)}`
+    const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+    if (operation?.status === 'started')
+      await this.host.record(callerId, {
+        type: 'orchestration.operation.updated',
+        operation: { ...operation, result: { appOpen } },
+      })
+  }
 
   /** True while `parentId` is blocked in `session wait` on `childId`. */
   isWaiting(parentId: string, childId: string): boolean {
@@ -466,7 +588,7 @@ export class AgentControlService {
         throw new ControlFailure(
           'uncertain_outcome',
           'The previous operation may have completed. It will not be repeated automatically.',
-          { operationId },
+          { operationId, ...(method === 'app.open' ? navigationRecovery(previous.result) : {}) },
         )
       }
       const outcome = previous.result as ControlResult
@@ -487,8 +609,13 @@ export class AgentControlService {
       type: 'orchestration.operation.updated',
       operation: receipt,
     })
+    let navigationProgress: unknown
     try {
       const result = await run()
+      if (method === 'app.open')
+        navigationProgress = (await this.host.store.load(callerId)).orchestration?.operations[
+          operationId
+        ]?.result
       await this.host.record(callerId, {
         type: 'orchestration.operation.updated',
         operation: {
@@ -500,8 +627,9 @@ export class AgentControlService {
       })
       return result
     } catch (error) {
-      const progress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
-        ?.result
+      const progress =
+        navigationProgress ??
+        (await this.host.store.load(callerId)).orchestration?.operations[operationId]?.result
       const known =
         error instanceof ControlFailure &&
         !['internal_error', 'uncertain_outcome'].includes(error.code)
@@ -519,6 +647,12 @@ export class AgentControlService {
             : 'The effect may have completed before the durable outcome. Inspect state before recovery.',
         },
       })
+      if (method === 'app.open' && !known)
+        throw new ControlFailure(
+          'uncertain_outcome',
+          'The previous operation may have completed. It will not be repeated automatically.',
+          { operationId, ...navigationRecovery(progress) },
+        )
       throw error
     }
   }
@@ -601,6 +735,8 @@ export class AgentControlService {
       }
       case 'providers.list':
         return this.host.providers()
+      case 'app.open':
+        return this.#appOpen(caller, raw as ControlParams<'app.open'>, signal)
       case 'projects.list':
         return { projects: await this.projects(caller) }
       case 'projects.create': {

@@ -7,6 +7,37 @@ metadata:
 
 # Ari session control
 
+## Explicit app navigation (current Aria only)
+
+Only the current nonarchived Aria chat may use these commands, and only when the
+user explicitly asks to navigate. Never open a view to report background work.
+Resolve exact IDs with the existing session/project listing; ask when Changes
+has no explicit, unambiguous registered context. These commands create no chats,
+projects or turns and change no provider, model or permissions.
+
+```sh
+ari app open session SESSION_ID --key REQUEST_KEY --json
+ari app open aria --key REQUEST_KEY --json
+ari app open settings --key REQUEST_KEY --json
+ari app open changes --project PROJECT_ID --key REQUEST_KEY --json
+ari app open changes --session SESSION_ID --key REQUEST_KEY --json
+```
+
+`aria` resolves the persisted current existing topic. Changes preserves the
+focused chat and its draft, using the user's sidebar/page preference and the
+specified project/session workspace. Archived, missing or unavailable targets
+are refused; no title matching or fallback creates or substitutes work.
+
+Read `result.status`: `applied` includes `observed.target` and `mode`, meaning the
+selected Shell consumer committed that chat or overlay for this request. It does
+not certify transcript/provider loading, native painting, or that the user has
+not navigated away since. `unavailable`, `stale`, `superseded`, `failed` and
+`unconfirmed` are not an opened-view claim. A disconnect or acknowledgement
+timeout can leave an unknown late effect. Reuse the same key to inspect its
+original receipt; retry never republishes a successful or uncertain request.
+An `uncertain_outcome` may include `details.appOpen` with its preserved target and
+last validated receipt. Do not choose a fresh key to resend an unknown action.
+
 ## Inline visualizations
 
 When a visualization makes an answer easier to understand, place an `ari-viz`
@@ -18,17 +49,17 @@ sources and assumptions. Do not make up measurements to fill a chart.
 Every object has `version: 1`, `type`, and `title`. Optional common fields are
 `description` (plain text) and `source` (plain text attribution).
 
-| Type | Required data | Optional fields |
-| --- | --- | --- |
-| `bar`, `line`, `area`, `radar` | `labels: string[]`, `series: {name, values: number[]}[]` | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
-| `scatter` | `series: {name, points: {x: number, y: number, label?: string}[]}[]` | `xLabel`, `yLabel` |
-| `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]` | `unit` |
-| `heatmap` | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]` | `unit` |
-| `graph` | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"` |
-| `timeline` | `events: {label, date?: string, description?: string, tone?: string}[]` | — |
-| `gantt` | `tasks: {label, start: number, end: number}[]` | `unit` |
-| `metrics` | `items: {label, value: string or number, detail?: string, tone?: string}[]` | — |
-| `comparison` | `columns: string[]`, `rows: {label, values: string[]}[]` | — |
+| Type                                | Required data                                                                                                      | Optional fields                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `bar`, `line`, `area`, `radar`      | `labels: string[]`, `series: {name, values: number[]}[]`                                                           | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
+| `scatter`                           | `series: {name, points: {x: number, y: number, label?: string}[]}[]`                                               | `xLabel`, `yLabel`                                                                      |
+| `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]`                                                                                  | `unit`                                                                                  |
+| `heatmap`                           | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]`                                                     | `unit`                                                                                  |
+| `graph`                             | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"`                                                          |
+| `timeline`                          | `events: {label, date?: string, description?: string, tone?: string}[]`                                            | —                                                                                       |
+| `gantt`                             | `tasks: {label, start: number, end: number}[]`                                                                     | `unit`                                                                                  |
+| `metrics`                           | `items: {label, value: string or number, detail?: string, tone?: string}[]`                                        | —                                                                                       |
+| `comparison`                        | `columns: string[]`, `rows: {label, values: string[]}[]`                                                           | —                                                                                       |
 
 All names and labels are strings. `tone` is `accent`, `info`, `success`,
 `warning`, or `danger` and defaults to `accent`. Never provide CSS colors,
