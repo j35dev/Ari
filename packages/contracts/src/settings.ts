@@ -108,7 +108,7 @@ export function speechShortcutError(shortcut: string, platform?: string): string
 }
 
 export function migrateSpeechShortcut(shortcut: string, platform: string): string {
-  return speechShortcutError(shortcut, platform) ? defaultSpeechShortcut(platform) : shortcut
+  return speechBindingError(shortcut, platform) ? defaultSpeechShortcut(platform) : shortcut
 }
 
 /**
