@@ -195,3 +195,43 @@ test('probe rejects ordinary Node before resolving any native dependency', async
     (error) => /requires the reviewed packaged Electron binary/.test(error.stderr),
   )
 })
+
+test('failed child receipts preserve timeout and signal evidence without native execution', async () => {
+  const f = await fixture()
+  const executable = join(f.dir, 'fixture.exe')
+  const archive = join(f.resources, 'app.asar')
+  await f.file(executable)
+  await f.file(archive)
+  const failure = Object.assign(new Error('Command failed'), {
+    code: null,
+    signal: 'SIGTERM',
+    killed: true,
+    stdout: 'partial probe receipt',
+    stderr: '',
+  })
+  await assert.rejects(
+    smoke(
+      {
+        executable,
+        resources: f.resources,
+        arch: 'x64',
+        executableSha256: await sha256(executable),
+        asarSha256: await sha256(archive),
+        dataRoot: join(f.dir, 'data'),
+      },
+      async () => {
+        throw failure
+      },
+    ),
+    (error) => {
+      const receipt = JSON.parse(error.message)
+      assert.equal(receipt.arch, 'x64')
+      assert.equal(receipt.timeoutMs, 15_000)
+      assert.equal(receipt.signal, 'SIGTERM')
+      assert.equal(receipt.killed, true)
+      assert.equal(receipt.stdout, 'partial probe receipt')
+      assert.equal(error.cause, failure)
+      return true
+    },
+  )
+})
