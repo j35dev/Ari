@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 import { defaultSettings, type Settings } from '@ari/contracts/settings'
 import type { HookKey } from './chord'
 import type { BrowserWindow } from 'electron'
@@ -774,6 +775,66 @@ it('reserves capture through transcription and blocks both shortcuts while a com
   mock.keys.get('keyup')!(key(57))
   expect(() => acquire({ sender: contents })).toThrow('Another dictation')
 })
+
+it.each(['subframe', 'same-document', 'abandoned-main-frame'] as const)(
+  'retains composer capture ownership through %s navigation',
+  async (navigation) => {
+    const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false })
+    const main = { webContents: contents } as unknown as BrowserWindow
+    const captureTarget = vi.fn(async () => ({ insert: vi.fn(), cancel: vi.fn() }))
+    widget = new AriaWidget({
+      invoke: async () => ({ ready: true }),
+      openSettings: vi.fn(),
+      mainWindow: () => main,
+      captureTarget,
+    })
+    await widget.configure(configured)
+    const acquire = mock.handlers.get('ari:speechCapture.acquire')!
+    const release = mock.handlers.get('ari:speechCapture.release')!
+    const token = acquire({ sender: contents })
+    const inPlace = navigation === 'same-document'
+    const mainFrame = navigation !== 'subframe'
+    contents.emit('did-start-navigation', {}, 'file:///app.html#next', inPlace, mainFrame, 1, 1)
+    if (navigation === 'subframe')
+      contents.emit('did-frame-navigate', {}, 'file:///frame.html', 200, 'OK', false, 1, 2)
+    if (inPlace) contents.emit('did-navigate-in-page', {}, 'file:///app.html#next', true, 1, 1)
+    expect(() => acquire({ sender: contents })).toThrow('Another dictation')
+    mock.keys.get('keydown')!(key(57))
+    mock.keys.get('keyup')!(key(57))
+    mock.keys.get('keydown')!(generalKey())
+    mock.keys.get('keyup')!(generalKey())
+    expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+    expect(captureTarget).not.toHaveBeenCalled()
+    release({ sender: contents }, token)
+    const next = acquire({ sender: contents })
+    release({ sender: contents }, next)
+  },
+)
+
+it.each(['did-navigate', 'render-process-gone'] as const)(
+  'releases destroyed composer capture on %s without accepting a stale release',
+  async (event) => {
+    const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false })
+    const main = { webContents: contents } as unknown as BrowserWindow
+    widget = new AriaWidget({
+      invoke: async () => ({ ready: true }),
+      openSettings: vi.fn(),
+      mainWindow: () => main,
+    })
+    await widget.configure(configured)
+    const acquire = mock.handlers.get('ari:speechCapture.acquire')!
+    const release = mock.handlers.get('ari:speechCapture.release')!
+    const old = acquire({ sender: contents })
+    contents.emit(event, {}, 'file:///replacement.html', 200, 'OK')
+    const next = acquire({ sender: contents })
+    release({ sender: contents }, old)
+    expect(() => acquire({ sender: contents })).toThrow('Another dictation')
+    release({ sender: contents }, next)
+    widget.close()
+    expect(contents.listenerCount('did-navigate')).toBe(0)
+    expect(contents.listenerCount('render-process-gone')).toBe(0)
+  },
+)
 
 it.each(['complete', 'transcription-error', 'cancel', 'stale-target', 'dispose'])(
   'keeps long general capture owned and restores ducking on %s',

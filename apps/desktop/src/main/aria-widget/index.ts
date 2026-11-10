@@ -77,7 +77,9 @@ export class AriaWidget {
       })
     }
     this.deps.mainWindow?.()?.webContents.on('render-process-gone', this.resetCapture)
-    this.deps.mainWindow?.()?.webContents.on('did-start-navigation', this.resetCapture)
+    // A subframe, in-page or abandoned navigation leaves the composer alive.
+    // Release its lease only after a main-document replacement has committed.
+    this.deps.mainWindow?.()?.webContents.on('did-navigate', this.resetCapture)
     this.ducking = deps.ducking ?? getAudioDucking()
     for (const method of METHODS) {
       ipcMain.handle(`ari:${method}`, (event, params: unknown) => {
@@ -489,7 +491,7 @@ export class AriaWidget {
     powerMonitor.removeListener('lock-screen', this.resetInput)
     powerMonitor.removeListener('suspend', this.resetInput)
     this.deps.mainWindow?.()?.webContents.removeListener('render-process-gone', this.resetCapture)
-    this.deps.mainWindow?.()?.webContents.removeListener('did-start-navigation', this.resetCapture)
+    this.deps.mainWindow?.()?.webContents.removeListener('did-navigate', this.resetCapture)
     this.lease.reset()
     this.destroyWindow()
     for (const method of METHODS) ipcMain.removeHandler(`ari:${method}`)
