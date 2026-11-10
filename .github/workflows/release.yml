@@ -82,6 +82,12 @@ jobs:
         with:
           pattern: ari-install-*-${{ env.CANDIDATE_SHA }}
           path: release-inputs
+      # The package job above includes macos-intel-x64, the x64 launch proof of the
+      # same universal build; assemble requires it alongside the ARM64 receipt.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-macos-intel-x64-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
       - name: Verify complete platform proofs and assemble checksummed assets
         run: node scripts/release-publish-assets.mjs assemble
       - name: Upload complete assets to a draft release

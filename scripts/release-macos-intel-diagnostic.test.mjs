@@ -260,7 +260,7 @@ test('hosted guard refuses on every platform and foreign hosts reject before dit
     )
 })
 
-test('workflow runs the Intel x64 launch on every build without a publisher; only Rosetta is non-blocking', async () => {
+test('workflow runs the Intel x64 launch on every build and publication reads it; only Rosetta is non-blocking', async () => {
   const workflowDir = join(dirname(fileURLToPath(import.meta.url)), '../.github/workflows')
   const workflow = await readFile(join(workflowDir, 'release-candidate.yml'), 'utf8')
   const release = await readFile(join(workflowDir, 'release.yml'), 'utf8')
@@ -285,5 +285,6 @@ test('workflow runs the Intel x64 launch on every build without a publisher; onl
   assert.match(release, /pattern: ari-functional-\*-\$\{\{ env\.CANDIDATE_SHA \}\}/)
   assert.match(release, /pattern: ari-install-\*-\$\{\{ env\.CANDIDATE_SHA \}\}/)
   assert.equal(release.includes('macos-26-intel'), false)
-  assert.equal(release.includes('ari-macos-intel-x64'), false)
+  // Publication reads the Intel x64 proof; the package job it needs includes that job.
+  assert.match(release, /pattern: ari-macos-intel-x64-\$\{\{ env\.CANDIDATE_SHA \}\}/)
 })

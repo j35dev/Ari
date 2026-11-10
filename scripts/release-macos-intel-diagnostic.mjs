@@ -234,6 +234,8 @@ export async function runDiagnosis(env = process.env) {
     arch: process.arch,
     image: env.ImageOS ?? null,
     imageVersion: env.ImageVersion ?? null,
+    // The publisher matches this observed ZIP to the package job's receipt.
+    zip: { name: receipt.zip.name, bytes: info.size, sha256: await sha256(zipPath) },
     native: null,
     functional: null,
   }
@@ -245,7 +247,7 @@ export async function runDiagnosis(env = process.env) {
         platform: process.platform,
         arch: process.arch,
         hostArch: process.arch,
-        zipSha256: await sha256(zipPath),
+        zipSha256: record.zip.sha256,
         zipBytes: info.size,
         zipPath,
         extractRoot,

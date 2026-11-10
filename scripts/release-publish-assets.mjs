@@ -82,7 +82,13 @@ export function validateInstalled(receipt, proof, results, sourceHead, platform)
     results.map((entry) => entry.suiteRoot).sort(),
     proof.functional.map((entry) => entry.suiteRoot).sort(),
   )
-  validateFunctional({ ...receipt, native: proof.native }, results, sourceHead, platform)
+  validateFunctional(
+    { ...receipt, native: proof.native },
+    results,
+    sourceHead,
+    platform,
+    installedArches(platform),
+  )
   return {
     installationKind: install.installationKind,
     osInstallerBehaviorTested: install.osInstallerBehaviorTested,
@@ -95,11 +101,65 @@ export function validateInstalled(receipt, proof, results, sourceHead, platform)
   }
 }
 
-export function validateFunctional(receipt, results, sourceHead, platform) {
+// Installs run on the package runner, which launches only its native slice.
+const installedArches = (platform) => (platform === 'darwin' ? ['arm64'] : ['x64'])
+
+/**
+ * The hosted macOS package runner launches only ARM64. The x64 slice of the same
+ * universal build launches on the real Intel runner, which must report the exact
+ * ZIP, executable and x64 archive the package job recorded in its transfer receipt.
+ * Returns the package receipt with both proven slices.
+ */
+export function validateMacosSlices(receipt, transfer, intel, sourceHead) {
+  assert.equal(receipt.sourceHead, sourceHead)
+  assert.equal(receipt.platform, 'darwin')
+  assert.deepEqual(
+    receipt.native.map((entry) => entry.arch),
+    ['arm64'],
+    'macOS package runner must prove exactly the native ARM64 slice',
+  )
+  const arm64 = receipt.native[0]
+  assert.equal(transfer?.kind, 'macos-universal-transfer')
+  assert.equal(transfer.sourceHead, sourceHead.toLowerCase(), 'Transfer is for another head')
+  assert.equal(transfer.version, receipt.version)
+  assert.equal(transfer.platform, 'darwin')
+  assert.equal(transfer.arch, 'x64')
+  assert.equal(transfer.nativeExecuted, false)
+  const zip = receipt.files.find((file) => file.name === transfer.zip?.name)
+  assert.ok(zip && zip.name.endsWith('-universal.zip'), 'Transferred ZIP absent from package')
+  assert.equal(transfer.zip.bytes, zip.bytes, 'Transferred ZIP differs from package')
+  assert.equal(transfer.zip.sha256, zip.sha256, 'Transferred ZIP differs from package')
+  assert.equal(
+    transfer.executableSha256,
+    arm64.executableSha256,
+    'Transfer differs from the tested universal executable',
+  )
+  assert.equal(intel?.kind, 'macos-intel-diagnostic')
+  assert.equal(intel.sourceHead, sourceHead, 'Intel proof is for another head')
+  assert.equal(intel.runner, 'macos-26-intel')
+  assert.equal(intel.platform, 'darwin')
+  assert.equal(intel.arch, 'x64', 'Intel proof did not run natively on x64')
+  assert.equal(intel.error, undefined, 'Intel x64 launch failed')
+  assert.equal(intel.functional?.passed, true, 'Intel x64 functional proof did not pass')
+  for (const key of ['name', 'bytes', 'sha256'])
+    assert.equal(intel.zip?.[key], zip[key], 'Intel proof launched a different ZIP')
+  const x64 = intel.native
+  assert.equal(x64?.arch, 'x64')
+  assert.equal(x64.executableSha256, transfer.executableSha256, 'Intel executable differs')
+  assert.equal(x64.asarSha256, transfer.asarSha256, 'Intel x64 archive differs')
+  return { ...receipt, native: [arm64, x64] }
+}
+
+export function validateFunctional(
+  receipt,
+  results,
+  sourceHead,
+  platform,
+  arches = platform === 'darwin' ? ['arm64', 'x64'] : ['x64'],
+) {
   assert.equal(receipt.sourceHead, sourceHead)
   assert.equal(receipt.platform, platform)
   assert.ok(!receipt.nativeFailure, 'Failed native gate')
-  const arches = platform === 'darwin' ? ['arm64', 'x64'] : ['x64']
   assert.deepEqual(receipt.native.map((entry) => entry.arch).sort(), [...arches].sort())
   assert.equal(results.length, arches.length, 'Missing or duplicate functional slice proofs')
   for (const native of receipt.native) {
@@ -153,12 +213,20 @@ export async function assemble(inputRoot, outputRoot, sourceHead, version) {
     const verified = await verifyArtifacts(root, platform, version)
     assert.equal(receipt.version, version)
     assert.deepEqual(receipt.files, verified.files, 'Artifacts differ from recorded package hashes')
-    validateFunctional(
-      receipt,
-      await records(join(inputRoot, `ari-functional-${os}-${sourceHead}`), 'suite.json'),
-      sourceHead,
-      platform,
+    let tested = receipt
+    const suites = await records(
+      join(inputRoot, `ari-functional-${os}-${sourceHead}`),
+      'suite.json',
     )
+    if (platform === 'darwin') {
+      const intelRoot = join(inputRoot, `ari-macos-intel-x64-${sourceHead}`)
+      const intel = await records(intelRoot, 'diagnostic.json')
+      assert.equal(intel.length, 1, 'Missing or duplicate Intel x64 proof')
+      const transfer = JSON.parse(await readFile(join(root, 'macos-intel-transfer.json'), 'utf8'))
+      tested = validateMacosSlices(receipt, transfer, intel[0], sourceHead)
+      suites.push(...(await records(intelRoot, 'suite.json')))
+    }
+    validateFunctional(tested, suites, sourceHead, platform)
     const installRoot = join(inputRoot, `ari-install-${os}-${sourceHead}`)
     const installedProofs = await records(installRoot, 'installed-probes.json')
     assert.equal(installedProofs.length, 1, 'Missing or duplicate installed proof')
@@ -173,7 +241,7 @@ export async function assemble(inputRoot, outputRoot, sourceHead, version) {
     manifest.platforms.push({
       platform,
       installation,
-      architectures: receipt.native.map((entry) => ({
+      architectures: tested.native.map((entry) => ({
         arch: entry.arch,
         electron: entry.electron,
         executableSha256: entry.executableSha256,

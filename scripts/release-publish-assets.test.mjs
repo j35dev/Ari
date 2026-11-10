@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIXTURE_SHA256 } from './release-functional-support.mjs'
@@ -10,6 +10,7 @@ import {
   validateIdentity,
   validateFunctional,
   validateInstalled,
+  validateMacosSlices,
   validateRemote,
   assemble,
 } from './release-publish-assets.mjs'
@@ -43,6 +44,61 @@ function installProof(platform, native, candidate, functional) {
     },
   }
 }
+function suiteFor(arch, suiteRoot) {
+  return {
+    suiteRoot,
+    sourceHead: head,
+    executableSha256: hash,
+    asarSha256: hash,
+    passed: true,
+    profiles: [0, 1].map((index) => ({
+      preparation: index
+        ? { kind: 'frozen-0312-copy', fixtureSha256: FIXTURE_SHA256 }
+        : { kind: 'clean-safety-profile' },
+      observed: true,
+      failure: null,
+      main: { arch, appVersion: '0.3.13', isPackaged: true, errors: [] },
+      exit: { code: 0, signal: null, forced: false, timedOut: false },
+    })),
+  }
+}
+// Mirrors the package job's transfer receipt and the Intel job's uploaded evidence.
+async function intelEvidence(root, packageRoot, verified, arm64) {
+  const zip = verified.files.find((file) => file.name === 'Ari-0.3.13-universal.zip')
+  await writeFile(
+    join(packageRoot, 'macos-intel-transfer.json'),
+    JSON.stringify({
+      kind: 'macos-universal-transfer',
+      sourceHead: head,
+      version: '0.3.13',
+      platform: 'darwin',
+      arch: 'x64',
+      nativeExecuted: false,
+      zip,
+      archiveName: 'app.asar',
+      executableSha256: hash,
+      asarSha256: hash,
+      bootstrapSha256: hash,
+    }),
+  )
+  const intelRoot = join(root, `ari-macos-intel-x64-${head}`, 'intel-test')
+  const suiteRoot = join(intelRoot, 'functional-test')
+  await mkdir(suiteRoot, { recursive: true })
+  await writeFile(join(suiteRoot, 'suite.json'), JSON.stringify(suiteFor('x64', suiteRoot)))
+  await writeFile(
+    join(intelRoot, 'diagnostic.json'),
+    JSON.stringify({
+      kind: 'macos-intel-diagnostic',
+      sourceHead: head,
+      runner: 'macos-26-intel',
+      platform: 'darwin',
+      arch: 'x64',
+      zip: { name: zip.name, bytes: zip.bytes, sha256: zip.sha256 },
+      native: { ...arm64, arch: 'x64', archive: '/synthetic/intel/app.asar' },
+      functional: { passed: true, suiteRoot },
+    }),
+  )
+}
 async function releaseFixture() {
   const root = await mkdtemp(join(tmpdir(), 'ari-release-assets-'))
   const { verifyArtifacts } = await import('./release-artifacts.mjs')
@@ -65,7 +121,8 @@ async function releaseFixture() {
         'Ari-0.3.13-universal.dmg',
         'Ari-0.3.13-universal.dmg.blockmap',
       ],
-      ['arm64', 'x64'],
+      // The package runner launches ARM64; x64 comes from the Intel runner below.
+      ['arm64'],
     ],
     [
       'ubuntu-latest',
@@ -146,6 +203,7 @@ async function releaseFixture() {
       await writeFile(join(installedFolder, 'suite.json'), JSON.stringify(suite))
       installedSuites.push({ arch, suiteRoot: installedFolder })
     }
+    if (platform === 'darwin') await intelEvidence(root, packageRoot, verified, native[0])
     const installerName = BASELINE[platform].name.replace('0.3.12', '0.3.13')
     await writeFile(
       join(installRoot, 'installed-probes.json'),
@@ -174,7 +232,51 @@ test('assembly rehashes the complete real file set before staging uploadable ass
   }
   const manifest = JSON.parse(await readFile(join(output, 'release-manifest.json'), 'utf8'))
   assert.equal(manifest.platforms.length, 3)
-  assert.equal(manifest.platforms[1].architectures.length, 2)
+  assert.deepEqual(
+    manifest.platforms[1].architectures.map((entry) => entry.arch),
+    ['arm64', 'x64'],
+  )
+})
+
+test('macOS publication needs the Intel x64 launch of the same universal build', async () => {
+  const root = await releaseFixture()
+  const packageRoot = join(root, `ari-candidate-macos-latest-${head}`)
+  const intelPath = join(root, `ari-macos-intel-x64-${head}`, 'intel-test', 'diagnostic.json')
+  const read = async (path) => JSON.parse(await readFile(path, 'utf8'))
+  const receipt = await read(join(packageRoot, 'candidate-artifacts.json'))
+  const transfer = await read(join(packageRoot, 'macos-intel-transfer.json'))
+  const intel = await read(intelPath)
+  assert.deepEqual(
+    validateMacosSlices(receipt, transfer, intel, head).native.map((entry) => entry.arch),
+    ['arm64', 'x64'],
+  )
+  const other = 'c'.repeat(64)
+  for (const [target, mutate] of [
+    ['receipt', (value) => value.native.push({ ...value.native[0], arch: 'x64' })],
+    ['receipt', (value) => (value.native = [])],
+    ['transfer', (value) => (value.sourceHead = 'c'.repeat(40))],
+    ['transfer', (value) => (value.zip.sha256 = other)],
+    ['transfer', (value) => (value.executableSha256 = other)],
+    ['intel', (value) => (value.sourceHead = 'c'.repeat(40))],
+    ['intel', (value) => (value.runner = 'macos-latest')],
+    ['intel', (value) => (value.arch = 'arm64')],
+    ['intel', (value) => (value.error = 'Timed out')],
+    ['intel', (value) => (value.functional.passed = false)],
+    ['intel', (value) => (value.zip.sha256 = other)],
+    ['intel', (value) => (value.native.executableSha256 = other)],
+    ['intel', (value) => (value.native.asarSha256 = other)],
+    ['intel', (value) => (value.native = null)],
+  ]) {
+    const inputs = globalThis.structuredClone({ receipt, transfer, intel })
+    mutate(inputs[target])
+    assert.throws(() => validateMacosSlices(inputs.receipt, inputs.transfer, inputs.intel, head))
+  }
+  // Assembly itself refuses a missing or failed Intel proof.
+  await writeFile(intelPath, JSON.stringify({ ...intel, functional: { passed: false } }))
+  await assert.rejects(assemble(root, join(root, 'blocked-intel'), head, '0.3.13'), /Intel/)
+  await rm(join(root, `ari-macos-intel-x64-${head}`), { recursive: true })
+  await assert.rejects(assemble(root, join(root, 'missing-intel'), head, '0.3.13'))
+  await assert.rejects(stat(join(root, 'missing-intel')), { code: 'ENOENT' })
 })
 
 test('missing installed evidence cannot stage an otherwise valid package set', async () => {
