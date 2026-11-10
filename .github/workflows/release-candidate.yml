@@ -55,7 +55,7 @@ jobs:
         env:
           RELEASE_FUNCTIONAL_FIXTURE: ${{ github.workspace }}/apps/desktop/src/main/testing/release-profile-0312.fixture.json
           RELEASE_FUNCTIONAL_TEST_ROOT: ${{ runner.temp }}/afn
-        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs scripts/release-macos-intel-diagnostic.test.mjs scripts/release-functional-smoke.test.mjs scripts/release-functional-ci.test.mjs scripts/release-install-smoke.test.mjs scripts/release-install-ci.test.mjs scripts/release-publish-assets.test.mjs
+        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs scripts/release-macos-intel-diagnostic.test.mjs scripts/release-macos-arm64-diagnostic.test.mjs scripts/release-functional-smoke.test.mjs scripts/release-functional-ci.test.mjs scripts/release-install-smoke.test.mjs scripts/release-install-ci.test.mjs scripts/release-publish-assets.test.mjs
       - name: Build desktop bundle
         run: pnpm --filter @ari/desktop build
       - name: Build mobile PWA
@@ -66,12 +66,20 @@ jobs:
         run: pnpm exec electron-builder ${{ matrix.args }} --publish never
         working-directory: apps/desktop
       - name: Diagnose macOS translated packaged runtime startup
+        id: translated-preflight
         if: runner.os == 'macOS'
         run: node scripts/release-macos-preflight.mjs
       # Pure ZIP receipt so a failed translated preflight can still pin this build.
       - name: Record universal ZIP transfer receipt
+        id: universal-transfer
         if: always() && !cancelled() && runner.os == 'macOS' && steps.package-binary.outcome == 'success'
         run: node scripts/release-macos-intel-diagnostic.mjs receipt
+      - name: Record native ARM64 entry after translated failure
+        if: always() && !cancelled() && runner.os == 'macOS' && steps.translated-preflight.outcome == 'failure' && steps.universal-transfer.outcome == 'success'
+        timeout-minutes: 2
+        env:
+          RELEASE_FUNCTIONAL_CI: '1'
+        run: node scripts/release-macos-arm64-diagnostic.mjs
       - name: Verify artifact metadata and both native macOS slices
         if: runner.os != 'Linux'
         run: node scripts/release-artifacts.mjs
@@ -164,6 +172,13 @@ jobs:
         with:
           name: ari-macos-startup-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/ari-macos-preflight/**
+          if-no-files-found: warn
+      - name: Retain native ARM64 diagnostic evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-macos-arm64-diagnostic-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/ari-macos-arm64-diagnostic/**
           if-no-files-found: warn
 
   # Evidence only. Publication still requires the package job; this job does not
