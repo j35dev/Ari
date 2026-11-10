@@ -234,7 +234,8 @@ function visualizationError(issues: ReadonlyArray<ParseIssue>, input: unknown): 
   if (!issue) return 'Unsupported visualization.'
   if (issue.code === 'custom' && SAFE_CUSTOM.test(issue.message)) return boundError(issue.message)
   const type = isPlainRecord(input) && typeof input.type === 'string' ? input.type : ''
-  const named = TYPE_LABELS[type]
+  const label = Object.hasOwn(TYPE_LABELS, type) ? TYPE_LABELS[type] : undefined
+  const named = typeof label === 'string' ? label : null
   if (issue.code === 'unrecognized_keys') {
     const key = issue.keys?.find((item) => SAFE_NAME.test(item))
     const subject = named ? `${named} charts` : 'A visualization'

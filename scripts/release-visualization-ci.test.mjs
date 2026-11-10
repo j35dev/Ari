@@ -10,11 +10,15 @@ import {
   MOBILE_BREAKPOINT,
   MOBILE_WIDTH,
   VISUAL_TYPES,
+  assertCaptureTools,
+  assertReviewResult,
   bundleRenderer,
   chromeCandidates,
+  esbuildApiEntry,
   extractSource,
   hostedReviewEnv,
   pairedReviewPlan,
+  readReviewMarker,
   resolveEsbuild,
   reviewPlan,
   selectBrowser,
@@ -65,7 +69,7 @@ test('review plan records every type, theme, width and the historical timeline',
   assert.equal(plan.desktopWidth, DESKTOP_WIDTH)
   assert.equal(plan.mobileWidth, MOBILE_WIDTH)
   assert.ok(plan.mobileWidth < MOBILE_BREAKPOINT)
-  assert.equal(plan.cases.length, VISUAL_TYPES.length * 4 + 6 * 4 + 4 + 4)
+  assert.equal(plan.cases.length, VISUAL_TYPES.length * 8 + 8)
   for (const type of VISUAL_TYPES) {
     for (const theme of ['light', 'dark']) {
       for (const width of [DESKTOP_WIDTH, MOBILE_WIDTH]) {
@@ -98,10 +102,20 @@ test('review plan records every type, theme, width and the historical timeline',
   const errorCard = plan.cases.find((item) => item.kind === 'error' && item.theme === 'dark')
   assert.equal(JSON.parse(errorCard.source).type, 'timeline')
   assert.equal(Object.hasOwn(JSON.parse(errorCard.source), 'events'), false)
+  for (const type of VISUAL_TYPES) {
+    assert.ok(
+      plan.cases.some((item) => item.kind === 'stress' && item.type === type),
+      `stress ${type}`,
+    )
+  }
   assert.ok(
     plan.cases.some(
       (item) => item.kind === 'stress' && item.type === 'heatmap' && item.width === MOBILE_WIDTH,
     ),
+  )
+  assert.throws(
+    () => reviewPlan({ commit, skill: '## Inline visualizations\n## Typed tasks\n' }),
+    /missing bar/,
   )
   const ids = new Set(plan.cases.map((item) => item.id))
   assert.equal(ids.size, plan.cases.length)
@@ -121,6 +135,78 @@ test('browser selection stays on unix system paths and does not launch', () => {
   )
   const esbuild = resolveEsbuild(root)
   assert.ok(esbuild === null || esbuild.endsWith(`${join('bin', 'esbuild')}`))
+  if (esbuild !== null) {
+    const header = readFileSync(esbuild).subarray(0, 20).toString('utf8')
+    assert.equal(header.startsWith('#!'), true)
+    assert.equal(esbuildApiEntry(esbuild).endsWith(`${join('lib', 'main.js')}`), true)
+  }
+  assert.throws(() => esbuildApiEntry(join(tmpdir(), 'missing-esbuild')), /JS API is missing/)
+  assert.throws(
+    () => assertCaptureTools({ chrome: null, esbuild: 'bin' }),
+    /Chrome was not downloaded/,
+  )
+  assert.throws(
+    () => assertCaptureTools({ chrome: '/usr/bin/google-chrome', esbuild: null }),
+    /could not be resolved/,
+  )
+})
+
+test('review marker requires a ready chart or a bounded error', () => {
+  const chart = `<script id="ari-viz-review" type="application/json">${JSON.stringify({
+    ready: true,
+    ok: true,
+    title: 'Release progress',
+    error: '',
+    unavailable: false,
+    failures: [],
+  })}</script>`
+  const rendered = {
+    id: 'after-historical-timeline-light-1280',
+    sourceRole: 'after',
+    kind: 'historical',
+    type: 'timeline',
+    source: JSON.stringify({ title: 'Release progress' }),
+  }
+  assert.equal(readReviewMarker(chart).title, 'Release progress')
+  assert.doesNotThrow(() => assertReviewResult(readReviewMarker(chart), rendered))
+  const unavailable = chart
+    .replace('"ok":true', '"ok":false')
+    .replace('"unavailable":false', '"unavailable":true,"error":"nope"')
+  assert.throws(
+    () => assertReviewResult(readReviewMarker(unavailable), rendered),
+    /Expected a rendered/,
+  )
+  const named = `<script id="ari-viz-review" type="application/json">${JSON.stringify({
+    ready: true,
+    ok: false,
+    title: '',
+    error: 'Timeline charts need events.',
+    unavailable: true,
+    failures: [],
+  })}</script>`
+  const errorItem = {
+    id: 'after-error-timeline-dark-390',
+    sourceRole: 'after',
+    kind: 'error',
+    type: 'timeline',
+    source: '{}',
+  }
+  assert.doesNotThrow(() => assertReviewResult(readReviewMarker(named), errorItem))
+  const generic = named.replace('Timeline charts need events.', 'Invalid input')
+  assert.throws(
+    () => assertReviewResult(readReviewMarker(generic), errorItem),
+    /named missing-events/,
+  )
+  assert.doesNotThrow(() =>
+    assertReviewResult(readReviewMarker(generic), {
+      ...rendered,
+      sourceRole: 'before',
+      kind: 'historical',
+    }),
+  )
+  assert.throws(() => readReviewMarker('<html></html>'), /marker is missing/)
+  const crashed = named.replace('"failures":[]', '"failures":["render exploded"]')
+  assert.throws(() => assertReviewResult(readReviewMarker(crashed), errorItem), /Renderer failure/)
 })
 
 test('paired plan uses the same cases at the pre-fix base and the after head', () => {

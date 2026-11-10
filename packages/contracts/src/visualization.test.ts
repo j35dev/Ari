@@ -368,6 +368,11 @@ describe('visualization contract', () => {
       ),
     ).toBe('Heatmap values must match both label axes.')
     expect(rejected('null')).toBe('A visualization needs a supported type.')
+    for (const inherited of ['toString', 'constructor', '__proto__', 'valueOf']) {
+      expect(rejected(JSON.stringify({ version: 1, type: inherited, title: 'Inherited' }))).toBe(
+        'A visualization needs a supported type.',
+      )
+    }
     const oddKey = parseVisualization(
       JSON.stringify({
         version: 1,
