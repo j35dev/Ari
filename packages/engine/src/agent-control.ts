@@ -35,7 +35,8 @@ import { childWorkState, finalAssistantText } from './delegation-state'
 import type { TreeSpend } from './tree-budget'
 import { findSessions, turnRequester, helmTaskRecipient, type HelmView } from './helm'
 import {
-  resolveProjectAgent,
+  resolveProjectAgentSelection,
+  type ProjectAgentFailure,
   type ProjectAgentDefaults,
   type ProjectAgentProvider,
 } from './projects'
@@ -47,6 +48,27 @@ const PROJECT_MODEL_REQUIRED =
   'No valid provider/model is selected for this project. Ask the user once which provider and model to use, suggesting your current model as an option, then save the answer with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
 const PROJECT_DEFAULT_MODEL_REQUIRED =
   'The project saved default is missing a model. Ask the user which model to use, then save it with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
+
+function projectAgentError(
+  failure: ProjectAgentFailure,
+  project: Pick<HelmProject, 'defaultAgent'>,
+  args?: Partial<ProjectAgent>,
+): string {
+  if (failure.reason === 'model_required')
+    return project.defaultAgent &&
+      !project.defaultAgent.modelId &&
+      !args?.modelId &&
+      (!args?.driverKind || args.driverKind === project.defaultAgent.driverKind)
+      ? PROJECT_DEFAULT_MODEL_REQUIRED
+      : PROJECT_MODEL_REQUIRED
+  const identity = `${failure.driverKind}/${failure.modelId}`.replace(/\s+/g, ' ').slice(0, 160)
+  const choice = failure.source === 'project' ? 'Saved' : 'Requested'
+  const reason =
+    failure.reason === 'provider_unavailable'
+      ? 'provider unavailable in the current catalog'
+      : "model unavailable in the provider's current catalog"
+  return `${choice} project agent ${identity}: ${reason}. Keep the saved choice; restore availability and retry with the same key.`
+}
 const PROJECT_HUMAN_WAIT_MS = 3 * 60_000
 
 /**
@@ -283,16 +305,19 @@ export class AgentControlService {
     args?: Partial<ProjectAgent>,
     providers?: readonly ProjectAgentProvider[],
   ): Promise<ResolvedProjectAgent | null> {
-    const agent = resolveProjectAgent({
+    const resolved = resolveProjectAgentSelection({
       project,
       ...(args === undefined ? {} : { arguments: args }),
       providers: providers ?? (await this.host.providers()),
       maxPermissionMode: caller.permissionMode,
       app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
     })
-    if (!agent && project.defaultAgent && !project.defaultAgent.modelId && !args?.modelId)
-      throw new ControlFailure('model_unavailable', PROJECT_DEFAULT_MODEL_REQUIRED)
-    return agent
+    if (resolved.error)
+      throw new ControlFailure(
+        resolved.error.reason === 'model_required' ? 'model_unavailable' : resolved.error.reason,
+        projectAgentError(resolved.error, project, args),
+      )
+    return resolved.agent
   }
 
   /** Shared with the live snapshot so it names the same agent as a launch. */
@@ -306,7 +331,7 @@ export class AgentControlService {
     ])
     const projects = await this.#helmProjects(caller, sessions)
     return projects.map((project) => {
-      const agent = resolveProjectAgent({
+      const resolved = resolveProjectAgentSelection({
         project,
         providers,
         app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
@@ -314,10 +339,8 @@ export class AgentControlService {
       })
       return {
         ...project,
-        agent,
-        ...(!agent && project.defaultAgent && !project.defaultAgent.modelId
-          ? { agentError: PROJECT_DEFAULT_MODEL_REQUIRED }
-          : {}),
+        agent: resolved.agent,
+        ...(resolved.error ? { agentError: projectAgentError(resolved.error, project) } : {}),
       }
     })
   }
