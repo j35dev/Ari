@@ -13,6 +13,44 @@ export interface ResolvedProjectAgent extends ProjectAgent {
   source: 'arguments' | 'project' | 'lead'
 }
 
+/** Recovery identity for the existing project-creation operation receipt. */
+export const projectCreationProgressSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(120)
+      .refine((name) => !/\p{Cc}/u.test(name)),
+    /** Exact chosen filesystem path; never truncated into another identity. */
+    path: z.string().min(1).max(32_767),
+    created: z.boolean(),
+    /** Git and registration phases identify the next action, which may have begun. */
+    phase: z.enum([
+      'folder_ready',
+      'repository_check',
+      'git_init',
+      'initial_commit',
+      'registering',
+      'registered',
+    ]),
+    projectId: z.string().min(1).max(128).optional(),
+  })
+  .strict()
+  .refine((progress) => (progress.phase === 'registered') === (progress.projectId !== undefined))
+export type ProjectCreationProgress = z.infer<typeof projectCreationProgressSchema>
+
+export const projectCreationFailureDetailsSchema = z
+  .object({
+    projectCreation: projectCreationProgressSchema,
+    failureCode: z.enum([
+      'project_git_failed',
+      'project_registration_failed',
+      'project_progress_failed',
+    ]),
+  })
+  .strict()
+export type ProjectCreationFailureDetails = z.infer<typeof projectCreationFailureDetailsSchema>
+
 /**
  * Whether the project's folder still resolves on disk. Derived at read time
  * (never persisted) so a moved or unmounted folder degrades instead of
