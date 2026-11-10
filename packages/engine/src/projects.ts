@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import { existsSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import { projectSchema, projectAgentSchema } from '@ari/contracts/project'
 import type {
   Project,
@@ -157,7 +157,11 @@ function dedupeKey(canonicalPath: string): string {
 
 /** Live disk check; never persisted so a remounted folder recovers on reload. */
 function diskStatus(folderPath: string): ProjectStatus {
-  return existsSync(folderPath) ? 'ok' : 'missing'
+  try {
+    return statSync(folderPath).isDirectory() ? 'ok' : 'missing'
+  } catch {
+    return 'missing'
+  }
 }
 
 function withStatus(project: StoredProject): Project {
@@ -204,6 +208,7 @@ export class ProjectStore {
   // with the on-disk snapshot: the first load wins, later ones are no-ops.
   #loaded = false
   #loading: Promise<Project[]> | null = null
+  #persistTail: Promise<void> = Promise.resolve()
 
   readonly #builtIn: ProjectStoreOptions['builtIn']
 
@@ -409,7 +414,15 @@ export class ProjectStore {
     return withStatus(updated)
   }
 
-  async #persist(): Promise<void> {
+  #persist(): Promise<void> {
+    // One writer owns the temporary file at a time. A failed save rejects its
+    // caller without preventing later mutations from being persisted.
+    const save = this.#persistTail.catch(() => undefined).then(() => this.#write())
+    this.#persistTail = save
+    return save
+  }
+
+  async #write(): Promise<void> {
     const payload = JSON.stringify({ projects: this.#projects, removed: this.#removed }, null, 2)
     await mkdir(dirname(this.#path), { recursive: true })
     const tmp = `${this.#path}.tmp`
