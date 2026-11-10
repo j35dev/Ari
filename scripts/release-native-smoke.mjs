@@ -84,13 +84,34 @@ export async function smoke(options, run = promisify(execFile)) {
     await mkdir(path, { recursive: true })
   const probe = join(dirname(fileURLToPath(import.meta.url)), 'release-native-probe.mjs')
   const command = executionCommand(executable, [probe, archive, arch], arch)
-  const { stdout, stderr } = await run(command.executable, command.args, {
-    cwd: data,
-    env,
-    windowsHide: true,
-    timeout: 15_000,
-    maxBuffer: 1024 * 1024,
-  })
+  const started = Date.now()
+  let output
+  try {
+    output = await run(command.executable, command.args, {
+      cwd: data,
+      env,
+      windowsHide: true,
+      timeout: 15_000,
+      maxBuffer: 1024 * 1024,
+    })
+  } catch (error) {
+    // execFile's default message can omit timeout/signal evidence entirely.
+    throw new Error(
+      JSON.stringify({
+        kind: 'packaged-native-probe-failed',
+        arch,
+        elapsedMs: Date.now() - started,
+        timeoutMs: 15_000,
+        code: error?.code ?? null,
+        signal: error?.signal ?? null,
+        killed: error?.killed ?? false,
+        stdout: String(error?.stdout ?? '').slice(0, 4096),
+        stderr: String(error?.stderr ?? '').slice(0, 4096),
+      }),
+      { cause: error },
+    )
+  }
+  const { stdout, stderr } = output
   const result = JSON.parse(stdout.trim())
   assert.equal(result.kind, 'packaged-native-module-load')
   assert.equal(result.arch, arch)
