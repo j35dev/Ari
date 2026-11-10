@@ -112,7 +112,35 @@ function parse(argv) {
     throw new Error('--params-file is supported for orchestration commands')
   let method
   let params
-  if (group === 'env') {
+  if (group === 'app') {
+    if (verb !== 'open' || !['session', 'aria', 'settings', 'changes'].includes(target))
+      throw new Error(
+        'Use ari app open session <id>, aria, settings or changes --project <id>|--session <id>',
+      )
+    for (const name of Object.keys(flags))
+      if (!['key', 'timeout', 'json', 'project', 'session'].includes(name))
+        throw new Error(`Unsupported app open option --${name}`)
+    if (target === 'session') {
+      if (rest.length !== 1 || flags.project || flags.session)
+        throw new Error('app open session needs exactly one session id')
+      params = { view: target, sessionId: rest[0], idempotencyKey: key }
+    } else {
+      if (rest.length) throw new Error('app open does not accept extra arguments')
+      if (target === 'changes') {
+        if (Boolean(flags.project) === Boolean(flags.session))
+          throw new Error('Changes needs exactly one --project or --session')
+        params = {
+          view: target,
+          ...(flags.project ? { projectId: flags.project } : { sessionId: flags.session }),
+          idempotencyKey: key,
+        }
+      } else {
+        if (flags.project || flags.session) throw new Error('This view does not accept a context')
+        params = { view: target, idempotencyKey: key }
+      }
+    }
+    method = 'app.open'
+  } else if (group === 'env') {
     method = 'runtime.info'
     params = {}
   } else if (group === 'agents' || group === 'providers') {
@@ -282,6 +310,13 @@ function parse(argv) {
         }
         break
       case 'prompt':
+        params = {
+          targetSessionId: target,
+          text: promptText(rest.join(' ')),
+          idempotencyKey: key,
+          ...(flags.effort ? { effort: flags.effort } : {}),
+        }
+        break
       case 'message':
         params = { targetSessionId: target, text: promptText(rest.join(' ')), idempotencyKey: key }
         break
@@ -297,7 +332,11 @@ function parse(argv) {
       case 'read':
         params = {
           targetSessionId: target,
-          ...(flags.tail ? { tailMessages: Number(flags.tail) } : {}),
+          ...(flags.tail
+            ? { tailMessages: Number(flags.tail) }
+            : flags.turns
+              ? { tailMessages: 200 }
+              : {}),
           ...(flags.turns ? { tailTurns: Number(flags.turns) } : {}),
           ...(flags['max-chars'] ? { maxChars: Number(flags['max-chars']) } : {}),
           ...(flags.tools ? { includeToolSummaries: true } : {}),

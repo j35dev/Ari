@@ -124,11 +124,13 @@ pnpm install
 pnpm --filter @ari/desktop build             # renderer + main bundles
 pnpm --filter @ari/mobile build              # phone PWA, packed into the installer
 cd apps/desktop
-npx electron-builder install-app-deps        # rebuild node-pty for Electron's ABI
-npx electron-builder --win                   # NSIS installer  → dist/Ari-Setup-<version>.exe
-npx electron-builder --mac                   # universal DMG    (needs macOS)
-npx electron-builder --linux                 # AppImage + deb   (needs Linux)
+pnpm exec electron-builder --win --x64       # NSIS installer  → dist/Ari-Setup-<version>.exe
+pnpm exec electron-builder --mac             # universal DMG    (needs macOS)
+pnpm exec electron-builder --linux --x64     # AppImage + deb   (needs Linux)
 ```
+
+Native modules use the locked Node-API prebuilds; do not run `install-app-deps` or
+override the packaging configuration's disabled native rebuild.
 
 Bundles land in `dist/`. Code signing is scaffolded but optional — unsigned builds work;
 signing env vars (`CSC_LINK` / `CSC_KEY_PASSWORD`) are picked up automatically when set.

@@ -4,6 +4,32 @@ import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
 import type { ProjectAgent, ResolvedProjectAgent } from './project'
 import type { HelmProjectContext } from './helm'
+import type { QueuedMessage } from './attachments'
+
+/** Queue inspection reuses the assignment's origin/held state, without inventing a future turn ID. */
+export interface QueuedAssignmentSummary extends Pick<QueuedMessage, 'text' | 'origin'> {
+  held: boolean
+  /** This assignment's text was clipped by the shared read character budget. */
+  truncated: boolean
+}
+
+export interface SessionReadQueue {
+  /** FIFO summaries sharing tailMessages and maxChars with the returned transcript messages. */
+  queuedMessages: QueuedAssignmentSummary[]
+  /** Total persisted assignments, including summaries omitted by the read bounds. */
+  queuedMessageCount: number
+  queuedMessagesTruncated: boolean
+}
+
+/** Acceptance into the existing queue, not a claim that this assignment ran in the observed turn. */
+export interface SessionPromptReceipt {
+  sessionId: string
+  queued: true
+  execution: 'future_turn'
+  observedActiveTurnId: string | null
+  /** Legacy alias of observedActiveTurnId; never the queued assignment's future turn identity. */
+  turnId: string | null
+}
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -11,6 +37,25 @@ const target = z.string().min(1).max(128)
 const key = z.string().min(1).max(128)
 const text = z.string().trim().min(1).max(64_000)
 const timeout = z.number().int().min(1).max(3_600_000).default(60_000)
+
+/** Explicit navigation only; targets are exact existing identities. */
+export const appOpenParamsSchema = z.discriminatedUnion('view', [
+  z.object({ view: z.literal('session'), sessionId: target, idempotencyKey: key }).strict(),
+  z.object({ view: z.literal('aria'), idempotencyKey: key }).strict(),
+  z.object({ view: z.literal('settings'), idempotencyKey: key }).strict(),
+  z
+    .object({
+      view: z.literal('changes'),
+      projectId: target.optional(),
+      sessionId: target.optional(),
+      idempotencyKey: key,
+    })
+    .strict()
+    .refine(
+      (params) => (params.projectId !== undefined) !== (params.sessionId !== undefined),
+      'Changes needs exactly one project or session.',
+    ),
+])
 
 /** A running Ari process is woken at most this often; shorter repeats are a typo, not a plan. */
 export const ROUTINE_MIN_EVERY_MS = 5 * 60_000
@@ -95,6 +140,10 @@ export interface ChildTask {
   modelId: string | null
   workState: ChildWorkState
   blockedOn: 'approval' | 'input' | null
+  lastSeq?: number
+  questionOwnerSessionId?: string | null
+  pendingInputs?: { inputId: string; prompt: string; choicesJson: string | null }[]
+  pendingApprovals?: { approvalId: string; toolName: string; summaryJson: string }[]
   queuedMessages: number
   latestTurn: {
     turnId: string
@@ -135,6 +184,7 @@ export const controlParams = {
   ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
   'providers.list': z.object({}).strict(),
+  'app.open': appOpenParamsSchema,
   /** Aria only: the projects it can start and steer work in. */
   'projects.list': z.object({}).strict(),
   /** Aria only: create a workspace or adopt a folder the user named. */
@@ -224,8 +274,15 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
-  'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
-  /** Aria only: switch a top-level project session it launched. */
+  'session.prompt': z
+    .object({
+      targetSessionId: target,
+      text,
+      effort: z.string().min(1).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  /** Aria only: switch a launched project session, or itself on explicit user instruction. */
   'session.switch': z
     .object({
       targetSessionId: target,
@@ -253,9 +310,11 @@ export const controlParams = {
   'session.read': z
     .object({
       targetSessionId: target,
+      /** Shared queue-summary/transcript count cap. The CLI uses 200 for --turns without --tail. */
       tailMessages: z.number().int().min(1).max(200).default(6),
       tailTurns: z.number().int().min(1).max(50).optional(),
       includeToolSummaries: z.boolean().default(false),
+      /** Shared queue/transcript text budget, queue first. */
       maxChars: z.number().int().min(1).max(100_000).default(16_000),
     })
     .strict(),

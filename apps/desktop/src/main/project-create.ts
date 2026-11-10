@@ -4,11 +4,14 @@ import { ControlFailure, type CreatedProject } from '@ari/contracts/agent-contro
 import { HELM_PROJECT_ID } from '@ari/contracts/helm'
 import type { ProjectStore } from '@ari/engine/projects'
 import { GitService } from '@ari/engine/git'
+import type { ProjectCreationFailureDetails, ProjectCreationProgress } from '@ari/contracts/project'
 
 export interface ProjectCreateDeps {
   projects: ProjectStore
   home: string
   userData: string
+  /** Awaited at each boundary; throwing stops creation without retrying or cleanup. */
+  onProgress?(progress: Readonly<ProjectCreationProgress>): Promise<void>
 }
 
 export function projectSlug(name: string): string {
@@ -92,6 +95,8 @@ async function safePath(deps: ProjectCreateDeps, path: string): Promise<string> 
 }
 
 async function checkPath(deps: ProjectCreateDeps, folder: string): Promise<string> {
+  if (folder.length > 32_767)
+    throw new ControlFailure('invalid_request', 'Project path is too long.')
   const [home, userData, ...systems] = await Promise.all(
     [deps.home, deps.userData, ...systemFolders()].map(physicalPath),
   )
@@ -161,37 +166,83 @@ export async function createProject(
       }
     }
   }
-  if (created) {
-    const git = new GitService()
-    const existing = await git.isRepo(folder)
-    if (!existing.ok) throw new ControlFailure('project_git_failed', existing.error.message)
-    if (!existing.value) {
-      const init = await git.runPlumbing(folder, ['init', '--template='])
-      if (!init.ok) throw new ControlFailure('project_git_failed', init.error.message)
-      // ManagedWorkspaces snapshots read HEAD before making an isolated worktree.
-      const commit = await git.runPlumbing(
-        folder,
-        [
-          '-c',
-          'core.hooksPath=',
-          '-c',
-          'commit.gpgsign=false',
-          'commit',
-          '--allow-empty',
-          '-m',
-          'Initial project',
-        ],
-        {
-          ...process.env,
-          GIT_AUTHOR_NAME: 'Ari',
-          GIT_AUTHOR_EMAIL: 'ari@localhost',
-          GIT_COMMITTER_NAME: 'Ari',
-          GIT_COMMITTER_EMAIL: 'ari@localhost',
-        },
-      )
-      if (!commit.ok) throw new ControlFailure('project_git_failed', commit.error.message)
-    }
+  // mkdir/adoption and the receipt write are not atomic. A process exit before
+  // folder_ready is persisted can leave this folder without a durable identity.
+  // Once recorded, later phases must never select another folder as a retry.
+  const displayName = (name: string): string =>
+    name
+      .replace(/\p{Cc}/gu, ' ')
+      .trim()
+      .slice(0, 120) || 'Project'
+  let progress: Readonly<ProjectCreationProgress> = Object.freeze({
+    name: displayName(input.name),
+    path: folder,
+    created,
+    phase: 'folder_ready',
+  })
+  let failureCode: ProjectCreationFailureDetails['failureCode'] = 'project_progress_failed'
+  const report = async (phase: ProjectCreationProgress['phase'], registered?: CreatedProject) => {
+    progress = Object.freeze({
+      ...progress,
+      phase,
+      ...(registered
+        ? {
+            name: displayName(registered.name),
+            path: registered.path,
+            projectId: registered.projectId,
+          }
+        : {}),
+    })
+    failureCode = 'project_progress_failed'
+    await deps.onProgress?.(progress)
+    failureCode = phase === 'registering' ? 'project_registration_failed' : 'project_git_failed'
   }
-  const project = await deps.projects.open(folder, input.name)
-  return { projectId: project.id, name: project.name, path: project.path, created }
+  try {
+    await report('folder_ready')
+    if (created) {
+      const git = new GitService()
+      await report('repository_check')
+      const existing = await git.isRepo(folder)
+      if (!existing.ok) throw new Error('Project repository check failed.')
+      if (!existing.value) {
+        await report('git_init')
+        const init = await git.runPlumbing(folder, ['init', '--template='])
+        if (!init.ok) throw new Error('Project Git initialization failed.')
+        // ManagedWorkspaces snapshots read HEAD before making an isolated worktree.
+        await report('initial_commit')
+        const commit = await git.runPlumbing(
+          folder,
+          [
+            '-c',
+            'core.hooksPath=',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '--allow-empty',
+            '-m',
+            'Initial project',
+          ],
+          {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Ari',
+            GIT_AUTHOR_EMAIL: 'ari@localhost',
+            GIT_COMMITTER_NAME: 'Ari',
+            GIT_COMMITTER_EMAIL: 'ari@localhost',
+          },
+        )
+        if (!commit.ok) throw new Error('Project initial commit failed.')
+      }
+    }
+    await report('registering')
+    const project = await deps.projects.open(folder, input.name)
+    const result = { projectId: project.id, name: project.name, path: project.path, created }
+    await report('registered', result)
+    return result
+  } catch {
+    throw new ControlFailure(
+      'uncertain_outcome',
+      'Project creation may have partially completed. Inspect the preserved folder before recovery.',
+      { projectCreation: progress, failureCode } satisfies ProjectCreationFailureDetails,
+    )
+  }
 }

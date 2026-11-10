@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema, type HelmProject } from '@ari/contracts/agent-control'
-import { HELM_PROJECT_ID } from '@ari/contracts/helm'
+import { HELM_ERROR_MESSAGE_CHARS, HELM_PROJECT_ID } from '@ari/contracts/helm'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { SessionStore } from './session-store'
@@ -11,6 +11,7 @@ import { decideCommand } from './dispatcher'
 import { providerTurnContext } from './provider-context'
 import {
   findSessions,
+  helmRow,
   helmSnapshot,
   helmReportRecipient,
   helmTaskRecipient,
@@ -117,6 +118,8 @@ beforeEach(async () => {
   const host: ControlHost = {
     store,
     version: 'test',
+    // Synthetic catalog support; production resolves this against each selected model.
+    effortsForModel: async () => ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id })),
     policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
     providers: async () => [
       {
@@ -340,10 +343,179 @@ it('tells Aria what is running across projects and what finished lately', async 
   expect(text).toContain('Projects:\n- Web (web)\n- API (api)\n- Gone (gone, folder missing)')
   expect(text).toContain('"Limiter tests" (api2) in API, child of "Rate limiter": working')
   expect(text).toContain('Finished in the last day, from work you asked for:')
-  expect(text).toMatch(/"Login redirect bug" \(web1\) in Web: idle, \d+m ago/)
+  expect(text).toMatch(/"Login redirect bug" \(web1\) in Web: completed, \d+m ago/)
   expect(text).not.toContain('helm1')
   const active = await findSessions(view, { scope: 'active', limit: 10 })
   expect(active.map((row) => row.sessionId)).toEqual(['api2'])
+})
+
+it.each([
+  ['completed', 'completed', null],
+  ['interrupted', 'interrupted', null],
+  ['error', 'failed', 'Provider authentication failed'],
+] as const)(
+  'shows a text-free %s turn outcome while keeping the session idle',
+  async (stopReason, label, errorMessage) => {
+    const turnId = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+    const settledAt = Date.now()
+    running.delete('web1')
+    await store.append('web1', {
+      type: 'turn.settled',
+      turnId,
+      stopReason,
+      errorMessage,
+      at: settledAt,
+    })
+    await store.append('helm1', {
+      type: 'child.session.settled',
+      childSessionId: 'web1',
+      turnId,
+      stopReason,
+    })
+    const view: HelmView = {
+      rows: await store.listSessions(),
+      load: (id) => store.load(id),
+      projectName: (id) => projects.find((project) => project.projectId === id)?.name ?? null,
+    }
+    const rows = await findSessions(view, { projectId: 'web', scope: 'all', limit: 10 })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      state: 'idle',
+      preview: null,
+      latestTurn: { turnId, stopReason, settledAt, errorMessage },
+    })
+    const text = await helmSnapshot(view, await store.load('helm1'), projects)
+    expect(text).toContain('Nothing is running.')
+    expect(text).toContain(
+      `"Login redirect bug" (web1) in Web: ${label}${errorMessage ? `: ${errorMessage}` : ''},`,
+    )
+  },
+)
+
+it('bounds provider failure text on the row and snapshot without extra history reads', async () => {
+  const turnId = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  const errorMessage = `  Provider rejected the request.\n${'Long provider diagnostic. '.repeat(200)}  `
+  running.delete('web1')
+  await store.append('web1', { type: 'turn.settled', turnId, stopReason: 'error', errorMessage })
+  await store.append('helm1', {
+    type: 'child.session.settled',
+    childSessionId: 'web1',
+    turnId,
+    stopReason: 'error',
+  })
+  const model = await store.load('web1')
+  const rows = (await store.listSessions()).filter((row) => row.id === 'web1')
+  const load = vi.fn(async () => model)
+  const view: HelmView = { rows, load, projectName: () => 'Web' }
+  const row = await helmRow(view, rows[0]!)
+  expect(row.latestTurn?.errorMessage).toHaveLength(HELM_ERROR_MESSAGE_CHARS)
+  expect(row.latestTurn?.errorMessage).toMatch(
+    /^Provider rejected the request\. Long provider diagnostic\./,
+  )
+  expect(row.latestTurn?.errorMessage).toMatch(/…$/)
+  expect(row.latestTurn?.errorMessage).not.toMatch(/[\r\n]/)
+  expect(load).toHaveBeenCalledExactlyOnceWith('web1')
+  const text = await helmSnapshot(view, await store.load('helm1'), projects)
+  expect(text).toContain(`failed: ${row.latestTurn?.errorMessage ?? ''}`)
+  expect(text).not.toContain(errorMessage)
+  // The listing still says running: the snapshot checks it, then reads the finished outcome.
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it.each(['working', 'needs_user', 'queued'] as const)(
+  'hides the previous failure when newer work is %s',
+  async (state) => {
+    const failed = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+    await store.append('web1', {
+      type: 'assistant.parts.appended',
+      messageId: 'old-failure',
+      parts: [{ type: 'text', text: 'Failed to sign in.' }],
+    })
+    running.delete('web1')
+    await store.append('web1', {
+      type: 'turn.settled',
+      turnId: failed,
+      stopReason: 'error',
+      errorMessage: 'Old authentication error',
+    })
+    await store.append('helm1', {
+      type: 'child.session.settled',
+      childSessionId: 'web1',
+      turnId: failed,
+      stopReason: 'error',
+    })
+    if (state === 'queued') {
+      const decision = decideCommand(
+        await store.load('web1'),
+        {
+          type: 'message.enqueue',
+          sessionId: 'web1',
+          text: 'Retry login',
+          attachments: [],
+          hold: true,
+        },
+        { turnId: 'queued-retry', messageId: 'queued-retry-message' },
+        { kind: 'session', sessionId: 'helm1' },
+      )
+      for (const event of decision.events) await store.append('web1', event)
+    } else {
+      await startTurn('web1', 'Retry login', { kind: 'session', sessionId: 'helm1' })
+      if (state === 'needs_user')
+        await store.append('web1', {
+          type: 'approval.requested',
+          approvalId: 'retry-approval',
+          toolName: 'Bash',
+          summaryJson: '{}',
+          options: [],
+        })
+    }
+    const view: HelmView = {
+      rows: await store.listSessions(),
+      load: (id) => store.load(id),
+      projectName: () => 'Web',
+    }
+    const row = await helmRow(
+      view,
+      view.rows.find((entry) => entry.id === 'web1')!,
+    )
+    expect(row).toMatchObject({ state, latestTurn: null, preview: null })
+    const text = await helmSnapshot(view, await store.load('helm1'), projects)
+    expect(text).not.toContain('Old authentication error')
+    expect(text).not.toContain('Failed to sign in.')
+    expect(text).not.toContain('in Web: failed')
+    if (state === 'working') {
+      expect(text).toContain('in Web: working')
+      await store.append('web1', {
+        type: 'assistant.parts.appended',
+        messageId: 'retry-progress',
+        parts: [{ type: 'text', text: 'Checking the configured account.' }],
+      })
+      expect(
+        await helmRow(
+          view,
+          view.rows.find((entry) => entry.id === 'web1')!,
+        ),
+      ).toMatchObject({
+        state: 'working',
+        latestTurn: null,
+        preview: 'Checking the configured account.',
+      })
+    }
+  },
+)
+
+it('keeps a never-started session idle without inventing a settled outcome', async () => {
+  const view: HelmView = {
+    rows: await store.listSessions(),
+    load: (id) => store.load(id),
+    projectName: () => 'Web',
+  }
+  expect(
+    await helmRow(
+      view,
+      view.rows.find((entry) => entry.id === 'web1')!,
+    ),
+  ).toMatchObject({ state: 'idle', latestTurn: null, preview: null })
 })
 
 it('reports the sessions Aria started in its own status, like children', async () => {
@@ -597,7 +769,7 @@ it('limits project commands to Aria and asks for a user choice when Aria and the
     driverKind: 'claude',
     modelId: 'model',
     effort: 'high',
-    permissionMode: 'ask',
+    permissionMode: 'allow-edits',
     source: 'project',
   })
   expect((await service.invoke('helm1', 'projects.ask', ask)).ok).toBe(true)
@@ -631,7 +803,7 @@ it('uses delegation approval and refuses an existing lead above Aria permission'
   service.host.providers = async () => []
   expect(
     await service.invoke('helm1', 'projects.ask', { ...ask, idempotencyKey: 'approval-e' }),
-  ).toMatchObject({ ok: false, error: { code: 'model_unavailable' } })
+  ).toMatchObject({ ok: false, error: { code: 'provider_unavailable' } })
 })
 
 it('caps inherited lead permissions but refuses an explicit elevation on creation', async () => {
@@ -665,7 +837,7 @@ it('caps inherited lead permissions but refuses an explicit elevation on creatio
   ).toMatchObject({ ok: true, result: { lead: { permissionMode: 'allow-edits' } } })
 })
 
-it('replaces a lead whose provider is unavailable and reports the actual agent when reusing it', async () => {
+it('repairs a lead whose provider is unavailable without losing its session and enforces explicit permissions on reuse', async () => {
   const ask = { projectId: 'web', text: 'Fix login', idempotencyKey: 'stale-first' }
   const first = await service.invoke('helm1', 'projects.ask', ask)
   const id = (first as { result: { sessionId: string } }).result.sessionId
@@ -688,7 +860,7 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
     type: 'session.updated',
     driverKind: 'codex',
     modelId: 'gpt',
-    permissionMode: 'ask',
+    permissionMode: 'allow-edits',
   })
   const next = await service.invoke('helm1', 'projects.ask', {
     ...ask,
@@ -696,9 +868,9 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
     modelId: 'gpt',
     idempotencyKey: 'stale-next',
   })
-  expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { driverKind: 'codex' } } })
+  expect(next).toMatchObject({ ok: true, result: { reused: true, lead: { driverKind: 'codex' } } })
   const replacement = (next as { result: { sessionId: string } }).result.sessionId
-  expect(replacement).not.toBe(id)
+  expect(replacement).toBe(id)
   expect((await store.load(id)).session).toMatchObject({ id, archived: false, status: 'idle' })
   expect(
     await service.invoke('helm1', 'projects.ask', {
@@ -708,14 +880,7 @@ it('replaces a lead whose provider is unavailable and reports the actual agent w
       permissionMode: 'full',
       idempotencyKey: 'stale-reuse',
     }),
-  ).toMatchObject({
-    ok: true,
-    result: {
-      sessionId: replacement,
-      reused: true,
-      lead: { driverKind: 'codex', modelId: 'gpt', permissionMode: 'ask' },
-    },
-  })
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
 })
 
 it('refuses steering higher-permission sessions outside Aria launches while keeping reads and stop open', async () => {
@@ -857,7 +1022,7 @@ it('refuses saving a project default above Aria permission before writing it', a
   expect(save).toHaveBeenCalledOnce()
 })
 
-it('replaces a lead with a removed catalog model while preserving the old lead', async () => {
+it('switches a lead with a removed catalog model while preserving its context', async () => {
   const ask = { projectId: 'web', text: 'Fix it', idempotencyKey: 'model-old' }
   const first = await service.invoke('helm1', 'projects.ask', ask)
   const id = (first as { result: { sessionId: string } }).result.sessionId
@@ -881,11 +1046,11 @@ it('replaces a lead with a removed catalog model while preserving the old lead',
     modelId: 'new',
     idempotencyKey: 'model-new',
   })
-  expect(next).toMatchObject({ ok: true, result: { reused: false, lead: { modelId: 'new' } } })
-  expect((next as { result: { sessionId: string } }).result.sessionId).not.toBe(id)
+  expect(next).toMatchObject({ ok: true, result: { reused: true, lead: { modelId: 'new' } } })
+  expect((next as { result: { sessionId: string } }).result.sessionId).toBe(id)
   expect((await store.load(id)).session).toMatchObject({
     id,
-    modelId: 'model',
+    modelId: 'new',
     status: 'idle',
     archived: false,
   })
@@ -1332,7 +1497,7 @@ it('uses the saved project model rather than Aria current model or recent projec
       child: {
         driverKind: 'claude',
         modelId: 'model',
-        effort: null,
+        effort: 'high',
         permissionMode: 'allow-edits',
       },
       agent: { source: 'project', driverKind: 'claude', modelId: 'model' },
@@ -1828,7 +1993,7 @@ it('reports a model-less saved default in launches, project listings and Aria sn
     await store.load('helm1'),
     listed,
   )
-  expect(snapshot).toContain('saved default is missing a model; ask the user')
+  expect(snapshot).toContain('saved default is missing a model. Ask the user')
   expect(
     await service.invoke('helm1', 'session.spawn', {
       ...launch,

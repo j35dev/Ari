@@ -1,6 +1,14 @@
 import type { CSSProperties } from 'react'
 import type { VisualizationSpec } from '@ari/contracts/visualization'
-import { axis, color, formatNumber, type Inspect } from './charts'
+import {
+  axis,
+  clipLabel,
+  color,
+  fitLabel,
+  formatNumber,
+  MIN_CHART_WIDTH,
+  type Inspect,
+} from './charts'
 import { pointDetail } from './interaction'
 import { CanvasViewport } from './CanvasViewport'
 
@@ -25,7 +33,7 @@ export function TimelineDiagram({
         >
           <span className="ari-viz-timeline-dot" />
           {event.date && <span className="ari-viz-date">{event.date}</span>}
-          <strong>{event.label}</strong>
+          <strong className="ari-viz-timeline-label">{event.label}</strong>
           {event.description && <p>{event.description}</p>}
         </li>
       ))}
@@ -33,18 +41,24 @@ export function TimelineDiagram({
   )
 }
 
+/** The canvas frame, padding and scrollbar gutter take this much of the reply's width. */
+const CANVAS_INSET = 64
+
 export function GanttDiagram({
   spec,
   inspect,
+  width: room,
 }: {
   spec: Extract<VisualizationSpec, { type: 'gantt' }>
   inspect: Inspect
+  width?: number | null
 }) {
   const extent = axis(spec.tasks.flatMap((task) => [task.start, task.end]))
   const [min, max] = extent.extent
-  const width = 640,
-    left = 170,
-    plot = 440,
+  // Sized to the canvas so a phone shows the whole schedule at 100%.
+  const width = Math.min(1000, Math.max(MIN_CHART_WIDTH, Math.floor((room ?? 704) - CANVAS_INSET))),
+    left = Math.min(170, Math.max(96, Math.round(width * 0.27))),
+    plot = width - left - 30,
     height = spec.tasks.length * 42 + 70
   const x = (value: number): number => left + ((value - min) / (max - min)) * plot
   return (
@@ -69,7 +83,7 @@ export function GanttDiagram({
             <g key={i}>
               <text className="ari-viz-axis-label" x={left - 14} y={54 + i * 42} textAnchor="end">
                 <title>{task.label}</title>
-                {task.label.length > 21 ? `${task.label.slice(0, 20)}…` : task.label}
+                {clipLabel(fitLabel(task.label, left - 24), 21)}
               </text>
               <g
                 className="ari-viz-mark"
@@ -137,7 +151,7 @@ export function MetricCards({ spec }: { spec: Extract<VisualizationSpec, { type:
             rows: [{ label: 'Value', value: item.value, color: `var(--ari-${item.tone})` }],
           })}
         >
-          <dt>{item.label}</dt>
+          <dt className="ari-viz-metric-label">{item.label}</dt>
           <dd style={{ color: `var(--ari-${item.tone})` }}>
             {typeof item.value === 'number' ? formatNumber(item.value) : item.value}
           </dd>

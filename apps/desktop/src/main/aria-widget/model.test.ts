@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { HoldToTalk, RECORDING_LIMIT_MS, SENT_MS, TRANSCRIPTION_LIMIT_MS } from './model'
+import { HoldToTalk, SENT_MS } from './model'
 
 describe('hold to talk', () => {
   it('listens once per hold, transcribes on release and hides after sent', () => {
@@ -41,7 +41,7 @@ describe('hold to talk', () => {
     expect(flow.canStart).toBe(true)
     expect(flow.down(3)).toBe(true)
     expect(flow.state).toEqual({ id: 2, phase: 'listening', text: '', setup: false })
-    expect(flow.expiresAt).toBe(3 + RECORDING_LIMIT_MS)
+    expect(flow.expiresAt).toBe(Infinity)
     flow.finish(1, 'Late result', 4)
     flow.error(1, 'Late error', true, 4)
     expect(flow.state).toEqual({ id: 2, phase: 'listening', text: '', setup: false })
@@ -62,20 +62,39 @@ describe('hold to talk', () => {
     expect(flow.state.phase).toBe('hidden')
   })
 
-  it.each([
-    ['listening', RECORDING_LIMIT_MS],
-    ['transcribing', TRANSCRIPTION_LIMIT_MS],
-  ] as const)('times out %s and ignores its late result', (phase, timeout) => {
+  it('keeps a long hold and slow transcription active until their explicit completion', () => {
     const flow = new HoldToTalk()
     flow.down(0)
-    if (phase === 'transcribing') flow.up(0)
-    flow.tick(timeout)
-    expect(flow.state).toMatchObject({ phase: 'error', text: 'Speech timed out. Try again.' })
-    flow.finish(1, 'Late speech', timeout + 1)
-    expect(flow.state.phase).toBe('error')
-    flow.tick(timeout + 6000)
+    flow.tick(30 * 60_000)
+    expect(flow.state.phase).toBe('listening')
+    expect(flow.expiresAt).toBe(Infinity)
+    flow.up(30 * 60_000)
+    flow.tick(60 * 60_000)
+    expect(flow.state.phase).toBe('transcribing')
+    expect(flow.expiresAt).toBe(Infinity)
+    flow.finish(1, 'Long speech', 60 * 60_000)
+    expect(flow.state).toMatchObject({ phase: 'sent', text: 'Long speech' })
+    flow.tick(60 * 60_000 + SENT_MS)
     expect(flow.state.phase).toBe('hidden')
   })
+
+  it.each(['listening', 'transcribing'] as const)(
+    'preserves genuine failures during %s and ignores their late results',
+    (phase) => {
+      const flow = new HoldToTalk()
+      flow.down(0)
+      if (phase === 'transcribing') flow.up(0)
+      flow.error(1, 'The speech engine stopped. Please retry.', false, 600_000)
+      expect(flow.state).toMatchObject({
+        phase: 'error',
+        text: 'The speech engine stopped. Please retry.',
+      })
+      flow.finish(1, 'Late speech', 600_001)
+      expect(flow.state.phase).toBe('error')
+      flow.tick(606_000)
+      expect(flow.state.phase).toBe('hidden')
+    },
+  )
 
   it('keeps a clickable setup hint after readiness fails on a press', () => {
     const flow = new HoldToTalk()

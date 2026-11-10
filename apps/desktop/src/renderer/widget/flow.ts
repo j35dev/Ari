@@ -1,4 +1,5 @@
 import type { WidgetState } from '../../main/aria-widget/model'
+import type { RecordingEvents } from '../src/features/speech/recorder'
 
 export interface Recording {
   stop(): Promise<Float32Array>
@@ -7,7 +8,7 @@ export interface Recording {
 }
 
 export interface RecordingDeps {
-  record(): Promise<Recording>
+  record(events?: RecordingEvents): Promise<Recording>
   invoke(method: string, params?: unknown): Promise<unknown>
 }
 
@@ -57,7 +58,21 @@ export class RecordingFlow {
 
   private async begin(id: number): Promise<Recording> {
     try {
-      const recording = await this.deps.record()
+      const recording = await this.deps.record({
+        onReady: () => {
+          if (!this.disposed && this.state?.id === id && this.state.phase === 'listening')
+            void this.deps.invoke('ariaWidget.capture', { id, active: true }).catch(() => undefined)
+        },
+        onStopped: () => {
+          void this.deps.invoke('ariaWidget.capture', { id, active: false }).catch(() => undefined)
+        },
+        onError: (error) => {
+          if (this.active(id))
+            void this.deps
+              .invoke('ariaWidget.error', { id, text: error.message, setup: false })
+              .catch(() => undefined)
+        },
+      })
       if (!this.active(id)) recording.cancel()
       else this.meter = recording
       return recording

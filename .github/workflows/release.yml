@@ -1,66 +1,106 @@
-# Release builds (M14): one job per OS, artifacts attached to the pushed tag's
-# GitHub Release. Windows can also be built locally; macOS and Linux
-# installers can only be produced on their own platforms, hence the matrix.
+# Publish only a tested tag and a complete validated Windows/macOS/Linux asset set.
 name: release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to rebuild
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+  checks: read
+  actions: read
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            args: --win
-          - os: macos-latest
-            args: --mac
-          - os: ubuntu-latest
-            args: --linux
-    runs-on: ${{ matrix.os }}
+  identify:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      version: ${{ steps.identity.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify tag identity and required source checks
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/release-publish-assets.mjs identify
 
-      # Pinned by `packageManager` in the root package.json.
+  package:
+    needs: identify
+    uses: ./.github/workflows/release-candidate.yml
+    with:
+      sha: ${{ needs.identify.outputs.sha }}
+
+  publish:
+    needs: [identify, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      CANDIDATE_SHA: ${{ needs.identify.outputs.sha }}
+      RELEASE_VERSION: ${{ needs.identify.outputs.version }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Install workspace
-        run: pnpm install --frozen-lockfile
-
-      - name: Build bundles
-        run: pnpm --filter @ari/desktop build
-
-      - name: Build mobile PWA
-        run: pnpm --filter @ari/mobile build
-
-      - name: Rebuild native deps for Electron
-        run: npx electron-builder install-app-deps
-        working-directory: apps/desktop
-
-      - name: Package
-        run: npx electron-builder ${{ matrix.args }} --publish never
-        working-directory: apps/desktop
-
-      - name: Attach installers to the release
+      - name: Install locked validation tools without native scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify publication boundary fixtures
+        run: node --test scripts/release-publish-assets.test.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-candidate-*-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-functional-*-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-install-*-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
+      # The package job above includes macos-intel-x64, the x64 launch proof of the
+      # same universal build; assemble requires it alongside the ARM64 receipt.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ari-macos-intel-x64-${{ env.CANDIDATE_SHA }}
+          path: release-inputs
+      - name: Verify complete platform proofs and assemble checksummed assets
+        run: node scripts/release-publish-assets.mjs assemble
+      - name: Upload complete assets to a draft release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.blockmap
-            dist/latest*.yml
-          fail_on_unmatched_files: false
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Ari ${{ env.RELEASE_VERSION }}
+          body_path: docs/releases/0.3.13.md
+          draft: true
+          prerelease: false
+          files: release-stage/*
+          fail_on_unmatched_files: true
+      - name: Verify uploaded draft asset names, sizes and checksums
+        run: node scripts/release-publish-assets.mjs verify-remote
+      - name: Publish the verified release
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

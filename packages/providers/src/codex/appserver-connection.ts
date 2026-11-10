@@ -34,6 +34,18 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout> | null
 }
 
+/** Whether a failed request is safe to submit again, separate from transport liveness. */
+export class AppServerRequestError extends Error {
+  constructor(
+    message: string,
+    readonly requestOutcome: 'not_submitted' | 'refused' | 'uncertain',
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    this.name = 'AppServerRequestError'
+  }
+}
+
 /**
  * One `codex app-server` subprocess speaking newline-delimited JSON-RPC over
  * stdio (transport per `codex app-server --listen stdio://`). Frames follow
@@ -125,7 +137,9 @@ export class AppServerConnection {
    */
   request(method: string, params: unknown, timeoutMs = 20_000): Promise<unknown> {
     if (this.#closed) {
-      return Promise.reject(new Error('codex app-server connection is closed'))
+      return Promise.reject(
+        new AppServerRequestError('codex app-server connection is closed', 'not_submitted'),
+      )
     }
     const id = this.#nextId++
     return new Promise<unknown>((resolve, reject) => {
@@ -133,15 +147,30 @@ export class AppServerConnection {
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           this.#pending.delete(id)
-          reject(new Error(`codex app-server ${method} timed out after ${timeoutMs}ms`))
+          reject(
+            new AppServerRequestError(
+              `codex app-server ${method} timed out after ${timeoutMs}ms`,
+              'uncertain',
+            ),
+          )
         }, timeoutMs)
         timer.unref?.()
       }
       this.#pending.set(id, { resolve, reject, timer })
-      if (!this.#write({ id, method, params })) {
+      const fail = (error: Error): void => {
         if (timer !== null) clearTimeout(timer)
         this.#pending.delete(id)
-        reject(new Error('codex app-server stdin unavailable'))
+        reject(error)
+      }
+      try {
+        if (!this.#write({ id, method, params }))
+          fail(new AppServerRequestError('codex app-server stdin unavailable', 'not_submitted'))
+      } catch (error) {
+        fail(
+          new AppServerRequestError('codex app-server request write failed', 'uncertain', {
+            cause: error,
+          }),
+        )
       }
     })
   }
@@ -199,7 +228,9 @@ export class AppServerConnection {
       if (pending.timer !== null) clearTimeout(pending.timer)
       const error = message['error'] as { code?: number; message?: string } | undefined
       if (error !== undefined && error !== null) {
-        pending.reject(new Error(error.message ?? 'codex app-server rpc error'))
+        pending.reject(
+          new AppServerRequestError(error.message ?? 'codex app-server rpc error', 'refused'),
+        )
       } else {
         pending.resolve(message['result'])
       }
@@ -211,7 +242,7 @@ export class AppServerConnection {
   #failAllPending(error: Error): void {
     for (const [id, pending] of this.#pending) {
       if (pending.timer !== null) clearTimeout(pending.timer)
-      pending.reject(error)
+      pending.reject(new AppServerRequestError(error.message, 'uncertain', { cause: error }))
       this.#pending.delete(id)
     }
   }

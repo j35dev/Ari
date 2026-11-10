@@ -13,11 +13,12 @@ import {
   completionNotice,
   finalAssistantText,
   pendingCompletions,
-  questionNotice,
   routineReport,
   type CompletionReport,
 } from './delegation-state'
 import { helmReportRecipient } from './helm'
+import { RequestSupervisor, type RequestHost } from './request-supervisor'
+import { SupervisorStore } from './supervisor-store'
 
 const log = createLogger('engine:delegation')
 
@@ -41,7 +42,7 @@ function automaticTurns(model: SessionReadModel): number {
   for (const message of [...model.messages].reverse()) {
     if (message.role !== 'user') continue
     if (!message.origin || message.origin.kind === 'human') break
-    if (message.origin.kind === 'completion') count++
+    if (['completion', 'coordination'].includes(message.origin.kind)) count++
   }
   return count
 }
@@ -68,7 +69,6 @@ export interface SupervisorHost {
   isWaiting?(parentId: string, childId: string): boolean
   /** Spend across the parent's subtree, for the one budget line in a notice. */
   treeSpend?(rootId: string): Promise<TreeSpend>
-  coordinate?(senderId: string, recipientId: string, text: string, key: string): Promise<void>
   settleDelayMs?: number
   retryDelayMs?: number
   batchWindowMs?: number
@@ -113,30 +113,50 @@ export class DelegationSupervisor {
   readonly #chains = new Map<string, Promise<void>>()
   /** Parents whose wake-up was refused; any settle may have freed the capacity they need. */
   readonly #refused = new Set<string>()
-  /** Questions already delivered, so a replayed request does not wake twice. */
-  readonly #asked = new Set<string>()
+  readonly #requests: RequestSupervisor
+  readonly #reads: SupervisorStore
   readonly #historical = new Set<string>()
   #recovering = false
+  #closed = false
+  #recovery: Promise<void> | null = null
+  readonly #recoveryEvents: JournalEvent[] = []
   #unsubscribe: (() => void) | null = null
-  constructor(readonly host: SupervisorHost) {}
+  constructor(readonly host: RequestHost) {
+    this.#requests = new RequestSupervisor(host)
+    this.#reads = new SupervisorStore(() => host.store)
+  }
 
   start(): void {
     if (this.#unsubscribe !== null) return
+    this.#closed = false
+    this.#reads.start()
     this.#unsubscribe = this.host.subscribe((event) => this.#observe(event))
-    void this.#recover().catch((error: unknown) => {
+    this.#requests.start()
+    const recovery = this.#recover().catch((error: unknown) => {
       log.warn('delegation recovery failed', { error: String(error) })
+    })
+    this.#recovery = recovery
+    void recovery.finally(() => {
+      if (this.#recovery === recovery) this.#recovery = null
     })
   }
 
-  close(): void {
+  async close(): Promise<void> {
+    this.#closed = true
+    this.#reads.close()
+    const closingRequests = this.#requests.close()
     this.#unsubscribe?.()
     this.#unsubscribe = null
     for (const timer of this.#timers.values()) clearTimeout(timer)
     this.#timers.clear()
+    await this.#recovery
+    await closingRequests
+    await Promise.all([...this.#chains.values()])
   }
 
   /** Re-checks a parent after the batching delay; repeated calls coalesce. */
   schedule(parentId: string, delayMs = this.host.settleDelayMs ?? SETTLE_DELAY_MS): void {
+    if (this.#closed) return
     const existing = this.#timers.get(parentId)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(() => {
@@ -150,20 +170,25 @@ export class DelegationSupervisor {
   /** Delivers whatever is deliverable to `parentId` right now. Never rejects. */
   evaluate(parentId: string): Promise<void> {
     return this.#serial(parentId, async () => {
+      await this.#recovery
+      await this.#requests.evaluate(parentId)
       await this.#deliver(parentId)
       await this.#bubble(parentId)
     })
   }
 
   #observe(event: JournalEvent): void {
-    if (this.#recovering) return
+    if (this.#recovering) {
+      this.#recoveryEvents.push(event)
+      return
+    }
     if (
       event.type === 'user.message.added' &&
       (!event.message.origin || event.message.origin.kind === 'human')
     ) {
       if ([...this.#historical].some((key) => key.startsWith(`${event.sessionId}:`)))
         void this.#serial(event.sessionId, async () => {
-          if (!isHelmSession((await this.host.store.load(event.sessionId)).session)) return
+          if (!isHelmSession((await this.#reads.store.load(event.sessionId)).session)) return
           // A human return also releases reports held through a restart.
           for (const key of this.#historical)
             if (key.startsWith(`${event.sessionId}:`)) this.#historical.delete(key)
@@ -173,10 +198,6 @@ export class DelegationSupervisor {
       event.type === 'child.session.acknowledged'
     )
       this.schedule(event.sessionId)
-    else if (event.type === 'input.requested')
-      void this.#serial(event.sessionId, () => this.#askParent(event.sessionId, event))
-    else if (event.type === 'input.responded')
-      this.#asked.delete(`${event.sessionId}:${event.inputId}`)
     else if (event.type === 'turn.settled') {
       for (const parentId of this.#refused) this.schedule(parentId)
       if (event.stopReason === 'completed') this.schedule(event.sessionId)
@@ -185,70 +206,6 @@ export class DelegationSupervisor {
           await this.#stopped(event.sessionId)
         })
     }
-  }
-
-  async #askParent(
-    childId: string,
-    event: { inputId: string; prompt: string; choicesJson: string | null },
-  ): Promise<void> {
-    const child = await this.host.store.load(childId)
-    // A question on a turn a person started is theirs to answer; only work the
-    // parent delegated, or Aria asked for, routes back to whoever asked.
-    const asked = child.messages.find(
-      (message) => message.role === 'user' && message.turnId === child.activeTurnId,
-    )
-    if (asked?.origin?.kind !== 'session') return
-    const parentId = asked.origin.sessionId
-    if (
-      parentId !== child.session?.parentSessionId &&
-      !isHelmSession((await this.host.store.load(parentId)).session)
-    )
-      return
-    const key = `${childId}:${event.inputId}`
-    if (this.#asked.has(key)) return
-    this.#asked.add(key)
-    // A blocked cooperative wait reads the actual request directly. Otherwise
-    // retain one scoped inbox notice, never a follow-up assignment in a busy lead's queue.
-    const messageId = `question_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`
-    if (this.host.coordinate) {
-      try {
-        await this.host.coordinate(
-          childId,
-          parentId,
-          questionNotice({
-            childSessionId: childId,
-            title: child.session?.title ?? 'Child session',
-            prompt: event.prompt,
-            choicesJson: event.choicesJson,
-            inputId: event.inputId,
-          }),
-          messageId,
-        )
-      } catch {
-        this.#asked.delete(key)
-      }
-      return
-    }
-    if (!(await this.host.store.load(parentId)).inbox?.[messageId])
-      await this.host.record(parentId, {
-        type: 'coordination.updated',
-        message: {
-          messageId,
-          senderSessionId: childId,
-          recipientSessionId: parentId,
-          text: questionNotice({
-            childSessionId: childId,
-            title: child.session?.title ?? 'Child session',
-            prompt: event.prompt,
-            choicesJson: event.choicesJson,
-            inputId: event.inputId,
-          }),
-          createdAt: Date.now(),
-          status: 'pending',
-          turnId: null,
-          consumedAt: null,
-        },
-      })
   }
 
   #serial(parentId: string, run: () => Promise<void>): Promise<void> {
@@ -283,30 +240,68 @@ export class DelegationSupervisor {
    */
   async #recover(): Promise<void> {
     const isRunning = this.host.isRunning?.bind(this.host)
-    if (isRunning === undefined) return
-    const rows = await this.host.store.listSessions()
     this.#recovering = true
     try {
+      const rows = await this.#reads.store.listSessions()
+      // Settlement and its cross-session mirror are separate appends. Recover the
+      // missing mirror from the source journal before deciding what is historical.
+      for (const row of rows) {
+        const child = await this.#reads.store.loadExisting(row.id)
+        if (!child?.lastTurn) continue
+        const aria = await helmReportRecipient(this.#reads.store, child, child.lastTurn.turnId)
+        const recipients = new Set([
+          ...(child.session?.parentSessionId ? [child.session.parentSessionId] : []),
+          ...(aria ? [aria] : []),
+        ])
+        for (const recipient of recipients) {
+          if (!recipient || recipient === row.id) continue
+          const parent = await this.#reads.store.loadExisting(recipient)
+          const completion = parent?.childCompletions?.[row.id]
+          if (
+            !parent?.session ||
+            completion?.turnId === child.lastTurn.turnId ||
+            (completion?.settledAt ?? -1) > child.lastTurn.settledAt
+          )
+            continue
+          await this.host.record(recipient, {
+            type: 'child.session.settled',
+            childSessionId: row.id,
+            turnId: child.lastTurn.turnId,
+            stopReason: child.lastTurn.stopReason,
+            settledAt: child.lastTurn.settledAt,
+          })
+        }
+      }
       const receivers = [
         ...rows.flatMap((row) => row.parentSessionId ?? []),
         ...rows.filter((row) => row.projectId === HELM_PROJECT_ID).map((row) => row.id),
       ]
       for (const parentId of new Set(receivers)) {
-        const parent = await this.host.store.load(parentId)
+        const parent = await this.#reads.store.load(parentId)
         await this.#reconcileDeliveries(parentId)
         // Historical reports remain readable, without starting unattended provider turns.
         for (const pending of pendingCompletions(parent))
-          this.#historical.add(`${parentId}:${pending.childSessionId}:${pending.turnId}`)
+          if (
+            !this.#recoveryEvents.some(
+              (event) =>
+                event.type === 'turn.settled' &&
+                event.sessionId === pending.childSessionId &&
+                event.turnId === pending.turnId,
+            )
+          )
+            this.#historical.add(`${parentId}:${pending.childSessionId}:${pending.turnId}`)
       }
       for (const row of rows) {
-        if (!row.parentSessionId || isRunning(row.id)) continue
-        const model = await this.host.store.load(row.id)
+        if (!isRunning || !row.parentSessionId || isRunning(row.id)) continue
+        const model = await this.#reads.store.load(row.id)
         if (model.activeTurnId === null) continue
         // Journal interruption, but never replay an unconfirmed provider submission.
         await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
       }
     } finally {
       this.#recovering = false
+      const events = this.#recoveryEvents.splice(0)
+      if (this.#unsubscribe) for (const event of events) this.#observe(event)
     }
   }
 
@@ -318,14 +313,14 @@ export class DelegationSupervisor {
    * dropped so that nothing restarts afterwards.
    */
   async #stopped(sessionId: string, cascade = this.host.policy().cascadeStop): Promise<number> {
-    const model = await this.host.store.load(sessionId)
+    const model = await this.#reads.store.load(sessionId)
     if (!model.session) return 0
     for (const pending of pendingCompletions(model))
       await this.#acknowledge(sessionId, pending.childSessionId, pending.turnId, 'disposed')
     if (!cascade) return 0
     let interrupted = 0
-    for (const row of subtree(await this.host.store.listSessions(), sessionId)) {
-      const descendant = await this.host.store.load(row.id)
+    for (const row of subtree(await this.#reads.store.listSessions(), sessionId)) {
+      const descendant = await this.#reads.store.load(row.id)
       if (descendant.activeTurnId === null) {
         for (const pending of pendingCompletions(descendant))
           await this.#acknowledge(row.id, pending.childSessionId, pending.turnId, 'disposed')
@@ -359,21 +354,21 @@ export class DelegationSupervisor {
    * delegated was unfinished) has that parent look again once it goes quiet.
    */
   async #bubble(sessionId: string): Promise<void> {
-    const model = await this.host.store.loadExisting(sessionId)
+    const model = await this.#reads.store.loadExisting(sessionId)
     if (!model) return
     const parentId =
       model.session?.parentSessionId ??
       (model.lastTurn
-        ? await helmReportRecipient(this.host.store, model, model.lastTurn.turnId)
+        ? await helmReportRecipient(this.#reads.store, model, model.lastTurn.turnId)
         : null)
     if (!parentId || model.activeTurnId !== null) return
-    const parent = await this.host.store.loadExisting(parentId)
+    const parent = await this.#reads.store.loadExisting(parentId)
     if (parent && pendingCompletions(parent).some((entry) => entry.childSessionId === sessionId))
       this.schedule(parentId)
   }
 
   async #reconcileDeliveries(parentId: string): Promise<void> {
-    const parent = await this.host.store.loadExisting(parentId)
+    const parent = await this.#reads.store.loadExisting(parentId)
     if (!parent) return
     for (const operation of Object.values(parent.orchestration?.operations ?? {})) {
       if (operation.method !== 'child.result.delivery') continue
@@ -388,7 +383,7 @@ export class DelegationSupervisor {
       }
       if (accepted || (operation.status === 'completed' && result?.accepted)) {
         for (const entry of result?.deliveries ?? []) {
-          const seen = (await this.host.store.load(parentId)).childCompletions?.[
+          const seen = (await this.#reads.store.load(parentId)).childCompletions?.[
             entry.childSessionId
           ]
           if (!(seen?.turnId === entry.turnId && seen.acknowledged))
@@ -425,7 +420,7 @@ export class DelegationSupervisor {
     await this.#reconcileDeliveries(parentId)
     const policy = this.host.policy()
     if (!policy.enabled || !policy.autoDeliverResults) return
-    const parent = await this.host.store.loadExisting(parentId)
+    const parent = await this.#reads.store.loadExisting(parentId)
     if (!parent?.session || parent.session.archived) {
       this.#refused.delete(parentId)
       return
@@ -439,10 +434,11 @@ export class DelegationSupervisor {
     if (parent.activeTurnId !== null) return
     if (parent.lastTurn?.stopReason !== 'completed' || parent.queuedMessages.length > 0) return
 
-    const rows = await this.host.store.listSessions()
+    const rows = await this.#reads.store.listSessions()
     const models = new Map<string, SessionReadModel>()
     const load = async (id: string): Promise<SessionReadModel> => {
-      const known = models.get(id) ?? (await this.host.store.loadExisting(id)) ?? initialReadModel()
+      const known =
+        models.get(id) ?? (await this.#reads.store.loadExisting(id)) ?? initialReadModel()
       models.set(id, known)
       return known
     }
@@ -550,8 +546,9 @@ export class DelegationSupervisor {
 
     // Everything above took time. If the parent moved on in the meantime —
     // most of all if it was started and stopped — the wake-up no longer applies.
-    const current = await this.host.store.loadExisting(parentId)
+    const current = await this.#reads.store.loadExisting(parentId)
     if (
+      this.#closed ||
       !current ||
       current.activeTurnId !== null ||
       current.lastTurn?.turnId !== parent.lastTurn.turnId ||
@@ -565,7 +562,7 @@ export class DelegationSupervisor {
     // after that check, instead of parking a notice behind it.
     const spend = this.host.treeSpend ? await this.host.treeSpend(parentId) : null
     const operationId = `delivery_${createHash('sha256').update(JSON.stringify(delivered)).digest('hex').slice(0, 32)}`
-    const previous = (await this.host.store.load(parentId)).orchestration?.operations[operationId]
+    const previous = (await this.#reads.store.load(parentId)).orchestration?.operations[operationId]
     if (
       previous &&
       (previous.status !== 'completed' || (previous.result as { accepted?: boolean })?.accepted)

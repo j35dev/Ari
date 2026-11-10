@@ -394,7 +394,9 @@ it('wakes an idle parent with its child report and stops children with their par
       return {
         start: () => ({
           async *[Symbol.asyncIterator]() {
-            if (session.sessionId !== 'root' || session.prompt.includes('hold'))
+            // Match the user's turn text, which follows the preamble as the last
+            // paragraph: a bare substring check also matches preamble prose.
+            if (session.sessionId !== 'root' || /(?:^|\n\n)hold$/.test(session.prompt))
               await new Promise<void>((resolve) => held.set(session.sessionId, resolve))
             yield {
               type: 'text-delta' as const,
@@ -686,9 +688,9 @@ it('closes without waiting for a stuck retry and starts no cleanup after cancell
     projects,
   })
   const closeSupervisor = runtime.supervisor.close.bind(runtime.supervisor)
-  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(() => {
+  const supervisor = vi.spyOn(runtime.supervisor, 'close').mockImplementation(async () => {
     expect(retrySignal?.aborted).toBe(true)
-    closeSupervisor()
+    await closeSupervisor()
   })
   const closeApprovals = runtime.approvals.close.bind(runtime.approvals)
   const approvals = vi.spyOn(runtime.approvals, 'close').mockImplementation(() => {

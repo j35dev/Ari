@@ -1361,6 +1361,41 @@ describe('Shell live sidebar feed', () => {
     )
   })
 
+  it('creates and selects a session when a pointer picks the project row', async () => {
+    const user = userEvent.setup()
+    listCalls = 1 // No pristine session: exercise creation, not reuse.
+    const implementation = invokeMock.getMockImplementation()!
+    let created = false
+    invokeMock.mockImplementation(async (method, params) => {
+      const result = await implementation(method, params)
+      if (method === 'session.create') created = true
+      if (method === 'session.list' && created)
+        return [
+          ...(result as unknown[]),
+          { id: 'sess-new', projectId: 'proj-ari', title: 'New session', messageCount: 0 },
+        ]
+      return result
+    })
+    render(<App />)
+    await screen.findByText('Fixed the build')
+    await user.click(screen.getByRole('button', { name: 'New session' }))
+    const chooser = await screen.findByRole('dialog', { name: 'New session' })
+    expect(within(chooser).getByRole('textbox', { name: 'Search projects' })).toHaveFocus()
+
+    // A real pointer sends mousedown and moves focus before click. fireEvent.click
+    // skips that sequence and used to hide the launcher's cancelled start.
+    await user.click(within(chooser).getByRole('option', { name: 'Ari' }))
+
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        'session.create',
+        expect.objectContaining({ projectId: 'proj-ari' }),
+      )
+      expect(splitLayoutSnapshot().root).toMatchObject({ sessionId: 'sess-new' })
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-new' })
+    })
+  })
+
   it('starts new sessions on the last model and level the user picked', async () => {
     localStorage.setItem(
       'ari.composer.last-pick',

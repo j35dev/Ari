@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SettingsStore } from './settings'
-import { settingsUpdateSchema } from '@ari/contracts/settings'
+import {
+  defaultSpeechShortcut,
+  defaultDictationShortcut,
+  speechBindingsError,
+  settingsUpdateSchema,
+} from '@ari/contracts/settings'
 
 let dir: string
 
@@ -16,6 +21,65 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it.each(['ctrl+k', 'ctrl+enter', 'ctrl+alt+s'])(
+    'repairs legacy Aria action binding %s without discarding speech preferences',
+    async (shortcut) => {
+      await writeFile(
+        join(dir, 'settings.json'),
+        JSON.stringify({
+          version: 1,
+          speech: {
+            shortcut,
+            enabled: true,
+            modelId: 'custom',
+            modelPath: 'custom.gguf',
+            duckAudio: false,
+          },
+        }),
+      )
+      const store = new SettingsStore({ dir })
+      const { speech } = await store.load()
+      expect(speech).toMatchObject({
+        shortcut: defaultSpeechShortcut(process.platform),
+        dictationShortcut: defaultDictationShortcut(process.platform),
+        enabled: true,
+        modelId: 'custom',
+        modelPath: 'custom.gguf',
+        duckAudio: false,
+      })
+      expect(
+        speechBindingsError(speech.shortcut, speech.dictationShortcut, process.platform),
+      ).toBeNull()
+      await store.update({ speech: { duckAudio: true } })
+      const reloaded = await new SettingsStore({ dir }).load()
+      expect(reloaded.speech).toEqual({ ...speech, duckAudio: true })
+    },
+  )
+
+  it('preserves valid custom Aria binding and chooses an unused general default on upgrade', async () => {
+    const shortcut = defaultDictationShortcut(process.platform)
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, speech: { shortcut, duckAudio: false } }),
+    )
+    const { speech } = await new SettingsStore({ dir }).load()
+    expect(speech.shortcut).toBe(shortcut)
+    expect(speech.dictationShortcut).not.toBe(shortcut)
+    expect(
+      speechBindingsError(speech.shortcut, speech.dictationShortcut, process.platform),
+    ).toBeNull()
+    expect(speech.duckAudio).toBe(false)
+  })
+
+  it('keeps a valid custom general shortcut when repairing the Aria binding', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, speech: { shortcut: 'ctrl+k', dictationShortcut: 'f20' } }),
+    )
+    const { speech } = await new SettingsStore({ dir }).load()
+    expect(speech.shortcut).toBe(defaultSpeechShortcut(process.platform))
+    expect(speech.dictationShortcut).toBe('f20')
+  })
   it('migrates the saved delegation default once and preserves an explicit later choice', async () => {
     const path = join(dir, 'settings.json')
     await writeFile(

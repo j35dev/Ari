@@ -10,6 +10,7 @@ import { applyCachedAppearance } from './lib/appearance'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { installExternalLinkInterceptor } from './lib/external-links'
 import './styles/index.css'
+import { installDictationTarget } from './features/speech/target'
 import '@ari/ui/visualization.css'
 
 const container = document.getElementById('root')
@@ -27,6 +28,7 @@ document.documentElement.dataset['ariBooting'] = 'on'
 // Links inside the ADE (agent markdown) open in the OS browser instead of
 // navigating the window away; the main process re-guards this as a safety net.
 installExternalLinkInterceptor()
+installDictationTarget()
 
 createRoot(container).render(
   <StrictMode>

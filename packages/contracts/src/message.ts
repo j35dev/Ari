@@ -22,6 +22,12 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
     sessionId: z.string().min(1),
     inputId: z.string().min(1),
   }),
+  /** A durable inbox notice starts a coordinator turn, without becoming an assignment. */
+  z.object({
+    kind: z.literal('coordination'),
+    deliveryId: z.string().min(1),
+    messageIds: z.array(z.string().min(1)).min(1).max(32),
+  }),
   /**
    * Legacy, no longer produced: the removed Hive bots wrote `routine`,
    * `memory-capture`, and `room` origins. They stay so old journals still

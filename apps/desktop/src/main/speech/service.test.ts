@@ -285,6 +285,252 @@ it('uses generous audio and model budgets and starts no timer for queued dictati
   )
 })
 
+async function idleRequestFixture() {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  mocks.manual = true
+  const child = mocks.fork.mock.results[0]!.value
+  // An alive worker may ignore kill without delivering an exit event.
+  child.kill.mockImplementation(() => true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const pending = service.transcribe(new Float32Array([0]))
+  while (child.postMessage.mock.calls.length < 2)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  return { service, child, pending, id: child.postMessage.mock.calls[1][0].id }
+}
+
+it('bounds idle dispatch acknowledgment and settles every request without a worker exit', async () => {
+  const { service, child, pending } = await idleRequestFixture()
+  const outcomes = [pending.catch((error: Error) => error.message)]
+  await vi.advanceTimersByTimeAsync(30_000)
+  const queued = service.transcribe(new Float32Array([0]))
+  outcomes.push(queued.catch((error: Error) => error.message))
+  while (child.postMessage.mock.calls.length < 3)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  await vi.advanceTimersByTimeAsync(29_999)
+  expect(child.kill).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(child.kill).toHaveBeenCalledOnce()
+  expect(await Promise.all(outcomes)).toEqual([
+    'The speech engine did not start the request. Please retry.',
+    'The speech engine did not start the request. Please retry.',
+  ])
+})
+
+it('pauses the dispatch watchdog during inference and rearms it for the next idle request', async () => {
+  const { service, child, pending, id } = await idleRequestFixture()
+  const queued = service.transcribe(new Float32Array([0]))
+  const outcome = queued.catch((error: Error) => error.message)
+  while (child.postMessage.mock.calls.length < 3)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  child.emit('message', { id, started: true })
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  expect(child.kill).not.toHaveBeenCalled()
+  child.emit('message', { id, result: { text: 'first' } })
+  expect(await pending).toEqual({ text: 'first' })
+  await vi.advanceTimersByTimeAsync(59_999)
+  expect(child.kill).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(child.kill).toHaveBeenCalledOnce()
+  expect(await outcome).toContain('did not start the request')
+})
+
+it('settles queued requests at the inference budget even when kill never emits exit', async () => {
+  const { service, child, pending, id } = await idleRequestFixture()
+  const outcomes = [pending.catch((error: Error) => error.message)]
+  outcomes.push(service.transcribe(new Float32Array([0])).catch((error: Error) => error.message))
+  while (child.postMessage.mock.calls.length < 3)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  child.emit('message', { id, started: true })
+  await vi.advanceTimersByTimeAsync(speechRequestTimeout('transcribe', 1))
+  expect(child.kill).toHaveBeenCalledOnce()
+  expect(await Promise.all(outcomes)).toEqual([
+    'Speech to text took too long. Try a smaller model or a shorter recording.',
+    'Speech to text took too long. Try a smaller model or a shorter recording.',
+  ])
+})
+
+it('settles pending dispatch on dispose without relying on an exit event', async () => {
+  const { service, child, pending, id } = await idleRequestFixture()
+  const outcome = pending.catch((error: Error) => error.message)
+  service.dispose()
+  expect(await outcome).toContain('Speech service stopped')
+  child.emit('message', { id, started: true })
+  child.emit('message', { id, result: { text: 'late' } })
+  await vi.advanceTimersByTimeAsync(24 * 60 * 60_000)
+  expect(child.kill).toHaveBeenCalledOnce()
+})
+
+it('cleans up pending requests when postMessage throws without an exit event', async () => {
+  const { service, child, pending } = await idleRequestFixture()
+  const firstOutcome = pending.catch((error: Error) => error.message)
+  child.postMessage.mockImplementation(() => {
+    throw new Error('dispatch failed')
+  })
+  await expect(service.transcribe(new Float32Array([0]))).rejects.toThrow(
+    'The speech engine could not receive the request',
+  )
+  expect(await firstOutcome).toContain('could not receive the request')
+  await vi.advanceTimersByTimeAsync(24 * 60 * 60_000)
+  expect(child.kill).toHaveBeenCalledOnce()
+})
+
+it('bounds an unacknowledged bootstrap load and reports a recoverable configuration error', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  mocks.manualLoad = true
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  await service.select({ path })
+  while (!mocks.fork.mock.results[0]?.value.postMessage.mock.calls.length)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  const child = mocks.fork.mock.results[0]!.value
+  child.kill.mockImplementation(() => true)
+  const outcome = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(await outcome).toContain('did not start the request')
+  expect(service.status()).toMatchObject({
+    ready: false,
+    loading: false,
+    error: expect.stringContaining('did not start'),
+  })
+  expect(child.kill).toHaveBeenCalledOnce()
+})
+
+it('does not let unknown acknowledgments extend stalled dispatch or duplicate a stopping worker', async () => {
+  const { service, child, pending, id } = await idleRequestFixture()
+  const outcome = pending.catch((error: Error) => error.message)
+  child.emit('message', { id: id + 100, started: true })
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(await outcome).toContain('did not start the request')
+  const retry = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+  // Wait for the actual stop boundary before advancing its virtual deadline.
+  while (child.listenerCount('exit') < 2)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(await retry).toContain('did not stop')
+  expect(mocks.fork).toHaveBeenCalledOnce()
+  expect(child.kill).toHaveBeenCalledOnce()
+})
+
+it.each(['false', 'throw'])(
+  'retains the stopping worker after kill %s until a confirmed exit',
+  async (failure) => {
+    const { service, child, pending } = await idleRequestFixture()
+    child.kill.mockImplementation(() => {
+      if (failure === 'throw') throw new Error('Kill unsuccessful')
+      return false
+    })
+    const outcome = pending.catch((error: Error) => error.message)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(await outcome).toContain('did not start the request')
+    const retry = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(await retry).toContain('did not stop')
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    expect(child.kill).toHaveBeenCalledOnce()
+    child.emit('exit', 0)
+    mocks.manual = false
+    expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+    expect(mocks.fork).toHaveBeenCalledTimes(2)
+  },
+)
+
+it.each(['false', 'throw'])(
+  'waits for confirmed exit when the first engine-inspection stop kill %s fails',
+  async (failure) => {
+    const { dir, service } = await setup()
+    const path = join(dir, 'custom.gguf')
+    await writeFile(path, 'gguf')
+    await selectReady(service, { path })
+    mocks.manual = true
+    const child = mocks.fork.mock.results[0]!.value
+    child.kill.mockImplementation(() => {
+      if (failure === 'throw') throw new Error('Kill unsuccessful')
+      return false
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const pending = service.transcribe(new Float32Array([0]))
+    const outcome = pending.catch((error: Error) => error.message)
+    while (child.postMessage.mock.calls.length < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    child.emit('message', { id: child.postMessage.mock.calls[1][0].id, started: true })
+    const inspection = vi.spyOn(engineModule, 'verifyInstalledEngine').mockResolvedValueOnce(null)
+    let settled = false
+    const check = service.check().catch((error: Error) => {
+      settled = true
+      return error.message
+    })
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(await outcome).toContain('The speech engine stopped')
+    expect(child.kill).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await check).toContain('did not stop')
+    expect(child.listenerCount('exit')).toBe(1)
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    // Files may recover before the old process exits. Keep the refusal visible;
+    // no new inference process may bypass that stopping identity.
+    inspection.mockRestore()
+    await service.check()
+    const retry = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(await retry).toContain('did not stop')
+    expect(child.kill).toHaveBeenCalledOnce()
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    child.emit('exit', 0)
+    mocks.manual = false
+    await service.select({ path })
+    expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+    expect(mocks.fork).toHaveBeenCalledTimes(2)
+  },
+)
+
+it('transcribes more than five minutes of valid audio with a duration-scaled failure budget', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  mocks.manual = true
+  const child = mocks.fork.mock.results[0]!.value
+  const pcm = new Float32Array(16_000 * 360 + 1).fill(0.25)
+  pcm[pcm.length - 1] = 0.75
+  const pending = service.transcribe(pcm)
+  while (child.postMessage.mock.calls.length < 2)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  const request = child.postMessage.mock.calls[1][0]
+  expect(request.pcm).toBe(pcm)
+  expect(request.pcm.at(-1)).toBe(0.75)
+  vi.useFakeTimers()
+  child.emit('message', { id: request.id, started: true })
+  await vi.advanceTimersByTimeAsync(20 * 60_000)
+  expect(child.kill).not.toHaveBeenCalled()
+  child.emit('message', { id: request.id, result: { text: 'Full long dictation' } })
+  expect(await pending).toEqual({ text: 'Full long dictation' })
+  await vi.advanceTimersByTimeAsync(speechRequestTimeout('transcribe', pcm.length))
+  expect(child.kill).not.toHaveBeenCalled()
+})
+
+it.each([
+  new Float32Array(),
+  new Float32Array([NaN]),
+  new Float32Array([Infinity]),
+  new Float32Array([1.1]),
+  new Float32Array([-1.1]),
+])('rejects empty or invalid recordings before starting inference (%s)', async (pcm) => {
+  const { service } = await setup(false, false)
+  await expect(service.transcribe(pcm)).rejects.toThrow('Invalid recording')
+  expect(mocks.fork).not.toHaveBeenCalled()
+})
+
 it('reports worker exits without blaming the Visual C++ runtime', async () => {
   const { dir, service } = await setup()
   const path = join(dir, 'custom.gguf')

@@ -170,8 +170,16 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px 7px;
   border: 1px solid var(--ari-border);
+  white-space: normal;
+  text-align: left;
+}
+.ari-viz-series-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ari-viz-series button[aria-pressed='false'] {
   opacity: 0.5;
@@ -206,25 +214,34 @@
 }
 .ari-viz-parts {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 1fr);
+  grid-template-columns: minmax(180px, 320px) minmax(140px, 520px);
   align-items: center;
-  gap: 20px;
+  gap: 32px;
   padding: 0 12px;
+}
+/* Pie and donut draw at their natural size; stretching them clipped the circle on desktop. */
+.ari-viz-parts .ari-viz-svg {
+  max-width: 320px;
+  margin: 0 auto;
 }
 .ari-viz-item-legend {
   display: grid;
   gap: 10px;
 }
+.ari-viz-item-legend > div,
+.ari-viz-item-legend > button {
+  min-width: 0;
+}
 .ari-viz-item-legend > div {
   display: grid;
-  grid-template-columns: 7px 1fr auto;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   font-size: var(--ari-text-xs);
 }
 .ari-viz-item-legend > button {
   display: grid;
-  grid-template-columns: 7px 1fr auto;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   width: 100%;
@@ -243,6 +260,10 @@
 .ari-viz-item-legend > button:focus-visible {
   background: var(--ari-surface-2);
 }
+.ari-viz-legend-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .ari-viz-item-legend strong {
   font-weight: 500;
   color: var(--ari-fg-muted);
@@ -252,14 +273,17 @@
   display: grid;
   gap: 14px;
   padding: 12px 4px;
-  min-width: 380px;
 }
 .ari-viz-funnel-row {
   display: grid;
-  grid-template-columns: minmax(70px, 120px) 1fr 55px;
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr) auto;
   gap: 14px;
   align-items: center;
   font-size: var(--ari-text-xs);
+}
+.ari-viz-funnel-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ari-viz-funnel-track {
   display: flex;
@@ -316,6 +340,13 @@
 }
 .ari-viz-timeline strong {
   font-weight: 500;
+}
+.ari-viz-timeline-label,
+.ari-viz-date,
+.ari-viz-timeline p,
+.ari-viz-metric-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ari-viz-timeline p {
   margin: 4px 0 0;
@@ -417,6 +448,7 @@
 .ari-viz-error p {
   color: var(--ari-fg-muted);
   margin: 6px 0;
+  overflow-wrap: anywhere;
 }
 .ari-viz-error summary {
   cursor: pointer;
@@ -481,6 +513,10 @@
   }
   .ari-viz-item-legend {
     padding: 0 8px 16px;
+  }
+  .ari-viz-funnel-row {
+    grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto;
+    gap: 10px;
   }
   .ari-viz-modal {
     padding: 16px;
@@ -578,11 +614,23 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* Text-led visuals flow with the reply; a nested scroller cut their legends and lines mid-way. */
+.ari-viz:is(
+    [data-type='pie'],
+    [data-type='donut'],
+    [data-type='funnel'],
+    [data-type='timeline'],
+    [data-type='metrics']
+  )
+  .ari-viz-visual-scroll {
+  max-height: none;
+}
 .ari-viz-bar-options {
   padding: 0 20px 10px;
 }
 .ari-viz-heatmap-key {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 9px;

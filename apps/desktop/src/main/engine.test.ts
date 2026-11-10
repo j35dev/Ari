@@ -264,7 +264,7 @@ describe('Aria provider switching', () => {
     expect(published).toEqual([])
     release()
     expect(await starting).toEqual({ accepted: true })
-    expect(await switching).toEqual({ accepted: true })
+    expect(await switching).toMatchObject({ accepted: true })
     await engine.quiesce('aria')
     expect(created[0]!.modelId).toBeNull()
     expect(published.findIndex((entry) => entry.event.type === 'turn.started')).toBeLessThan(
@@ -516,7 +516,7 @@ describe('Aria provider switching', () => {
         modelId: null,
         effort: null,
       }),
-    ).toEqual({ accepted: true })
+    ).toEqual({ accepted: true, switchTiming: { effective: 'ready', afterTurnId: null } })
     expect(releaseConnection).toHaveBeenCalledWith('aria')
     expect(
       await engine.dispatch({
@@ -820,7 +820,7 @@ describe('Aria provider switching', () => {
           modelId: 'opus',
           effort: 'high',
         }),
-      ).toEqual({ accepted: true })
+      ).toEqual({ accepted: true, switchTiming: { effective: 'ready', afterTurnId: null } })
       await turn(engine, 'Continue the work.')
       const fresh = created[1]!
       expect(fresh).toMatchObject({ resumeOf: null, modelId: 'opus', effort: 'high' })

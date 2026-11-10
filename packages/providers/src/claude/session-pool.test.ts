@@ -224,6 +224,7 @@ describe('Claude process continuity', () => {
     { resumeOf: null },
     { resumeOf: 'different-thread' },
     { modelId: 'another-model' },
+    { effort: 'high' },
     { permissionMode: 'full' as const },
     { runtimeEnv: { CLAUDE_CONFIG_DIR: '/other-profile' } },
   ])('starts a fresh process after a reset or launch change: %j', async (change) => {

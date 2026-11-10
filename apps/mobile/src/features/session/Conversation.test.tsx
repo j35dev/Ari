@@ -173,9 +173,18 @@ it('keeps a delegation wake out of the conversation', () => {
     origin: { kind: 'completion', sessionIds: ['c'] },
   }
   const typed = message('user', [text('Ship the parser.')])
-  const { container } = render(<Conversation messages={[typed, update]} sessionId="session-1" />)
+  const coordination: Message = {
+    ...update,
+    id: 'coordination',
+    origin: { kind: 'coordination', deliveryId: 'wake', messageIds: ['inbox'] },
+    parts: [text('Ari coordination inbox notice')],
+  }
+  const { container } = render(
+    <Conversation messages={[typed, update, coordination]} sessionId="session-1" />,
+  )
   expect(screen.getByText('Ship the parser.')).toBeTruthy()
   expect(screen.queryByText(/Fixed the parser/)).toBeNull()
   expect(screen.queryByText(/Delegation update/)).toBeNull()
+  expect(screen.queryByText(/coordination inbox notice/)).toBeNull()
   expect(container.querySelectorAll('.message-bubble')).toHaveLength(1)
 })
