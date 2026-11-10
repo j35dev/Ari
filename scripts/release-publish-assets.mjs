@@ -77,7 +77,7 @@ export async function assemble(inputRoot, outputRoot, sourceHead, version) {
   const { verifyArtifacts } = await import('./release-artifacts.mjs')
   const platforms = [
     ['windows-latest', 'win32'],
-    ['macos-15', 'darwin'],
+    ['macos-latest', 'darwin'],
     ['ubuntu-latest', 'linux'],
   ]
   const manifest = { sourceHead, version, files: [], platforms: [] }
