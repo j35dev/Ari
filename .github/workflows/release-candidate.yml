@@ -1,0 +1,92 @@
+name: release-candidate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/desktop/package.json
+      - apps/desktop/packaging/**
+      - scripts/release-*.mjs
+      - .github/workflows/release-candidate.yml
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact reviewed candidate commit SHA (no publishing)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/release-candidate-')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win --x64
+          - os: macos-15-arm64
+            args: --mac
+          - os: ubuntu-latest
+            args: --linux --x64
+    runs-on: ${{ matrix.os }}
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || inputs.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked workspace
+        run: pnpm install --frozen-lockfile
+      - name: Validate release gate fixtures
+        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs
+      - name: Build desktop bundle
+        run: pnpm --filter @ari/desktop build
+      - name: Build mobile PWA
+        run: pnpm --filter @ari/mobile build
+      # Node-API prebuilds are collected without install-app-deps or native rebuilds.
+      - name: Package without publishing
+        run: pnpm exec electron-builder ${{ matrix.args }} --publish never
+        working-directory: apps/desktop
+      - name: Verify artifact metadata and both native macOS slices
+        run: node scripts/release-artifacts.mjs
+      - name: Record Windows installer signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ariCandidateVersion = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
+          $ariCandidateInstaller = Join-Path dist ("Ari-Setup-" + $ariCandidateVersion + ".exe")
+          Get-AuthenticodeSignature -LiteralPath $ariCandidateInstaller |
+            Select-Object Status, StatusMessage, Path |
+            ConvertTo-Json | Set-Content dist/signature.json
+      - name: Record macOS signature
+        if: runner.os == 'macOS'
+        run: codesign --display --verbose=4 dist/mac-universal/ari.app 2> dist/signature.txt
+      - name: Retain candidate artifacts and receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-candidate-${{ matrix.os }}-${{ env.CANDIDATE_SHA }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.blockmap
+            dist/latest*.yml
+            dist/candidate-artifacts.json
+            dist/signature.*
+          if-no-files-found: error
