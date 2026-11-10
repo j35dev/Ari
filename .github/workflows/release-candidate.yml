@@ -46,7 +46,7 @@ jobs:
       - name: Install locked workspace
         run: pnpm install --frozen-lockfile
       - name: Validate release gate fixtures
-        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs
+        run: node --test scripts/release-native-audit.test.mjs scripts/release-artifacts.test.mjs scripts/release-macos-preflight.test.mjs
       - name: Build desktop bundle
         run: pnpm --filter @ari/desktop build
       - name: Build mobile PWA
@@ -55,6 +55,9 @@ jobs:
       - name: Package without publishing
         run: pnpm exec electron-builder ${{ matrix.args }} --publish never
         working-directory: apps/desktop
+      - name: Diagnose macOS translated packaged runtime startup
+        if: runner.os == 'macOS'
+        run: node scripts/release-macos-preflight.mjs
       - name: Verify artifact metadata and both native macOS slices
         if: runner.os != 'Linux'
         run: node scripts/release-artifacts.mjs
@@ -91,4 +94,5 @@ jobs:
             dist/latest*.yml
             dist/candidate-artifacts.json
             dist/signature.*
+            dist/macos-preflight.json
           if-no-files-found: error
