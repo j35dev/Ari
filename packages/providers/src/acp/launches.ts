@@ -171,6 +171,13 @@ export function probeLaunch(launch: AcpLaunch): AcpLaunch {
   return { ...launch, args: ['--no-install', ...args] }
 }
 
+/** Background discovery needs no user/project/plugin MCP servers. */
+export function probeSessionMeta(kind: DriverKind): Record<string, unknown> | undefined {
+  // An empty ACP mcpServers list alone still lets Claude load saved MCP
+  // configuration. The pinned adapter forwards this SDK option to the CLI.
+  return kind === 'claude' ? { claudeCode: { options: { strictMcpConfig: true } } } : undefined
+}
+
 /**
  * The file the Claude adapter can be pointed at. It starts this path with no
  * shell, so an npm `.cmd` shim fails outright (EINVAL) and takes the whole ACP

@@ -11,6 +11,7 @@ import {
   acpPromptStallMs,
 } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
+import { probeSessionMeta } from './launches'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
 
@@ -251,6 +252,45 @@ describe('AcpConnection', () => {
     bare.kill()
   })
 
+  it.each(['claude', 'codex'] as const)(
+    'opens a %s background probe over stdio with the appropriate MCP policy',
+    async (kind) => {
+      const connection = await AcpConnection.connect({
+        cwd: process.cwd(),
+        sessionMeta: probeSessionMeta(kind),
+        launch: {
+          label: 'background discovery fixture',
+          command: process.execPath,
+          args: [
+            '-e',
+            `
+          require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+            const message = JSON.parse(line);
+            let result;
+            if (message.method === 'initialize') result = { protocolVersion: 1 };
+            if (message.method === 'session/new') {
+              const params = message.params;
+              result = { sessionId: params._meta?.claudeCode?.options?.strictMcpConfig === true ? 'isolated' : 'ordinary',
+                configOptions: [{ category: 'model', type: 'select', id: 'model', name: 'Model',
+                  currentValue: 'fixture', options: [{ value: 'fixture', name: 'Fixture' }] }] };
+              if (params.mcpServers.length !== 0) throw new Error('Probe received client MCP servers');
+            }
+            if (result) console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+          });
+        `,
+          ],
+        },
+      })
+      try {
+        const session = await connection.newSession(process.cwd())
+        expect(session.sessionId).toBe(kind === 'claude' ? 'isolated' : 'ordinary')
+        expect(session.configOptions?.[0]?.currentValue).toBe('fixture')
+      } finally {
+        await connection.shutdown()
+      }
+    },
+  )
+
   it('hands HTTP MCP servers to session/new unless the agent opted out', async () => {
     const httpServer = {
       type: 'http' as const,
@@ -463,7 +503,8 @@ describe('AcpConnection', () => {
     const stdioServer = { name: 'ari-browser', command: 'node', args: ['proxy.js'], env: [] }
     const httpChild = fakeChild()
     script(httpChild, (method) => {
-      if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } }
+      if (method === 'initialize')
+        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } }
       return null
     })
     const httpConn = await AcpConnection.connect({
@@ -476,8 +517,7 @@ describe('AcpConnection', () => {
     await httpConn.resumeSession('sess_old', '/next')
     for (const method of ['session/load', 'session/resume']) {
       const frame = httpChild.sent.find((message) => message['method'] === method) as
-        | { params?: Record<string, unknown> }
-        | undefined
+        { params?: Record<string, unknown> } | undefined
       expect(frame?.params?.['mcpServers']).toEqual([httpServer])
       expect(frame?.params).not.toHaveProperty('_meta')
     }
@@ -498,8 +538,7 @@ describe('AcpConnection', () => {
     })
     await stdioConn.resumeSession('sess_old', '/next')
     const resumed = stdioChild.sent.find((message) => message['method'] === 'session/resume') as
-      | { params?: { mcpServers?: unknown[] } }
-      | undefined
+      { params?: { mcpServers?: unknown[] } } | undefined
     expect(resumed?.params?.mcpServers).toEqual([stdioServer])
     stdioConn.kill()
   })
