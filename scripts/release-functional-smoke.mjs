@@ -439,7 +439,30 @@ async function runProfile(options, suiteRoot, fixturePath) {
       (target) =>
         target.type === 'page' &&
         normalized(target.url).endsWith(`${normalized(options.archive)}/out/renderer/index.html`),
-    )
+    ).catch(async (error) => {
+      // Record what did exist: renderer targets, web contents and child processes.
+      receipt.rendererDiscovery = {
+        targets: await debuggerTargets(rendererPort).then(
+          (targets) => targets.map(({ type, url, title }) => ({ type, url, title })),
+          (reason) => String(reason),
+        ),
+        main: await main
+          .evaluate(
+            `(() => {
+      const { app, webContents } = process.getBuiltinModule('module').createRequire(process.execPath)('electron');
+      return {
+        processes: app.getAppMetrics().map(({ type, pid, name, serviceName }) => ({ type, pid, name, serviceName })),
+        contents: webContents.getAllWebContents().map((w) => ({ type: w.getType(), url: w.getURL(),
+          loading: w.isLoading(), crashed: w.isCrashed(), pid: w.getOSProcessId() })),
+      };
+    })()`,
+            10_000,
+            false,
+          )
+          .catch((reason) => String(reason)),
+      }
+      throw error
+    })
     renderer = await CDP.connect(page.webSocketDebuggerUrl)
     const rendererErrors = []
     renderer.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
