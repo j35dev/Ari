@@ -44,7 +44,12 @@ export function Conversation({
         const previous = messages[index - 1]
         const user = message.role === 'user'
         // The parent agent still receives these wakes. They are not part of the chat.
-        if (user && (message.origin?.kind === 'completion' || message.origin?.kind === 'question'))
+        if (
+          user &&
+          (message.origin?.kind === 'completion' ||
+            message.origin?.kind === 'question' ||
+            message.origin?.kind === 'coordination')
+        )
           return null
         const sender = message.origin?.kind === 'session' ? message.origin.sessionId : null
         const senderTitle = sender === null ? undefined : titleOf?.(sender)

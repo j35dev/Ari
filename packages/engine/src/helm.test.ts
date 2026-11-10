@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { delegationSettingsSchema, type HelmProject } from '@ari/contracts/agent-control'
-import { HELM_PROJECT_ID } from '@ari/contracts/helm'
+import { HELM_ERROR_MESSAGE_CHARS, HELM_PROJECT_ID } from '@ari/contracts/helm'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { SessionStore } from './session-store'
@@ -11,6 +11,7 @@ import { decideCommand } from './dispatcher'
 import { providerTurnContext } from './provider-context'
 import {
   findSessions,
+  helmRow,
   helmSnapshot,
   helmReportRecipient,
   helmTaskRecipient,
@@ -342,10 +343,179 @@ it('tells Aria what is running across projects and what finished lately', async 
   expect(text).toContain('Projects:\n- Web (web)\n- API (api)\n- Gone (gone, folder missing)')
   expect(text).toContain('"Limiter tests" (api2) in API, child of "Rate limiter": working')
   expect(text).toContain('Finished in the last day, from work you asked for:')
-  expect(text).toMatch(/"Login redirect bug" \(web1\) in Web: idle, \d+m ago/)
+  expect(text).toMatch(/"Login redirect bug" \(web1\) in Web: completed, \d+m ago/)
   expect(text).not.toContain('helm1')
   const active = await findSessions(view, { scope: 'active', limit: 10 })
   expect(active.map((row) => row.sessionId)).toEqual(['api2'])
+})
+
+it.each([
+  ['completed', 'completed', null],
+  ['interrupted', 'interrupted', null],
+  ['error', 'failed', 'Provider authentication failed'],
+] as const)(
+  'shows a text-free %s turn outcome while keeping the session idle',
+  async (stopReason, label, errorMessage) => {
+    const turnId = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+    const settledAt = Date.now()
+    running.delete('web1')
+    await store.append('web1', {
+      type: 'turn.settled',
+      turnId,
+      stopReason,
+      errorMessage,
+      at: settledAt,
+    })
+    await store.append('helm1', {
+      type: 'child.session.settled',
+      childSessionId: 'web1',
+      turnId,
+      stopReason,
+    })
+    const view: HelmView = {
+      rows: await store.listSessions(),
+      load: (id) => store.load(id),
+      projectName: (id) => projects.find((project) => project.projectId === id)?.name ?? null,
+    }
+    const rows = await findSessions(view, { projectId: 'web', scope: 'all', limit: 10 })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      state: 'idle',
+      preview: null,
+      latestTurn: { turnId, stopReason, settledAt, errorMessage },
+    })
+    const text = await helmSnapshot(view, await store.load('helm1'), projects)
+    expect(text).toContain('Nothing is running.')
+    expect(text).toContain(
+      `"Login redirect bug" (web1) in Web: ${label}${errorMessage ? `: ${errorMessage}` : ''},`,
+    )
+  },
+)
+
+it('bounds provider failure text on the row and snapshot without extra history reads', async () => {
+  const turnId = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+  const errorMessage = `  Provider rejected the request.\n${'Long provider diagnostic. '.repeat(200)}  `
+  running.delete('web1')
+  await store.append('web1', { type: 'turn.settled', turnId, stopReason: 'error', errorMessage })
+  await store.append('helm1', {
+    type: 'child.session.settled',
+    childSessionId: 'web1',
+    turnId,
+    stopReason: 'error',
+  })
+  const model = await store.load('web1')
+  const rows = (await store.listSessions()).filter((row) => row.id === 'web1')
+  const load = vi.fn(async () => model)
+  const view: HelmView = { rows, load, projectName: () => 'Web' }
+  const row = await helmRow(view, rows[0]!)
+  expect(row.latestTurn?.errorMessage).toHaveLength(HELM_ERROR_MESSAGE_CHARS)
+  expect(row.latestTurn?.errorMessage).toMatch(
+    /^Provider rejected the request\. Long provider diagnostic\./,
+  )
+  expect(row.latestTurn?.errorMessage).toMatch(/…$/)
+  expect(row.latestTurn?.errorMessage).not.toMatch(/[\r\n]/)
+  expect(load).toHaveBeenCalledExactlyOnceWith('web1')
+  const text = await helmSnapshot(view, await store.load('helm1'), projects)
+  expect(text).toContain(`failed: ${row.latestTurn?.errorMessage ?? ''}`)
+  expect(text).not.toContain(errorMessage)
+  // The listing still says running: the snapshot checks it, then reads the finished outcome.
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it.each(['working', 'needs_user', 'queued'] as const)(
+  'hides the previous failure when newer work is %s',
+  async (state) => {
+    const failed = await startTurn('web1', 'Fix login', { kind: 'session', sessionId: 'helm1' })
+    await store.append('web1', {
+      type: 'assistant.parts.appended',
+      messageId: 'old-failure',
+      parts: [{ type: 'text', text: 'Failed to sign in.' }],
+    })
+    running.delete('web1')
+    await store.append('web1', {
+      type: 'turn.settled',
+      turnId: failed,
+      stopReason: 'error',
+      errorMessage: 'Old authentication error',
+    })
+    await store.append('helm1', {
+      type: 'child.session.settled',
+      childSessionId: 'web1',
+      turnId: failed,
+      stopReason: 'error',
+    })
+    if (state === 'queued') {
+      const decision = decideCommand(
+        await store.load('web1'),
+        {
+          type: 'message.enqueue',
+          sessionId: 'web1',
+          text: 'Retry login',
+          attachments: [],
+          hold: true,
+        },
+        { turnId: 'queued-retry', messageId: 'queued-retry-message' },
+        { kind: 'session', sessionId: 'helm1' },
+      )
+      for (const event of decision.events) await store.append('web1', event)
+    } else {
+      await startTurn('web1', 'Retry login', { kind: 'session', sessionId: 'helm1' })
+      if (state === 'needs_user')
+        await store.append('web1', {
+          type: 'approval.requested',
+          approvalId: 'retry-approval',
+          toolName: 'Bash',
+          summaryJson: '{}',
+          options: [],
+        })
+    }
+    const view: HelmView = {
+      rows: await store.listSessions(),
+      load: (id) => store.load(id),
+      projectName: () => 'Web',
+    }
+    const row = await helmRow(
+      view,
+      view.rows.find((entry) => entry.id === 'web1')!,
+    )
+    expect(row).toMatchObject({ state, latestTurn: null, preview: null })
+    const text = await helmSnapshot(view, await store.load('helm1'), projects)
+    expect(text).not.toContain('Old authentication error')
+    expect(text).not.toContain('Failed to sign in.')
+    expect(text).not.toContain('in Web: failed')
+    if (state === 'working') {
+      expect(text).toContain('in Web: working')
+      await store.append('web1', {
+        type: 'assistant.parts.appended',
+        messageId: 'retry-progress',
+        parts: [{ type: 'text', text: 'Checking the configured account.' }],
+      })
+      expect(
+        await helmRow(
+          view,
+          view.rows.find((entry) => entry.id === 'web1')!,
+        ),
+      ).toMatchObject({
+        state: 'working',
+        latestTurn: null,
+        preview: 'Checking the configured account.',
+      })
+    }
+  },
+)
+
+it('keeps a never-started session idle without inventing a settled outcome', async () => {
+  const view: HelmView = {
+    rows: await store.listSessions(),
+    load: (id) => store.load(id),
+    projectName: () => 'Web',
+  }
+  expect(
+    await helmRow(
+      view,
+      view.rows.find((entry) => entry.id === 'web1')!,
+    ),
+  ).toMatchObject({ state: 'idle', latestTurn: null, preview: null })
 })
 
 it('reports the sessions Aria started in its own status, like children', async () => {

@@ -135,7 +135,7 @@ beforeEach(async () => {
   await create('b', 'root')
 })
 afterEach(async () => {
-  supervisor.close()
+  await supervisor.close()
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
   await rm(dir, { recursive: true, force: true })
 })
@@ -154,7 +154,7 @@ it('recovers a delivered parent result after acknowledgement loss without resubm
   await supervisor.evaluate('root')
   expect(await notices('root')).toHaveLength(1)
   host.record = record
-  supervisor.close()
+  await supervisor.close()
   await store.closeJournal('root')
   supervisor = new DelegationSupervisor(host)
   await supervisor.evaluate('root')
@@ -439,6 +439,57 @@ it('settles a child turn that a restart left open, and leaves a root alone', asy
   await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
   expect((await store.load('root')).activeTurnId).not.toBeNull()
   expect((await store.load('b')).lastTurn).toBeUndefined()
+})
+
+it('repairs a child settlement whose parent mirror was lost before a restart', async () => {
+  await start('root')
+  await settle('root')
+  const turnId = await start('a')
+  const settled = await store.append('a', {
+    type: 'turn.settled',
+    turnId,
+    stopReason: 'completed',
+    errorMessage: null,
+  })
+  expect((await store.load('root')).childCompletions?.a).toBeUndefined()
+  supervisor.start()
+  await expect
+    .poll(async () => (await store.load('root')).childCompletions?.a)
+    .toMatchObject({ turnId, stopReason: 'completed', settledAt: settled.at, acknowledged: false })
+  // Recover information, never replay old unattended work.
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+})
+
+it('replays live settles that arrive during startup reconciliation instead of holding them as history', async () => {
+  const list = store.listSessions.bind(store)
+  let calls = 0
+  let unblock!: () => void
+  let entered!: () => void
+  const gate = new Promise<void>((resolve) => {
+    unblock = resolve
+  })
+  const blocked = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  store.listSessions = async () => {
+    // The request supervisor subscribes/reads first; block delegation's inventory.
+    if (++calls === 2) {
+      entered()
+      await gate
+    }
+    return list()
+  }
+  host.settleDelayMs = 5
+  supervisor.start()
+  await blocked
+  await start('root')
+  await settle('root')
+  await start('a')
+  await settle('a', 'completed', 'Finished during recovery')
+  unblock()
+  await expect.poll(async () => (await notices('root')).length).toBe(1)
+  expect(JSON.stringify((await notices('root'))[0]?.parts)).toContain('Finished during recovery')
 })
 
 it('wakes a lead with a delegated child question, once, and never for a person’s child', async () => {
@@ -779,7 +830,7 @@ it('allows eight automatic Aria turns, holds the ninth report across restart, an
   await supervisor.evaluate('helm1')
   expect(await notices('helm1')).toHaveLength(8)
   expect((await store.load('helm1')).childCompletions?.a?.acknowledged).toBe(false)
-  supervisor.close()
+  await supervisor.close()
   supervisor = new DelegationSupervisor(host)
   host.isRunning = () => false
   supervisor.start()

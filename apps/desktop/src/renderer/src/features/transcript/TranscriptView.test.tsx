@@ -159,10 +159,16 @@ describe('TranscriptView delegation', () => {
       origin: { kind: 'question', sessionId: 'child_a', inputId: 'in_1' },
       parts: [{ type: 'text', text: '[Ari delegation question: Parser is waiting.]' }],
     }
-    render(view([message('a'), notice, question, message('b')]))
+    const coordination: Message = {
+      ...message('coordination'),
+      origin: { kind: 'coordination', deliveryId: 'wake', messageIds: ['inbox'] },
+      parts: [{ type: 'text', text: '[Ari coordination inbox notice]' }],
+    }
+    render(view([message('a'), notice, question, coordination, message('b')]))
     expect(screen.queryByRole('button', { name: /Delegation update/ })).not.toBeInTheDocument()
     expect(screen.queryByText(/Fixed it/)).not.toBeInTheDocument()
     expect(screen.queryByText(/delegation question/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/coordination inbox notice/)).not.toBeInTheDocument()
     expect(screen.getByText('hello a')).toBeInTheDocument()
     expect(screen.getByText('hello b')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /^Jump to/ })).toHaveLength(2)

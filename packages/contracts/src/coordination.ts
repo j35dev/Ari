@@ -10,5 +10,15 @@ export const coordinationMessageSchema = z.object({
   status: z.enum(['pending', 'delivering', 'delivered', 'consumed', 'uncertain']),
   turnId: z.string().nullable(),
   consumedAt: z.number().nullable(),
+  /** Provider request behind a system notice; resolution is separate from consumption. */
+  request: z
+    .object({
+      kind: z.enum(['input', 'approval']),
+      requestId: z.string().min(1),
+      sourceTurnId: z.string().min(1),
+      ownerSessionId: z.string().nullable(),
+      resolvedAt: z.number().nullable(),
+    })
+    .optional(),
 })
 export type CoordinationMessage = z.infer<typeof coordinationMessageSchema>
