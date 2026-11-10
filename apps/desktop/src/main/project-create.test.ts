@@ -11,11 +11,17 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, parse } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { dirname, join, parse } from 'node:path'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ProjectStore } from '@ari/engine/projects'
 import { GitService, ManagedWorkspaces } from '@ari/engine/git'
 import type { Session } from '@ari/contracts/session'
+import { ControlFailure } from '@ari/contracts/agent-control'
+import {
+  projectCreationFailureDetailsSchema,
+  projectCreationProgressSchema,
+  type ProjectCreationProgress,
+} from '@ari/contracts/project'
 import {
   createProject,
   defaultProjectsFolder,
@@ -39,8 +45,261 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await rm(dir, { recursive: true, force: true, maxRetries: 3 })
 })
+
+it.each(['repository_check', 'git_init', 'initial_commit', 'registering'] as const)(
+  'preserves the exact chosen folder and failed %s phase without exposing exception output',
+  async (phase) => {
+    const path = join(deps.home, 'Projects', 'app')
+    const secret = 'Fixture secret that must not enter recovery details'
+    if (phase === 'repository_check') {
+      vi.spyOn(GitService.prototype, 'isRepo').mockResolvedValue({
+        ok: false,
+        error: { code: 'command_failed', message: secret },
+      })
+    } else if (phase !== 'registering') {
+      const original = GitService.prototype.runPlumbing
+      vi.spyOn(GitService.prototype, 'runPlumbing').mockImplementation(async (cwd, args, env) => {
+        if (
+          (phase === 'git_init' && args[0] === 'init') ||
+          (phase === 'initial_commit' && args.includes('commit'))
+        ) {
+          await writeFile(join(cwd, 'notes.txt'), 'Keep partial work')
+          return { ok: false, error: { code: 'command_failed', message: secret } }
+        }
+        return original.call(git, cwd, args, env)
+      })
+    } else {
+      // Make the real registry write fail after the helper initializes the repo.
+      await mkdir(join(deps.userData, 'projects.json.tmp'))
+    }
+    const error: unknown = await createProject(deps, { name: 'App' }).catch(
+      (failure: unknown) => failure,
+    )
+    expect(error).toBeInstanceOf(ControlFailure)
+    expect(error).toMatchObject({
+      code: 'uncertain_outcome',
+      details: {
+        projectCreation: { name: 'App', path, created: true, phase },
+        failureCode: phase === 'registering' ? 'project_registration_failed' : 'project_git_failed',
+      },
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+    if (error instanceof ControlFailure) {
+      expect(error.message).not.toContain(secret)
+      expect(projectCreationFailureDetailsSchema.safeParse(error.details).success).toBe(true)
+    }
+    expect((await stat(path)).isDirectory()).toBe(true)
+    expect(await readdir(dirname(path))).toEqual(['app'])
+    if (phase === 'registering') {
+      await expect(readFile(join(deps.userData, 'projects.json'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      })
+    } else expect(await deps.projects.load()).toEqual([])
+    if (phase === 'initial_commit')
+      expect((await stat(join(path, '.git'))).isDirectory()).toBe(true)
+    if (phase === 'git_init' || phase === 'initial_commit') {
+      expect(await readFile(join(path, 'notes.txt'), 'utf8')).toBe('Keep partial work')
+    }
+  },
+)
+
+it('awaits receipt persistence and emits distinct immutable snapshots before later effects', async () => {
+  let release!: () => void
+  let enter!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve
+  })
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const path = join(dir, 'held')
+  const snapshots: Readonly<ProjectCreationProgress>[] = []
+  const repoCheck = vi.spyOn(GitService.prototype, 'isRepo')
+  const registration = vi.spyOn(deps.projects, 'open')
+  const creation = createProject(
+    {
+      ...deps,
+      onProgress: async (snapshot) => {
+        snapshots.push(snapshot)
+        if (snapshot.phase === 'folder_ready') {
+          enter()
+          await held
+        }
+      },
+    },
+    { name: 'Held', path },
+  )
+  try {
+    await entered
+    expect((await stat(path)).isDirectory()).toBe(true)
+    expect(await readdir(path)).toEqual([])
+    expect(repoCheck).not.toHaveBeenCalled()
+    expect(registration).not.toHaveBeenCalled()
+  } finally {
+    release()
+  }
+  const result = await creation
+  expect(snapshots.map((snapshot) => snapshot.phase)).toEqual([
+    'folder_ready',
+    'repository_check',
+    'git_init',
+    'initial_commit',
+    'registering',
+    'registered',
+  ])
+  expect(snapshots.every((snapshot) => Object.isFrozen(snapshot))).toBe(true)
+  expect(
+    snapshots.every((snapshot) => projectCreationProgressSchema.safeParse(snapshot).success),
+  ).toBe(true)
+  expect(new Set(snapshots).size).toBe(snapshots.length)
+  expect(snapshots[0]?.projectId).toBeUndefined()
+  expect(snapshots.at(-1)).toEqual({ ...result, phase: 'registered' })
+})
+
+it('preserves adopted content, saved preferences and actual identity after registered receipt failure', async () => {
+  const path = join(dir, 'adopted')
+  await mkdir(path)
+  await writeFile(join(path, 'notes.txt'), 'Keep existing work')
+  const project = await deps.projects.add(path, 'Existing name')
+  const agent = {
+    driverKind: 'codex' as const,
+    modelId: 'saved',
+    effort: 'high',
+    permissionMode: 'full' as const,
+  }
+  await deps.projects.setDefaultAgent(project.id, agent)
+  const repoCheck = vi.spyOn(GitService.prototype, 'isRepo')
+  const plumbing = vi.spyOn(GitService.prototype, 'runPlumbing')
+  const snapshots: Readonly<ProjectCreationProgress>[] = []
+  const error: unknown = await createProject(
+    {
+      ...deps,
+      onProgress: async (snapshot) => {
+        snapshots.push(snapshot)
+        if (snapshot.phase === 'registered') throw new Error('Registration receipt failed')
+      },
+    },
+    { name: 'Requested name', path },
+  ).catch((failure: unknown) => failure)
+  expect(error).toMatchObject({
+    code: 'uncertain_outcome',
+    details: {
+      failureCode: 'project_progress_failed',
+      projectCreation: {
+        name: 'Existing name',
+        path,
+        created: false,
+        phase: 'registered',
+        projectId: project.id,
+      },
+    },
+  })
+  expect(snapshots.map((snapshot) => snapshot.phase)).toEqual([
+    'folder_ready',
+    'registering',
+    'registered',
+  ])
+  expect(repoCheck).not.toHaveBeenCalled()
+  expect(plumbing).not.toHaveBeenCalled()
+  expect(await readdir(path)).toEqual(['notes.txt'])
+  expect(await readFile(join(path, 'notes.txt'), 'utf8')).toBe('Keep existing work')
+  const reloaded = new ProjectStore({ dir: deps.userData })
+  await reloaded.load()
+  expect(reloaded.get(project.id)).toMatchObject({
+    name: 'Existing name',
+    open: true,
+    defaultAgent: agent,
+  })
+})
+
+it('bounds progress display names without changing successful project names or exact paths', async () => {
+  const path = join(dir, 'display-name')
+  const name = `A\n${'x'.repeat(130)}`
+  const snapshots: Readonly<ProjectCreationProgress>[] = []
+  const result = await createProject(
+    {
+      ...deps,
+      onProgress: async (snapshot) => {
+        snapshots.push(snapshot)
+      },
+    },
+    { name, path },
+  )
+  expect(result.name).toBe(name)
+  expect(
+    snapshots.every((snapshot) => snapshot.name.length <= 120 && !snapshot.name.includes('\n')),
+  ).toBe(true)
+  expect(snapshots.every((snapshot) => snapshot.path === path)).toBe(true)
+})
+
+it('keeps validation failures before target effects retryable and emits no recovery progress', async () => {
+  const onProgress = vi.fn(async () => undefined)
+  await expect(
+    createProject({ ...deps, onProgress }, { name: 'Unsafe', path: deps.home }),
+  ).rejects.toMatchObject({
+    code: 'unsafe_project_path',
+    details: undefined,
+  })
+  expect(onProgress).not.toHaveBeenCalled()
+  expect(await readdir(deps.home)).toEqual([])
+  expect(await deps.projects.load()).toEqual([])
+})
+
+it.each([
+  'folder_ready',
+  'repository_check',
+  'git_init',
+  'initial_commit',
+  'registering',
+  'registered',
+] as const)(
+  'stops subsequent effects when persisting the %s progress snapshot fails',
+  async (phase) => {
+    const path = join(dir, 'new-app')
+    const progress: Readonly<ProjectCreationProgress>[] = []
+    const repoCheck = vi.spyOn(GitService.prototype, 'isRepo')
+    const plumbing = vi.spyOn(GitService.prototype, 'runPlumbing')
+    const registration = vi.spyOn(deps.projects, 'open')
+    const error: unknown = await createProject(
+      {
+        ...deps,
+        onProgress: async (snapshot: Readonly<ProjectCreationProgress>) => {
+          expect(Object.isFrozen(snapshot)).toBe(true)
+          progress.push(snapshot)
+          if (snapshot.phase === phase) throw new Error('Receipt persistence unavailable')
+        },
+      },
+      { name: 'New app', path },
+    ).catch((failure: unknown) => failure)
+    expect(error).toMatchObject({
+      code: 'uncertain_outcome',
+      details: {
+        projectCreation: { name: 'New app', path, created: true, phase },
+        failureCode: 'project_progress_failed',
+      },
+    })
+    expect(progress.at(-1)?.phase).toBe(phase)
+    expect(progress[0]?.phase).toBe('folder_ready')
+    expect(new Set(progress).size).toBe(progress.length)
+    expect((await stat(path)).isDirectory()).toBe(true)
+    const didInit = phase === 'initial_commit' || phase === 'registering' || phase === 'registered'
+    const didCommit = phase === 'registering' || phase === 'registered'
+    expect(plumbing.mock.calls.some(([, args]) => args[0] === 'init')).toBe(didInit)
+    expect(plumbing.mock.calls.some(([, args]) => args.includes('commit'))).toBe(didCommit)
+    expect(repoCheck).toHaveBeenCalledTimes(
+      phase === 'folder_ready' || phase === 'repository_check' ? 0 : 1,
+    )
+    expect(registration).toHaveBeenCalledTimes(phase === 'registered' ? 1 : 0)
+    if (phase === 'registered') {
+      const project = (await deps.projects.load())[0]!
+      expect(error).toMatchObject({ details: { projectCreation: { projectId: project.id } } })
+      expect(progress.at(-1)?.projectId).toBe(project.id)
+    } else expect(await deps.projects.load()).toEqual([])
+  },
+)
 
 it.each([
   ['  Garden / Planner: app?!  ', 'garden-planner-app'],
@@ -182,7 +441,22 @@ it('leaves an existing repository and its HEAD untouched, including new folders 
   expect(await createProject(deps, { name: 'Existing', path: existing.path })).toMatchObject({
     created: false,
   })
-  const nested = await createProject(deps, { name: 'Nested', path: join(existing.path, 'nested') })
+  const progress: Readonly<ProjectCreationProgress>[] = []
+  const nested = await createProject(
+    {
+      ...deps,
+      onProgress: async (snapshot) => {
+        progress.push(snapshot)
+      },
+    },
+    { name: 'Nested', path: join(existing.path, 'nested') },
+  )
+  expect(progress.map((snapshot) => snapshot.phase)).toEqual([
+    'folder_ready',
+    'repository_check',
+    'registering',
+    'registered',
+  ])
   expect(nested.created).toBe(true)
   expect(await readdir(nested.path)).toEqual([])
   expect(await git.runPlumbing(existing.path, ['rev-parse', 'HEAD'])).toEqual(head)
