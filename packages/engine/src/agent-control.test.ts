@@ -442,7 +442,17 @@ it('preserves an isolated orphan for inspection when session create outcome is u
       workspaceMode: 'isolated',
       idempotencyKey: 'iso-fail',
     }),
-  ).toMatchObject({ ok: false, error: { code: 'internal_error' } })
+  ).toMatchObject({
+    ok: false,
+    error: {
+      code: 'uncertain_outcome',
+      details: {
+        childSessionId: expect.any(String) as string,
+        stage: 'session_creating',
+        workspace: { kind: 'managed-worktree' },
+      },
+    },
+  })
   expect(released).toHaveLength(0)
   expect((await store.listSessions()).map((s) => s.id)).toEqual(['root'])
 })

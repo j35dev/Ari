@@ -2,6 +2,7 @@ import type { CoordinationMessage } from '@ari/contracts/coordination'
 import { newTypedId } from '@ari/shared/ids'
 import { createHash } from 'node:crypto'
 import type { OperationReceipt } from '@ari/contracts/orchestration'
+import { z } from 'zod'
 import { exceedsPermission } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import {
@@ -25,7 +26,7 @@ import {
   isHelmProjectLead,
   isHelmProjectSession,
 } from '@ari/contracts/helm'
-import type { Session, SessionWorkspace } from '@ari/contracts/session'
+import { sessionWorkspaceSchema, type Session, type SessionWorkspace } from '@ari/contracts/session'
 import type { Message } from '@ari/contracts/message'
 import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
@@ -49,7 +50,13 @@ import {
   type ProjectAgentDefaults,
   type ProjectAgentProvider,
 } from './projects'
-import type { ProjectAgent, ResolvedProjectAgent } from '@ari/contracts/project'
+import {
+  projectCreationFailureDetailsSchema,
+  projectCreationProgressSchema,
+  type ProjectCreationProgress,
+  type ProjectAgent,
+  type ResolvedProjectAgent,
+} from '@ari/contracts/project'
 import { resolveLaunchEffort, type LaunchEffortOption } from './launch-effort'
 
 const log = createLogger('engine:control')
@@ -80,6 +87,46 @@ function projectAgentError(
   return `${choice} project agent ${identity}: ${reason}. Keep the saved choice; restore availability and retry with the same key.`
 }
 const PROJECT_HUMAN_WAIT_MS = 3 * 60_000
+
+const projectRecoveryReceiptSchema = z.object({
+  recovery: projectCreationFailureDetailsSchema.partial({ failureCode: true }),
+})
+const workerRecoveryReceiptSchema = z.object({
+  recovery: z
+    .object({
+      childSessionId: z.string().min(1).max(128),
+      stage: z.enum([
+        'workspace_preparing',
+        'workspace_prepared',
+        'session_creating',
+        'session_created',
+      ]),
+      projectId: z.string().min(1).max(128).optional(),
+      workspace: sessionWorkspaceSchema.optional(),
+      workspacePath: z.string().min(1).max(32_767).optional(),
+    })
+    .strict()
+    .refine(
+      (recovery) => recovery.stage === 'workspace_preparing' || recovery.workspace !== undefined,
+    )
+    .refine(
+      (recovery) =>
+        recovery.workspace?.kind !== 'managed-worktree' ||
+        recovery.workspacePath === undefined ||
+        recovery.workspacePath === recovery.workspace.path,
+    ),
+})
+
+/** Receipt identities are inspectable data, never authority to repeat an unknown effect. */
+function recoveryDetails(method: ControlMethod, result: unknown): Record<string, unknown> {
+  const parsed =
+    method === 'projects.create'
+      ? projectRecoveryReceiptSchema.safeParse(result)
+      : method === 'session.spawn' || method === 'projects.ask'
+        ? workerRecoveryReceiptSchema.safeParse(result)
+        : null
+  return parsed?.success ? parsed.data.recovery : {}
+}
 
 /**
  * Reported when the requesting call went away (control timeout, disconnect)
@@ -172,7 +219,10 @@ export interface ControlHost {
   treeSpend?(rootId: string): Promise<TreeSpend>
   /** The projects Aria can reach; a runtime without them has no Aria. */
   projects?(rows?: readonly SessionListEntry[]): Promise<HelmProject[]>
-  createProject?(input: { name: string; path?: string }): Promise<CreatedProject>
+  createProject?(
+    input: { name: string; path?: string },
+    onProgress?: (progress: Readonly<ProjectCreationProgress>) => Promise<void>,
+  ): Promise<CreatedProject>
   projectAgentDefaults?(): ProjectAgentDefaults
   /** Model-specific support from the active provider transport; failures must remain failures. */
   effortsForModel?(
@@ -583,7 +633,7 @@ export class AgentControlService {
         throw new ControlFailure(
           'uncertain_outcome',
           'The previous operation may have completed. It will not be repeated automatically.',
-          { operationId },
+          { operationId, ...recoveryDetails(method, previous.result) },
         )
       }
       const outcome = previous.result as ControlResult
@@ -604,8 +654,12 @@ export class AgentControlService {
       type: 'orchestration.operation.updated',
       operation: receipt,
     })
+    let lastProgress: unknown
     try {
       const result = await run()
+      // Preserve progress even when the final receipt append succeeds but its acknowledgement fails.
+      lastProgress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+        ?.result
       await this.host.record(callerId, {
         type: 'orchestration.operation.updated',
         operation: {
@@ -617,8 +671,23 @@ export class AgentControlService {
       })
       return result
     } catch (error) {
-      const progress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
-        ?.result
+      const progress =
+        lastProgress ??
+        (await this.host.store.load(callerId)).orchestration?.operations[operationId]?.result
+      const projectFailure =
+        method === 'projects.create' && error instanceof ControlFailure
+          ? projectCreationFailureDetailsSchema.safeParse(error.details)
+          : null
+      const recovery = projectFailure?.success
+        ? projectFailure.data
+        : recoveryDetails(method, progress)
+      if (
+        method === 'projects.create' &&
+        recovery.projectCreation &&
+        recovery.failureCode === undefined
+      )
+        recovery.failureCode = 'project_progress_failed'
+      const hasRecovery = Object.keys(recovery).length > 0
       const known =
         error instanceof ControlFailure &&
         !['internal_error', 'uncertain_outcome'].includes(error.code)
@@ -630,12 +699,20 @@ export class AgentControlService {
           completedAt: known ? Date.now() : null,
           result: known
             ? { ok: false, error: { code: error.code, message: error.message } }
-            : progress,
+            : hasRecovery
+              ? { recovery }
+              : progress,
           detail: known
             ? error.message
             : 'The effect may have completed before the durable outcome. Inspect state before recovery.',
         },
       })
+      if (!known && hasRecovery)
+        throw new ControlFailure(
+          'uncertain_outcome',
+          'The effect may have completed before the durable outcome. Inspect the preserved identity before recovery.',
+          { operationId, ...recovery },
+        )
       throw error
     }
   }
@@ -733,10 +810,18 @@ export class AgentControlService {
             'Project creation is unavailable in this runtime.',
           )
         const p = raw as ControlParams<'projects.create'>
-        return this.host.createProject({
-          name: p.name,
-          ...(p.path === undefined ? {} : { path: p.path }),
-        })
+        return this.host.createProject(
+          { name: p.name, ...(p.path === undefined ? {} : { path: p.path }) },
+          (progress) =>
+            this.#spawnProgress(
+              caller.id,
+              p.idempotencyKey,
+              {
+                projectCreation: projectCreationProgressSchema.parse(progress),
+              },
+              'projects.create',
+            ),
+        )
       }
       case 'projects.setDefault': {
         const p = raw as ControlParams<'projects.setDefault'>
@@ -1119,7 +1204,7 @@ export class AgentControlService {
     callerId: string,
     key: string,
     recovery: unknown,
-    method: 'session.spawn' | 'projects.ask' = 'session.spawn',
+    method: 'session.spawn' | 'projects.ask' | 'projects.create' = 'session.spawn',
   ): Promise<void> {
     const operationId = `control_${createHash('sha256').update(`${callerId}:${method}:${key}`).digest('hex').slice(0, 32)}`
     const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
@@ -1215,6 +1300,7 @@ export class AgentControlService {
     let isolated = false
     await this.#spawnProgress(caller.id, p.idempotencyKey, {
       childSessionId: id,
+      projectId: caller.projectId,
       stage: 'workspace_preparing',
     })
     try {
@@ -1223,9 +1309,13 @@ export class AgentControlService {
           ? await this.host.isolate(caller, id, p.title, p.baseSnapshotCommit)
           : { kind: 'project' as const }
       isolated = mode === 'isolated'
+      const workspacePath =
+        workspace.kind === 'managed-worktree' ? workspace.path : await this.host.workspace(caller)
       await this.#spawnProgress(caller.id, p.idempotencyKey, {
         childSessionId: id,
+        projectId: caller.projectId,
         workspace,
+        workspacePath,
         stage: 'workspace_prepared',
       })
       // Preparing a worktree can outlast the caller. Whoever asked is no
@@ -1255,10 +1345,19 @@ export class AgentControlService {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
+      await this.#spawnProgress(caller.id, p.idempotencyKey, {
+        childSessionId: id,
+        projectId: caller.projectId,
+        workspace,
+        workspacePath,
+        stage: 'session_creating',
+      })
       await this.host.create(child)
       await this.#spawnProgress(caller.id, p.idempotencyKey, {
         childSessionId: id,
+        projectId: caller.projectId,
         workspace,
+        workspacePath,
         stage: 'session_created',
       })
       await this.host.record(caller.id, {
@@ -1402,7 +1501,9 @@ export class AgentControlService {
       p.idempotencyKey,
       {
         childSessionId: id,
+        projectId: project.projectId,
         workspace,
+        workspacePath: project.path,
         stage: 'session_creating',
       },
       lead ? 'projects.ask' : 'session.spawn',
@@ -1411,6 +1512,18 @@ export class AgentControlService {
     try {
       await this.host.create(session)
       created = true
+      await this.#spawnProgress(
+        caller.id,
+        p.idempotencyKey,
+        {
+          childSessionId: id,
+          projectId: project.projectId,
+          workspace,
+          workspacePath: project.path,
+          stage: 'session_created',
+        },
+        lead ? 'projects.ask' : 'session.spawn',
+      )
       await this.host.record(caller.id, {
         type: 'child.session.spawned',
         childSessionId: id,
