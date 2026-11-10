@@ -1,7 +1,19 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { driverKindSchema } from '@ari/contracts/common'
 import { delegationRoleSchema, type Session } from '@ari/contracts/session'
+import { visualizationSchema } from '@ari/contracts/visualization'
 import { controlPreamble } from './control-preamble'
+
+function visualsClause(text: string): string {
+  const start = text.indexOf('When a visual helps')
+  const marker = 'Run `ari --skill` for the exact data fields and examples.'
+  const end = text.indexOf(marker)
+  if (start < 0 || end < start) throw new Error('missing visualization clause')
+  return text.slice(start, end + marker.length)
+}
 
 const root: Session = {
   id: 'root',
@@ -310,9 +322,46 @@ it('teaches every provider, channel and role the same flat visualization object'
     }
   }
   const reference = controlPreamble(root, null, 'system')
-  const clause = reference.slice(reference.indexOf('When a visual helps'))
+  const clause = visualsClause(reference)
   for (const driverKind of driverKindSchema.options) {
-    const text = controlPreamble({ ...root, driverKind }, null, 'system')
-    expect(text.slice(text.indexOf('When a visual helps'))).toBe(clause)
+    for (const channel of ['prompt', 'system'] as const) {
+      const text = controlPreamble({ ...root, driverKind }, null, channel)
+      expect(visualsClause(text)).toBe(clause)
+    }
+  }
+})
+
+it('parses the published skill examples with the strict visualization schema', () => {
+  const skill = readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../apps/desktop/resources/cli/ari/SKILL.md',
+    ),
+    'utf8',
+  )
+  const section = skill.slice(
+    skill.indexOf('## Inline visualizations'),
+    skill.indexOf('## Typed tasks'),
+  )
+  const examples = [...section.matchAll(/```ari-viz\r?\n([\s\S]*?)\r?\n```/g)].map(
+    (match) => match[1]?.trim() ?? '',
+  )
+  expect(examples).toHaveLength(15)
+  const types = examples.map((example) => {
+    const parsed = visualizationSchema.safeParse(JSON.parse(example))
+    expect(parsed.success).toBe(true)
+    return parsed.success ? parsed.data.type : ''
+  })
+  expect(new Set(types).size).toBe(15)
+  const surfaces = [root, { ...root, lead: true }, { ...root, projectId: 'helm' }, child]
+  const clause = visualsClause(controlPreamble(root, null, 'prompt'))
+  for (const driverKind of driverKindSchema.options) {
+    for (const channel of ['prompt', 'system'] as const) {
+      for (const session of surfaces) {
+        expect(visualsClause(controlPreamble({ ...session, driverKind }, 'Parent', channel))).toBe(
+          clause,
+        )
+      }
+    }
   }
 })
