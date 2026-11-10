@@ -2,7 +2,7 @@
 // Hashing only on the package job. No second build, arm64 loop, or gate waiver.
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -221,10 +221,11 @@ export async function runDiagnosis(env = process.env) {
   const zipPath = join(root, receipt.zip.name)
   const info = await lstat(zipPath)
   assert.ok(info.isFile() && !info.isSymbolicLink(), 'Transferred ZIP is not a regular file')
-  const runner = resolve(env.RUNNER_TEMP)
-  const extractRoot = join(runner, 'ari-macos-intel-extract')
-  const dataRoot = join(runner, EVIDENCE_DIR)
-  await mkdir(dataRoot, { recursive: true })
+  const runner = await realpath(env.RUNNER_TEMP)
+  const extractRoot = await mkdtemp(join(runner, 'ari-macos-intel-extract-'))
+  const evidenceRoot = join(runner, EVIDENCE_DIR)
+  await mkdir(evidenceRoot, { recursive: true })
+  const dataRoot = await mkdtemp(join(evidenceRoot, 'intel-'))
   const record = {
     kind: 'macos-intel-diagnostic',
     sourceHead: head,
@@ -252,7 +253,16 @@ export async function runDiagnosis(env = process.env) {
         dataRoot,
         fixture: resolve('apps/desktop/src/main/testing/release-profile-0312.fixture.json'),
       },
-      { extract: extractZip, nativeSmoke, functionalSmoke, sha256 },
+      {
+        extract: extractZip,
+        nativeSmoke: async (plan) => {
+          const native = await nativeSmoke(plan)
+          record.native = native // Preserve a real import pass if renderer smoke later fails.
+          return native
+        },
+        functionalSmoke,
+        sha256,
+      },
     )
     record.native = result.native
     record.functional = { passed: true, suiteRoot: result.functional.suiteRoot }

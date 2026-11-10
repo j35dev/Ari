@@ -229,7 +229,7 @@ test('locate accepts one top-level app and refuses a missing or duplicate execut
   await assert.rejects(locateUniversalExecutable(root), /one universal/)
 })
 
-test('hosted guard and this Windows process refuse diagnosis before ditto', async () => {
+test('hosted guard refuses on every platform and foreign hosts reject before ditto', async () => {
   const absolute = join(tmpdir(), 'runner')
   assert.equal(hostedIsolation({}), false)
   assert.equal(
@@ -243,8 +243,11 @@ test('hosted guard and this Windows process refuse diagnosis before ditto', asyn
     true,
   )
   await assert.rejects(async () => assertHostedDiagnosis({ CI: 'true' }), /hosted isolation/)
-  await assert.rejects(
-    async () =>
+  await assert.rejects(runDiagnosis({ CI: 'true' }), /hosted isolation/)
+  // Never invoke the native entry path from a Node fixture on the actual Intel
+  // runner. Its ZIP/source/architecture refusals are exercised above with IO.
+  if (process.platform !== 'darwin' || process.arch !== 'x64')
+    await assert.rejects(
       runDiagnosis({
         CI: 'true',
         GITHUB_ACTIONS: 'true',
@@ -253,8 +256,8 @@ test('hosted guard and this Windows process refuse diagnosis before ditto', asyn
         RELEASE_FUNCTIONAL_CI: '1',
         CANDIDATE_SHA: source,
       }),
-    /Intel macOS runner|non-x64/,
-  )
+      /Intel macOS runner|non-x64/,
+    )
 })
 
 test('workflow runs the Intel diagnostic after package failure without a publisher or continue-on-error pass', async () => {
