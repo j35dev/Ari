@@ -8,7 +8,7 @@ import {
   pinnedPlan,
   recordDiagnosis,
 } from './release-macos-arm64-diagnostic.mjs'
-import { sha256 } from './release-native-smoke.mjs'
+import { launchArches, sha256 } from './release-native-smoke.mjs'
 
 const head = 'b'.repeat(40)
 async function fixture() {
@@ -138,16 +138,12 @@ test('preserves probe timeout as failure with no native success or retry', async
   assert.equal(receipt.translatedGateWaived, false)
 })
 
-test('workflow runs diagnostic after failure without changing native budgets or proof artifacts', async () => {
+test('required native gates launch ARM64 on macOS without changing native budgets', async () => {
   const workflow = await readFile('.github/workflows/release-candidate.yml', 'utf8')
-  const step = workflow
-    .split('- name: Record native ARM64 entry after translated failure')[1]
-    ?.split('- name:')[0]
-  assert.ok(step)
-  assert.match(step, /always\(\).*steps\.translated-preflight\.outcome == 'failure'/)
-  assert.match(step, /steps\.universal-transfer\.outcome == 'success'/)
-  assert.doesNotMatch(step, /continue-on-error/)
-  assert.match(workflow, /name: ari-macos-arm64-diagnostic-/)
+  // The required artifact/functional/install gates now launch the native ARM64 slice,
+  // so the post-failure ARM64 diagnostic no longer runs.
+  assert.doesNotMatch(workflow, /node scripts\/release-macos-arm64-diagnostic\.mjs/)
+  assert.deepEqual(launchArches('darwin', 'arm64'), ['arm64'])
   const nativeSource = await readFile('scripts/release-native-smoke.mjs', 'utf8')
   assert.match(nativeSource, /timeout: 15_000/)
 })

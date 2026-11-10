@@ -90,7 +90,8 @@ async function setup(platform = 'win32', mutate) {
         sha256: await sha256(candidateArtifact),
       },
     ],
-    native: platform === 'darwin' ? [{ ...native, arch: 'arm64' }, native] : [native],
+    // Hosted macOS launches only the runner's native slice.
+    native: platform === 'darwin' ? [{ ...native, arch: 'arm64' }] : [native],
   }
   const artifactReceipt = join(root, 'candidate-artifacts.json')
   await writeFile(artifactReceipt, JSON.stringify(receipt))
@@ -103,6 +104,7 @@ async function setup(platform = 'win32', mutate) {
     packagedExecutable: candidate.executable,
     packagedResources: candidate.resources,
     fixture,
+    hostArch: 'arm64',
   }
   const env = {
     RELEASE_FUNCTIONAL_CI: '1',
@@ -278,7 +280,11 @@ for (const platform of ['win32', 'darwin', 'linux'])
     assert.equal(result.sequence[0].executable, result.sequence[1].executable)
     assert.equal(result.fixture.beforeSha256, result.fixture.afterSha256)
     assert.equal(result.fixture.kind, 'frozen-0312-copy')
-    assert.equal(result.plans.length, platform === 'darwin' ? 2 : 1)
+    assert.equal(result.installed.archives.length, platform === 'darwin' ? 2 : 1)
+    assert.deepEqual(
+      result.plans.map((plan) => plan.arch),
+      [platform === 'darwin' ? 'arm64' : 'x64'],
+    )
     for (const plan of result.plans) {
       assert.equal(plan.native.executable, result.installed.executable)
       assert.equal(plan.functional.resources, result.installed.resources)

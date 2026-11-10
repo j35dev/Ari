@@ -260,20 +260,19 @@ test('hosted guard refuses on every platform and foreign hosts reject before dit
     )
 })
 
-test('workflow runs the Intel diagnostic after package failure without a publisher or continue-on-error pass', async () => {
+test('workflow runs the Intel x64 launch on every build without a publisher; only Rosetta is non-blocking', async () => {
   const workflowDir = join(dirname(fileURLToPath(import.meta.url)), '../.github/workflows')
   const workflow = await readFile(join(workflowDir, 'release-candidate.yml'), 'utf8')
   const release = await readFile(join(workflowDir, 'release.yml'), 'utf8')
-  assert.equal(workflow.includes('continue-on-error'), false)
+  const lenient = workflow.split('- name: ').filter((step) => step.includes('continue-on-error'))
+  assert.equal(lenient.length, 1)
+  assert.match(lenient[0], /^Diagnose macOS translated packaged runtime startup \(non-blocking\)/)
   assert.match(workflow, /os: macos-latest\r?\n\s+args: --mac/)
   assert.match(workflow, /node scripts\/release-macos-preflight\.mjs/)
   assert.match(workflow, /node scripts\/release-macos-intel-diagnostic\.mjs receipt/)
   assert.match(workflow, /steps\.package-binary\.outcome == 'success'/)
   assert.match(workflow, /runs-on: macos-26-intel/)
-  assert.match(
-    workflow,
-    /needs: package\r?\n\s+if: always\(\) && !cancelled\(\) && needs\.package\.result == 'failure'/,
-  )
+  assert.match(workflow, /needs: package\r?\n\s+if: always\(\) && !cancelled\(\)\r?\n/)
   assert.match(
     workflow,
     /name: ari-candidate-\$\{\{ matrix\.os \}\}-\$\{\{ env\.CANDIDATE_SHA \}\}/,

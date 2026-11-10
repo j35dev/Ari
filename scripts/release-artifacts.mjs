@@ -6,7 +6,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
-import { archivePath, sha256, smoke } from './release-native-smoke.mjs'
+import { archivePath, launchArches, sha256, smoke } from './release-native-smoke.mjs'
 
 // Use the packaging tool's existing YAML parser; no runtime dependency is added.
 const desktopRequire = createRequire(new URL('../apps/desktop/package.json', import.meta.url))
@@ -105,7 +105,7 @@ async function main() {
     ? join(app, 'MacOS', 'ari')
     : join(root, output, process.platform === 'win32' ? 'ari.exe' : 'ari')
   try {
-    for (const arch of process.platform === 'darwin' ? ['arm64', 'x64'] : ['x64']) {
+    for (const arch of launchArches()) {
       const result = await smoke({
         executable,
         resources,

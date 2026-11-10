@@ -6,13 +6,14 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { smoke } from './release-functional-smoke.mjs'
 import { requireHostedCI, sha256 } from './release-functional-support.mjs'
+import { launchArches } from './release-native-smoke.mjs'
 
 export function functionalPlans(receipt, context) {
   assert.equal(receipt.sourceHead, context.sourceHead, 'Package receipt differs from checkout')
   assert.equal(receipt.version, '0.3.13', 'Unexpected package version')
   assert.equal(receipt.platform, context.platform, 'Wrong artifact platform')
   assert.ok(!receipt.nativeFailure, 'Native package gate did not pass')
-  const arches = context.platform === 'darwin' ? ['arm64', 'x64'] : ['x64']
+  const arches = launchArches(context.platform, context.hostArch)
   assert.deepEqual(
     receipt.native.map((entry) => entry.arch).sort(),
     [...arches].sort(),
