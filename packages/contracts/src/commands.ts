@@ -128,6 +128,17 @@ export const commandSchema = z.discriminatedUnion('type', [
 ])
 export type Command = z.infer<typeof commandSchema>
 
+/** Timing captured from the serialized dispatch snapshot, before the accepted switch is written. */
+export type ProviderSwitchTiming =
+  { effective: 'ready'; afterTurnId: null } | { effective: 'next_turn'; afterTurnId: string }
+
+/** Additive dispatch receipt; accepted provider switches include their exact active-turn fence. */
+export interface CommandReceipt {
+  accepted: boolean
+  reason?: string
+  switchTiming?: ProviderSwitchTiming
+}
+
 /** Unique key for idempotent command receipts. */
 export function commandKey(command: Command): string {
   return `${command.type}:${'sessionId' in command ? command.sessionId : '-'}`

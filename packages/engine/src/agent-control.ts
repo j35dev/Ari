@@ -16,6 +16,8 @@ import {
   type DelegationSettings,
   type HelmProject,
   type ScheduledRoutine,
+  type SessionPromptReceipt,
+  type SessionReadQueue,
 } from '@ari/contracts/agent-control'
 import {
   HELM_PROJECT_ID,
@@ -25,7 +27,7 @@ import {
 } from '@ari/contracts/helm'
 import type { Session, SessionWorkspace } from '@ari/contracts/session'
 import type { Message } from '@ari/contracts/message'
-import type { Command } from '@ari/contracts/commands'
+import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
@@ -109,7 +111,7 @@ export interface ControlHost {
   dispatch(
     command: Command,
     origin?: { kind: 'session'; sessionId: string },
-  ): Promise<{ accepted: boolean; reason?: string }>
+  ): Promise<CommandReceipt>
   record(id: string, event: UnstampedEvent): Promise<JournalEvent>
   subscribe(listener: (event: JournalEvent) => void): () => void
   workspace(session: Session): Promise<string | null>
@@ -679,7 +681,7 @@ export class AgentControlService {
         return this.#spawn(caller, raw as ControlParams<'session.spawn'>, signal)
       case 'session.switch': {
         const p = raw as ControlParams<'session.switch'>
-        const target = await this.#get(p.targetSessionId)
+        const target = await this.#get(p.targetSessionId === 'self' ? caller.id : p.targetSessionId)
         return this.#switchProjectSession(caller, target, p)
       }
       case 'session.prompt': {
@@ -1421,13 +1423,16 @@ export class AgentControlService {
     target: Session,
     p: { driverKind?: Session['driverKind']; modelId?: string | null; effort?: string | null },
   ) {
-    if (!isHelmSession(caller) || !isHelmProjectSession(target))
+    const self = caller.id === target.id && isHelmSession(target)
+    if (!isHelmSession(caller) || (!self && !isHelmProjectSession(target)))
       throw new ControlFailure(
         'scope_denied',
-        'Aria can switch only the project sessions it launched.',
+        'Aria can switch only itself or the project sessions it launched.',
       )
     if (caller.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before switching a session.')
+    if (target.archived)
+      throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(caller, target)
     if (!p.driverKind)
       throw new ControlFailure('invalid_request', 'Select a provider for the session.')
@@ -1449,6 +1454,8 @@ export class AgentControlService {
     const currentTarget = await this.#get(target.id)
     if (current.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before switching a session.')
+    if (currentTarget.archived)
+      throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(current, currentTarget)
     const agent: ResolvedProjectAgent = {
       driverKind: p.driverKind,
@@ -1469,6 +1476,7 @@ export class AgentControlService {
     return {
       sessionId: target.id,
       switched: true,
+      ...outcome.switchTiming,
       session: await this.#get(target.id),
       agent,
     }
@@ -1700,7 +1708,7 @@ export class AgentControlService {
     return (await this.host.store.load(target.id)).inbox?.[messageId] ?? message
   }
 
-  async #prompt(caller: Session, target: Session, text: string) {
+  async #prompt(caller: Session, target: Session, text: string): Promise<SessionPromptReceipt> {
     if (isHelmSession(caller) && caller.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before prompting a session.')
     if (target.archived)
@@ -1729,10 +1737,13 @@ export class AgentControlService {
     )
     if (!outcome.accepted)
       throw new ControlFailure('invalid_request', outcome.reason ?? 'Input rejected.')
+    const observedActiveTurnId = (await this.host.store.load(target.id)).activeTurnId
     return {
       sessionId: target.id,
-      turnId: (await this.host.store.load(target.id)).activeTurnId,
+      turnId: observedActiveTurnId,
+      observedActiveTurnId,
       queued: true,
+      execution: 'future_turn',
     }
   }
 
@@ -1742,15 +1753,36 @@ export class AgentControlService {
     p: ControlParams<'session.read'>,
   ): Promise<unknown> {
     const state = await this.host.store.load(target.id)
+    // FIFO assignments get the same item/text budget as transcript rows. A
+    // queue must not quietly double a bounded read's size or claim a turn ID.
+    let remaining = p.maxChars
+    const queuedMessages = state.queuedMessages.slice(0, p.tailMessages).map((message) => {
+      const text = message.text.slice(0, remaining)
+      remaining -= text.length
+      return {
+        text,
+        origin: message.origin,
+        held: message.held === true,
+        truncated: text.length < message.text.length,
+      }
+    })
+    const queue: SessionReadQueue = {
+      queuedMessages,
+      queuedMessageCount: state.queuedMessages.length,
+      queuedMessagesTruncated:
+        queuedMessages.length < state.queuedMessages.length ||
+        queuedMessages.some((message) => message.truncated),
+    }
     const turns = p.tailTurns
       ? new Set(
           [...new Set(state.messages.map((m) => m.turnId).filter(Boolean))].slice(-p.tailTurns),
         )
       : null
-    const selected = state.messages
-      .filter((m) => !turns || turns.has(m.turnId))
-      .slice(-p.tailMessages)
-    let remaining = p.maxChars
+    const messageLimit = p.tailMessages - queuedMessages.length
+    const selected =
+      messageLimit > 0
+        ? state.messages.filter((m) => !turns || turns.has(m.turnId)).slice(-messageLimit)
+        : []
     const messages = [...selected]
       .reverse()
       .map((message) => {
@@ -1779,12 +1811,14 @@ export class AgentControlService {
       activeTurnId: state.activeTurnId,
       latestTurn: state.lastTurn ?? null,
       messages,
+      ...queue,
       renderedText: messages
         .map((message) => `${message.role}: ${message.text}`)
         .join('\n\n')
         .slice(0, p.maxChars),
       latestAssistantText: report.text,
-      truncated: remaining === 0 || selected.length < state.messages.length,
+      truncated:
+        remaining === 0 || selected.length < state.messages.length || queue.queuedMessagesTruncated,
     }
   }
 
