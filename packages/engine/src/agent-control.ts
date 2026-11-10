@@ -1434,6 +1434,7 @@ export class AgentControlService {
     if (target.archived)
       throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(caller, target)
+    if (self) await this.#checkCurrentAria(caller.id)
     if (!p.driverKind)
       throw new ControlFailure('invalid_request', 'Select a provider for the session.')
     if (!p.modelId)
@@ -1457,6 +1458,7 @@ export class AgentControlService {
     if (currentTarget.archived)
       throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(current, currentTarget)
+    if (self) await this.#checkCurrentAria(current.id)
     const agent: ResolvedProjectAgent = {
       driverKind: p.driverKind,
       modelId: model.id,
@@ -1480,6 +1482,14 @@ export class AgentControlService {
       session: await this.#get(target.id),
       agent,
     }
+  }
+
+  async #checkCurrentAria(sessionId: string): Promise<void> {
+    // A cold store may have loaded only the old caller. Refresh persisted topic
+    // metadata before consulting the same current-Aria identity used for routing.
+    await this.host.store.listSessions()
+    if ((await this.host.store.currentHelmSession()) !== sessionId)
+      throw new ControlFailure('scope_denied', 'Aria can switch only its current chat.')
   }
 
   async #checkLaunch(

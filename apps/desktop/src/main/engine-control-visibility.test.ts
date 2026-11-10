@@ -523,7 +523,11 @@ it('returns ready with no active fence even after a previous turn, without start
 })
 
 it('supports only the current nonarchived Aria self, retaining other scope and catalog refusals', async () => {
-  await store.append('old-aria', { type: 'session.created', session: session('old-aria', 'helm') })
+  await store.append('old-aria', {
+    type: 'session.created',
+    session: session('old-aria', 'helm', { updatedAt: 0 }),
+  })
+  expect(await store.currentHelmSession()).toBe('aria')
   for (const [caller, target] of [
     ['aria', 'old-aria'],
     ['root', 'root'],
@@ -577,4 +581,88 @@ it('rechecks archive and permission ceilings after catalog resolution', async ()
       permissionMode: 'allow-edits',
     })
   }
+})
+
+it('refuses a noncurrent Aria self-switch after a newer nonarchived topic exists', async () => {
+  await store.append('new-aria', {
+    type: 'session.created',
+    session: session('new-aria', 'helm', { updatedAt: 2 }),
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  expect(
+    await service.invoke('aria', 'session.switch', switchTo('self', 'obsolete-self')),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect((await store.load('aria')).session?.modelId).toBe('old')
+  expect(
+    await service.invoke('new-aria', 'session.switch', switchTo('self', 'current-self')),
+  ).toMatchObject({
+    ok: true,
+    result: { sessionId: 'new-aria', effective: 'ready', afterTurnId: null },
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+})
+
+it('refuses a stale Aria self-switch when a new topic becomes current during catalog lookup', async () => {
+  expect(await store.currentHelmSession()).toBe('aria')
+  const catalog = gate()
+  const providers = host.providers
+  host.providers = vi.fn(async () => {
+    await catalog.promise
+    return providers()
+  })
+  const dispatch = vi.spyOn(host, 'dispatch')
+  const switching = service.invoke('aria', 'session.switch', switchTo('self', 'replaced-self'))
+  await expect.poll(() => vi.mocked(host.providers).mock.calls.length).toBe(1)
+  await store.append('new-aria', {
+    type: 'session.created',
+    session: session('new-aria', 'helm', { updatedAt: 2 }),
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  catalog.release()
+  expect(await switching).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(dispatch).not.toHaveBeenCalled()
+  expect((await store.load('aria')).session?.modelId).toBe('old')
+})
+
+it('checks persisted current-topic metadata on a cold store before allowing a new self-switch', async () => {
+  await store.append('new-aria', {
+    type: 'session.created',
+    session: session('new-aria', 'helm', { updatedAt: 2 }),
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  await reload()
+  const dispatch = vi.spyOn(host, 'dispatch')
+  expect(
+    await service.invoke('aria', 'session.switch', switchTo('aria', 'cold-stale-self')),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  expect(dispatch).not.toHaveBeenCalled()
+  expect((await store.load('aria')).session?.modelId).toBe('old')
+})
+
+it('retains an accepted self-switch receipt after topic replacement and reload without dispatching again', async () => {
+  expect(await store.currentHelmSession()).toBe('aria')
+  const params = switchTo('self', 'accepted-self')
+  const receipt = await service.invoke('aria', 'session.switch', params)
+  expect(receipt).toMatchObject({ ok: true, result: { effective: 'ready', afterTurnId: null } })
+  await store.append('new-aria', {
+    type: 'session.created',
+    session: session('new-aria', 'helm', { updatedAt: 2 }),
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  await reload()
+  const dispatch = vi.spyOn(host, 'dispatch')
+  expect(await service.invoke('aria', 'session.switch', params)).toEqual(receipt)
+  expect(dispatch).not.toHaveBeenCalled()
+})
+
+it('retains explicitly requested project-session switches from a noncurrent Aria caller', async () => {
+  await store.append('new-aria', {
+    type: 'session.created',
+    session: session('new-aria', 'helm', { updatedAt: 2 }),
+  })
+  expect(await store.currentHelmSession()).toBe('new-aria')
+  expect(
+    await service.invoke('aria', 'session.switch', switchTo('work', 'project-switch')),
+  ).toMatchObject({ ok: true, result: { effective: 'ready', afterTurnId: null } })
 })
