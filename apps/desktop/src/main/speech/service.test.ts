@@ -440,6 +440,60 @@ it.each(['false', 'throw'])(
   },
 )
 
+it.each(['false', 'throw'])(
+  'waits for confirmed exit when the first engine-inspection stop kill %s fails',
+  async (failure) => {
+    const { dir, service } = await setup()
+    const path = join(dir, 'custom.gguf')
+    await writeFile(path, 'gguf')
+    await selectReady(service, { path })
+    mocks.manual = true
+    const child = mocks.fork.mock.results[0]!.value
+    child.kill.mockImplementation(() => {
+      if (failure === 'throw') throw new Error('Kill unsuccessful')
+      return false
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const pending = service.transcribe(new Float32Array([0]))
+    const outcome = pending.catch((error: Error) => error.message)
+    while (child.postMessage.mock.calls.length < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    child.emit('message', { id: child.postMessage.mock.calls[1][0].id, started: true })
+    const inspection = vi.spyOn(engineModule, 'verifyInstalledEngine').mockResolvedValueOnce(null)
+    let settled = false
+    const check = service.check().catch((error: Error) => {
+      settled = true
+      return error.message
+    })
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(await outcome).toContain('The speech engine stopped')
+    expect(child.kill).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await check).toContain('did not stop')
+    expect(child.listenerCount('exit')).toBe(1)
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    // Files may recover before the old process exits. Keep the refusal visible;
+    // no new inference process may bypass that stopping identity.
+    inspection.mockRestore()
+    await service.check()
+    const retry = service.transcribe(new Float32Array([0])).catch((error: Error) => error.message)
+    while (child.listenerCount('exit') < 2)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(await retry).toContain('did not stop')
+    expect(child.kill).toHaveBeenCalledOnce()
+    expect(mocks.fork).toHaveBeenCalledOnce()
+    child.emit('exit', 0)
+    mocks.manual = false
+    await service.select({ path })
+    expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+    expect(mocks.fork).toHaveBeenCalledTimes(2)
+  },
+)
+
 it('transcribes more than five minutes of valid audio with a duration-scaled failure budget', async () => {
   const { dir, service } = await setup()
   const path = join(dir, 'custom.gguf')
