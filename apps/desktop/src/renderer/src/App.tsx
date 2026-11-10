@@ -1176,17 +1176,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     userIntent: () => {
       navigationGeneration.current++
     },
-    intent: JSON.stringify([
-      layout,
-      spaceStore.activeSpaceId,
-      settingsOpen,
-      hubOpen,
-      galleryOpen,
-      fullPage,
-      inspector,
-      setupCovered,
-      navigationGeneration.current,
-    ]),
+    intent: () =>
+      JSON.stringify([
+        layout,
+        spaceStore.activeSpaceId,
+        settingsOpen,
+        hubOpen,
+        galleryOpen,
+        fullPage,
+        inspector,
+        setupCovered,
+        navigationGeneration.current,
+      ]),
     prepare: async (target) => {
       if (setupCovered) return false
       if (target.view === 'settings') return true

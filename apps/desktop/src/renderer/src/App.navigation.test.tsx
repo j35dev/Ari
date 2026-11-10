@@ -170,6 +170,38 @@ async function acknowledged(frame: AppOpenFrame): Promise<AppOpenReceipt> {
   )![1].receipt as AppOpenReceipt
 }
 
+it('accepts navigation after earlier composer input when fresh list state commits', async () => {
+  await shell()
+  const input = screen.getByRole('textbox', { name: 'Message' })
+  fireEvent.pointerDown(input)
+  fireEvent.keyDown(input, { key: 'a' })
+  fireEvent.change(input, { target: { value: 'keep this unsent draft' } })
+  const original = invoke.getMockImplementation()!
+  invoke.mockImplementation(async (method, params) =>
+    method === 'session.list' ? [...sessions] : original(method, params),
+  )
+  let entered!: () => void
+  let release!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  validate = async () => {
+    entered()
+    await gate
+    return { allowed: true }
+  }
+  const frame = send({ view: 'session', sessionId: 'b' })
+  await act(async () => {
+    await started
+  })
+  await act(async () => release())
+  expect(await acknowledged(frame)).toMatchObject({ status: 'applied' })
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('b')
+})
+
 it('observes exact session/Aria selection and repeated reveal without discovery or submissions', async () => {
   await shell()
   const discoveryCount = invoke.mock.calls.filter(([name]) => name === 'providers.detect').length
