@@ -12,11 +12,13 @@ import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
 import type {
   BrowserTabState,
-  NavigateFrame,
+  AppOpenTarget,
   RpcResults,
   SessionEventFrame,
   SessionSummary,
 } from '@ari/contracts/rpc'
+import { navigateFrameSchema } from '@ari/contracts/rpc'
+import { useAppNavigation } from './use-app-navigation'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
@@ -161,6 +163,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sourceControlTab, setSourceControlTab] = useState<'changes' | 'requests'>('changes')
+  const [changesContext, setChangesContext] = useState<Extract<
+    AppOpenTarget,
+    { view: 'changes' }
+  > | null>(null)
   const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [listedSessions, setSessions] = useState<SessionSummary[]>([])
@@ -397,6 +403,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       leaveWorkspaceTool()
       // Selecting a chat must land on it, not leave Usage/Changes up.
       setFullPage(null)
+      setChangesContext(null)
     },
     [layout, clearTransientInspector, leaveWorkspaceTool],
   )
@@ -407,12 +414,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(
     () =>
       rpc.subscribe('app.navigate', {}, (payload) => {
-        const frame = payload as NavigateFrame | null
-        if (frame && 'settingsSection' in frame && frame.settingsSection === 'speech') {
+        const parsed = navigateFrameSchema.safeParse(payload)
+        if (!parsed.success) return
+        const frame = parsed.data
+        if ('settingsSection' in frame && frame.settingsSection === 'speech') {
+          navigationGeneration.current += 1
           setHubOpen(false)
           setSettingsSection('speech')
           setSettingsOpen(true)
-        } else if (frame && 'sessionId' in frame && typeof frame.sessionId === 'string') {
+        } else if (!('kind' in frame) && 'sessionId' in frame) {
           selectSessionRef.current(frame.sessionId)
         }
       }),
@@ -489,15 +499,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   /** Generation of the last list actually committed to the shell. */
   const appliedListRef = useRef(0)
 
-  const reloadSessions = useCallback(async (): Promise<void> => {
+  const reloadSessions = useCallback(async (): Promise<SessionSummary[]> => {
     const generation = ++listsRef.current
     const next = await rpc.invoke('session.list')
     // An older success may land only if no newer success has already committed.
-    if (generation < appliedListRef.current) return
+    if (generation < appliedListRef.current) return sessionsRef.current
     appliedListRef.current = generation
     sessionsLoadedRef.current = true
     setSessions(next)
     setPatches((prev) => dropSettled(prev, generation))
+    return next
   }, [])
   const refreshSessions = useCallback((): void => {
     void reloadSessions().catch((error: unknown) => log.warn('rpc call failed', error))
@@ -606,7 +617,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // the seed above never left `ask`, whatever the setting said.
   const engineSettings = useEngineSettings()
   const openSourceControl = useCallback(
-    (tab: 'changes' | 'requests' = 'changes'): void => {
+    (
+      tab: 'changes' | 'requests' = 'changes',
+      context: Extract<AppOpenTarget, { view: 'changes' }> | null = null,
+    ): void => {
+      navigationGeneration.current += 1
+      setChangesContext(context)
       setSourceControlTab(tab)
       setHubOpen(false)
       setSettingsOpen(false)
@@ -1023,7 +1039,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     captureIntent: captureStartIntent,
     refreshProjects,
     refreshSessions,
-    checkSessions: reloadSessions,
+    checkSessions: async () => {
+      await reloadSessions()
+    },
     onStarted: (sessionId, effective, intent) => {
       if (effective !== null) writeDefaults(sessionId, effective)
       if (!intent.select(sessionId)) {
@@ -1152,7 +1170,83 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
-  const changeSummary = useSourceControl(activeScope, 'summary')
+  const changesSessionId = changesContext ? (changesContext.sessionId ?? null) : activeSessionId
+  const changesProjectId = changesContext?.projectId ?? activeSession?.projectId ?? null
+  const changesScope = changesContext
+    ? changesContext.sessionId
+      ? { sessionId: changesContext.sessionId }
+      : { projectId: changesContext.projectId }
+    : activeScope
+  const sourceControlScope =
+    inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
+      ? changesScope
+      : activeScope
+  const changeSummary = useSourceControl(sourceControlScope, 'summary')
+  useAppNavigation({
+    userIntent: () => {
+      navigationGeneration.current++
+    },
+    intent: () =>
+      JSON.stringify([
+        layout,
+        spaceStore.activeSpaceId,
+        settingsOpen,
+        hubOpen,
+        galleryOpen,
+        fullPage,
+        inspector,
+        setupCovered,
+        navigationGeneration.current,
+      ]),
+    prepare: async (target) => {
+      if (setupCovered) return false
+      if (target.view === 'settings') return true
+      const next = await reloadSessions()
+      if (target.view === 'session' || target.view === 'aria' || target.sessionId !== undefined) {
+        const session = next.find((session) => session.id === target.sessionId && !session.archived)
+        if (
+          !session ||
+          (target.view === 'aria' && !isHelmSession(session)) ||
+          (target.view === 'changes' && session.projectId !== target.projectId)
+        )
+          return false
+      }
+      if (target.view === 'changes') {
+        const list = await rpc.invoke('project.list')
+        const project = list.find((project) => project.id === target.projectId)
+        return project !== undefined && project.status === 'ok'
+      }
+      return true
+    },
+    apply: (target) => {
+      navigationGeneration.current += 1
+      setGalleryOpen(false)
+      if (target.view === 'session' || target.view === 'aria')
+        selectSessionRef.current(target.sessionId)
+      else if (target.view === 'settings') {
+        setHubOpen(false)
+        setSettingsOpen(true)
+      } else openSourceControl('changes', target)
+    },
+    observe: (target) => {
+      if (setupCovered || galleryOpen || hubOpen) return undefined
+      if (target.view === 'session' || target.view === 'aria')
+        return !settingsOpen &&
+          fullPage === null &&
+          activeSessionId === target.sessionId &&
+          sessions.some((session) => session.id === target.sessionId && !session.archived)
+          ? { target, mode: 'chat' }
+          : undefined
+      if (target.view === 'settings') return settingsOpen ? { target, mode: 'settings' } : undefined
+      if (settingsOpen || JSON.stringify(changesContext) !== JSON.stringify(target))
+        return undefined
+      return fullPage === 'changes'
+        ? { target, mode: 'page' }
+        : inspector === 'changes'
+          ? { target, mode: 'sidebar' }
+          : undefined
+    },
+  })
   // Where a shell can actually run — the rule and its precedence live in
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
@@ -1206,9 +1300,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         onSelectTool={selectWorkspaceTool}
         changeCount={changeSummary.summary?.changedFiles ?? null}
         git={
-          activeScope && changeSummary.summary ? (
+          sourceControlScope && changeSummary.summary ? (
             <GitControl
-              scope={activeScope}
+              scope={sourceControlScope}
               summary={changeSummary.summary}
               refresh={changeSummary.refresh}
               onReview={() => openSourceControl('changes')}
@@ -1415,9 +1509,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                       setInspector('changes')
                     }}
                     onClose={() => setFullPage(null)}
-                    sessionId={activeSessionId}
-                    projectId={activeSession?.projectId ?? null}
-                    onRange={activeSessionId ? attachReviewRange : undefined}
+                    sessionId={changesSessionId}
+                    projectId={changesProjectId}
+                    onRange={
+                      activeSessionId && changesSessionId === activeSessionId
+                        ? attachReviewRange
+                        : undefined
+                    }
                     onCheckedOut={(path) =>
                       openCheckedOutWorktree(path, {
                         open: (folder) => rpc.invoke('project.open', { path: folder }),
@@ -1432,244 +1530,251 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 </ErrorBoundary>
               ) : null}
             </div>
-          ) : (
-            <div className="flex min-h-0 flex-1">
-              <div
-                id="space-panel"
-                role="tabpanel"
-                aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-                className="relative min-h-0 min-w-0 flex-1"
-              >
-                {/* The spaces visited last stay mounted, hidden: switching is a
+          ) : null}
+          <div
+            className={`${fullPage === null ? 'flex' : 'hidden'} min-h-0 flex-1`}
+            hidden={fullPage !== null}
+            inert={fullPage !== null}
+          >
+            <div
+              id={fullPage === null ? 'space-panel' : undefined}
+              role="tabpanel"
+              aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
+              className="relative min-h-0 min-w-0 flex-1"
+            >
+              {/* The spaces visited last stay mounted, hidden: switching is a
                     same-frame swap, and every session and terminal in the
                     space comes back exactly as it was left. */}
-                {mountedSpaces.map((space) => {
-                  const visible = space.id === spaceStore.activeSpaceId
-                  const layout = space.layout
-                  const activeSessionId = activeSessionOf(layout)
-                  return (
-                    <div
-                      key={space.id}
-                      hidden={!visible}
-                      inert={!visible}
-                      className={`absolute inset-0 min-h-0 min-w-0 flex-col ${visible ? 'flex' : 'hidden'}`}
-                    >
-                      {activeSessionId === null &&
-                      paneCount(layout) === 1 &&
-                      (leaves(layout.root)[0] === undefined ||
-                        isBlankLeaf(leaves(layout.root)[0]!)) ? (
-                        // Nothing open at all: the welcome panel is still the view.
-                        <ErrorBoundary label="Welcome">
-                          <WelcomePanel
-                            hasProjects={projects.length > 0}
-                            startPending={sessionStart.pending}
-                            onStartIntent={() =>
-                              sessionStart.canStart() ? captureStartIntent() : null
-                            }
-                            onCreateSession={beginNewSession}
-                            onConnect={(endpointId, anchor, intent) =>
-                              beginNewSession(
-                                anchor,
-                                {
-                                  driverKind: 'ari-core',
-                                  modelId: `ep:${endpointId}`,
-                                },
-                                intent,
-                              )
-                            }
-                          />
-                        </ErrorBoundary>
-                      ) : (
-                        <ErrorBoundary label="Session">
-                          <SplitView
-                            layout={layout}
-                            titleOf={(id) => {
-                              const session = sessions.find((s) => s.id === id)
-                              if (session === undefined) return null
-                              if (isHelmSession(session)) return 'Aria'
-                              const projectName =
-                                session.projectId === UNFILED_GROUP_ID
-                                  ? null
-                                  : (projects.find((p) => p.id === session.projectId)?.name ?? null)
-                              return formatPaneTitle(session.title, projectName)
-                            }}
-                            onFocus={splitLayoutActions.focus}
-                            onClose={splitLayoutActions.close}
-                            onSplit={splitLayoutActions.split}
-                            onToggleZoom={splitLayoutActions.toggleZoom}
-                            onResize={splitLayoutActions.resize}
-                            onDropSession={splitLayoutActions.dropSession}
-                            onDropPane={splitLayoutActions.dropPane}
-                            onOpenTerminal={openTerminalInPane}
-                            canOpenTerminal={shellRoot !== null}
-                            terminalTitleOf={(id) =>
-                              terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
-                            }
-                            renderTerminal={(terminalId, paneId) => {
-                              const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
-                              return (
-                                <ErrorBoundary label="Terminal">
-                                  <div className="h-full min-h-0 overflow-hidden">
-                                    <TerminalPane
-                                      key={`${paneId}:${terminalId}`}
-                                      terminalId={terminalId}
-                                      cwd={tab?.cwd ?? shellRoot}
-                                      initialCommand={tab?.command}
-                                      active={visible && paneId === activePaneOf(layout)}
-                                    />
-                                  </div>
-                                </ErrorBoundary>
-                              )
-                            }}
-                            renderSession={(current, paneId) => (
-                              // One view per session, never reused for another: composer
-                              // seeds and review notes belong to the session, not to the
-                              // position it sits in. Recent ones stay mounted, hidden.
-                              <SessionKeepAlive
-                                key={paneId}
-                                poolId={paneId}
-                                sessionId={current}
-                                hidden={!visible}
-                                render={(sessionId, hidden) => (
-                                  <SessionView
-                                    sessionId={sessionId}
-                                    onOpenAria={() => openAria()}
-                                    startedByAria={ariaStartedIds.has(sessionId)}
-                                    hidden={hidden}
-                                    onComposerReady={
-                                      composerFocusRequest?.sessionId === sessionId &&
-                                      composerFocusRequest.intent.scope.spaceId === space.id &&
-                                      composerFocusRequest.intent.scope.paneId === paneId
-                                        ? composerFocusRequest.intent.ready
-                                        : undefined
-                                    }
-                                    defaults={defaultsFor(sessionId)}
-                                    onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                    onPick={rememberPick}
-                                    // A child session opens in the pane it was opened from,
-                                    // rather than yanking the whole shell to it.
-                                    onOpenSession={(childId) =>
-                                      splitLayoutActions.assign(paneId, childId)
-                                    }
-                                    activityOf={activityOf}
-                                    childSessions={sessions.filter(
-                                      (session) =>
-                                        session.parentSessionId === sessionId && !session.archived,
-                                    )}
-                                    sessionTitle={sessionTitle}
-                                    parentSession={parentOf(sessions, sessionId)}
-                                  />
-                                )}
-                              />
-                            )}
-                          />
-                        </ErrorBoundary>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              {inspector ? (
-                <>
+              {mountedSpaces.map((space) => {
+                const visible = space.id === spaceStore.activeSpaceId
+                const layout = space.layout
+                const activeSessionId = activeSessionOf(layout)
+                return (
                   <div
-                    role="separator"
-                    aria-label="Resize panel"
-                    aria-orientation="vertical"
-                    aria-valuenow={dock.width}
-                    aria-valuemin={DOCK_WIDTH_BOUNDS.min}
-                    aria-valuemax={DOCK_WIDTH_BOUNDS.max}
-                    tabIndex={0}
-                    title="Drag to resize · double-click to reset"
-                    {...dock.handleProps}
-                    className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-                      dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-                    }`}
-                  />
-                  <motion.aside
-                    initial={{ opacity: 0, x: 12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
-                    role="complementary"
-                    aria-label={INSPECTOR_TITLES[inspector]}
-                    className="flex shrink-0 flex-col border-l border-border"
-                    style={{ width: dock.width, maxWidth: '60vw' }}
+                    key={space.id}
+                    hidden={!visible}
+                    inert={!visible}
+                    className={`absolute inset-0 min-h-0 min-w-0 flex-col ${visible ? 'flex' : 'hidden'}`}
                   >
-                    {inspector === 'terminal' ? (
-                      <div className="min-h-0 flex-1">
-                        <ErrorBoundary label="Terminal">
-                          <TerminalDock
-                            cwd={shellRoot}
-                            paneTerminalIds={paneTerminalIds}
-                            onAddProject={() => openProjectViaDialog()}
-                            onClose={() => setInspector(null)}
-                          />
-                        </ErrorBoundary>
-                      </div>
-                    ) : inspector === 'browser' ? (
-                      <div className="min-h-0 flex-1">
-                        <ErrorBoundary label="Browser">
-                          <BrowserPanel
-                            sessionId={activeSessionId ?? undefined}
-                            onClose={() => setInspector(null)}
-                          />
-                        </ErrorBoundary>
-                      </div>
+                    {activeSessionId === null &&
+                    paneCount(layout) === 1 &&
+                    (leaves(layout.root)[0] === undefined ||
+                      isBlankLeaf(leaves(layout.root)[0]!)) ? (
+                      // Nothing open at all: the welcome panel is still the view.
+                      <ErrorBoundary label="Welcome">
+                        <WelcomePanel
+                          hasProjects={projects.length > 0}
+                          startPending={sessionStart.pending}
+                          onStartIntent={() =>
+                            sessionStart.canStart() ? captureStartIntent() : null
+                          }
+                          onCreateSession={beginNewSession}
+                          onConnect={(endpointId, anchor, intent) =>
+                            beginNewSession(
+                              anchor,
+                              {
+                                driverKind: 'ari-core',
+                                modelId: `ep:${endpointId}`,
+                              },
+                              intent,
+                            )
+                          }
+                        />
+                      </ErrorBoundary>
                     ) : (
-                      <>
-                        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                          <span className="text-xs font-medium text-fg">
-                            {INSPECTOR_TITLES[inspector]}
-                          </span>
-                          <div className="flex-1" />
-                          <button
-                            type="button"
-                            aria-label="Close inspector"
-                            onClick={() => setInspector(null)}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                        <div className="min-h-0 flex-1">
-                          {inspector === 'changes' ? (
-                            <ErrorBoundary label="Changes">
-                              <ChangesView
-                                initialTab={sourceControlTab}
-                                onTabChange={setSourceControlTab}
-                                onExpand={() => {
-                                  setInspector(null)
-                                  setFullPage('changes')
-                                }}
-                                sessionId={activeSessionId}
-                                projectId={activeSession?.projectId ?? null}
-                                onRange={activeSessionId ? attachReviewRange : undefined}
-                                onCheckedOut={(path) =>
-                                  openCheckedOutWorktree(path, {
-                                    open: (folder) => rpc.invoke('project.open', { path: folder }),
-                                    refreshProjects,
-                                    startSession: (projectId) => {
-                                      setInspector(null)
-                                      createSession(projectId)
-                                    },
-                                  })
-                                }
-                              />
-                            </ErrorBoundary>
-                          ) : activeProjectPath && activeScope ? (
-                            <FileExplorer root={activeProjectPath} scope={activeScope} />
-                          ) : (
-                            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                              Open a project first — the explorer browses its folder.
-                            </div>
+                      <ErrorBoundary label="Session">
+                        <SplitView
+                          layout={layout}
+                          titleOf={(id) => {
+                            const session = sessions.find((s) => s.id === id)
+                            if (session === undefined) return null
+                            if (isHelmSession(session)) return 'Aria'
+                            const projectName =
+                              session.projectId === UNFILED_GROUP_ID
+                                ? null
+                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                            return formatPaneTitle(session.title, projectName)
+                          }}
+                          onFocus={splitLayoutActions.focus}
+                          onClose={splitLayoutActions.close}
+                          onSplit={splitLayoutActions.split}
+                          onToggleZoom={splitLayoutActions.toggleZoom}
+                          onResize={splitLayoutActions.resize}
+                          onDropSession={splitLayoutActions.dropSession}
+                          onDropPane={splitLayoutActions.dropPane}
+                          onOpenTerminal={openTerminalInPane}
+                          canOpenTerminal={shellRoot !== null}
+                          terminalTitleOf={(id) =>
+                            terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
+                          }
+                          renderTerminal={(terminalId, paneId) => {
+                            const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
+                            return (
+                              <ErrorBoundary label="Terminal">
+                                <div className="h-full min-h-0 overflow-hidden">
+                                  <TerminalPane
+                                    key={`${paneId}:${terminalId}`}
+                                    terminalId={terminalId}
+                                    cwd={tab?.cwd ?? shellRoot}
+                                    initialCommand={tab?.command}
+                                    active={visible && paneId === activePaneOf(layout)}
+                                  />
+                                </div>
+                              </ErrorBoundary>
+                            )
+                          }}
+                          renderSession={(current, paneId) => (
+                            // One view per session, never reused for another: composer
+                            // seeds and review notes belong to the session, not to the
+                            // position it sits in. Recent ones stay mounted, hidden.
+                            <SessionKeepAlive
+                              key={paneId}
+                              poolId={paneId}
+                              sessionId={current}
+                              hidden={!visible}
+                              render={(sessionId, hidden) => (
+                                <SessionView
+                                  sessionId={sessionId}
+                                  onOpenAria={() => openAria()}
+                                  startedByAria={ariaStartedIds.has(sessionId)}
+                                  hidden={hidden}
+                                  onComposerReady={
+                                    composerFocusRequest?.sessionId === sessionId &&
+                                    composerFocusRequest.intent.scope.spaceId === space.id &&
+                                    composerFocusRequest.intent.scope.paneId === paneId
+                                      ? composerFocusRequest.intent.ready
+                                      : undefined
+                                  }
+                                  defaults={defaultsFor(sessionId)}
+                                  onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                                  onPick={rememberPick}
+                                  // A child session opens in the pane it was opened from,
+                                  // rather than yanking the whole shell to it.
+                                  onOpenSession={(childId) =>
+                                    splitLayoutActions.assign(paneId, childId)
+                                  }
+                                  activityOf={activityOf}
+                                  childSessions={sessions.filter(
+                                    (session) =>
+                                      session.parentSessionId === sessionId && !session.archived,
+                                  )}
+                                  sessionTitle={sessionTitle}
+                                  parentSession={parentOf(sessions, sessionId)}
+                                />
+                              )}
+                            />
                           )}
-                        </div>
-                      </>
+                        />
+                      </ErrorBoundary>
                     )}
-                  </motion.aside>
-                </>
-              ) : null}
+                  </div>
+                )
+              })}
             </div>
-          )}
+            {inspector ? (
+              <>
+                <div
+                  role="separator"
+                  aria-label="Resize panel"
+                  aria-orientation="vertical"
+                  aria-valuenow={dock.width}
+                  aria-valuemin={DOCK_WIDTH_BOUNDS.min}
+                  aria-valuemax={DOCK_WIDTH_BOUNDS.max}
+                  tabIndex={0}
+                  title="Drag to resize · double-click to reset"
+                  {...dock.handleProps}
+                  className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+                    dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
+                  }`}
+                />
+                <motion.aside
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
+                  role="complementary"
+                  aria-label={INSPECTOR_TITLES[inspector]}
+                  className="flex shrink-0 flex-col border-l border-border"
+                  style={{ width: dock.width, maxWidth: '60vw' }}
+                >
+                  {inspector === 'terminal' ? (
+                    <div className="min-h-0 flex-1">
+                      <ErrorBoundary label="Terminal">
+                        <TerminalDock
+                          cwd={shellRoot}
+                          paneTerminalIds={paneTerminalIds}
+                          onAddProject={() => openProjectViaDialog()}
+                          onClose={() => setInspector(null)}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  ) : inspector === 'browser' ? (
+                    <div className="min-h-0 flex-1">
+                      <ErrorBoundary label="Browser">
+                        <BrowserPanel
+                          sessionId={activeSessionId ?? undefined}
+                          onClose={() => setInspector(null)}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+                        <span className="text-xs font-medium text-fg">
+                          {INSPECTOR_TITLES[inspector]}
+                        </span>
+                        <div className="flex-1" />
+                        <button
+                          type="button"
+                          aria-label="Close inspector"
+                          onClick={() => setInspector(null)}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        {inspector === 'changes' ? (
+                          <ErrorBoundary label="Changes">
+                            <ChangesView
+                              initialTab={sourceControlTab}
+                              onTabChange={setSourceControlTab}
+                              onExpand={() => {
+                                setInspector(null)
+                                setFullPage('changes')
+                              }}
+                              sessionId={changesSessionId}
+                              projectId={changesProjectId}
+                              onRange={
+                                activeSessionId && changesSessionId === activeSessionId
+                                  ? attachReviewRange
+                                  : undefined
+                              }
+                              onCheckedOut={(path) =>
+                                openCheckedOutWorktree(path, {
+                                  open: (folder) => rpc.invoke('project.open', { path: folder }),
+                                  refreshProjects,
+                                  startSession: (projectId) => {
+                                    setInspector(null)
+                                    createSession(projectId)
+                                  },
+                                })
+                              }
+                            />
+                          </ErrorBoundary>
+                        ) : activeProjectPath && activeScope ? (
+                          <FileExplorer root={activeProjectPath} scope={activeScope} />
+                        ) : (
+                          <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
+                            Open a project first — the explorer browses its folder.
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </motion.aside>
+              </>
+            ) : null}
+          </div>
         </main>
       </div>
 

@@ -78,6 +78,7 @@ export interface AgentRuntimeOptions {
   /** The projects Aria reaches; a runtime started without them has no Aria. */
   projects?: ControlHost['projects']
   createProject?: ControlHost['createProject']
+  openApp?: ControlHost['openApp']
   projectAgentDefaults?: ControlHost['projectAgentDefaults']
   effortsForModel?: ControlHost['effortsForModel']
   setProjectDefault?: ControlHost['setProjectDefault']
@@ -213,6 +214,7 @@ async function startControlTransport(
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
     ...(options.createProject === undefined ? {} : { createProject: options.createProject }),
+    ...(options.openApp === undefined ? {} : { openApp: options.openApp }),
     ...(options.projectAgentDefaults === undefined
       ? {}
       : { projectAgentDefaults: options.projectAgentDefaults }),
