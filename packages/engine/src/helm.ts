@@ -4,6 +4,7 @@ import {
   HELM_DESCRIPTION_CHARS,
   HELM_RECENT_SESSIONS,
   HELM_SESSION_TITLE_CHARS,
+  HELM_ERROR_MESSAGE_CHARS,
   type HelmProjectContext,
   type HelmSessionRow,
   isHelmSession,
@@ -139,7 +140,6 @@ export interface HelmView {
 export async function helmRow(view: HelmView, row: SessionListEntry): Promise<HelmSessionRow> {
   const model = await view.load(row.id)
   const session = model.session
-  const preview = finalAssistantText(model, model.lastTurn?.turnId, 240).text
   const descendants = new Set<string>([row.id])
   let changed = true
   while (changed) {
@@ -160,6 +160,30 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
       const child = await view.load(id)
       if (child.activeTurnId || child.queuedMessages.length) liveDescendants++
     }
+  const workState = childWorkState(
+    model,
+    liveDescendants,
+    model.activeTurnId !== null && turnRequester(model, model.activeTurnId) !== null,
+  )
+  const lastTurn =
+    model.activeTurnId === null &&
+    model.queuedMessages.length === 0 &&
+    workState !== 'waiting_for_children'
+      ? model.lastTurn
+      : undefined
+  const latestTurn: HelmSessionRow['latestTurn'] = lastTurn
+    ? {
+        turnId: lastTurn.turnId,
+        stopReason: lastTurn.stopReason,
+        settledAt: lastTurn.settledAt,
+        errorMessage:
+          lastTurn.stopReason === 'error' && lastTurn.errorMessage
+            ? compact(lastTurn.errorMessage, HELM_ERROR_MESSAGE_CHARS) || null
+            : null,
+      }
+    : null
+  const previewTurnId = model.activeTurnId ?? latestTurn?.turnId
+  const preview = previewTurnId ? finalAssistantText(model, previewTurnId, 240).text : ''
   return {
     sessionId: row.id,
     title: row.title,
@@ -169,15 +193,12 @@ export async function helmRow(view: HelmView, row: SessionListEntry): Promise<He
     driverKind: row.driverKind ?? session?.driverKind ?? 'unknown',
     modelId: row.modelId ?? session?.modelId ?? null,
     state: sessionState(model),
-    workState: childWorkState(
-      model,
-      liveDescendants,
-      model.activeTurnId !== null && turnRequester(model, model.activeTurnId) !== null,
-    ),
+    workState,
     lastSeq: model.lastSeq,
     questionOwnerSessionId: model.activeTurnId ? turnRequester(model, model.activeTurnId) : null,
     pendingInputs: model.pendingInputs,
     pendingApprovals: model.pendingApprovals,
+    latestTurn,
     startedByAria: Boolean(
       session && !session.parentSessionId && session.createdBy?.kind === 'session',
     ),
@@ -231,6 +252,12 @@ const STATE = {
   idle: 'idle',
 } as const
 
+const OUTCOME = {
+  completed: 'completed',
+  interrupted: 'interrupted',
+  error: 'failed',
+} as const
+
 function ago(ms: number): string {
   const minutes = Math.max(1, Math.round(ms / 60_000))
   if (minutes < 60) return `${minutes}m ago`
@@ -243,8 +270,14 @@ function line(entry: HelmSessionRow, titles: ReadonlyMap<string, string>): strin
   const parent = entry.parentSessionId ? titles.get(entry.parentSessionId) : undefined
   const under = parent ? `, child of "${parent}"` : ''
   const mine = entry.startedByAria ? ', started by you' : ''
+  const settled = entry.state === 'idle' ? entry.latestTurn : null
   const state =
-    entry.workState === 'waiting_for_children' ? 'waiting for delegated work' : STATE[entry.state]
+    entry.workState === 'waiting_for_children'
+      ? 'waiting for delegated work'
+      : settled
+        ? OUTCOME[settled.stopReason]
+        : STATE[entry.state]
+  const error = settled?.errorMessage ? `: ${settled.errorMessage}` : ''
   const requests = [
     ...(entry.pendingInputs ?? []).map(
       (input) =>
@@ -254,7 +287,7 @@ function line(entry: HelmSessionRow, titles: ReadonlyMap<string, string>): strin
       (approval) => `human approval ${approval.approvalId}: ${compact(approval.toolName, 80)}`,
     ),
   ]
-  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${state}${requests.length ? `; ${requests.join('; ')}. Current context: ari session read ${entry.sessionId} --turns 1 --json` : ''}`
+  return `- "${entry.title}" (${entry.sessionId}) in ${where}${under}${mine}: ${state}${error}${requests.length ? `; ${requests.join('; ')}. Current context: ari session read ${entry.sessionId} --turns 1 --json` : ''}`
 }
 
 const MAX_ACTIVE = 25
@@ -337,7 +370,7 @@ export async function helmSnapshot(
     const row = rows.find((candidate) => candidate.id === id)
     if (!row) continue
     const entry = await helmRow(view, row)
-    if (entry.state === 'idle') finished.push(entry)
+    if (entry.state === 'idle' && entry.workState !== 'waiting_for_children') finished.push(entry)
   }
   const others = projects
     .filter((project) => project.projectId !== HELM_PROJECT_ID)
