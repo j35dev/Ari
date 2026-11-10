@@ -64,6 +64,16 @@ it('uses the coordinated platform defaults', () => {
 })
 
 it.each(['win32', 'linux', 'darwin'])(
+  'migrates legacy Aria action collisions on %s',
+  (platform) => {
+    for (const chord of ['ctrl+k', 'ctrl+enter', 'ctrl+alt+s', 'ctrl+shift+f'])
+      expect(migrateSpeechShortcut(chord, platform)).toBe(defaultSpeechShortcut(platform))
+    for (const chord of ['f20', 'ctrl+alt+d', 'shift+meta+d'])
+      expect(migrateSpeechShortcut(chord, platform)).toBe(chord)
+  },
+)
+
+it.each(['win32', 'linux', 'darwin'])(
   'gives general dictation a distinct unused default on %s',
   (platform) => {
     expect(
