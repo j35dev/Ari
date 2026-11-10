@@ -1426,6 +1426,8 @@ it('rejects a maximum-size context plus its brief before creating a workspace or
 })
 
 it('preserves a created worker after a lost spawn acknowledgement and does not repeat its effects', async () => {
+  const isolate = vi.spyOn(host, 'isolate')
+  const create = vi.spyOn(host, 'create')
   const record = host.record.bind(host)
   host.record = async (id, event) => {
     if (event.type === 'child.session.spawned') throw new Error('crash after session creation')
@@ -1436,23 +1438,35 @@ it('preserves a created worker after a lost spawn acknowledgement and does not r
     driverKind: 'claude',
     idempotencyKey: 'lost-spawn-record',
   }
-  expect(await control.invoke('root', 'session.spawn', params)).toMatchObject({
+  const first = await control.invoke('root', 'session.spawn', params)
+  expect(first).toMatchObject({
     ok: false,
-    error: { code: 'internal_error' },
+    error: { code: 'uncertain_outcome' },
   })
+  if (first.ok) throw new Error('expected uncertain spawn')
   const rows = await store.listSessions()
   expect(rows).toHaveLength(2)
   const child = rows.find((row) => row.id !== 'root')!
   const workspace = (await store.load(child.id)).session!.workspace!
   if (workspace.kind !== 'managed-worktree') throw new Error('expected worktree')
+  expect(first.error.details).toMatchObject({
+    operationId: expect.any(String) as string,
+    childSessionId: child.id,
+    stage: 'session_created',
+    projectId: child.projectId,
+    workspace,
+    workspacePath: workspace.path,
+  })
   expect(await readFile(join(workspace.path, 'file.txt'), 'utf8')).toBe('base\n')
   host.record = record
   reload()
   expect(await control.invoke('root', 'session.spawn', params)).toMatchObject({
     ok: false,
-    error: { code: 'uncertain_outcome' },
+    error: { code: 'uncertain_outcome', details: first.error.details },
   })
   expect(await store.listSessions()).toHaveLength(2)
+  expect(isolate).toHaveBeenCalledTimes(1)
+  expect(create).toHaveBeenCalledTimes(1)
   expect(submissions).toBe(0)
 })
 
