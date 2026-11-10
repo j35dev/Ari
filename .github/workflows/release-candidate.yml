@@ -156,7 +156,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ari-install-${{ matrix.os }}-${{ env.CANDIDATE_SHA }}
-          path: ${{ runner.temp }}/ari-install-upgrade-/**
+          path: ${{ runner.temp }}/ari-install-upgrade-*/**
           if-no-files-found: warn
       - name: Retain bounded macOS startup samples
         if: always() && runner.os == 'macOS'
