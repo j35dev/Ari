@@ -515,7 +515,7 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
             onFocus={() => inspect(`${item.label}: ${item.value}`)}
           >
             <span className="ari-viz-swatch" style={{ background: color(i) }} />
-            <span>{item.label}</span>
+            <span className="ari-viz-legend-label">{item.label}</span>
             <strong>{formatNumber(item.value)}</strong>
           </button>
         ))}

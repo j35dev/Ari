@@ -48,8 +48,11 @@ sources and assumptions. Do not make up measurements to fill a chart.
 
 Every object has `version: 1`, `type`, and `title`. Optional common fields are
 `description` (plain text) and `source` (plain text attribution). Put every
-field on that same object. Do not nest fields under a `data` object or add
-extra keys; both are rejected.
+field on that same object. That flat object is the contract. A single top-level
+`data` object that holds only the type's fields is accepted for older replies
+and flattened before validation. Repeating a field outside and inside `data`
+is rejected. Extra keys, a nested `data` object, HTML, scripts and custom
+colors are rejected.
 
 | Type                                | Required fields                                                                                                    | Optional fields                                                                         |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -99,6 +102,62 @@ For relationships rather than measurements:
 ````markdown
 ```ari-viz
 {"version":1,"type":"graph","title":"Request flow","nodes":[{"id":"user","label":"User prompt"},{"id":"agent","label":"Agent"},{"id":"answer","label":"Answer + visual"}],"edges":[{"from":"user","to":"agent"},{"from":"agent","to":"answer","label":"Responds"}]}
+```
+````
+
+The same flat fields, one compact illustrative object per type:
+
+````markdown
+```ari-viz
+{"version":1,"type":"line","title":"Illustrative trend","labels":["Jan","Feb"],"series":[{"name":"Value","values":[2,3]}]}
+```
+
+```ari-viz
+{"version":1,"type":"area","title":"Illustrative capacity","labels":["Mon","Tue"],"series":[{"name":"Hours","values":[4,5]}],"unit":"hours"}
+```
+
+```ari-viz
+{"version":1,"type":"scatter","title":"Illustrative points","series":[{"name":"Points","points":[{"x":1,"y":2,"label":"Sample"}]}]}
+```
+
+```ari-viz
+{"version":1,"type":"pie","title":"Illustrative share","items":[{"label":"Core","value":3},{"label":"Other","value":1}],"unit":"parts"}
+```
+
+```ari-viz
+{"version":1,"type":"donut","title":"Illustrative split","items":[{"label":"Build","value":4},{"label":"Review","value":2}],"unit":"hours"}
+```
+
+```ari-viz
+{"version":1,"type":"radar","title":"Illustrative tradeoffs","labels":["Speed","Quality","Cost"],"series":[{"name":"Option","values":[3,4,2]}]}
+```
+
+```ari-viz
+{"version":1,"type":"heatmap","title":"Illustrative load","xLabels":["Mon","Tue"],"yLabels":["AM"],"values":[[1,2]],"unit":"items"}
+```
+
+```ari-viz
+{"version":1,"type":"treemap","title":"Illustrative area","items":[{"label":"Platform","value":5},{"label":"Docs","value":2}]}
+```
+
+```ari-viz
+{"version":1,"type":"funnel","title":"Illustrative stages","items":[{"label":"Seen","value":8},{"label":"Kept","value":3}]}
+```
+
+```ari-viz
+{"version":1,"type":"timeline","title":"Illustrative sequence","events":[{"label":"Start","date":"Week 1"},{"label":"Finish","date":"Week 2","tone":"success"}]}
+```
+
+```ari-viz
+{"version":1,"type":"gantt","title":"Illustrative schedule","unit":"days","tasks":[{"label":"Design","start":0,"end":2},{"label":"Build","start":2,"end":5}]}
+```
+
+```ari-viz
+{"version":1,"type":"metrics","title":"Illustrative figures","items":[{"label":"Saved","value":"4 h","tone":"success"}]}
+```
+
+```ari-viz
+{"version":1,"type":"comparison","title":"Illustrative choice","columns":["Local","Hosted"],"rows":[{"label":"Network","values":["Optional","Required"]}]}
 ```
 ````
 

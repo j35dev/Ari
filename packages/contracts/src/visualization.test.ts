@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parseVisualization, VISUALIZATION_MAX_CHARS, visualizationSchema } from './visualization'
 
+function rejected(source: string): string {
+  const result = parseVisualization(source)
+  if (result.ok) throw new Error('expected the visualization to fail')
+  return result.error
+}
+
 const bar = {
   version: 1,
   type: 'bar',
@@ -150,14 +156,30 @@ describe('visualization contract', () => {
       rows: [{ label: 'R', values: ['x'] }],
     },
   }
-  it.each(types)('accepts a flat %s object and rejects a data wrapper', (type) => {
-    const flat = minimal[type]
-    expect(visualizationSchema.safeParse(flat).success).toBe(true)
-    const wrapped = { version: 1, type, title: 'T', data: flat }
-    const rejected = visualizationSchema.safeParse(wrapped)
-    expect(rejected.success).toBe(false)
-    if (!rejected.success) expect(JSON.stringify(rejected.error.issues)).toContain('data')
-  })
+  it.each(types)(
+    'keeps the %s schema strict and accepts one non-overlapping data object',
+    (type) => {
+      const flat = minimal[type]
+      expect(visualizationSchema.safeParse(flat).success).toBe(true)
+      const overlapping = { version: 1, type, title: 'T', data: flat }
+      expect(visualizationSchema.safeParse(overlapping).success).toBe(false)
+      const conflict = parseVisualization(JSON.stringify(overlapping))
+      expect(conflict.ok).toBe(false)
+      if (!conflict.ok) {
+        expect(conflict.error).toContain('type')
+        expect(conflict.error).not.toContain('Invalid input')
+        expect(conflict.error.length).toBeLessThanOrEqual(240)
+      }
+      const fields = { ...flat }
+      delete fields.type
+      delete fields.title
+      const wrapped = parseVisualization(
+        JSON.stringify({ version: 1, type, title: 'T', data: fields }),
+      )
+      expect(wrapped.ok).toBe(true)
+      if (wrapped.ok) expect(wrapped.value.type).toBe(type)
+    },
+  )
 
   it('applies tone and shape defaults without inventing a graph-node tone', () => {
     const timeline = visualizationSchema.parse(minimal.timeline)
@@ -251,15 +273,112 @@ describe('visualization contract', () => {
       skill.indexOf('## Inline visualizations'),
       skill.indexOf('## Typed tasks'),
     )
-    expect(section).toContain('Do not nest fields under a `data` object')
+    expect(section).toContain('single top-level')
+    expect(section).toContain('flattened before validation')
+    expect(section).toContain('Repeating a field outside and inside `data`')
+    expect(section).not.toContain('Do not nest fields under a `data` object')
     expect(section).not.toContain('title, and data')
     const examples = [...section.matchAll(/```ari-viz\r?\n([\s\S]*?)\r?\n```/g)].map((match) =>
       match[1]?.trim(),
     )
-    expect(examples).toHaveLength(2)
-    for (const example of examples) {
+    expect(examples).toHaveLength(types.length)
+    const seen = examples.map((example) => {
       const parsed = parseVisualization(example ?? '')
       expect(parsed.ok).toBe(true)
+      return parsed.ok ? parsed.value.type : ''
+    })
+    expect(new Set(seen)).toEqual(new Set(types))
+  })
+
+  it('flattens the historical timeline wrapper and names field failures', () => {
+    const historical = {
+      version: 1,
+      type: 'timeline',
+      title: 'Release progress',
+      data: {
+        events: [
+          { label: 'v0.2.0', date: '2026-08-30', description: 'Previous release' },
+          { label: 'v0.3.13', date: 'in progress', tone: 'warning' },
+        ],
+      },
     }
+    const parsed = parseVisualization(JSON.stringify(historical))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok || parsed.value.type !== 'timeline') throw new Error('timeline')
+    expect(parsed.value.events[0]).toMatchObject({ label: 'v0.2.0', tone: 'accent' })
+    expect(parsed.value.events[1]).toMatchObject({ label: 'v0.3.13', tone: 'warning' })
+    expect(
+      parseVisualization(JSON.stringify({ version: 1, type: 'timeline', title: 'T' })),
+    ).toEqual({
+      ok: false,
+      error: 'Timeline charts need events.',
+    })
+    const script = '<script>alert(1)</script>'
+    const html = parseVisualization(
+      JSON.stringify({
+        version: 1,
+        type: 'timeline',
+        title: 'T',
+        events: [{ label: 'A' }],
+        html: script,
+      }),
+    )
+    expect(html.ok).toBe(false)
+    if (!html.ok) {
+      expect(html.error).toBe('Timeline charts cannot include "html".')
+      expect(html.error).not.toContain(script)
+      expect(html.error).not.toContain('Invalid input')
+    }
+    const colors = parseVisualization(JSON.stringify({ ...bar, colors: ['red'] }))
+    expect(colors.ok).toBe(false)
+    if (!colors.ok) expect(colors.error).toBe('Bar charts cannot include "colors".')
+    expect(
+      parseVisualization(
+        JSON.stringify({
+          version: 1,
+          type: 'timeline',
+          title: 'T',
+          data: { data: { events: [] } },
+        }),
+      ).ok,
+    ).toBe(false)
+    expect(rejected(JSON.stringify({ version: 1, type: 'bar', title: 'T', data: ['nope'] }))).toBe(
+      'The data field must be one object of chart fields.',
+    )
+    expect(
+      parseVisualization(
+        '{"__proto__":{"polluted":true},"version":1,"type":"timeline","title":"T","events":[{"label":"A"}]}',
+      ),
+    ).toEqual({ ok: false, error: 'Visualization objects cannot use reserved keys.' })
+    expect(
+      rejected(
+        '{"version":1,"type":"timeline","title":"T","data":{"constructor":{},"events":[{"label":"A"}]}}',
+      ),
+    ).toBe('Visualization objects cannot use reserved keys.')
+    expect(
+      rejected(
+        JSON.stringify({
+          version: 1,
+          type: 'heatmap',
+          title: 'Ragged',
+          xLabels: ['A', 'B'],
+          yLabels: ['C'],
+          values: [[1]],
+        }),
+      ),
+    ).toBe('Heatmap values must match both label axes.')
+    expect(rejected('null')).toBe('A visualization needs a supported type.')
+    const oddKey = parseVisualization(
+      JSON.stringify({
+        version: 1,
+        type: 'bar',
+        title: 'T',
+        '<script>': 1,
+        labels: ['A'],
+        series: [{ name: 'S', values: [1] }],
+      }),
+    )
+    expect(oddKey.ok).toBe(false)
+    if (!oddKey.ok) expect(oddKey.error).not.toContain('<')
   })
 })
