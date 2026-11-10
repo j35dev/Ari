@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
 
@@ -39,6 +43,7 @@ jobs:
       - name: Capture visualization review
         env:
           VISUALIZATION_REVIEW_CI: '1'
+          VISUALIZATION_REVIEW_SHA: ${{ github.event.pull_request.head.sha }}
           CI: 'true'
           GITHUB_ACTIONS: 'true'
           RUNNER_ENVIRONMENT: github-hosted

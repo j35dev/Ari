@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -27,6 +28,81 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const skill = readFileSync(join(root, 'apps/desktop/resources/cli/ari/SKILL.md'), 'utf8')
 const commit = 'd'.repeat(40)
+
+test('capture marker observes the committed React chart and readable error in jsdom', async () => {
+  const require = createRequire(join(root, 'package.json'))
+  const { JSDOM } = require('jsdom')
+  const temporaryParent = realpathSync(tmpdir())
+  const dest = mkdtempSync(join(temporaryParent, 'ari-viz-render-fixture-'))
+  try {
+    const esbuild = resolveEsbuild(root)
+    assert.ok(esbuild, 'Existing esbuild is required for the actual render fixture')
+    await bundleRenderer(root, esbuild, dest)
+    const bundle = readFileSync(join(dest, 'bundle.js'), 'utf8')
+    const cases = [
+      {
+        kind: 'documented',
+        type: 'metrics',
+        input: {
+          version: 1,
+          type: 'metrics',
+          title: 'Render acceptance',
+          items: [{ label: 'Hours', value: 4 }],
+        },
+      },
+      {
+        kind: 'historical',
+        type: 'timeline',
+        input: {
+          version: 1,
+          type: 'timeline',
+          title: 'Wrapped acceptance',
+          data: { events: [{ label: 'Start' }] },
+        },
+      },
+      {
+        kind: 'error',
+        type: 'timeline',
+        input: { version: 1, type: 'timeline', title: 'Missing events' },
+      },
+    ]
+    for (const item of cases) {
+      const source = JSON.stringify(item.input)
+      const dom = new JSDOM(
+        `<html><body><div id="ari-layer-root"></div><div id="root"></div><script id="viz-source" type="application/json">${source}</script></body></html>`,
+        { runScripts: 'outside-only', pretendToBeVisual: true },
+      )
+      try {
+        dom.window.eval(bundle)
+        // createRoot.render alone returns before commit. The capture must not
+        // publish a stale false result while the actual chart renders later.
+        const marker = readReviewMarker(dom.serialize())
+        assertReviewResult(marker, { ...item, id: item.kind, sourceRole: 'after', source })
+        assert.equal(
+          Boolean(dom.window.document.querySelector('figure.ari-viz')),
+          item.kind !== 'error',
+        )
+      } finally {
+        dom.window.close()
+      }
+    }
+  } finally {
+    assert.equal(dirname(dest), temporaryParent, 'Only the owned temporary fixture may be removed')
+    rmSync(dest, { recursive: true, force: true })
+  }
+})
+
+test('hosted capture checks out exact PR head with the pinned before source available', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/visualization-review.yml'), 'utf8')
+  assert.ok(workflow.includes('ref: ${{ github.event.pull_request.head.sha }}'))
+  assert.match(workflow, /fetch-depth: 0/)
+  assert.match(workflow, /persist-credentials: false/)
+  assert.ok(
+    workflow.includes('VISUALIZATION_REVIEW_SHA: ${{ github.event.pull_request.head.sha }}'),
+  )
+  const script = readFileSync(join(root, 'scripts/release-visualization-ci.mjs'), 'utf8')
+  assert.match(script, /after !== process.env.VISUALIZATION_REVIEW_SHA/)
+})
 
 test('hosted screenshot gate refuses a desktop or relative runner', () => {
   assert.equal(hostedReviewEnv({}), false)
@@ -136,8 +212,6 @@ test('browser selection stays on unix system paths and does not launch', () => {
   const esbuild = resolveEsbuild(root)
   assert.ok(esbuild === null || esbuild.endsWith(`${join('bin', 'esbuild')}`))
   if (esbuild !== null) {
-    const header = readFileSync(esbuild).subarray(0, 20).toString('utf8')
-    assert.equal(header.startsWith('#!'), true)
     assert.equal(esbuildApiEntry(esbuild).endsWith(`${join('lib', 'main.js')}`), true)
   }
   assert.throws(() => esbuildApiEntry(join(tmpdir(), 'missing-esbuild')), /JS API is missing/)

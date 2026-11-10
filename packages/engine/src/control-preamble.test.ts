@@ -353,7 +353,7 @@ it('parses the published skill examples with the strict visualization schema', (
     return parsed.success ? parsed.data.type : ''
   })
   expect(new Set(types).size).toBe(15)
-  const surfaces = [root, { ...root, lead: true }, { ...root, projectId: 'helm' }, child]
+  const surfaces: Session[] = [root, { ...root, lead: true }, { ...root, projectId: 'helm' }, child]
   const clause = visualsClause(controlPreamble(root, null, 'prompt'))
   for (const driverKind of driverKindSchema.options) {
     for (const channel of ['prompt', 'system'] as const) {
