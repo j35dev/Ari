@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { EventEmitter } from 'node:events'
+import { performance } from 'node:perf_hooks'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -239,9 +240,36 @@ export async function debuggerTargets(port) {
 }
 
 export async function pauseBeforeArchivedApp(client, archive, resources, trace = []) {
+  // Use the existing pause wait's 20s as one monotonic bootstrap budget,
+  // rather than imposing a module-count limit or restarting it after progress.
+  const budget = 'Framework bootstrap time budget (20000ms)'
+  const deadline = performance.now() + 20_000
+  const remaining = () => {
+    const milliseconds = deadline - performance.now()
+    assert.ok(milliseconds > 0, `${budget} exhausted`)
+    return milliseconds
+  }
+  const send = (method, params) => client.send(method, params, Math.min(10_000, remaining()))
+  const runUntilPause = async (method) => {
+    let listener
+    const paused = new Promise((resolve) => {
+      listener = resolve
+      client.once('Debugger.paused', listener)
+    })
+    try {
+      await send(method)
+      return await bounded(paused, budget, remaining())
+    } finally {
+      client.off('Debugger.paused', listener)
+    }
+  }
   // Node/Electron script URLs use physical paths (macOS /private/var), even
   // when the selected archive was supplied through an alias (/var).
-  ;[archive, resources] = await Promise.all([realpath(archive), realpath(resources)])
+  ;[archive, resources] = await bounded(
+    Promise.all([realpath(archive), realpath(resources)]),
+    budget,
+    remaining(),
+  )
   const scripts = [],
     scriptURLs = new Map()
   client.on('Debugger.scriptParsed', ({ url, scriptId }) => {
@@ -250,29 +278,21 @@ export async function pauseBeforeArchivedApp(client, archive, resources, trace =
       scriptURLs.set(scriptId, url)
     }
   })
-  await client.send('Runtime.enable')
-  await client.send('Debugger.enable')
+  await send('Runtime.enable')
+  await send('Debugger.enable')
   assert.ok(
     !scripts.some((url) => /\.asar(?:[\\/]|$)/i.test(url)),
     'Packaged code loaded before disposable path isolation',
   )
-  const { breakpointId } = await client.send('Debugger.setInstrumentationBreakpoint', {
+  const { breakpointId } = await send('Debugger.setInstrumentationBreakpoint', {
     instrumentation: 'beforeScriptExecution',
   })
-  let pause
-  const nextPause = () => {
-    pause = null
-    client.once('Debugger.paused', (value) => {
-      pause = value
-    })
-  }
-  nextPause()
-  await client.send('Runtime.runIfWaitingForDebugger')
-  await poll('beforeScriptExecution pause', () => pause)
+  let pause = await runUntilPause('Runtime.runIfWaitingForDebugger')
+  const seenPauses = new Set()
   // Electron bootstrap sets up public APIs and package name/version before app
   // import. Only known framework scripts may execute before the isolation pause.
-  for (let count = 0; ; count++) {
-    assert.ok(count < 100, 'Framework bootstrap exceeded bounded instrumentation steps')
+  for (;;) {
+    remaining()
     const location = pause.callFrames[0]?.location
     const url = scriptURLs.get(location?.scriptId) ?? pause.callFrames[0]?.url ?? ''
     let kind = startupScriptKind(url, archive, resources)
@@ -285,7 +305,7 @@ export async function pauseBeforeArchivedApp(client, archive, resources, trace =
           scriptURLs.get(frame.location.scriptId) === 'node:internal/util',
       )
     ) {
-      const { scriptSource } = await client.send('Debugger.getScriptSource', {
+      const { scriptSource } = await send('Debugger.getScriptSource', {
         scriptId: location.scriptId,
       })
       internalGlobalSource = scriptSource.slice(0, 2000)
@@ -313,12 +333,21 @@ export async function pauseBeforeArchivedApp(client, archive, resources, trace =
         'No proven pre-execution isolation boundary',
       )
       // Our evaluation must not trigger a nested instrumentation pause.
-      await client.send('Debugger.removeBreakpoint', { breakpointId })
+      await send('Debugger.removeBreakpoint', { breakpointId })
       return { scripts, trace }
     }
-    nextPause()
-    await client.send('Debugger.resume')
-    await poll('next guarded startup script', () => pause)
+    const key = JSON.stringify([
+      location?.scriptId,
+      location?.lineNumber,
+      location?.columnNumber,
+      pause.reason,
+    ])
+    assert.ok(
+      !seenPauses.has(key),
+      `Framework bootstrap made no progress: repeated pause at ${url}`,
+    )
+    seenPauses.add(key)
+    pause = await runUntilPause('Debugger.resume')
   }
 }
 
