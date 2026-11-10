@@ -7,6 +7,44 @@ export function defaultSpeechShortcut(platform: string): string {
   return platform === 'darwin' ? 'shift+meta+space' : 'ctrl+alt+space'
 }
 
+export function defaultDictationShortcut(platform: string): string {
+  return platform === 'darwin' ? 'shift+meta+d' : 'ctrl+alt+d'
+}
+
+export function speechBindingsError(
+  aria: string,
+  dictation: string,
+  platform: string,
+): string | null {
+  const invalid = speechShortcutError(aria, platform) ?? speechShortcutError(dictation, platform)
+  if (invalid) return invalid
+  if (aria === dictation)
+    return 'Aria dictation and general dictation must use different shortcuts.'
+  for (const chord of [aria, dictation]) {
+    const parts = chord.split('+')
+    const key = parts.pop()!
+    const ctrl = parts.includes('ctrl')
+    const meta = parts.includes('meta')
+    const alt = parts.includes('alt')
+    const shift = parts.includes('shift')
+    // App.tsx and Composer accept some actions with extra modifiers, and either
+    // Ctrl or Cmd on all platforms. Reserve their actual matching conditions.
+    const appAction =
+      key === 'enter' ||
+      (ctrl && !alt && !shift && key === 'b') ||
+      (ctrl && !meta && !alt && key === 'backquote') ||
+      ((ctrl || meta) &&
+        (key === 'k' ||
+          key === 's' ||
+          (shift && key === 'f') ||
+          /^[1-9]$/.test(key) ||
+          (!alt && (key === 'backslash' || (!shift && ['n', '0'].includes(key)))) ||
+          (alt && !shift && ['t', 'w'].includes(key))))
+    if (appAction) return `${chord} is already used by Ari. Choose another shortcut.`
+  }
+  return null
+}
+
 const speechModifierOrder = ['ctrl', 'alt', 'shift', 'meta']
 const speechModifiers = new Set(speechModifierOrder)
 const speechPunctuation = new Set([
@@ -228,8 +266,9 @@ export const speechSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   modelId: z.string().nullable().default(null),
   modelPath: z.string().nullable().default(null),
-  // Empty in older files means use the host's default chord.
+  // The legacy key keeps its Aria-specific intent. Empty files use the host default.
   shortcut: z.string().trim().max(80).default(''),
+  dictationShortcut: z.string().trim().max(80).default(''),
 })
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -353,8 +392,22 @@ export const settingsUpdateSchema = z.object({
           const error = speechShortcutError(value)
           if (error) context.addIssue({ code: 'custom', message: error })
         }),
+      dictationShortcut: z
+        .string()
+        .max(80)
+        .superRefine((value, context) => {
+          const error = speechShortcutError(value)
+          if (error) context.addIssue({ code: 'custom', message: error })
+        }),
     })
     .partial()
+    .superRefine((value, context) => {
+      if (value.shortcut !== undefined && value.shortcut === value.dictationShortcut)
+        context.addIssue({
+          code: 'custom',
+          message: 'Aria dictation and general dictation must use different shortcuts.',
+        })
+    })
     .optional(),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),

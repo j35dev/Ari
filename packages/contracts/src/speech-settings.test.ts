@@ -6,6 +6,8 @@ import {
   defaultSpeechShortcut,
   speechShortcutError,
   migrateSpeechShortcut,
+  defaultDictationShortcut,
+  speechBindingsError,
 } from './settings'
 import { rpcParams } from './rpc'
 
@@ -16,6 +18,7 @@ it('migrates settings without a configured speech model', () => {
     modelId: null,
     modelPath: null,
     shortcut: '',
+    dictationShortcut: '',
   })
 })
 it('keeps speech patches default-free and validates PCM bounds', () => {
@@ -47,6 +50,27 @@ it('uses the coordinated platform defaults', () => {
   expect(defaultSpeechShortcut('darwin')).toBe('shift+meta+space')
 })
 
+it.each(['win32', 'linux', 'darwin'])(
+  'gives general dictation a distinct unused default on %s',
+  (platform) => {
+    expect(
+      speechBindingsError(
+        defaultSpeechShortcut(platform),
+        defaultDictationShortcut(platform),
+        platform,
+      ),
+    ).toBeNull()
+    expect(defaultDictationShortcut(platform)).toBe(
+      platform === 'darwin' ? 'shift+meta+d' : 'ctrl+alt+d',
+    )
+    expect(speechBindingsError('f20', 'f20', platform)).toContain('different shortcuts')
+    expect(
+      settingsUpdateSchema.safeParse({ speech: { shortcut: 'f20', dictationShortcut: 'f20' } })
+        .success,
+    ).toBe(false)
+  },
+)
+
 it('enforces ctrl, alt, shift, meta ordering and migrates shortcuts with reversed modifiers', () => {
   for (const chord of [
     'ctrl+alt+space',
@@ -67,6 +91,22 @@ it('enforces ctrl, alt, shift, meta ordering and migrates shortcuts with reverse
     expect(settingsUpdateSchema.safeParse({ speech: { shortcut: chord } }).success).toBe(false)
     expect(migrateSpeechShortcut(chord, 'darwin')).toBe('shift+meta+space')
   }
+})
+
+it.each([
+  'ctrl+alt+k',
+  'ctrl+shift+k',
+  'shift+meta+k',
+  'ctrl+alt+shift+f',
+  'ctrl+alt+s',
+  'ctrl+shift+meta+s',
+  'ctrl+b',
+  'ctrl+alt+shift+1',
+  'alt+shift+meta+1',
+  'ctrl+enter',
+  'shift+meta+enter',
+])('rejects %s when Ari handles the same key with those modifiers', (chord) => {
+  expect(speechBindingsError('f20', chord, 'darwin')).toContain('already used by Ari')
 })
 
 it.each([

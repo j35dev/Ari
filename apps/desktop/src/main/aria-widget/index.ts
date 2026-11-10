@@ -4,10 +4,14 @@ import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
 import type { uIOhook } from 'uiohook-napi'
 import { createLogger } from '@ari/shared/logger'
-import { ChordTracker, defaultShortcut, parseChord, shortcutError, type HookKey } from './chord'
+import { ChordTracker, defaultShortcut, parseChord, type HookKey } from './chord'
 import { sendToAria } from './handoff'
 import { HoldToTalk, type WidgetSnapshot } from './model'
 import { widgetBounds } from './position'
+import { defaultDictationShortcut, speechBindingsError } from '@ari/contracts/settings'
+import { CaptureLease } from '../speech/capture-lease'
+import { captureDictationTarget, prepareDictation } from '../speech/dictation-target'
+import type { DictationTarget } from '../../shared/dictation'
 
 const log = createLogger('desktop:aria-widget')
 const METHODS = [
@@ -21,15 +25,25 @@ const METHODS = [
 export interface AriaWidgetDeps {
   invoke(method: string, params?: unknown): Promise<unknown>
   openSettings(): void
+  mainWindow?(): BrowserWindow | null
+  captureTarget?(id: string): Promise<DictationTarget>
+  prepareTarget?(): Promise<void>
 }
 
-type WidgetSettings = Settings & { speech?: { enabled: boolean; shortcut: string } }
+type WidgetSettings = Settings
 
 export class AriaWidget {
   private window: BrowserWindow | null = null
   private readonly hold = new HoldToTalk()
   private hook: typeof uIOhook | null = null
   private tracker: ChordTracker | null = null
+  private dictationTracker: ChordTracker | null = null
+  private readonly lease = new CaptureLease()
+  private token: string | null = null
+  private composerToken: string | null = null
+  private target: Promise<DictationTarget> | null = null
+  private targetReady = false
+  private destination: 'aria' | 'dictation' = 'aria'
   private revision = 0
   private settings: WidgetSettings | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -43,6 +57,20 @@ export class AriaWidget {
   private configuration = ''
 
   constructor(private readonly deps: AriaWidgetDeps) {
+    for (const action of ['acquire', 'release']) {
+      ipcMain.handle(`ari:speechCapture.${action}`, (event, token: unknown) => {
+        if (event.sender !== this.deps.mainWindow?.()?.webContents || event.sender.isDestroyed())
+          throw new Error('Rejected dictation sender')
+        if (action === 'acquire') return (this.composerToken = this.lease.acquire())
+        if (typeof token === 'string' && token === this.composerToken) {
+          this.lease.release(token)
+          this.composerToken = null
+        }
+        return undefined
+      })
+    }
+    this.deps.mainWindow?.()?.webContents.on('render-process-gone', this.resetCapture)
+    this.deps.mainWindow?.()?.webContents.on('did-start-navigation', this.resetCapture)
     for (const method of METHODS) {
       ipcMain.handle(`ari:${method}`, (event, params: unknown) => {
         if (event.sender !== this.window?.webContents || event.sender.isDestroyed())
@@ -54,9 +82,29 @@ export class AriaWidget {
     powerMonitor.on('suspend', this.resetInput)
   }
 
+  private readonly resetCapture = (): void => {
+    this.lease.reset()
+    this.composerToken = null
+    this.hold.cancel()
+    this.publish()
+  }
+
+  private releaseCapture(): void {
+    if (this.token) this.lease.release(this.token)
+    this.token = null
+    const target = this.target
+    this.target = null
+    this.targetReady = false
+    void target?.then(
+      (target) => target.cancel(),
+      () => undefined,
+    )
+  }
+
   private readonly resetInput = (): void => {
     this.tracker?.reset()
-    if (this.hold.active) {
+    this.dictationTracker?.reset()
+    if (this.hold.active || (this.destination === 'dictation' && !this.hold.canStart)) {
       this.hold.cancel()
       this.publish()
     }
@@ -96,10 +144,12 @@ export class AriaWidget {
       ...this.hold.state,
       theme: appearance?.themeId ?? defaultThemeId,
       reducedMotion: appearance?.reducedMotion ?? false,
+      destination: this.destination,
     }
   }
 
   private publish(): void {
+    if (this.hold.canStart) this.releaseCapture()
     this.scheduleDeadline()
     const win = this.window
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
@@ -172,7 +222,6 @@ export class AriaWidget {
   async configure(settings: Settings): Promise<void> {
     this.settings = settings
     this.publish()
-    // Optional until the concurrently-built speech settings contract is merged.
     const speech = this.settings.speech
     const configuration = JSON.stringify(speech) ?? ''
     if (configuration === this.configuration && (this.hook || this.recoveryTimer)) return
@@ -203,13 +252,21 @@ export class AriaWidget {
       const { uIOhook, UiohookKey } = await import('uiohook-napi')
       if (revision !== this.revision || this.disposed) return
       const shortcut = speech.shortcut || defaultShortcut(process.platform)
-      const invalid = shortcutError(shortcut, process.platform)
+      const dictationShortcut =
+        speech.dictationShortcut || defaultDictationShortcut(process.platform)
+      const invalid = speechBindingsError(shortcut, dictationShortcut, process.platform)
       if (invalid) throw new Error(invalid)
       const chord = parseChord(shortcut, UiohookKey, process.platform)
-      if (!chord) throw new Error('Invalid speech shortcut')
+      const dictationChord = parseChord(dictationShortcut, UiohookKey, process.platform)
+      if (!chord || !dictationChord) throw new Error('Invalid speech shortcut')
+      // External support failing must not disable Aria or in-app dictation.
+      await (this.deps.prepareTarget ?? prepareDictation)().catch((error) =>
+        log.warn('external dictation unavailable', { error: String(error) }),
+      )
       await this.createWindow()
       if (revision !== this.revision || this.disposed || !this.window) return
       this.tracker = new ChordTracker(chord, UiohookKey.Escape)
+      this.dictationTracker = new ChordTracker(dictationChord, UiohookKey.Escape)
       this.hook = uIOhook
       uIOhook.on('keydown', this.keyDown)
       uIOhook.on('keyup', this.keyUp)
@@ -222,19 +279,69 @@ export class AriaWidget {
 
   private readonly keyDown = (event: HookKey): void => {
     const now = performance.now()
-    const action = this.tracker?.down(event, now, this.hold.canStart)
+    const canStart = this.hold.canStart && !this.lease.busy
+    const ariaAction = this.tracker?.down(event, now, canStart)
+    const dictationAction = this.dictationTracker?.down(event, now, canStart)
+    const action =
+      event.keycode === 1 && this.destination === 'dictation' && !this.hold.canStart
+        ? 'cancel'
+        : this.hold.canStart
+          ? (ariaAction ?? dictationAction)
+          : this.destination === 'aria'
+            ? ariaAction
+            : dictationAction
     if (action === 'down') {
       if (!this.hold.down(now)) return
+      this.token = this.lease.acquire()
+      this.destination = ariaAction === 'down' ? 'aria' : 'dictation'
       this.recoveryDelay = 1_000
-    } else if (action === 'cancel' && this.hold.active) this.hold.cancel()
-    else if (action === 'up' && this.hold.active) this.hold.up(now)
-    else return
+      if (this.destination === 'dictation') {
+        const id = this.hold.state.id
+        const token = this.token
+        // Start target capture before displaying the recording pill.
+        try {
+          this.target = (
+            this.deps.captureTarget ??
+            ((id: string) => captureDictationTarget(this.deps.mainWindow?.() ?? null, id))
+          )(token)
+        } catch (error) {
+          this.target = Promise.reject(error instanceof Error ? error : new Error(String(error)))
+        }
+        void this.target.then(
+          () => {
+            if (this.lease.current(token)) {
+              this.targetReady = true
+              this.publish()
+            }
+          },
+          (error) => {
+            if (!this.lease.current(token)) return
+            this.hold.error(
+              id,
+              error instanceof Error ? error.message : 'No dictation target.',
+              false,
+              performance.now(),
+            )
+            this.publish()
+          },
+        )
+        return
+      }
+    } else if (action === 'cancel' && !this.hold.canStart) this.hold.cancel()
+    else if (action === 'up' && this.hold.active) {
+      if (this.destination === 'dictation' && !this.targetReady) this.hold.cancel()
+      else this.hold.up(now)
+    } else return
     this.publish()
   }
 
   private readonly keyUp = (event: HookKey): void => {
-    if (this.tracker?.up(event) !== 'up' || !this.hold.active) return
-    this.hold.up(performance.now())
+    const ariaAction = this.tracker?.up(event)
+    const dictationAction = this.dictationTracker?.up(event)
+    if ((this.destination === 'aria' ? ariaAction : dictationAction) !== 'up' || !this.hold.active)
+      return
+    if (this.destination === 'dictation' && !this.targetReady) this.hold.cancel()
+    else this.hold.up(performance.now())
     this.publish()
   }
 
@@ -277,27 +384,40 @@ export class AriaWidget {
       this.sending = id
       try {
         if (text) {
-          await sendToAria(
-            {
-              current: () =>
+          if (this.destination === 'dictation') {
+            const token = this.token
+            const target = await this.target
+            if (!token || !target || !this.lease.current(token)) return
+            await target.insert(
+              text,
+              () =>
+                this.lease.current(token) &&
                 id === this.hold.state.id &&
                 this.hold.state.phase === 'transcribing' &&
                 !this.disposed,
-              open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
-              dispatch: async (command) =>
-                (await this.deps.invoke('command.dispatch', { command })) as {
-                  accepted: boolean
-                  reason?: string
-                },
-            },
-            text,
-          )
+            )
+          } else
+            await sendToAria(
+              {
+                current: () =>
+                  id === this.hold.state.id &&
+                  this.hold.state.phase === 'transcribing' &&
+                  !this.disposed,
+                open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
+                dispatch: async (command) =>
+                  (await this.deps.invoke('command.dispatch', { command })) as {
+                    accepted: boolean
+                    reason?: string
+                  },
+              },
+              text,
+            )
         }
         this.hold.finish(id, text, performance.now())
       } catch (error) {
         this.hold.error(
           id,
-          error instanceof Error ? error.message : 'Could not send to Aria.',
+          error instanceof Error ? error.message : 'Could not complete dictation.',
           false,
           performance.now(),
         )
@@ -315,6 +435,7 @@ export class AriaWidget {
     this.hook?.stop()
     this.hook = null
     this.tracker = null
+    this.dictationTracker = null
     this.hold.cancel()
     this.publish()
   }
@@ -339,7 +460,12 @@ export class AriaWidget {
     this.readyTimer = null
     powerMonitor.removeListener('lock-screen', this.resetInput)
     powerMonitor.removeListener('suspend', this.resetInput)
+    this.deps.mainWindow?.()?.webContents.removeListener('render-process-gone', this.resetCapture)
+    this.deps.mainWindow?.()?.webContents.removeListener('did-start-navigation', this.resetCapture)
+    this.lease.reset()
     this.destroyWindow()
     for (const method of METHODS) ipcMain.removeHandler(`ari:${method}`)
+    for (const action of ['acquire', 'release'])
+      ipcMain.removeHandler(`ari:speechCapture.${action}`)
   }
 }

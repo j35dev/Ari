@@ -8,6 +8,7 @@ export interface WidgetState {
 }
 
 export interface WidgetSnapshot extends WidgetState {
+  destination?: 'aria' | 'dictation'
   theme: string
   reducedMotion: boolean
 }

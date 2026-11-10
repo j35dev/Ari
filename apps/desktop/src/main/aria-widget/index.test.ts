@@ -2,6 +2,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import { defaultSettings, type Settings } from '@ari/contracts/settings'
 import type { HookKey } from './chord'
+import type { BrowserWindow } from 'electron'
 
 const mock = vi.hoisted(() => ({
   handlers: new Map<string, (event: { sender: unknown }, params?: unknown) => unknown>(),
@@ -90,8 +91,18 @@ vi.mock('uiohook-napi', () => ({
     start: mock.start,
     stop: mock.stop,
   },
-  UiohookKey: { Space: 57, Escape: 1, Ctrl: 29, CtrlRight: 3613, Alt: 56, AltRight: 3640, F8: 66 },
+  UiohookKey: {
+    Space: 57,
+    D: 32,
+    Escape: 1,
+    Ctrl: 29,
+    CtrlRight: 3613,
+    Alt: 56,
+    AltRight: 3640,
+    F8: 66,
+  },
 }))
+vi.mock('../speech/dictation-target', () => ({ prepareDictation: async () => undefined }))
 
 import { AriaWidget } from './index'
 let widget: AriaWidget
@@ -563,4 +574,106 @@ it('uses the appearance theme already resolved by the main renderer', async () =
     'ari:ariaWidget.state',
     expect.objectContaining({ theme: 'verdant' }),
   )
+})
+
+const generalKey = (): HookKey => ({ ...key(32), altKey: true })
+it('captures the general target before showing the pill and inserts once without opening Aria', async () => {
+  const insert = vi.fn(async () => undefined)
+  const cancel = vi.fn()
+  const invoke = vi.fn(async (method: string) => ({ ready: method === 'speech.status' }))
+  const capture = vi.fn(async () => {
+    expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+    return { insert, cancel }
+  })
+  widget = new AriaWidget({ invoke, openSettings: vi.fn(), captureTarget: capture })
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(generalKey())
+  expect(capture).toHaveBeenCalledOnce()
+  await vi.advanceTimersByTimeAsync(0)
+  mock.keys.get('keyup')!(generalKey())
+  const complete = mock.handlers.get('ari:ariaWidget.complete')!
+  const sender = mock.windows[0]!.webContents
+  await complete({ sender }, { id: 1, text: 'general draft' })
+  await complete({ sender }, { id: 1, text: 'duplicate' })
+  expect(insert).toHaveBeenCalledOnce()
+  expect(insert).toHaveBeenCalledWith('general draft', expect.any(Function))
+  expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
+  expect(cancel).toHaveBeenCalledOnce()
+})
+
+it('discards a quick release before target acquisition and cancels the late target', async () => {
+  const insert = vi.fn()
+  const cancel = vi.fn()
+  let resolve!: (target: { insert: typeof insert; cancel: typeof cancel }) => void
+  widget = new AriaWidget({
+    invoke: async () => ({ ready: true }),
+    openSettings: vi.fn(),
+    captureTarget: () =>
+      new Promise((r) => {
+        resolve = r
+      }),
+  })
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(generalKey())
+  mock.keys.get('keyup')!(generalKey())
+  resolve({ insert, cancel })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(insert).not.toHaveBeenCalled()
+  expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+})
+
+it.each(['escape', 'disable', 'empty', 'unavailable'])(
+  'never falls back to Aria for %s general dictation',
+  async (reason) => {
+    const insert = vi.fn(async () => {
+      if (reason === 'unavailable') throw new Error('target unavailable')
+    })
+    const invoke = vi.fn(async (method: string) => ({ ready: method === 'speech.status' }))
+    widget = new AriaWidget({
+      invoke,
+      openSettings: vi.fn(),
+      captureTarget: async () => ({ insert, cancel: vi.fn() }),
+    })
+    await widget.configure(configured)
+    mock.keys.get('keydown')!(generalKey())
+    await vi.advanceTimersByTimeAsync(0)
+    mock.keys.get('keyup')!(generalKey())
+    if (reason === 'escape') mock.keys.get('keydown')!(key(1))
+    if (reason === 'disable')
+      await widget.configure({ ...configured, speech: { ...configured.speech, enabled: false } })
+    await mock.handlers.get('ari:ariaWidget.complete')!(
+      { sender: mock.windows[0]!.webContents },
+      { id: 1, text: reason === 'empty' ? '  ' : 'draft' },
+    )
+    expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
+    expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
+  },
+)
+
+it('reserves capture through transcription and blocks both shortcuts while a composer owns it', async () => {
+  const contents = { on: vi.fn(), removeListener: vi.fn(), isDestroyed: () => false }
+  const main = { webContents: contents } as unknown as BrowserWindow
+  widget = new AriaWidget({
+    invoke: async () => ({ ready: true }),
+    openSettings: vi.fn(),
+    mainWindow: () => main,
+  })
+  await widget.configure(configured)
+  const acquire = mock.handlers.get('ari:speechCapture.acquire')!
+  const release = mock.handlers.get('ari:speechCapture.release')!
+  const token = acquire({ sender: contents })
+  expect(() => acquire({ sender: contents })).toThrow('Another dictation')
+  expect(() => acquire({ sender: {} })).toThrow('Rejected dictation sender')
+  mock.keys.get('keydown')!(key(57))
+  mock.keys.get('keyup')!(key(57))
+  mock.keys.get('keydown')!(generalKey())
+  mock.keys.get('keyup')!(generalKey())
+  expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+  release({ sender: contents }, 'wrong-token')
+  expect(() => acquire({ sender: contents })).toThrow('Another dictation')
+  release({ sender: contents }, token)
+  mock.keys.get('keydown')!(key(57))
+  mock.keys.get('keyup')!(key(57))
+  expect(() => acquire({ sender: contents })).toThrow('Another dictation')
 })
