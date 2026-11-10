@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { settingsSchema, type Settings, type SettingsUpdate } from '@ari/contracts/settings'
@@ -300,18 +300,29 @@ describe('App onboarding integration', () => {
         },
       ]
       splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'restored')
-      render(<App />)
-      await screen.findByText('Opened session restored')
       const original = invoke.getMockImplementation()!
+      let openRequested = false
       let rejected = false
+      let rejectDiscovery!: (error: Error) => void
+      const pendingFailure = new Promise<never>((_, reject) => {
+        rejectDiscovery = reject
+      })
       invoke.mockImplementation(async (method, params) => {
-        if (method === failure && !rejected) {
+        if (method === 'aria.open') openRequested = true
+        if (openRequested && method === failure && !rejected) {
           rejected = true
-          throw new Error('Transient discovery failure')
+          return pendingFailure
         }
         return original(method, params)
       })
+      render(<App />)
+      await screen.findByText('Opened session restored')
       await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+      // Fail this click's discovery after userEvent finishes. Initial list
+      // refreshes cannot consume the failure, and slow pointer processing
+      // cannot let the transient toast expire before the assertion.
+      await waitFor(() => expect(rejected).toBe(true))
+      await act(async () => rejectDiscovery(new Error('Transient discovery failure')))
       await screen.findByText('Could not open Aria')
       expect(screen.getByText('Opened session restored')).toBeVisible()
       await user.click(screen.getByRole('button', { name: 'Open Aria' }))
