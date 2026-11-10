@@ -9,6 +9,89 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
 }
 
+it.each([
+  [
+    'session',
+    'spawn',
+    '--title',
+    'Search',
+    '--project',
+    'project',
+    '--agent',
+    'codex',
+    '--model',
+    'sol',
+    '--effort',
+    'auto',
+    '--permission',
+    'full',
+  ],
+  [
+    'project',
+    'ask',
+    'project',
+    'Implement search',
+    '--agent',
+    'codex',
+    '--model',
+    'sol',
+    '--effort',
+    'xhigh',
+    '--permission',
+    'ask',
+  ],
+  ['project', 'lead', 'project', '--agent', 'codex', '--model', 'sol', '--effort', 'auto'],
+])('passes launch reasoning and explicit choices through the CLI: %j', (...argv) => {
+  const parsed = cli.parse(argv)
+  expect(parsed.params.driverKind).toBe('codex')
+  expect(parsed.params.modelId).toBe('sol')
+  expect(parsed.params.effort).toBe(argv.includes('xhigh') ? 'xhigh' : 'auto')
+  if (argv.includes('--permission')) expect(parsed.params.permissionMode).toBe(argv.at(-1))
+})
+
+it('reads whole selected turns up to the existing message cap, with explicit tails taking precedence', () => {
+  expect(cli.parse(['session', 'read', 'worker', '--turns', '1'])).toMatchObject({
+    method: 'session.read',
+    params: { targetSessionId: 'worker', tailTurns: 1, tailMessages: 200 },
+  })
+  for (const args of [
+    ['--turns', '1', '--tail', '3'],
+    ['--tail', '3', '--turns', '1'],
+  ]) {
+    expect(cli.parse(['session', 'read', 'worker', ...args]).params).toEqual({
+      targetSessionId: 'worker',
+      tailTurns: 1,
+      tailMessages: 3,
+    })
+  }
+  expect(cli.parse(['session', 'read', 'worker']).params).toEqual({ targetSessionId: 'worker' })
+})
+
+it('parses only the compact explicit navigation commands and preserves their keys', () => {
+  for (const [args, target] of [
+    [['session', 'exact'], { view: 'session', sessionId: 'exact' }],
+    [['aria'], { view: 'aria' }],
+    [['settings'], { view: 'settings' }],
+    [['changes', '--project', 'p'], { view: 'changes', projectId: 'p' }],
+    [['changes', '--session', 's'], { view: 'changes', sessionId: 's' }],
+  ] as const)
+    expect(cli.parse(['app', 'open', ...args, '--key', 'stable'])).toMatchObject({
+      method: 'app.open',
+      params: { ...target, idempotencyKey: 'stable' },
+    })
+  for (const args of [
+    ['session'],
+    ['session', 's', 'extra'],
+    ['changes'],
+    ['changes', '--project', 'p', '--session', 's'],
+    ['settings', '--project', 'p'],
+    ['aria', 'old'],
+    ['settings', '--model', 'm'],
+    ['url', 'https://example.com'],
+  ])
+    expect(() => cli.parse(['app', 'open', ...args])).toThrow()
+})
+
 it('parses project creation with an optional absolute folder and retry key', () => {
   expect(
     cli.parse(['project', 'create', '--name', 'Garden planner', '--key', 'garden']),
@@ -35,6 +118,15 @@ it('parses project creation with an optional absolute folder and retry key', () 
   expect(() => cli.parse(['project', 'create'])).toThrow('needs --name')
   expect(() => cli.parse(['project', 'create', '--name', '  '])).toThrow('needs --name')
   expect(() => cli.parse(['project', 'create', 'folder', '--name', 'Garden'])).toThrow('Use --path')
+})
+
+it('passes a follow-up effort override without changing coordination messages', () => {
+  expect(
+    cli.parse(['session', 'prompt', 'worker', 'Investigate regression', '--effort', 'auto']).params,
+  ).toMatchObject({ effort: 'auto', text: 'Investigate regression' })
+  expect(cli.parse(['session', 'message', 'worker', 'Use the cache']).params).not.toHaveProperty(
+    'effort',
+  )
 })
 
 it('exposes recipient inbox acknowledgement and sender delivery inspection with exact identities', () => {

@@ -78,7 +78,9 @@ export interface AgentRuntimeOptions {
   /** The projects Aria reaches; a runtime started without them has no Aria. */
   projects?: ControlHost['projects']
   createProject?: ControlHost['createProject']
+  openApp?: ControlHost['openApp']
   projectAgentDefaults?: ControlHost['projectAgentDefaults']
+  effortsForModel?: ControlHost['effortsForModel']
   setProjectDefault?: ControlHost['setProjectDefault']
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
@@ -194,14 +196,8 @@ async function startControlTransport(
     subscribe: (listener) => store.subscribe(listener),
     ...(options.recover === false ? {} : { isRunning: (id: string) => engine.hasLiveTurn(id) }),
     isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
-    coordinate: async (senderId, recipientId, text, key) => {
-      const result = await service.invoke(senderId, 'session.message', {
-        targetSessionId: recipientId,
-        text,
-        idempotencyKey: key,
-      })
-      if (!result.ok) throw new ControlFailure(result.error.code, result.error.message)
-    },
+    notifyRequest: (senderId, recipientId, text, request, key) =>
+      service.notifyRequest(senderId, recipientId, text, request, key),
     treeSpend: spendOf,
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })
@@ -214,9 +210,11 @@ async function startControlTransport(
     version: options.version,
     policy: () => options.policy(),
     providers: options.providers,
+    ...(options.effortsForModel === undefined ? {} : { effortsForModel: options.effortsForModel }),
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
     ...(options.createProject === undefined ? {} : { createProject: options.createProject }),
+    ...(options.openApp === undefined ? {} : { openApp: options.openApp }),
     ...(options.projectAgentDefaults === undefined
       ? {}
       : { projectAgentDefaults: options.projectAgentDefaults }),
@@ -350,6 +348,13 @@ async function startControlTransport(
         .catch(() => undefined)
     }
   })
+  const unsubscribeReady = engine.subscribeLiveTurnReady((id) => {
+    void service
+      .deliverPendingCoordination(id)
+      .catch((error: unknown) =>
+        log.warn('pending coordination delivery deferred', { sessionId: id, error: String(error) }),
+      )
+  })
   supervisor.start()
   const cleanupAbort = new AbortController()
   void (async () => {
@@ -430,7 +435,8 @@ async function startControlTransport(
     close: async () => {
       cleanupAbort.abort()
       unsubscribe()
-      supervisor.close()
+      unsubscribeReady()
+      await supervisor.close()
       approvals.close()
       await closeControlTransport(() => server.close(), socketDir)
     },

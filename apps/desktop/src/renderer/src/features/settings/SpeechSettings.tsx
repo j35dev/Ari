@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpeechModel, SpeechProgress } from '@ari/contracts/rpc'
-import { defaultSpeechShortcut, speechShortcutError } from '@ari/contracts/settings'
+import {
+  defaultSpeechShortcut,
+  defaultDictationShortcut,
+  speechShortcutError,
+  speechBindingsError,
+} from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
@@ -35,9 +40,36 @@ export function SpeechSettings() {
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
-  const [recordingShortcut, setRecordingShortcut] = useState(false)
+  const [recordingShortcut, setRecordingShortcut] = useState<
+    'shortcut' | 'dictationShortcut' | null
+  >(null)
+  const bindingLease = useRef<string | null>(null)
+  const bindingMounted = useRef(true)
+  const [bindingPending, setBindingPending] = useState(false)
+  const [shortcutErrorField, setShortcutErrorField] = useState<'shortcut' | 'dictationShortcut'>(
+    'shortcut',
+  )
   const [shortcutError, setShortcutError] = useState<string | null>(null)
-  const platform = /Mac/.test(navigator.platform) ? 'darwin' : 'linux'
+  const platform = /Mac/.test(navigator.platform)
+    ? 'darwin'
+    : /Win/.test(navigator.platform)
+      ? 'win32'
+      : 'linux'
+  useEffect(() => {
+    bindingMounted.current = true
+    return () => {
+      bindingMounted.current = false
+      if (bindingLease.current)
+        void window.ari?.dictation?.release(bindingLease.current).catch(() => undefined)
+    }
+  }, [])
+  useEffect(() => {
+    const token = bindingLease.current
+    return () => {
+      if (token) void window.ari?.dictation?.release(token).catch(() => undefined)
+      if (bindingLease.current === token) bindingLease.current = null
+    }
+  }, [recordingShortcut])
   const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
@@ -77,6 +109,7 @@ export function SpeechSettings() {
     .map((frame) => frame.error)
     .filter(Boolean)
   const shortcut = settings?.speech.shortcut || defaultSpeechShortcut(platform)
+  const dictationShortcut = settings?.speech.dictationShortcut || defaultDictationShortcut(platform)
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
@@ -89,7 +122,7 @@ export function SpeechSettings() {
       event.stopPropagation()
       if (event.repeat) return
       if (event.key === 'Escape') {
-        setRecordingShortcut(false)
+        setRecordingShortcut(null)
         setShortcutError(null)
         return
       }
@@ -100,9 +133,18 @@ export function SpeechSettings() {
         setShortcutError(result.error)
         return
       }
-      setRecordingShortcut(false)
+      const error = speechBindingsError(
+        recordingShortcut === 'shortcut' ? result.shortcut : shortcut,
+        recordingShortcut === 'dictationShortcut' ? result.shortcut : dictationShortcut,
+        platform,
+      )
+      if (error) {
+        setShortcutError(error)
+        return
+      }
+      setRecordingShortcut(null)
       setShortcutError(null)
-      void update({ speech: { shortcut: result.shortcut } }).catch((reason: unknown) =>
+      void update({ speech: { [recordingShortcut]: result.shortcut } }).catch((reason: unknown) =>
         setShortcutError(reason instanceof Error ? reason.message : String(reason)),
       )
     }
@@ -117,7 +159,7 @@ export function SpeechSettings() {
       )
         setShortcutError(speechShortcutError(event.key === 'Meta' ? 'meta' : 'ctrl', platform))
     }
-    const cancel = (): void => setRecordingShortcut(false)
+    const cancel = (): void => setRecordingShortcut(null)
     window.addEventListener('keydown', press, true)
     window.addEventListener('keyup', release, true)
     window.addEventListener('blur', cancel)
@@ -126,7 +168,7 @@ export function SpeechSettings() {
       window.removeEventListener('keyup', release, true)
       window.removeEventListener('blur', cancel)
     }
-  }, [recordingShortcut, platform, update])
+  }, [recordingShortcut, platform, update, shortcut, dictationShortcut])
 
   return (
     <SettingsPage
@@ -221,35 +263,92 @@ export function SpeechSettings() {
             }
           />
         </SettingsRow>
+        {(['shortcut', 'dictationShortcut'] as const).map((field) => {
+          const aria = field === 'shortcut'
+          const label = aria ? 'Aria dictation shortcut' : 'General dictation shortcut'
+          const recording = recordingShortcut === field
+          return (
+            <SettingsRow
+              key={field}
+              label={label}
+              hint={
+                shortcutError && shortcutErrorField === field ? (
+                  <span role="alert">{shortcutError}</span>
+                ) : recording ? (
+                  'Press a shortcut. Esc cancels.'
+                ) : aria ? (
+                  'Hold to speak to Aria. Release to send.'
+                ) : (
+                  'Hold to dictate into the focused text field. Release to insert without sending. Outside Ari: Windows only.'
+                )
+              }
+            >
+              <input
+                aria-label={label}
+                readOnly
+                value={aria ? shortcut : dictationShortcut}
+                className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label={`Record ${label}`}
+                aria-pressed={recording}
+                disabled={bindingPending || (recordingShortcut !== null && !recording)}
+                onClick={() => {
+                  setShortcutError(null)
+                  setShortcutErrorField(field)
+                  if (recording) {
+                    setRecordingShortcut(null)
+                    return
+                  }
+                  if (!window.ari?.dictation) {
+                    setRecordingShortcut(field)
+                    return
+                  }
+                  setBindingPending(true)
+                  void window.ari.dictation.acquire().then(
+                    (token) => {
+                      if (!bindingMounted.current) {
+                        void window.ari?.dictation?.release(token).catch(() => undefined)
+                        return
+                      }
+                      setBindingPending(false)
+                      bindingLease.current = token
+                      setRecordingShortcut(field)
+                    },
+                    (reason: unknown) => {
+                      if (bindingMounted.current) {
+                        setBindingPending(false)
+                        setShortcutError(reason instanceof Error ? reason.message : String(reason))
+                      }
+                    },
+                  )
+                }}
+              >
+                {recording ? 'Cancel' : 'Record shortcut'}
+              </Button>
+            </SettingsRow>
+          )
+        })}
         <SettingsRow
-          label="Hold to talk"
+          label="Lower other apps while listening"
           hint={
-            shortcutError ? (
-              <span role="alert">{shortcutError}</span>
-            ) : recordingShortcut ? (
-              'Press a shortcut. Esc cancels.'
-            ) : (
-              'Choose a key with modifiers, or F1–F24 alone.'
-            )
+            platform === 'darwin'
+              ? 'Unavailable on macOS. Audio output stays unchanged.'
+              : platform === 'win32'
+                ? 'Both dictation shortcuts lower other apps to 25% of their volume while listening, then restore them. Your volume changes are preserved.'
+                : 'Both dictation shortcuts lower playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
           }
         >
-          <input
-            aria-label="Hold-to-talk shortcut"
-            readOnly
-            value={shortcut}
-            className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
+          <Switch
+            aria-label="Lower other apps while listening"
+            checked={settings?.speech.duckAudio ?? true}
+            disabled={platform === 'darwin' || !settings}
+            onCheckedChange={(duckAudio) =>
+              void run('duck-audio', () => update({ speech: { duckAudio } }))
+            }
           />
-          <Button
-            size="sm"
-            variant="secondary"
-            aria-pressed={recordingShortcut}
-            onClick={() => {
-              setShortcutError(null)
-              setRecordingShortcut((recording) => !recording)
-            }}
-          >
-            {recordingShortcut ? 'Cancel' : 'Record shortcut'}
-          </Button>
         </SettingsRow>
       </SettingsSection>
       <SettingsSection

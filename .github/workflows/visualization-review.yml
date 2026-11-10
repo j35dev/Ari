@@ -1,0 +1,62 @@
+name: visualization-review
+
+on:
+  pull_request:
+    paths:
+      - packages/contracts/src/visualization.ts
+      - packages/contracts/src/visualization.test.ts
+      - packages/ui/src/visualization/**
+      - packages/engine/src/control-preamble.ts
+      - packages/engine/src/control-preamble.test.ts
+      - apps/desktop/resources/cli/ari/SKILL.md
+      - scripts/release-visualization-ci.mjs
+      - scripts/release-visualization-ci.test.mjs
+      - .github/workflows/visualization-review.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visualization-review-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install cached dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Capture visualization review
+        env:
+          VISUALIZATION_REVIEW_CI: '1'
+          VISUALIZATION_REVIEW_SHA: ${{ github.event.pull_request.head.sha }}
+          CI: 'true'
+          GITHUB_ACTIONS: 'true'
+          RUNNER_ENVIRONMENT: github-hosted
+        run: node scripts/release-visualization-ci.mjs
+
+      - name: Upload visualization review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ari-visualization-review-${{ github.event.pull_request.head.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ari-visualization-review/*.png
+            ${{ runner.temp }}/ari-visualization-review/*.json
+            ${{ runner.temp }}/ari-visualization-review/*.log

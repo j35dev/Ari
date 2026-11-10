@@ -1,6 +1,6 @@
 import type { VisualizationSpec } from '@ari/contracts/visualization'
 import type { Inspect } from './charts'
-import { axis, color, formatNumber } from './charts'
+import { axis, clipLabel, color, fitLabel, formatNumber, MIN_CHART_WIDTH } from './charts'
 import { pointDetail } from './interaction'
 
 type Cartesian = Extract<VisualizationSpec, { labels: string[] }>
@@ -8,10 +8,12 @@ export function HorizontalBarsChart({
   spec,
   hidden,
   inspect,
+  width: room,
 }: {
   spec: Cartesian
   hidden: Set<number>
   inspect: Inspect
+  width?: number | null
 }) {
   const visible = spec.series
     .map((series, i) => ({ ...series, index: i }))
@@ -23,9 +25,11 @@ export function HorizontalBarsChart({
     visible.flatMap((series) => series.values),
     true,
   )
-  const width = 720,
-    left = 190,
-    plot = 490,
+  const axisCaption = spec.yLabel ?? spec.unit
+  // Drawn 1:1 in the reply's width; the label column gives way on a phone.
+  const width = Math.max(MIN_CHART_WIDTH, Math.floor(room ?? 720)),
+    left = Math.min(190, Math.max(96, Math.round(width * 0.28))),
+    plot = width - left - 30,
     rowHeight = Math.max(42, visible.length * 12 + 12),
     height = spec.labels.length * rowHeight + 84
   const x = (value: number): number => left + ((value - min) / (max - min)) * plot
@@ -35,7 +39,7 @@ export function HorizontalBarsChart({
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={spec.title}
-      style={{ minWidth: 620 }}
+      style={{ width, height }}
     >
       <g className="ari-viz-axis">
         {ticks.map((value, i) => (
@@ -46,9 +50,10 @@ export function HorizontalBarsChart({
             </text>
           </g>
         ))}
-        {(spec.yLabel ?? spec.unit) && (
+        {axisCaption && (
           <text x={left + plot / 2} y={height - 7} textAnchor="middle">
-            {spec.yLabel ?? spec.unit}
+            <title>{axisCaption}</title>
+            {clipLabel(fitLabel(axisCaption, plot), 48)}
           </text>
         )}
       </g>
@@ -61,7 +66,7 @@ export function HorizontalBarsChart({
           textAnchor="end"
         >
           <title>{label}</title>
-          {label.length > 24 ? `${label.slice(0, 23)}…` : label}
+          {clipLabel(fitLabel(label, left - 24), 24)}
         </text>
       ))}
       {visible.map((series, si) =>

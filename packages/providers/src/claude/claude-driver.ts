@@ -51,6 +51,7 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
     'stdio',
   ]
   if (session.modelId) args.push('--model', session.modelId)
+  if (session.effort) args.push('--effort', session.effort)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
   // Not stored with the conversation, so it is sent on every spawn, resumed or not.
   if (session.instructions) args.push('--append-system-prompt', argvSafeText(session.instructions))
@@ -525,6 +526,7 @@ export class ClaudeDriver implements Driver {
       this.binaryPath,
       session.workspacePath,
       session.modelId,
+      session.effort ?? null,
       session.permissionMode,
       session.instructions ?? null,
       session.runtimeEnv ?? null,

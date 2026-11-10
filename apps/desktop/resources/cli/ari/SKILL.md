@@ -7,6 +7,37 @@ metadata:
 
 # Ari session control
 
+## Explicit app navigation (current Aria only)
+
+Only the current nonarchived Aria chat may use these commands, and only when the
+user explicitly asks to navigate. Never open a view to report background work.
+Resolve exact IDs with the existing session/project listing; ask when Changes
+has no explicit, unambiguous registered context. These commands create no chats,
+projects or turns and change no provider, model or permissions.
+
+```sh
+ari app open session SESSION_ID --key REQUEST_KEY --json
+ari app open aria --key REQUEST_KEY --json
+ari app open settings --key REQUEST_KEY --json
+ari app open changes --project PROJECT_ID --key REQUEST_KEY --json
+ari app open changes --session SESSION_ID --key REQUEST_KEY --json
+```
+
+`aria` resolves the persisted current existing topic. Changes preserves the
+focused chat and its draft, using the user's sidebar/page preference and the
+specified project/session workspace. Archived, missing or unavailable targets
+are refused; no title matching or fallback creates or substitutes work.
+
+Read `result.status`: `applied` includes `observed.target` and `mode`, meaning the
+selected Shell consumer committed that chat or overlay for this request. It does
+not certify transcript/provider loading, native painting, or that the user has
+not navigated away since. `unavailable`, `stale`, `superseded`, `failed` and
+`unconfirmed` are not an opened-view claim. A disconnect or acknowledgement
+timeout can leave an unknown late effect. Reuse the same key to inspect its
+original receipt; retry never republishes a successful or uncertain request.
+An `uncertain_outcome` may include `details.appOpen` with its preserved target and
+last validated receipt. Do not choose a fresh key to resend an unknown action.
+
 ## Inline visualizations
 
 When a visualization makes an answer easier to understand, place an `ari-viz`
@@ -16,22 +47,28 @@ Keep the surrounding explanation useful, use accurate data, and state units,
 sources and assumptions. Do not make up measurements to fill a chart.
 
 Every object has `version: 1`, `type`, and `title`. Optional common fields are
-`description` (plain text) and `source` (plain text attribution).
+`description` (plain text) and `source` (plain text attribution). Put every
+field on that same object. That flat object is the contract. A single top-level
+`data` object that holds only the type's fields is accepted for older replies
+and flattened before validation. Repeating a field outside and inside `data`
+is rejected. Extra keys, a nested `data` object, HTML, scripts and custom
+colors are rejected.
 
-| Type | Required data | Optional fields |
-| --- | --- | --- |
-| `bar`, `line`, `area`, `radar` | `labels: string[]`, `series: {name, values: number[]}[]` | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
-| `scatter` | `series: {name, points: {x: number, y: number, label?: string}[]}[]` | `xLabel`, `yLabel` |
-| `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]` | `unit` |
-| `heatmap` | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]` | `unit` |
-| `graph` | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"` |
-| `timeline` | `events: {label, date?: string, description?: string, tone?: string}[]` | — |
-| `gantt` | `tasks: {label, start: number, end: number}[]` | `unit` |
-| `metrics` | `items: {label, value: string or number, detail?: string, tone?: string}[]` | — |
-| `comparison` | `columns: string[]`, `rows: {label, values: string[]}[]` | — |
+| Type                                | Required fields                                                                                                    | Optional fields                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `bar`, `line`, `area`, `radar`      | `labels: string[]`, `series: {name, values: number[]}[]`                                                           | `unit`, `xLabel`, `yLabel`; bar also supports `orientation: "vertical" or "horizontal"` |
+| `scatter`                           | `series: {name, points: {x: number, y: number, label?: string}[]}[]`                                               | `xLabel`, `yLabel`                                                                      |
+| `pie`, `donut`, `treemap`, `funnel` | `items: {label, value: number}[]`                                                                                  | `unit`                                                                                  |
+| `heatmap`                           | `xLabels: string[]`, `yLabels: string[]`, `values: number[][]`                                                     | `unit`                                                                                  |
+| `graph`                             | `nodes: {id, label, description?: string, shape?: string, tone?: string}[]`, `edges: {from, to, label?: string}[]` | `direction: "right" or "down"`                                                          |
+| `timeline`                          | `events: {label, date?: string, description?: string, tone?: string}[]`                                            | —                                                                                       |
+| `gantt`                             | `tasks: {label, start: number, end: number}[]`                                                                     | `unit`                                                                                  |
+| `metrics`                           | `items: {label, value: string or number, detail?: string, tone?: string}[]`                                        | —                                                                                       |
+| `comparison`                        | `columns: string[]`, `rows: {label, values: string[]}[]`                                                           | —                                                                                       |
 
 All names and labels are strings. `tone` is `accent`, `info`, `success`,
-`warning`, or `danger` and defaults to `accent`. Never provide CSS colors,
+`warning`, or `danger`. Timeline events and metric cards default to `accent`.
+An omitted graph-node tone uses the series palette. Never provide CSS colors,
 HTML, JavaScript, URLs for assets, or extra keys; visuals are declarative data.
 Each series needs one value per label. Radar charts need 3–12 nonnegative
 axes. Pie, donut, funnel and treemap values must be nonnegative and have a
@@ -42,9 +79,13 @@ architecture, dependencies and concept maps. Graph direction defaults to
 `decision`, `start`, or `end`; optional node tones use the same theme roles.
 Use horizontal bars for long category names. Gantt endpoints use a shared
 numeric scale (for example days from the project start); end is at least start.
-Comparison rows need one string per column. Keep charts legible: at most 64
-categories, 8 series, 32 heatmap rows/columns, 40 diagram nodes/events/tasks,
-80 edges, and 12 metric cards. Blocks are limited to 64,000 characters.
+Comparison rows need one string per column. Keep charts inside the validator:
+at most 64 categories and 8 series, 3–12 radar axes, 128 points on each scatter
+series, 32 slices for pie, donut, funnel and treemap, 32 heatmap rows and
+columns, 40 graph nodes, timeline events, schedule tasks or comparison rows,
+8 comparison columns, 80 edges, and 12 metric cards. Labels are at most 120
+characters and units at most 30. Numbers must be finite and from -1e12 through
+1e12. Blocks are limited to 64,000 characters.
 
 For example, a comparison of hypothetical timings (explicitly labeled):
 
@@ -61,6 +102,62 @@ For relationships rather than measurements:
 ````markdown
 ```ari-viz
 {"version":1,"type":"graph","title":"Request flow","nodes":[{"id":"user","label":"User prompt"},{"id":"agent","label":"Agent"},{"id":"answer","label":"Answer + visual"}],"edges":[{"from":"user","to":"agent"},{"from":"agent","to":"answer","label":"Responds"}]}
+```
+````
+
+The same flat fields, one compact illustrative object per type:
+
+````markdown
+```ari-viz
+{"version":1,"type":"line","title":"Illustrative trend","labels":["Jan","Feb"],"series":[{"name":"Value","values":[2,3]}]}
+```
+
+```ari-viz
+{"version":1,"type":"area","title":"Illustrative capacity","labels":["Mon","Tue"],"series":[{"name":"Hours","values":[4,5]}],"unit":"hours"}
+```
+
+```ari-viz
+{"version":1,"type":"scatter","title":"Illustrative points","series":[{"name":"Points","points":[{"x":1,"y":2,"label":"Sample"}]}]}
+```
+
+```ari-viz
+{"version":1,"type":"pie","title":"Illustrative share","items":[{"label":"Core","value":3},{"label":"Other","value":1}],"unit":"parts"}
+```
+
+```ari-viz
+{"version":1,"type":"donut","title":"Illustrative split","items":[{"label":"Build","value":4},{"label":"Review","value":2}],"unit":"hours"}
+```
+
+```ari-viz
+{"version":1,"type":"radar","title":"Illustrative tradeoffs","labels":["Speed","Quality","Cost"],"series":[{"name":"Option","values":[3,4,2]}]}
+```
+
+```ari-viz
+{"version":1,"type":"heatmap","title":"Illustrative load","xLabels":["Mon","Tue"],"yLabels":["AM"],"values":[[1,2]],"unit":"items"}
+```
+
+```ari-viz
+{"version":1,"type":"treemap","title":"Illustrative area","items":[{"label":"Platform","value":5},{"label":"Docs","value":2}]}
+```
+
+```ari-viz
+{"version":1,"type":"funnel","title":"Illustrative stages","items":[{"label":"Seen","value":8},{"label":"Kept","value":3}]}
+```
+
+```ari-viz
+{"version":1,"type":"timeline","title":"Illustrative sequence","events":[{"label":"Start","date":"Week 1"},{"label":"Finish","date":"Week 2","tone":"success"}]}
+```
+
+```ari-viz
+{"version":1,"type":"gantt","title":"Illustrative schedule","unit":"days","tasks":[{"label":"Design","start":0,"end":2},{"label":"Build","start":2,"end":5}]}
+```
+
+```ari-viz
+{"version":1,"type":"metrics","title":"Illustrative figures","items":[{"label":"Saved","value":"4 h","tone":"success"}]}
+```
+
+```ari-viz
+{"version":1,"type":"comparison","title":"Illustrative choice","columns":["Local","Hosted"],"rows":[{"label":"Network","values":["Optional","Required"]}]}
 ```
 ````
 
@@ -162,8 +259,30 @@ including tracked and non-ignored untracked changes. Shared workspaces require a
 explicit `--workspace shared` and policy allowance.
 Children inherit your permissions and cannot silently elevate them.
 
+Assess each assignment and choose a supported per-model reasoning effort from
+`ari agents` using `--effort`: low for a routine extraction or typo, medium for
+ordinary work, high for implementation, diagnosis and reviews, and xhigh or
+stronger for demanding multi-part work when supported. Explicit requested effort
+takes priority. `--effort auto` asks Ari to assess task scope. Omitted effort
+uses task assessment with saved or same-model inherited effort as a minimum;
+complex work cannot silently inherit low. Unsupported explicit levels are refused.
+Launch results include the actual `permissionMode`, `effort` and
+`effortSelection` (source, supported levels and reason). A provider with no
+effort selector is reported explicitly; do not claim that it runs at high effort.
+`session prompt` assesses each follow-up to a session you launched or a direct
+worker too; use `--effort LEVEL` to override or `--effort auto` to reassess without
+the previous effort as a minimum. Its result reports the resolved agent. Existing
+messages, workers and permissions are preserved.
+
 Use stable `--key` values when retrying a mutation after a connection failure. The
 same key with the same arguments reuses its result; use a new key for a new operation.
+
+An `uncertain_outcome` stays uncertain on retry and is never submitted again by
+that key. Inspect `details.operationId` and the preserved identity before an
+explicit recovery action; changing the key alone is not recovery. Worker/lead
+details may include `childSessionId`, `stage`, `projectId`, `workspace` and
+`workspacePath`: use `session get` or `session read` to inspect existing work.
+These identities do not grant permissions or authorize another assignment.
 
 ## Leading a team
 
@@ -214,16 +333,18 @@ repositories, recent session titles and "you were last in" for requests such as
 naming them; never guess.
 
 For every session or lead Aria starts, use the provider and model the user named
-in the message, else the project's saved default. If neither resolves, ask the
-user once for that project which provider and model to use, suggesting Aria's
-current model as an option. Save the answer with `ari project default` and use
+in the message, else the project's saved default. If no provider/model was
+chosen, ask the user once for that project which provider and model to use,
+suggesting Aria's current model as an option. Save the answer with `ari project default` and use
 that default for future sessions. Never inherit Aria's model, choose from recent
-sessions, or use the app default. An unavailable or missing model is unresolved;
-`project ask` and `session spawn --project` refuse to start until the user chooses
-one. Saving a project default requires `--model`; an older saved default missing
-a model is reported as an error and needs the user's choice. `agent: null` in the
-snapshot means the project needs that choice. Partial
-options use the saved default only when they match its provider. Tell the user
+sessions, or use the app default. Saving a project default requires `--model`;
+an older saved default missing a model needs the user's choice. `agent: null`
+means the project cannot currently launch; read `agentError` for the reason.
+For `provider_unavailable` or `model_unavailable` on an existing choice, preserve
+the saved provider, model, effort and permissions. Restore availability and retry
+the same refused operation with the same key; do not ask the user to choose again
+or automatically switch models. An explicit new user choice takes priority.
+Partial options use the saved default only when they match its provider. Tell the user
 which model a newly created session or lead runs on; the result includes its
 actual agent and source. When an explicit model differs from the saved model,
 its effort is the explicit choice or none, rather than the saved model's effort.
@@ -243,6 +364,16 @@ empty commit so sessions can create isolated workers. Existing repositories
 are left as is. System folders, drive roots, the home folder itself and Ari's
 data folder are refused. The result is `{ projectId, name, path, created }`;
 retries with the same `--key` return the same result.
+
+Partial project creation instead returns `uncertain_outcome` with
+`details.projectCreation` (`name`, exact `path`, `created`, `phase`, and
+`projectId` when registered), plus `failureCode` when known. Inspect that folder
+and `ari projects --json`; a registered folder can exist despite a lost success
+receipt. The phase names the boundary reached, whose action may have begun.
+Same-key retry returns the preserved identity without another folder, Git init
+or registration attempt. Missing/corrupt progress supplies no guessed identity.
+Folder creation and its first progress receipt are not atomic: a process exit
+in that gap can leave a folder without a recorded path.
 
 ```sh
 ari projects --json
@@ -276,8 +407,16 @@ messaging, answering or switching a session with higher permissions is refused;
 ask the user to send the instruction or raise Aria's permissions. Aria cannot
 start work in its own project.
 
-For requested leads, `project ask` options `--agent`, `--model`, `--effort`,
-`--permission` and `--title` apply only when creating a lead. The result includes
+Aria project sessions and new leads default to full/bypass permissions within
+Aria's cap, even when the app's new-chat default is ask. Explicit launch and
+saved project permissions take priority. A project default saved without
+`--permission` uses the caller's cap.
+
+For requested leads, `project ask` options `--agent`, `--model`, `--effort` and
+`--permission` also apply when reusing a lead; `--title` names new leads.
+Switches preserve the lead's conversation, workers and workspace, and a running
+turn finishes with its original settings before follow-up work uses the new ones.
+Changing providers requires a model. The result includes
 `reused`, `lead` and `agent`. Send lead follow-ups through `project ask`.
 `project lead --agent` switches the lead most recently assigned work for Aria.
 `project lead --reset` destroys live Aria leads in the project and their workers
@@ -305,6 +444,16 @@ blocked, cannot, need your or decide still wake Aria despite the marker.
 After eight consecutive automatic completion turns without a human message,
 Aria holds further reports pending until the user writes again; none are lost.
 
+Only when the user explicitly asks to change Aria's own model, use
+`ari session switch self --agent <provider> --model <model> [--effort <level>]`.
+This reaches only your current nonarchived Aria chat. Never self-switch for
+automatic failover or guess a provider/model. Switch receipts report
+`effective: "ready"` when no turn is active, or `effective: "next_turn"` with
+the exact active `afterTurnId` at accepted dispatch. The active turn keeps its
+original provider/model/effort. A same-key retry returns the original timing,
+including after reload; it is not a fresh status query. Ready means the choice
+is configured, not that a turn has started.
+
 ## Getting results
 
 **You are told when children finish.** When a child's turn ends and you are not
@@ -324,6 +473,15 @@ ari session wait --children CHILD_A,CHILD_B --any --timeout 1800 --json
 ari session read CHILD_ID --tail 6 --json
 ari session read CHILD_ID --turns 1 --tools --json
 ```
+
+`session read` includes `queuedMessages` in queue order, with text, origin,
+held state and per-entry truncation. `queuedMessageCount` includes omitted
+entries; `queuedMessagesTruncated` flags omitted or clipped entries. Summaries
+share the existing `--tail` count and `--max-chars` text budgets with transcript
+messages, queue first. These are observations, not new assignments or steering.
+`read --turns N` without `--tail` uses the existing 200-message cap; explicit
+`--tail` wins, and ordinary read still defaults to six. The character budget
+and `truncated` signal still apply.
 
 `session status` reports each child's `workState`:
 
@@ -354,7 +512,11 @@ ari session answer CHILD_ID --input INPUT_ID "Use the SettingsStore." --key answ
 ```
 
 A prompt to an idle child starts a new turn; to a busy child it queues behind the
-current one. Either way you are told when that turn finishes. If you are a child,
+current one. The acceptance receipt says `queued: true` and
+`execution: "future_turn"`. `observedActiveTurnId` (also returned as the legacy
+`turnId`) is an observed active turn, not the queued assignment's future turn
+identity. Same-key retries return that original receipt, even after reload.
+Either way you are told when that turn finishes. If you are a child,
 your final message of each turn is delivered to your parent automatically: ask the
 parent only for decisions it can resolve, and do not message it to say you are done.
 
@@ -442,15 +604,27 @@ mutually exclusive; keep the same key when retrying unchanged file contents.
 
 `session prompt` is an assignment that queues a new turn. `session message` and
 `parent message` are scoped coordination: they enter a durable recipient inbox
-and return `messageId` and actual `status` (`pending`, `delivered`, `consumed`, or
-`uncertain`). They do not queue another assignment or create automatic replies.
+and return `messageId` and actual `status` (`pending`, `delivering`, `delivered`,
+`consumed`, or `uncertain`). They do not queue another assignment.
 Only a created adapter that supports live steering receives them mid-turn.
 Buffered provider follow-ups are not reported as live delivery.
 
 Check `session inbox` after meaningful work chunks and before reporting a result.
 Read and act on a live-delivered note once, then acknowledge its exact message ID;
-inbox inspection leaves delivery and consumption distinct. A note to an idle agent
-stays in its inbox; use `session prompt` to assign a new turn.
+inbox inspection leaves delivery and consumption distinct. A note to an idle worker
+stays in its inbox and enters its next turn's context; use `session prompt` to assign
+new work. An explicit note back to the requester of delegated work can wake that
+idle coordinator once. Pending provider questions and approvals also wake their
+coordinator and Aria, including workers below leads. These are coordination notices,
+not assignments; respond only where needed and acknowledge after acting.
+
+`session status --recursive` includes workers under project leads. `session read`
+returns current `pendingInputs`, `pendingApprovals`, `questionOwnerSessionId` and
+`lastSeq` alongside the transcript. Answer only your own agent-owned question;
+coordinate with its named owner otherwise. Approvals always require the human's
+original approval card. A request notice's `request.resolvedAt` says it is obsolete,
+not that anyone consumed it. `delivering` means submission is in progress;
+`delivered` means the adapter accepted the prompt, not that the agent acted on it.
 
 `session wait` also returns immediately for incoming coordination or a direct
 child's lead-owned question, even when waiting for every target. Read the inbox

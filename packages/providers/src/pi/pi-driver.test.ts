@@ -36,6 +36,13 @@ describe('buildPiArgs', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('anthropic/claude-haiku-4-5')
   })
 
+  it('preserves a reasoning selection on fresh and resumed native turns', () => {
+    for (const resumeOf of [null, 'thread']) {
+      const args = buildPiArgs({ ...base, effort: 'xhigh', resumeOf })
+      expect(args[args.indexOf('--thinking') + 1]).toBe('xhigh')
+    }
+  })
+
   it('resumes via --session when resumeOf is set', () => {
     const args = buildPiArgs({ ...base, resumeOf: '01a0231d-d596' })
     expect(args[args.indexOf('--session') + 1]).toBe('01a0231d-d596')

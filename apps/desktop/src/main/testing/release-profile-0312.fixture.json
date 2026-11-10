@@ -1,0 +1,365 @@
+{
+  "source": {
+    "version": "0.3.12",
+    "commit": "50ee55d273ab1a0240111638dba05c894ce2d3d1",
+    "generatedBy": "actual baseline SettingsStore/ProjectStore/SessionStore/AttachmentStore/AgentControlService/ResumeSchedule and renderer draft writers"
+  },
+  "pathToken": "{{PROFILE_ROOT}}",
+  "directories": ["profile/aria", "workspaces/open", "workspaces/removed"],
+  "files": [
+    {
+      "path": "profile/attachments/att_8d281df2e3414b39.json",
+      "utf8": "{\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68,\"fileName\":\"att_8d281df2e3414b39.png\"}"
+    },
+    {
+      "path": "profile/attachments/att_8d281df2e3414b39.png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF1sAAAAASUVORK5CYII="
+    },
+    {
+      "path": "profile/projects.json",
+      "utf8": "{\n  \"projects\": [\n    {\n      \"id\": \"helm\",\n      \"name\": \"Aria\",\n      \"path\": \"{{PROFILE_ROOT}}\\\\profile\\\\aria\",\n      \"colorIndex\": 0,\n      \"createdAt\": 1794272400000,\n      \"lastOpenedAt\": 1794272400000,\n      \"open\": true\n    },\n    {\n      \"id\": \"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\n      \"name\": \"Synthetic saved project\",\n      \"path\": \"{{PROFILE_ROOT}}\\\\workspaces\\\\open\",\n      \"colorIndex\": 1,\n      \"createdAt\": 1794272400000,\n      \"lastOpenedAt\": 1794272400000,\n      \"open\": true,\n      \"defaultAgent\": {\n        \"driverKind\": \"codex\",\n        \"modelId\": \"saved-model\",\n        \"effort\": \"xhigh\",\n        \"permissionMode\": \"full\"\n      }\n    },\n    {\n      \"id\": \"proj_a94715a5-0bc9-4a0a-827e-866a5c681a81\",\n      \"name\": \"Synthetic unmounted project\",\n      \"path\": \"{{PROFILE_ROOT}}\\\\workspaces\\\\unmounted\",\n      \"colorIndex\": 2,\n      \"createdAt\": 1794272400000,\n      \"lastOpenedAt\": 0,\n      \"open\": false,\n      \"defaultAgent\": {\n        \"driverKind\": \"codex\",\n        \"modelId\": \"saved-model\",\n        \"effort\": \"xhigh\",\n        \"permissionMode\": \"full\"\n      }\n    }\n  ],\n  \"removed\": [\n    {\n      \"project\": {\n        \"id\": \"proj_1c65bb67-9efd-4ebe-aee2-3c1b9b74dcbc\",\n        \"name\": \"Synthetic removed project\",\n        \"path\": \"{{PROFILE_ROOT}}\\\\workspaces\\\\removed\",\n        \"colorIndex\": 3,\n        \"createdAt\": 1794272400000,\n        \"lastOpenedAt\": 0,\n        \"open\": false,\n        \"defaultAgent\": {\n          \"driverKind\": \"codex\",\n          \"modelId\": \"saved-model\",\n          \"effort\": \"xhigh\",\n          \"permissionMode\": \"full\"\n        }\n      },\n      \"removedAt\": 1794272400000\n    }\n  ]\n}"
+    },
+    {
+      "path": "profile/resume-schedule.json",
+      "utf8": "[{\"id\":\"876a4970-0208-499a-9250-c2156b13dbb8\",\"sessionId\":\"sess_upgrade_parent\",\"prompt\":\"Synthetic scheduled check\",\"at\":1794272460000,\"every\":600000}]"
+    },
+    {
+      "path": "profile/sessions/sess_bbf63e95-988c-48e7-a77a-deef99c7d723/index.json",
+      "utf8": "{\"version\":5,\"hierarchy\":{\"parentSessionId\":\"sess_upgrade_parent\",\"rootSessionId\":\"sess_upgrade_parent\",\"createdBy\":{\"kind\":\"session\",\"sessionId\":\"sess_upgrade_parent\"},\"driverKind\":\"codex\",\"status\":\"idle\",\"createdAt\":1794272400000,\"permissionMode\":\"full\",\"effort\":\"xhigh\",\"lead\":false,\"modelId\":\"saved-model\",\"role\":\"test\",\"workspaceKind\":\"project\",\"branch\":null},\"lastSeq\":1,\"hasSession\":true,\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"title\":\"Synthetic preserved worker\",\"updatedAt\":1794272400000,\"messageCount\":0,\"lastMessagePreview\":null,\"archived\":false,\"pinned\":false,\"driverKind\":\"codex\",\"inputTokens\":0,\"outputTokens\":0,\"costUsd\":null,\"journalBytes\":927}"
+    },
+    {
+      "path": "profile/sessions/sess_bbf63e95-988c-48e7-a77a-deef99c7d723/journal.0000.jsonl",
+      "utf8": "{\"type\":\"session.created\",\"session\":{\"id\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"parentSessionId\":\"sess_upgrade_parent\",\"rootSessionId\":\"sess_upgrade_parent\",\"createdBy\":{\"kind\":\"session\",\"sessionId\":\"sess_upgrade_parent\"},\"role\":\"test\",\"workspace\":{\"kind\":\"project\"},\"title\":\"Synthetic preserved worker\",\"driverKind\":\"codex\",\"modelId\":\"saved-model\",\"effort\":\"xhigh\",\"permissionMode\":\"full\",\"status\":\"idle\",\"createdAt\":1794272400000,\"updatedAt\":1794272400000},\"seq\":0,\"at\":1794272400000,\"sessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\"}\n{\"type\":\"message.enqueued\",\"text\":\"Continue held assignment\",\"attachments\":[{\"id\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}],\"origin\":{\"kind\":\"session\",\"sessionId\":\"sess_upgrade_parent\"},\"held\":true,\"seq\":1,\"at\":1794272400000,\"sessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\"}\n"
+    },
+    {
+      "path": "profile/sessions/sess_upgrade_parent/index.json",
+      "utf8": "{\"version\":5,\"hierarchy\":{\"parentSessionId\":null,\"rootSessionId\":\"sess_upgrade_parent\",\"createdBy\":{\"kind\":\"human\"},\"driverKind\":\"codex\",\"status\":\"idle\",\"createdAt\":1794272400000,\"permissionMode\":\"full\",\"effort\":\"xhigh\",\"lead\":true,\"modelId\":\"saved-model\",\"workspaceKind\":\"project\",\"branch\":null},\"lastSeq\":15,\"hasSession\":true,\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"title\":\"Synthetic upgrade conversation\",\"updatedAt\":1794272400000,\"messageCount\":2,\"lastMessagePreview\":\"Synthetic transcript response\",\"archived\":false,\"pinned\":true,\"driverKind\":\"codex\",\"inputTokens\":17,\"outputTokens\":9,\"costUsd\":0.001,\"journalBytes\":6811}"
+    },
+    {
+      "path": "profile/sessions/sess_upgrade_parent/journal.0000.jsonl",
+      "utf8": "{\"type\":\"session.created\",\"session\":{\"id\":\"sess_upgrade_parent\",\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"title\":\"Synthetic upgrade conversation\",\"driverKind\":\"codex\",\"modelId\":\"saved-model\",\"permissionMode\":\"full\",\"effort\":\"xhigh\",\"lead\":true,\"createdBy\":{\"kind\":\"human\"},\"status\":\"idle\",\"pinned\":true,\"createdAt\":1794272400000,\"updatedAt\":1794272400000},\"seq\":0,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"turn.started\",\"turnId\":\"turn_finished\",\"seq\":1,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"user.message.added\",\"message\":{\"id\":\"msg_request\",\"sessionId\":\"sess_upgrade_parent\",\"turnId\":\"turn_finished\",\"role\":\"user\",\"origin\":{\"kind\":\"human\"},\"parts\":[{\"type\":\"text\",\"text\":\"Synthetic transcript request\"},{\"type\":\"image\",\"attachmentId\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}],\"createdAt\":1794272400000},\"seq\":2,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"assistant.parts.appended\",\"messageId\":\"msg_reply\",\"parts\":[{\"type\":\"thinking\",\"text\":\"Synthetic retained reasoning\"},{\"type\":\"text\",\"text\":\"Synthetic transcript response\"}],\"seq\":3,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"usage.recorded\",\"inputTokens\":17,\"outputTokens\":9,\"costUsd\":0.001,\"seq\":4,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"turn.settled\",\"turnId\":\"turn_finished\",\"stopReason\":\"completed\",\"errorMessage\":null,\"seq\":5,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"message.enqueued\",\"text\":\"Same queued text\",\"origin\":{\"kind\":\"human\"},\"attachments\":[{\"id\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}],\"seq\":6,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"message.enqueued\",\"text\":\"Same queued text\",\"origin\":{\"kind\":\"routine\",\"routineId\":\"retained-legacy\"},\"attachments\":[],\"seq\":7,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_3c08bd73e296456764f7ad7b9a73d662\",\"method\":\"session.spawn\",\"fingerprint\":\"{\\\"title\\\":\\\"Synthetic preserved worker\\\",\\\"role\\\":\\\"test\\\",\\\"driverKind\\\":\\\"codex\\\",\\\"modelId\\\":\\\"saved-model\\\",\\\"effort\\\":\\\"xhigh\\\",\\\"permissionMode\\\":\\\"full\\\",\\\"prompt\\\":\\\"Synthetic initial assignment\\\",\\\"idempotencyKey\\\":\\\"upgrade-preserved-worker\\\"}\",\"status\":\"started\",\"startedAt\":1794272400000,\"completedAt\":null,\"detail\":null},\"seq\":8,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_3c08bd73e296456764f7ad7b9a73d662\",\"method\":\"session.spawn\",\"fingerprint\":\"{\\\"title\\\":\\\"Synthetic preserved worker\\\",\\\"role\\\":\\\"test\\\",\\\"driverKind\\\":\\\"codex\\\",\\\"modelId\\\":\\\"saved-model\\\",\\\"effort\\\":\\\"xhigh\\\",\\\"permissionMode\\\":\\\"full\\\",\\\"prompt\\\":\\\"Synthetic initial assignment\\\",\\\"idempotencyKey\\\":\\\"upgrade-preserved-worker\\\"}\",\"status\":\"started\",\"startedAt\":1794272400000,\"completedAt\":null,\"detail\":null,\"result\":{\"recovery\":{\"childSessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"stage\":\"workspace_preparing\"}}},\"seq\":9,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_3c08bd73e296456764f7ad7b9a73d662\",\"method\":\"session.spawn\",\"fingerprint\":\"{\\\"title\\\":\\\"Synthetic preserved worker\\\",\\\"role\\\":\\\"test\\\",\\\"driverKind\\\":\\\"codex\\\",\\\"modelId\\\":\\\"saved-model\\\",\\\"effort\\\":\\\"xhigh\\\",\\\"permissionMode\\\":\\\"full\\\",\\\"prompt\\\":\\\"Synthetic initial assignment\\\",\\\"idempotencyKey\\\":\\\"upgrade-preserved-worker\\\"}\",\"status\":\"started\",\"startedAt\":1794272400000,\"completedAt\":null,\"result\":{\"recovery\":{\"childSessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"workspace\":{\"kind\":\"project\"},\"stage\":\"workspace_prepared\"}},\"detail\":null},\"seq\":10,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_3c08bd73e296456764f7ad7b9a73d662\",\"method\":\"session.spawn\",\"fingerprint\":\"{\\\"title\\\":\\\"Synthetic preserved worker\\\",\\\"role\\\":\\\"test\\\",\\\"driverKind\\\":\\\"codex\\\",\\\"modelId\\\":\\\"saved-model\\\",\\\"effort\\\":\\\"xhigh\\\",\\\"permissionMode\\\":\\\"full\\\",\\\"prompt\\\":\\\"Synthetic initial assignment\\\",\\\"idempotencyKey\\\":\\\"upgrade-preserved-worker\\\"}\",\"status\":\"started\",\"startedAt\":1794272400000,\"completedAt\":null,\"result\":{\"recovery\":{\"childSessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"workspace\":{\"kind\":\"project\"},\"stage\":\"session_created\"}},\"detail\":null},\"seq\":11,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"child.session.spawned\",\"childSessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"title\":\"Synthetic preserved worker\",\"driverKind\":\"codex\",\"modelId\":\"saved-model\",\"workspaceKind\":\"project\",\"branch\":null,\"role\":\"test\",\"idempotencyKey\":\"upgrade-preserved-worker\",\"seq\":12,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_3c08bd73e296456764f7ad7b9a73d662\",\"method\":\"session.spawn\",\"fingerprint\":\"{\\\"title\\\":\\\"Synthetic preserved worker\\\",\\\"role\\\":\\\"test\\\",\\\"driverKind\\\":\\\"codex\\\",\\\"modelId\\\":\\\"saved-model\\\",\\\"effort\\\":\\\"xhigh\\\",\\\"permissionMode\\\":\\\"full\\\",\\\"prompt\\\":\\\"Synthetic initial assignment\\\",\\\"idempotencyKey\\\":\\\"upgrade-preserved-worker\\\"}\",\"status\":\"uncertain\",\"startedAt\":1794272400000,\"completedAt\":null,\"detail\":\"The effect may have completed before the durable outcome. Inspect state before recovery.\",\"result\":{\"recovery\":{\"childSessionId\":\"sess_bbf63e95-988c-48e7-a77a-deef99c7d723\",\"workspace\":{\"kind\":\"project\"},\"stage\":\"session_created\"}}},\"seq\":13,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_5524c6c3ac7faee32ecab5e5d76f1784\",\"method\":\"session.message\",\"fingerprint\":\"{\\\"targetSessionId\\\":\\\"sess_upgrade_running\\\",\\\"text\\\":\\\"Synthetic durable coordination\\\",\\\"idempotencyKey\\\":\\\"upgrade-coordination\\\"}\",\"status\":\"started\",\"startedAt\":1794272400000,\"completedAt\":null,\"detail\":null},\"seq\":14,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n{\"type\":\"orchestration.operation.updated\",\"operation\":{\"operationId\":\"control_5524c6c3ac7faee32ecab5e5d76f1784\",\"method\":\"session.message\",\"fingerprint\":\"{\\\"targetSessionId\\\":\\\"sess_upgrade_running\\\",\\\"text\\\":\\\"Synthetic durable coordination\\\",\\\"idempotencyKey\\\":\\\"upgrade-coordination\\\"}\",\"status\":\"completed\",\"startedAt\":1794272400000,\"completedAt\":1794272400000,\"detail\":null,\"result\":{\"ok\":true,\"result\":{\"messageId\":\"inbox_a2549b7c8eb7872d35f2ededa75a640c\",\"senderSessionId\":\"sess_upgrade_parent\",\"recipientSessionId\":\"sess_upgrade_running\",\"text\":\"Synthetic durable coordination\",\"createdAt\":1794272400000,\"status\":\"pending\",\"turnId\":null,\"consumedAt\":null}}},\"seq\":15,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_parent\"}\n"
+    },
+    {
+      "path": "profile/sessions/sess_upgrade_running/index.json",
+      "utf8": "{\"version\":5,\"hierarchy\":{\"parentSessionId\":\"sess_upgrade_parent\",\"rootSessionId\":\"sess_upgrade_parent\",\"createdBy\":{\"kind\":\"session\",\"sessionId\":\"sess_upgrade_parent\"},\"driverKind\":\"codex\",\"status\":\"idle\",\"createdAt\":1794272400000,\"permissionMode\":\"full\",\"effort\":\"xhigh\",\"lead\":false,\"modelId\":\"saved-model\",\"role\":\"test\",\"workspaceKind\":\"project\",\"branch\":null},\"lastSeq\":4,\"hasSession\":true,\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"title\":\"Synthetic interrupted worker\",\"updatedAt\":1794272400000,\"messageCount\":0,\"lastMessagePreview\":null,\"archived\":false,\"pinned\":true,\"driverKind\":\"codex\",\"inputTokens\":0,\"outputTokens\":0,\"costUsd\":null,\"journalBytes\":1398}"
+    },
+    {
+      "path": "profile/sessions/sess_upgrade_running/journal.0000.jsonl",
+      "utf8": "{\"type\":\"session.created\",\"session\":{\"id\":\"sess_upgrade_running\",\"projectId\":\"proj_fa708fba-d9fc-46ca-b78c-e910740f3235\",\"title\":\"Synthetic interrupted worker\",\"driverKind\":\"codex\",\"modelId\":\"saved-model\",\"permissionMode\":\"full\",\"effort\":\"xhigh\",\"createdBy\":{\"kind\":\"session\",\"sessionId\":\"sess_upgrade_parent\"},\"status\":\"idle\",\"pinned\":true,\"createdAt\":1794272400000,\"updatedAt\":1794272400000,\"parentSessionId\":\"sess_upgrade_parent\",\"rootSessionId\":\"sess_upgrade_parent\",\"role\":\"test\"},\"seq\":0,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_running\"}\n{\"type\":\"turn.started\",\"turnId\":\"turn_unconfirmed\",\"seq\":1,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_running\"}\n{\"type\":\"session.ref.observed\",\"ref\":\"synthetic-native-thread\",\"seq\":2,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_running\"}\n{\"type\":\"message.enqueued\",\"text\":\"Unsent user follow-up\",\"attachments\":[{\"id\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}],\"origin\":{\"kind\":\"human\"},\"seq\":3,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_running\"}\n{\"type\":\"coordination.updated\",\"message\":{\"messageId\":\"inbox_a2549b7c8eb7872d35f2ededa75a640c\",\"senderSessionId\":\"sess_upgrade_parent\",\"recipientSessionId\":\"sess_upgrade_running\",\"text\":\"Synthetic durable coordination\",\"createdAt\":1794272400000,\"status\":\"pending\",\"turnId\":null,\"consumedAt\":null},\"seq\":4,\"at\":1794272400000,\"sessionId\":\"sess_upgrade_running\"}\n"
+    },
+    {
+      "path": "profile/settings.json",
+      "utf8": "{\n  \"speech\": {\n    \"enabled\": true,\n    \"modelId\": \"tiny\",\n    \"modelPath\": \"{{PROFILE_ROOT}}\\\\models\\\\tiny.gguf\",\n    \"shortcut\": \"ctrl+shift+space\"\n  },\n  \"delegation\": {\n    \"enabled\": true,\n    \"maxConcurrentChildren\": 4,\n    \"maxChildrenPerSession\": 8,\n    \"maxDepth\": 1,\n    \"defaultWorkspaceMode\": \"isolated\",\n    \"allowSharedWorkspace\": false,\n    \"recursiveDelegation\": false,\n    \"approvalMode\": \"never\",\n    \"autoDeliverResults\": true,\n    \"cascadeStop\": true,\n    \"autoApproveCli\": true,\n    \"maxTreeCostUsd\": null,\n    \"maxTreeTokens\": null\n  },\n  \"version\": 1,\n  \"appearance\": {\n    \"themeId\": \"graphite\",\n    \"mode\": \"graphite\",\n    \"reducedMotion\": false,\n    \"wallpaper\": \"none\",\n    \"fontFamily\": \"theme\",\n    \"codeFont\": \"geist-mono\",\n    \"fontSize\": 15,\n    \"chatWidth\": \"comfortable\",\n    \"chatStyle\": \"conversation\"\n  },\n  \"sessions\": {\n    \"defaultDriverKind\": \"codex\",\n    \"defaultPermissionMode\": \"ask\"\n  },\n  \"providers\": {\n    \"claude\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    },\n    \"codex\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    },\n    \"opencode\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    },\n    \"pi\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    },\n    \"hermes\": {\n      \"enabled\": true,\n      \"binaryPath\": \"\",\n      \"accounts\": [],\n      \"activeAccount\": \"default\"\n    }\n  },\n  \"sourceControl\": {\n    \"confirmDefaultPush\": true,\n    \"draftPullRequests\": false,\n    \"fetchIntervalSeconds\": 0,\n    \"diffView\": \"split\",\n    \"wrapDiffLines\": false\n  },\n  \"notifications\": {\n    \"settleSound\": false,\n    \"desktop\": false,\n    \"discordPresence\": false\n  },\n  \"permissions\": {\n    \"allowlist\": []\n  },\n  \"remote\": {\n    \"enabled\": false,\n    \"port\": 8787,\n    \"allowedOrigins\": []\n  },\n  \"window\": null,\n  \"delegationApprovalMigrated\": true\n}"
+    },
+    {
+      "path": "workspaces/open/keep.txt",
+      "utf8": "Synthetic workspace content — preserve me.\n"
+    }
+  ],
+  "rendererStorage": {
+    "ari.drafts": "{\"sess_upgrade_parent\":\"Unsent synthetic draft — do not submit.\"}",
+    "ari.composer-recovery": "{\"version\":1,\"sessions\":{\"sess_upgrade_parent\":{\"images\":[{\"metadata\":{\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68,\"lastModified\":1794272400000},\"ref\":{\"id\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}}],\"picks\":[],\"recoveries\":[{\"id\":\"send_preparing\",\"text\":\"Preparing synthetic send\",\"images\":[{\"metadata\":{\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68,\"lastModified\":1794272400000}}],\"notes\":[],\"picks\":[],\"delivery\":\"preparing\",\"autoRestore\":true,\"reattachRequired\":true},{\"id\":\"send_pending\",\"text\":\"Pending synthetic acknowledgement\",\"images\":[{\"metadata\":{\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68,\"lastModified\":1794272400000},\"ref\":{\"id\":\"att_8d281df2e3414b39\",\"name\":\"synthetic.png\",\"mimeType\":\"image/png\",\"size\":68}}],\"notes\":[{\"id\":\"note_preserved\",\"path\":\"src/example.ts\",\"line\":3,\"text\":\"Synthetic review note\"}],\"picks\":[],\"delivery\":\"pending\",\"autoRestore\":true}],\"delivery\":\"uncertain\"}}}"
+  },
+  "expected": {
+    "at": 1794272400000,
+    "parentId": "sess_upgrade_parent",
+    "runningId": "sess_upgrade_running",
+    "heldId": "sess_bbf63e95-988c-48e7-a77a-deef99c7d723",
+    "projectId": "proj_fa708fba-d9fc-46ca-b78c-e910740f3235",
+    "missingId": "proj_a94715a5-0bc9-4a0a-827e-866a5c681a81",
+    "removedId": "proj_1c65bb67-9efd-4ebe-aee2-3c1b9b74dcbc",
+    "agent": {
+      "driverKind": "codex",
+      "modelId": "saved-model",
+      "effort": "xhigh",
+      "permissionMode": "full"
+    },
+    "attachment": {
+      "id": "att_8d281df2e3414b39",
+      "name": "synthetic.png",
+      "mimeType": "image/png",
+      "size": 68
+    },
+    "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF1sAAAAASUVORK5CYII=",
+    "spawnParams": {
+      "title": "Synthetic preserved worker",
+      "driverKind": "codex",
+      "modelId": "saved-model",
+      "effort": "xhigh",
+      "permissionMode": "full",
+      "role": "test",
+      "prompt": "Synthetic initial assignment",
+      "idempotencyKey": "upgrade-preserved-worker"
+    },
+    "messageParams": {
+      "targetSessionId": "sess_upgrade_running",
+      "text": "Synthetic durable coordination",
+      "idempotencyKey": "upgrade-coordination"
+    },
+    "messageResult": {
+      "ok": true,
+      "result": {
+        "messageId": "inbox_a2549b7c8eb7872d35f2ededa75a640c",
+        "senderSessionId": "sess_upgrade_parent",
+        "recipientSessionId": "sess_upgrade_running",
+        "text": "Synthetic durable coordination",
+        "createdAt": 1794272400000,
+        "status": "pending",
+        "turnId": null,
+        "consumedAt": null
+      }
+    },
+    "models": {
+      "sess_upgrade_parent": {
+        "session": {
+          "id": "sess_upgrade_parent",
+          "projectId": "proj_fa708fba-d9fc-46ca-b78c-e910740f3235",
+          "title": "Synthetic upgrade conversation",
+          "driverKind": "codex",
+          "modelId": "saved-model",
+          "permissionMode": "full",
+          "effort": "xhigh",
+          "status": "idle",
+          "pinned": true,
+          "createdBy": {
+            "kind": "human"
+          },
+          "lead": true,
+          "createdAt": 1794272400000,
+          "updatedAt": 1794272400000,
+          "archived": false
+        },
+        "messages": [
+          {
+            "id": "msg_request",
+            "sessionId": "sess_upgrade_parent",
+            "turnId": "turn_finished",
+            "role": "user",
+            "origin": {
+              "kind": "human"
+            },
+            "parts": [
+              {
+                "type": "text",
+                "text": "Synthetic transcript request"
+              },
+              {
+                "type": "image",
+                "attachmentId": "att_8d281df2e3414b39",
+                "name": "synthetic.png",
+                "mimeType": "image/png",
+                "size": 68
+              }
+            ],
+            "createdAt": 1794272400000
+          },
+          {
+            "id": "msg_reply",
+            "sessionId": "sess_upgrade_parent",
+            "turnId": "turn_finished",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking",
+                "text": "Synthetic retained reasoning"
+              },
+              {
+                "type": "text",
+                "text": "Synthetic transcript response"
+              }
+            ],
+            "createdAt": 1794272400000
+          }
+        ],
+        "queuedMessages": [
+          {
+            "text": "Same queued text",
+            "attachments": [
+              {
+                "id": "att_8d281df2e3414b39",
+                "name": "synthetic.png",
+                "mimeType": "image/png",
+                "size": 68
+              }
+            ],
+            "origin": {
+              "kind": "human"
+            }
+          },
+          {
+            "text": "Same queued text",
+            "attachments": [],
+            "origin": {
+              "kind": "routine",
+              "routineId": "retained-legacy"
+            }
+          }
+        ],
+        "usage": {
+          "inputTokens": 17,
+          "outputTokens": 9,
+          "costUsd": 0.001
+        },
+        "providerSessionId": null,
+        "activeTurnId": null,
+        "operations": {
+          "control_3c08bd73e296456764f7ad7b9a73d662": {
+            "operationId": "control_3c08bd73e296456764f7ad7b9a73d662",
+            "method": "session.spawn",
+            "fingerprint": "{\"title\":\"Synthetic preserved worker\",\"role\":\"test\",\"driverKind\":\"codex\",\"modelId\":\"saved-model\",\"effort\":\"xhigh\",\"permissionMode\":\"full\",\"prompt\":\"Synthetic initial assignment\",\"idempotencyKey\":\"upgrade-preserved-worker\"}",
+            "status": "uncertain",
+            "startedAt": 1794272400000,
+            "completedAt": null,
+            "result": {
+              "recovery": {
+                "childSessionId": "sess_bbf63e95-988c-48e7-a77a-deef99c7d723",
+                "workspace": {
+                  "kind": "project"
+                },
+                "stage": "session_created"
+              }
+            },
+            "detail": "The effect may have completed before the durable outcome. Inspect state before recovery."
+          },
+          "control_5524c6c3ac7faee32ecab5e5d76f1784": {
+            "operationId": "control_5524c6c3ac7faee32ecab5e5d76f1784",
+            "method": "session.message",
+            "fingerprint": "{\"targetSessionId\":\"sess_upgrade_running\",\"text\":\"Synthetic durable coordination\",\"idempotencyKey\":\"upgrade-coordination\"}",
+            "status": "completed",
+            "startedAt": 1794272400000,
+            "completedAt": 1794272400000,
+            "result": {
+              "ok": true,
+              "result": {
+                "messageId": "inbox_a2549b7c8eb7872d35f2ededa75a640c",
+                "senderSessionId": "sess_upgrade_parent",
+                "recipientSessionId": "sess_upgrade_running",
+                "text": "Synthetic durable coordination",
+                "createdAt": 1794272400000,
+                "status": "pending",
+                "turnId": null,
+                "consumedAt": null
+              }
+            },
+            "detail": null
+          }
+        },
+        "inbox": {}
+      },
+      "sess_upgrade_running": {
+        "session": {
+          "id": "sess_upgrade_running",
+          "projectId": "proj_fa708fba-d9fc-46ca-b78c-e910740f3235",
+          "title": "Synthetic interrupted worker",
+          "driverKind": "codex",
+          "modelId": "saved-model",
+          "permissionMode": "full",
+          "effort": "xhigh",
+          "status": "idle",
+          "pinned": true,
+          "parentSessionId": "sess_upgrade_parent",
+          "rootSessionId": "sess_upgrade_parent",
+          "createdBy": {
+            "kind": "session",
+            "sessionId": "sess_upgrade_parent"
+          },
+          "role": "test",
+          "createdAt": 1794272400000,
+          "updatedAt": 1794272400000,
+          "archived": false
+        },
+        "messages": [],
+        "queuedMessages": [
+          {
+            "text": "Unsent user follow-up",
+            "attachments": [
+              {
+                "id": "att_8d281df2e3414b39",
+                "name": "synthetic.png",
+                "mimeType": "image/png",
+                "size": 68
+              }
+            ],
+            "origin": {
+              "kind": "human"
+            }
+          }
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "costUsd": null
+        },
+        "providerSessionId": "synthetic-native-thread",
+        "activeTurnId": "turn_unconfirmed",
+        "operations": {},
+        "inbox": {
+          "inbox_a2549b7c8eb7872d35f2ededa75a640c": {
+            "messageId": "inbox_a2549b7c8eb7872d35f2ededa75a640c",
+            "senderSessionId": "sess_upgrade_parent",
+            "recipientSessionId": "sess_upgrade_running",
+            "text": "Synthetic durable coordination",
+            "createdAt": 1794272400000,
+            "status": "pending",
+            "turnId": null,
+            "consumedAt": null
+          }
+        }
+      },
+      "sess_bbf63e95-988c-48e7-a77a-deef99c7d723": {
+        "session": {
+          "id": "sess_bbf63e95-988c-48e7-a77a-deef99c7d723",
+          "projectId": "proj_fa708fba-d9fc-46ca-b78c-e910740f3235",
+          "title": "Synthetic preserved worker",
+          "driverKind": "codex",
+          "modelId": "saved-model",
+          "permissionMode": "full",
+          "effort": "xhigh",
+          "status": "idle",
+          "parentSessionId": "sess_upgrade_parent",
+          "rootSessionId": "sess_upgrade_parent",
+          "createdBy": {
+            "kind": "session",
+            "sessionId": "sess_upgrade_parent"
+          },
+          "role": "test",
+          "workspace": {
+            "kind": "project"
+          },
+          "createdAt": 1794272400000,
+          "updatedAt": 1794272400000,
+          "archived": false,
+          "pinned": false
+        },
+        "messages": [],
+        "queuedMessages": [
+          {
+            "text": "Continue held assignment",
+            "attachments": [
+              {
+                "id": "att_8d281df2e3414b39",
+                "name": "synthetic.png",
+                "mimeType": "image/png",
+                "size": 68
+              }
+            ],
+            "origin": {
+              "kind": "session",
+              "sessionId": "sess_upgrade_parent"
+            },
+            "held": true
+          }
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "costUsd": null
+        },
+        "providerSessionId": null,
+        "activeTurnId": null,
+        "operations": {},
+        "inbox": {}
+      }
+    }
+  }
+}

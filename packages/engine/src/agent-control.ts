@@ -2,6 +2,7 @@ import type { CoordinationMessage } from '@ari/contracts/coordination'
 import { newTypedId } from '@ari/shared/ids'
 import { createHash } from 'node:crypto'
 import type { OperationReceipt } from '@ari/contracts/orchestration'
+import { z } from 'zod'
 import { exceedsPermission } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import {
@@ -16,6 +17,8 @@ import {
   type DelegationSettings,
   type HelmProject,
   type ScheduledRoutine,
+  type SessionPromptReceipt,
+  type SessionReadQueue,
 } from '@ari/contracts/agent-control'
 import {
   HELM_PROJECT_ID,
@@ -23,23 +26,44 @@ import {
   isHelmProjectLead,
   isHelmProjectSession,
 } from '@ari/contracts/helm'
-import type { Session, SessionWorkspace } from '@ari/contracts/session'
+import { sessionWorkspaceSchema, type Session, type SessionWorkspace } from '@ari/contracts/session'
 import type { Message } from '@ari/contracts/message'
-import type { Command } from '@ari/contracts/commands'
+import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
+import {
+  appOpenTargetSchema,
+  appOpenReceiptSchema,
+  type AppOpenTarget,
+  type AppOpenReceipt,
+} from '@ari/contracts/rpc'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
 import { childWorkState, finalAssistantText } from './delegation-state'
 import type { TreeSpend } from './tree-budget'
-import { findSessions, turnRequester, helmTaskRecipient, type HelmView } from './helm'
 import {
-  resolveProjectAgent,
+  findSessions,
+  turnRequester,
+  helmTaskRecipient,
+  helmReportRecipient,
+  questionOwnerSessionId,
+  type HelmView,
+} from './helm'
+import {
+  resolveProjectAgentSelection,
+  type ProjectAgentFailure,
   type ProjectAgentDefaults,
   type ProjectAgentProvider,
 } from './projects'
-import type { ProjectAgent, ResolvedProjectAgent } from '@ari/contracts/project'
+import {
+  projectCreationFailureDetailsSchema,
+  projectCreationProgressSchema,
+  type ProjectCreationProgress,
+  type ProjectAgent,
+  type ResolvedProjectAgent,
+} from '@ari/contracts/project'
+import { resolveLaunchEffort, type LaunchEffortOption } from './launch-effort'
 
 const log = createLogger('engine:control')
 
@@ -47,7 +71,73 @@ const PROJECT_MODEL_REQUIRED =
   'No valid provider/model is selected for this project. Ask the user once which provider and model to use, suggesting your current model as an option, then save the answer with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
 const PROJECT_DEFAULT_MODEL_REQUIRED =
   'The project saved default is missing a model. Ask the user which model to use, then save it with `ari project default <projectId> --agent <provider> --model <model>` before starting work.'
+
+function projectAgentError(
+  failure: ProjectAgentFailure,
+  project: Pick<HelmProject, 'defaultAgent'>,
+  args?: Partial<ProjectAgent>,
+): string {
+  if (failure.reason === 'model_required')
+    return project.defaultAgent &&
+      !project.defaultAgent.modelId &&
+      !args?.modelId &&
+      (!args?.driverKind || args.driverKind === project.defaultAgent.driverKind)
+      ? PROJECT_DEFAULT_MODEL_REQUIRED
+      : PROJECT_MODEL_REQUIRED
+  const identity = `${failure.driverKind}/${failure.modelId}`.replace(/\s+/g, ' ').slice(0, 160)
+  const choice = failure.source === 'project' ? 'Saved' : 'Requested'
+  const reason =
+    failure.reason === 'provider_unavailable'
+      ? 'provider unavailable in the current catalog'
+      : "model unavailable in the provider's current catalog"
+  return `${choice} project agent ${identity}: ${reason}. Keep the saved choice; restore availability and retry with the same key.`
+}
 const PROJECT_HUMAN_WAIT_MS = 3 * 60_000
+
+const projectRecoveryReceiptSchema = z.object({
+  recovery: projectCreationFailureDetailsSchema.partial({ failureCode: true }),
+})
+const workerRecoveryReceiptSchema = z.object({
+  recovery: z
+    .object({
+      childSessionId: z.string().min(1).max(128),
+      stage: z.enum([
+        'workspace_preparing',
+        'workspace_prepared',
+        'session_creating',
+        'session_created',
+      ]),
+      projectId: z.string().min(1).max(128).optional(),
+      workspace: sessionWorkspaceSchema.optional(),
+      workspacePath: z.string().min(1).max(32_767).optional(),
+    })
+    .strict()
+    .refine(
+      (recovery) => recovery.stage === 'workspace_preparing' || recovery.workspace !== undefined,
+    )
+    .refine(
+      (recovery) =>
+        recovery.workspace?.kind !== 'managed-worktree' ||
+        recovery.workspacePath === undefined ||
+        recovery.workspacePath === recovery.workspace.path,
+    ),
+})
+
+/** Receipt identities are inspectable data, never authority to repeat an unknown effect. */
+function recoveryDetails(method: ControlMethod, result: unknown): Record<string, unknown> {
+  const parsed =
+    method === 'projects.create'
+      ? projectRecoveryReceiptSchema.safeParse(result)
+      : method === 'session.spawn' || method === 'projects.ask'
+        ? workerRecoveryReceiptSchema.safeParse(result)
+        : null
+  return parsed?.success ? parsed.data.recovery : {}
+}
+
+function navigationRecovery(result: unknown): { appOpen?: AppOpenReceipt } {
+  const parsed = appOpenReceiptSchema.safeParse((result as { appOpen?: unknown } | null)?.appOpen)
+  return parsed.success ? { appOpen: parsed.data } : {}
+}
 
 /**
  * Reported when the requesting call went away (control timeout, disconnect)
@@ -109,7 +199,7 @@ export interface ControlHost {
   dispatch(
     command: Command,
     origin?: { kind: 'session'; sessionId: string },
-  ): Promise<{ accepted: boolean; reason?: string }>
+  ): Promise<CommandReceipt>
   record(id: string, event: UnstampedEvent): Promise<JournalEvent>
   subscribe(listener: (event: JournalEvent) => void): () => void
   workspace(session: Session): Promise<string | null>
@@ -140,8 +230,23 @@ export interface ControlHost {
   treeSpend?(rootId: string): Promise<TreeSpend>
   /** The projects Aria can reach; a runtime without them has no Aria. */
   projects?(rows?: readonly SessionListEntry[]): Promise<HelmProject[]>
-  createProject?(input: { name: string; path?: string }): Promise<CreatedProject>
+  createProject?(
+    input: { name: string; path?: string },
+    onProgress?: (progress: Readonly<ProjectCreationProgress>) => Promise<void>,
+  ): Promise<CreatedProject>
   projectAgentDefaults?(): ProjectAgentDefaults
+  /** Model-specific support from the active provider transport; failures must remain failures. */
+  effortsForModel?(
+    kind: Session['driverKind'],
+    modelId: string | null,
+  ): Promise<readonly LaunchEffortOption[]>
+  /** Specific renderer navigation, with an observed or explicitly unconfirmed receipt. */
+  openApp?(
+    callerId: string,
+    target: AppOpenTarget,
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<AppOpenReceipt>
   setProjectDefault?(id: string, agent: ProjectAgent): Promise<boolean>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
@@ -167,6 +272,149 @@ export class AgentControlService {
   readonly #gone = new Map<string, Set<() => void>>()
   readonly #waiting = new Map<string, Map<string, number>>()
   constructor(readonly host: ControlHost) {}
+
+  /** Trusted supervisor path; agents cannot manufacture provider request metadata. */
+  async notifyRequest(
+    senderId: string,
+    recipientId: string,
+    text: string,
+    request: NonNullable<CoordinationMessage['request']>,
+    key: string,
+  ): Promise<CoordinationMessage> {
+    return this.#coordinate(
+      await this.#get(senderId),
+      await this.#get(recipientId),
+      { text, targetSessionId: recipientId, idempotencyKey: key },
+      request,
+    )
+  }
+
+  /** Retry only known-unsubmitted inbox entries when a new live adapter becomes ready. */
+  async deliverPendingCoordination(recipientId: string): Promise<void> {
+    const model = await this.host.store.loadExisting(recipientId)
+    if (!model?.session || model.session.archived || !this.host.policy().enabled) return
+    for (const message of Object.values(model.inbox ?? {})) {
+      if (message.status !== 'pending' || (message.request && message.request.resolvedAt !== null))
+        continue
+      if (message.request) {
+        const source = await this.host.store.loadExisting(message.senderSessionId)
+        if (
+          source?.activeTurnId !== message.request.sourceTurnId ||
+          !(message.request.kind === 'input'
+            ? source.pendingInputs.some((input) => input.inputId === message.request!.requestId)
+            : source.pendingApprovals.some(
+                (approval) => approval.approvalId === message.request!.requestId,
+              ))
+        )
+          continue
+      }
+      await this.#deliverInbox(message)
+    }
+  }
+
+  /** Revalidate at consumption; a receipt target never redirects to a newer topic. */
+  async validateAppOpen(callerId: string, raw: AppOpenTarget): Promise<void> {
+    const target = appOpenTargetSchema.parse(raw)
+    const caller = await this.#get(callerId)
+    await this.#appNavigationCaller(caller)
+    if (target.view === 'settings') return
+    if (target.view === 'session' || target.view === 'aria' || target.sessionId !== undefined) {
+      const session = await this.#reach(caller, target.sessionId!, false, true)
+      if (session.archived)
+        throw new ControlFailure('scope_denied', 'Restore the target chat before opening it.')
+      if (target.view === 'aria' && (await this.host.store.currentHelmSession()) !== session.id)
+        throw new ControlFailure('scope_denied', 'The current Aria topic changed.')
+      if (target.view === 'changes' && session.projectId !== target.projectId)
+        throw new ControlFailure('scope_denied', 'The Changes session context changed.')
+    }
+    if (target.view === 'changes') {
+      const project = (await this.#helmProjects(caller)).find(
+        (project) => project.projectId === target.projectId,
+      )
+      if (!project)
+        throw new ControlFailure(
+          'project_not_found',
+          'Changes needs an explicitly identified registered project or session.',
+        )
+      if (!project.available)
+        throw new ControlFailure('project_unavailable', 'That project folder is unavailable.')
+    }
+    // Store and project reads may yield; stale callers cannot take over navigation.
+    await this.#appNavigationCaller(await this.#get(callerId))
+  }
+
+  async #appNavigationCaller(caller: Session): Promise<void> {
+    if (
+      !isHelmSession(caller) ||
+      caller.archived ||
+      (await this.host.store.currentHelmSession()) !== caller.id
+    )
+      throw new ControlFailure(
+        'scope_denied',
+        'Only the current nonarchived Aria chat opens app views on explicit user instruction.',
+      )
+  }
+
+  async #appOpen(
+    caller: Session,
+    params: ControlParams<'app.open'>,
+    signal?: AbortSignal,
+  ): Promise<AppOpenReceipt> {
+    if (signal?.aborted)
+      throw new ControlFailure('invalid_request', 'Navigation request ended before dispatch.')
+    await this.#appNavigationCaller(caller)
+    if (!this.host.openApp)
+      throw new ControlFailure('unsupported', 'App navigation is unavailable in this runtime.')
+    let target: AppOpenTarget
+    if (params.view === 'aria') {
+      const sessionId = await this.host.store.currentHelmSession()
+      if (!sessionId) throw new ControlFailure('session_not_found', 'No current Aria chat exists.')
+      target = { view: 'aria', sessionId }
+    } else if (params.view === 'session') {
+      target = {
+        view: 'session',
+        sessionId: (await this.#reach(caller, params.sessionId, false, true)).id,
+      }
+    } else if (params.view === 'changes') {
+      if (params.sessionId !== undefined) {
+        const session = await this.#reach(caller, params.sessionId, false, true)
+        target = { view: 'changes', sessionId: session.id, projectId: session.projectId }
+      } else target = { view: 'changes', projectId: params.projectId! }
+    } else target = { view: 'settings' }
+    target = appOpenTargetSchema.parse(target)
+    await this.validateAppOpen(caller.id, target)
+    const requestId = `navigation_${createHash('sha256').update(`${caller.id}:${params.idempotencyKey}`).digest('hex').slice(0, 32)}`
+    await this.#appOpenProgress(caller.id, params.idempotencyKey, {
+      requestId,
+      target,
+      status: 'unconfirmed',
+    })
+    const receipt = appOpenReceiptSchema.parse(
+      signal?.aborted
+        ? { requestId, target, status: 'unavailable', reason: 'disconnected' }
+        : await this.host.openApp(caller.id, target, requestId, signal),
+    )
+    if (
+      receipt.requestId !== requestId ||
+      JSON.stringify(receipt.target) !== JSON.stringify(target)
+    )
+      throw new ControlFailure(
+        'uncertain_outcome',
+        'Navigation acknowledgement did not match the requested target.',
+      )
+    await this.#appOpenProgress(caller.id, params.idempotencyKey, receipt)
+    return receipt
+  }
+
+  async #appOpenProgress(callerId: string, key: string, appOpen: AppOpenReceipt): Promise<void> {
+    const operationId = `control_${createHash('sha256').update(`${callerId}:app.open:${key}`).digest('hex').slice(0, 32)}`
+    const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+    if (operation?.status === 'started')
+      await this.host.record(callerId, {
+        type: 'orchestration.operation.updated',
+        operation: { ...operation, result: { appOpen } },
+      })
+  }
 
   /** True while `parentId` is blocked in `session wait` on `childId`. */
   isWaiting(parentId: string, childId: string): boolean {
@@ -283,16 +531,41 @@ export class AgentControlService {
     args?: Partial<ProjectAgent>,
     providers?: readonly ProjectAgentProvider[],
   ): Promise<ResolvedProjectAgent | null> {
-    const agent = resolveProjectAgent({
+    const resolved = resolveProjectAgentSelection({
       project,
       ...(args === undefined ? {} : { arguments: args }),
       providers: providers ?? (await this.host.providers()),
       maxPermissionMode: caller.permissionMode,
-      app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
+      app: { permissionMode: 'full' },
     })
-    if (!agent && project.defaultAgent && !project.defaultAgent.modelId && !args?.modelId)
-      throw new ControlFailure('model_unavailable', PROJECT_DEFAULT_MODEL_REQUIRED)
-    return agent
+    if (resolved.error)
+      throw new ControlFailure(
+        resolved.error.reason === 'model_required' ? 'model_unavailable' : resolved.error.reason,
+        projectAgentError(resolved.error, project, args),
+      )
+    return resolved.agent
+  }
+
+  async #effort(
+    agent: Pick<ProjectAgent, 'driverKind' | 'modelId' | 'effort'>,
+    requested?: string | null,
+    text?: string,
+    baselineSource: 'project' | 'inherited' | 'lead' = 'project',
+    providers?: readonly ProjectAgentProvider[],
+  ) {
+    if (requested === null) return resolveLaunchEffort({ requested, options: [] })
+    const provider = (providers ?? (await this.host.providers())).find(
+      (entry) => entry.driverKind === agent.driverKind,
+    )
+    const model = provider?.models.find(
+      (entry) =>
+        entry.id === agent.modelId ||
+        (agent.modelId != null && entry.aliases?.includes(agent.modelId)),
+    )
+    const options = this.host.effortsForModel
+      ? await this.host.effortsForModel(agent.driverKind, model?.id ?? agent.modelId)
+      : (model?.efforts ?? [])
+    return resolveLaunchEffort({ requested, baseline: agent.effort, baselineSource, text, options })
   }
 
   /** Shared with the live snapshot so it names the same agent as a launch. */
@@ -306,18 +579,16 @@ export class AgentControlService {
     ])
     const projects = await this.#helmProjects(caller, sessions)
     return projects.map((project) => {
-      const agent = resolveProjectAgent({
+      const resolved = resolveProjectAgentSelection({
         project,
         providers,
-        app: this.host.projectAgentDefaults?.() ?? { permissionMode: 'ask' },
+        app: { permissionMode: 'full' },
         maxPermissionMode: caller.permissionMode,
       })
       return {
         ...project,
-        agent,
-        ...(!agent && project.defaultAgent && !project.defaultAgent.modelId
-          ? { agentError: PROJECT_DEFAULT_MODEL_REQUIRED }
-          : {}),
+        agent: resolved.agent,
+        ...(resolved.error ? { agentError: projectAgentError(resolved.error, project) } : {}),
       }
     })
   }
@@ -359,7 +630,7 @@ export class AgentControlService {
             'invalid_request',
             'Idempotency key already used with different parameters.',
           )
-        return { ok: true, result: await previous.result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await previous.result) }
       }
       if (this.#receipts.size >= 10_000)
         throw new ControlFailure(
@@ -373,14 +644,14 @@ export class AgentControlService {
             'invalid_request',
             'Idempotency key already used with different parameters.',
           )
-        return { ok: true, result: await raced.result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await raced.result) }
       }
       const result = this.#chain(caller, () =>
         this.#durable(caller.id, receiptKey, method, fingerprint, params, run),
       )
       this.#receipts.set(receiptKey, { fingerprint, result })
       try {
-        return { ok: true, result: await result }
+        return { ok: true, result: await this.#freshReceiptResult(method, await result) }
       } catch (error) {
         if (this.#receipts.get(receiptKey)?.result === result) this.#receipts.delete(receiptKey)
         throw error
@@ -394,6 +665,24 @@ export class AgentControlService {
       log.error('control operation failed', { method })
       return { ok: false, error: { code: 'internal_error', message: 'Control operation failed.' } }
     }
+  }
+
+  /** Mutation receipts retain identity; current inbox state decides message delivery status. */
+  async #freshReceiptResult(method: ControlMethod, result: unknown): Promise<unknown> {
+    if (
+      method !== 'session.message' ||
+      !result ||
+      typeof result !== 'object' ||
+      !('messageId' in result) ||
+      !('recipientSessionId' in result) ||
+      typeof result.messageId !== 'string' ||
+      typeof result.recipientSessionId !== 'string'
+    )
+      return result
+    const accepted = (await this.host.store.loadExisting(result.recipientSessionId))?.inbox?.[
+      result.messageId
+    ]
+    return accepted ? this.#coordinationState(accepted) : result
   }
 
   /** Journal barriers surround effects whose repetition could submit or integrate twice. */
@@ -466,7 +755,11 @@ export class AgentControlService {
         throw new ControlFailure(
           'uncertain_outcome',
           'The previous operation may have completed. It will not be repeated automatically.',
-          { operationId },
+          {
+            operationId,
+            ...recoveryDetails(method, previous.result),
+            ...(method === 'app.open' ? navigationRecovery(previous.result) : {}),
+          },
         )
       }
       const outcome = previous.result as ControlResult
@@ -487,8 +780,12 @@ export class AgentControlService {
       type: 'orchestration.operation.updated',
       operation: receipt,
     })
+    let lastProgress: unknown
     try {
       const result = await run()
+      // Preserve progress even when the final receipt append succeeds but its acknowledgement fails.
+      lastProgress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
+        ?.result
       await this.host.record(callerId, {
         type: 'orchestration.operation.updated',
         operation: {
@@ -500,8 +797,31 @@ export class AgentControlService {
       })
       return result
     } catch (error) {
-      const progress = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
-        ?.result
+      const progress =
+        lastProgress ??
+        (await this.host.store.load(callerId)).orchestration?.operations[operationId]?.result
+      const projectFailure =
+        method === 'projects.create' && error instanceof ControlFailure
+          ? projectCreationFailureDetailsSchema.safeParse(error.details)
+          : null
+      const workerFailure =
+        method === 'session.spawn' &&
+        error instanceof ControlFailure &&
+        error.code === 'uncertain_outcome'
+          ? workerRecoveryReceiptSchema.safeParse({ recovery: error.details })
+          : null
+      const recovery: Record<string, unknown> = projectFailure?.success
+        ? projectFailure.data
+        : workerFailure?.success
+          ? workerFailure.data.recovery
+          : recoveryDetails(method, progress)
+      if (
+        method === 'projects.create' &&
+        recovery.projectCreation &&
+        recovery.failureCode === undefined
+      )
+        recovery.failureCode = 'project_progress_failed'
+      const hasRecovery = Object.keys(recovery).length > 0
       const known =
         error instanceof ControlFailure &&
         !['internal_error', 'uncertain_outcome'].includes(error.code)
@@ -513,12 +833,26 @@ export class AgentControlService {
           completedAt: known ? Date.now() : null,
           result: known
             ? { ok: false, error: { code: error.code, message: error.message } }
-            : progress,
+            : hasRecovery
+              ? { recovery }
+              : progress,
           detail: known
             ? error.message
             : 'The effect may have completed before the durable outcome. Inspect state before recovery.',
         },
       })
+      if (!known && (hasRecovery || method === 'app.open'))
+        throw new ControlFailure(
+          'uncertain_outcome',
+          method === 'app.open'
+            ? 'The previous operation may have completed. It will not be repeated automatically.'
+            : 'The effect may have completed before the durable outcome. Inspect the preserved identity before recovery.',
+          {
+            operationId,
+            ...recovery,
+            ...(method === 'app.open' ? navigationRecovery(progress) : {}),
+          },
+        )
       throw error
     }
   }
@@ -576,6 +910,10 @@ export class AgentControlService {
           caller: {
             sessionId: caller.id,
             projectId: caller.projectId,
+            driverKind: caller.driverKind,
+            modelId: caller.modelId,
+            effort: caller.effort ?? null,
+            permissionMode: caller.permissionMode,
             aria: isHelmSession(caller),
             parentSessionId: caller.parentSessionId ?? null,
             rootSessionId: root.id,
@@ -601,6 +939,8 @@ export class AgentControlService {
       }
       case 'providers.list':
         return this.host.providers()
+      case 'app.open':
+        return this.#appOpen(caller, raw as ControlParams<'app.open'>, signal)
       case 'projects.list':
         return { projects: await this.projects(caller) }
       case 'projects.create': {
@@ -612,10 +952,18 @@ export class AgentControlService {
             'Project creation is unavailable in this runtime.',
           )
         const p = raw as ControlParams<'projects.create'>
-        return this.host.createProject({
-          name: p.name,
-          ...(p.path === undefined ? {} : { path: p.path }),
-        })
+        return this.host.createProject(
+          { name: p.name, ...(p.path === undefined ? {} : { path: p.path }) },
+          (progress) =>
+            this.#spawnProgress(
+              caller.id,
+              p.idempotencyKey,
+              {
+                projectCreation: projectCreationProgressSchema.parse(progress),
+              },
+              'projects.create',
+            ),
+        )
       }
       case 'projects.setDefault': {
         const p = raw as ControlParams<'projects.setDefault'>
@@ -631,20 +979,36 @@ export class AgentControlService {
         const agent = {
           driverKind: p.driverKind,
           modelId: p.modelId,
-          effort: p.effort ?? null,
-          permissionMode: p.permissionMode ?? 'ask',
+          effort: p.effort === 'auto' ? null : (p.effort ?? null),
+          permissionMode: p.permissionMode ?? caller.permissionMode,
         }
         if (exceedsPermission(agent.permissionMode, caller.permissionMode))
           throw new ControlFailure(
             'scope_denied',
             'Project default permissions cannot exceed Aria permissions. Ask the user to raise Aria permissions.',
           )
+        const resolved = await this.#projectAgent({ ...project, defaultAgent: agent }, caller, p)
+        if (!resolved) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+        if (p.effort !== undefined && p.effort !== 'auto') await this.#effort(resolved, p.effort)
+        // Discovery can outlast a permission or archive change. Authorize the write
+        // against the current caller, without another discovery await in between.
+        const currentCaller = await this.#get(caller.id)
+        if (currentCaller.archived)
+          throw new ControlFailure('scope_denied', 'Restore Aria before saving a project default.')
+        if (exceedsPermission(agent.permissionMode, currentCaller.permissionMode))
+          throw new ControlFailure(
+            'scope_denied',
+            'Aria permissions changed while resolving the project default. The default was not saved.',
+          )
         if (!(await this.host.setProjectDefault(project.projectId, agent)))
           throw new ControlFailure('project_not_found', 'Project not found.')
         return {
           projectId: project.projectId,
           defaultAgent: agent,
-          agent: await this.#projectAgent({ ...project, defaultAgent: agent }, caller),
+          agent: await this.#projectAgent(
+            { ...project, defaultAgent: agent },
+            await this.#get(caller.id),
+          ),
         }
       }
       case 'projects.ask':
@@ -679,16 +1043,56 @@ export class AgentControlService {
         return this.#spawn(caller, raw as ControlParams<'session.spawn'>, signal)
       case 'session.switch': {
         const p = raw as ControlParams<'session.switch'>
-        const target = await this.#get(p.targetSessionId)
+        const target = await this.#get(p.targetSessionId === 'self' ? caller.id : p.targetSessionId)
         return this.#switchProjectSession(caller, target, p)
       }
       case 'session.prompt': {
         const p = raw as ControlParams<'session.prompt'>
-        return this.#prompt(
-          caller,
-          await this.#reach(caller, p.targetSessionId, false, true),
+        let target = await this.#reach(caller, p.targetSessionId, false, true)
+        const owned =
+          (isHelmSession(caller) && isHelmProjectSession(target)) ||
+          target.parentSessionId === caller.id
+        if (!owned) {
+          if (p.effort !== undefined)
+            throw new ControlFailure(
+              'scope_denied',
+              'Reasoning changes are limited to sessions you launched or direct workers.',
+            )
+          return this.#prompt(caller, target, p.text)
+        }
+        if (caller.archived || target.archived)
+          throw new ControlFailure('scope_denied', 'Restore the session before assigning work.')
+        if (!this.host.policy().enabled)
+          throw new ControlFailure('delegation_disabled', 'Delegation is disabled.')
+        const effortSelection = await this.#effort(
+          { ...target, effort: target.effort ?? null },
+          p.effort,
           p.text,
+          'inherited',
         )
+        const current = await this.#get(caller.id)
+        const fresh = await this.#reach(current, target.id, false, true)
+        if (current.archived || fresh.archived)
+          throw new ControlFailure('scope_denied', 'Restore the session before assigning work.')
+        if (fresh.driverKind !== target.driverKind || fresh.modelId !== target.modelId)
+          throw new ControlFailure(
+            'model_unavailable',
+            'The target model changed during effort discovery. Retry the assignment.',
+          )
+        if (isHelmSession(current) && !fresh.parentSessionId)
+          await this.#checkProjectCode(fresh.projectId, fresh.id)
+        if ((fresh.effort ?? null) !== effortSelection.resolved) {
+          const updated = await this.host.dispatch({
+            type: 'session.update',
+            sessionId: fresh.id,
+            effort: effortSelection.resolved,
+          })
+          if (!updated.accepted)
+            throw new ControlFailure('turn_refused', updated.reason ?? 'Reasoning update refused.')
+        }
+        target = await this.#get(fresh.id)
+        const prompted = await this.#prompt(current, target, p.text)
+        return { ...prompted, agent: { ...leadAgent(target), effortSelection } }
       }
       case 'session.message': {
         const p = raw as ControlParams<'session.message'>
@@ -747,10 +1151,7 @@ export class AgentControlService {
             'Only the direct parent can answer a child question.',
           )
         const model = await this.host.store.load(child.id)
-        const asked = model.messages.find(
-          (message) => message.role === 'user' && message.turnId === model.activeTurnId,
-        )
-        if (asked?.origin?.kind !== 'session' || asked.origin.sessionId !== caller.id)
+        if ((await questionOwnerSessionId(this.host.store, model)) !== caller.id)
           throw new ControlFailure(
             'scope_denied',
             'This question belongs to the human, not the lead.',
@@ -768,6 +1169,7 @@ export class AgentControlService {
             sessionId: child.id,
             inputId: p.inputId,
             value: p.value,
+            expectedTurnId: model.activeTurnId!,
           },
           { kind: 'session', sessionId: caller.id },
         )
@@ -910,6 +1312,7 @@ export class AgentControlService {
       const child = await this.#get(spawned.childSessionId)
       return {
         child,
+        agent: leadAgent(child),
         workspace: { ...child.workspace, path: await this.host.workspace(child) },
         initialTurn: null,
       }
@@ -943,7 +1346,7 @@ export class AgentControlService {
     callerId: string,
     key: string,
     recovery: unknown,
-    method: 'session.spawn' | 'projects.ask' = 'session.spawn',
+    method: 'session.spawn' | 'projects.ask' | 'projects.create' = 'session.spawn',
   ): Promise<void> {
     const operationId = `control_${createHash('sha256').update(`${callerId}:${method}:${key}`).digest('hex').slice(0, 32)}`
     const operation = (await this.host.store.load(callerId)).orchestration?.operations[operationId]
@@ -983,7 +1386,10 @@ export class AgentControlService {
     )
     if (!provider)
       throw new ControlFailure('provider_unavailable', 'Requested provider is unavailable.')
-    if (p.modelId && !provider.models.some((m) => m.id === p.modelId))
+    if (
+      p.modelId &&
+      !provider.models.some((m) => m.id === p.modelId || m.aliases?.includes(p.modelId!))
+    )
       throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
     const permissionMode = p.permissionMode ?? caller.permissionMode
     if (exceedsPermission(permissionMode, caller.permissionMode))
@@ -991,6 +1397,24 @@ export class AgentControlService {
         'scope_denied',
         'Child permissions cannot exceed parent permissions.',
       )
+    const selectedModel = provider.models.find(
+      (model) =>
+        model.id === p.modelId || (p.modelId != null && model.aliases?.includes(p.modelId)),
+    )
+    const sameModel =
+      caller.driverKind === p.driverKind &&
+      (caller.modelId === (selectedModel?.id ?? p.modelId ?? null) ||
+        (caller.modelId != null && selectedModel?.aliases?.includes(caller.modelId)))
+    const effortSelection = await this.#effort(
+      {
+        driverKind: p.driverKind,
+        modelId: selectedModel?.id ?? p.modelId ?? null,
+        effort: sameModel ? (caller.effort ?? null) : null,
+      },
+      p.effort,
+      p.prompt ?? p.title,
+      'inherited',
+    )
     const mode = p.workspaceMode ?? policy.defaultWorkspaceMode
     if (mode === 'shared' && !policy.allowSharedWorkspace)
       throw new ControlFailure('scope_denied', 'Shared workspaces are disabled.')
@@ -1018,6 +1442,7 @@ export class AgentControlService {
     let isolated = false
     await this.#spawnProgress(caller.id, p.idempotencyKey, {
       childSessionId: id,
+      projectId: caller.projectId,
       stage: 'workspace_preparing',
     })
     try {
@@ -1026,15 +1451,25 @@ export class AgentControlService {
           ? await this.host.isolate(caller, id, p.title, p.baseSnapshotCommit)
           : { kind: 'project' as const }
       isolated = mode === 'isolated'
+      const workspacePath =
+        workspace.kind === 'managed-worktree' ? workspace.path : await this.host.workspace(caller)
       await this.#spawnProgress(caller.id, p.idempotencyKey, {
         childSessionId: id,
+        projectId: caller.projectId,
         workspace,
+        workspacePath,
         stage: 'workspace_prepared',
       })
       // Preparing a worktree can outlast the caller. Whoever asked is no
       // longer there to receive the id, so no child is minted for it.
       if (signal?.aborted)
         throw new ControlFailure('request_cancelled', 'The caller disconnected before the spawn.')
+      const launchCaller = await this.#get(caller.id)
+      if (launchCaller.archived || exceedsPermission(permissionMode, launchCaller.permissionMode))
+        throw new ControlFailure(
+          'scope_denied',
+          'Parent permissions changed while preparing the worker workspace.',
+        )
       child = {
         id,
         projectId: caller.projectId,
@@ -1045,17 +1480,26 @@ export class AgentControlService {
         workspace,
         title: p.title,
         driverKind: p.driverKind,
-        modelId: p.modelId ?? null,
-        effort: p.effort ?? null,
+        modelId: selectedModel?.id ?? p.modelId ?? null,
+        effort: effortSelection.resolved,
         permissionMode,
         status: 'idle',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
+      await this.#spawnProgress(caller.id, p.idempotencyKey, {
+        childSessionId: id,
+        projectId: caller.projectId,
+        workspace,
+        workspacePath,
+        stage: 'session_creating',
+      })
       await this.host.create(child)
       await this.#spawnProgress(caller.id, p.idempotencyKey, {
         childSessionId: id,
+        projectId: caller.projectId,
         workspace,
+        workspacePath,
         stage: 'session_created',
       })
       await this.host.record(caller.id, {
@@ -1072,6 +1516,7 @@ export class AgentControlService {
       const initialTurn = p.prompt ? await this.#prompt(caller, child, p.prompt) : null
       return {
         child,
+        agent: { ...leadAgent(child), source: 'arguments', effortSelection },
         workspace: { ...workspace, path: await this.host.workspace(child) },
         initialTurn,
       }
@@ -1082,7 +1527,7 @@ export class AgentControlService {
         !child &&
         isolated &&
         error instanceof ControlFailure &&
-        error.code === 'request_cancelled'
+        (error.code === 'request_cancelled' || error.code === 'scope_denied')
       )
         await this.host.release({ ...caller, id }).catch(() => undefined)
       if (child && error instanceof ControlFailure)
@@ -1155,8 +1600,11 @@ export class AgentControlService {
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const agent = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
-    if (!agent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const selected = resolvedAgent ?? (await this.#projectAgent(project, caller, p))
+    if (!selected) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const effortSelection =
+      selected.effortSelection ?? (await this.#effort(selected, p.effort, p.prompt ?? p.title))
+    const agent = { ...selected, effort: effortSelection.resolved, effortSelection }
     const { permissionMode } = agent
     const launch = {
       ...agent,
@@ -1195,7 +1643,9 @@ export class AgentControlService {
       p.idempotencyKey,
       {
         childSessionId: id,
+        projectId: project.projectId,
         workspace,
+        workspacePath: project.path,
         stage: 'session_creating',
       },
       lead ? 'projects.ask' : 'session.spawn',
@@ -1204,6 +1654,18 @@ export class AgentControlService {
     try {
       await this.host.create(session)
       created = true
+      await this.#spawnProgress(
+        caller.id,
+        p.idempotencyKey,
+        {
+          childSessionId: id,
+          projectId: project.projectId,
+          workspace,
+          workspacePath: project.path,
+          stage: 'session_created',
+        },
+        lead ? 'projects.ask' : 'session.spawn',
+      )
       await this.host.record(caller.id, {
         type: 'child.session.spawned',
         childSessionId: id,
@@ -1310,27 +1772,80 @@ export class AgentControlService {
     if (!project.available)
       throw new ControlFailure('project_unavailable', 'That project folder is missing.')
     if (caller.archived) throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
+    if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
+      throw new ControlFailure(
+        'scope_denied',
+        'Session permissions cannot exceed Aria permissions.',
+      )
     for (const lead of await this.#projectLeads(rows, p.projectId)) {
       // Only Aria creates top-level sessions with a session creator. Its chat
       // may have been deleted; the project's lead keeps its context.
-      if (leadUsable(lead, providers) !== true) continue
-      await this.#checkLaunch(caller, lead, true, providers)
+      const changingModel = p.driverKind !== undefined || p.modelId !== undefined
+      if (!changingModel && leadUsable(lead, providers) !== true) continue
+      this.#checkReachPermission(caller, lead)
+      const driverKind = p.driverKind ?? lead.driverKind
+      const modelId = p.modelId ?? (driverKind === lead.driverKind ? lead.modelId : null)
+      if (!modelId)
+        throw new ControlFailure('model_unavailable', 'Changing a lead provider requires --model.')
+      const proposed = {
+        ...lead,
+        driverKind,
+        modelId,
+        permissionMode: p.permissionMode ?? lead.permissionMode,
+      }
+      await this.#checkLaunch(caller, proposed, true, providers)
+      const selection = await this.#effort(
+        { driverKind, modelId, effort: lead.effort ?? null },
+        p.effort,
+        p.text,
+        'lead',
+        providers,
+      )
       await this.#approveDelegation(caller, this.host.policy(), signal)
       const current = await this.#get(caller.id)
       if (current.archived)
         throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
-      const currentLead = await this.#get(lead.id)
-      await this.#checkLaunch(current, currentLead, true)
+      let currentLead = await this.#get(lead.id)
+      this.#checkReachPermission(current, currentLead)
+      await this.#checkLaunch(current, proposed, true)
+      if (
+        currentLead.driverKind !== driverKind ||
+        currentLead.modelId !== modelId ||
+        (currentLead.effort ?? null) !== selection.resolved
+      ) {
+        await this.#switchProjectSession(current, currentLead, {
+          driverKind,
+          modelId,
+          effort: selection.resolved,
+        })
+      }
+      if (p.permissionMode !== undefined && p.permissionMode !== currentLead.permissionMode) {
+        const updated = await this.host.dispatch({
+          type: 'session.update',
+          sessionId: lead.id,
+          permissionMode: p.permissionMode,
+        })
+        if (!updated.accepted)
+          throw new ControlFailure('turn_refused', updated.reason ?? 'Permission update refused.')
+      }
+      currentLead = await this.#get(lead.id)
       const prompted = await this.#prompt(current, currentLead, p.text)
-      return { ...prompted, reused: true, lead: currentLead, agent: leadAgent(currentLead) }
+      return {
+        ...prompted,
+        reused: true,
+        lead: currentLead,
+        agent: { ...leadAgent(currentLead), effortSelection: selection },
+      }
     }
     if (p.permissionMode && exceedsPermission(p.permissionMode, caller.permissionMode))
       throw new ControlFailure(
         'scope_denied',
         'Session permissions cannot exceed Aria permissions.',
       )
-    const agent = await this.#projectAgent(project, caller, p, providers)
-    if (!agent) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const selected = await this.#projectAgent(project, caller, p, providers)
+    if (!selected) throw new ControlFailure('model_unavailable', PROJECT_MODEL_REQUIRED)
+    const effortSelection = await this.#effort(selected, p.effort, p.text, 'project', providers)
+    const agent = { ...selected, effort: effortSelection.resolved, effortSelection }
     const launched = (await this.#launch(
       caller,
       {
@@ -1421,14 +1936,18 @@ export class AgentControlService {
     target: Session,
     p: { driverKind?: Session['driverKind']; modelId?: string | null; effort?: string | null },
   ) {
-    if (!isHelmSession(caller) || !isHelmProjectSession(target))
+    const self = caller.id === target.id && isHelmSession(target)
+    if (!isHelmSession(caller) || (!self && !isHelmProjectSession(target)))
       throw new ControlFailure(
         'scope_denied',
-        'Aria can switch only the project sessions it launched.',
+        'Aria can switch only itself or the project sessions it launched.',
       )
     if (caller.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before switching a session.')
+    if (target.archived)
+      throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(caller, target)
+    if (self) await this.#checkCurrentAria(caller.id)
     if (!p.driverKind)
       throw new ControlFailure('invalid_request', 'Select a provider for the session.')
     if (!p.modelId)
@@ -1445,15 +1964,27 @@ export class AgentControlService {
       (entry) => entry.id === selected || entry.aliases?.includes(selected),
     )
     if (!model) throw new ControlFailure('model_unavailable', 'Requested model is unavailable.')
+    const beforeDiscovery = await this.#get(target.id)
+    const effortSelection = await this.#effort(
+      { driverKind: p.driverKind, modelId: model.id, effort: beforeDiscovery.effort ?? null },
+      p.effort,
+      undefined,
+      'lead',
+      providers,
+    )
     const current = await this.#get(caller.id)
     const currentTarget = await this.#get(target.id)
     if (current.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before switching a session.')
+    if (currentTarget.archived)
+      throw new ControlFailure('scope_denied', 'Restore the target session before switching it.')
     this.#checkReachPermission(current, currentTarget)
+    if (self) await this.#checkCurrentAria(current.id)
     const agent: ResolvedProjectAgent = {
       driverKind: p.driverKind,
       modelId: model.id,
-      effort: p.effort ?? null,
+      effort: effortSelection.resolved,
+      effortSelection,
       permissionMode: currentTarget.permissionMode,
       source: 'arguments',
     }
@@ -1469,9 +2000,18 @@ export class AgentControlService {
     return {
       sessionId: target.id,
       switched: true,
+      ...outcome.switchTiming,
       session: await this.#get(target.id),
       agent,
     }
+  }
+
+  async #checkCurrentAria(sessionId: string): Promise<void> {
+    // A cold store may have loaded only the old caller. Refresh persisted topic
+    // metadata before consulting the same current-Aria identity used for routing.
+    await this.host.store.listSessions()
+    if ((await this.host.store.currentHelmSession()) !== sessionId)
+      throw new ControlFailure('scope_denied', 'Aria can switch only its current chat.')
   }
 
   async #checkLaunch(
@@ -1604,15 +2144,27 @@ export class AgentControlService {
       !caller.parentSessionId && caller.createdBy?.kind === 'session'
         ? caller.createdBy.sessionId
         : null
+    const aria =
+      model.activeTurnId || model.lastTurn
+        ? await helmReportRecipient(
+            this.host.store,
+            model,
+            model.activeTurnId ?? model.lastTurn!.turnId,
+          )
+        : null
     const target = await this.#get(
       id === 'self'
         ? caller.id
         : id === 'parent'
-          ? (asker ?? caller.parentSessionId ?? launcher ?? '')
+          ? (aria ?? asker ?? caller.parentSessionId ?? launcher ?? '')
           : id,
     )
     if (isHelmSession(caller) && !isHelmSession(target)) return target
-    if ((target.id === launcher || target.id === asker) && isHelmSession(target)) return target
+    if (
+      (target.id === launcher || target.id === asker || target.id === aria) &&
+      isHelmSession(target)
+    )
+      return target
     if (target.projectId !== caller.projectId)
       throw new ControlFailure('scope_denied', 'Cross-project coordination is denied.')
     const directParent = target.id === caller.parentSessionId
@@ -1631,6 +2183,18 @@ export class AgentControlService {
   async #coordinationState(message: CoordinationMessage): Promise<CoordinationMessage> {
     if (message.status !== 'delivering' || this.#activeDeliveries.has(message.messageId))
       return message
+    const recipient = await this.host.store.loadExisting(message.recipientSessionId)
+    if (
+      recipient?.activeTurnId === message.turnId &&
+      this.host.isRunning?.(message.recipientSessionId) !== false &&
+      recipient.messages.some(
+        (entry) =>
+          entry.turnId === message.turnId &&
+          entry.origin?.kind === 'coordination' &&
+          entry.origin.messageIds.includes(message.messageId),
+      )
+    )
+      return message
     const uncertain = { ...message, status: 'uncertain' as const }
     await this.host.record(message.recipientSessionId, {
       type: 'coordination.updated',
@@ -1643,6 +2207,7 @@ export class AgentControlService {
     caller: Session,
     target: Session,
     p: ControlParams<'session.message'>,
+    request?: NonNullable<CoordinationMessage['request']>,
   ): Promise<CoordinationMessage> {
     if (target.archived)
       throw new ControlFailure('scope_denied', 'Restore the recipient before messaging it.')
@@ -1652,7 +2217,7 @@ export class AgentControlService {
     const inbox = (await this.host.store.load(target.id)).inbox ?? {}
     const previous = inbox[messageId]
     if (previous) {
-      if (previous.text !== p.text || previous.senderSessionId !== caller.id)
+      if ((!request && previous.text !== p.text) || previous.senderSessionId !== caller.id)
         throw new ControlFailure(
           'invalid_request',
           'Message identity was already used with different input.',
@@ -1661,12 +2226,16 @@ export class AgentControlService {
     }
     const rate = this.#rates.get(caller.id)
     const bucket = rate && Date.now() - rate.at < 60_000 ? rate : { at: Date.now(), count: 0 }
-    if (++bucket.count > 60)
+    if (!request && ++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    if (Object.values(inbox).filter((entry) => entry.status !== 'consumed').length >= 100)
+    if (
+      Object.values(inbox).filter(
+        (entry) => entry.status !== 'consumed' && entry.request?.resolvedAt == null,
+      ).length >= 100
+    )
       throw new ControlFailure('delegation_limit', 'Recipient coordination inbox is full.')
-    let message: CoordinationMessage = {
+    const message: CoordinationMessage = {
       messageId,
       senderSessionId: caller.id,
       recipientSessionId: target.id,
@@ -1675,32 +2244,47 @@ export class AgentControlService {
       status: 'pending',
       turnId: null,
       consumedAt: null,
+      ...(request ? { request } : {}),
     }
     await this.host.record(target.id, { type: 'coordination.updated', message })
-    // Pure inbox delivery works while either agent is blocked in a cooperative wait.
-    // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.
-    if (this.host.canDeliverCoordination?.(target.id) && this.host.deliverCoordination) {
-      message = {
-        ...message,
-        status: 'delivering',
-        turnId: (await this.host.store.load(target.id)).activeTurnId,
-      }
-      await this.host.record(target.id, { type: 'coordination.updated', message })
-      this.#activeDeliveries.add(messageId)
-      try {
-        const delivered = await this.host.deliverCoordination(message)
-        message = { ...message, status: delivered ? 'delivered' : 'pending' }
-      } catch {
-        message = { ...message, status: 'uncertain' }
-      } finally {
-        this.#activeDeliveries.delete(messageId)
-      }
-      await this.host.record(target.id, { type: 'coordination.updated', message })
-    }
-    return (await this.host.store.load(target.id)).inbox?.[messageId] ?? message
+    return this.#deliverInbox(message)
   }
 
-  async #prompt(caller: Session, target: Session, text: string) {
+  async #deliverInbox(accepted: CoordinationMessage): Promise<CoordinationMessage> {
+    const messageId = accepted.messageId
+    const targetId = accepted.recipientSessionId
+    if (this.#activeDeliveries.has(messageId))
+      return this.#coordinationState(
+        (await this.host.store.load(targetId)).inbox?.[messageId] ?? accepted,
+      )
+    this.#activeDeliveries.add(messageId)
+    try {
+      let message = (await this.host.store.load(targetId)).inbox?.[messageId] ?? accepted
+      if (message.status !== 'pending') return this.#coordinationState(message)
+      // Pure inbox delivery works while either agent is blocked in a cooperative wait.
+      // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.
+      if (this.host.canDeliverCoordination?.(targetId) && this.host.deliverCoordination) {
+        message = {
+          ...message,
+          status: 'delivering',
+          turnId: (await this.host.store.load(targetId)).activeTurnId,
+        }
+        try {
+          await this.host.record(targetId, { type: 'coordination.updated', message })
+          const delivered = await this.host.deliverCoordination(message)
+          message = { ...message, status: delivered ? 'delivered' : 'pending' }
+        } catch {
+          message = { ...message, status: 'uncertain' }
+        }
+        await this.host.record(targetId, { type: 'coordination.updated', message })
+      }
+      return (await this.host.store.load(targetId)).inbox?.[messageId] ?? message
+    } finally {
+      this.#activeDeliveries.delete(messageId)
+    }
+  }
+
+  async #prompt(caller: Session, target: Session, text: string): Promise<SessionPromptReceipt> {
     if (isHelmSession(caller) && caller.archived)
       throw new ControlFailure('scope_denied', 'Restore Aria before prompting a session.')
     if (target.archived)
@@ -1729,10 +2313,13 @@ export class AgentControlService {
     )
     if (!outcome.accepted)
       throw new ControlFailure('invalid_request', outcome.reason ?? 'Input rejected.')
+    const observedActiveTurnId = (await this.host.store.load(target.id)).activeTurnId
     return {
       sessionId: target.id,
-      turnId: (await this.host.store.load(target.id)).activeTurnId,
+      turnId: observedActiveTurnId,
+      observedActiveTurnId,
       queued: true,
+      execution: 'future_turn',
     }
   }
 
@@ -1742,15 +2329,36 @@ export class AgentControlService {
     p: ControlParams<'session.read'>,
   ): Promise<unknown> {
     const state = await this.host.store.load(target.id)
+    // FIFO assignments get the same item/text budget as transcript rows. A
+    // queue must not quietly double a bounded read's size or claim a turn ID.
+    let remaining = p.maxChars
+    const queuedMessages = state.queuedMessages.slice(0, p.tailMessages).map((message) => {
+      const text = message.text.slice(0, remaining)
+      remaining -= text.length
+      return {
+        text,
+        origin: message.origin,
+        held: message.held === true,
+        truncated: text.length < message.text.length,
+      }
+    })
+    const queue: SessionReadQueue = {
+      queuedMessages,
+      queuedMessageCount: state.queuedMessages.length,
+      queuedMessagesTruncated:
+        queuedMessages.length < state.queuedMessages.length ||
+        queuedMessages.some((message) => message.truncated),
+    }
     const turns = p.tailTurns
       ? new Set(
           [...new Set(state.messages.map((m) => m.turnId).filter(Boolean))].slice(-p.tailTurns),
         )
       : null
-    const selected = state.messages
-      .filter((m) => !turns || turns.has(m.turnId))
-      .slice(-p.tailMessages)
-    let remaining = p.maxChars
+    const messageLimit = p.tailMessages - queuedMessages.length
+    const selected =
+      messageLimit > 0
+        ? state.messages.filter((m) => !turns || turns.has(m.turnId)).slice(-messageLimit)
+        : []
     const messages = [...selected]
       .reverse()
       .map((message) => {
@@ -1778,13 +2386,19 @@ export class AgentControlService {
       session: target,
       activeTurnId: state.activeTurnId,
       latestTurn: state.lastTurn ?? null,
+      lastSeq: state.lastSeq,
+      pendingInputs: state.pendingInputs,
+      pendingApprovals: state.pendingApprovals,
+      questionOwnerSessionId: await questionOwnerSessionId(this.host.store, state),
       messages,
+      ...queue,
       renderedText: messages
         .map((message) => `${message.role}: ${message.text}`)
         .join('\n\n')
         .slice(0, p.maxChars),
       latestAssistantText: report.text,
-      truncated: remaining === 0 || selected.length < state.messages.length,
+      truncated:
+        remaining === 0 || selected.length < state.messages.length || queue.queuedMessagesTruncated,
     }
   }
 
@@ -1818,13 +2432,9 @@ export class AgentControlService {
       }
       for (const target of targets) {
         const state = await this.host.store.load(target.id)
-        const asked = state.messages.find(
-          (entry) => entry.role === 'user' && entry.turnId === state.activeTurnId,
-        )
         if (
           (target.parentSessionId === caller.id || isHelmSession(caller)) &&
-          asked?.origin?.kind === 'session' &&
-          asked.origin.sessionId === caller.id &&
+          (await questionOwnerSessionId(this.host.store, state)) === caller.id &&
           state.pendingInputs.length
         ) {
           wake([{ status: 'question', sessionId: target.id, questions: state.pendingInputs }])
@@ -1913,6 +2523,7 @@ export class AgentControlService {
         total: tasks.length,
         working: count('working'),
         blockedOnUser: count('blocked_on_user'),
+        blockedOnParent: count('blocked_on_parent'),
         waitingForChildren: count('waiting_for_children'),
         resultAvailable: count('result_available'),
         notStarted: count('not_started'),
@@ -1962,14 +2573,16 @@ export class AgentControlService {
       ...roots.flatMap((id) => descendantIds(rows, id)),
     ]
     const ids = recursive
-      ? [...descendantIds(rows, parentId).reverse(), ...roots]
+      ? [...new Set([...below.reverse(), ...roots])]
       : [...rows.filter((row) => row.parentSessionId === parentId).map((row) => row.id), ...roots]
     // Read from the journal alone. A provider that is still shutting down
     // after its turn settled is not work, and saying so would keep a finished
     // child's card on "working".
     const live = new Set<string>()
-    for (const id of [...below, ...roots])
-      if ((await this.host.store.loadExisting(id))?.activeTurnId) live.add(id)
+    for (const id of [...below, ...roots]) {
+      const model = await this.host.store.loadExisting(id)
+      if (model?.activeTurnId || model?.queuedMessages.length) live.add(id)
+    }
     const completions = parentModel.childCompletions ?? {}
     const tasks: ChildTask[] = []
     for (const id of ids) {
@@ -1977,13 +2590,11 @@ export class AgentControlService {
       if (!model) continue
       const session = model.session
       if (!session) continue
-      const asked = model.messages.find(
-        (message) => message.role === 'user' && message.turnId === model.activeTurnId,
-      )
+      const questionOwner = await questionOwnerSessionId(this.host.store, model)
       const workState = childWorkState(
         model,
         descendantIds(rows, id).filter((nested) => live.has(nested)).length,
-        asked?.origin?.kind === 'session',
+        questionOwner !== null,
       )
       const settled = workState === 'result_available' || workState === 'waiting_for_children'
       const report =
@@ -1997,8 +2608,12 @@ export class AgentControlService {
         driverKind: session.driverKind,
         modelId: session.modelId,
         workState,
+        lastSeq: model.lastSeq,
+        questionOwnerSessionId: questionOwner,
+        pendingInputs: model.pendingInputs,
+        pendingApprovals: model.pendingApprovals,
         blockedOn:
-          workState !== 'blocked_on_user'
+          workState !== 'blocked_on_user' && workState !== 'blocked_on_parent'
             ? null
             : model.pendingApprovals.length > 0
               ? 'approval'

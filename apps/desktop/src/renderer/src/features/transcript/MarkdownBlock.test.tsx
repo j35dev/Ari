@@ -184,3 +184,66 @@ describe('MarkdownBlock', () => {
     expect(screen.getByRole('figure', { name: 'Count' })).toBeInTheDocument()
   })
 })
+
+// Assistant replies in every desktop session, including a lead, a worker, and
+// Aria, reach MarkdownBlock from TranscriptView. User bubbles stay plain text.
+// DelegatedResult renders a child result summary through this same component.
+const flatMetrics =
+  '{"version":1,"type":"metrics","title":"Saved","items":[{"label":"Hours","value":4}]}'
+const wrappedTimeline =
+  '{"version":1,"type":"timeline","title":"Release progress","data":{"events":[{"label":"v0.2.0","date":"2026-08-30","description":"Previous release"},{"label":"v0.3.13","date":"in progress","tone":"warning"}]}}'
+
+describe('reply visualization contract', () => {
+  it('renders a flat chart and one wrapped timeline in reply order', () => {
+    const text = [
+      'Before',
+      '',
+      '```ari-viz',
+      flatMetrics,
+      '```',
+      '',
+      '```ari-viz',
+      wrappedTimeline,
+      '```',
+      '',
+      'After',
+    ].join('\n')
+    const { container } = render(<MarkdownBlock text={text} />)
+    expect(screen.getByRole('figure', { name: 'Saved' })).toBeInTheDocument()
+    expect(screen.getByText('Hours')).toBeInTheDocument()
+    const timeline = screen.getByRole('figure', { name: 'Release progress' })
+    expect(within(timeline).getByText('v0.2.0').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-accent)',
+    )
+    expect(within(timeline).getByText('v0.3.13').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-warning)',
+    )
+    expect(container.querySelector('.ari-visual-reply')?.firstElementChild).toHaveTextContent(
+      'Before',
+    )
+    expect(container.querySelector('.ari-visual-reply')?.lastElementChild).toHaveTextContent(
+      'After',
+    )
+    expect(container.querySelector('code.language-ari-viz')).toBeNull()
+  })
+
+  it('names the missing field and does not echo markup from an extra key', () => {
+    const { rerender } = render(
+      <MarkdownBlock
+        text={'```ari-viz\n{"version":1,"type":"timeline","title":"Missing events"}\n```'}
+      />,
+    )
+    expect(screen.getByText('Timeline charts need events.')).toBeInTheDocument()
+    expect(screen.queryByText('Invalid input')).toBeNull()
+    rerender(
+      <MarkdownBlock
+        text={
+          '```ari-viz\n{"version":1,"type":"timeline","title":"Marked up","events":[{"label":"A"}],"html":"<script>alert(1)</script>"}\n```'
+        }
+      />,
+    )
+    expect(screen.getByText('Timeline charts cannot include "html".')).toBeInTheDocument()
+    expect(screen.queryByText(/alert\(1\)/)).toBeNull()
+    expect(document.querySelector('script')).toBeNull()
+  })
+})

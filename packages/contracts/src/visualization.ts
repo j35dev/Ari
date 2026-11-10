@@ -12,7 +12,8 @@ const base = {
 }
 const series = z.strictObject({ name: label, values: z.array(number).min(1).max(64) })
 const item = z.strictObject({ label, value: positive })
-const tone = z.enum(['accent', 'info', 'success', 'warning', 'danger']).default('accent')
+const toneName = z.enum(['accent', 'info', 'success', 'warning', 'danger'])
+const tone = toneName.default('accent')
 
 export const visualizationSchema = z
   .discriminatedUnion('type', [
@@ -69,7 +70,7 @@ export const visualizationSchema = z
             label,
             description: z.string().max(300).optional(),
             shape: z.enum(['process', 'decision', 'start', 'end']).default('process'),
-            tone: tone.optional(),
+            tone: toneName.optional(),
           }),
         )
         .min(1)
@@ -176,6 +177,123 @@ export const visualizationSchema = z
 export type VisualizationSpec = z.infer<typeof visualizationSchema>
 export const VISUALIZATION_MAX_CHARS = 64_000
 
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const TYPE_LABELS: Record<string, string> = {
+  bar: 'Bar',
+  line: 'Line',
+  area: 'Area',
+  scatter: 'Scatter',
+  pie: 'Pie',
+  donut: 'Donut',
+  radar: 'Radar',
+  heatmap: 'Heatmap',
+  treemap: 'Treemap',
+  funnel: 'Funnel',
+  graph: 'Graph',
+  timeline: 'Timeline',
+  gantt: 'Gantt',
+  metrics: 'Metric',
+  comparison: 'Comparison',
+}
+const SAFE_NAME = /^[A-Za-z][A-Za-z0-9]{0,40}$/
+const SAFE_CUSTOM = /^[A-Za-z0-9 ,.'’:-]{1,180}$/
+
+type ParseIssue = {
+  code: string
+  message: string
+  path: ReadonlyArray<PropertyKey>
+  keys?: ReadonlyArray<string>
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value) as object | null
+  return proto === Object.prototype || proto === null
+}
+
+function hasReservedKey(value: object): boolean {
+  return Object.getOwnPropertyNames(value).some((key) => RESERVED_KEYS.has(key))
+}
+
+function boundError(message: string): string {
+  const clean = message.replace(/\s+/g, ' ').trim()
+  return clean.length > 240 ? `${clean.slice(0, 239)}…` : clean
+}
+
+function issueField(path: ReadonlyArray<PropertyKey>): string | null {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const part = path[index]
+    if (typeof part === 'string' && SAFE_NAME.test(part)) return part
+  }
+  return null
+}
+
+/** Zod's generic Invalid input text can echo a received value. Name the field instead. */
+function visualizationError(issues: ReadonlyArray<ParseIssue>, input: unknown): string {
+  const issue = issues[0]
+  if (!issue) return 'Unsupported visualization.'
+  if (issue.code === 'custom' && SAFE_CUSTOM.test(issue.message)) return boundError(issue.message)
+  const type = isPlainRecord(input) && typeof input.type === 'string' ? input.type : ''
+  const label = Object.hasOwn(TYPE_LABELS, type) ? TYPE_LABELS[type] : undefined
+  const named = typeof label === 'string' ? label : null
+  if (issue.code === 'unrecognized_keys') {
+    const key = issue.keys?.find((item) => SAFE_NAME.test(item))
+    const subject = named ? `${named} charts` : 'A visualization'
+    return boundError(
+      key ? `${subject} cannot include "${key}".` : `${subject} cannot include an extra field.`,
+    )
+  }
+  if (!named) return 'A visualization needs a supported type.'
+  const field = issueField(issue.path)
+  if (!field) return `${named} charts need their required fields.`
+  const missing =
+    issue.code === 'invalid_type' &&
+    issue.path.length === 1 &&
+    issue.message.includes('received undefined')
+  return boundError(
+    missing ? `${named} charts need ${field}.` : `${named} charts need a valid ${field}.`,
+  )
+}
+
+/**
+ * One top-level `data` object is the older envelope. Copy its fields once.
+ * Overlapping keys, reserved keys, and a second nested `data` object fail closed.
+ */
+function prepareVisualization(
+  input: unknown,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  if (input === null || typeof input !== 'object' || Array.isArray(input))
+    return { ok: true, value: input }
+  if (!isPlainRecord(input))
+    return { ok: false, error: 'A visualization needs one plain JSON object.' }
+  if (hasReservedKey(input))
+    return { ok: false, error: 'Visualization objects cannot use reserved keys.' }
+  if (!Object.hasOwn(input, 'data')) return { ok: true, value: input }
+  const data = input.data
+  if (!isPlainRecord(data))
+    return { ok: false, error: 'The data field must be one object of chart fields.' }
+  if (hasReservedKey(data))
+    return { ok: false, error: 'Visualization objects cannot use reserved keys.' }
+  const dataKeys = Object.keys(data)
+  const conflict = dataKeys.find((key) => Object.hasOwn(input, key))
+  if (conflict) {
+    const name = SAFE_NAME.test(conflict) ? conflict : null
+    return {
+      ok: false,
+      error: name
+        ? `The field "${name}" is set both on the visualization and inside data.`
+        : 'A field is set both on the visualization and inside data.',
+    }
+  }
+  const flat: Record<string, unknown> = {}
+  for (const key of Object.keys(input)) {
+    if (key === 'data') continue
+    flat[key] = input[key]
+  }
+  for (const key of dataKeys) flat[key] = data[key]
+  return { ok: true, value: flat }
+}
+
 export function parseVisualization(
   source: string,
 ): { ok: true; value: VisualizationSpec } | { ok: false; error: string } {
@@ -187,8 +305,10 @@ export function parseVisualization(
   } catch {
     return { ok: false, error: 'The visualization needs valid JSON.' }
   }
-  const result = visualizationSchema.safeParse(input)
+  const prepared = prepareVisualization(input)
+  if (!prepared.ok) return prepared
+  const result = visualizationSchema.safeParse(prepared.value)
   return result.success
     ? { ok: true, value: result.data }
-    : { ok: false, error: result.error.issues[0]?.message ?? 'Unsupported visualization.' }
+    : { ok: false, error: visualizationError(result.error.issues, prepared.value) }
 }

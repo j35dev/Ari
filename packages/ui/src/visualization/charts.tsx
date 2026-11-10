@@ -24,16 +24,46 @@ export const formatNumber = (value: number): string =>
           ? 'scientific'
           : 'standard',
   }).format(value)
-const short = (text: string, max = 16): string =>
+export const clipLabel = (text: string, max = 16): string =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text
+const short = clipLabel
+/** A conservative width for UI text, so clipped labels stay clear of their neighbors. */
+export const textWidth = (text: string, size = 12): number => text.length * size * 0.6
+/** Clip a label to the pixels it may occupy at the chart's actual rendered size. */
+export const fitLabel = (text: string, room: number, size = 12): string =>
+  clipLabel(text, Math.max(3, Math.floor(room / (size * 0.6))))
+const clamp = (value: number, low: number, high: number): number =>
+  Math.min(Math.max(value, low), Math.max(low, high))
+/**
+ * Charts draw at 1:1 in the width the reply gives them. Stretching a fixed
+ * viewBox made text huge on desktop and unreadably small on a phone.
+ */
+export const MIN_CHART_WIDTH = 280
+const available = (width: number | null | undefined, fallback: number): number =>
+  Math.max(MIN_CHART_WIDTH, Math.floor(width ?? fallback))
+/** Cell width fills the space for few columns and stays wide enough to scroll many. */
+export const heatCellWidth = (columnCount: number, room = 500): number =>
+  clamp(room / columnCount, 52, 140)
+/**
+ * Zero is a neutral full-opacity cell. Other cells share one theme color, so
+ * opacity has to cover most of the 0–1 range or a large value looks like a small one.
+ */
+export function heatFillOpacity(value: number, peak: number): number {
+  if (value === 0) return 1
+  const scale = Math.max(Math.abs(peak), 1e-300)
+  return 0.24 + Math.min(1, Math.abs(value) / scale) * 0.68
+}
+/** 13px digits need about 7px each, plus the cell's inset, before they collide. */
+export function heatShowsValue(printed: string, cellWidth: number): boolean {
+  return printed.length * 7 <= cellWidth - 8
+}
 const W = 640,
   H = 320,
   L = 68,
   R = 24,
   T = 28,
   B = 54
-const PW = W - L - R,
-  PH = H - T - B
+const PH = H - T - B
 
 export type Inspect = (text: string) => void
 function Mark({
@@ -125,12 +155,12 @@ function Axes({
       })}
       {xLabel && (
         <text x={L + (width - L - R) / 2} y={H - 5} textAnchor="middle">
-          {short(xLabel, 60)}
+          {short(fitLabel(xLabel, width - L - R), 60)}
         </text>
       )}
       {yLabel && (
         <text x={L} y={15}>
-          {short(yLabel, 60)}
+          {short(fitLabel(yLabel, width - L - R), 60)}
         </text>
       )}
     </g>
@@ -142,10 +172,12 @@ export function CartesianChart({
   spec,
   hidden,
   inspect,
+  width,
 }: {
   spec: Cartesian
   hidden: Set<number>
   inspect: Inspect
+  width?: number | null
 }) {
   const visible = spec.series
     .map((s, i) => ({ ...s, index: i }))
@@ -155,22 +187,26 @@ export function CartesianChart({
     true,
   )
   const yd = ya.extent
-  const chartWidth = Math.max(W, L + R + spec.labels.length * 72)
+  const count = spec.labels.length
+  const bar = spec.type === 'bar'
+  // Many categories scroll sideways rather than squeezing labels into each other.
+  const minStep = bar ? Math.max(48, visible.length * 18 + 16) : 64
+  const chartWidth = Math.max(available(width, W), L + R + count * minStep)
   const plotWidth = chartWidth - L - R
   const y = (value: number): number => T + PH - scale(value, yd, PH)
-  const step = plotWidth / spec.labels.length
+  const step = bar ? plotWidth / count : count > 1 ? plotWidth / (count - 1) : plotWidth
   const x = (i: number): number =>
-    spec.type === 'bar'
-      ? L + step * (i + 0.5)
-      : L + (spec.labels.length === 1 ? plotWidth / 2 : (plotWidth * i) / (spec.labels.length - 1))
+    bar ? L + step * (i + 0.5) : L + (count === 1 ? plotWidth / 2 : step * i)
   const baseline = y(0)
+  const group = Math.min(step * 0.72, visible.length * 56)
+  const barWidth = group / Math.max(1, visible.length)
   return (
     <svg
       className="ari-viz-svg"
       viewBox={`0 0 ${chartWidth} ${H}`}
       role="img"
       aria-label={spec.title}
-      style={{ minWidth: spec.labels.length > 8 ? chartWidth : 560 }}
+      style={{ width: chartWidth, height: H }}
     >
       <Axes
         yDomain={yd}
@@ -179,15 +215,27 @@ export function CartesianChart({
         xLabel={spec.xLabel}
         yLabel={spec.yLabel ?? spec.unit}
       />
-      {spec.labels.map((label, i) => (
-        <text className="ari-viz-axis-label" key={i} x={x(i)} y={H - B + 22} textAnchor="middle">
-          <title>{label}</title>
-          {short(label, spec.labels.length > 10 ? 9 : 16)}
-        </text>
-      ))}
+      {spec.labels.map((label, i) => {
+        // A line's end labels sit on the plot edge, so they get half a step plus the margin.
+        const edge = !bar && count > 1 && (i === 0 || i === count - 1)
+        const room = edge ? step / 2 + (i === 0 ? L : R) - 8 : step - 10
+        const text = fitLabel(label, Math.min(room, 200))
+        const half = textWidth(text) / 2
+        return (
+          <text
+            className="ari-viz-axis-label"
+            key={i}
+            x={clamp(x(i), half + 2, chartWidth - half - 2)}
+            y={H - B + 22}
+            textAnchor="middle"
+          >
+            <title>{label}</title>
+            {text}
+          </text>
+        )
+      })}
       {visible.map((s, si) => {
         const points = s.values.map((value, i) => `${x(i)},${y(value)}`).join(' ')
-        const width = (step * 0.72) / visible.length
         return (
           <g key={s.index} style={{ '--viz-color': color(s.index) } as CSSProperties}>
             {spec.type === 'area' && (
@@ -232,9 +280,9 @@ export function CartesianChart({
                 )}
                 {spec.type === 'bar' ? (
                   <rect
-                    x={x(i) - step * 0.36 + si * width + 1}
+                    x={x(i) - group / 2 + si * barWidth + 1}
                     y={Math.min(baseline, y(value))}
-                    width={Math.max(1, width - 2)}
+                    width={Math.max(1, barWidth - 2)}
                     height={Math.max(1, Math.abs(baseline - y(value)))}
                     rx="3"
                     fill="var(--viz-color)"
@@ -262,10 +310,12 @@ export function ScatterChart({
   spec,
   hidden,
   inspect,
+  width,
 }: {
   spec: Extract<VisualizationSpec, { type: 'scatter' }>
   hidden: Set<number>
   inspect: Inspect
+  width?: number | null
 }) {
   const visible = spec.series
     .map((s, i) => ({ ...s, index: i }))
@@ -274,20 +324,38 @@ export function ScatterChart({
   const ya = axis(visible.flatMap((s) => s.points.map((p) => p.y)))
   const xd = xa.extent,
     yd = ya.extent
+  const chartWidth = available(width, W)
+  const PW = chartWidth - L - R
   return (
-    <svg className="ari-viz-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={spec.title}>
-      <Axes yDomain={yd} ticks={ya.ticks} xLabel={spec.xLabel} yLabel={spec.yLabel} />
-      {xa.ticks.map((value, i) => (
-        <text
-          className="ari-viz-axis-label"
-          key={i}
-          x={L + scale(value, xd, PW)}
-          y={H - B + 22}
-          textAnchor="middle"
-        >
-          {formatNumber(value)}
-        </text>
-      ))}
+    <svg
+      className="ari-viz-svg"
+      viewBox={`0 0 ${chartWidth} ${H}`}
+      role="img"
+      aria-label={spec.title}
+      style={{ width: chartWidth, height: H }}
+    >
+      <Axes
+        yDomain={yd}
+        ticks={ya.ticks}
+        width={chartWidth}
+        xLabel={spec.xLabel}
+        yLabel={spec.yLabel}
+      />
+      {xa.ticks.map((value, i) => {
+        const text = formatNumber(value)
+        const half = textWidth(text) / 2
+        return (
+          <text
+            className="ari-viz-axis-label"
+            key={i}
+            x={clamp(L + scale(value, xd, PW), half + 2, chartWidth - half - 2)}
+            y={H - B + 22}
+            textAnchor="middle"
+          >
+            {text}
+          </text>
+        )
+      })}
       {visible.map((s) => (
         <g key={s.index}>
           {s.points.map((p, i) => (
@@ -332,17 +400,23 @@ export function RadarChart({
   spec,
   hidden,
   inspect,
+  width,
 }: {
   spec: Cartesian
   hidden: Set<number>
   inspect: Inspect
+  width?: number | null
 }) {
   const visible = spec.series
     .map((s, i) => ({ ...s, index: i }))
     .filter((s) => !hidden.has(s.index))
   const max = Math.max(1, ...visible.flatMap((s) => s.values))
-  const center = [320, 166] as const,
-    radius = 110
+  // The web keeps room for side labels; narrow replies shrink the web, never the text.
+  const chartWidth = Math.min(640, available(width, 640))
+  const radius = clamp((chartWidth / 2 - 96) / 1.22, 56, 110)
+  const center = [chartWidth / 2, radius * 1.22 + 32] as const
+  const chartHeight = center[1] + radius * 1.22 + 44
+  const labelRoom = chartWidth / 2 - radius * 1.22 - 10
   const point = (i: number, fraction: number): [number, number] => {
     const angle = (i * Math.PI * 2) / spec.labels.length - Math.PI / 2
     return [
@@ -351,7 +425,13 @@ export function RadarChart({
     ]
   }
   return (
-    <svg className="ari-viz-svg" viewBox="0 0 640 340" role="img" aria-label={spec.title}>
+    <svg
+      className="ari-viz-svg"
+      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+      role="img"
+      aria-label={spec.title}
+      style={{ width: chartWidth, height: chartHeight, margin: '0 auto' }}
+    >
       {[0.25, 0.5, 0.75, 1].map((f) => (
         <polygon
           className="ari-viz-radar-grid"
@@ -369,10 +449,15 @@ export function RadarChart({
               className="ari-viz-axis-label"
               x={l[0]}
               y={l[1] + 4}
-              textAnchor={l[0] < 300 ? 'end' : l[0] > 340 ? 'start' : 'middle'}
+              textAnchor={
+                l[0] < center[0] - 20 ? 'end' : l[0] > center[0] + 20 ? 'start' : 'middle'
+              }
             >
               <title>{label}</title>
-              {short(label, 20)}
+              {short(
+                fitLabel(label, Math.abs(l[0] - center[0]) < 20 ? chartWidth - 20 : labelRoom),
+                20,
+              )}
             </text>
           </g>
         )
@@ -415,7 +500,7 @@ export function RadarChart({
           })}
         </g>
       ))}
-      <text className="ari-viz-axis-label" x="320" y="328" textAnchor="middle">
+      <text className="ari-viz-axis-label" x={center[0]} y={chartHeight - 12} textAnchor="middle">
         Scale 0–{formatNumber(max)}
         {spec.unit ? ` ${spec.unit}` : ''}
       </text>
@@ -477,7 +562,8 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
               {formatNumber(total)}
             </text>
             <text className="ari-viz-axis-label" x="160" y="161" textAnchor="middle">
-              {spec.unit ?? 'Total'}
+              <title>{spec.unit ?? 'Total'}</title>
+              {short(spec.unit ?? 'Total', 16)}
             </text>
           </g>
         )}
@@ -498,7 +584,7 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
             onFocus={() => inspect(`${item.label}: ${item.value}`)}
           >
             <span className="ari-viz-swatch" style={{ background: color(i) }} />
-            <span>{item.label}</span>
+            <span className="ari-viz-legend-label">{item.label}</span>
             <strong>{formatNumber(item.value)}</strong>
           </button>
         ))}
@@ -513,7 +599,7 @@ export function FunnelChart({ spec, inspect }: { spec: Parts; inspect: Inspect }
     <div className="ari-viz-funnel">
       {spec.items.map((item, i) => (
         <div className="ari-viz-funnel-row" key={i}>
-          <span>{item.label}</span>
+          <span className="ari-viz-funnel-label">{item.label}</span>
           <div className="ari-viz-funnel-track">
             <button
               type="button"
@@ -555,7 +641,17 @@ export function FunnelChart({ spec, inspect }: { spec: Parts; inspect: Inspect }
 }
 
 /** Slice-and-dice subdivision preserves item area, including very small values. */
-export function TreemapChart({ spec, inspect }: { spec: Parts; inspect: Inspect }) {
+export function TreemapChart({
+  spec,
+  inspect,
+  width,
+}: {
+  spec: Parts
+  inspect: Inspect
+  width?: number | null
+}) {
+  const mapWidth = available(width, 600),
+    mapHeight = 280
   const items = spec.items
     .map((item, i) => ({ ...item, index: i }))
     .filter((item) => item.value > 0)
@@ -584,9 +680,15 @@ export function TreemapChart({ spec, inspect }: { spec: Parts; inspect: Inspect 
       divide(list.slice(split), x, y + h * f, w, h * (1 - f))
     }
   }
-  divide(items, 0, 0, 600, 280)
+  divide(items, 0, 0, mapWidth, mapHeight)
   return (
-    <svg className="ari-viz-svg" viewBox="0 0 600 280" role="img" aria-label={spec.title}>
+    <svg
+      className="ari-viz-svg"
+      viewBox={`0 0 ${mapWidth} ${mapHeight}`}
+      role="img"
+      aria-label={spec.title}
+      style={{ width: mapWidth, height: mapHeight }}
+    >
       {boxes.map(({ x, y, w, h, item }) => (
         <Mark
           key={item.index}
@@ -614,15 +716,15 @@ export function TreemapChart({ spec, inspect }: { spec: Parts; inspect: Inspect 
             stroke={color(item.index)}
             strokeOpacity="0.5"
           />
-          {w > 65 && h > 40 && (
-            <>
-              <text className="ari-viz-treemap-label" x={x + 12} y={y + 24}>
-                {short(item.label, Math.floor(w / 8))}
-              </text>
-              <text className="ari-viz-axis-label" x={x + 12} y={y + 44}>
-                {formatNumber(item.value)}
-              </text>
-            </>
+          {w > 56 && h > 34 && (
+            <text className="ari-viz-treemap-label" x={x + 10} y={y + 22}>
+              {fitLabel(item.label, w - 20, 13)}
+            </text>
+          )}
+          {w > 56 && h > 54 && (
+            <text className="ari-viz-axis-label" x={x + 10} y={y + 42}>
+              {formatNumber(item.value)}
+            </text>
           )}
         </Mark>
       ))}
@@ -633,18 +735,23 @@ export function TreemapChart({ spec, inspect }: { spec: Parts; inspect: Inspect 
 export function HeatmapChart({
   spec,
   inspect,
+  width,
 }: {
   spec: Extract<VisualizationSpec, { type: 'heatmap' }>
   inspect: Inspect
+  width?: number | null
 }) {
   const values = spec.values.flat()
   const min = Math.min(...values),
     max = Math.max(...values),
-    maximum = Math.max(1e-300, ...values.map(Math.abs))
-  const cw = Math.max(52, 500 / spec.xLabels.length),
+    peak = Math.max(...values.map(Math.abs))
+  const room = available(width, 632)
+  const left = room < 480 ? 96 : 120,
+    cw = heatCellWidth(spec.xLabels.length, room - left - 12),
     ch = 42,
-    left = 120,
     top = 38
+  const mapWidth = left + cw * spec.xLabels.length + 12,
+    mapHeight = top + ch * spec.yLabels.length + 12
   return (
     <div>
       <div className="ari-viz-heatmap-key">
@@ -664,10 +771,10 @@ export function HeatmapChart({
       </div>
       <svg
         className="ari-viz-svg"
-        viewBox={`0 0 ${left + cw * spec.xLabels.length + 12} ${top + ch * spec.yLabels.length + 12}`}
+        viewBox={`0 0 ${mapWidth} ${mapHeight}`}
         role="img"
         aria-label={spec.title}
-        style={{ minWidth: left + cw * spec.xLabels.length }}
+        style={{ width: mapWidth, height: mapHeight }}
       >
         {spec.xLabels.map((label, i) => (
           <text
@@ -678,7 +785,7 @@ export function HeatmapChart({
             textAnchor="middle"
           >
             <title>{label}</title>
-            {short(label, Math.floor(cw / 7))}
+            {fitLabel(label, cw - 6)}
           </text>
         ))}
         {spec.yLabels.map((label, y) => (
@@ -690,7 +797,7 @@ export function HeatmapChart({
               textAnchor="end"
             >
               <title>{label}</title>
-              {short(label)}
+              {short(fitLabel(label, left - 20))}
             </text>
             {spec.values[y]?.map((value, x) => (
               <Mark
@@ -715,16 +822,18 @@ export function HeatmapChart({
                         ? 'var(--ari-info)'
                         : 'var(--ari-accent)'
                   }
-                  fillOpacity={value === 0 ? 1 : 0.1 + (Math.abs(value) / maximum) * 0.2}
+                  fillOpacity={heatFillOpacity(value, peak)}
                 />
-                <text
-                  className="ari-viz-heat-value"
-                  x={left + cw * (x + 0.5)}
-                  y={top + ch * (y + 0.5) + 4}
-                  textAnchor="middle"
-                >
-                  {formatNumber(value)}
-                </text>
+                {heatShowsValue(formatNumber(value), cw) && (
+                  <text
+                    className="ari-viz-heat-value"
+                    x={left + cw * (x + 0.5)}
+                    y={top + ch * (y + 0.5) + 4}
+                    textAnchor="middle"
+                  >
+                    {formatNumber(value)}
+                  </text>
+                )}
               </Mark>
             ))}
           </g>

@@ -1,9 +1,49 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import type * as FsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectStore, canonicalizeFolder, resolveProjectAgent } from './projects'
 import type { ProjectAgent } from '@ari/contracts/project'
+
+const registryWrites = vi.hoisted(() => ({
+  started: 0,
+  next: null as (() => Promise<void>) | null,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof FsPromises>()
+  return {
+    ...fs,
+    mkdir: vi.fn(fs.mkdir),
+    writeFile: async (...args: Parameters<typeof fs.writeFile>) => {
+      if (typeof args[0] === 'string' && args[0].endsWith('projects.json.tmp')) {
+        registryWrites.started++
+        const next = registryWrites.next
+        registryWrites.next = null
+        await next?.()
+      }
+      return fs.writeFile(...args)
+    },
+  }
+})
+
+function holdRegistryWrite(error?: Error) {
+  let release!: () => void
+  let enter!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  registryWrites.next = async () => {
+    enter()
+    await gate
+    if (error) throw error
+  }
+  return { entered, release }
+}
 
 let dir: string
 let existingFolder: string
@@ -16,10 +56,183 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  registryWrites.next = null
+  vi.mocked(mkdir).mockReset()
   await rm(dir, { recursive: true, force: true })
 })
 
 describe('ProjectStore', () => {
+  it('keeps a delayed save ahead of a newer model choice and persists the newest choice', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    const agent: ProjectAgent = {
+      driverKind: 'codex',
+      modelId: 'older',
+      effort: 'high',
+      permissionMode: 'full',
+    }
+    const writesBefore = registryWrites.started
+    const held = holdRegistryWrite()
+    const older = store.setDefaultAgent(project.id, agent)
+    await held.entered
+    // The directory already exists. Remove unrelated mkdir I/O from the race
+    // so the next runnable write reaches the controlled boundary deterministically.
+    vi.mocked(mkdir).mockResolvedValue(undefined)
+    const newerAgent = { ...agent, modelId: 'newer', effort: 'xhigh' }
+    const newer = store.setDefaultAgent(project.id, newerAgent)
+    try {
+      await store.load()
+      await Promise.resolve()
+      expect(store.get(project.id)?.defaultAgent).toEqual(newerAgent)
+      expect(registryWrites.started - writesBefore).toBe(1)
+    } finally {
+      held.release()
+      await Promise.all([older, newer])
+    }
+    const disk = await new ProjectStore({ dir }).load()
+    expect(disk.find((entry) => entry.id === project.id)?.defaultAgent).toEqual(newerAgent)
+  })
+
+  it('continues queued saves after a write failure without losing later acknowledged changes', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    const previous = await readFile(join(dir, 'projects.json'), 'utf8')
+    const failure = new Error('Registry write unavailable')
+    const held = holdRegistryWrite(failure)
+    const failed = expect(store.close(project.id)).rejects.toThrow(failure.message)
+    await held.entered
+    const next = store.setDefaultAgent(project.id, {
+      driverKind: 'codex',
+      modelId: 'selected',
+      effort: 'high',
+      permissionMode: 'full',
+    })
+    // Reject the held write before it reaches the real filesystem.
+    held.release()
+    await failed
+    await next
+    const disk = await new ProjectStore({ dir }).load()
+    expect(disk[0]).toMatchObject({
+      id: project.id,
+      open: false,
+      defaultAgent: { modelId: 'selected' },
+    })
+    expect(await readFile(join(dir, 'projects.json'), 'utf8')).not.toBe(previous)
+  })
+
+  it('persists concurrent project mutations together with removal tombstones', async () => {
+    const store = new ProjectStore({ dir })
+    const a = await store.open(existingFolder)
+    const secondFolder = join(dir, 'second')
+    const thirdFolder = join(dir, 'third')
+    await mkdir(secondFolder)
+    await mkdir(thirdFolder)
+    const b = await store.open(secondFolder)
+    const c = await store.open(thirdFolder)
+    const agent: ProjectAgent = {
+      driverKind: 'codex',
+      modelId: 'saved',
+      effort: 'high',
+      permissionMode: 'full',
+    }
+    const held = holdRegistryWrite()
+    const close = store.close(a.id)
+    await held.entered
+    const mutations = [
+      store.setDefaultAgent(b.id, agent),
+      store.remove(c.id),
+      store.move(b.id, a.id),
+    ]
+    held.release()
+    await Promise.all([close, ...mutations])
+    const restarted = new ProjectStore({ dir })
+    const disk = await restarted.load()
+    expect(disk.map((project) => project.id)).toEqual([b.id, a.id])
+    expect(restarted.get(a.id)?.open).toBe(false)
+    expect(restarted.get(b.id)?.defaultAgent).toEqual(agent)
+    expect(restarted.get(c.id)).toBeNull()
+    expect((await restarted.add(thirdFolder)).id).toBe(c.id)
+  })
+
+  it('reports regular files and paths through files as unavailable without opening them', async () => {
+    const file = join(dir, 'regular-file')
+    await writeFile(file, 'not a project directory')
+    const store = new ProjectStore({ dir })
+    expect((await store.add(file)).status).toBe('missing')
+    expect((await store.add(join(file, 'child'))).status).toBe('missing')
+    const newFile = join(dir, 'new-file')
+    await writeFile(newFile, 'not a project directory')
+    expect(await store.open(newFile)).toMatchObject({ status: 'missing', open: false })
+    expect(store.list().some((project) => project.path === newFile)).toBe(false)
+    expect(store.listOpen()).toEqual([])
+  })
+
+  it('recovers an existing project replaced by a file with its identity and saved default intact', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    const agent: ProjectAgent = {
+      driverKind: 'codex',
+      modelId: 'saved',
+      effort: 'xhigh',
+      permissionMode: 'full',
+    }
+    await store.setDefaultAgent(project.id, agent)
+    await store.close(project.id)
+    await rm(existingFolder, { recursive: true, force: true })
+    await writeFile(existingFolder, 'replacement file')
+    expect(store.get(project.id)).toMatchObject({ status: 'missing', defaultAgent: agent })
+    expect(await store.open(existingFolder)).toMatchObject({
+      id: project.id,
+      status: 'missing',
+      open: false,
+    })
+    const restarted = new ProjectStore({ dir })
+    expect((await restarted.load())[0]).toMatchObject({
+      id: project.id,
+      status: 'missing',
+      defaultAgent: agent,
+    })
+    await rm(existingFolder)
+    await mkdir(existingFolder)
+    expect(restarted.get(project.id)).toMatchObject({ status: 'ok', defaultAgent: agent })
+    expect(await restarted.open(existingFolder)).toMatchObject({
+      id: project.id,
+      status: 'ok',
+      open: true,
+      defaultAgent: agent,
+    })
+  })
+
+  it('retains a removed project identity and default while its path is a file and later remounts', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    const agent: ProjectAgent = {
+      driverKind: 'codex',
+      modelId: 'saved',
+      effort: 'high',
+      permissionMode: 'full',
+    }
+    await store.setDefaultAgent(project.id, agent)
+    await store.remove(project.id)
+    await rm(existingFolder, { recursive: true, force: true })
+    await writeFile(existingFolder, 'replacement file')
+    const restarted = new ProjectStore({ dir })
+    expect(await restarted.load()).toEqual([])
+    expect(await restarted.add(existingFolder)).toMatchObject({
+      id: project.id,
+      status: 'missing',
+      defaultAgent: agent,
+    })
+    await rm(existingFolder)
+    await mkdir(existingFolder)
+    expect(await restarted.open(existingFolder)).toMatchObject({
+      id: project.id,
+      status: 'ok',
+      defaultAgent: agent,
+    })
+    expect(restarted.list()).toHaveLength(1)
+  })
+
   it('persists, clears and restores a project default without changing old registries', async () => {
     const store = new ProjectStore({ dir })
     const project = await store.add(existingFolder)

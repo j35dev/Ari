@@ -134,9 +134,20 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
   switch (event.type) {
     case 'coordination.updated': {
       const previous = next.inbox?.[event.message.messageId]
+      const request =
+        previous?.request?.resolvedAt != null ? previous.request : event.message.request
       next.inbox = {
         ...next.inbox,
-        [event.message.messageId]: previous?.status === 'consumed' ? previous : event.message,
+        [event.message.messageId]: {
+          ...event.message,
+          ...(previous?.status === 'consumed' ||
+          (previous?.status === 'delivered' && event.message.status !== 'consumed') ||
+          (previous?.status === 'uncertain' &&
+            ['pending', 'delivering'].includes(event.message.status))
+            ? { status: previous.status, consumedAt: previous.consumedAt, turnId: previous.turnId }
+            : {}),
+          ...(request ? { request } : {}),
+        },
       }
       break
     }
@@ -397,6 +408,8 @@ function foldCompletion(
   const current = completions[event.childSessionId]
   switch (event.type) {
     case 'child.session.settled':
+      if (current?.settledAt !== undefined && (event.settledAt ?? event.at) < current.settledAt)
+        return completions
       // A stop does not erase a result the parent has not seen yet: a child
       // prompted again and then interrupted still owes its earlier report.
       if (
@@ -415,7 +428,7 @@ function foldCompletion(
             current?.earlyAck === event.turnId ||
             (current?.turnId === event.turnId && current.acknowledged),
           stopReason: event.stopReason,
-          settledAt: event.at,
+          settledAt: event.settledAt ?? event.at,
         },
       }
     case 'child.session.acknowledged':

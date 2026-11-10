@@ -3,12 +3,43 @@ import { describe, expect, it, vi } from 'vitest'
 import { visualizationSchema } from '@ari/contracts/visualization'
 import { Visualization } from './Visualization'
 import { visualizationExamples } from './examples'
-import { axis, domain, formatNumber } from './charts'
+import {
+  axis,
+  clipLabel,
+  color,
+  domain,
+  formatNumber,
+  heatCellWidth,
+  heatFillOpacity,
+  heatShowsValue,
+  textWidth,
+} from './charts'
 
 const bar = visualizationExamples[0]?.spec
 if (bar === undefined) throw new Error('Missing example')
 const source = JSON.stringify(bar)
+const visualTypes = [
+  'bar',
+  'line',
+  'area',
+  'scatter',
+  'pie',
+  'donut',
+  'radar',
+  'heatmap',
+  'treemap',
+  'funnel',
+  'graph',
+  'timeline',
+  'gantt',
+  'metrics',
+  'comparison',
+] as const
+
 describe('inline visualizations', () => {
+  it('covers each supported type once', () => {
+    expect(visualizationExamples.map((example) => example.spec.type)).toEqual(visualTypes)
+  })
   it.each(visualizationExamples)(
     'renders a $spec.type visualization with inspectable data',
     ({ spec }) => {
@@ -93,6 +124,11 @@ describe('inline visualizations', () => {
       />,
     )
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+    expect(
+      [...container.querySelectorAll('rect')]
+        .map((rect) => rect.getAttribute('fill'))
+        .filter((fill) => fill === color(0) || fill === color(1)),
+    ).toEqual([color(0), color(1)])
     rerender(
       <Visualization
         source={JSON.stringify({
@@ -113,6 +149,328 @@ describe('inline visualizations', () => {
     )
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
     expect(domain([0, 0])).toEqual([-1, 1])
+  })
+
+  it('renders one historical data wrapper and refuses conflicts without echoing markup', () => {
+    const historical =
+      '{"version":1,"type":"timeline","title":"Release progress","data":{"events":[{"label":"v0.2.0","date":"2026-08-30","description":"Previous release"},{"label":"v0.3.13","date":"in progress","tone":"warning"}]}}'
+    const { rerender } = render(<Visualization source={historical} />)
+    expect(screen.getByRole('figure')).toBeInTheDocument()
+    expect(screen.getByText('v0.2.0')).toBeInTheDocument()
+    expect(screen.getByText('Previous release')).toBeInTheDocument()
+    expect(screen.getByText('v0.3.13').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-warning)',
+    )
+    expect(screen.getByText('v0.2.0').closest('li')?.getAttribute('style')).toContain(
+      'var(--ari-accent)',
+    )
+    const script = '<script>alert(1)</script>'
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'timeline',
+          title: script,
+          events: [{ label: 'A' }],
+          html: script,
+        })}
+      />,
+    )
+    expect(screen.getByText('Visualization unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Timeline charts cannot include "html".')).toBeInTheDocument()
+    expect(screen.queryByRole('figure')).toBeNull()
+    expect(document.body.querySelector('script')).toBeNull()
+    expect(document.body.textContent).not.toContain(script)
+    expect(document.body.textContent).not.toContain('Invalid input')
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'bar',
+          title: 'Conflict',
+          labels: ['Visible'],
+          data: {
+            type: 'bar',
+            title: 'Conflict',
+            labels: ['Hidden'],
+            series: [{ name: 'S', values: [1] }],
+          },
+        })}
+      />,
+    )
+    expect(screen.getByText(/The field "type" is set both/)).toBeInTheDocument()
+    expect(screen.queryByText('Hidden')).toBeNull()
+    expect(screen.queryByText('Visible')).toBeNull()
+    rerender(<Visualization source={JSON.stringify({ data: bar })} />)
+    expect(screen.getByRole('figure', { name: bar.title as string })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Before' })).toBeInTheDocument()
+  })
+
+  it('separates heatmap magnitudes and keeps long digits out of narrow cells', () => {
+    expect(heatFillOpacity(100, 100) - heatFillOpacity(1, 100)).toBeGreaterThan(0.6)
+    expect(heatFillOpacity(0, 100)).toBe(1)
+    expect(heatFillOpacity(-8, 8)).toBe(heatFillOpacity(8, 8))
+    const wide = {
+      version: 1,
+      type: 'heatmap',
+      title: 'Load',
+      xLabels: ['Low', 'High'],
+      yLabels: ['Row'],
+      values: [[1, 100]],
+      unit: 'requests',
+    }
+    const { container, rerender } = render(<Visualization source={JSON.stringify(wide)} />)
+    const opacities = [...container.querySelectorAll('rect')].map((rect) =>
+      Number(rect.getAttribute('fill-opacity')),
+    )
+    expect(opacities).toEqual([heatFillOpacity(1, 100), heatFillOpacity(100, 100)])
+    expect(container.querySelector('.ari-viz-heat-value')).toHaveTextContent(formatNumber(1))
+    const narrowValue = 0.0000123
+    const printed = formatNumber(narrowValue)
+    const columns = Array.from({ length: 32 }, (_, i) => `C${i}`)
+    expect(heatShowsValue(printed, heatCellWidth(columns.length))).toBe(false)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'heatmap',
+          title: 'Dense',
+          xLabels: columns,
+          yLabels: ['Row'],
+          values: [Array.from({ length: 32 }, () => narrowValue)],
+        })}
+      />,
+    )
+    expect(container.querySelector('.ari-viz-heat-value')).toBeNull()
+    expect(
+      [...container.querySelectorAll('title')].some((node) => node.textContent?.includes(printed)),
+    ).toBe(true)
+    expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+  })
+
+  it('keeps long labels and units inside the chart without dropping them', () => {
+    const unit = 'u'.repeat(30)
+    const yLabel = 'y'.repeat(120)
+    const funnelLabel = 'f'.repeat(120)
+    const { container, rerender } = render(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'donut',
+          title: 'Share',
+          unit,
+          items: [{ label: 'All', value: 1 }],
+        })}
+      />,
+    )
+    const caption = container.querySelector('.ari-viz-total')?.nextElementSibling
+    expect(caption?.querySelector('title')?.textContent).toBe(unit)
+    expect(
+      [...(caption?.childNodes ?? [])]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join(''),
+    ).toBe(clipLabel(unit, 16))
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          ...bar,
+          orientation: 'horizontal',
+          yLabel,
+        })}
+      />,
+    )
+    const axisTitle = [...container.querySelectorAll('title')].find(
+      (node) => node.textContent === yLabel,
+    )
+    expect(
+      [...(axisTitle?.parentElement?.childNodes ?? [])]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join(''),
+    ).toBe(clipLabel(yLabel, 48))
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'funnel',
+          title: 'Steps',
+          items: [{ label: funnelLabel, value: 4 }],
+        })}
+      />,
+    )
+    expect(screen.getByText(funnelLabel)).toHaveClass('ari-viz-funnel-label')
+    const pieLabel = 'p'.repeat(120)
+    const seriesName = 's'.repeat(120)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'pie',
+          title: 'Share',
+          items: [{ label: pieLabel, value: 1 }],
+        })}
+      />,
+    )
+    expect(screen.getByText(pieLabel)).toHaveClass('ari-viz-legend-label')
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'bar',
+          title: 'Series',
+          labels: ['A'],
+          series: [{ name: seriesName, values: [1] }],
+        })}
+      />,
+    )
+    expect(screen.getByText(seriesName)).toHaveClass('ari-viz-series-name')
+    const timelineLabel = 't'.repeat(120)
+    rerender(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'timeline',
+          title: 'Long',
+          events: [{ label: timelineLabel }],
+        })}
+      />,
+    )
+    expect(screen.getByText(timelineLabel)).toHaveClass('ari-viz-timeline-label')
+    expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+  })
+
+  it('draws charts 1:1 in the measured reply width instead of stretching a fixed canvas', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+    try {
+      for (const room of [368, 1246]) {
+        width.mockReturnValue(room)
+        const { unmount } = render(<Visualization source={source} />)
+        const svg = screen.getByRole('img', { name: bar.title as string })
+        // Text stays 12px at every width: the chart widens, its height does not grow.
+        expect(svg).toHaveStyle({ width: `${room}px`, height: '320px' })
+        expect(svg.getAttribute('viewBox')).toBe(`0 0 ${room} 320`)
+        unmount()
+      }
+      width.mockReturnValue(368)
+      const { container } = render(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'line',
+            title: 'Long ends',
+            labels: ['First '.repeat(12).trim(), 'Middle', 'Last '.repeat(12).trim()],
+            series: [{ name: 'S', values: [1, 2, 3] }],
+          })}
+        />,
+      )
+      const svg = screen.getByRole('img', { name: 'Long ends' })
+      const labels = [...container.querySelectorAll('text.ari-viz-axis-label')]
+      expect(labels).toHaveLength(3)
+      for (const label of labels) {
+        const text = [...label.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent)
+          .join('')
+        const half = textWidth(text) / 2
+        const x = Number(label.getAttribute('x'))
+        expect(x - half).toBeGreaterThanOrEqual(0)
+        expect(x + half).toBeLessThanOrEqual(parseFloat(svg.style.width))
+      }
+    } finally {
+      width.mockRestore()
+    }
+  })
+
+  it('fits schedules, pie charts and flows to a phone-width reply', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(368)
+    try {
+      const { container, rerender } = render(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'gantt',
+            title: 'Plan',
+            unit: 'days',
+            tasks: [
+              { label: 'Design', start: 0, end: 2 },
+              { label: 'Build', start: 2, end: 5 },
+            ],
+          })}
+        />,
+      )
+      const gantt = screen.getByRole('img', { name: 'Plan' })
+      expect(Number(gantt.getAttribute('viewBox')?.split(' ')[2])).toBeLessThanOrEqual(368 - 48)
+      rerender(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'graph',
+            title: 'Flow',
+            nodes: [
+              { id: 'a', label: 'User prompt' },
+              { id: 'b', label: 'Agent' },
+              { id: 'c', label: 'Answer' },
+            ],
+            edges: [
+              { from: 'a', to: 'b' },
+              { from: 'b', to: 'c' },
+            ],
+          })}
+        />,
+      )
+      expect(screen.getByRole('button', { name: 'Vertical' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Horizontal' }))
+      expect(screen.getByRole('button', { name: 'Horizontal' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      rerender(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'radar',
+            title: 'Tradeoffs',
+            labels: ['Speed', 'Quality', 'Cost'],
+            series: [{ name: 'Option', values: [3, 4, 2] }],
+          })}
+        />,
+      )
+      expect(
+        parseFloat(screen.getByRole('img', { name: 'Tradeoffs' }).style.width),
+      ).toBeLessThanOrEqual(368)
+      expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+    } finally {
+      width.mockRestore()
+    }
+  })
+
+  it('keeps a left-to-right flow when the reply width is unknown', () => {
+    render(
+      <Visualization
+        source={JSON.stringify({
+          version: 1,
+          type: 'graph',
+          title: 'Flow',
+          nodes: [
+            { id: 'a', label: 'A' },
+            { id: 'b', label: 'B' },
+            { id: 'c', label: 'C' },
+          ],
+          edges: [
+            { from: 'a', to: 'b' },
+            { from: 'b', to: 'c' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Horizontal' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   it('uses legible axis steps and retains small values in the original data', () => {
