@@ -11,6 +11,11 @@ ipcRenderer.on(STREAM_CHANNEL, (_event: IpcRendererEvent, frame: StreamFrame | S
 )
 
 const api = {
+  dictation: {
+    acquire: (): Promise<string> => ipcRenderer.invoke('ari:speechCapture.acquire'),
+    release: (token: string): Promise<void> =>
+      ipcRenderer.invoke('ari:speechCapture.release', token),
+  },
   invoke: (method: string, params?: unknown): Promise<unknown> => {
     return ipcRenderer.invoke(`ari:${method}`, params)
   },

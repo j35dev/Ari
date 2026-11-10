@@ -44,7 +44,10 @@ export function Widget(props: {
         </span>
       )}
       {state.phase === 'sent' && (
-        <span className="aria-sent" aria-label="Sent">
+        <span
+          className="aria-sent"
+          aria-label={state.destination === 'dictation' ? 'Inserted' : 'Sent'}
+        >
           ✓
         </span>
       )}

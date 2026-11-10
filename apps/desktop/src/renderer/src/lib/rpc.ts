@@ -1,6 +1,8 @@
 import type { RpcMethod, RpcResults, StreamFrame, StreamName } from '@ari/contracts/rpc'
+import type { DictationBridge } from '../../../shared/dictation'
 
 interface AriBridge {
+  dictation?: DictationBridge
   invoke: (method: string, params?: unknown) => Promise<unknown>
   subscribe: (id: string, callback: (frame: StreamFrame) => void) => () => void
   /** Absolute OS path for a renderer File; '' when unavailable. Absent outside Electron. */
@@ -21,10 +23,7 @@ function bridge<T>(value: unknown): T {
 
 /** Typed renderer-side RPC client over the sandboxed preload bridge. */
 export const rpc = {
-  async invoke<M extends RpcMethod>(
-    method: M,
-    params?: unknown,
-  ): Promise<RpcResults[M]> {
+  async invoke<M extends RpcMethod>(method: M, params?: unknown): Promise<RpcResults[M]> {
     return bridge<RpcResults[M]>(await window.ari.invoke(method, params))
   },
 
