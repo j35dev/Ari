@@ -247,6 +247,10 @@ test('universal x64 execution uses a real arch command and retains debugger isol
   assert.deepEqual(command.args.slice(0, 2), ['-x86_64', '/synthetic/ari'])
   assert.ok(command.args.includes('--inspect-brk=127.0.0.1:1111'))
   assert.ok(command.args.includes('--remote-debugging-address=127.0.0.1'))
+  assert.ok(command.args.includes('--use-mock-keychain'))
+  assert.ok(
+    !launchCommand('/x/ari.exe', 'x64', 1, 2, 'win32', 'x64').args.includes('--use-mock-keychain'),
+  )
   assert.equal(
     launchCommand('/synthetic/ari', 'arm64', 1111, 2222, 'darwin', 'arm64').file,
     '/synthetic/ari',

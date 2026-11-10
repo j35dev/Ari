@@ -1,12 +1,13 @@
 // CI-only real packaged main/preload/renderer smoke. No production test mode.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { isAbsolute, join, resolve } from 'node:path'
 import { setTimeout, clearTimeout } from 'node:timers'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   CDP,
   PROVIDERS,
@@ -166,6 +167,9 @@ export function launchCommand(
     '--disable-geolocation',
     '--host-resolver-rules=MAP * ~NOTFOUND',
   ]
+  // The disposable app name gets a fresh Keychain item; on a hosted session that
+  // access can block the main thread behind a prompt nobody can answer.
+  if (platform === 'darwin') args.push('--use-mock-keychain')
   return platform === 'darwin' && arch !== hostArch
     ? { file: '/usr/bin/arch', args: [arch === 'x64' ? '-x86_64' : '-arm64', executable, ...args] }
     : { file: executable, args }
@@ -461,6 +465,15 @@ async function runProfile(options, suiteRoot, fixturePath) {
           )
           .catch((reason) => String(reason)),
       }
+      if (process.platform === 'darwin')
+        // A main thread blocked in native code answers neither CDP nor DevTools HTTP.
+        await promisify(execFile)('/usr/bin/sample', [String(child.pid), '3', '-mayDie'], {
+          timeout: 20_000,
+          maxBuffer: 8 * 1024 * 1024,
+        }).then(
+          ({ stdout }) => writeFile(join(root, 'main-sample.txt'), stdout),
+          (reason) => (receipt.rendererDiscovery.sample = String(reason).slice(0, 2000)),
+        )
       throw error
     })
     renderer = await CDP.connect(page.webSocketDebuggerUrl)
