@@ -385,8 +385,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   // Visiting a session lands on it and clears its settled badge — done/error
   // sticks until the user has seen what the agent did.
+  const navigationGeneration = useRef(0)
   const selectSession = useCallback(
     (id: string) => {
+      navigationGeneration.current++
       // A session already open is shown where it is, in whichever space holds
       // it; anything else replaces what the focused pane was showing, which is
       // the tmux reading of a click in the session list.
@@ -629,6 +631,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
   const openAria = useCallback(
     (newChat = false): void => {
+      // The pinned row is navigation, just like any other known session.
+      // Discovery scans every saved journal and must not hold up switching
+      // back to the Aria chat the shell has already listed.
+      const current = sessions
+        .filter((session) => isHelmSession(session) && !session.archived)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      if (!newChat && current) {
+        selectSessionRef.current(current.id)
+        return
+      }
+      const generation = ++navigationGeneration.current
+      const origin = spaceStoreSnapshot().activeSpaceId
+      const originLayout = splitLayoutSnapshot()
       const request = newChat ? rpc.invoke('aria.newChat') : rpc.invoke('aria.open', defaults)
       void request
         .then(async ({ sessionId }) => {
@@ -636,6 +651,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             for (const session of sessions)
               if (isHelmSession(session) && !session.archived) forget(session.id)
           await reloadSessions()
+          const layout = splitLayoutSnapshot()
+          if (
+            generation !== navigationGeneration.current ||
+            origin !== spaceStoreSnapshot().activeSpaceId ||
+            originLayout !== layout
+          )
+            return
           selectSessionRef.current(sessionId)
         })
         .catch((error: unknown) => {
