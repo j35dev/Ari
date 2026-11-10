@@ -178,9 +178,12 @@ describe('App onboarding integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Aria' }))
     expect(await screen.findByText('Opened session aria')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: /^Restored session/ }))
+    expect(await screen.findByText('Opened session restored')).toBeVisible()
     fireEvent.keyDown(window, { key: '0', ctrlKey: true })
-    await waitFor(() =>
-      expect(invoke.mock.calls.filter(([method]) => method === 'aria.open')).toHaveLength(2),
+    expect(await screen.findByText('Opened session aria')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute(
+      'aria-current',
+      'page',
     )
   })
   it('finishes first run into the selected agent’s empty session, then reopens setup without losing it', async () => {
