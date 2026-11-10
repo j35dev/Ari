@@ -496,13 +496,21 @@ export async function bundleRenderer(installRoot, esbuildBin, outDir, options = 
   await writeFile(
     entry,
     `import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import { Visualization } from ${JSON.stringify(visualization)}
 const source = document.getElementById('viz-source')?.textContent ?? ''
 const mount = document.getElementById('root')
 const failures = []
+const recordFailure = (value) => failures.push(String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, 180))
 window.addEventListener('error', (event) => {
-  failures.push(String(event.message ?? '').replace(/\\s+/g, ' ').trim().slice(0, 180))
+  recordFailure(event.message)
 })
+window.addEventListener('unhandledrejection', (event) => recordFailure(event.reason))
+const originalConsoleError = console.error.bind(console)
+console.error = (...values) => {
+  recordFailure(values.map(String).join(' '))
+  originalConsoleError(...values)
+}
 function publish(result) {
   const node = document.createElement('script')
   node.id = 'ari-viz-review'
@@ -514,7 +522,8 @@ if (!mount) {
   publish({ ready: true, ok: false, title: '', error: 'missing root', unavailable: true, failures })
 } else {
   try {
-    createRoot(mount).render(<Visualization source={source} />)
+    const root = createRoot(mount, { onRecoverableError: recordFailure, onUncaughtError: recordFailure })
+    flushSync(() => root.render(<Visualization source={source} />))
     const figure = mount.querySelector('figure.ari-viz')
     const errorNode = mount.querySelector('.ari-viz-error p')
     const error = (errorNode?.textContent ?? '').replace(/\\s+/g, ' ').trim().slice(0, 240)
@@ -583,6 +592,9 @@ async function main() {
     windowsHide: true,
     encoding: 'utf8',
   }).trim()
+  if (after !== process.env.VISUALIZATION_REVIEW_SHA) {
+    throw new Error('Visualization checkout differs from the exact requested PR head')
+  }
   const skill = await readFile(join(root, 'apps/desktop/resources/cli/ari/SKILL.md'), 'utf8')
   const plan = pairedReviewPlan({ before: BEFORE_COMMIT, after, skill })
   const outDir = join(process.env.RUNNER_TEMP, 'ari-visualization-review')
