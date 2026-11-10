@@ -6,7 +6,7 @@ import { formatUnknownError } from '@ari/shared/result'
 import { mapCodexLine, createAppServerMapper, appServerCorrelation } from './mapper'
 import type { AppServerCorrelation, AppServerRequestId } from './mapper'
 import { CodexNativeChildren } from './native-children'
-import { AppServerConnection } from './appserver-connection'
+import { AppServerConnection, AppServerRequestError } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
 import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
@@ -634,12 +634,12 @@ export async function createCodexAppServerAdapter(
         )
         return true
       } catch (error: unknown) {
-        // Report the failure to the caller instead of pushing an error event:
-        // an error event settles the whole turn as `error`, which holds the
-        // queue — stranding the very message we just failed to deliver. The
-        // message stays queued and runs as the follow-up turn.
         log.debug('codex steer failed', { error: formatUnknownError(error) })
-        return false
+        // A refusal is safe to queue. A lost reply may follow accepted input,
+        // so preserve uncertainty without failing the active turn's stream.
+        if (error instanceof AppServerRequestError && error.requestOutcome !== 'uncertain')
+          return false
+        throw error
       }
     },
     dispose: async () => {
