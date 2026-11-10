@@ -8,7 +8,7 @@ import {
   defaultDictationShortcut,
   speechBindingsError,
   migrateSpeechShortcut,
-  speechShortcutError,
+  speechBindingError,
 } from '@ari/contracts/settings'
 import type { CliKind, ProviderConnection, Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
@@ -137,10 +137,7 @@ export class SettingsStore {
     }
     const shortcut = migrateSpeechShortcut(this.#current.speech.shortcut, process.platform)
     let dictationShortcut = this.#current.speech.dictationShortcut
-    if (
-      speechShortcutError(dictationShortcut, process.platform) ||
-      dictationShortcut === shortcut
-    ) {
+    if (speechBindingError(dictationShortcut, process.platform) || dictationShortcut === shortcut) {
       dictationShortcut = defaultDictationShortcut(process.platform)
       // Preserve a user's existing Aria binding, even if it uses the new default.
       if (dictationShortcut === shortcut) dictationShortcut = 'ctrl+alt+shift+d'

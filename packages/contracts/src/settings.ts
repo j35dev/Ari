@@ -16,33 +16,37 @@ export function speechBindingsError(
   dictation: string,
   platform: string,
 ): string | null {
-  const invalid = speechShortcutError(aria, platform) ?? speechShortcutError(dictation, platform)
+  const invalid = speechBindingError(aria, platform) ?? speechBindingError(dictation, platform)
   if (invalid) return invalid
   if (aria === dictation)
     return 'Aria dictation and general dictation must use different shortcuts.'
-  for (const chord of [aria, dictation]) {
-    const parts = chord.split('+')
-    const key = parts.pop()!
-    const ctrl = parts.includes('ctrl')
-    const meta = parts.includes('meta')
-    const alt = parts.includes('alt')
-    const shift = parts.includes('shift')
-    // App.tsx and Composer accept some actions with extra modifiers, and either
-    // Ctrl or Cmd on all platforms. Reserve their actual matching conditions.
-    const appAction =
-      key === 'enter' ||
-      (ctrl && !alt && !shift && key === 'b') ||
-      (ctrl && !meta && !alt && key === 'backquote') ||
-      ((ctrl || meta) &&
-        (key === 'k' ||
-          key === 's' ||
-          (shift && key === 'f') ||
-          /^[1-9]$/.test(key) ||
-          (!alt && (key === 'backslash' || (!shift && ['n', '0'].includes(key)))) ||
-          (alt && !shift && ['t', 'w'].includes(key))))
-    if (appAction) return `${chord} is already used by Ari. Choose another shortcut.`
-  }
   return null
+}
+
+/** Validate one persisted binding, including Ari's context-local actions. */
+export function speechBindingError(shortcut: string, platform: string): string | null {
+  const invalid = speechShortcutError(shortcut, platform)
+  if (invalid) return invalid
+  const parts = shortcut.split('+')
+  const key = parts.pop()!
+  const ctrl = parts.includes('ctrl')
+  const meta = parts.includes('meta')
+  const alt = parts.includes('alt')
+  const shift = parts.includes('shift')
+  // App.tsx and Composer accept some actions with extra modifiers, and either
+  // Ctrl or Cmd on all platforms. Reserve their actual matching conditions.
+  const appAction =
+    key === 'enter' ||
+    (ctrl && !alt && !shift && key === 'b') ||
+    (ctrl && !meta && !alt && key === 'backquote') ||
+    ((ctrl || meta) &&
+      (key === 'k' ||
+        key === 's' ||
+        (shift && key === 'f') ||
+        /^[1-9]$/.test(key) ||
+        (!alt && (key === 'backslash' || (!shift && ['n', '0'].includes(key)))) ||
+        (alt && !shift && ['t', 'w'].includes(key))))
+  return appAction ? `${shortcut} is already used by Ari. Choose another shortcut.` : null
 }
 
 const speechModifierOrder = ['ctrl', 'alt', 'shift', 'meta']

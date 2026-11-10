@@ -8,6 +8,7 @@ import {
   migrateSpeechShortcut,
   defaultDictationShortcut,
   speechBindingsError,
+  speechBindingError,
 } from './settings'
 import { rpcParams } from './rpc'
 
@@ -106,6 +107,7 @@ it.each([
   'ctrl+enter',
   'shift+meta+enter',
 ])('rejects %s when Ari handles the same key with those modifiers', (chord) => {
+  expect(speechBindingError(chord, 'darwin')).toContain('already used by Ari')
   expect(speechBindingsError('f20', chord, 'darwin')).toContain('already used by Ari')
 })
 
