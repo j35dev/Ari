@@ -26,7 +26,7 @@ jobs:
         include:
           - os: windows-latest
             args: --win --x64
-          - os: macos-15-arm64
+          - os: macos-15
             args: --mac
           - os: ubuntu-latest
             args: --linux --x64
