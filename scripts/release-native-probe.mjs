@@ -60,7 +60,7 @@ try {
   for (const addon of addons) appRequire(join(prebuilds, `${addon}.node`))
   const helpers =
     process.platform === 'win32'
-      ? ['OpenConsole.exe', 'conpty.dll']
+      ? ['conpty/OpenConsole.exe', 'conpty/conpty.dll']
       : process.platform === 'darwin'
         ? ['spawn-helper']
         : []
