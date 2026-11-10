@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,8 +11,10 @@ import { cachedStockRuntime, preflight } from './release-macos-preflight.mjs'
 
 test('stock diagnostic requires cached exact bytes and never downloads or rewrites cache', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ari-stock-cache-test-'))
-  const cache = join(root, 'cache')
-  await mkdir(join(cache, 'entry'), { recursive: true })
+  const physical = join(root, 'physical-cache')
+  await mkdir(join(physical, 'entry'), { recursive: true })
+  const cache = join(root, 'cache-alias')
+  await symlink(physical, cache, process.platform === 'win32' ? 'junction' : 'dir')
   const bytes = Buffer.from('synthetic ZIP; never native')
   const expected = {
     name: 'electron-test.zip',
@@ -21,11 +23,12 @@ test('stock diagnostic requires cached exact bytes and never downloads or rewrit
   }
   const path = join(cache, 'entry', expected.name)
   await writeFile(path, bytes)
+  const canonicalPath = await realpath(path)
   let calls = 0
   const run = async (file, args, options) => {
     calls++
     assert.equal(file, '/usr/bin/ditto')
-    assert.deepEqual(args.slice(0, 3), ['-x', '-k', path])
+    assert.deepEqual(args.slice(0, 3), ['-x', '-k', canonicalPath])
     assert.equal(options.timeout, 30_000)
     assert.equal(options.windowsHide, true)
     await mkdir(join(args[3], 'Electron.app/Contents/MacOS'), { recursive: true })
