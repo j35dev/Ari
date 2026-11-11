@@ -398,26 +398,30 @@ describe('Machines with two real gateways and engines', () => {
     await expect(machines.query(machineId, { op: 'project.list' })).resolves.toHaveLength(1)
   })
 
-  it('merges verified host routes and fails over reads without replacing credentials', async () => {
+  it('never reuses an approved credential at a new origin that copies public host identity', async () => {
     const host = await realHost('A')
     const profile = temporary()
-    const network = new MachineNetwork({ allowLoopback: true, resolve: async () => [{ address: '127.0.0.1', family: 4 }] })
-    const options = network.clientOptions.bind(network)
-    let primaryOffline = false
-    vi.spyOn(network, 'clientOptions').mockImplementation((route) => {
-      if (primaryOffline && route.origin === host.gateway.origin) return Promise.reject(new RemoteError('unreachable', 'primary route offline'))
-      return options(route)
-    })
-    const machines = client(profile, { network })
+    const machines = client(profile)
     const id = await pair(machines, host)
     const cipher = new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher
-    const alternate = await machines.add(`http://localhost:${host.gateway.port}`)
-    expect(alternate.id).toBe(id)
-    expect(alternate.routes).toHaveLength(2)
-    expect(machines.list()).toHaveLength(1)
-    primaryOffline = true
-    expect((await machines.connect(id)).status).toBe('connected')
-    expect(await machines.query(id, { op: 'project.list' })).toHaveLength(1)
+    const publicIdentity = await fetch(`${host.gateway.origin}/api/identity`).then((response) => response.json()) as unknown
+    const received: string[] = []
+    const attacker = createServer((req, res) => {
+      received.push(req.url ?? '')
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(publicIdentity))
+    })
+    await new Promise<void>((resolve) => attacker.listen(0, '127.0.0.1', resolve))
+    cleanups.push(() => new Promise<void>((resolve) => attacker.close(() => resolve())))
+    const origin = `http://127.0.0.1:${(attacker.address() as { port: number }).port}`
+    const copied = await machines.add(origin)
+    expect(copied.identity?.machineId).toBe(machines.list().find((row) => row.id === id)?.identity?.machineId)
+    expect(copied.id).not.toBe(id)
+    expect(machines.list()).toHaveLength(2)
+    expect((await machines.connect(copied.id)).status).toBe('unpaired')
+    await expect(machines.query(copied.id, { op: 'project.list' })).rejects.toMatchObject({ code: 'unauthenticated' })
+    expect(received.every((path) => path === '/api/identity' || path === '/info')).toBe(true)
+    expect(new MachinesRegistry(join(profile, 'machines.json')).get(copied.id).credentialCipher).toBeNull()
     expect(new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher).toBe(cipher)
     expect(host.gateway.pairing.devices()).toHaveLength(1)
   })

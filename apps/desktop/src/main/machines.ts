@@ -350,26 +350,15 @@ export class MachinesService {
     return connection
   }
   async #routeOptions(row: MachineRecord): Promise<ConstructorParameters<typeof GatewayClient>[0]> {
-    let failure: unknown = new RemoteError('unreachable', 'No saved computer route is reachable.')
-    const deadline = Date.now() + 20_000
-    for (const route of row.routes) {
-      if (Date.now() >= deadline || this.#disposed) break
-      try {
-        const options = await this.#network.clientOptions(route)
-        const identity = machineIdentitySchema.parse(await new GatewayClient(options).info())
-        if (row.identity?.machineId !== undefined && identity.machineId !== row.identity.machineId)
-          throw new RemoteError('access_revoked', 'A saved route now belongs to another computer. Remove it and pair again.')
-        if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
-          throw new RemoteError('unsupported_version', 'This computer uses an unsupported Ari protocol.')
-        return options
-      } catch (error) {
-        // Refusals of identity/version are not a license to try a credential
-        // elsewhere. Only read-only unreachable routes allow fallover.
-        if (error instanceof RemoteError && error.code !== 'unreachable') throw error
-        failure = error
-      }
-    }
-    throw failure
+    // The route list is forward-compatible, but this version binds its key
+    // to the original origin only. Public identity cannot authorize failover.
+    const options = await this.#network.clientOptions(row.routes[0]!)
+    const identity = machineIdentitySchema.parse(await new GatewayClient(options).info())
+    if (row.identity?.machineId !== undefined && identity.machineId !== row.identity.machineId)
+      throw new RemoteError('access_revoked', 'This address now belongs to another computer. Remove it and pair again.')
+    if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
+      throw new RemoteError('unsupported_version', 'This computer uses an unsupported Ari protocol.')
+    return options
   }
   async #probe(route: MachineRoute): Promise<MachineIdentity> {
     const options = await this.#network.clientOptions(route)
