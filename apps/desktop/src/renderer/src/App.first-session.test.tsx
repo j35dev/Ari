@@ -692,8 +692,8 @@ describe('explicit first-session focus handoff', () => {
   it('creates through the root acquisition path when an empty session folder is occupied', async () => {
     projects = [PROJECT]
     recordSession({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' })
-    const original = invoke.getMockImplementation()!
-    invoke.mockImplementation(async (method, params) => {
+    const original = rpcMocks.invoke.getMockImplementation()!
+    rpcMocks.invoke.mockImplementation(async (method: string, params?: unknown) => {
       if (method === 'session.workspace' && (params as { checkOccupancy?: boolean } | undefined)?.checkOccupancy)
         return { path: PROJECT.path, busyReason: 'Working folder is busy with another session.' }
       return original(method, params)

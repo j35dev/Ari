@@ -510,7 +510,11 @@ export class Engine {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
-    return this.#chain(id, () => this.#admit(() => this.#dispatch(command, origin)))
+    return this.#chain(id, () =>
+      ['turn.start', 'message.enqueue', 'approval.respond', 'input.respond'].includes(command.type)
+        ? this.#admit(() => this.#dispatch(command, origin))
+        : this.#dispatch(command, origin),
+    )
   }
 
   /** Check and persist admission atomically across roots; provider execution stays parallel. */
