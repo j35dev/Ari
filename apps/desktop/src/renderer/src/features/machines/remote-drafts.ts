@@ -26,16 +26,29 @@ export function writeRemoteDraft(machineId: string, sessionId: string, draft: Re
 }
 
 const creationSchema = z.object({
-  projectId: z.string(), title: z.string(),
-  selection: z.object({ driverKind: driverKindSchema, modelId: z.string(), permissionMode: permissionModeSchema, effort: z.string().nullable() }).nullable(),
+  projectId: z.string(),
+  title: z.string(),
+  selection: z
+    .object({
+      driverKind: driverKindSchema,
+      modelId: z.string(),
+      permissionMode: permissionModeSchema,
+      effort: z.string().nullable(),
+    })
+    .nullable(),
 })
 export type RemoteCreationDraft = z.infer<typeof creationSchema>
-const creationKey = (machineId: string) => `ari.machines.creation-draft.v1:${JSON.stringify(machineId)}`
+const creationKey = (machineId: string) =>
+  `ari.machines.creation-draft.v1:${JSON.stringify(machineId)}`
 export function readCreationDraft(machineId: string): RemoteCreationDraft {
   try {
-    const parsed = creationSchema.safeParse(JSON.parse(localStorage.getItem(creationKey(machineId)) ?? 'null'))
+    const parsed = creationSchema.safeParse(
+      JSON.parse(localStorage.getItem(creationKey(machineId)) ?? 'null'),
+    )
     return parsed.success ? parsed.data : { projectId: '', title: '', selection: null }
-  } catch { return { projectId: '', title: '', selection: null } }
+  } catch {
+    return { projectId: '', title: '', selection: null }
+  }
 }
 export function writeCreationDraft(machineId: string, draft: RemoteCreationDraft): void {
   localStorage.setItem(creationKey(machineId), JSON.stringify(creationSchema.parse(draft)))

@@ -194,7 +194,8 @@ export function RemoteSession({
     }
   }
   const can = (op: string) => !busy && !pending && machineCan(machine, op)
-  const pendingSessionId = pending && 'sessionId' in pending.command ? pending.command.sessionId : null
+  const pendingSessionId =
+    pending && 'sessionId' in pending.command ? pending.command.sessionId : null
   const blocked = !can('session.prompt')
   const terminalGranted = machine.allowTerminal && machineCan(machine, 'terminal.create')
   const activeView = view === 'terminal' && !terminalGranted ? 'chat' : view
@@ -276,7 +277,11 @@ export function RemoteSession({
             saved.
           </p>
           <div className="mt-2 flex gap-2">
-            {pendingSessionId && pendingSessionId !== sessionId && <Button size="sm" onClick={() => onOpenSession(pendingSessionId)}>Open affected agent</Button>}
+            {pendingSessionId && pendingSessionId !== sessionId && (
+              <Button size="sm" onClick={() => onOpenSession(pendingSessionId)}>
+                Open affected agent
+              </Button>
+            )}
             <Button
               size="sm"
               disabled={busy || machine.status !== 'connected'}
@@ -296,7 +301,16 @@ export function RemoteSession({
       )}
       {activeView === 'chat' ? (
         <>
-          <div ref={scroll} aria-label="Remote transcript" className="ari-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5" onScroll={(event) => { const element = event.currentTarget; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80; setShowLatest(!follow.current) }}>
+          <div
+            ref={scroll}
+            aria-label="Remote transcript"
+            className="ari-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
+            onScroll={(event) => {
+              const element = event.currentTarget
+              follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+              setShowLatest(!follow.current)
+            }}
+          >
             <div ref={content} className="mx-auto max-w-3xl space-y-5">
               {snapshot?.parent && (
                 <Button
@@ -348,7 +362,11 @@ export function RemoteSession({
                       <span className="text-xs text-fg-muted">
                         {task.workState.replaceAll('_', ' ')}
                       </span>
-                      {readReceipt(machine.id, task.sessionId) && <Button size="sm" onClick={() => onOpenSession(task.sessionId)}>Check agent action</Button>}
+                      {readReceipt(machine.id, task.sessionId) && (
+                        <Button size="sm" onClick={() => onOpenSession(task.sessionId)}>
+                          Check agent action
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         className="ml-auto"
@@ -363,7 +381,20 @@ export function RemoteSession({
               ) : null}
             </div>
           </div>
-          {showLatest && <div className="flex shrink-0 justify-center pb-2"><Button size="sm" onClick={() => { follow.current = true; setShowLatest(false); scrollToLatest() }}>Latest messages</Button></div>}
+          {showLatest && (
+            <div className="flex shrink-0 justify-center pb-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  follow.current = true
+                  setShowLatest(false)
+                  scrollToLatest()
+                }}
+              >
+                Latest messages
+              </Button>
+            </div>
+          )}
           {(snapshot?.pendingApprovals.length ?? 0) + (snapshot?.pendingInputs.length ?? 0) > 0 && (
             <section
               aria-label="Host requests"
@@ -578,7 +609,10 @@ function RemoteComposer({
     const data = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => {
-        if (typeof reader.result !== 'string') { reject(new Error('The image could not be read.')); return }
+        if (typeof reader.result !== 'string') {
+          reject(new Error('The image could not be read.'))
+          return
+        }
         resolve(reader.result.split(',')[1] ?? '')
       }
       reader.onerror = reject

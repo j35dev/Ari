@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.eslint-renderer.json",
+  "files": [
+    "src/renderer/src/features/machines/remote-client.test.ts",
+    "src/renderer/src/features/machines/RemoteSession.test.tsx",
+    "src/renderer/src/features/machines/RemoteWorkspace.test.tsx",
+    "src/renderer/src/features/machines/RemoteTerminal.test.tsx",
+    "src/renderer/src/features/settings/MachinesSettings.test.tsx",
+    "src/renderer/src/features/settings/SettingsWorkspace.test.tsx",
+    "src/renderer/src/features/settings/SettingsSearch.test.tsx",
+    "src/renderer/src/shell/NewSessionLauncher.test.tsx",
+    "src/renderer/src/App.navigation.test.tsx"
+  ]
+}
