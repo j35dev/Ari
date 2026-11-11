@@ -22,6 +22,7 @@ export function RemoteTailscaleSetup({ state, enabled, disabled, enable, disable
   const canServe = enabled && state?.installed === true && state.origin !== null
   const suggestion = state?.suggestedHttpsPort
   const hasSuggestion = typeof suggestion === 'number'
+  const owned = state?.owned === true
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-fg-muted">{state?.error ?? summary(state)}</p>
@@ -93,6 +94,18 @@ export function RemoteTailscaleSetup({ state, enabled, disabled, enable, disable
       <div className="flex flex-wrap gap-2">
         {state?.serving === true ? (
           <Button disabled={disabled} onClick={disable} className="min-h-11">Stop serving Ari</Button>
+        ) : owned ? (
+          <>
+            <Button
+              disabled={!canServe || disabled}
+              onClick={() => { setLeftUnchanged(false); enable() }}
+              className="min-h-11"
+            >Repair Ari connection</Button>
+            <Button variant="ghost" disabled={disabled} onClick={disable} className="min-h-11">Remove Ari mapping</Button>
+            {hasSuggestion && suggestion !== state?.httpsPort ? (
+              <Button variant="ghost" disabled={!canServe || disabled} onClick={() => enable({ httpsPort: suggestion })} className="min-h-11">Use new address on port {suggestion}</Button>
+            ) : null}
+          </>
         ) : (
           <Button
             disabled={!canServe || disabled || (conflicts.length > 0 && !hasSuggestion)}
@@ -115,5 +128,6 @@ function summary(state: TailscaleState | null): string {
   if (!state.installed) return 'Tailscale is not installed on this computer.'
   if (state.origin === null) return 'This computer is not connected to a Tailscale network yet.'
   if (state.serving) return `Ari is available at ${state.origin}.`
+  if (state.owned) return 'Ari has a saved address, but its connection needs repair.'
   return 'Tailscale is connected. Choose an address for Ari.'
 }
