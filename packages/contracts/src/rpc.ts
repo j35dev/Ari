@@ -256,6 +256,8 @@ export const sessionCreateParamsSchema = z.object({
   permissionMode: permissionModeSchema,
   effort: z.string().min(1).nullable().optional(),
   lead: z.boolean().optional(),
+  /** Auto isolates a new root when its project folder is occupied. */
+  workspaceMode: z.enum(['auto', 'isolated', 'shared']).optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
@@ -721,6 +723,7 @@ export interface SourceControlEnvironment {
 }
 
 export interface SourceControlContext {
+  workspace?: { kind: 'project' | 'managed-worktree'; path: string }
   status: SourceControlStatus
   refs: string[]
   commits: GitHistoryEntry[]

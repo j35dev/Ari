@@ -92,7 +92,7 @@ beforeEach(async () => {
     {
       projectId: 'web',
       name: 'Web',
-      path: dir,
+      path: join(dir, 'web'),
       available: true,
       defaultAgent: {
         driverKind: 'claude',
@@ -104,7 +104,7 @@ beforeEach(async () => {
     {
       projectId: 'api',
       name: 'API',
-      path: dir,
+      path: join(dir, 'api'),
       available: true,
       defaultAgent: {
         driverKind: 'claude',
@@ -146,11 +146,13 @@ beforeEach(async () => {
     },
     record: (id, event) => store.append(id, event),
     subscribe: (listener) => store.subscribe(listener),
-    workspace: async () => dir,
-    isRunning: (id) => running.has(id),
-    isolate: async () => {
-      throw new Error('unexpected isolated spawn')
+    workspace: async (session) => {
+      if (session.workspace?.kind === 'managed-worktree') return session.workspace.path
+      if (session.parentSessionId) return host.workspace((await store.load(session.parentSessionId)).session!)
+      return join(dir, session.projectId)
     },
+    isRunning: (id) => running.has(id),
+    isolate: async (session, id) => ({ kind: 'managed-worktree', path: join(dir, 'worktrees', id), branch: `ari/${id}`, baseRef: 'main', baseCommit: 'a'.repeat(40) }),
     diff: async () => ({}),
     integrate: async () => ({}),
     approve: async () => true,
@@ -164,6 +166,7 @@ afterEach(async () => {
 })
 
 const launch = {
+  workspaceMode: 'shared',
   title: 'Fix login redirect',
   driverKind: 'claude',
   projectId: 'web',
@@ -203,9 +206,7 @@ it('refuses Aria spawns it cannot place, and cross-project spawns from anyone el
   expect(await code('helm1', { projectId: 'gone', idempotencyKey: 'c' })).toBe(
     'project_unavailable',
   )
-  expect(await code('helm1', { workspaceMode: 'isolated', idempotencyKey: 'd' })).toBe(
-    'invalid_request',
-  )
+  expect(await code('helm1', { workspaceMode: 'isolated', idempotencyKey: 'd' })).toBe('ok')
   expect(await code('helm1', { permissionMode: 'full', idempotencyKey: 'e' })).toBe('scope_denied')
   expect(await code('web1', { projectId: 'api', idempotencyKey: 'f' })).toBe('scope_denied')
 })
@@ -1803,7 +1804,7 @@ it('refuses a second session while project work is live and allows follow-ups ac
       text: 'Set up a lead',
       idempotencyKey: 'concurrent-lead',
     }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  ).toMatchObject({ ok: true })
   await store.append(id, { type: 'session.updated', archived: true })
   expect(
     await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'archived-code' }),
@@ -2087,7 +2088,7 @@ it.each(['project', 'managed-worktree'] as const)(
         workspace:
           kind === 'project'
             ? { kind }
-            : { kind, path: dir, branch: 'ari/human', baseRef: 'main', baseCommit: 'a'.repeat(40) },
+            : { kind, path: join(dir, 'worktrees', 'human'), branch: 'ari/human', baseRef: 'main', baseCommit: 'a'.repeat(40) },
       },
     })
     await startTurn('human-code', 'Fix login')

@@ -64,6 +64,7 @@ import {
   type ResolvedProjectAgent,
 } from '@ari/contracts/project'
 import { resolveLaunchEffort, type LaunchEffortOption } from './launch-effort'
+import { workspacesOverlap } from './workspace'
 
 const log = createLogger('engine:control')
 
@@ -1080,7 +1081,7 @@ export class AgentControlService {
             'The target model changed during effort discovery. Retry the assignment.',
           )
         if (isHelmSession(current) && !fresh.parentSessionId)
-          await this.#checkProjectCode(fresh.projectId, fresh.id)
+          await this.#checkProjectCode(fresh)
         if ((fresh.effort ?? null) !== effortSelection.resolved) {
           const updated = await this.host.dispatch({
             type: 'session.update',
@@ -1581,11 +1582,6 @@ export class AgentControlService {
         'invalid_request',
         'Aria starts work inside a project. Pass --project with an id from `ari projects`.',
       )
-    if (p.workspaceMode === 'isolated' || p.baseSnapshotCommit !== undefined)
-      throw new ControlFailure(
-        'invalid_request',
-        'Sessions Aria starts work in the project folder. Ask that session to split the work across isolated children.',
-      )
     if (caller.archived) throw new ControlFailure('scope_denied', 'Restore Aria before delegating.')
     const project = (await this.#helmProjects(caller)).find(
       (entry) => entry.projectId === p.projectId,
@@ -1610,7 +1606,7 @@ export class AgentControlService {
       ...agent,
       projectId: project.projectId,
     }
-    await this.#checkLaunch(caller, launch)
+    await this.#checkLaunch(caller, launch, false, undefined, true)
     await this.#approveDelegation(caller, policy, signal)
     const current = await this.#get(caller.id)
     if (current.archived || exceedsPermission(permissionMode, current.permissionMode))
@@ -1619,16 +1615,15 @@ export class AgentControlService {
         'Aria permissions changed while delegation was pending.',
       )
     checkDelegation(this.host.policy(), 0, 0)
-    await this.#checkLaunch(current, launch)
+    await this.#checkLaunch(current, launch, false, undefined, true)
     const id = newTypedId('sess')
-    const workspace = { kind: 'project' as const }
     const session: Session = {
       id,
       projectId: project.projectId,
       createdBy: { kind: 'session', sessionId: caller.id },
       ...(lead ? { lead: true } : {}),
       ...(p.role ? { role: p.role } : {}),
-      workspace,
+      workspace: { kind: 'project' },
       title: p.title,
       driverKind: agent.driverKind,
       modelId: agent.modelId,
@@ -1638,18 +1633,34 @@ export class AgentControlService {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await this.#spawnProgress(
-      caller.id,
-      p.idempotencyKey,
-      {
-        childSessionId: id,
-        projectId: project.projectId,
-        workspace,
-        workspacePath: project.path,
-        stage: 'session_creating',
-      },
-      lead ? 'projects.ask' : 'session.spawn',
-    )
+    const method = lead ? 'projects.ask' : 'session.spawn'
+    await this.#spawnProgress(caller.id, p.idempotencyKey, {
+      childSessionId: id,
+      projectId: project.projectId,
+      stage: 'workspace_preparing',
+    }, method)
+    const workspace = await this.prepareRootWorkspace(session, p.workspaceMode, p.baseSnapshotCommit)
+    session.workspace = workspace
+    const workspacePath = await this.host.workspace(session)
+    await this.#spawnProgress(caller.id, p.idempotencyKey, {
+      childSessionId: id,
+      projectId: project.projectId,
+      workspace,
+      workspacePath,
+      stage: 'workspace_prepared',
+    }, method)
+    const launchCaller = await this.#get(caller.id)
+    if (signal?.aborted || launchCaller.archived || exceedsPermission(permissionMode, launchCaller.permissionMode)) {
+      if (workspace.kind === 'managed-worktree') await this.host.release(session)
+      throw new ControlFailure(signal?.aborted ? 'request_cancelled' : 'scope_denied', 'The caller is no longer able to launch this session.')
+    }
+    await this.#spawnProgress(caller.id, p.idempotencyKey, {
+      childSessionId: id,
+      projectId: project.projectId,
+      workspace,
+      workspacePath,
+      stage: 'session_creating',
+    }, method)
     let created = false
     try {
       await this.host.create(session)
@@ -1661,7 +1672,7 @@ export class AgentControlService {
           childSessionId: id,
           projectId: project.projectId,
           workspace,
-          workspacePath: project.path,
+          workspacePath,
           stage: 'session_created',
         },
         lead ? 'projects.ask' : 'session.spawn',
@@ -1672,8 +1683,8 @@ export class AgentControlService {
         title: session.title,
         driverKind: session.driverKind,
         modelId: session.modelId,
-        workspaceKind: 'project',
-        branch: null,
+        workspaceKind: workspace.kind,
+        branch: workspace.kind === 'managed-worktree' ? workspace.branch : null,
         ...(p.role ? { role: p.role } : {}),
         idempotencyKey: lead
           ? `project-ask_${createHash('sha256').update(p.idempotencyKey).digest('hex').slice(0, 32)}`
@@ -2017,9 +2028,10 @@ export class AgentControlService {
   async #checkLaunch(
     caller: Session,
     session: Pick<Session, 'driverKind' | 'modelId' | 'permissionMode'> &
-      Partial<Pick<Session, 'id' | 'projectId'>>,
+      Partial<Pick<Session, 'id' | 'projectId' | 'workspace' | 'parentSessionId'>>,
     existing = false,
     providers?: readonly ProjectAgentProvider[],
+    preparingWorkspace = false,
   ): Promise<void> {
     const policy = this.host.policy()
     checkDelegation(policy, 0, 0)
@@ -2039,11 +2051,12 @@ export class AgentControlService {
           : 'Session permissions cannot exceed Aria permissions.',
       )
     const working = await this.#workingProjectSessions(session.id)
-    if (session.projectId) this.#refuseConcurrentCode(session.projectId, working)
+    if (session.projectId && !preparingWorkspace)
+      await this.#refuseConcurrentCode(session as Session, working)
     const model = session.id ? await this.host.store.load(session.id) : null
     if (
       (!model || (model.activeTurnId === null && model.queuedMessages.length === 0)) &&
-      working.filter(isHelmProjectSession).length >= policy.maxConcurrentChildren
+      (await this.#workingProjectRoots(working)).size >= policy.maxConcurrentChildren
     )
       throw new ControlFailure(
         'delegation_limit',
@@ -2051,37 +2064,61 @@ export class AgentControlService {
       )
   }
 
-  /** Only live turns occupy a project; stale journals and long human waits do not. */
+  /** Live descendants occupy their own effective cwd, never their parent's project ID. */
   async #workingProjectSessions(excludeId?: string): Promise<Session[]> {
     const working: Session[] = []
     const rows = await this.host.store.listSessions()
     const now = Date.now()
-    const excluded = new Set(excludeId ? [excludeId, ...descendantIds(rows, excludeId)] : [])
     for (const row of rows) {
-      if (excluded.has(row.id) || row.projectId === HELM_PROJECT_ID) continue
+      if (row.id === excludeId || row.projectId === HELM_PROJECT_ID) continue
       const model = await this.host.store.load(row.id)
       const session = model.session
       if (!session) continue
-      if (!isHelmProjectSession(session)) {
-        if (
-          session.workspace?.kind !== 'managed-worktree' &&
-          (await this.#projectTurnRunning(session.id, model, now))
-        )
-          working.push(session)
-        continue
-      }
-      let live = await this.#projectTurnRunning(session.id, model, now)
-      if (!live)
-        for (const id of descendantIds(rows, row.id)) {
-          const child = await this.host.store.load(id)
-          if (await this.#projectTurnRunning(id, child, now)) {
-            live = true
-            break
-          }
-        }
-      if (live) working.push(session)
+      if (await this.#projectTurnRunning(session.id, model, now)) working.push(session)
     }
     return working
+  }
+
+  async #workingProjectRoots(working: readonly Session[]): Promise<Set<string>> {
+    const roots = new Set<string>()
+    for (const session of working) {
+      const root = session.rootSessionId ? await this.#get(session.rootSessionId) : session
+      if (isHelmProjectSession(root)) roots.add(root.id)
+    }
+    return roots
+  }
+
+  /** Human creation and Aria launches share this acquisition policy. */
+  async prepareRootWorkspace(
+    session: Session,
+    mode?: 'auto' | 'isolated' | 'shared',
+    baseSnapshotCommit?: string,
+  ): Promise<SessionWorkspace> {
+    const working = await this.#workingProjectSessions(session.id)
+    const active = await this.#conflictingSession(session, working)
+    if (mode === 'shared' && active) await this.#refuseConcurrentCode(session, working)
+    if (mode === 'isolated' || baseSnapshotCommit || active) {
+      try {
+        return await this.host.isolate(session, session.id, session.title, baseSnapshotCommit)
+      } catch (error) {
+        if (error instanceof ControlFailure && error.code === 'workspace_not_git')
+          throw new ControlFailure('workspace_not_git', `${active ? `Folder is busy with "${active.title}" (${active.id}). ` : ''}An isolated session requires a Git repository with a commit. Prompt the working session or wait.`, error.details)
+        throw error
+      }
+    }
+    return { kind: 'project' }
+  }
+
+  /** Called by the engine for human prompts and restart queue drains, too. */
+  async authorizeWorkspace(session: Session): Promise<string | null> {
+    if (session.projectId === HELM_PROJECT_ID) return null
+    try {
+      await this.#checkProjectCode(session)
+      return null
+    } catch (error) {
+      if (error instanceof ControlFailure) return error.message
+      throw error
+    }
   }
 
   async #projectTurnRunning(id: string, model: SessionReadModel, now: number): Promise<boolean> {
@@ -2116,17 +2153,27 @@ export class AgentControlService {
     return Number.isFinite(waitingSince) && now - waitingSince < PROJECT_HUMAN_WAIT_MS
   }
 
-  async #checkProjectCode(projectId: string, excludeId?: string): Promise<void> {
-    const working = await this.#workingProjectSessions(excludeId)
-    this.#refuseConcurrentCode(projectId, working)
+  async #checkProjectCode(session: Session): Promise<void> {
+    const working = await this.#workingProjectSessions(session.id)
+    await this.#refuseConcurrentCode(session, working)
   }
 
-  #refuseConcurrentCode(projectId: string, working: readonly Session[]): void {
-    const active = working.find((session) => session.projectId === projectId)
+  async #conflictingSession(session: Session, working: readonly Session[]): Promise<Session | undefined> {
+    const path = await this.host.workspace(session)
+    if (!path) throw new ControlFailure('managed_worktree_missing', 'Session working folder is unavailable.')
+    for (const active of working) {
+      const activePath = await this.host.workspace(active)
+      if (activePath && await workspacesOverlap(path, activePath)) return active
+    }
+    return undefined
+  }
+
+  async #refuseConcurrentCode(session: Session, working: readonly Session[]): Promise<void> {
+    const active = await this.#conflictingSession(session, working)
     if (active)
       throw new ControlFailure(
         'delegation_limit',
-        `Project already has a working session: "${active.title}" (${active.id}). Send follow-ups with \`ari session prompt ${active.id} "<task>"\` or wait for it to finish. Do research inside that session or after it.`,
+        `Working folder is busy with "${active.title}" (${active.id}). Send follow-ups with \`ari session prompt ${active.id} "<task>"\`, wait for it to finish, or create a new isolated session with \`ari session spawn --project ${session.projectId} --workspace isolated\`.`,
       )
   }
 
@@ -2296,12 +2343,7 @@ export class AgentControlService {
     if (++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    if (
-      isHelmSession(caller) &&
-      !target.parentSessionId &&
-      target.workspace?.kind !== 'managed-worktree'
-    )
-      await this.#checkProjectCode(target.projectId, target.id)
+    if (isHelmSession(caller)) await this.#checkProjectCode(target)
     const state = await this.host.store.load(target.id)
     if (state.queuedMessages.length >= 32)
       throw new ControlFailure('delegation_limit', 'Target message queue is full.')

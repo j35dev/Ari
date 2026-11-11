@@ -152,6 +152,7 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
       modelId: model.session?.modelId ?? null,
       ...(model.session?.role ? { role: model.session.role } : {}),
       workspaceKind: model.session?.workspace?.kind ?? 'project',
+      workspacePath: model.session?.workspace?.kind === 'managed-worktree' ? model.session.workspace.path : null,
       branch:
         model.session?.workspace?.kind === 'managed-worktree'
           ? model.session.workspace.branch
