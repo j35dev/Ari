@@ -181,35 +181,37 @@ export class RemoteSession {
    * photographed QR code accomplishes on its own. Polling is the honest
    * mechanism available at this one moment.
    */
-  async pair(invitationId: string, displayName: string): Promise<void> {
+  async pair(invitationId: string, displayName: string, signal?: AbortSignal): Promise<void> {
+    // Version 1 defines the anonymous handshake as mandatory. Negotiate before
+    // creating any host-side invitation request, not after redeeming it.
+    await this.negotiate(signal)
+    signal?.throwIfAborted()
     const publicKey = await this.#keyring.publicKey()
+    signal?.throwIfAborted()
     const { nonce, confirmationCode } = await this.#client.pairRequest(
       invitationId,
       displayName,
       publicKey,
     )
     this.#onPairCode?.(confirmationCode)
-    await this.#awaitDecision(invitationId)
+    await this.#awaitDecision(invitationId, signal)
     const signature = await this.#keyring.sign(nonce)
+    signal?.throwIfAborted()
     const redeemed = await this.#client.pairRedeem(invitationId, { nonce, signature })
+    signal?.throwIfAborted()
     this.#useToken(redeemed.token)
     await this.#keyring.remember({ deviceId: redeemed.deviceId, displayName, projectIds: [] })
-    const info = await this.#client.info()
-    if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION)
-      throw new RemoteError(
-        'unsupported_version',
-        'Update Ari on your computer to pair this version.',
-      )
-    this.#capabilities = info.capabilities
-    await this.#authorize(redeemed.deviceId)
+    await this.#authorize(redeemed.deviceId, signal)
     this.#set('connected')
   }
 
   /** Waits for the desktop's decision, and reports it as the user would see it. */
-  async #awaitDecision(invitationId: string): Promise<void> {
+  async #awaitDecision(invitationId: string, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + this.#decisionTimeoutMs
     for (;;) {
+      signal?.throwIfAborted()
       const status = await this.#client.pairStatus(invitationId)
+      signal?.throwIfAborted()
       if (status === 'approved') return
       if (status === 'denied') {
         throw new RemoteError('pairing_denied', 'this device was not approved')
@@ -225,13 +227,42 @@ export class RemoteSession {
       if (Date.now() >= deadline) {
         throw new RemoteError('invitation_expired', 'the desktop did not answer in time')
       }
-      await new Promise((resolve) => setTimeout(resolve, this.#decisionPollMs))
+      await waitForRetry(this.#decisionPollMs, signal)
     }
   }
 
   /** Trades the short code on the desktop's screen for the invitation it names. */
   async resolvePairingCode(code: string): Promise<string> {
+    await this.negotiate()
     return this.#client.pairResolve(code)
+  }
+
+  /** Validate the mandatory handshake version and any requested host operations. */
+  async negotiate(signal?: AbortSignal, requiredCapabilities: readonly string[] = []): Promise<void> {
+    signal?.throwIfAborted()
+    const info = await this.#client.info()
+    signal?.throwIfAborted()
+    if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
+      this.#set('version-mismatch')
+      throw new RemoteError('unsupported_version', 'Update Ari on your computer to use this version.')
+    }
+    this.#capabilities = info.capabilities
+    for (const operation of requiredCapabilities) {
+      if (!info.capabilities.includes(operation as never)) {
+        throw new RemoteError('unsupported_capability', `This computer does not support ${operation}.`)
+      }
+    }
+  }
+
+  /** Dispose credentials held in memory when their owning computer is removed. */
+  disconnect(): void {
+    this.#token = null
+    this.#client.token = null
+    this.#client.lease = null
+    this.#allowTerminal = false
+    this.#projectIds = []
+    this.#capabilities = []
+    this.#set('unpaired')
   }
 
   /** What the desktop currently thinks of this device's registration. */
