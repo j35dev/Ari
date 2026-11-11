@@ -12,7 +12,9 @@ import type { Project, ProjectDiscovery } from './project'
 import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
-import { sessionHierarchySummarySchema, sessionCreatorSchema } from './session'
+export { sessionSummarySchema } from './session'
+import type { SessionSummary } from './session'
+export type { SessionSummary } from './session'
 import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
@@ -57,25 +59,6 @@ export type {
  * The RPC surface between renderer and engine. Method names are an allowlist;
  * every payload is validated in the main process before a handler runs.
  */
-
-export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
-  createdBy: sessionCreatorSchema.nullish(),
-  id: z.string(),
-  projectId: z.string(),
-  title: z.string(),
-  updatedAt: z.number(),
-  /** Messages in the session; 0 marks a pristine, reusable session. */
-  messageCount: z.number().int().nonnegative(),
-  /**
-   * One-line preview of the session's last text. Null until the session says
-   * something; absent from older producers.
-   */
-  lastMessagePreview: z.string().nullable().optional(),
-  /** Sidebar flags; treat missing as false. The engine always reports them. */
-  archived: z.boolean().optional(),
-  pinned: z.boolean().optional(),
-})
-export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
 /** One redeemable reset. Several can be banked with different expiries. */
 export interface ProviderResetCredit {
