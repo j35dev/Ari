@@ -214,7 +214,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
-    return caller.projectIds.includes(projectId)
+    return caller.allProjects === true || caller.projectIds.includes(projectId)
   }
 
   /**

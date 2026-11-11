@@ -793,7 +793,7 @@ describe('remote gateway idempotency', () => {
 })
 
 describe('isolated managed gateway', () => {
-  async function managed(host = fakeHost(), startAt = 100_000) {
+  async function managed(host = fakeHost(), startAt = 100_000, projectIds = ['proj_1']) {
     let now = startAt
     const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
     const jwk = publicKey.export({ format: 'jwk' }) as {
@@ -834,7 +834,7 @@ describe('isolated managed gateway', () => {
         computerId: 'comp_12345678',
         deviceId: device.deviceId,
         deviceKeyFingerprint: fingerprint,
-        projectIds: ['proj_1'],
+        projectIds,
         iat: Math.floor(now / 1000),
         exp: Math.floor(now / 1000) + 1,
         jti: 'unique',
@@ -896,6 +896,30 @@ describe('isolated managed gateway', () => {
     expect(host.executed).toHaveLength(0)
   })
 
+  it('never carries local all-project approval into managed HTTP or stream calls', async () => {
+    const base = fakeHost()
+    const seen: RemoteCaller[] = []
+    const host = fakeHost({
+      getSession: async (caller, id) => {
+        seen.push(caller)
+        return caller.projectIds.includes('proj_2') ? base.getSession(caller, id) : undefined
+      },
+      execute: async (caller) => {
+        seen.push(caller)
+        return caller.projectIds.includes('proj_2') ? { ok: true, result: {} } : { ok: false, code: 'not_found', message: 'no such session' }
+      },
+    })
+    const h = await managed(host)
+    expect(h.gateway.pairing.devices()[0]?.allProjects).toBe(true)
+    const result = await call(h.gateway, '/command', COMMAND, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })
+    expect(result.status).toBe(404)
+    const client = await RawWebSocket.open(h.gateway.port, '/events', { origin: ALLOWED, protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`] })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_2' }))
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'error', error: { code: 'not_found' } })
+    expect(seen.every((caller) => caller.allProjects === false && caller.projectIds.join() === 'proj_1')).toBe(true)
+    client.close()
+  })
+
   it('closes an already open managed stream when its lease expires', async () => {
     let stopped = false
     const host = fakeHost({
@@ -922,7 +946,7 @@ describe('isolated managed gateway', () => {
     ).toContain('403')
   })
 
-  it('narrows an already open managed stream to the edited device grants', async () => {
+  it('preserves signed managed stream scope after terminal grant edits', async () => {
     let emit: ((event: unknown) => void) | null = null
     const host = fakeHost({
       subscribe: (_caller, _sessionId, onEvent) => {
@@ -944,14 +968,11 @@ describe('isolated managed gateway', () => {
     emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
     expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'events.frame' })
 
-    // The lease still names proj_1; the device record no longer grants it.
+    // A terminal edit and legacy project snapshot cannot widen or narrow the signed lease.
     h.gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
     emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
-    expect(JSON.parse(await client.nextMessage())).toMatchObject({
-      type: 'error',
-      error: { code: 'access_revoked' },
-    })
-    expect(emit).toBeNull()
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'events.frame' })
+    expect(emit).not.toBeNull()
     client.close()
   })
 })
@@ -1181,7 +1202,7 @@ describe('remote gateway grant edits', () => {
     expect(host.callers.at(-1)?.allowTerminal).toBe(true)
   })
 
-  it('stops streaming a project the device lost, on an open socket', async () => {
+  it('keeps all-project streams open when the legacy snapshot changes', async () => {
     let emit: ((event: unknown) => void) | null = null
     let unsubscribed = false
     const host = fakeHost({
@@ -1214,10 +1235,10 @@ describe('remote gateway grant edits', () => {
     gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
     emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
     expect(JSON.parse(await client.nextMessage())).toMatchObject({
-      type: 'error',
-      error: { code: 'access_revoked' },
+      type: 'events.frame',
+      events: [{ seq: 12 }],
     })
-    expect(unsubscribed).toBe(true)
+    expect(unsubscribed).toBe(false)
     client.close()
   })
 

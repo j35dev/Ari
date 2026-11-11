@@ -368,7 +368,7 @@ describe('remote service pairing decisions', () => {
     expect(service.state().devices).toEqual([])
   })
 
-  it('grants only the projects the user picked, and revokes on request', async () => {
+  it('grants all projects, and revokes on request', async () => {
     const { service } = makeService()
     await service.start()
     const key = deviceKey()
@@ -407,7 +407,7 @@ describe('remote service pairing decisions', () => {
     if (deviceId === undefined) throw new Error('expected a paired device')
 
     const updated = service.updateDeviceGrants(deviceId, ['proj_1', 'proj_2'], true)
-    expect(updated.devices[0]?.projectIds).toEqual(['proj_1', 'proj_2'])
+    expect(updated.devices[0]?.allProjects).toBe(true)
     expect(updated.devices[0]?.allowTerminal).toBe(true)
 
     await service.stop()
@@ -416,7 +416,7 @@ describe('remote service pairing decisions', () => {
     const { service: second } = makeService({ dir })
     expect(second.state().devices[0]).toMatchObject({
       deviceId,
-      projectIds: ['proj_1', 'proj_2'],
+      allProjects: true,
       allowTerminal: true,
     })
     expect(() => second.updateDeviceGrants('dev_missing', [], false)).toThrow()
@@ -601,7 +601,7 @@ describe('remote service host wiring', () => {
     expect(await page.text()).toContain('Ari Remote')
   })
 
-  it('refuses a command for a session outside the device grant', async () => {
+  it('refuses a command for an unknown session even with all-project access', async () => {
     const engine = fakeEngine()
     const dispatch = vi.spyOn(engine, 'dispatch')
     const { service } = makeService({ engine })
@@ -623,8 +623,7 @@ describe('remote service host wiring', () => {
       { authorization: `Bearer ${token}` },
     )
 
-    // Empty grants reach nothing, and a session the device was not granted is
-    // reported exactly as a session that does not exist.
+    // All-project access does not create sessions that do not exist.
     expect(refused.status).toBe(404)
     expect(dispatch).not.toHaveBeenCalled()
   })
@@ -677,7 +676,7 @@ describe('remote service terminals', () => {
     )
   }
 
-  it('opens a terminal on a granted project and refuses one outside the grant', async () => {
+  it('opens terminals across all projects after explicit terminal approval', async () => {
     const { service, kills } = terminalService()
     const origin = (await service.start()).origin
     if (origin === null) throw new Error('expected a running gateway')
@@ -691,12 +690,11 @@ describe('remote service terminals', () => {
     expect((opened.body['result'] as Record<string, unknown>)['terminalId']).toMatch(/^term_/)
 
     const refused = await open(origin, token, 'sess_two')
-    expect(refused.status).toBe(404)
-    expect(refused.body['error']).toMatchObject({ code: 'not_found' })
-    expect(kills).toHaveLength(1)
+    expect(refused.status).toBe(200)
+    expect(kills).toHaveLength(2)
   })
 
-  it('kills an open terminal once its project is removed from the device grants', async () => {
+  it('kills an open terminal once terminal access is withdrawn', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     onTestFinished(() => {
       vi.useRealTimers()
@@ -713,10 +711,10 @@ describe('remote service terminals', () => {
     vi.advanceTimersByTime(1000)
     expect(kills[0]).not.toHaveBeenCalled()
 
-    service.updateDeviceGrants(deviceId, ['proj_2'], true)
+    service.updateDeviceGrants(deviceId, ['proj_2'], false)
     await vi.advanceTimersByTimeAsync(1000)
     expect(kills[0]).toHaveBeenCalledOnce()
-    expect((await open(origin, token, 'sess_one')).status).toBe(404)
-    expect((await open(origin, token, 'sess_two')).status).toBe(200)
+    expect((await open(origin, token, 'sess_one')).status).toBe(403)
+    expect((await open(origin, token, 'sess_two')).status).toBe(403)
   })
 })

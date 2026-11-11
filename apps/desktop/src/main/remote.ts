@@ -92,6 +92,7 @@ export class RemoteService {
   /** The port the user chose, so a restart can come back on the same one. */
   #port: number
   #error: string | null = null
+  #projectIds: string[] = []
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
@@ -121,6 +122,7 @@ export class RemoteService {
     if (this.#gateway !== null) return this.state()
     this.#error = null
     try {
+      await this.#refreshProjects()
       // Rebuilt rather than reused: the pairing service reads its records at
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
@@ -133,7 +135,7 @@ export class RemoteService {
               (device) =>
                 device.deviceId === id &&
                 device.allowTerminal === true &&
-                device.projectIds.includes(projectId),
+                (device.allProjects === true || device.projectIds.includes(projectId)),
             ),
         )
       const webRoot = this.#deps.webRoot?.()
@@ -264,6 +266,16 @@ export class RemoteService {
     }
   }
 
+  /** Refresh broker registration from the host registry before requesting new signed leases. */
+  async currentPairedRecords(): Promise<PersistedPairing> {
+    await this.#refreshProjects()
+    return this.pairedRecords()
+  }
+
+  async #refreshProjects(): Promise<void> {
+    this.#projectIds = (await this.#deps.listProjects()).map((project) => project.id)
+  }
+
   state(): RemoteState {
     const gateway = this.#gateway
     const clientUrl = this.#deps.clientOrigin()
@@ -325,7 +337,7 @@ export class RemoteService {
   approve(
     invitationId: string,
     confirmationCode: string,
-    projectIds: readonly string[],
+    projectIds: readonly string[] = [],
     allowTerminal = false,
   ): RemoteState {
     const gateway = this.#gateway
@@ -365,7 +377,7 @@ export class RemoteService {
   ): RemoteState {
     if (!this.#pairing.updateGrants(deviceId, projectIds, allowTerminal))
       throw new Error(`no paired device ${deviceId}`)
-    return this.state()
+    return this.#changed()
   }
 
   #pendingInvitation(): RemoteState['pending'] {
@@ -400,6 +412,7 @@ export class RemoteService {
       deviceId: device.deviceId,
       displayName: device.displayName,
       projectIds: [...device.projectIds],
+      allProjects: device.allProjects === true,
       pairedAt: device.pairedAt,
       lastSeenAt: device.lastSeenAt,
       allowTerminal: device.allowTerminal === true,
@@ -422,6 +435,7 @@ export class RemoteService {
     return new PairingService({
       ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
       ...(restored === undefined ? {} : { restored }),
+      projectIds: () => this.#projectIds,
       persist: { save: (state) => this.#writePairing(state) },
       onChange: () => this.#changed(),
     })

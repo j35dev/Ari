@@ -61,6 +61,8 @@ export interface PairedDevice {
   deviceId: string
   displayName: string
   projectIds: string[]
+  /** Local device scope includes existing and future projects. Absent on legacy records. */
+  allProjects?: boolean
   pairedAt: number
   lastSeenAt: number | null
   allowTerminal?: boolean
@@ -113,6 +115,8 @@ interface Options {
   persist?: PairingPersistence
   /** Devices and revocations read back from disk at construction. */
   restored?: PersistedPairing
+  /** Current registered IDs, exposed as a compatibility view rather than an authorization limit. */
+  projectIds?: () => readonly string[]
   /**
    * Called whenever the pairing state a user would see has changed: a device
    * asked to pair, the user decided, a device was redeemed or revoked. The
@@ -144,6 +148,7 @@ export class PairingService {
   readonly #tokenTtlMs: number
   readonly #persist: PairingPersistence | undefined
   readonly #onChange: (() => void) | undefined
+  readonly #projectIds: (() => readonly string[]) | undefined
 
   constructor(options: Options = {}) {
     this.#now = options.now ?? (() => Date.now())
@@ -151,16 +156,20 @@ export class PairingService {
     this.#tokenTtlMs = options.tokenTtlMs ?? DEFAULT_TOKEN_TTL_MS
     this.#persist = options.persist
     this.#onChange = options.onChange
+    this.#projectIds = options.projectIds
     for (const device of options.restored?.devices ?? []) {
       if (isUsableP256Key(device.publicKey))
         this.#devices.set(device.deviceId, {
           ...device,
+          allProjects: true,
           allowTerminal: device.allowTerminal === true,
         })
     }
     for (const entry of options.restored?.revoked ?? []) {
       this.#revoked.set(entry.deviceId, entry.revokedAt)
+      this.#devices.delete(entry.deviceId)
     }
+    if (options.restored?.devices.some((device) => device.allProjects !== true)) this.#save()
   }
 
   /** This service's durable state, for a caller that owns the file. */
@@ -168,7 +177,7 @@ export class PairingService {
     return {
       devices: [...this.#devices.values()].map((device) => ({
         ...device,
-        projectIds: [...device.projectIds],
+        projectIds: [...this.#idsFor(device)],
         publicKey: { ...device.publicKey },
       })),
       revoked: [...this.#revoked.entries()].map(([deviceId, revokedAt]) => ({
@@ -289,7 +298,7 @@ export class PairingService {
   approve(
     invitationId: string,
     confirmationCode: string,
-    projectIds: readonly string[],
+    projectIds: readonly string[] = [],
     allowTerminal = false,
   ): PairingResult<object> {
     const invitation = this.#invitations.get(invitationId)
@@ -354,6 +363,7 @@ export class PairingService {
       deviceId: `dev_${randomUUID()}`,
       displayName: pending.displayName,
       projectIds: [...(invitation.projectIds ?? [])],
+      allProjects: true,
       publicKey: { ...pending.publicKey },
       pairedAt: this.#now(),
       lastSeenAt: null,
@@ -367,7 +377,7 @@ export class PairingService {
     this.#devices.set(device.deviceId, device)
     this.#save()
     this.#notify()
-    return { ok: true, device: publicDevice(device), token: this.#mintToken(device.deviceId) }
+    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(device.deviceId) }
   }
 
   /**
@@ -400,7 +410,7 @@ export class PairingService {
     if (!this.#proveKey({ deviceId }, device.publicKey, proof)) {
       return { ok: false, code: 'invalid_signature' }
     }
-    return { ok: true, device: publicDevice(device), token: this.#mintToken(deviceId) }
+    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(deviceId) }
   }
 
   /**
@@ -418,11 +428,11 @@ export class PairingService {
       return undefined
     }
     const device = this.#devices.get(entry.deviceId)
-    return device === undefined ? undefined : publicDevice(device)
+    return device === undefined ? undefined : this.#publicDevice(device)
   }
 
   devices(): PairedDevice[] {
-    return [...this.#devices.values()].map(publicDevice)
+    return [...this.#devices.values()].map((device) => this.#publicDevice(device))
   }
 
   /** Desktop-only association used to register explicitly managed pairings with Connect. */
@@ -446,14 +456,25 @@ export class PairingService {
     return true
   }
 
-  /** Replaces a paired device's grants; its tokens stay valid and carry the new grants. */
+  /** Changes terminal access; project IDs remain a legacy compatibility snapshot. */
   updateGrants(deviceId: string, projectIds: readonly string[], allowTerminal: boolean): boolean {
     const device = this.#devices.get(deviceId)
     if (device === undefined) return false
     device.projectIds = [...new Set(projectIds)]
+    device.allProjects = true
     device.allowTerminal = allowTerminal
     this.#save()
     return true
+  }
+
+  #idsFor(device: PersistedDevice): readonly string[] {
+    return device.allProjects === true && this.#projectIds !== undefined
+      ? this.#projectIds()
+      : device.projectIds
+  }
+
+  #publicDevice(device: PersistedDevice): PairedDevice {
+    return { ...publicDevice(device), projectIds: [...this.#idsFor(device)] }
   }
 
   touch(deviceId: string): void {
@@ -540,6 +561,7 @@ function publicDevice(device: PersistedDevice): PairedDevice {
     deviceId: device.deviceId,
     displayName: device.displayName,
     projectIds: [...device.projectIds],
+    allProjects: device.allProjects === true,
     pairedAt: device.pairedAt,
     lastSeenAt: device.lastSeenAt,
     allowTerminal: device.allowTerminal === true,
