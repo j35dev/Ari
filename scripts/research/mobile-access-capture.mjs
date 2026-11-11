@@ -63,6 +63,10 @@ window.__captureLoaded = true
   })
   await server.listen()
   const address = server.httpServer.address()
+  const origin = `http://127.0.0.1:${address.port}`
+  const preflight = await globalThis.fetch(`${origin}/`, { signal: globalThis.AbortSignal.timeout(20000) })
+  if (!preflight.ok) throw new Error(`Fixture server returned ${preflight.status}`)
+  process.stdout.write(JSON.stringify({ fixtureServer: origin, status: preflight.status }) + '\n')
   const profile = join(scratch, 'chrome-profile')
   browser = spawn('C:/Program Files/Google/Chrome/Application/chrome.exe', [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -89,6 +93,7 @@ window.__captureLoaded = true
     const request = pending.get(message.id)
     if (request) { pending.delete(message.id); clearTimeout(request.timeout); message.error ? request.reject(new Error(JSON.stringify(message.error))) : request.done(message.result) }
   })
+  socket.addEventListener('close', () => process.stdout.write('Fixture CDP connection closed\n'))
   const send = (method, params = {}) => new Promise((done, reject) => {
     const nextId = ++id
     const timeout = setTimeout(() => { pending.delete(nextId); reject(new Error(`CDP timeout: ${method}`)) }, 20000)
@@ -102,7 +107,8 @@ window.__captureLoaded = true
   for (const theme of ['obsidian', 'porcelain']) {
     for (const scenario of ['ready', 'repair', 'approval']) {
       const beforeErrors = errors.length
-      await send('Page.navigate', { url: `http://127.0.0.1:${address.port}/?state=${scenario}&theme=${theme}` })
+      process.stdout.write(JSON.stringify({ navigating: scenario, theme }) + '\n')
+      await send('Page.navigate', { url: `${origin}/?state=${scenario}&theme=${theme}` })
       let loaded = false
       for (let attempt = 0; attempt < 150; attempt++) {
         const result = await send('Runtime.evaluate', { expression: "window.__captureLoaded === true && document.querySelector('[role=\"switch\"]')?.getAttribute('aria-checked') === 'true'", returnByValue: true })
