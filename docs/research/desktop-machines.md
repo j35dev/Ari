@@ -14,3 +14,7 @@ and deterministic temporary browser fixtures. No saved settings, paired devices,
 running Ari, Tailscale configuration, pushes, or PRs are changed.
 
 Baseline and final results are recorded below when available.
+
+Baseline: SettingsWorkspace and NewSessionLauncher, 2 suites / 18 tests passed
+under the shared runner on 2026-11-11. Shared contracts/client commits consumed:
+`fa7dd3a9`, `6ffb3874d789344d6d847a808b7af2d3e52f4c87` (cherry-picked).

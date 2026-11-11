@@ -22,9 +22,14 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
     }
   }, [])
   useEffect(() => {
+    let alive = true
+    const unsubscribe = rpc.subscribe('machines.updates', {}, (raw) => {
+      const parsed = machineViewSchema.array().safeParse(raw)
+      if (alive && parsed.success) setMachines(parsed.data)
+    })
     void refresh()
     const timer = setInterval(() => void refresh(), 15_000)
-    return () => clearInterval(timer)
+    return () => { alive = false; unsubscribe(); clearInterval(timer) }
   }, [refresh])
   return <Context.Provider value={{ machines, error, refresh }}>{children}</Context.Provider>
 }
@@ -32,5 +37,5 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
 export const useMachines = () => useContext(Context)
 
 export function machineCan(machine: MachineView, op: string): boolean {
-  return machine.status === 'connected' && machine.identity?.capabilities.includes(op as never) === true
+  return machine.status === 'connected' && machine.identity?.capabilities.includes(op) === true
 }

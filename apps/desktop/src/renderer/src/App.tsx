@@ -106,6 +106,10 @@ import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { useSessionStart } from './shell/use-session-start'
 import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { MachinesProvider, useMachines } from './features/machines/use-machines'
+import { RemoteMachineGroups } from './features/machines/RemoteMachineGroups'
+import { MachineChooser } from './features/machines/MachineChooser'
+import { RemoteWorkspace, type RemoteTarget } from './features/machines/RemoteWorkspace'
 import {
   applyPatches,
   dropSettled,
@@ -156,6 +160,11 @@ export interface SessionDefaults {
 }
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
+  const { machines } = useMachines()
+  const [remoteTarget, setRemoteTarget] = useState<RemoteTarget | null>(null)
+  const remoteTargetRef = useRef(remoteTarget)
+  remoteTargetRef.current = remoteTarget
+  const [localSessionChosen, setLocalSessionChosen] = useState(false)
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
@@ -222,10 +231,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
   const panesVisible =
-    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
+    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null && fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
-  const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
+  const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null
   const [composerFocusRequest, setComposerFocusRequest] = useState<{
     sessionId: string
     intent: SessionStartIntent
@@ -273,7 +282,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const mountedSpaces = spaceStore.spaces
     .filter((space) => nextRecentSpaceIds.includes(space.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-  const workspaceToolOpen = settingsOpen || hubOpen
+  const workspaceToolOpen = settingsOpen || hubOpen || remoteTarget !== null
   // Where the keyboard was in the workspace, so leaving Settings or the hub
   // hands it back instead of dropping it on the page.
   const lastWorkspaceFocusRef = useRef<HTMLElement | null>(null)
@@ -363,6 +372,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * shortcut fires, the state changes, and the user sees nothing at all.
    */
   const leaveWorkspaceTool = useCallback(() => {
+    setRemoteTarget(null)
     setSettingsOpen(false)
     setHubOpen(false)
   }, [])
@@ -482,6 +492,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
+      if (remoteTargetRef.current !== null) return
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         toggleSidebar()
@@ -895,6 +906,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
+      if (remoteTargetRef.current !== null) {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+          e.preventDefault()
+          setRemoteTarget((target) => target ? { ...target, sessionId: null } : target)
+        }
+        return
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
@@ -1075,14 +1093,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
-      if (projects.length === 0) {
+      if (projects.length === 0 && machines.length === 0) {
         sessionStart.pickProject(overrides, intent)
         return
       }
       intent?.dispose() // The chooser owns the next explicit pick and its focus.
+      setLocalSessionChosen(false)
       setNewSessionRequest({ anchor, overrides })
     },
-    [projects.length, sessionStart.canStart, sessionStart.pickProject],
+    [projects.length, machines.length, sessionStart.canStart, sessionStart.pickProject],
   )
 
   /**
@@ -1219,6 +1238,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       return true
     },
     apply: (target) => {
+      setRemoteTarget(null)
       navigationGeneration.current += 1
       setGalleryOpen(false)
       if (target.view === 'session' || target.view === 'aria')
@@ -1295,7 +1315,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
-      <Titlebar
+      {remoteTarget !== null ? <Titlebar minimal /> : <Titlebar
         activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         changeCount={changeSummary.summary?.changedFiles ?? null}
@@ -1312,7 +1332,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         }
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
-      />
+      />}
       {/* Settings and the hub cover the workspace rather than replace it: the
           sidebar, sessions and terminals stay mounted underneath, so going
           back is instant and nothing replays. */}
@@ -1321,6 +1341,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           section={settingsSection}
           onSectionChange={setSettingsSection}
           onBack={() => setSettingsOpen(false)}
+          onOpenMachine={(machineId) => { setSettingsOpen(false); setHubOpen(false); setRemoteTarget({ machineId, sessionId: null }) }}
           onOpenSetup={onOpenSetup}
           workspacePath={sessionWorkspace?.path ?? null}
           onOpenTerminal={() => {
@@ -1336,6 +1357,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onBack={() => setHubOpen(false)}
         />
       ) : null}
+      {remoteTarget !== null && !settingsOpen && !hubOpen && <RemoteWorkspace target={remoteTarget} onSelect={(machineId, sessionId) => { setPaletteOpen(false); setSearchOpen(false); setRemoteTarget({ machineId, sessionId }) }} onBack={() => setRemoteTarget(null)} onManage={() => { setSettingsSection('machines'); setSettingsOpen(true) }} />}
       <div
         className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
         hidden={workspaceToolOpen}
@@ -1454,6 +1476,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   })()
                 }}
               />
+              <RemoteMachineGroups onOpen={(machineId, sessionId) => { setRemoteTarget({ machineId, sessionId }); setPaletteOpen(false); setSearchOpen(false) }} onManage={() => { setSettingsSection('machines'); setSettingsOpen(true) }} query={sidebarQuery} />
             </motion.aside>
           ) : null}
         </AnimatePresence>
@@ -1637,7 +1660,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   sessionId={sessionId}
                                   onOpenAria={() => openAria()}
                                   startedByAria={ariaStartedIds.has(sessionId)}
-                                  hidden={hidden}
+                                  hidden={hidden || remoteTarget !== null}
                                   onComposerReady={
                                     composerFocusRequest?.sessionId === sessionId &&
                                     composerFocusRequest.intent.scope.spaceId === space.id &&
@@ -1795,19 +1818,20 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         />
       ) : null}
       <CommandPalette
-        open={paletteOpen}
+        open={paletteOpen && remoteTarget === null}
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
       <ContentSearchOverlay
-        open={searchOpen}
+        open={searchOpen && remoteTarget === null}
         onClose={() => setSearchOpen(false)}
         root={activeProjectPath}
         scope={activeScope}
       />
-      {setupCovered ? null : <KeyboardCheatSheet />}
+      {setupCovered || remoteTarget !== null ? null : <KeyboardCheatSheet />}
+      {newSessionRequest !== null && machines.length > 0 && !localSessionChosen && <MachineChooser machines={machines} onClose={closeNewSessionMenu} onChoose={(machineId) => { if (machineId === null) setLocalSessionChosen(true); else { closeNewSessionMenu(); setSettingsOpen(false); setHubOpen(false); setRemoteTarget({ machineId, sessionId: null }) } }} />}
       <NewSessionLauncher
-        open={newSessionRequest !== null}
+        open={newSessionRequest !== null && (machines.length === 0 || localSessionChosen)}
         projects={projects}
         sessions={sessions}
         preferredProjectId={activeSession?.projectId ?? null}
@@ -1828,8 +1852,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <ThemeProvider persistence={themePersistence}>
       <RendererMotion>
         <ToastProvider>
+          <MachinesProvider>
           <UpdateToastWatcher />
           {children}
+          </MachinesProvider>
         </ToastProvider>
       </RendererMotion>
     </ThemeProvider>

@@ -110,6 +110,11 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'discord rich presence playing activity profile status friends',
   },
   {
+    section: 'settings-machines',
+    label: 'Machines',
+    keywords: 'computer computers remote host tailnet tailscale pairing code discover reconnect offline terminal workstation',
+  },
+  {
     section: 'settings-remote',
     label: 'Mobile access',
     keywords: 'phone mobile remote gateway pair qr pairing device revoke invitation serve connect',
