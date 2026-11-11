@@ -1,4 +1,5 @@
 // Capture-only adapter. No production entry imports this module.
+/* eslint-disable @typescript-eslint/require-await -- Local synthetic responses. */
 const params = new URLSearchParams(location.search)
 export const view = params.get('view') ?? 'home'
 const now = Date.parse('2026-11-11T09:00:00Z')
