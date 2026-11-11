@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RemoteSession } from './RemoteSession'
 import { machineFixture, snapshotFixture, catalogFixture } from './fixtures.test-support'
 import { readRemoteDraft } from './remote-drafts'
+import { readReceipt } from './remote-client'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn(), dispose: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke: mocks.invoke, subscribe: mocks.subscribe } }))
@@ -245,5 +246,43 @@ describe('RemoteSession', () => {
     await act(async () => complete(reply(snapshotFixture('same-session', 'Late data from old host'))))
     expect(screen.queryByText('Late data from old host')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prompt on Build computer' })).toBeInTheDocument()
+  })
+  it('opens a fork using the real wire sessionId result on the same host', async () => {
+    const user = userEvent.setup(); const open = vi.fn()
+    const original = mocks.invoke.getMockImplementation()!
+    mocks.invoke.mockImplementation(async (method, params) => params.command?.op === 'session.fork' ? reply({ sessionId: 'forked-on-host' }) : original(method, params))
+    render(<RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />)
+    await screen.findByText('Hello from the host')
+    await user.click(screen.getByRole('button', { name: 'Details', exact: true }))
+    await user.type(screen.getByRole('textbox', { name: 'Fork name' }), 'Host fork')
+    await user.click(screen.getByRole('button', { name: 'Fork on host' }))
+    await waitFor(() => expect(open).toHaveBeenCalledWith('forked-on-host'))
+    expect(mocks.invoke.mock.calls.find(([, params]) => params.command?.op === 'session.fork')?.[1]).toMatchObject({ machineId: 'host-a', command: { sessionId: 'same-session', title: 'Host fork' } })
+  })
+  it('stores uncertain child interruption under the child scope and links to its reconciliation', async () => {
+    const user = userEvent.setup(); const open = vi.fn()
+    const parent = snapshotFixture()
+    parent.tasks = [{ sessionId: 'child-session', parentSessionId: 'same-session', title: 'Build agent', role: 'implementation', driverKind: 'codex', modelId: 'gpt-6.1-sol', workState: 'working', blockedOn: null, queuedMessages: 0, latestTurn: null, report: null, reportTruncated: false, delivered: null, usage: { inputTokens: 0, outputTokens: 0, costUsd: null }, workspaceKind: 'project', branch: null }]
+    const original = mocks.invoke.getMockImplementation()!
+    mocks.invoke.mockImplementation(async (method, params) => {
+      if (params.command?.op === 'session.interrupt') return { ok: false, error: { code: 'internal_error', message: 'Unknown child stop outcome' } }
+      if (params.query?.op === 'session.get') return reply(params.query.sessionId === 'same-session' ? parent : snapshotFixture('child-session'))
+      if (params.query?.op === 'command.status') return reply({ ok: true, result: { accepted: true } })
+      return original(method, params)
+    })
+    const { rerender } = render(<RemoteSession key="parent" machine={machineFixture()} sessionId="same-session" onOpenSession={open} />)
+    await screen.findByText('Build agent')
+    await user.click(screen.getByRole('button', { name: 'Stop agent' }))
+    await screen.findByRole('button', { name: 'Open affected agent' })
+    expect(readReceipt('host-a', 'same-session')).toBeNull()
+    const saved = readReceipt('host-a', 'child-session')!
+    expect(saved.command).toMatchObject({ op: 'session.interrupt', sessionId: 'child-session' })
+    await user.click(screen.getByRole('button', { name: 'Open affected agent' }))
+    expect(open).toHaveBeenCalledWith('child-session')
+    rerender(<RemoteSession key="child" machine={machineFixture()} sessionId="child-session" onOpenSession={open} />)
+    await screen.findByText('Hello from the host')
+    await user.click(screen.getByRole('button', { name: 'Check receipt' }))
+    await waitFor(() => expect(readReceipt('host-a', 'child-session')).toBeNull())
+    expect(mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
   })
 })

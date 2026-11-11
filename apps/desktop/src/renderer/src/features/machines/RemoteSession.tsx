@@ -30,7 +30,7 @@ import { RemoteTerminal } from './RemoteTerminal'
 import { RemoteConfiguration, useRemoteCatalog, type RemoteSelection } from './RemoteConfiguration'
 
 const stagedSchema = z.object({ attachments: attachmentRefSchema.array() })
-const forkedSchema = z.object({ child: z.object({ id: z.string().min(1) }) })
+const forkedSchema = z.object({ sessionId: z.string().min(1) })
 
 export function RemoteSession({
   machine,
@@ -149,7 +149,7 @@ export function RemoteSession({
       })
       setComposerEpoch((value) => value + 1)
     }
-    if (action.op === 'session.fork') onOpenSession(forkedSchema.parse(result).child.id)
+    if (action.op === 'session.fork') onOpenSession(forkedSchema.parse(result).sessionId)
   }
   async function act(action: RemoteAction): Promise<void> {
     if (!alive.current || busy || !machineCan(machineRef.current, action.op))
@@ -275,6 +275,7 @@ export function RemoteSession({
             saved.
           </p>
           <div className="mt-2 flex gap-2">
+            {'sessionId' in pending.command && pending.command.sessionId !== sessionId && <Button size="sm" onClick={() => onOpenSession(pending.command.sessionId)}>Open affected agent</Button>}
             <Button
               size="sm"
               disabled={busy || machine.status !== 'connected'}
@@ -346,6 +347,7 @@ export function RemoteSession({
                       <span className="text-xs text-fg-muted">
                         {task.workState.replaceAll('_', ' ')}
                       </span>
+                      {readReceipt(machine.id, task.sessionId) && <Button size="sm" onClick={() => onOpenSession(task.sessionId)}>Check agent action</Button>}
                       <Button
                         size="sm"
                         className="ml-auto"
