@@ -186,7 +186,7 @@ function ScopedReview({
               : loading
                 ? 'Reading repository…'
                 : 'Repository unavailable'}{' '}
-            · {scope.sessionId ? 'session' : 'project'}
+            · {context?.workspace?.kind === 'managed-worktree' ? 'worktree' : scope.sessionId ? 'session' : 'project'}
             {context?.status.ahead ? (
               <span title="Commits ahead of upstream">↑{context.status.ahead}</span>
             ) : null}
@@ -194,6 +194,9 @@ function ScopedReview({
               <span title="Commits behind upstream">↓{context.status.behind}</span>
             ) : null}
           </p>
+          {context?.workspace?.kind === 'managed-worktree' ? (
+            <p className="max-w-72 truncate font-mono text-2xs text-fg-subtle" title={context.workspace.path}>{context.workspace.path}</p>
+          ) : null}
         </div>
         <div className="flex-1" />
         <Select

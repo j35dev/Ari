@@ -234,6 +234,7 @@ const PENDING_SEQ = Number.MAX_SAFE_INTEGER
  */
 export class Engine {
   readonly #commands = new Map<string, Promise<unknown>>()
+  #admission: Promise<unknown> = Promise.resolve()
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #liveTurnListeners = new Set<(sessionId: string) => void>()
@@ -507,7 +508,14 @@ export class Engine {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
-    return this.#chain(id, () => this.#dispatch(command, origin))
+    return this.#chain(id, () => this.#admit(() => this.#dispatch(command, origin)))
+  }
+
+  /** Check and persist admission atomically across roots; provider execution stays parallel. */
+  #admit<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.#admission.catch(() => undefined).then(fn)
+    this.#admission = result
+    return result
   }
 
   /** Serializes work per root session tree: commands and queue drains share one chain. */
@@ -630,7 +638,7 @@ export class Engine {
           this.#turnTasks.delete(command.sessionId)
           if (this.#executingTurnIds.get(command.sessionId) === ids.turnId)
             this.#executingTurnIds.delete(command.sessionId)
-          this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
+          this.#retryCapacityBlockedQueues()
         }
       })
     }
@@ -1541,7 +1549,7 @@ export class Engine {
   /** Queues a serialized queue-drain; fire-and-forget, never rejects. */
   #scheduleQueueDrain(sessionId: string, rootSessionId: string | null): void {
     const id = rootSessionId ?? sessionId
-    void this.#chain(id, () => this.#drainQueue(sessionId)).catch((e) => {
+    void this.#chain(id, () => this.#admit(() => this.#drainQueue(sessionId))).catch((e) => {
       log.error('queued-turn drain failed', { error: String(e) })
     })
   }
@@ -1558,12 +1566,12 @@ export class Engine {
     }
   }
 
-  /** Retries queues that were held only by root-level concurrency capacity. */
-  #retryCapacityBlockedQueues(rootId: string): void {
-    const blocked = this.#capacityBlockedQueues.get(rootId)
-    if (!blocked) return
-    this.#capacityBlockedQueues.delete(rootId)
-    for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
+  /** A released folder can unblock a different root's queue. */
+  #retryCapacityBlockedQueues(): void {
+    const waiting = [...this.#capacityBlockedQueues]
+    this.#capacityBlockedQueues.clear()
+    for (const [rootId, blocked] of waiting)
+      for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
   }
 
   /**
@@ -1652,7 +1660,7 @@ export class Engine {
     void task.then(() => {
       if (this.#turnTasks.get(sessionId) === task) {
         this.#turnTasks.delete(sessionId)
-        this.#retryCapacityBlockedQueues(session.rootSessionId ?? session.id)
+        this.#retryCapacityBlockedQueues()
       }
     })
 

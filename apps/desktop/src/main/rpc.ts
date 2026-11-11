@@ -1246,6 +1246,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const sessionDeps: SessionCreateDeps = {
     loadProject,
     createSession: (session) => engine.createSession(session),
+    prepareRootWorkspace: async (session, mode) =>
+      (await controlReady).prepareRootWorkspace(session, mode),
   }
   // An archive follows a session's delegated children, and archived runs lose
   // their control grants.
