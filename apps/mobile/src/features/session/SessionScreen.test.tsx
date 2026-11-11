@@ -197,13 +197,13 @@ describe('computer ownership of an open workspace', () => {
     sessionStorage.setItem(`ari.draft:${original}:phone:sess_1`, 'First computer draft')
     sessionStorage.setItem(`ari.draft:${next}:phone:sess_1`, 'Second computer draft')
     const { rerender } = render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
-    expect((await screen.findByRole('textbox', { name: 'Message the agent' }) as HTMLTextAreaElement).value).toBe('First computer draft')
+    expect((await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' })).value).toBe('First computer draft')
     const query = app.session.query
     app.origin = next
     app.session.query = vi.fn().mockResolvedValue({ ...snapshot, summary: { ...snapshot.summary, title: 'Second computer session' } })
     rerender(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
     expect(await screen.findByRole('heading', { name: 'Second computer session' })).toBeTruthy()
-    expect((screen.getByRole('textbox', { name: 'Message the agent' }) as HTMLTextAreaElement).value).toBe('Second computer draft')
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' }).value).toBe('Second computer draft')
     expect(sessionStorage.getItem(`ari.draft:${original}:phone:sess_1`)).toBe('First computer draft')
     app.origin = original
     app.session.query = query

@@ -95,7 +95,7 @@ try {
       }
       if (view === 'changes') await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.getAttribute("aria-label") === "Changes" || b.textContent.trim() === "Changes")?.click()')
       if (view === 'computers' || view === 'computer-add') {
-        await evaluate('document.querySelector("button[aria-label^=\"Switch computer:\"]")?.click()')
+        await evaluate(`document.querySelector('button[aria-label^="Switch computer:"]')?.click()`)
         await pause(100)
         if (view === 'computer-add') await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Add computer")?.click()')
       }
