@@ -1,8 +1,12 @@
 // Run only through the shared heavy runner. Uses the system Chrome and a fresh D: profile.
 import { spawn } from 'node:child_process'
+import { Buffer } from 'node:buffer'
+import process from 'node:process'
+import { setTimeout, clearTimeout } from 'node:timers'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+const { fetch, WebSocket } = globalThis
 
 const stage = process.argv[2]
 if (!['before', 'after'].includes(stage)) throw new Error('Expected before or after')
