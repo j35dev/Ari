@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { clearTimeout, setTimeout } from 'node:timers'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 if (!root.startsWith('D:\\') && !root.startsWith('D:/')) throw new Error('Capture must run on D:')
@@ -68,10 +69,10 @@ window.__captureLoaded = true
     catch { await delay(100) }
   }
   if (!port) throw new Error('Temporary Chrome profile did not start')
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+  const targets = await (await globalThis.fetch(`http://127.0.0.1:${port}/json/list`)).json()
   const target = targets.find((entry) => entry.type === 'page')
   if (!target) throw new Error('No fixture browser target')
-  socket = new WebSocket(target.webSocketDebuggerUrl)
+  socket = new globalThis.WebSocket(target.webSocketDebuggerUrl)
   await new Promise((done, reject) => { socket.addEventListener('open', done, { once: true }); socket.addEventListener('error', reject, { once: true }) })
   let id = 0
   const pending = new Map()
