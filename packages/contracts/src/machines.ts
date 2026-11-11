@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { remoteCommandEnvelopeSchema, remoteQuerySchema, remoteServerMessageSchema } from './remote'
+import { remoteCommandEnvelopeSchema, remoteQuerySchema, remoteServerMessageSchema, remoteErrorCodeSchema } from './remote'
 import type { RemoteServerMessage } from './remote'
 
 /** Public host identity. No paths, inventories or authentication material. */
@@ -45,6 +45,17 @@ export const machineDiscoverySchema = z.object({
   identity: machineIdentitySchema,
 })
 export type MachineDiscovery = z.infer<typeof machineDiscoverySchema>
+/** Named failures survive Electron IPC; unknown IPC failures remain uncertain. */
+export const machineFailureSchema = z.object({
+  code: z.union([remoteErrorCodeSchema, z.enum(['unreachable', 'pairing_denied'])]),
+  message: z.string(),
+}).strict()
+export type MachineFailure = z.infer<typeof machineFailureSchema>
+export const machineOperationResultSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
+  z.object({ ok: z.literal(false), error: machineFailureSchema }).strict(),
+])
+export type MachineOperationResult = z.infer<typeof machineOperationResultSchema>
 const machineRef = z.object({ machineId: z.string().min(1).max(200) }).strict()
 export const machinesRpcParams = {
   'machines.list': z.undefined(),
@@ -67,8 +78,8 @@ export interface MachinesRpcResults {
   'machines.connect': MachineView
   'machines.rename': MachineView
   'machines.remove': { removed: boolean }
-  'machines.query': unknown
-  'machines.command': unknown
+  'machines.query': MachineOperationResult
+  'machines.command': MachineOperationResult
 }
 export const machineEventsParamsSchema = machineRef.extend({
   sessionId: z.string().min(1).max(200),
