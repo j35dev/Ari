@@ -13,7 +13,11 @@ import { App } from './App'
 import { Composer } from './features/composer/Composer'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { activeSessionOf } from './features/split/split-layout'
-import { machineFixture, snapshotFixture, catalogFixture } from './features/machines/fixtures.test-support'
+import {
+  machineFixture,
+  snapshotFixture,
+  catalogFixture,
+} from './features/machines/fixtures.test-support'
 import { dropDraftTextMemory } from './features/composer/use-drafts'
 import {
   dropDraftIntentMemory,
@@ -142,8 +146,10 @@ it('keeps remote workspace actions and keyboard shortcuts away from local dispat
     if (method === 'machines.query') {
       const request = params as { query: { op: string } }
       if (request.query.op === 'session.get') return { ok: true, result: snapshotFixture() }
-      if (request.query.op === 'project.list') return { ok: true, result: [{ id: 'same-project', name: 'Host project', sessionCount: 1 }] }
-      if (request.query.op === 'session.list') return { ok: true, result: [snapshotFixture().summary] }
+      if (request.query.op === 'project.list')
+        return { ok: true, result: [{ id: 'same-project', name: 'Host project', sessionCount: 1 }] }
+      if (request.query.op === 'session.list')
+        return { ok: true, result: [snapshotFixture().summary] }
       if (request.query.op === 'models.list') return { ok: true, result: catalogFixture }
     }
     return base(method, params)
@@ -156,8 +162,26 @@ it('keeps remote workspace actions and keyboard shortcuts away from local dispat
   fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
   expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }))
-  await waitFor(() => expect(invoke.mock.calls.some(([method, params]) => method === 'machines.command' && params.machineId === 'host-a' && params.command.op === 'session.interrupt')).toBe(true))
-  expect(invoke.mock.calls.slice(previous).some(([method]) => method === 'command.dispatch' || method.startsWith('fs.') || method.startsWith('terminal.'))).toBe(false)
+  await waitFor(() =>
+    expect(
+      invoke.mock.calls.some(
+        ([method, params]) =>
+          method === 'machines.command' &&
+          params.machineId === 'host-a' &&
+          params.command.op === 'session.interrupt',
+      ),
+    ).toBe(true),
+  )
+  expect(
+    invoke.mock.calls
+      .slice(previous)
+      .some(
+        ([method]) =>
+          method === 'command.dispatch' ||
+          method.startsWith('fs.') ||
+          method.startsWith('terminal.'),
+      ),
+  ).toBe(false)
   fireEvent.keyDown(window, { ctrlKey: true, key: 'n' })
   await screen.findByRole('heading', { name: 'New session on Studio computer' })
 })

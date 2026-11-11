@@ -21,9 +21,17 @@ const receiptSchema = z.object({
 })
 export type RemoteReceipt = z.infer<typeof receiptSchema>
 const PRE_DISPATCH_REFUSALS = new Set([
-  'unauthenticated', 'authentication_expired', 'access_revoked', 'origin_not_allowed',
-  'unsupported_version', 'unsupported_capability', 'rate_limited', 'invalid_signature',
-  'invitation_expired', 'invitation_used', 'pairing_denied',
+  'unauthenticated',
+  'authentication_expired',
+  'access_revoked',
+  'origin_not_allowed',
+  'unsupported_version',
+  'unsupported_capability',
+  'rate_limited',
+  'invalid_signature',
+  'invitation_expired',
+  'invitation_used',
+  'pairing_denied',
 ])
 class RefusedCommand extends Error {}
 
@@ -38,7 +46,8 @@ export function readReceipt(machineId: string, scope: string): RemoteReceipt | n
   if (raw === null) return null
   try {
     const receipt = receiptSchema.parse(JSON.parse(raw))
-    if (receipt.machineId !== machineId || receipt.scope !== scope) throw new Error('Wrong receipt scope')
+    if (receipt.machineId !== machineId || receipt.scope !== scope)
+      throw new Error('Wrong receipt scope')
     assertScope(scope, receipt.command)
     return receipt
   } catch {
@@ -55,10 +64,12 @@ function clearReceipt(machineId: string, scope: string): void {
 /** Only allowlisted machine RPCs cross this boundary. No local fallback exists. */
 export async function remoteQuery(machineId: string, query: RemoteQuery): Promise<unknown> {
   return resultOf(
-    machineOperationResultSchema.parse(await rpc.invoke('machines.query', {
-      machineId,
-      query: remoteQuerySchema.parse(query),
-    })),
+    machineOperationResultSchema.parse(
+      await rpc.invoke('machines.query', {
+        machineId,
+        query: remoteQuerySchema.parse(query),
+      }),
+    ),
   )
 }
 
@@ -109,10 +120,12 @@ export async function sendRemote(
 async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
   try {
     const result = resultOf(
-      machineOperationResultSchema.parse(await rpc.invoke('machines.command', {
-        machineId: receipt.machineId,
-        command: receipt.command,
-      })),
+      machineOperationResultSchema.parse(
+        await rpc.invoke('machines.command', {
+          machineId: receipt.machineId,
+          command: receipt.command,
+        }),
+      ),
     )
     validateCommandResult(receipt.command, result)
     clearReceipt(receipt.machineId, receipt.scope)
@@ -121,14 +134,25 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
     // Execution/persistence failures and in-flight conflicts can follow a side effect.
     // Only a gateway guard refusal or an explicit accepted:false result proves non-dispatch.
     const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : null
-    if (error instanceof RefusedCommand || (typeof code === 'string' && PRE_DISPATCH_REFUSALS.has(code))) clearReceipt(receipt.machineId, receipt.scope)
+    if (
+      error instanceof RefusedCommand ||
+      (typeof code === 'string' && PRE_DISPATCH_REFUSALS.has(code))
+    )
+      clearReceipt(receipt.machineId, receipt.scope)
     throw error
   }
 }
 
 function assertScope(scope: string, action: RemoteAction): void {
   if ('sessionId' in action) {
-    if (![action.sessionId, `terminal:${action.sessionId}`, `terminal-close:${action.sessionId}`].includes(scope)) throw new Error('The command belongs to another session.')
+    if (
+      ![
+        action.sessionId,
+        `terminal:${action.sessionId}`,
+        `terminal-close:${action.sessionId}`,
+      ].includes(scope)
+    )
+      throw new Error('The command belongs to another session.')
   } else if (action.op === 'session.create' && scope !== 'new-session') {
     throw new Error('Session creation belongs to the selected host’s creation draft.')
   }
@@ -151,7 +175,10 @@ export async function resolveReceipt(
     clearReceipt(machineId, scope)
     return result
   } catch (error) {
-    if (error instanceof RefusedCommand) { clearReceipt(machineId, scope); throw error }
+    if (error instanceof RefusedCommand) {
+      clearReceipt(machineId, scope)
+      throw error
+    }
     if (!(
       error !== null &&
       typeof error === 'object' &&
@@ -168,12 +195,16 @@ export async function resolveReceipt(
 }
 
 function validateCommandResult(command: RemoteCommand, result: unknown): void {
-  const decision = z.object({ accepted: z.boolean(), reason: z.string().nullish() }).safeParse(result)
-  if (decision.success && !decision.data.accepted) throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
+  const decision = z
+    .object({ accepted: z.boolean(), reason: z.string().nullish() })
+    .safeParse(result)
+  if (decision.success && !decision.data.accepted)
+    throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
   if (command.op === 'session.create') z.object({ sessionId: z.string().min(1) }).parse(result)
   if (command.op === 'session.fork') z.object({ sessionId: z.string().min(1) }).parse(result)
   if (command.op === 'terminal.create') z.object({ terminalId: z.string().min(1) }).parse(result)
-  if (command.op === 'attachments.stage') z.object({ attachments: attachmentRefSchema.array() }).parse(result)
+  if (command.op === 'attachments.stage')
+    z.object({ attachments: attachmentRefSchema.array() }).parse(result)
 }
 
 export function messageOf(error: unknown): string {

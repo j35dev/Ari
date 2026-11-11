@@ -22,7 +22,9 @@ export const SELECT_CLASS =
 
 const catalogCache = new Map<string, RemoteModelCatalog>()
 export function useRemoteCatalog(machine: MachineView) {
-  const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(() => catalogCache.get(machine.id) ?? null)
+  const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(
+    () => catalogCache.get(machine.id) ?? null,
+  )
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
@@ -30,9 +32,9 @@ export function useRemoteCatalog(machine: MachineView) {
       void remoteQuery(machine.id, { op: 'models.list' })
         .then((result) => {
           if (alive) {
-          const next = remoteModelCatalogSchema.parse(result)
-          catalogCache.set(machine.id, next)
-          setCatalog(next)
+            const next = remoteModelCatalogSchema.parse(result)
+            catalogCache.set(machine.id, next)
+            setCatalog(next)
             setError(null)
           }
         })

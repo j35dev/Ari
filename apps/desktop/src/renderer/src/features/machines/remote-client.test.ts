@@ -82,26 +82,53 @@ describe('remote host ownership and receipts', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
   it('retains structured unreachable failures and unwraps nested recorded outcomes', async () => {
-    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'unreachable', message: 'Host offline' } })
-    await expect(sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'same', text: 'hello' })).rejects.toThrow('Host offline')
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'unreachable', message: 'Host offline' },
+    })
+    await expect(
+      sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'same', text: 'hello' }),
+    ).rejects.toThrow('Host offline')
     expect(readReceipt('host-a', 'same')).not.toBeNull()
     invoke.mockResolvedValueOnce({ ok: true, result: { ok: true, result: { accepted: true } } })
     expect(await resolveReceipt('host-a', 'same')).toEqual({ accepted: true })
     expect(readReceipt('host-a', 'same')).toBeNull()
   })
   it('rejects a saved command bound to another session and retains malformed creation outcomes', async () => {
-    await expect(sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'different', text: 'hello' })).rejects.toThrow('another session')
+    await expect(
+      sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'different', text: 'hello' }),
+    ).rejects.toThrow('another session')
     expect(invoke).not.toHaveBeenCalled()
     invoke.mockResolvedValueOnce({ ok: true, result: { wrong: 'shape' } })
-    await expect(sendRemote('host-a', 'new-session', { op: 'session.create', projectId: 'host-project' })).rejects.toThrow()
+    await expect(
+      sendRemote('host-a', 'new-session', { op: 'session.create', projectId: 'host-project' }),
+    ).rejects.toThrow()
     expect(readReceipt('host-a', 'new-session')).not.toBeNull()
   })
   it('retains a receipt when an accepted command is followed by a named internal error', async () => {
     let executions = 0
-    invoke.mockImplementationOnce(async () => { executions++; return { ok: false, error: { code: 'internal_error', message: 'Completion receipt persistence failed' } } })
-    await expect(sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'same', text: 'accepted once' })).rejects.toThrow('persistence failed')
+    invoke.mockImplementationOnce(async () => {
+      executions++
+      return {
+        ok: false,
+        error: { code: 'internal_error', message: 'Completion receipt persistence failed' },
+      }
+    })
+    await expect(
+      sendRemote('host-a', 'same', {
+        op: 'session.prompt',
+        sessionId: 'same',
+        text: 'accepted once',
+      }),
+    ).rejects.toThrow('persistence failed')
     const saved = readReceipt('host-a', 'same')!
-    await expect(sendRemote('host-a', 'same', { op: 'session.prompt', sessionId: 'same', text: 'accepted once' })).rejects.toThrow('Check the unconfirmed')
+    await expect(
+      sendRemote('host-a', 'same', {
+        op: 'session.prompt',
+        sessionId: 'same',
+        text: 'accepted once',
+      }),
+    ).rejects.toThrow('Check the unconfirmed')
     invoke.mockResolvedValueOnce({ ok: true, result: { ok: true, result: { accepted: true } } })
     await resolveReceipt('host-a', 'same', true)
     expect(executions).toBe(1)
@@ -110,10 +137,18 @@ describe('remote host ownership and receipts', () => {
     expect(readReceipt('host-a', 'same')).toBeNull()
   })
   it('retains in-flight conflicts through reconciliation and does not resend even on explicit retry', async () => {
-    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'conflict', message: 'Still running' } })
-    await expect(sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' })).rejects.toThrow('Still running')
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'conflict', message: 'Still running' },
+    })
+    await expect(
+      sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' }),
+    ).rejects.toThrow('Still running')
     const saved = readReceipt('host-a', 'same')!
-    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'conflict', message: 'Still running' } })
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'conflict', message: 'Still running' },
+    })
     await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow('Still running')
     expect(readReceipt('host-a', 'same')).toEqual(saved)
     expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)

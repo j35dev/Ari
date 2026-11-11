@@ -7,11 +7,7 @@ import type { MachineView } from '@ari/contracts/machines'
 import { useMachines, machineCan } from './use-machines'
 import { RemoteMachineGroups, useMachineInventory } from './RemoteMachineGroups'
 import { messageOf, readReceipt, resolveReceipt, sendRemote } from './remote-client'
-import {
-  RemoteConfiguration,
-  SELECT_CLASS,
-  useRemoteCatalog,
-} from './RemoteConfiguration'
+import { RemoteConfiguration, SELECT_CLASS, useRemoteCatalog } from './RemoteConfiguration'
 import { RemoteSession } from './RemoteSession'
 import { readCreationDraft, writeCreationDraft, type RemoteCreationDraft } from './remote-drafts'
 import { ErrorBoundary } from '../../shell/ErrorBoundary'
@@ -81,18 +77,25 @@ export function RemoteWorkspace({
               </div>
             )}
             {target.sessionId ? (
-              <ErrorBoundary key={JSON.stringify([machine.id, target.sessionId])} label="Remote session"><RemoteSession
+              <ErrorBoundary
                 key={JSON.stringify([machine.id, target.sessionId])}
-                machine={machine}
-                sessionId={target.sessionId}
-                onOpenSession={(id) => onSelect(machine.id, id)}
-              /></ErrorBoundary>
+                label="Remote session"
+              >
+                <RemoteSession
+                  key={JSON.stringify([machine.id, target.sessionId])}
+                  machine={machine}
+                  sessionId={target.sessionId}
+                  onOpenSession={(id) => onSelect(machine.id, id)}
+                />
+              </ErrorBoundary>
             ) : (
-              <ErrorBoundary key={machine.id} label="Remote session creation"><RemoteNewSession
-                key={machine.id}
-                machine={machine}
-                onCreated={(id) => onSelect(machine.id, id)}
-              /></ErrorBoundary>
+              <ErrorBoundary key={machine.id} label="Remote session creation">
+                <RemoteNewSession
+                  key={machine.id}
+                  machine={machine}
+                  onCreated={(id) => onSelect(machine.id, id)}
+                />
+              </ErrorBoundary>
             )}
           </>
         ) : (
@@ -127,8 +130,14 @@ function RemoteNewSession({
   const [storageError, setStorageError] = useState<string | null>(null)
   const updateDraft = (next: RemoteCreationDraft) => {
     setDraft(next)
-    try { writeCreationDraft(machine.id, next); setStorageError(null) }
-    catch { setStorageError('The host creation draft could not be saved. Free browser storage before creating a session.') }
+    try {
+      writeCreationDraft(machine.id, next)
+      setStorageError(null)
+    } catch {
+      setStorageError(
+        'The host creation draft could not be saved. Free browser storage before creating a session.',
+      )
+    }
   }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -151,11 +160,21 @@ function RemoteNewSession({
   const project = projectId || projects[0]?.id || ''
   useEffect(() => {
     if ((!draft.projectId && projects[0]) || (!draft.selection && choice)) {
-      updateDraft({ ...draft, projectId: draft.projectId || project, selection: draft.selection ?? choice })
+      updateDraft({
+        ...draft,
+        projectId: draft.projectId || project,
+        selection: draft.selection ?? choice,
+      })
     }
   }, [catalog, projects, draft, machine.id])
   async function create(retry = false, check = false): Promise<void> {
-    if (!alive.current || storageError || !machineCan(machine, 'session.create') || (!pending && (!choice || !projects.some((entry) => entry.id === project)))) return
+    if (
+      !alive.current ||
+      storageError ||
+      !machineCan(machine, 'session.create') ||
+      (!pending && (!choice || !projects.some((entry) => entry.id === project)))
+    )
+      return
     setBusy(true)
     setError(null)
     try {
@@ -265,7 +284,13 @@ function RemoteNewSession({
           <Button
             type="submit"
             variant="primary"
-            disabled={busy || storageError !== null || !projects.some((entry) => entry.id === project) || !choice || !machineCan(machine, 'session.create')}
+            disabled={
+              busy ||
+              storageError !== null ||
+              !projects.some((entry) => entry.id === project) ||
+              !choice ||
+              !machineCan(machine, 'session.create')
+            }
           >
             Create on {machine.name}
           </Button>

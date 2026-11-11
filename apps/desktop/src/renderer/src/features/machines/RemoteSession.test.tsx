@@ -38,7 +38,13 @@ describe('RemoteSession', () => {
             error: null,
           })
         if (params.query.op === 'files.read')
-          return reply({ path: 'host.ts', kind: 'text', size: 12, content: 'host content', error: null })
+          return reply({
+            path: 'host.ts',
+            kind: 'text',
+            size: 12,
+            content: 'host content',
+            error: null,
+          })
         if (params.query.op === 'changes.files')
           return reply({ files: [{ path: 'host.ts' }], base: 'workspace-head', error: null })
         if (params.query.op === 'changes.diff')
@@ -224,14 +230,30 @@ describe('RemoteSession', () => {
   })
   it('follows output at the bottom, preserves manual scrollback, and restores following explicitly', async () => {
     const user = userEvent.setup()
-    render(<RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={vi.fn()} />)
+    render(
+      <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={vi.fn()} />,
+    )
     await screen.findByText('Hello from the host')
     const transcript = screen.getByLabelText('Remote transcript')
-    Object.defineProperties(transcript, { scrollHeight: { value: 1000, configurable: true }, clientHeight: { value: 200, configurable: true } })
+    Object.defineProperties(transcript, {
+      scrollHeight: { value: 1000, configurable: true },
+      clientHeight: { value: 200, configurable: true },
+    })
     transcript.scrollTop = 200
     fireEvent.scroll(transcript)
-    mocks.invoke.mockResolvedValueOnce(reply(snapshotFixture('same-session', 'New streamed output')))
-    act(() => frames({ machineId: 'host-a', message: { type: 'events.frame', sessionId: 'same-session', events: [{ seq: 13, event: {} }] } }))
+    mocks.invoke.mockResolvedValueOnce(
+      reply(snapshotFixture('same-session', 'New streamed output')),
+    )
+    act(() =>
+      frames({
+        machineId: 'host-a',
+        message: {
+          type: 'events.frame',
+          sessionId: 'same-session',
+          events: [{ seq: 13, event: {} }],
+        },
+      }),
+    )
     await screen.findByText('New streamed output')
     expect(transcript.scrollTop).toBe(200)
     await user.click(screen.getByRole('button', { name: 'Latest messages' }))
@@ -239,38 +261,106 @@ describe('RemoteSession', () => {
   })
   it('ignores a late old-host snapshot after switching to the same session ID on another host', async () => {
     let complete!: (result: unknown) => void
-    mocks.invoke.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve }))
-    const { rerender } = render(<RemoteSession key="host-a" machine={machineFixture()} sessionId="same-session" onOpenSession={vi.fn()} />)
-    rerender(<RemoteSession key="host-b" machine={machineFixture('host-b')} sessionId="same-session" onOpenSession={vi.fn()} />)
+    mocks.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+    )
+    const { rerender } = render(
+      <RemoteSession
+        key="host-a"
+        machine={machineFixture()}
+        sessionId="same-session"
+        onOpenSession={vi.fn()}
+      />,
+    )
+    rerender(
+      <RemoteSession
+        key="host-b"
+        machine={machineFixture('host-b')}
+        sessionId="same-session"
+        onOpenSession={vi.fn()}
+      />,
+    )
     await screen.findByText('Hello from the host')
-    await act(async () => complete(reply(snapshotFixture('same-session', 'Late data from old host'))))
+    await act(async () =>
+      complete(reply(snapshotFixture('same-session', 'Late data from old host'))),
+    )
     expect(screen.queryByText('Late data from old host')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prompt on Build computer' })).toBeInTheDocument()
   })
   it('opens a fork using the real wire sessionId result on the same host', async () => {
-    const user = userEvent.setup(); const open = vi.fn()
+    const user = userEvent.setup()
+    const open = vi.fn()
     const original = mocks.invoke.getMockImplementation()!
-    mocks.invoke.mockImplementation(async (method, params) => params.command?.op === 'session.fork' ? reply({ sessionId: 'forked-on-host' }) : original(method, params))
-    render(<RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />)
+    mocks.invoke.mockImplementation(async (method, params) =>
+      params.command?.op === 'session.fork'
+        ? reply({ sessionId: 'forked-on-host' })
+        : original(method, params),
+    )
+    render(
+      <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />,
+    )
     await screen.findByText('Hello from the host')
     await user.click(screen.getByRole('button', { name: 'Details', exact: true }))
     await user.type(screen.getByRole('textbox', { name: 'Fork name' }), 'Host fork')
     await user.click(screen.getByRole('button', { name: 'Fork on host' }))
     await waitFor(() => expect(open).toHaveBeenCalledWith('forked-on-host'))
-    expect(mocks.invoke.mock.calls.find(([, params]) => params.command?.op === 'session.fork')?.[1]).toMatchObject({ machineId: 'host-a', command: { sessionId: 'same-session', title: 'Host fork' } })
+    expect(
+      mocks.invoke.mock.calls.find(([, params]) => params.command?.op === 'session.fork')?.[1],
+    ).toMatchObject({
+      machineId: 'host-a',
+      command: { sessionId: 'same-session', title: 'Host fork' },
+    })
   })
   it('stores uncertain child interruption under the child scope and links to its reconciliation', async () => {
-    const user = userEvent.setup(); const open = vi.fn()
+    const user = userEvent.setup()
+    const open = vi.fn()
     const parent = snapshotFixture()
-    parent.tasks = [{ sessionId: 'child-session', parentSessionId: 'same-session', title: 'Build agent', role: 'implementation', driverKind: 'codex', modelId: 'gpt-6.1-sol', workState: 'working', blockedOn: null, queuedMessages: 0, latestTurn: null, report: null, reportTruncated: false, delivered: null, usage: { inputTokens: 0, outputTokens: 0, costUsd: null }, workspaceKind: 'project', branch: null }]
+    parent.tasks = [
+      {
+        sessionId: 'child-session',
+        parentSessionId: 'same-session',
+        title: 'Build agent',
+        role: 'implementation',
+        driverKind: 'codex',
+        modelId: 'gpt-6.1-sol',
+        workState: 'working',
+        blockedOn: null,
+        queuedMessages: 0,
+        latestTurn: null,
+        report: null,
+        reportTruncated: false,
+        delivered: null,
+        usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+        workspaceKind: 'project',
+        branch: null,
+      },
+    ]
     const original = mocks.invoke.getMockImplementation()!
     mocks.invoke.mockImplementation(async (method, params) => {
-      if (params.command?.op === 'session.interrupt') return { ok: false, error: { code: 'internal_error', message: 'Unknown child stop outcome' } }
-      if (params.query?.op === 'session.get') return reply(params.query.sessionId === 'same-session' ? parent : snapshotFixture('child-session'))
-      if (params.query?.op === 'command.status') return reply({ ok: true, result: { accepted: true } })
+      if (params.command?.op === 'session.interrupt')
+        return {
+          ok: false,
+          error: { code: 'internal_error', message: 'Unknown child stop outcome' },
+        }
+      if (params.query?.op === 'session.get')
+        return reply(
+          params.query.sessionId === 'same-session' ? parent : snapshotFixture('child-session'),
+        )
+      if (params.query?.op === 'command.status')
+        return reply({ ok: true, result: { accepted: true } })
       return original(method, params)
     })
-    const { rerender } = render(<RemoteSession key="parent" machine={machineFixture()} sessionId="same-session" onOpenSession={open} />)
+    const { rerender } = render(
+      <RemoteSession
+        key="parent"
+        machine={machineFixture()}
+        sessionId="same-session"
+        onOpenSession={open}
+      />,
+    )
     await screen.findByText('Build agent')
     await user.click(screen.getByRole('button', { name: 'Stop agent' }))
     await screen.findByRole('button', { name: 'Open affected agent' })
@@ -279,10 +369,19 @@ describe('RemoteSession', () => {
     expect(saved.command).toMatchObject({ op: 'session.interrupt', sessionId: 'child-session' })
     await user.click(screen.getByRole('button', { name: 'Open affected agent' }))
     expect(open).toHaveBeenCalledWith('child-session')
-    rerender(<RemoteSession key="child" machine={machineFixture()} sessionId="child-session" onOpenSession={open} />)
+    rerender(
+      <RemoteSession
+        key="child"
+        machine={machineFixture()}
+        sessionId="child-session"
+        onOpenSession={open}
+      />,
+    )
     await screen.findByText('Hello from the host')
     await user.click(screen.getByRole('button', { name: 'Check receipt' }))
     await waitFor(() => expect(readReceipt('host-a', 'child-session')).toBeNull())
-    expect(mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
+    expect(
+      mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command'),
+    ).toHaveLength(1)
   })
 })
