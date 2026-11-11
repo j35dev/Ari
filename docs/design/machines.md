@@ -45,9 +45,11 @@ and lockfile changes; other workers report dependency needs to the coordinator.
 Core defines @ari/contracts/machines with:
 
 - MachineRoute: { kind: 'tailscale' | 'loopback', origin: string }.
-- MachineView: { id, name, routes, status, identity, lastSeenAt, error };
+- MachineView: { id, name, routes, status, identity, lastSeenAt, error, allowTerminal };
   status is unpaired, pairing, connected, offline, revoked or incompatible.
   identity contains only the gateway's public information. Credentials are absent.
+  allowTerminal comes from this authenticated device's grant, defaults false,
+  and is never inferred from the host's public terminal capability.
 - MachinePairingView: { machineId, status, confirmationCode, expiresAt, error }.
 - MachineDiscovery: { name, routes, identity }; bounded peer probes, no automatic
   pairing, no scanning the public internet, no redirects to arbitrary hosts.
@@ -67,8 +69,8 @@ Desktop RPC (core owns registration and contracts):
   clear the local sealed credential, attempt self-revocation when reachable.
 - machines.query({ machineId, query: RemoteQuery }) -> unknown
 - machines.command({ machineId, command: RemoteCommand }) -> unknown
-- stream machines.events with { machineId, sessionId }; payload preserves remote
-  snapshots/events and includes machineId. Subscription and cleanup remain tied
+- stream machines.events with { machineId, sessionId, fromSeq? }; payload is
+  { machineId, message: RemoteServerMessage }. Subscription and cleanup remain tied
   to their originating machine. Core may expose a narrow explicit subscription
   RPC if the current host stream dispatcher requires it, coordinated with UI.
 
@@ -79,11 +81,17 @@ The renderer never receives device private keys, bearer tokens or Connect leases
 ## Tailscale Serve contract (independent ship-first change)
 
 Workstream A owns the remote.tailscale RPC extensions and TailscaleState fields.
-enable accepts optional { httpsPort?, replace? }, where replacement carries the
-exact observed conflicting origin/target as a compare-and-swap confirmation.
+enable accepts undefined or { httpsPort?, replace?: { origin, mountPath: '/',
+target, kind: 'proxy' | 'path' | 'text' } }, where replacement carries the exact
+observed conflicting mapping as a compare-and-swap confirmation. Replacement
+defaults to the port in its origin and rejects a changed root, kind or target.
 Default enable never overwrites a foreign mapping. Status exposes selected HTTPS
-port, conflicting mappings including mount paths/target/listening status, and a
-suggested free HTTPS port. Save a separate ownership record with HTTPS port and
+port (httpsPort), target, targetListening (boolean or null), owned, conflicts
+({ origin, httpsPort, mountPath: string or null, target, kind: 'proxy' | 'path' |
+'text' | 'tcp', listening: boolean or null }[]), and suggestedHttpsPort (number
+or null). Additive status fields are optional for old fixtures, always emitted
+by the implementation. Prefer a wholly free 8443 when 443 is foreign. Save a
+separate ownership record with HTTPS port and
 last gateway target under Ari's profile. A saved Ari mapping may be repaired after
 the gateway port changes; target equality alone is insufficient to infer ownership.
 Unknown/unreadable Serve shapes fail closed. Recheck immediately before mutation.
