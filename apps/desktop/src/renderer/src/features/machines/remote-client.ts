@@ -172,7 +172,7 @@ function validateCommandResult(command: RemoteCommand, result: unknown): void {
   const decision = z.object({ accepted: z.boolean(), reason: z.string().nullish() }).safeParse(result)
   if (decision.success && !decision.data.accepted) throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
   if (command.op === 'session.create') z.object({ sessionId: z.string().min(1) }).parse(result)
-  if (command.op === 'session.fork') z.object({ child: z.object({ id: z.string().min(1) }) }).parse(result)
+  if (command.op === 'session.fork') z.object({ sessionId: z.string().min(1) }).parse(result)
   if (command.op === 'terminal.create') z.object({ terminalId: z.string().min(1) }).parse(result)
   if (command.op === 'attachments.stage') z.object({ attachments: attachmentRefSchema.array() }).parse(result)
 }
