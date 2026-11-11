@@ -218,3 +218,47 @@ describe('RemoteSession disposal boundary', () => {
     await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
   })
 })
+
+describe('RemoteSession uncertain mutation receipts', () => {
+  it.each(['not_found', 'conflict', 'internal_error'] as const)('never resends a mutation when receipt lookup returns %s', async (code) => {
+    let mutations = 0
+    const keys: string[] = []
+    const request: typeof fetch = async (input, init) => {
+      const path = String(input)
+      if (path.endsWith('/info')) return success(info)
+      if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (path.endsWith('/device/authorize')) return success(authorized)
+      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string }
+      keys.push(body.idempotencyKey)
+      if (path.endsWith('/command')) { mutations++; throw new TypeError('answer lost after execution') }
+      return Response.json({ ok: false, error: { code, message: 'receipt history unavailable' } }, { status: code === 'not_found' ? 404 : 409 })
+    }
+    const session = new RemoteSession({ client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }), keyring: keyring() })
+    await session.connect()
+    await expect(session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt')).rejects.toMatchObject({
+      code: code === 'not_found' ? 'unreachable' : code,
+      idempotencyKey: 'original_receipt', retryable: false,
+      message: expect.stringMatching(/may have executed/),
+    })
+    expect(mutations).toBe(1)
+    expect(keys).toEqual(['original_receipt', 'original_receipt'])
+  })
+  it('preserves authentication renewal only after an explicit refusal before dispatch', async () => {
+    let mutations = 0
+    let authorizations = 0
+    const keys: string[] = []
+    const request: typeof fetch = async (input, init) => {
+      const path = String(input)
+      if (path.endsWith('/info')) return success(info)
+      if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (path.endsWith('/device/authorize')) { authorizations++; return success(authorized) }
+      keys.push((JSON.parse(String(init?.body)) as { idempotencyKey: string }).idempotencyKey)
+      return ++mutations === 1 ? Response.json({ ok: false, error: { code: 'authentication_expired', message: 'refused before dispatch' } }, { status: 401 }) : success({ accepted: true })
+    }
+    const session = new RemoteSession({ client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }), keyring: keyring() })
+    await session.connect()
+    await expect(session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt')).resolves.toEqual({ accepted: true })
+    expect(keys).toEqual(['original_receipt', 'original_receipt'])
+    expect(authorizations).toBe(2)
+  })
+})
