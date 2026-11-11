@@ -36,7 +36,7 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms))
 async function command(method, params = {}) {
   const commandId = ++id
   const promise = new Promise((resolve, reject) => {
-    const deadline = setTimeout(() => { pending.delete(commandId); reject(new Error(`CDP timed out: ${method}`)) }, 20_000)
+    const deadline = setTimeout(() => { pending.delete(commandId); reject(new Error(`CDP timed out: ${method}`)) }, 60_000)
     pending.set(commandId, { resolve: (value) => { clearTimeout(deadline); resolve(value) }, reject: (error) => { clearTimeout(deadline); reject(error) } })
   })
   socket.send(JSON.stringify({ id: commandId, method, params }))
@@ -63,15 +63,17 @@ try {
       if (message.error) item.reject(new Error(JSON.stringify(message.error))); else item.resolve(message.result)
     }
   }
+  process.stdout.write(`Review server http://127.0.0.1:${address.port}\n`)
   await command('Page.enable')
   const results = []
   for (const width of [360, 390]) for (const theme of ['light', 'dark']) {
     for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline']) {
       await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
       await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
-      await command('Page.navigate', { url: `http://127.0.0.1:${address.port}/scripts/fixtures/index.html?theme=${theme}&view=${view}` })
+      process.stdout.write(`Opening ${width}-${theme}-${view}\n`)
+      await evaluate(`location.href = ${JSON.stringify(`http://127.0.0.1:${address.port}/scripts/fixtures/index.html?theme=${theme}&view=${view}`)}`)
       let ready = false
-      for (let tries = 0; tries < 100; tries++) {
+      for (let tries = 0; tries < 450; tries++) {
         ready = await evaluate('document.querySelector("#root")?.textContent.length > 0')
         if (ready) break
         await pause(100)
