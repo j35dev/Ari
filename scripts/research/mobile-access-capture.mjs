@@ -22,6 +22,11 @@ const output = join(root, 'docs/screenshots/mobile-access')
 await mkdir(output, { recursive: true })
 const fsUrl = (path) => relative(scratch, path).replaceAll('\\', '/')
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
+function assertOwnedFixture() {
+  const ownedRelative = relative(scratchParent, scratch)
+  if (!ownedRelative.startsWith('mobile-access-') || ownedRelative.includes('..'))
+    throw new Error('Refusing cleanup outside owned fixture')
+}
 let server
 let browser
 let socket
@@ -152,9 +157,8 @@ window.__captureLoaded = true
     if (request) {
       pending.delete(message.id)
       clearTimeout(request.timeout)
-      message.error
-        ? request.reject(new Error(JSON.stringify(message.error)))
-        : request.done(message.result)
+      if (message.error) request.reject(new Error(JSON.stringify(message.error)))
+      else request.done(message.result)
     }
   })
   socket.addEventListener('close', () => process.stdout.write('Fixture CDP connection closed\n'))
@@ -240,8 +244,6 @@ window.__captureLoaded = true
       server.closeAllConnections()
       server.close(done)
     })
-  const ownedRelative = relative(scratchParent, scratch)
-  if (!ownedRelative.startsWith('mobile-access-') || ownedRelative.includes('..'))
-    throw new Error('Refusing cleanup outside owned fixture')
+  assertOwnedFixture()
   await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
 }

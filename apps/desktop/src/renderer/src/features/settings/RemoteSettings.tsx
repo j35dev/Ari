@@ -314,7 +314,7 @@ export function RemoteSettings() {
             number="3"
             title="Pair a phone or computer"
             id="remote-pairing-heading"
-            done={(remote?.devices.length ?? 0) > 0}
+            done={reachable && (remote?.devices.length ?? 0) > 0}
           />
           {remote?.enabled !== true ? (
             <p className="text-sm text-fg-muted">Turn remote access on to pair a device.</p>
