@@ -1190,6 +1190,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    authorizeWorkspace: async (session) => (await controlReady).service.authorizeWorkspace(session),
     turnContext: async (session) => {
       if (!isHelmSession(session)) return null
       const rows = await getSessionStore().listSessions()

@@ -140,6 +140,8 @@ export interface EngineDeps {
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** A parked turn must reacquire its folder before an answer resumes its provider. */
+  authorizeWorkspace?: (session: Session) => Promise<string | null>
   /** Detaches a parked provider connection before awaiting its shutdown. */
   releaseProviderConnection?: (sessionId: string) => Promise<void>
   /**
@@ -547,6 +549,10 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
+    if ((command.type === 'approval.respond' || command.type === 'input.respond') && model.session && model.activeTurnId && this.#deps.authorizeWorkspace) {
+      const reason = await this.#deps.authorizeWorkspace(model.session)
+      if (reason) return { accepted: false, reason }
+    }
     if (
       command.type === 'approval.respond' &&
       command.approvalId.startsWith('ari_delegate_') &&

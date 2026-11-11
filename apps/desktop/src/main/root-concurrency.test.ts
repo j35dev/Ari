@@ -43,6 +43,7 @@ async function boot(recover = false): Promise<void> {
     store, registry, publish: () => undefined,
     resolveWorkspace: async (id) => folders.get(id) ?? null,
     authorizeTurn: async (session) => runtime.authorizeTurn(session),
+    authorizeWorkspace: async (session) => runtime.service.authorizeWorkspace(session),
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
   runtime = await startAgentRuntime({
@@ -127,6 +128,8 @@ it('automatically gives Aria a root worktree alongside a busy human folder and r
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
   store = new SessionStore({ rootDir: join(dir, 'sessions') }); await boot(true)
   expect(await runtime.service.invoke('aria', 'session.spawn', launch)).toMatchObject({ ok: true, result: { child: { id: child.id, workspace: child.workspace } } })
+  await start('human'); expect(await start(child.id)).toEqual({ accepted: true })
+  await stop(child.id); await stop('human')
   expect(git('worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(2)
   expect(await runtime.service.invoke('aria', 'session.destroy', { targetSessionId: child.id, idempotencyKey: 'destroy' })).toMatchObject({ ok: true })
   expect(existsSync(child.workspace!.kind === 'managed-worktree' ? child.workspace!.path : '')).toBe(false)
@@ -160,8 +163,30 @@ it('preserves an uncertain root checkout identity on retries and reload and allo
   await runtime.close(); await engine.shutdown(); await boot(true)
   expect(await runtime.service.invoke('aria', 'session.spawn', request)).toMatchObject({ ok: false, error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } } })
   expect(add).toHaveBeenCalledTimes(1)
-  await runtime.release(recovery.childSessionId)
+  await store.append('aria', { type: 'session.updated', permissionMode: 'allow-edits' })
+  expect(await runtime.service.invoke('aria', 'session.destroy', { targetSessionId: recovery.childSessionId, idempotencyKey: 'cleanup-cap' })).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(existsSync(recovery.workspace.path)).toBe(true)
+  await store.append('aria', { type: 'session.updated', permissionMode: 'full' })
+  const cleanup = { targetSessionId: recovery.childSessionId, idempotencyKey: 'cleanup-unconfirmed' }
+  expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({ ok: true })
+  expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({ ok: true })
   expect(existsSync(recovery.workspace.path)).toBe(false)
+})
+
+it('automatically isolates human new-session creation alongside a busy project', async () => {
+  await seed('human'); await start('human')
+  const created = await createSession({ loadProject: async () => undefined, createSession: (s) => engine.createSession(s), prepareRootWorkspace: runtime.prepareRootWorkspace }, { ...base, projectId: 'p', title: 'Another human session' })
+  expect((await store.load(created.sessionId)).session?.workspace?.kind).toBe('managed-worktree')
+  expect(await start(created.sessionId)).toEqual({ accepted: true })
+  expect(engine.hasLiveTurn('human')).toBe(true)
+})
+
+it('rechecks folder occupancy before resuming a long human wait', async () => {
+  await seed('parked'); await seed('new-work'); await start('parked')
+  await store.append('parked', { type: 'input.requested', inputId: 'question', prompt: 'Continue?', choicesJson: null, at: Date.now() - 4 * 60_000 })
+  expect(await start('new-work')).toEqual({ accepted: true })
+  expect(await engine.dispatch({ type: 'input.respond', sessionId: 'parked', inputId: 'question', value: 'Continue' })).toMatchObject({ accepted: false, reason: expect.stringContaining('new-work') })
+  expect((await store.load('parked')).pendingInputs).toHaveLength(1)
 })
 
 it('counts shared descendants in their effective folder and resumes a held root queue when it frees', async () => {
