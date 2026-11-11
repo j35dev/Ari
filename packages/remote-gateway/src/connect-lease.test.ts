@@ -46,6 +46,18 @@ function setup() {
 }
 
 describe('managed membership leases', () => {
+  it('keeps all-project devices bound to authentic signed IDs and bounded lifetimes', () => {
+    const { verifier, device, token } = setup()
+    device.allProjects = true
+    device.projectIds = []
+    expect(verifier.validate(token({ projectIds: ['new'] }), device)).toEqual({ expiresAt: 220_000, projectIds: ['new'] })
+    expect(verifier.validate(token({ exp: 221 }), device)).toBeUndefined()
+    expect(verifier.validate(token({ deviceId: 'foreign' }), device)).toBeUndefined()
+    expect(verifier.validate(token({ computerId: 'foreign' }), device)).toBeUndefined()
+    const parts = token().split('.')
+    parts[1] = Buffer.from(JSON.stringify({ projectIds: ['unsigned-new'] })).toString('base64url')
+    expect(verifier.validate(parts.join('.'), device)).toBeUndefined()
+  })
   it('accepts an authentic bounded lease and narrows project access to its scope', () => {
     const { verifier, device, token } = setup()
     expect(verifier.validate(token(), device)).toEqual({ expiresAt: 220_000, projectIds: ['p1'] })

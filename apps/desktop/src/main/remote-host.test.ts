@@ -152,6 +152,26 @@ function command(op: RemoteCommand['op'], fields: Record<string, unknown>): Remo
 }
 
 describe('remote host capabilities', () => {
+  it('exposes future projects locally while a managed caller stays within signed IDs', async () => {
+    const store = await tempStore()
+    const projects = [{ id: 'proj_1', name: 'Ari' }]
+    const engine = fakeEngine()
+    const host = hostFor(store, engine, { listProjects: async () => projects })
+    const local: RemoteCaller = { deviceId: 'dev_local', allProjects: true, projectIds: [] }
+    const managed: RemoteCaller = { deviceId: 'dev_managed', allProjects: false, projectIds: ['proj_1'] }
+    projects.push({ id: 'future', name: 'New project' })
+    await store.append('sess_future', sessionCreated('sess_future', 'future'))
+    expect((await host.listProjects(local)).map((project) => project.id)).toEqual(['proj_1', 'future'])
+    expect((await host.listProjects(managed)).map((project) => project.id)).toEqual(['proj_1'])
+    expect(await host.getSession(local, 'sess_future')).toBeDefined()
+    expect(await host.getSession(managed, 'sess_future')).toBeUndefined()
+    const prompt = command('session.prompt', { sessionId: 'sess_future', text: 'hello' })
+    expect(await host.execute(managed, prompt)).toMatchObject({ ok: false, code: 'not_found' })
+    expect(engine.dispatched).toHaveLength(0)
+    expect(await host.execute(local, prompt)).toMatchObject({ ok: true })
+    expect(engine.dispatched).toHaveLength(1)
+  })
+
   it('reports only what it can actually serve', async () => {
     const host = hostFor(await tempStore(), fakeEngine())
     const caps = host.capabilities()

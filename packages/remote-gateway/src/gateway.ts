@@ -213,7 +213,11 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       const caller = callerOf(device)
       return lease === undefined
         ? caller
-        : { ...caller, projectIds: lease.projectIds.filter((id) => caller.projectIds.includes(id)) }
+        : {
+            ...caller,
+            allProjects: false,
+            projectIds: lease.projectIds.filter((id) => hasProject(caller, id)),
+          }
     }
     const expiryTimer =
       lease === undefined
@@ -251,7 +255,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       const deliver = (event: JournalEvent, caughtUp?: boolean): void => {
         const live = current()
         if (live === undefined) return teardown()
-        if (projectId !== undefined && !live.projectIds.includes(projectId)) {
+        if (projectId !== undefined && !hasProject(live, projectId)) {
           stop()
           return send(
             errorMessage('access_revoked', 'this device no longer has access to that project'),
@@ -452,6 +456,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         deviceId: result.device.deviceId,
         token: result.token,
         projectIds: result.device.projectIds,
+        allProjects: result.device.allProjects === true,
         allowTerminal: result.device.allowTerminal === true,
       },
     })
@@ -646,7 +651,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (outcome.account === true) return true
     if (outcome.sessionId !== undefined)
       return (await host.getSession(caller, outcome.sessionId)) !== undefined
-    return outcome.projectId !== undefined && caller.projectIds.includes(outcome.projectId)
+    return outcome.projectId !== undefined && hasProject(caller, outcome.projectId)
   }
 
   function authorizeManaged(
@@ -666,6 +671,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       : {
           caller: {
             deviceId: device.deviceId,
+            allProjects: false,
             projectIds: lease.projectIds,
             allowTerminal: device.allowTerminal === true,
           },
@@ -813,8 +819,13 @@ function callerOf(device: PairedDevice): RemoteCaller {
   return {
     deviceId: device.deviceId,
     projectIds: [...device.projectIds],
+    allProjects: device.allProjects === true,
     allowTerminal: device.allowTerminal === true,
   }
+}
+
+function hasProject(caller: RemoteCaller, projectId: string): boolean {
+  return caller.allProjects === true || caller.projectIds.includes(projectId)
 }
 
 function errorMessage(code: RemoteErrorCode, message: string): unknown {

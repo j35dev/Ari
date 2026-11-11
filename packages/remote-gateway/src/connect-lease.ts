@@ -71,7 +71,8 @@ export class ConnectLeaseVerifier {
         claims.exp <= claims.iat ||
         claims.exp - claims.iat > 120 ||
         claims.deviceKeyFingerprint !== deviceFingerprint(device.publicKey) ||
-        claims.projectIds.some((id) => !device.projectIds.includes(id))
+        (device.allProjects !== true &&
+          claims.projectIds.some((id) => !device.projectIds.includes(id)))
       )
         return undefined
       return { expiresAt: claims.exp * 1000, projectIds: claims.projectIds }
