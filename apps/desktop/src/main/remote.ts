@@ -266,7 +266,7 @@ export class RemoteService {
     }
   }
 
-  /** Refresh broker registration from the host registry before requesting new signed leases. */
+  /** Refresh the host registry for managed device registration and subsequent lease renewal. */
   async currentPairedRecords(): Promise<PersistedPairing> {
     await this.#refreshProjects()
     return this.pairedRecords()

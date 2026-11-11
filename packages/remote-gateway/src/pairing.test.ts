@@ -52,6 +52,29 @@ function approved(clock = { now: 1_000 }): {
 }
 
 describe('pairing', () => {
+  it('preserves a migrated snapshot and terminal decision until the project registry loads', () => {
+    const saved: PersistedPairing[] = []
+    let projects: string[] | undefined
+    const record = {
+      deviceId: 'dev_legacy',
+      displayName: 'Computer',
+      publicKey: deviceKey().jwk,
+      projectIds: ['saved'],
+      pairedAt: 1,
+      lastSeenAt: null,
+      allowTerminal: true,
+    }
+    const service = new PairingService({
+      restored: { devices: [record], revoked: [] },
+      projectIds: () => projects,
+      persist: { save: (state) => saved.push(state) },
+    })
+    expect(saved[0]?.devices[0]).toMatchObject({ allProjects: true, projectIds: ['saved'], allowTerminal: true })
+    expect(service.devices()[0]?.projectIds).toEqual(['saved'])
+    projects = []
+    expect(service.devices()[0]?.projectIds).toEqual([])
+  })
+
   it('migrates legacy project scope without granting terminal or restoring revoked devices', () => {
     const key = deviceKey()
     const saved: PersistedPairing[] = []
