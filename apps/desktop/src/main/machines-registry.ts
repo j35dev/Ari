@@ -43,12 +43,8 @@ export class MachinesRegistry {
   add(name: string, route: MachineRoute, identity: MachineIdentity | null): MachineRecord {
     const duplicate = this.#records.find((row) => row.routes.some((item) => item.origin === route.origin))
     if (duplicate !== undefined) return this.get(duplicate.id)
-    const sameHost = identity?.machineId === undefined ? undefined : this.#records.find((row) => row.identity?.machineId === identity.machineId)
-    if (sameHost !== undefined) {
-      const merged = recordSchema.parse({ ...sameHost, routes: [...sameHost.routes, route] })
-      this.#save(this.#records.map((row) => row.id === sameHost.id ? merged : row))
-      return this.get(sameHost.id)
-    }
+    // Public machine identity can be copied. A new origin must be paired
+    // independently; it never inherits another origin's approved device key.
     if (this.#records.length >= 100) throw new Error('Remove a saved computer before adding another.')
     // The local id scopes drafts and receipts; host identity is checked separately on reconnect.
     const record: MachineRecord = { id: `machine_${randomUUID()}`, name, routes: [route], identity, lastSeenAt: identity === null ? null : Date.now(), credentialCipher: null }
