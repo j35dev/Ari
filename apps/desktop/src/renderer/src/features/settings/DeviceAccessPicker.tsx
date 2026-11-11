@@ -12,8 +12,8 @@ export function DeviceAccessPicker({ allowTerminal, disabled, onChange }: Props)
       <div>
         <p className="text-sm font-medium">All projects on this computer</p>
         <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-          Includes projects you add later. This device can direct agents and answer approvals
-          using their desktop permissions.
+          Includes projects you add later. This device can direct agents and answer approvals using
+          their desktop permissions.
         </p>
       </div>
       <div className="border-t border-border pt-3">

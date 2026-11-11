@@ -906,17 +906,30 @@ describe('isolated managed gateway', () => {
       },
       execute: async (caller) => {
         seen.push(caller)
-        return caller.projectIds.includes('proj_2') ? { ok: true, result: {} } : { ok: false, code: 'not_found', message: 'no such session' }
+        return caller.projectIds.includes('proj_2')
+          ? { ok: true, result: {} }
+          : { ok: false, code: 'not_found', message: 'no such session' }
       },
     })
     const h = await managed(host)
     expect(h.gateway.pairing.devices()[0]?.allProjects).toBe(true)
-    const result = await call(h.gateway, '/command', COMMAND, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })
+    const result = await call(h.gateway, '/command', COMMAND, {
+      token: h.token,
+      headers: { 'x-ari-connect-lease': h.lease },
+    })
     expect(result.status).toBe(404)
-    const client = await RawWebSocket.open(h.gateway.port, '/events', { origin: ALLOWED, protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`] })
+    const client = await RawWebSocket.open(h.gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`],
+    })
     client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_2' }))
-    expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'error', error: { code: 'not_found' } })
-    expect(seen.every((caller) => caller.allProjects === false && caller.projectIds.join() === 'proj_1')).toBe(true)
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'error',
+      error: { code: 'not_found' },
+    })
+    expect(
+      seen.every((caller) => caller.allProjects === false && caller.projectIds.join() === 'proj_1'),
+    ).toBe(true)
     client.close()
   })
 

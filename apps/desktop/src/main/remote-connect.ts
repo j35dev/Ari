@@ -314,9 +314,10 @@ export class RemoteConnectService {
         )
           return
         const base = `/computers/${encodeURIComponent(this.#stored.computerId)}/devices`
-        const records = this.#deps.remote.currentPairedRecords === undefined
-          ? this.#deps.remote.pairedRecords()
-          : await this.#deps.remote.currentPairedRecords()
+        const records =
+          this.#deps.remote.currentPairedRecords === undefined
+            ? this.#deps.remote.pairedRecords()
+            : await this.#deps.remote.currentPairedRecords()
         if (!this.#current(generation) || this.#state.phase !== 'ready') return
         for (const device of records.devices) {
           const payload = {

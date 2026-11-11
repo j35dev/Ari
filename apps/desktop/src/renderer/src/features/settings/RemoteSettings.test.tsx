@@ -153,8 +153,16 @@ describe('RemoteSettings', () => {
     },
   )
 
-  it("edits terminal access while all projects remain included", async () => {
-    const device = { deviceId: 'dev_1', displayName: 'Pixel 9', projectIds: [], allProjects: true, pairedAt: 1, lastSeenAt: null, allowTerminal: true }
+  it('edits terminal access while all projects remain included', async () => {
+    const device = {
+      deviceId: 'dev_1',
+      displayName: 'Pixel 9',
+      projectIds: [],
+      allProjects: true,
+      pairedAt: 1,
+      lastSeenAt: null,
+      allowTerminal: true,
+    }
     remoteState = remote({ devices: [device] })
     const normal = invokeMock.getMockImplementation()
     invokeMock.mockImplementation(async (method, params) => {
@@ -170,9 +178,16 @@ describe('RemoteSettings', () => {
     expect(screen.queryByRole('checkbox', { name: 'Ari' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     await user.click(screen.getByRole('button', { name: 'Save access for Pixel 9' }))
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.updateDeviceGrants', { deviceId: 'dev_1', allowTerminal: false }))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('remote.updateDeviceGrants', {
+        deviceId: 'dev_1',
+        allowTerminal: false,
+      }),
+    )
     expect(screen.getByText('All projects, including future projects')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Save access for Pixel 9' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Save access for Pixel 9' }),
+    ).not.toBeInTheDocument()
   })
 
   it("leaves a paired device's grants untouched when editing is cancelled", async () => {
@@ -758,7 +773,7 @@ describe('RemoteSettings', () => {
       expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
         invitationId: 'inv_1',
         confirmationCode: '7F3K-2Q9D',
-          allowTerminal: false,
+        allowTerminal: false,
       }),
     )
   })
@@ -855,7 +870,9 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     await user.click(await screen.findByRole('button', { name: 'Serve Ari over Tailscale' }))
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable', undefined))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable', undefined),
+    )
 
     const stop = await screen.findByRole('button', { name: 'Stop serving Ari' })
     expect(screen.getByText(`Ari is available at ${TAILNET}.`)).toBeInTheDocument()

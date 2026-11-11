@@ -50,7 +50,10 @@ describe('managed membership leases', () => {
     const { verifier, device, token } = setup()
     device.allProjects = true
     device.projectIds = []
-    expect(verifier.validate(token({ projectIds: ['new'] }), device)).toEqual({ expiresAt: 220_000, projectIds: ['new'] })
+    expect(verifier.validate(token({ projectIds: ['new'] }), device)).toEqual({
+      expiresAt: 220_000,
+      projectIds: ['new'],
+    })
     expect(verifier.validate(token({ exp: 221 }), device)).toBeUndefined()
     expect(verifier.validate(token({ deviceId: 'foreign' }), device)).toBeUndefined()
     expect(verifier.validate(token({ computerId: 'foreign' }), device)).toBeUndefined()
