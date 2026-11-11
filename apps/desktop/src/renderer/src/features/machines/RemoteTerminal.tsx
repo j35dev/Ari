@@ -192,6 +192,12 @@ export function RemoteTerminal({
         terminalId.current = created.parse(result).terminalId
         setOpened(true)
       }
+      if (receipt?.command.op === 'terminal.kill') {
+        terminalId.current = null
+        cursor.current = 0
+        setOpened(false)
+        terminal.current?.reset()
+      }
       blocked.current = false
       if (terminal.current) {
         terminal.current.options.disableStdin = false

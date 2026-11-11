@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import {
   remoteCommandEnvelopeSchema,
-  remoteErrorSchema,
   remoteQuerySchema,
   type RemoteCommand,
   type RemoteQuery,
@@ -21,6 +20,12 @@ const receiptSchema = z.object({
   command: remoteCommandEnvelopeSchema,
 })
 export type RemoteReceipt = z.infer<typeof receiptSchema>
+const PRE_DISPATCH_REFUSALS = new Set([
+  'unauthenticated', 'authentication_expired', 'access_revoked', 'origin_not_allowed',
+  'unsupported_version', 'unsupported_capability', 'rate_limited', 'invalid_signature',
+  'invitation_expired', 'invitation_used', 'pairing_denied',
+])
+class RefusedCommand extends Error {}
 
 export function scopeKey(machineId: string, sessionId: string): string {
   return JSON.stringify([machineId, sessionId])
@@ -113,8 +118,10 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
     clearReceipt(receipt.machineId, receipt.scope)
     return result
   } catch (error) {
-    // A named host refusal is definitive. Transport/IPC errors retain the key.
-    if (remoteErrorSchema.safeParse(error).success) clearReceipt(receipt.machineId, receipt.scope)
+    // Execution/persistence failures and in-flight conflicts can follow a side effect.
+    // Only a gateway guard refusal or an explicit accepted:false result proves non-dispatch.
+    const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : null
+    if (error instanceof RefusedCommand || (typeof code === 'string' && PRE_DISPATCH_REFUSALS.has(code))) clearReceipt(receipt.machineId, receipt.scope)
     throw error
   }
 }
@@ -145,6 +152,7 @@ export async function resolveReceipt(
     clearReceipt(machineId, scope)
     return result
   } catch (error) {
+    if (error instanceof RefusedCommand) { clearReceipt(machineId, scope); throw error }
     if (!(
       error !== null &&
       typeof error === 'object' &&
@@ -162,7 +170,7 @@ export async function resolveReceipt(
 
 function validateCommandResult(command: RemoteCommand, result: unknown): void {
   const decision = z.object({ accepted: z.boolean(), reason: z.string().nullish() }).safeParse(result)
-  if (decision.success && !decision.data.accepted) throw Object.assign(new Error(decision.data.reason ?? 'The host refused this command.'), { code: 'conflict' })
+  if (decision.success && !decision.data.accepted) throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
   if (command.op === 'session.create') z.object({ sessionId: z.string().min(1) }).parse(result)
   if (command.op === 'session.fork') z.object({ child: z.object({ id: z.string().min(1) }) }).parse(result)
   if (command.op === 'terminal.create') z.object({ terminalId: z.string().min(1) }).parse(result)
