@@ -5,10 +5,7 @@ import type { Session } from '@ari/contracts/session'
 
 /** Compare physical folders, including aliases and nested working folders. */
 export async function workspacesOverlap(a: string, b: string): Promise<boolean> {
-  const [left, right] = await Promise.all([
-    realpath(a).catch(() => a),
-    realpath(b).catch(() => b),
-  ])
+  const [left, right] = await Promise.all([realpath(a).catch(() => a), realpath(b).catch(() => b)])
   return isWithinRoot(left, right) || isWithinRoot(right, left)
 }
 

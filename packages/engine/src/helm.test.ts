@@ -148,11 +148,18 @@ beforeEach(async () => {
     subscribe: (listener) => store.subscribe(listener),
     workspace: async (session) => {
       if (session.workspace?.kind === 'managed-worktree') return session.workspace.path
-      if (session.parentSessionId) return host.workspace((await store.load(session.parentSessionId)).session!)
+      if (session.parentSessionId)
+        return host.workspace((await store.load(session.parentSessionId)).session!)
       return join(dir, session.projectId)
     },
     isRunning: (id) => running.has(id),
-    isolate: async (session, id) => ({ kind: 'managed-worktree', path: join(dir, 'worktrees', id), branch: `ari/${id}`, baseRef: 'main', baseCommit: 'a'.repeat(40) }),
+    isolate: async (session, id) => ({
+      kind: 'managed-worktree',
+      path: join(dir, 'worktrees', id),
+      branch: `ari/${id}`,
+      baseRef: 'main',
+      baseCommit: 'a'.repeat(40),
+    }),
     diff: async () => ({}),
     integrate: async () => ({}),
     approve: async () => true,
@@ -2088,7 +2095,13 @@ it.each(['project', 'managed-worktree'] as const)(
         workspace:
           kind === 'project'
             ? { kind }
-            : { kind, path: join(dir, 'worktrees', 'human'), branch: 'ari/human', baseRef: 'main', baseCommit: 'a'.repeat(40) },
+            : {
+                kind,
+                path: join(dir, 'worktrees', 'human'),
+                branch: 'ari/human',
+                baseRef: 'main',
+                baseCommit: 'a'.repeat(40),
+              },
       },
     })
     await startTurn('human-code', 'Fix login')

@@ -1223,7 +1223,12 @@ export class AgentControlService {
       }
       case 'session.destroy': {
         const id = (raw as ControlParams<'session.destroy'>).targetSessionId
-        if (isHelmSession(caller) && id !== 'self' && id !== 'parent' && !(await this.host.store.loadExisting(id))?.session) {
+        if (
+          isHelmSession(caller) &&
+          id !== 'self' &&
+          id !== 'parent' &&
+          !(await this.host.store.loadExisting(id))?.session
+        ) {
           const recovery = await this.#rootCleanupTarget(caller, id)
           if (recovery) return this.#destroy(caller, recovery, true)
         }
@@ -1639,36 +1644,62 @@ export class AgentControlService {
       updatedAt: Date.now(),
     }
     const method = lead ? 'projects.ask' : 'session.spawn'
-    await this.#spawnProgress(caller.id, p.idempotencyKey, {
-      childSessionId: id,
-      projectId: project.projectId,
-      stage: 'workspace_preparing',
-      permissionMode,
-    }, method)
-    const workspace = await this.prepareRootWorkspace(session, p.workspaceMode, p.baseSnapshotCommit)
+    await this.#spawnProgress(
+      caller.id,
+      p.idempotencyKey,
+      {
+        childSessionId: id,
+        projectId: project.projectId,
+        stage: 'workspace_preparing',
+        permissionMode,
+      },
+      method,
+    )
+    const workspace = await this.prepareRootWorkspace(
+      session,
+      p.workspaceMode,
+      p.baseSnapshotCommit,
+    )
     session.workspace = workspace
     const workspacePath = await this.host.workspace(session)
-    await this.#spawnProgress(caller.id, p.idempotencyKey, {
-      childSessionId: id,
-      projectId: project.projectId,
-      workspace,
-      workspacePath,
-      stage: 'workspace_prepared',
-      permissionMode,
-    }, method)
+    await this.#spawnProgress(
+      caller.id,
+      p.idempotencyKey,
+      {
+        childSessionId: id,
+        projectId: project.projectId,
+        workspace,
+        workspacePath,
+        stage: 'workspace_prepared',
+        permissionMode,
+      },
+      method,
+    )
     const launchCaller = await this.#get(caller.id)
-    if (signal?.aborted || launchCaller.archived || exceedsPermission(permissionMode, launchCaller.permissionMode)) {
+    if (
+      signal?.aborted ||
+      launchCaller.archived ||
+      exceedsPermission(permissionMode, launchCaller.permissionMode)
+    ) {
       if (workspace.kind === 'managed-worktree') await this.host.release(session)
-      throw new ControlFailure(signal?.aborted ? 'request_cancelled' : 'scope_denied', 'The caller is no longer able to launch this session.')
+      throw new ControlFailure(
+        signal?.aborted ? 'request_cancelled' : 'scope_denied',
+        'The caller is no longer able to launch this session.',
+      )
     }
-    await this.#spawnProgress(caller.id, p.idempotencyKey, {
-      childSessionId: id,
-      projectId: project.projectId,
-      workspace,
-      workspacePath,
-      stage: 'session_creating',
-      permissionMode,
-    }, method)
+    await this.#spawnProgress(
+      caller.id,
+      p.idempotencyKey,
+      {
+        childSessionId: id,
+        projectId: project.projectId,
+        workspace,
+        workspacePath,
+        stage: 'session_creating',
+        permissionMode,
+      },
+      method,
+    )
     try {
       await this.host.create(session)
       await this.#spawnProgress(
@@ -1719,16 +1750,33 @@ export class AgentControlService {
   async #rootCleanupTarget(caller: Session, id: string): Promise<Session | null> {
     const operations = (await this.host.store.load(caller.id)).orchestration?.operations ?? {}
     for (const operation of Object.values(operations)) {
-      if (!['session.spawn', 'projects.ask'].includes(operation.method) || operation.status === 'completed') continue
+      if (
+        !['session.spawn', 'projects.ask'].includes(operation.method) ||
+        operation.status === 'completed'
+      )
+        continue
       const parsed = workerRecoveryReceiptSchema.safeParse(operation.result)
       if (!parsed.success) continue
       const recovery = parsed.data.recovery
-      if (recovery.childSessionId !== id || !recovery.projectId || !recovery.permissionMode || recovery.workspace?.kind !== 'managed-worktree') continue
+      if (
+        recovery.childSessionId !== id ||
+        !recovery.projectId ||
+        !recovery.permissionMode ||
+        (recovery.workspace && recovery.workspace.kind !== 'managed-worktree')
+      )
+        continue
       return {
-        id, projectId: recovery.projectId, title: 'Unconfirmed session',
-        createdBy: { kind: 'session', sessionId: caller.id }, workspace: recovery.workspace,
-        permissionMode: recovery.permissionMode, driverKind: caller.driverKind, modelId: caller.modelId,
-        status: 'idle', createdAt: 0, updatedAt: 0,
+        id,
+        projectId: recovery.projectId,
+        title: 'Unconfirmed session',
+        createdBy: { kind: 'session', sessionId: caller.id },
+        workspace: recovery.workspace ?? { kind: 'project' },
+        permissionMode: recovery.permissionMode,
+        driverKind: caller.driverKind,
+        modelId: caller.modelId,
+        status: 'idle',
+        createdAt: 0,
+        updatedAt: 0,
       }
     }
     return null
@@ -2079,9 +2127,12 @@ export class AgentControlService {
       )
     const working = await this.#workingProjectSessions(session.id)
     const model = session.id ? await this.host.store.load(session.id) : null
-    const occupancy = model?.session ? { ...model.session, ...session } : session as Session
+    const occupancy = model?.session ? { ...model.session, ...session } : (session as Session)
     if (session.projectId && !preparingWorkspace)
-      await this.#refuseConcurrentCode(occupancy, existing ? this.#outsideTree(occupancy, working) : working)
+      await this.#refuseConcurrentCode(
+        occupancy,
+        existing ? this.#outsideTree(occupancy, working) : working,
+      )
     const workingRoots = await this.#workingProjectRoots(working)
     if (existing && session.id) workingRoots.delete(session.id)
     if (
@@ -2132,7 +2183,11 @@ export class AgentControlService {
         return await this.host.isolate(session, session.id, session.title, baseSnapshotCommit)
       } catch (error) {
         if (error instanceof ControlFailure && error.code === 'workspace_not_git')
-          throw new ControlFailure('workspace_not_git', `${active ? `Folder is busy with "${active.title}" (${active.id}). ` : ''}An isolated session requires a Git repository with a commit. Prompt the working session or wait.`, error.details)
+          throw new ControlFailure(
+            'workspace_not_git',
+            `${active ? `Folder is busy with "${active.title}" (${active.id}). ` : ''}An isolated session requires a Git repository with a commit. Prompt the working session or wait.`,
+            error.details,
+          )
         throw error
       }
     }
@@ -2190,15 +2245,22 @@ export class AgentControlService {
 
   async #checkProjectCode(session: Session, queueWithinTree = false): Promise<void> {
     const working = await this.#workingProjectSessions(session.id)
-    await this.#refuseConcurrentCode(session, queueWithinTree ? this.#outsideTree(session, working) : working)
+    await this.#refuseConcurrentCode(
+      session,
+      queueWithinTree ? this.#outsideTree(session, working) : working,
+    )
   }
 
-  async #conflictingSession(session: Session, working: readonly Session[]): Promise<Session | undefined> {
+  async #conflictingSession(
+    session: Session,
+    working: readonly Session[],
+  ): Promise<Session | undefined> {
     const path = await this.host.workspace(session)
-    if (!path) throw new ControlFailure('managed_worktree_missing', 'Session working folder is unavailable.')
+    if (!path)
+      throw new ControlFailure('managed_worktree_missing', 'Session working folder is unavailable.')
     for (const active of working) {
       const activePath = await this.host.workspace(active)
-      if (activePath && await workspacesOverlap(path, activePath)) return active
+      if (activePath && (await workspacesOverlap(path, activePath))) return active
     }
     return undefined
   }

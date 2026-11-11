@@ -1,7 +1,26 @@
 import { expect, it } from 'vitest'
 import { tmpdir } from 'node:os'
+import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Session } from '@ari/contracts/session'
-import { resolveSessionWorkspace } from './workspace'
+import { resolveSessionWorkspace, workspacesOverlap } from './workspace'
+
+it('compares physical aliases and nested folders without matching sibling prefixes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-folder-occupancy-'))
+  try {
+    const folder = join(dir, 'repo')
+    const child = join(folder, 'child')
+    const alias = join(dir, 'alias')
+    await mkdir(child, { recursive: true })
+    await symlink(folder, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(await workspacesOverlap(folder, alias)).toBe(true)
+    expect(await workspacesOverlap(child, alias)).toBe(true)
+    expect(await workspacesOverlap(folder, join(dir, 'repository'))).toBe(false)
+    expect(await workspacesOverlap(folder, join(dir, 'another-worktree'))).toBe(false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 const root: Session = { id: 'root', projectId: 'p', title: 'Root', driverKind: 'claude',
   modelId: null, permissionMode: 'ask', status: 'idle', createdAt: 1, updatedAt: 1 }
