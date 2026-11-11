@@ -7,6 +7,8 @@ import {
   type RemoteQuery,
 } from '@ari/contracts/remote'
 import { rpc } from '../../lib/rpc'
+import { machineOperationResultSchema } from '@ari/contracts/machines'
+import { attachmentRefSchema } from '@ari/contracts/attachments'
 
 type WithoutEnvelope<T> = T extends RemoteCommand
   ? Omit<T, 'clientCommandId' | 'idempotencyKey'>
@@ -31,9 +33,13 @@ export function readReceipt(machineId: string, scope: string): RemoteReceipt | n
   if (raw === null) return null
   try {
     const receipt = receiptSchema.parse(JSON.parse(raw))
-    return receipt.machineId === machineId && receipt.scope === scope ? receipt : null
+    if (receipt.machineId !== machineId || receipt.scope !== scope) throw new Error('Wrong receipt scope')
+    assertScope(scope, receipt.command)
+    return receipt
   } catch {
-    throw new Error('This submission receipt cannot be read. Inspect the host before sending again.')
+    throw new Error(
+      'This submission receipt cannot be read. Inspect the host before sending again.',
+    )
   }
 }
 
@@ -43,40 +49,67 @@ function clearReceipt(machineId: string, scope: string): void {
 
 /** Only allowlisted machine RPCs cross this boundary. No local fallback exists. */
 export async function remoteQuery(machineId: string, query: RemoteQuery): Promise<unknown> {
-  return resultOf(await rpc.invoke('machines.query', {
-    machineId,
-    query: remoteQuerySchema.parse(query),
-  }))
+  return resultOf(
+    machineOperationResultSchema.parse(await rpc.invoke('machines.query', {
+      machineId,
+      query: remoteQuerySchema.parse(query),
+    })),
+  )
 }
 
 /** Gateway mutations may retain their wire envelope; queries are normally unwrapped. */
 export function resultOf(raw: unknown): unknown {
-  const envelope = z.object({ ok: z.boolean(), result: z.unknown().optional(), error: z.object({ code: z.string(), message: z.string() }).optional() }).safeParse(raw)
+  const envelope = z
+    .object({
+      ok: z.boolean(),
+      result: z.unknown().optional(),
+      error: z.object({ code: z.string(), message: z.string() }).optional(),
+    })
+    .safeParse(raw)
   if (!envelope.success) return raw
-  if (!envelope.data.ok) throw Object.assign(new Error(envelope.data.error?.message ?? 'Host refused the request.'), envelope.data.error)
+  if (!envelope.data.ok)
+    throw Object.assign(
+      new Error(envelope.data.error?.message ?? 'Host refused the request.'),
+      envelope.data.error,
+    )
   return resultOf(envelope.data.result)
 }
 
 /** Persist the exact command before IPC, and never automatically repeat a mutation. */
-export async function sendRemote(machineId: string, scope: string, action: RemoteAction): Promise<unknown> {
-  if (readReceipt(machineId, scope) !== null) throw new Error('Check the unconfirmed submission before sending another action.')
+export async function sendRemote(
+  machineId: string,
+  scope: string,
+  action: RemoteAction,
+): Promise<unknown> {
+  assertScope(scope, action)
+  if (readReceipt(machineId, scope) !== null)
+    throw new Error('Check the unconfirmed submission before sending another action.')
   const key = crypto.randomUUID()
-  const command = remoteCommandEnvelopeSchema.parse({ ...action, clientCommandId: key, idempotencyKey: key })
+  const command = remoteCommandEnvelopeSchema.parse({
+    ...action,
+    clientCommandId: key,
+    idempotencyKey: key,
+  })
   const receipt: RemoteReceipt = { machineId, scope, command }
   try {
     localStorage.setItem(receiptKey(machineId, scope), JSON.stringify(receipt))
   } catch {
-    throw new Error('The submission receipt could not be saved. Free browser storage before sending.')
+    throw new Error(
+      'The submission receipt could not be saved. Free browser storage before sending.',
+    )
   }
   return submitReceipt(receipt)
 }
 
 async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
   try {
-    const result = resultOf(await rpc.invoke('machines.command', {
-      machineId: receipt.machineId,
-      command: receipt.command,
-    }))
+    const result = resultOf(
+      machineOperationResultSchema.parse(await rpc.invoke('machines.command', {
+        machineId: receipt.machineId,
+        command: receipt.command,
+      })),
+    )
+    validateCommandResult(receipt.command, result)
     clearReceipt(receipt.machineId, receipt.scope)
     return result
   } catch (error) {
@@ -86,19 +119,53 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
   }
 }
 
+function assertScope(scope: string, action: RemoteAction): void {
+  if ('sessionId' in action) {
+    const sessionScope = scope.replace(/^terminal(?:-close)?:/, '')
+    if (action.sessionId !== sessionScope) throw new Error('The command belongs to another session.')
+  } else if (action.op === 'session.create' && scope !== 'new-session') {
+    throw new Error('Session creation belongs to the selected host’s creation draft.')
+  }
+}
+
 /** A user-requested retry first checks the originating host's recorded outcome. */
-export async function resolveReceipt(machineId: string, scope: string, retry = false): Promise<unknown> {
+export async function resolveReceipt(
+  machineId: string,
+  scope: string,
+  retry = false,
+): Promise<unknown> {
   const receipt = readReceipt(machineId, scope)
   if (receipt === null) throw new Error('No unconfirmed submission exists.')
   try {
-    const result = await remoteQuery(machineId, { op: 'command.status', idempotencyKey: receipt.command.idempotencyKey })
+    const result = await remoteQuery(machineId, {
+      op: 'command.status',
+      idempotencyKey: receipt.command.idempotencyKey,
+    })
+    validateCommandResult(receipt.command, result)
     clearReceipt(machineId, scope)
     return result
   } catch (error) {
-    if (!(error !== null && typeof error === 'object' && 'code' in error && error.code === 'not_found')) throw error
+    if (!(
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'not_found'
+    ))
+      throw error
     if (retry) return submitReceipt(receipt)
-    throw new Error('The host has no receipt for this action. You can explicitly retry the saved action.')
+    throw new Error(
+      'The host has no receipt for this action. You can explicitly retry the saved action.',
+    )
   }
+}
+
+function validateCommandResult(command: RemoteCommand, result: unknown): void {
+  const decision = z.object({ accepted: z.boolean(), reason: z.string().nullish() }).safeParse(result)
+  if (decision.success && !decision.data.accepted) throw Object.assign(new Error(decision.data.reason ?? 'The host refused this command.'), { code: 'conflict' })
+  if (command.op === 'session.create') z.object({ sessionId: z.string().min(1) }).parse(result)
+  if (command.op === 'session.fork') z.object({ child: z.object({ id: z.string().min(1) }) }).parse(result)
+  if (command.op === 'terminal.create') z.object({ terminalId: z.string().min(1) }).parse(result)
+  if (command.op === 'attachments.stage') z.object({ attachments: attachmentRefSchema.array() }).parse(result)
 }
 
 export function messageOf(error: unknown): string {

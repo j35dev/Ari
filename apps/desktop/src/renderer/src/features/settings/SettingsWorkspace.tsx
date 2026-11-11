@@ -238,7 +238,12 @@ export function SettingsWorkspace({
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}
-          {section === 'machines' ? <MachinesSettings onOpenMachine={onOpenMachine} onHosting={() => setSection('remote')} /> : null}
+          {section === 'machines' ? (
+            <MachinesSettings
+              onOpenMachine={onOpenMachine}
+              onHosting={() => setSection('remote')}
+            />
+          ) : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}

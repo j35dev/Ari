@@ -112,7 +112,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-machines',
     label: 'Machines',
-    keywords: 'computer computers remote host tailnet tailscale pairing code discover reconnect offline terminal workstation',
+    keywords:
+      'computer computers remote host tailnet tailscale pairing code discover reconnect offline terminal workstation',
   },
   {
     section: 'settings-remote',
