@@ -305,7 +305,9 @@ export class MachinesService {
     this.#registry.update(machineId, { identity, lastSeenAt: Date.now() })
     if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
       throw new RemoteError('unsupported_version', 'This computer uses an unsupported Ari protocol. Update Ari before pairing or sending commands.')
-    if (operation !== undefined && !identity.capabilities.includes(operation) && !REMOTE_ANONYMOUS_OPERATIONS.includes(operation as never))
+    // command.status is implemented by the v1 gateway's receipt store rather
+    // than the host, so legacy hosts do not advertise it in host.capabilities.
+    if (operation !== undefined && operation !== 'command.status' && !identity.capabilities.includes(operation) && !REMOTE_ANONYMOUS_OPERATIONS.some((item) => item === operation))
       throw new RemoteError('unsupported_capability', `This computer does not support ${operation}.`)
   }
   async #ready(machineId: string, operation: string): Promise<Connection> {

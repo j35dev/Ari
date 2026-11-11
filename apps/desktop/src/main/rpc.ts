@@ -1769,7 +1769,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return null
       return safeStorageBox(safeStorage)
     },
-    onChange: (views) => rpcRegistry.publish('machines.updates', views),
+    onChange: (views) => rpcRegistryRef?.publish('machines.updates', views),
   })
   machinesRef = machines
   machines.clearSubscriptions()

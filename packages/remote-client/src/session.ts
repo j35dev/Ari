@@ -248,7 +248,7 @@ export class RemoteSession {
     }
     this.#capabilities = info.capabilities
     for (const operation of requiredCapabilities) {
-      if (!info.capabilities.includes(operation as never)) {
+      if (!info.capabilities.some((item) => item === operation)) {
         throw new RemoteError('unsupported_capability', `This computer does not support ${operation}.`)
       }
     }

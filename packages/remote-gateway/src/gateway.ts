@@ -612,13 +612,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // names, so a client can tell what it is speaking to without learning
     // anything about the machine.
     if (requested.op === 'gateway.info') {
-      return reply(200, {
-        ok: true,
-        result: {
-          protocolVersion: REMOTE_PROTOCOL_VERSION,
-          capabilities: [...host.capabilities()],
-        },
-      })
+      return reply(200, { ok: true, result: publicInfo() })
     }
     const managed = device === undefined ? undefined : authorizeManaged(headerLease(req), device)
     if (managed === null)

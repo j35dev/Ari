@@ -1,0 +1,315 @@
+// @vitest-environment node
+import { randomBytes } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'node:http'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SessionStore } from '@ari/engine/session-store'
+import { DriverRegistry } from '@ari/providers/registry'
+import { UNKNOWN_PROVIDER_CAPABILITIES, type Driver, type AdapterApprovalDecision } from '@ari/providers/driver'
+import type { AgentEvent } from '@ari/contracts/agent-event'
+import { remoteCommandEnvelopeSchema, remoteSessionResultSchema, type RemoteCommand } from '@ari/contracts/remote'
+import { machineEventsFrameSchema, type MachineEventsFrame } from '@ari/contracts/machines'
+import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
+import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
+import { Engine } from './engine'
+import { createRemoteHost } from './remote-host'
+import { MachinesService } from './machines'
+import { MachinesRegistry, DesktopMachineCredential } from './machines-registry'
+import { MachineNetwork, parseMachineAddress, tailnetPeerRoutes } from './machines-network'
+import { loadMachineIdentity } from './machine-identity'
+import { aesGcmSecretBox } from './secret-box'
+import { RpcRegistry } from './rpc-registry'
+import { registerMachinesRpc, subscribeMachineStream } from './machines-rpc'
+
+const cleanups: (() => Promise<unknown> | unknown)[] = []
+afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close() })
+function temporary(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'ari-machines-'))
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  return dir
+}
+function client(dir = temporary(), options: Partial<ConstructorParameters<typeof MachinesService>[0]> = {}): MachinesService {
+  const box = aesGcmSecretBox(randomBytes(32)) // OS keyring seam only; real signing and encryption.
+  const machines = new MachinesService({ dir, secretBox: () => box, allowLoopback: true, decisionPollMs: 2, decisionTimeoutMs: 2000, ...options })
+  cleanups.push(() => machines.dispose())
+  return machines
+}
+function command(fields: Record<string, unknown>, key = crypto.randomUUID()): RemoteCommand {
+  return remoteCommandEnvelopeSchema.parse({ ...fields, clientCommandId: `client_${key}`, idempotencyKey: key })
+}
+
+interface RunningHost {
+  dir: string
+  store: SessionStore
+  engine: Engine
+  gateway: RemoteGateway
+  decisions: AdapterApprovalDecision[]
+  prompts: string[]
+  restart(): Promise<void>
+}
+
+/** Actual Engine, SessionStore, RemoteHost, gateway HTTP/WebSocket and git repository. */
+async function realHost(label: string): Promise<RunningHost> {
+  const dir = temporary()
+  const project = join(dir, 'project')
+  mkdirSync(project)
+  writeFileSync(join(project, 'README.md'), label)
+  for (const args of [['init'], ['config', 'user.email', 'machines@test.invalid'], ['config', 'user.name', 'Machines test'], ['add', '.'], ['commit', '-m', 'fixture']])
+    execFileSync('git', args, { cwd: project, windowsHide: true, stdio: 'ignore' })
+  const prompts: string[] = []
+  const decisions: AdapterApprovalDecision[] = []
+  const driver: Driver = {
+    kind: 'codex',
+    create: async (request) => {
+      prompts.push(request.prompt)
+      let release: ((value: AdapterApprovalDecision | null) => void) | undefined
+      const wait = new Promise<AdapterApprovalDecision | null>((resolve) => { release = resolve })
+      return {
+        capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, steering: 'live', liveResponses: 'approvals-and-input' }),
+        start: () => ({
+          async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+            if (request.prompt.includes('approval')) {
+              yield { type: 'approval-requested', approvalId: 'approval_same', toolName: 'fixture', summaryJson: '{}', options: [{ optionId: 'accept', name: 'Allow once', kind: 'allow_once' }] }
+              const decision = await wait
+              if (decision === null) return
+              yield { type: 'text-delta', text: `${label} approved` }
+            } else if (request.prompt.includes('hold')) {
+              yield { type: 'text-delta', text: `${label} waiting` }
+              await wait
+            } else yield { type: 'text-delta', text: `${label} result` }
+            yield { type: 'done' }
+          },
+        }),
+        interrupt: () => release?.(null),
+        dispose: async () => { release?.(null) },
+        respondApproval: (_id, decision) => { decisions.push(decision); release?.(decision) },
+        steer: async () => true,
+      }
+    },
+  }
+  const makeEngine = (store: SessionStore): Engine => {
+    const registry = new DriverRegistry()
+    registry.register(driver)
+    return new Engine({ store, registry, publish: () => undefined, resolveWorkspace: async () => project })
+  }
+  let store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  let engine = makeEngine(store)
+  const profile = join(dir, 'remote')
+  const identity = loadMachineIdentity(profile, 'test-1')
+  const pairingPath = join(profile, 'pairing.json')
+  const receiptsPath = join(profile, 'receipts.json')
+  let gateway: RemoteGateway
+  const start = async (port: number): Promise<RemoteGateway> => {
+    const pairing = new PairingService({
+      ...(existsSync(pairingPath) ? { restored: JSON.parse(readFileSync(pairingPath, 'utf8')) as PersistedPairing } : {}),
+      persist: { save: (state) => writeFileSync(pairingPath, JSON.stringify(state)) },
+    })
+    return createRemoteGateway({
+      host: createRemoteHost({
+        engine, store, pairing, driverKinds: ['codex'], defaultPermissionMode: () => 'ask', defaultDriverKind: () => 'codex',
+        hasProject: async (id) => id === `project_${label}`,
+        listProjects: async () => [{ id: `project_${label}`, name: label }],
+        listModels: async () => [{ driverKind: 'codex', available: true, models: [{ id: 'mock-model', label: 'Mock provider' }] }],
+        // Both hosts deliberately reuse this id: route and machine scope must carry ownership.
+        mintSessionId: () => 'sess_same',
+      }),
+      identity: { ...identity, name: label }, port, allowedOrigins: [], pairing,
+      idempotency: { ...(existsSync(receiptsPath) ? { restore: readFileSync(receiptsPath, 'utf8') } : {}), persist: (json) => writeFileSync(receiptsPath, json) },
+    })
+  }
+  gateway = await start(0)
+  const host: RunningHost = {
+    dir, store, engine, gateway, prompts, decisions,
+    restart: async () => {
+      const port = gateway.port
+      await gateway.close()
+      await engine.shutdown()
+      store = new SessionStore({ rootDir: join(dir, 'sessions') })
+      engine = makeEngine(store)
+      gateway = await start(port)
+      Object.assign(host, { store, engine, gateway })
+    },
+  }
+  cleanups.push(async () => { await gateway.close(); await engine.shutdown() })
+  return host
+}
+async function pair(machines: MachinesService, host: RunningHost, terminal = false): Promise<string> {
+  const invite = host.gateway.pairing.begin(host.gateway.origin)
+  const saved = await machines.add(`${host.gateway.origin}/#pair=${invite.invitationId}`)
+  const view = await machines.pair({ machineId: saved.id, displayName: 'Desktop client' })
+  expect(view.status).toBe('pairing')
+  await vi.waitFor(() => expect(host.gateway.pairing.pending(invite.invitationId)).toBeDefined())
+  const code = host.gateway.pairing.pending(invite.invitationId)!.confirmationCode
+  expect(machines.pairStatus(saved.id).confirmationCode).toBe(code)
+  expect(host.gateway.pairing.approve(invite.invitationId, code, [`project_${saved.name}`], terminal)).toEqual({ ok: true })
+  await vi.waitFor(() => expect(machines.pairStatus(saved.id).status).toBe('connected'))
+  return saved.id
+}
+
+describe('persistent Machines safety', () => {
+  it('allows only tailnet HTTPS origins and explicitly enabled loopback test routes', () => {
+    expect(parseMachineAddress('https://pc.tailnet.ts.net:8443/#pair=inv_test')).toEqual({ route: { kind: 'tailscale', origin: 'https://pc.tailnet.ts.net:8443' }, invitationId: 'inv_test' })
+    expect(() => parseMachineAddress('http://127.0.0.1:8787')).toThrow(/Production/)
+    expect(parseMachineAddress('http://127.0.0.1:8787', true).route.kind).toBe('loopback')
+    for (const address of ['file:///secret', 'http://pc.tailnet.ts.net', 'https://example.com', 'https://192.168.1.2', 'https://pc.tailnet.ts.net/path', 'https://user:password@pc.tailnet.ts.net', 'https://pc.tailnet.ts.net?target=public', 'https://pc.tailnet.ts.net/#pair=inv_a&token=secret'])
+      expect(() => parseMachineAddress(address, true)).toThrow()
+  })
+  it('rejects public and mixed DNS answers before opening transport', async () => {
+    for (const addresses of [[{ address: '8.8.8.8', family: 4 }], [{ address: '100.70.1.2', family: 4 }, { address: '8.8.8.8', family: 4 }]]) {
+      const network = new MachineNetwork({ resolve: async () => addresses })
+      await expect(network.clientOptions({ kind: 'tailscale', origin: 'https://pc.tailnet.ts.net' })).rejects.toThrow(/exclusively/)
+    }
+    await expect(new MachineNetwork({ resolve: async () => [{ address: '100.70.1.2', family: 4 }] }).clientOptions({ kind: 'tailscale', origin: 'https://pc.tailnet.ts.net' })).resolves.toHaveProperty('fetch')
+  })
+  it('never follows a redirect from a permitted loopback peer', async () => {
+    const server = createServer((_req, res) => { res.writeHead(302, { location: 'http://8.8.8.8/private' }); res.end() })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
+    const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    const options = await new MachineNetwork({ allowLoopback: true }).clientOptions({ kind: 'loopback', origin })
+    await expect(options.fetch!(`${origin}/api/identity`)).rejects.toThrow(/redirects/)
+  })
+  it('seals per-machine keys, unlocks them across restart, and refuses missing secure storage', async () => {
+    const dir = temporary()
+    const registry = new MachinesRegistry(join(dir, 'machines.json'))
+    const a = registry.add('A', { kind: 'tailscale', origin: 'https://a.tailnet.ts.net' }, null)
+    const b = registry.add('B', { kind: 'tailscale', origin: 'https://b.tailnet.ts.net' }, null)
+    const box = aesGcmSecretBox(randomBytes(32))
+    const first = new DesktopMachineCredential(a.id, registry, () => box)
+    const publicKey = await first.publicKey()
+    await first.remember({ deviceId: 'device_a', displayName: 'Desktop', projectIds: [] })
+    const disk = readFileSync(join(dir, 'machines.json'), 'utf8')
+    expect(disk).not.toMatch(/PRIVATE KEY|device_a|"token"/)
+    const restored = new DesktopMachineCredential(a.id, new MachinesRegistry(join(dir, 'machines.json')), () => box)
+    await restored.load()
+    expect(restored.deviceId).toBe('device_a')
+    expect(await restored.publicKey()).toEqual(publicKey)
+    registry.update(b.id, { credentialCipher: registry.get(a.id).credentialCipher })
+    await expect(new DesktopMachineCredential(b.id, registry, () => box).load()).rejects.toThrow(/another computer/)
+    const absent = registry.add('C', { kind: 'tailscale', origin: 'https://c.tailnet.ts.net' }, null)
+    await expect(new DesktopMachineCredential(absent.id, registry, () => null).publicKey()).rejects.toThrow(/Secure storage/)
+    expect(registry.get(absent.id).credentialCipher).toBeNull()
+  })
+  it('preserves corrupt registry data and persists a stable host identity', () => {
+    const dir = temporary()
+    const first = loadMachineIdentity(dir, '1')
+    expect(loadMachineIdentity(dir, '2')).toEqual({ ...first, ariVersion: '2' })
+    const path = join(dir, 'machines.json')
+    writeFileSync(path, '{broken')
+    expect(() => new MachinesRegistry(path)).toThrow()
+    expect(readFileSync(path, 'utf8')).toBe('{broken')
+  })
+  it('discovers bounded explicit online peers without scans or pairing', async () => {
+    const runner = vi.fn(async () => ({ code: 0, stdout: JSON.stringify({ BackendState: 'Running', Peer: {
+      a: { Online: true, DNSName: 'a.tailnet.ts.net.' }, b: { Online: false, DNSName: 'b.tailnet.ts.net.' }, c: { Online: true, DNSName: 'evil.com.' },
+    } }) }))
+    expect(await tailnetPeerRoutes(runner)).toEqual([{ kind: 'tailscale', origin: 'https://a.tailnet.ts.net' }, { kind: 'tailscale', origin: 'https://a.tailnet.ts.net:8443' }])
+    expect(runner).toHaveBeenCalledExactlyOnceWith(['status', '--json'])
+  })
+})
+
+describe('Machines with two real gateways and engines', () => {
+  it('pairs with host approval, operates isolated sessions, streams, answers, stops, restarts and revokes', async () => {
+    const a = await realHost('A')
+    const b = await realHost('B')
+    const profile = temporary()
+    const box = aesGcmSecretBox(randomBytes(32))
+    let machines = client(profile, { secretBox: () => box })
+    const machineA = await pair(machines, a)
+    const machineB = await pair(machines, b, true)
+    expect(machines.list().find((row) => row.id === machineA)?.allowTerminal).toBe(false)
+    expect(machines.list().find((row) => row.id === machineB)?.allowTerminal).toBe(true)
+    expect(JSON.stringify(machines.list())).not.toMatch(/credentialCipher|PRIVATE KEY|"token"|deviceId/)
+    const identity = await fetch(`${a.gateway.origin}/api/identity`).then((response) => response.json())
+    expect(Object.keys(identity.result).sort()).toEqual(['ariVersion', 'capabilities', 'machineId', 'name', 'protocolVersion'])
+    expect(identity.result.capabilities).toContain('pairing.request')
+    for (const [id, label] of [[machineA, 'A'], [machineB, 'B']] as const) {
+      expect(await machines.query(id, { op: 'project.list' })).toEqual([{ id: `project_${label}`, name: label, sessionCount: 0 }])
+      const create = command({ op: 'session.create', projectId: `project_${label}`, driverKind: 'codex', modelId: 'mock-model' })
+      expect(await machines.command(id, create)).toEqual({ sessionId: 'sess_same' })
+      expect(await machines.command(id, create)).toEqual({ sessionId: 'sess_same' })
+      expect(await machines.query(id, { op: 'session.list' })).toMatchObject([{ id: 'sess_same', projectId: `project_${label}` }])
+    }
+    const framesA: MachineEventsFrame[] = []
+    const framesB: MachineEventsFrame[] = []
+    const snapshotA = remoteSessionResultSchema.parse(await machines.query(machineA, { op: 'session.get', sessionId: 'sess_same' }))
+    const snapshotB = remoteSessionResultSchema.parse(await machines.query(machineB, { op: 'session.get', sessionId: 'sess_same' }))
+    await machines.subscribe('stream_a', { machineId: machineA, sessionId: 'sess_same', fromSeq: snapshotA.seq }, (frame) => framesA.push(frame))
+    await machines.subscribe('stream_b', { machineId: machineB, sessionId: 'sess_same', fromSeq: snapshotB.seq }, (frame) => framesB.push(frame))
+    const promptA = command({ op: 'session.prompt', sessionId: 'sess_same', text: 'approval please' })
+    await machines.command(machineA, promptA)
+    await machines.command(machineB, command({ op: 'session.prompt', sessionId: 'sess_same', text: 'simple prompt' }))
+    await vi.waitFor(async () => expect((await a.store.load('sess_same')).pendingApprovals).toHaveLength(1))
+    await vi.waitFor(() => expect(framesA.some((frame) => frame.message.type === 'events.frame' && frame.message.events.some((row) => (row.event as { type?: string }).type === 'approval.requested'))).toBe(true))
+    await machines.command(machineA, command({ op: 'approval.respond', sessionId: 'sess_same', approvalId: 'approval_same', optionId: 'accept' }))
+    await a.engine.quiesce('sess_same')
+    await b.engine.quiesce('sess_same')
+    expect(a.decisions).toEqual([{ optionId: 'accept' }])
+    expect(b.decisions).toEqual([])
+    for (const [id, label, frames] of [[machineA, 'A', framesA], [machineB, 'B', framesB]] as const) {
+      const snapshot = remoteSessionResultSchema.parse(await machines.query(id, { op: 'session.get', sessionId: 'sess_same' }))
+      expect(snapshot.session.projectId).toBe(`project_${label}`)
+      expect(snapshot.messages.some((message) => message.parts.some((part) => part.type === 'text' && part.text.includes(label)))).toBe(true)
+      await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0))
+      for (const frame of frames) expect(machineEventsFrameSchema.parse(frame).machineId).toBe(id)
+    }
+    await machines.command(machineA, command({ op: 'session.prompt', sessionId: 'sess_same', text: 'hold this turn' }))
+    await vi.waitFor(async () => expect((await a.store.load('sess_same')).session?.status).toBe('running'))
+    await machines.command(machineA, command({ op: 'session.interrupt', sessionId: 'sess_same' }))
+    await a.engine.quiesce('sess_same')
+    expect((await a.store.load('sess_same')).session?.status).toBe('idle')
+    machines.rename(machineA, 'Office computer')
+    machines.dispose()
+    await a.restart()
+    machines = client(profile, { secretBox: () => box })
+    expect(machines.list().find((row) => row.id === machineA)?.name).toBe('Office computer')
+    expect(machines.list().find((row) => row.id === machineB)?.allowTerminal).toBe(false)
+    expect((await machines.connect(machineA)).status).toBe('connected')
+    expect((await machines.connect(machineB)).allowTerminal).toBe(true)
+    expect(await machines.query(machineA, { op: 'command.status', idempotencyKey: promptA.idempotencyKey })).toMatchObject({ ok: true })
+    const reconnectFrames: MachineEventsFrame[] = []
+    await machines.subscribe('resume_a', { machineId: machineA, sessionId: 'sess_same', fromSeq: snapshotA.seq }, (frame) => reconnectFrames.push(frame))
+    await vi.waitFor(() => expect(reconnectFrames.some((frame) => frame.message.type === 'events.frame' && frame.message.caughtUp)).toBe(true))
+    const deviceA = a.gateway.pairing.devices()[0]!.deviceId
+    expect(a.gateway.pairing.revoke(deviceA)).toBe(true)
+    expect((await machines.connect(machineA)).status).toBe('revoked')
+    expect((await machines.connect(machineB)).status).toBe('connected')
+    expect(await machines.remove(machineB)).toEqual({ removed: true })
+    expect(b.gateway.pairing.devices()).toEqual([])
+    expect(readFileSync(join(profile, 'machines.json'), 'utf8')).not.toContain(machineB)
+  }, 25_000)
+
+  it('rejects version mismatch before a pairing request and missing capabilities before commands', async () => {
+    const a = await realHost('A')
+    let requests = 0
+    const mismatch = createServer((req, res) => {
+      if (req.url?.startsWith('/pair/')) requests++
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ ok: true, result: { machineId: 'incompatible', protocolVersion: 99, capabilities: [] } }))
+    })
+    await new Promise<void>((resolve) => mismatch.listen(0, '127.0.0.1', resolve))
+    cleanups.push(() => new Promise<void>((resolve) => mismatch.close(() => resolve())))
+    const origin = `http://127.0.0.1:${(mismatch.address() as { port: number }).port}`
+    const machines = client()
+    const saved = await machines.add(`${origin}/#pair=inv_bad`)
+    expect(saved.status).toBe('incompatible')
+    await expect(machines.pair({ machineId: saved.id, displayName: 'Desktop' })).rejects.toMatchObject({ code: 'unsupported_version' })
+    expect(requests).toBe(0)
+    const id = await pair(machines, a)
+    await expect(machines.command(id, command({ op: 'terminal.create', sessionId: 'sess_same' }))).rejects.toMatchObject({ code: 'unsupported_capability' })
+    expect(a.prompts).toEqual([])
+  })
+
+  it('registers only scoped RPCs and disposes a stream removed during authorization', async () => {
+    const machines = client()
+    const registry = new RpcRegistry({ send: vi.fn() })
+    registerMachinesRpc(registry, machines)
+    expect(await registry.invoke('machines.list', undefined)).toEqual([])
+    await expect(registry.invoke('machines.command', { machineId: 'unknown', command: { op: 'command.dispatch', path: 'C:/private' } })).rejects.toThrow(/invalid params/)
+    expect(() => subscribeMachineStream(registry, machines, { id: 'bad', name: 'machines.events', params: { sessionId: 'sess_same' } })).toThrow()
+    expect(registry.subscriberCount()).toBe(0)
+  })
+})
