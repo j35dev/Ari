@@ -756,6 +756,26 @@ describe('mobile commands', () => {
     expect(outcome).toEqual({ ok: true, result: { accepted: true } })
   })
 
+  it('keeps a lost prompt uncertain when its receipt is absent instead of resending it', async () => {
+    const host = fakeHost()
+    const gateway = await startGateway(host)
+    const store = new MemoryDeviceStore()
+    await pairPhone(gateway, new DeviceKeyring(store))
+    const browser = browserFetch({ loseFirstMutation: true })
+    const missingReceipt: typeof fetch = async (input, init) => {
+      if (String(input).endsWith('/query') && String(init?.body).includes('command.status'))
+        return Response.json({ ok: false, error: { code: 'not_found', message: 'receipt history was evicted' } }, { status: 404 })
+      return browser(input, init)
+    }
+    const session = sessionFor(gateway, new DeviceKeyring(store), missingReceipt)
+    await session.connect()
+    await expect(session.send({ op: 'session.prompt', sessionId: 'sess_1', text: 'only once' }, 'lost_prompt_receipt')).rejects.toMatchObject({
+      code: 'unreachable', idempotencyKey: 'lost_prompt_receipt', retryable: false,
+      message: expect.stringMatching(/may have executed/),
+    })
+    expect(host.executed.filter((entry) => entry.op === 'session.prompt')).toHaveLength(1)
+  })
+
   it('reads the change list and one diff from a desktop that serves them', async () => {
     const gateway = await startGateway(fakeHost({ withChanges: true }))
     const session = await pairPhone(gateway, new DeviceKeyring(new MemoryDeviceStore()))
