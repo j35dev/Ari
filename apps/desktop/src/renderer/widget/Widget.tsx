@@ -1,5 +1,6 @@
 import { AriaMark } from '@ari/ui/aria-mark'
 import type { WidgetSnapshot } from '../../main/aria-widget/model'
+import { DictationIndicator } from './DictationIndicator'
 
 export function Widget(props: {
   state: WidgetSnapshot
@@ -7,6 +8,7 @@ export function Widget(props: {
   onSetup: () => void
 }): React.JSX.Element | null {
   const { state, level, onSetup } = props
+  if (state.destination === 'dictation') return <DictationIndicator {...props} />
   if (state.phase === 'hidden') return null
   const text =
     state.phase === 'listening'
@@ -44,10 +46,7 @@ export function Widget(props: {
         </span>
       )}
       {state.phase === 'sent' && (
-        <span
-          className="aria-sent"
-          aria-label={state.destination === 'dictation' ? 'Inserted' : 'Sent'}
-        >
+        <span className="aria-sent" aria-label="Sent">
           ✓
         </span>
       )}

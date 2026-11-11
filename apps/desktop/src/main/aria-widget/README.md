@@ -65,3 +65,9 @@ Screenshots default to `D:\tmp\aria-widget-shots`; `ARIA_WIDGET_SHOTS` changes t
 destination. `packaged.e2e.ts` checks the actual asar unpack mapping after a Windows
 directory build; `ARIA_WIDGET_PACKAGE` defaults to
 `D:\tmp\aria-widget-package\win-unpacked`.
+
+Set `ARIA_WIDGET_CAPTURE_ONLY=1` for hidden visual capture only: it denies
+microphone permissions and skips native key injection and recovery checks.
+The check captures both Aria and neutral general dictation states in dark and
+light themes. General dictation stays available when the Aria experiment is off;
+only the Aria chord is disarmed by **Settings → Experimental → Aria**.

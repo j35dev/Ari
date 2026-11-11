@@ -27,6 +27,7 @@ async function capture(): Promise<void> {
   ipcMain.handle('ari:ariaWidget.error', () => undefined)
   ipcMain.handle('ari:ariaWidget.complete', () => undefined)
   ipcMain.handle('ari:ariaWidget.settings', () => undefined)
+  ipcMain.handle('ari:ariaWidget.capture', () => undefined)
   const win = new BrowserWindow({
     width: 380,
     height: 72,
@@ -39,11 +40,18 @@ async function capture(): Promise<void> {
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/widget.cjs'),
       sandbox: true,
+      partition: 'aria-widget-capture',
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
     },
   })
+  if (process.env['ARIA_WIDGET_CAPTURE_ONLY'] === '1') {
+    win.webContents.session.setPermissionCheckHandler(() => false)
+    win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
+      callback(false),
+    )
+  }
   await win.loadFile(join(import.meta.dirname, '../renderer/widget/index.html'))
   await win.webContents.executeJavaScript('document.fonts.ready')
   const samples: readonly (Pick<WidgetSnapshot, 'phase' | 'text' | 'setup'> & { name: string })[] =
@@ -59,21 +67,37 @@ async function capture(): Promise<void> {
       { name: 'error', phase: 'error', text: 'No speech heard', setup: false },
       { name: 'setup', phase: 'error', text: 'Set up speech to text in Settings', setup: true },
     ]
-  for (const theme of ['obsidian', 'porcelain']) {
-    for (const sample of samples) {
-      state = { ...state, ...sample, id: state.id + 1, theme }
-      win.webContents.send('ari:ariaWidget.state', state)
-      await win.webContents.executeJavaScript(`new Promise((resolve) => {
-        const frame = () => document.querySelector('.aria-pill')?.dataset.phase === ${JSON.stringify(sample.phase)}
+  for (const destination of ['aria', 'dictation'] as const) {
+    for (const theme of ['obsidian', 'porcelain']) {
+      for (const sample of samples) {
+        const phase =
+          destination === 'dictation' && sample.phase === 'listening'
+            ? 'recording'
+            : destination === 'dictation' && sample.phase === 'sent'
+              ? 'inserted'
+              : sample.phase
+        state = { ...state, ...sample, id: state.id + 1, theme, destination }
+        win.webContents.send('ari:ariaWidget.state', state)
+        await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Widget capture state did not appear')), 10000);
+        const frame = () => document.querySelector('.aria-pill, .dictation-indicator')?.dataset.phase === ${JSON.stringify(phase)}
           && document.documentElement.dataset.ariTheme === ${JSON.stringify(theme)}
-          ? requestAnimationFrame(() => requestAnimationFrame(resolve)) : requestAnimationFrame(frame);
+          ? (clearTimeout(timeout), requestAnimationFrame(() => requestAnimationFrame(resolve))) : requestAnimationFrame(frame);
         frame();
       })`)
-      const image = await win.webContents.capturePage()
-      const filename = `${theme}-${sample.name}.png`
-      await writeFile(join(directory, filename), image.toPNG())
-      console.log(`Captured ${filename}`)
+        const image = await win.webContents.capturePage()
+        const filename = `${destination}-${theme}-${destination === 'dictation' && sample.name === 'sent' ? 'inserted' : sample.name}.png`
+        await writeFile(join(directory, filename), image.toPNG())
+        console.log(`Captured ${filename}`)
+      }
     }
+  }
+
+  // Capture visuals in hidden windows without injecting keys or acquiring audio.
+  if (process.env['ARIA_WIDGET_CAPTURE_ONLY'] === '1') {
+    win.destroy()
+    main.destroy()
+    return
   }
 
   // Verify the shipped Node-API addon with this Electron runtime, including
@@ -106,7 +130,7 @@ async function capture(): Promise<void> {
     win.destroy()
   }
 
-  for (const method of ['ready', 'speech', 'error', 'complete', 'settings'])
+  for (const method of ['ready', 'speech', 'error', 'complete', 'settings', 'capture'])
     ipcMain.removeHandler(`ari:ariaWidget.${method}`)
   const focus = BrowserWindow.getFocusedWindow()
   const widget = new AriaWidget({
@@ -115,6 +139,7 @@ async function capture(): Promise<void> {
   })
   try {
     await widget.configure({
+      experimental: { ariaEnabled: true },
       appearance: { mode: 'obsidian', themeId: 'obsidian', reducedMotion: true },
       speech: { enabled: true, shortcut: 'ctrl+f24' },
     } as unknown as Settings)
