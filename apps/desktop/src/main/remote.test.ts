@@ -170,14 +170,26 @@ describe('remote service lifecycle', () => {
     const { service } = makeService({ listProjects: async () => projects })
     await service.start()
     await pair(service, deviceKey())
-    await service.startManaged({ port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null })
+    await service.startManaged({
+      port: 0,
+      issuer: 'https://connect.example',
+      hostname: 'computer.tunnel.example',
+      computerId: 'computer',
+      verifier: () => null,
+    })
     await pair(service, deviceKey(), [], 'connect')
     const managedDevice = service.state().devices[1]
-    expect(service.pairedRecords().devices.map((device) => device.deviceId)).toEqual([managedDevice?.deviceId])
+    expect(service.pairedRecords().devices.map((device) => device.deviceId)).toEqual([
+      managedDevice?.deviceId,
+    ])
     projects.push({ id: 'future', name: 'New project' })
     const refreshed = await service.currentPairedRecords()
     expect(refreshed.devices).toHaveLength(1)
-    expect(refreshed.devices[0]).toMatchObject({ deviceId: managedDevice?.deviceId, allProjects: true, projectIds: ['proj_1', 'future'] })
+    expect(refreshed.devices[0]).toMatchObject({
+      deviceId: managedDevice?.deviceId,
+      allProjects: true,
+      projectIds: ['proj_1', 'future'],
+    })
   })
 
   it('is off until it is started, and says where it listens once it is', async () => {

@@ -130,12 +130,28 @@ describe('desktop Ari Connect lifecycle', () => {
     const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
     const projects = ['proj_1']
     const currentPairedRecords = vi.fn(async () => ({
-      devices: [{ deviceId: 'dev_phone', displayName: 'Phone', allProjects: true, projectIds: [...projects], pairedAt: 1, lastSeenAt: null, publicKey: publicKey.export({ format: 'jwk' }) as { kty: 'EC'; crv: 'P-256'; x: string; y: string } }],
+      devices: [
+        {
+          deviceId: 'dev_phone',
+          displayName: 'Phone',
+          allProjects: true,
+          projectIds: [...projects],
+          pairedAt: 1,
+          lastSeenAt: null,
+          publicKey: publicKey.export({ format: 'jwk' }) as {
+            kty: 'EC'
+            crv: 'P-256'
+            x: string
+            y: string
+          },
+        },
+      ],
       revoked: [],
     }))
     Object.assign(h.deps.remote, { currentPairedRecords })
     await h.ready()
-    const registrations = () => h.calls.filter((call) => call.method === 'POST' && call.url.endsWith('/devices'))
+    const registrations = () =>
+      h.calls.filter((call) => call.method === 'POST' && call.url.endsWith('/devices'))
     expect(registrations().at(-1)?.body).toMatchObject({ projectIds: ['proj_1'] })
     projects.push('future')
     await vi.advanceTimersByTimeAsync(60_000)

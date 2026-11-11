@@ -108,9 +108,7 @@ export function RemoteSettings() {
   }
   const saveGrants = (deviceId: string, allowTerminal: boolean): void => {
     run('Save device access', async () => {
-      setRemote(
-        await rpc.invoke('remote.updateDeviceGrants', { deviceId, allowTerminal }),
-      )
+      setRemote(await rpc.invoke('remote.updateDeviceGrants', { deviceId, allowTerminal }))
       setEditing(null)
     })
   }
@@ -293,15 +291,19 @@ export function RemoteSettings() {
               state={tailscale}
               enabled={remote?.enabled === true}
               disabled={disabled}
-              enable={(options) => run('Start Tailscale Serve', async () => {
-                const state = await rpc.invoke('remote.tailscale.enable', options)
-                setRemote(state.remote)
-                setTailscale(state.tailscale)
-              })}
-              disable={() => run('Stop Tailscale Serve', async () => {
-                setTailscale(await rpc.invoke('remote.tailscale.disable'))
-                setRemote(await rpc.invoke('remote.status'))
-              })}
+              enable={(options) =>
+                run('Start Tailscale Serve', async () => {
+                  const state = await rpc.invoke('remote.tailscale.enable', options)
+                  setRemote(state.remote)
+                  setTailscale(state.tailscale)
+                })
+              }
+              disable={() =>
+                run('Stop Tailscale Serve', async () => {
+                  setTailscale(await rpc.invoke('remote.tailscale.disable'))
+                  setRemote(await rpc.invoke('remote.status'))
+                })
+              }
               refresh={refresh}
             />
           </section>
@@ -434,7 +436,12 @@ export function RemoteSettings() {
         {(remote?.devices.length ?? 0) === 0 ? (
           <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-1/70 px-4 py-4">
             <Smartphone size={18} className="text-fg-subtle" aria-hidden="true" />
-            <div className="space-y-1"><p className="text-sm font-medium">No paired devices</p><p className="text-xs text-fg-muted">Pair a phone or computer to reach all your projects.</p></div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No paired devices</p>
+              <p className="text-xs text-fg-muted">
+                Pair a phone or computer to reach all your projects.
+              </p>
+            </div>
           </div>
         ) : (
           <ul className={SETTINGS_CARD_CLASS}>
@@ -450,9 +457,7 @@ export function RemoteSettings() {
                       ? 'Never connected'
                       : `Last seen ${formatTime(device.lastSeenAt)}`}
                   </p>
-                  <p className="text-xs text-fg-muted">
-                    All projects, including future projects
-                  </p>
+                  <p className="text-xs text-fg-muted">All projects, including future projects</p>
                   <p className="text-xs text-fg-muted">
                     Terminal: {device.allowTerminal === true ? 'enabled' : 'not granted'}
                   </p>
@@ -468,15 +473,14 @@ export function RemoteSettings() {
                       }
                     />
                     <p className="text-xs leading-relaxed text-fg-muted">
-                      Changes apply to open connections. Turning terminal access off closes its shells.
+                      Changes apply to open connections. Turning terminal access off closes its
+                      shells.
                     </p>
                     <div className="flex gap-2">
                       <Button
                         variant="primary"
                         disabled={disabled}
-                        onClick={() =>
-                          saveGrants(device.deviceId, editing.allowTerminal)
-                        }
+                        onClick={() => saveGrants(device.deviceId, editing.allowTerminal)}
                         aria-label={`Save access for ${device.displayName}`}
                         className="min-h-11"
                       >
@@ -495,7 +499,9 @@ export function RemoteSettings() {
                   </div>
                 ) : confirmingRevoke === device.deviceId ? (
                   <div className="space-y-2">
-                    <p className="text-xs text-fg-muted">This device will disconnect and need to pair again.</p>
+                    <p className="text-xs text-fg-muted">
+                      This device will disconnect and need to pair again.
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         variant="danger"
@@ -572,8 +578,8 @@ export function RemoteSettings() {
           <dd className="break-all font-mono">{tailscale?.dnsName ?? 'Not detected'}</dd>
         </dl>
         <p className="pb-4 leading-relaxed">
-          Each phone or computer needs its own approved pairing. This
-          computer must stay awake for mobile access.
+          Each phone or computer needs its own approved pairing. This computer must stay awake for
+          mobile access.
         </p>
       </details>
       {busy !== null ? (
@@ -627,4 +633,3 @@ function matchesConnection(invitation: string | null, clientUrl: string | null):
     return false
   }
 }
-

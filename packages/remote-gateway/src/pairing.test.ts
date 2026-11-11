@@ -55,14 +55,31 @@ describe('pairing', () => {
   it('migrates legacy project scope without granting terminal or restoring revoked devices', () => {
     const key = deviceKey()
     const saved: PersistedPairing[] = []
-    const record = { deviceId: 'dev_legacy', displayName: 'Phone', publicKey: key.jwk, projectIds: ['old'], pairedAt: 1, lastSeenAt: null }
+    const record = {
+      deviceId: 'dev_legacy',
+      displayName: 'Phone',
+      publicKey: key.jwk,
+      projectIds: ['old'],
+      pairedAt: 1,
+      lastSeenAt: null,
+    }
     let projects = ['old', 'new']
     const service = new PairingService({
-      restored: { devices: [record, { ...record, deviceId: 'dev_revoked', allowTerminal: true }], revoked: [{ deviceId: 'dev_revoked', revokedAt: 2 }] },
+      restored: {
+        devices: [record, { ...record, deviceId: 'dev_revoked', allowTerminal: true }],
+        revoked: [{ deviceId: 'dev_revoked', revokedAt: 2 }],
+      },
       projectIds: () => projects,
       persist: { save: (state) => saved.push(state) },
     })
-    expect(service.devices()).toMatchObject([{ deviceId: 'dev_legacy', allProjects: true, allowTerminal: false, projectIds: ['old', 'new'] }])
+    expect(service.devices()).toMatchObject([
+      {
+        deviceId: 'dev_legacy',
+        allProjects: true,
+        allowTerminal: false,
+        projectIds: ['old', 'new'],
+      },
+    ])
     expect(saved.at(-1)?.devices[0]?.allProjects).toBe(true)
     projects = ['old', 'new', 'future']
     expect(service.devices()[0]?.projectIds).toEqual(projects)
@@ -75,16 +92,28 @@ describe('pairing', () => {
     const service = new PairingService({ projectIds: () => projects })
     const key = deviceKey()
     const invitation = service.begin('http://127.0.0.1:8787')
-    const request = service.request(invitation.invitationId, { displayName: 'Computer', publicKey: key.jwk })
+    const request = service.request(invitation.invitationId, {
+      displayName: 'Computer',
+      publicKey: key.jwk,
+    })
     if (!request.ok) throw new Error('registration refused')
-    expect(service.approve(invitation.invitationId, request.pending.confirmationCode)).toEqual({ ok: true })
-    const result = service.redeem(invitation.invitationId, { nonce: request.nonce, signature: key.sign(request.nonce) })
+    expect(service.approve(invitation.invitationId, request.pending.confirmationCode)).toEqual({
+      ok: true,
+    })
+    const result = service.redeem(invitation.invitationId, {
+      nonce: request.nonce,
+      signature: key.sign(request.nonce),
+    })
     if (!result.ok) throw new Error('redemption refused')
     expect(result.device).toMatchObject({ allProjects: true, allowTerminal: false, projectIds: [] })
     projects = ['future']
     expect(service.authenticate(result.token)?.projectIds).toEqual(['future'])
     service.updateGrants(result.device.deviceId, [], true)
-    expect(service.authenticate(result.token)).toMatchObject({ allProjects: true, projectIds: ['future'], allowTerminal: true })
+    expect(service.authenticate(result.token)).toMatchObject({
+      allProjects: true,
+      projectIds: ['future'],
+      allowTerminal: true,
+    })
     service.revoke(result.device.deviceId)
     expect(service.authenticate(result.token)).toBeUndefined()
   })

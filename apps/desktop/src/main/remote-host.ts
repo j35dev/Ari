@@ -122,9 +122,7 @@ export interface RemoteHostDeps {
   /** The account allowance the desktop's own usage pill reads; never throws. */
   allowance?: (kind: DriverKind) => Promise<ProviderAllowance>
   /** Spends one banked reset of the account a provider runs as, as the usage pill's button does. */
-  redeemReset?: (
-    kind: DriverKind,
-  ) => Promise<RpcResults['providers.consumeResetCredit']>
+  redeemReset?: (kind: DriverKind) => Promise<RpcResults['providers.consumeResetCredit']>
   /** A provider's accounts and the switch between them. Signing one in is not offered remotely. */
   accounts?: {
     list: (kind: DriverKind) => Promise<ProviderAccountsResult>

@@ -12,13 +12,7 @@ interface Props {
 }
 
 /** Requires a matching device code and separate terminal grant for each invitation. */
-export function RemotePairingApproval({
-  pending,
-  disabled,
-  expired,
-  approve,
-  deny,
-}: Props) {
+export function RemotePairingApproval({ pending, disabled, expired, approve, deny }: Props) {
   const [verified, setVerified] = useState(false)
   const [allowTerminal, setAllowTerminal] = useState(false)
   return (

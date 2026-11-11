@@ -158,10 +158,17 @@ describe('remote host capabilities', () => {
     const engine = fakeEngine()
     const host = hostFor(store, engine, { listProjects: async () => projects })
     const local: RemoteCaller = { deviceId: 'dev_local', allProjects: true, projectIds: [] }
-    const managed: RemoteCaller = { deviceId: 'dev_managed', allProjects: false, projectIds: ['proj_1'] }
+    const managed: RemoteCaller = {
+      deviceId: 'dev_managed',
+      allProjects: false,
+      projectIds: ['proj_1'],
+    }
     projects.push({ id: 'future', name: 'New project' })
     await store.append('sess_future', sessionCreated('sess_future', 'future'))
-    expect((await host.listProjects(local)).map((project) => project.id)).toEqual(['proj_1', 'future'])
+    expect((await host.listProjects(local)).map((project) => project.id)).toEqual([
+      'proj_1',
+      'future',
+    ])
     expect((await host.listProjects(managed)).map((project) => project.id)).toEqual(['proj_1'])
     expect(await host.getSession(local, 'sess_future')).toBeDefined()
     expect(await host.getSession(managed, 'sess_future')).toBeUndefined()
@@ -170,7 +177,10 @@ describe('remote host capabilities', () => {
     expect(engine.dispatched).toHaveLength(0)
     expect(await host.execute(local, prompt)).toMatchObject({ ok: true })
     expect(engine.dispatched).toHaveLength(1)
-    const create = command('session.create', { projectId: 'future', title: 'A new project session' })
+    const create = command('session.create', {
+      projectId: 'future',
+      title: 'A new project session',
+    })
     expect(await host.execute(managed, create)).toMatchObject({ ok: false, code: 'not_found' })
     expect(engine.created).toHaveLength(0)
     expect(await host.execute(local, create)).toMatchObject({ ok: true })
@@ -1084,7 +1094,11 @@ describe('spending a banked reset from a phone', () => {
   })
 
   it('answers with what the provider said and the allowance it leaves, without a grant id', async () => {
-    const redeemReset = vi.fn(async () => ({ ok: true as const, outcome: 'reset' as const, allowance: after }))
+    const redeemReset = vi.fn(async () => ({
+      ok: true as const,
+      outcome: 'reset' as const,
+      allowance: after,
+    }))
     const host = hostFor(await tempStore(), fakeEngine(), { redeemReset })
     expect(host.capabilities()).toContain('usage.redeem')
 
@@ -1196,14 +1210,22 @@ describe('a provider’s accounts from a phone', () => {
     expect(deps.activate).toHaveBeenCalledWith('claude', 'work')
     expect(reply).toMatchObject({
       ok: true,
-      result: { accounts: [{ id: 'default', active: false }, { id: 'work', active: true }] },
+      result: {
+        accounts: [
+          { id: 'default', active: false },
+          { id: 'work', active: true },
+        ],
+      },
     })
   })
 
   it('refuses with the desktop’s reason when the switch did not happen', async () => {
     const deps = {
       ...accounts(),
-      activate: vi.fn(async () => ({ ...listed('default'), error: 'That account no longer exists.' })),
+      activate: vi.fn(async () => ({
+        ...listed('default'),
+        error: 'That account no longer exists.',
+      })),
     }
     const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
     expect(
