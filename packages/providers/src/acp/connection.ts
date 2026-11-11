@@ -6,6 +6,7 @@ import { teardownChild } from '../teardown'
 import { AUTH_REQUIRED_ERROR, describeAcpFailure, terminalLoginsFrom } from './protocol'
 import { isInteractiveClientMethod } from './client-requests'
 import { removeBrokenNpxInstall } from './npx-cache'
+import { BackgroundTaskTracker } from './background-tasks'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
@@ -124,6 +125,13 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout> | null
   /** Silence watchdog interval; set only for long-lived turn requests. */
   stallTimer: ReturnType<typeof setInterval> | null
+  /** Exists only while this prompt belongs to a live turn. */
+  prompt: {
+    sessionId: string
+    activeTools: Set<string>
+    activeSubagents: Set<string>
+    background: BackgroundTaskTracker
+  } | null
 }
 
 /**
@@ -134,8 +142,8 @@ interface PendingRequest {
  * purpose: agents can be legitimately silent for a long stretch — Claude's
  * adapter emits no session/update while it compacts a long conversation, and
  * a long shell command (test suites, builds) can run for many minutes with
- * no protocol traffic. Only a true wedge has neither inbound traffic nor a
- * pending server→client request to explain the quiet.
+ * no protocol traffic. Announced tools and pending server→client requests
+ * explain that quiet; the silence deadline applies while awaiting the agent.
  */
 export function acpPromptStallMs(raw = process.env['ARI_ACP_PROMPT_STALL_MS']): number {
   if (raw === undefined || raw.trim() === '') return 1_200_000
@@ -158,6 +166,8 @@ export class AcpConnection {
   readonly #stderrTail: string[] = []
   #nextId = 1
   #closed = false
+  /** A locally ended prompt without a protocol reply cannot be reused safely. */
+  #abandonedPrompt = false
   /** Last inbound byte timestamp — liveness signal for the stall watchdog. */
   #lastInboundAt = Date.now()
   #exitCode: number | null = null
@@ -209,6 +219,15 @@ export class AcpConnection {
 
   get closed(): boolean {
     return this.#closed
+  }
+
+  /** Only a connection whose previous prompt actually replied can be parked. */
+  get reusable(): boolean {
+    return (
+      !this.#closed &&
+      !this.#abandonedPrompt &&
+      ![...this.#pending.values()].some((pending) => pending.prompt !== null)
+    )
   }
 
   /** Logins the agent advertised at initialize that Ari can launch itself. */
@@ -438,6 +457,28 @@ export class AcpConnection {
     if (method !== null) {
       if (method === 'session/update') {
         const params = message['params'] as AcpSessionNotification | undefined
+        const update = params?.update
+        if (update?.sessionUpdate === 'tool_call' || update?.sessionUpdate === 'tool_call_update') {
+          for (const pending of this.#pending.values()) {
+            if (!pending.prompt || pending.prompt.sessionId !== params?.sessionId) continue
+            for (const event of pending.prompt.background.observe(update)) {
+              if (event.type !== 'background-task' || event.kind !== 'subagent') continue
+              // Claude holds session/prompt open for native subagents even
+              // after their launch tools complete. Shells do not hold it open.
+              if (event.status === 'running') pending.prompt.activeSubagents.add(event.id)
+              else pending.prompt.activeSubagents.delete(event.id)
+            }
+            const toolId = update.toolCallId
+            if (typeof toolId !== 'string') continue
+            if (update.status === 'completed' || update.status === 'failed') {
+              pending.prompt.activeTools.delete(toolId)
+            } else if (update.status === 'pending' || update.status === 'in_progress') {
+              // Tools execute in the agent, outside server→client RPCs. This
+              // includes a shell blocked in `ari session wait` on children.
+              pending.prompt.activeTools.add(toolId)
+            }
+          }
+        }
         this.onSessionUpdate?.(params ?? {})
       }
       return
@@ -538,12 +579,25 @@ export class AcpConnection {
       )
     }
     const id = this.#nextId++
+    // An idle pooled process can be silent for hours. Give each new request
+    // its own full deadline instead of charging it for the previous idle gap.
+    const requestedAt = Date.now()
+    const prompt =
+      method === 'session/prompt'
+        ? {
+            sessionId: (params as { sessionId: string }).sessionId,
+            activeTools: new Set<string>(),
+            activeSubagents: new Set<string>(),
+            background: new BackgroundTaskTracker(),
+          }
+        : null
     return new Promise<unknown>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | null = null
       let stallTimer: ReturnType<typeof setInterval> | null = null
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           this.#pending.delete(id)
+          if (prompt) this.#abandonedPrompt = true
           if (timer !== null) clearTimeout(timer)
           if (stallTimer !== null) clearInterval(stallTimer)
           reject(
@@ -563,8 +617,9 @@ export class AcpConnection {
         // where the silence is Ari's user taking their time, not a wedge.
         const interval = setInterval(
           () => {
-            if (Date.now() - this.#lastInboundAt < stallSilenceMs) return
+            if (Date.now() - Math.max(requestedAt, this.#lastInboundAt) < stallSilenceMs) return
             if (this.#pendingServerRequests > 0) return
+            if (prompt && (prompt.activeTools.size > 0 || prompt.activeSubagents.size > 0)) return
             if (timer !== null) clearTimeout(timer)
             clearInterval(interval)
             this.#pending.delete(id)
@@ -572,10 +627,17 @@ export class AcpConnection {
               stallSilenceMs < 1000
                 ? `${stallSilenceMs}ms`
                 : `${Math.round(stallSilenceMs / 1000)}s`
+            this.#abandonedPrompt = true
+            log.warn('ACP prompt stalled', {
+              label: this.launch.label,
+              method,
+              sessionId: prompt?.sessionId,
+              silence: quiet,
+              stderr: this.#tailReport().trim(),
+            })
             reject(
               new AcpConnectionError(
-                `${this.launch.label} went silent for ${quiet} mid-${method} — ` +
-                  `the agent may be wedged or waiting for login${this.#tailReport()}`,
+                'The agent stopped responding. Retry to reconnect.',
                 null,
                 'uncertain',
               ),
@@ -586,7 +648,7 @@ export class AcpConnection {
         interval.unref?.()
         stallTimer = interval
       }
-      this.#pending.set(id, { resolve, reject, timer, stallTimer })
+      this.#pending.set(id, { resolve, reject, timer, stallTimer, prompt })
       const fail = (error: AcpConnectionError): void => {
         this.#pending.delete(id)
         if (timer !== null) clearTimeout(timer)
@@ -712,7 +774,21 @@ export class AcpConnection {
   }
 
   cancel(sessionId: string): void {
-    this.#notify('session/cancel', { sessionId })
+    try {
+      this.#notify('session/cancel', { sessionId })
+    } finally {
+      // Cancellation ends Ari's turn even if the adapter never closes its
+      // session/prompt RPC or stdin fails. Retire the request and its timers
+      // now; a late reply cannot fail the paused chat or join a later prompt.
+      for (const [id, pending] of this.#pending) {
+        if (pending.prompt?.sessionId !== sessionId) continue
+        this.#abandonedPrompt = true
+        this.#pending.delete(id)
+        if (pending.timer !== null) clearTimeout(pending.timer)
+        if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
+        pending.resolve({ stopReason: 'cancelled' })
+      }
+    }
   }
 
   /** Calls a provider's namespaced ACP extension with a bounded deadline. */
