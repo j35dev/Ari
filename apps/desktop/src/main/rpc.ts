@@ -1912,7 +1912,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (session) projectSelection.record(session.projectId, viewedAt)
     return {
       path: session ? await engine.workspace(session) : null,
-      ...(checkOccupancy ? { busyReason: session ? await (await controlReady).service.authorizeWorkspace(session) : null } : {}),
+      ...(checkOccupancy
+        ? {
+            busyReason: session
+              ? await (await controlReady).service.authorizeWorkspace(session)
+              : null,
+          }
+        : {}),
     }
   })
 
