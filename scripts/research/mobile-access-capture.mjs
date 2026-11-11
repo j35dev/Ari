@@ -50,7 +50,13 @@ window.__captureLoaded = true
     configFile: false,
     root: scratch,
     plugins: [react()],
-    resolve: { dedupe: ['react', 'react-dom'] },
+    resolve: {
+      alias: {
+        react: dirname(requireDesktop.resolve('react')),
+        'react-dom': dirname(requireDesktop.resolve('react-dom')),
+      },
+      dedupe: ['react', 'react-dom'],
+    },
     css: { postcss: join(root, 'apps/desktop') },
     cacheDir: join(scratch, '.vite'),
     server: { host: '127.0.0.1', port: 0, fs: { allow: [root] } },
