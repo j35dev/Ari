@@ -687,7 +687,7 @@ let remoteServicesRef: { origins: RemoteOrigins; tailscale: TailscaleServe } | n
  */
 function remoteServices(): { origins: RemoteOrigins; tailscale: TailscaleServe } {
   if (remoteServicesRef !== null) return remoteServicesRef
-  const tailscale = new TailscaleServe({ port: gatewayPort })
+  const tailscale = new TailscaleServe({ port: gatewayPort, profileDir: app.getPath('userData') })
   remoteServicesRef = {
     tailscale,
     origins: new RemoteOrigins({
@@ -1790,6 +1790,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const state = await remote.start(params.port)
     // Now there is a listener for Serve to point at, and a tailnet address is
     // what the pairing panel needs before it can show a QR code.
+    if (remote.running) await tailscale.resume(gatewayPort())
     await refreshTailscale()
     await connect.status()
     return state
@@ -1822,11 +1823,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
 
   r.register('remote.tailscale.status', () => refreshTailscale())
-  r.register('remote.tailscale.enable', async () => {
+  r.register('remote.tailscale.enable', async (params) => {
     // Serve needs a listener to proxy to; the panel disables the button when
     // remote access is off, and this is the same answer for any other caller.
     if (!remote.running) return { remote: remote.state(), tailscale: await refreshTailscale() }
-    const tailscaleState = await tailscale.enable(gatewayPort())
+    const tailscaleState = await tailscale.enable(gatewayPort(), params)
     // Origins are re-read because a new mapping is what turns the pairing
     // notice into a QR code — but the enable answer itself is kept, since a
     // refusal would otherwise vanish into a healthy-looking re-read.
@@ -1834,8 +1835,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { remote: remote.state(), tailscale: tailscaleState }
   })
   r.register('remote.tailscale.disable', async () => {
-    await tailscale.disable()
-    return refreshTailscale()
+    const state = await tailscale.disable()
+    await refreshTailscale()
+    return state
   })
 
   // Coming back on the port the user chose, if they left remote access on.
@@ -1853,6 +1855,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await remote.stop()
         return
       }
+      if (remote.running) await tailscale.resume(gatewayPort())
       await refreshTailscale()
       if (stopping) return
       await connect.status()

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import type { TailscaleState } from '@ari/contracts/rpc'
 import { RemoteOrigins } from './remote-origins'
@@ -100,5 +101,52 @@ describe('RemoteOrigins', () => {
     expect(instance.clientOrigin()).toBeNull()
     expect(instance.allowedOrigins()).toEqual([CONNECT])
     expect(instance.state().error).toMatch(/not installed/)
+  })
+
+  it('uses and persists the exact alternate HTTPS origin across restart', async () => {
+    const alternate = `${TAILNET}:8443`
+    const first = origins({ status: state({ origin: alternate, httpsPort: 8443 }) })
+    await first.instance.refresh()
+    expect(first.instance.clientOrigin()).toBe(alternate)
+    expect(first.instance.allowedOrigins()).toEqual([CONNECT, alternate])
+    expect(first.instance.allowedOrigins()).not.toContain(TAILNET)
+    expect(first.remember).toHaveBeenCalledWith(alternate)
+    const restarted = origins({
+      status: state({ origin: alternate, httpsPort: 8443 }),
+      configured: first.store.configured,
+    })
+    await restarted.instance.refresh()
+    expect(restarted.instance.clientOrigin()).toBe(alternate)
+    expect(restarted.instance.allowedOrigins()).toEqual([CONNECT, alternate])
+    expect(restarted.remember).not.toHaveBeenCalled()
+  })
+
+  it('never advertises a foreign or stale selected root as a pairing address', async () => {
+    const alternate = `${TAILNET}:8443`
+    const { instance, remember } = origins({
+      status: state({
+        origin: alternate,
+        serving: false,
+        owned: false,
+        target: 'http://127.0.0.1:3773',
+      }),
+    })
+    await instance.refresh()
+    expect(instance.clientOrigin()).toBeNull()
+    expect(instance.allowedOrigins()).toEqual([CONNECT])
+    expect(remember).not.toHaveBeenCalled()
+  })
+
+  it('retries a failed origin write on the next refresh', async () => {
+    const remember = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('disk is full'))
+      .mockResolvedValue(undefined)
+    const { instance } = origins({ status: state({ origin: `${TAILNET}:8443` }), remember })
+    await instance.refresh()
+    await instance.refresh()
+    await instance.refresh()
+    expect(remember).toHaveBeenCalledTimes(2)
+    expect(instance.clientOrigin()).toBe(`${TAILNET}:8443`)
   })
 })
