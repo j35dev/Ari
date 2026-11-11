@@ -35,8 +35,8 @@ Coordinator confirmed the finding. Fix
 `02158cd79be05914d57faf396690c95064c936c5` removes anonymous merging and all
 cross-origin credential failover; source inspection verifies independently
 paired origins. Core also authored an adversarial copied-ID regression. The
-reviewer's isolated P-256 challenge-relay reproduction is queued through the
-shared validation runner against both immutable commits.
+reviewer's isolated P-256 challenge-relay reproduction passed through the
+shared validation runner against both immutable commits (evidence below).
 
 ### S2 — High / P1: desktop discards receipts on uncertain named failures
 
@@ -87,6 +87,12 @@ must await or cancel all pending start work. Add deterministic delayed-start,
 double-start, managed-stop, and shutdown tests. This boundary exists partly in
 the prior implementation but is still a release requirement for Machines.
 
+Grants correction `52f98b3a054253d44fbc652e997fb6a4aefe6880` serializes starts
+and stops, deduplicates pending starts, fences both listener publication points
+with generations, and closes a listener created after cancellation. Source and
+the authored delayed-project/listen/managed-start tests were reviewed. Final
+integration and worker execution evidence remain pending.
+
 ### S4 — Medium / P2: a managed shell survives its signed membership lease
 
 Locations: `apps/desktop/src/main/remote-terminals.ts:20`,
@@ -109,6 +115,14 @@ on membership expiry/revocation; keep private Tailscale shells on their explicit
 local device grant. Test managed lease expiry separately from local grant
 withdrawal, which already has a one-second watchdog.
 
+Grants correction `52f98b3a054253d44fbc652e997fb6a4aefe6880` adds verified
+`managedLeaseExpiresAt` to the caller and PTY entry, renews only through a live
+verified managed call, rejects cross-mode access, kills expired entries, and
+closes managed shells when the managed listener stops. Source and authored
+expiry/renewal/no-resurrection/private-shell tests were reviewed. The watchdog
+has up to one second of expiry/grant-withdrawal latency; this is not a claim
+that all detached OS descendants are terminated on real hardware.
+
 ### S5 — High / P1: unsuccessful durable revocation is silently acknowledged
 
 Snapshot inspected: grants `5828c4eab9c3938e289295a6cfa2c1ac8ef93766` plus
@@ -125,9 +139,9 @@ token deletion and the terminal watchdog do not make this revocation durable.
 This is an inherited security boundary, not introduced by allProjects.
 
 Required fix: propagate sensitive persistence failures and fail closed rather
-than reporting durable success. Keep runtime denial in effect, explain the
-unsaved security change, and prevent restart from reauthorizing stale records
-when durable revocation cannot be established. Cover injected filesystem
+than reporting durable success. Keep runtime denial in effect and explain that
+the security change could not be saved; do not certify restart revocation until
+it is durable. Cover injected filesystem
 failures for approval, revocation and terminal withdrawal, plus restart proofs.
 
 ### S6 — High / P1: missing deduplication state is treated as proof a mutation never ran
@@ -210,10 +224,75 @@ Both findings were sent to the coordinator for desktop correction.
   are reviewed source corrections; authored worker test claims are separate
   from the reviewer's independent reproduction.
 
-## Verification and outstanding work
+## Bounded receipt policy recommended to the coordinator
 
-Initial findings are based on source/control-flow inspection. Focused isolated
-reproduction is pending; no broad build or test claim is made. All validation
-must run through `scripts/coordination/run-heavy.mjs` with the shared lease and
-resource gates, after a WIP commit. Final integrated snapshot, exact fix review,
-complete branch coverage, and hardware/managed-service checks remain pending.
+For v1 compatibility, missing `command.status` should answer `conflict` with
+"Outcome unknown: no retained receipt; inspect host before submitting again."
+The old shared client's `not_found` automatic reconciliation path then stops.
+New clients must retain the exact command and key on absence. Pin in-flight
+claims and reject fresh admissions when the bounded store is full of pinned
+work. Completed payloads may be bounded; compact fingerprint/key tombstones
+should refuse forgotten replay within an explicitly documented horizon.
+Corrupt state must not create a fresh empty deduplication history.
+
+Recovery should offer host inspection and abandonment of the local receipt.
+Any deliberate resubmission after retention loss must warn that it may
+duplicate work, with an explicit confirmation. Unknown terminal input should
+never be replayed automatically.
+
+Compatibility limit: a cached old UI can send its old UUID directly to
+`/command` before checking status. After all evidence of that UUID is evicted,
+a bounded v1 server cannot distinguish it from a genuinely new key. Changing
+the status failure stops legacy automatic reconciliation but does not solve
+this direct replay. A hard guarantee needs a new negotiated mutation capability
+that refuses old clients and server-issued expiring reservations or signed
+epoch-bound keys, rather than an unlimited journal. The coordinator has this
+explicit contract/retention limitation; arbitrary-old exactly-once behavior
+must not be claimed for the current protocol.
+
+## Independent reproduction and verification
+
+Command (after report WIP commit `d26f529f`):
+
+```text
+node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security D:/Projects/Ari-machines-wt/security -- node D:/Projects/Ari-machines-wt/security/.review-temp/reproduce.cjs
+```
+
+The runner serialized the single process behind the swarm lease, applied the
+C >= 5 GiB / commit-headroom >= 1.5 GiB gates and below-normal priority, and
+used D: temporary/cache paths. No dependencies were installed. The temporary
+fixture loaded the actual MachinesService, registry, shared session, schemas
+and PairingService from immutable Git snapshots through the already installed
+TypeScript transpiler. Its transport adapter relayed challenge/authorize calls
+to the real PairingService and used actual P-256 signatures and AES-GCM sealed
+per-machine credentials in a security-worktree-only profile. This is a focused
+application-trust/crypto reproduction, not real-Tailscale or two-engine proof.
+
+| Snapshot | Host approvals | Proofs relayed to attacker | Valid host token obtained |
+| --- | ---: | ---: | --- |
+| vulnerable core `7119a5a` | 1 | 1 | yes |
+| fixed core `02158cd` | 1 | 0 | no |
+
+Assertions additionally verified that the vulnerable record inherited the
+original machine scope; fixed records have distinct local IDs and a null
+attacker credential; and the fixed original goes offline when unreachable
+rather than authenticating through the attacker. Fixture completion was
+`success:true`. No private key, signature, nonce, or bearer value appears in
+the evidence/report. Temporary reproduction files are removed after recording
+the result; only this report is committed.
+
+Source inspection covered the public identity/version/capability boundary,
+pairing and grants, signed Connect project intersection, origin/DNS/Serve
+policies, IPC secret exposure, terminal ownership/expiry, host file/attachment
+checks, renderer machine/session state, mutation receipts and lifecycle races.
+Authored worker tests were read where noted; the reviewer did not rerun their
+suites or wide builds. Current S1–S4 source corrections require final integrated
+snapshot confirmation. S5/S6 persistence and retention corrections and S7 wire
+corrections remain outstanding at this report commit.
+
+Required hardware/service gates remain unverified here: two computers on one
+tailnet, iPhone/PWA on the selected non-443 origin, sleep/wake/network/ACL
+changes, terminal withdrawal against real PTYs, safeStorage across desktop
+restarts, and the private managed broker/tunnel lease-refresh behavior. The
+private broker must accept updated registered IDs while keeping its own
+account/project restrictions; this repository does not deploy or verify it.
