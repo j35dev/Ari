@@ -31,8 +31,12 @@ session/file/receipt data under the original machine's state scope.
 Required fix: independently pair each new origin and never reuse a credential
 based on anonymous identity equality. Authenticated host route binding would
 require a separately designed host proof; a public ID alone is insufficient.
-Coordinator confirmed the finding and assigned the independent-origin fix to
-core. Isolated challenge-relay reproduction and fix verification are pending.
+Coordinator confirmed the finding. Fix
+`02158cd79be05914d57faf396690c95064c936c5` removes anonymous merging and all
+cross-origin credential failover; source inspection verifies independently
+paired origins. Core also authored an adversarial copied-ID regression. The
+reviewer's isolated P-256 challenge-relay reproduction is queued through the
+shared validation runner against both immutable commits.
 
 ### S2 — High / P1: desktop discards receipts on uncertain named failures
 
@@ -54,6 +58,12 @@ Required fix: retain exact receipts for `internal_error`, in-flight/unknown
 `conflict`, and transport/IPC uncertainty. Clear only proven pre-dispatch refusal
 or confirmed completion. Add tests for an accepted command followed by a named
 internal error and for in-flight receipt reconciliation.
+
+Desktop correction `5ce1d560bd1503ae4ab8439ffa2c45f57e448a9a` retains these
+errors, validates creation/attachment results before forgetting the receipt,
+and resends only after a user explicitly retries a `not_found` status. Source
+policy and authored accepted-then-internal-error/in-flight-conflict tests were
+reviewed. Final integrated verification remains pending.
 
 ### S3 — High / P1: host startup can finish after remote access was stopped
 
@@ -98,6 +108,107 @@ authorization lifetime, renew through a verified current lease, and stop them
 on membership expiry/revocation; keep private Tailscale shells on their explicit
 local device grant. Test managed lease expiry separately from local grant
 withdrawal, which already has a one-second watchdog.
+
+### S5 — High / P1: unsuccessful durable revocation is silently acknowledged
+
+Snapshot inspected: grants `5828c4eab9c3938e289295a6cfa2c1ac8ef93766` plus
+the worker's ongoing lifecycle edits. Location:
+`apps/desktop/src/main/remote.ts:547` (`#write`, before final line freeze),
+`packages/remote-gateway/src/pairing.ts:449` (`revoke`/grant persistence).
+
+The host record writer catches all mkdir/write/rename failures and only logs.
+Pairing revocation and grant withdrawal therefore appear successful even when
+`devices.json` still contains the old approved device/terminal grant. If the
+profile volume is full, read-only, or denies the rename, then the host restarts,
+the old device or grant is restored and that key can authorize again. Runtime
+token deletion and the terminal watchdog do not make this revocation durable.
+This is an inherited security boundary, not introduced by allProjects.
+
+Required fix: propagate sensitive persistence failures and fail closed rather
+than reporting durable success. Keep runtime denial in effect, explain the
+unsaved security change, and prevent restart from reauthorizing stale records
+when durable revocation cannot be established. Cover injected filesystem
+failures for approval, revocation and terminal withdrawal, plus restart proofs.
+
+### S6 — High / P1: missing deduplication state is treated as proof a mutation never ran
+
+Locations: `packages/remote-client/src/session.ts:496` (`#reconcile`, core
+lifecycle edits), `packages/remote-gateway/src/idempotency.ts:146` (`fromJSON`),
+`packages/remote-gateway/src/idempotency.ts:170` (`#evict`), and the host record
+writer in S5.
+
+Shared `RemoteSession.send` automatically resends after a lost response if
+`command.status` reports `not_found`. That result can mean the command never
+arrived, but can also mean the durable claim write failed, the restore file was
+corrupt (silently reset to empty), or the receipt was evicted. The 1,000-entry
+store evicts in-flight records as well as completed ones. Restart or enough
+other commands can thus turn an already accepted/in-flight mutation into a
+fresh execution under the same key. A newly created session/provider run or
+integration is not safe to repeat merely because the bookkeeping disappeared.
+Desktop's S2 correction is conservative; mobile still uses this shared path.
+
+Required fix: persist the pre-dispatch claim successfully before dispatch;
+fail closed on damaged deduplication state; retain in-flight claims rather than
+evicting them; and report an uncertain outcome instead of automatically
+resubmitting on missing status. Explicit retries still require clear receipt
+retention limits or durable operation-level idempotency. Test restart after a
+failed claim write, corrupt restore, and receipt pressure while work is pending.
+
+### S7 — Medium / P2: desktop fork result and child-stop receipt scope do not match the host
+
+Snapshot: desktop `5ce1d560bd1503ae4ab8439ffa2c45f57e448a9a`.
+Locations: `apps/desktop/src/renderer/src/features/machines/remote-client.ts:175`,
+`apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx:33`,
+`apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx:353`, and
+`apps/desktop/src/main/remote-fork.ts:28`.
+
+The host returns a fork's `result.sessionId`; the desktop validates `child.id`
+and navigates with that absent field. A successful host fork becomes an
+unresolvable saved receipt in the desktop. Separately, the parent view submits
+`Stop agent` with the child's session ID under the parent's receipt scope, so
+the new scope validator rejects it before IPC. Both failures are safe refusals,
+but the dedicated remote workspace fails required allowlist behavior.
+
+Required fix: use the actual remote fork result schema and scope child-stop
+actions/receipts to their child session. Test the real wire shape, successful
+receipt reconciliation/navigation, and stopping a child from its parent view.
+Both findings were sent to the coordinator for desktop correction.
+
+## Boundaries traced without a new finding
+
+- Pairing approval is in-process on the host, never a remote approve route.
+  P-256 nonce proof is single-use and invitation/device-bound. Matching
+  confirmation codes remain required and invitation expiry is enforced.
+- Tokens are short-lived, memory-only; public machine views and identity
+  schemas omit private keys, bearer tokens and Connect leases. Production
+  safeStorage registration rejects unavailable encryption and Linux basic_text.
+- Gateway and WebSocket origin policies remain exact, including the selected
+  HTTPS port. The private mobile computer switcher navigates to the destination
+  origin rather than broadening CORS. Only the identity/public PWA navigation
+  routes accept an absent Origin, and identity contains no user inventory.
+- Production desktop destinations require Tailscale HTTPS names, exclusively
+  tailnet DNS answers, pinned TCP lookup, valid TLS, and no redirects. Serve
+  configuration rejects Funnel/incompatible mappings, rechecks before writes,
+  and preserves other mounts. These controls did not prevent S1's application
+  identity confusion; independently paired origins do.
+- Connect verifier checks ES256 signature, issuer/audience/computer/device/key
+  fingerprint, time bounds and a maximum 120-second lease. Managed callers set
+  allProjects=false and use only signed project IDs for commands, queries,
+  receipts and streams. New host projects trigger current registration sync;
+  a fresh broker lease is still required. Account/provider operations remain
+  an intentional paired-user allowlist capability, independent of project IDs.
+- Host file access uses the host session workspace, path/credential exclusions,
+  symlink checks, resolved containment and opened-handle checks. Attachment
+  staging/read grants bind device/session or derive from the authorized journal.
+  Renderer drafts/receipts/events/files use machine+session scope; views unmount
+  across machine switches. No remote path reaches local command.dispatch or
+  filesystem RPC in the dedicated remote workspace. S7 concerns correct use of
+  that scope, not a cross-machine read/write fallback.
+- Core lifecycle fix `4b8206da` adds cancellation to delayed authorization,
+  lease renewal, command reconciliation and subscription cleanup. Mobile
+  adopts disposal on origin change and guards delayed pairing writes. These
+  are reviewed source corrections; authored worker test claims are separate
+  from the reviewer's independent reproduction.
 
 ## Verification and outstanding work
 
