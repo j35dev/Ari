@@ -188,12 +188,21 @@ export class MachinesService {
   async remove(machineId: string): Promise<{ removed: boolean }> {
     this.#assertOpen()
     if (!this.#registry.list().some((row) => row.id === machineId)) return { removed: false }
+    const record = this.#registry.get(machineId)
     const connection = this.#connections.get(machineId)
     this.#closeSubscriptions(machineId)
     // Only revoke this client's device; never invoke a local/host approve or list operation.
     let revocation: Promise<unknown> | undefined
     if (connection?.session.usable && connection.credential.deviceId !== null) {
       revocation = connection.client.query('device.revoke', { deviceId: connection.credential.deviceId }).catch(() => undefined)
+    } else if (record.credentialCipher !== null) {
+      // Unlock before deleting the record, then make one bounded fresh proof
+      // attempt using a private client that can never publish into the renderer.
+      const credential = new DesktopMachineCredential(machineId, this.#registry, this.#deps.secretBox)
+      try {
+        await credential.load()
+        if (credential.deviceId !== null) revocation = this.#revokeRemoved(record, credential).catch(() => undefined)
+      } catch { /* Local removal still succeeds if the OS keyring is unavailable. */ }
     }
     this.#connections.delete(machineId)
     connection?.controller.abort()
@@ -205,6 +214,21 @@ export class MachinesService {
     this.#changed()
     await revocation
     return { removed }
+  }
+
+  async #revokeRemoved(record: MachineRecord, credential: DesktopMachineCredential): Promise<void> {
+    const client = new GatewayClient(await this.#network.clientOptions(record.routes[0]!))
+    try {
+      const info = machineIdentitySchema.parse(await client.info())
+      if (info.protocolVersion !== REMOTE_PROTOCOL_VERSION || (record.identity?.machineId !== undefined && record.identity.machineId !== info.machineId) || !info.capabilities.includes('device.revoke')) return
+      const deviceId = credential.deviceId
+      if (deviceId === null) return
+      const { nonce } = await client.deviceChallenge(deviceId)
+      const signature = await credential.sign(nonce)
+      const authorized = await client.deviceAuthorize(deviceId, { nonce, signature })
+      client.token = authorized.token
+      await client.query('device.revoke', { deviceId })
+    } finally { client.token = null }
   }
 
   async query(machineId: string, rawQuery: RemoteQuery): Promise<unknown> {

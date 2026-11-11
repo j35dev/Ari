@@ -55,13 +55,14 @@ export class MachineNetwork {
     const url = new URL(route.origin)
     const host = url.hostname.replace(/^\[|\]$/g, '')
     const resolve = this.#options.resolve ?? ((name: string) => lookup(name, { all: true, verbatim: true }))
+    let dnsTimer: ReturnType<typeof setTimeout> | undefined
     const addresses = await Promise.race([
       resolve(host),
       new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new RemoteError('unreachable', 'Computer name lookup timed out.')), this.#options.timeoutMs ?? TIMEOUT_MS)
-        timer.unref()
+        dnsTimer = setTimeout(() => reject(new RemoteError('unreachable', 'Computer name lookup timed out.')), this.#options.timeoutMs ?? TIMEOUT_MS)
+        dnsTimer.unref()
       }),
-    ])
+    ]).finally(() => clearTimeout(dnsTimer))
     if (addresses.length === 0 || addresses.some((row) => route.kind === 'loopback' ? !isLoopback(row.address) : !isTailnetAddress(row.address)))
       throw new Error('This computer address does not resolve exclusively inside Tailscale.')
     const pinned = addresses[0]!
