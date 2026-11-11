@@ -50,6 +50,33 @@ describe('TurnErrorBanner resume', () => {
 })
 
 describe('TurnErrorBanner', () => {
+  it('shows a short timeout and keeps legacy adapter timings behind Details', async () => {
+    const user = userEvent.setup()
+    const message =
+      'claude (ACP adapter @agentclientprotocol/claude-agent-acp@0.90.0) went silent for 1200s mid-session/prompt — the agent may be wedged or waiting for login\n[session/create] sessionId=internal phase=modes durationMs=1 totalMs=1921'
+    render(
+      <TurnErrorBanner
+        message={message}
+        canRetry
+        retryDisabled={false}
+        onRetry={() => {}}
+        onDismiss={() => {}}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Turn failed — Agent timed out. The agent stopped responding. Retry to reconnect.',
+    )
+    expect(
+      screen.queryByText(/session\/create|claude-agent-acp|waiting for login/),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Toggle error details' }))
+    expect(
+      screen.getByText(
+        (_text, element) => element?.tagName === 'PRE' && element.textContent === message,
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('shows the classified headline, friendly message, and hint', () => {
     render(
       <TurnErrorBanner
