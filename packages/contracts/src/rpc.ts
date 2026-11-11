@@ -1170,10 +1170,14 @@ export const rpcParams = {
         .object({
           origin: z.string().url().max(200),
           mountPath: z.literal('/'),
-          target: z.string().min(1).max(4096),
+          target: z.string().max(4096),
           kind: z.enum(['proxy', 'path', 'text']),
         })
         .strict()
+        .refine(({ kind, target }) => kind === 'text' || target.length > 0, {
+          message: 'Proxy and path targets must not be empty',
+          path: ['target'],
+        })
         .optional(),
     })
     .strict()
