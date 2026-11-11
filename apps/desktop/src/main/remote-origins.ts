@@ -7,7 +7,7 @@ import { createLogger } from '@ari/shared/logger'
  *
  * Tailscale is a subprocess call, and both `clientOrigin` and `allowedOrigins`
  * are consulted per request, so the last reading is cached here. The tailnet
- * origin is also written through to settings when it first appears: a phone
+ * origin (including its HTTPS port) is written through when it first appears: a phone
  * that paired yesterday must still be an allowed origin after a restart, and
  * at that point the gateway may not have re-read Serve yet.
  */
@@ -46,9 +46,9 @@ export class RemoteOrigins {
     this.#state = await this.#deps.status()
     const origin = this.#servedOrigin()
     if (origin !== null && !this.#known(origin)) {
-      this.#written.add(origin.toLowerCase())
       try {
         await this.#deps.remember(origin)
+        this.#written.add(origin.toLowerCase())
       } catch (error) {
         // Failing to persist must not take the gateway's own allowlist down:
         // the origin is still added in memory for this run.
