@@ -286,8 +286,14 @@ export function SessionView({
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
-  const [workspaceInfo, setWorkspaceInfo] = useState<{ sessionId: string; workspace: Session['workspace'] } | null>(null)
-  const managedWorkspace = workspaceInfo?.sessionId === sessionId && workspaceInfo.workspace?.kind === 'managed-worktree' ? workspaceInfo.workspace : null
+  const [workspaceInfo, setWorkspaceInfo] = useState<{
+    sessionId: string
+    workspace: Session['workspace']
+  } | null>(null)
+  const managedWorkspace =
+    workspaceInfo?.sessionId === sessionId && workspaceInfo.workspace?.kind === 'managed-worktree'
+      ? workspaceInfo.workspace
+      : null
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
   const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
@@ -1840,7 +1846,12 @@ export function SessionView({
               onChange={changePermissionMode}
             />
             {managedWorkspace ? (
-              <span className="max-w-40 truncate text-2xs text-fg-subtle" title={managedWorkspace.path}>Worktree · {managedWorkspace.branch}</span>
+              <span
+                className="max-w-40 truncate text-2xs text-fg-subtle"
+                title={managedWorkspace.path}
+              >
+                Worktree · {managedWorkspace.branch}
+              </span>
             ) : null}
           </>
         }

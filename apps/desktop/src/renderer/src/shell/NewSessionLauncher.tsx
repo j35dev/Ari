@@ -199,7 +199,9 @@ export function NewSessionLauncher({
               </kbd>
             </div>
 
-            <p className="px-4 py-2 text-2xs text-fg-subtle">Busy Git folders open in a separate worktree.</p>
+            <p className="px-4 py-2 text-2xs text-fg-subtle">
+              Busy Git folders open in a separate worktree.
+            </p>
             {visible.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
                 <p className="text-sm text-fg-subtle">

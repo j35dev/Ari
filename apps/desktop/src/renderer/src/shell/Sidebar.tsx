@@ -506,7 +506,10 @@ function SessionRow({
             {session.branch ? (
               <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-fg-subtle">
                 <GitBranch size={10} aria-hidden className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate" title={session.workspacePath ?? session.branch}>
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={session.workspacePath ?? session.branch}
+                >
                   Worktree · {session.branch}
                 </span>
               </span>
@@ -523,7 +526,12 @@ function SessionRow({
               {session.title}
             </span>
             {session.workspaceKind === 'managed-worktree' ? (
-              <span className="shrink-0 text-2xs text-fg-subtle" title={session.workspacePath ?? session.branch ?? undefined}>Worktree</span>
+              <span
+                className="shrink-0 text-2xs text-fg-subtle"
+                title={session.workspacePath ?? session.branch ?? undefined}
+              >
+                Worktree
+              </span>
             ) : null}
             {hasChildren && childCount > 0 ? (
               <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>

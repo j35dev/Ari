@@ -549,7 +549,12 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
-    if ((command.type === 'approval.respond' || command.type === 'input.respond') && model.session && model.activeTurnId && this.#deps.authorizeWorkspace) {
+    if (
+      (command.type === 'approval.respond' || command.type === 'input.respond') &&
+      model.session &&
+      model.activeTurnId &&
+      this.#deps.authorizeWorkspace
+    ) {
       const reason = await this.#deps.authorizeWorkspace(model.session)
       if (reason) return { accepted: false, reason }
     }

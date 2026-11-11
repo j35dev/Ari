@@ -4,7 +4,10 @@ import type { Session, SessionWorkspace } from '@ari/contracts/session'
 export interface SessionCreateDeps {
   loadProject: (projectId: string) => Promise<unknown>
   createSession: (session: Session) => Promise<void>
-  prepareRootWorkspace?: (session: Session, mode?: 'auto' | 'isolated' | 'shared') => Promise<SessionWorkspace>
+  prepareRootWorkspace?: (
+    session: Session,
+    mode?: 'auto' | 'isolated' | 'shared',
+  ) => Promise<SessionWorkspace>
 }
 
 export async function createSession(

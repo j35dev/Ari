@@ -64,7 +64,10 @@ export class ManagedWorkspaces {
       throw new ControlFailure('workspace_not_git', 'Isolated workers require a Git repository.')
     const verifiedHead = await this.git.runPlumbing(cwd, ['rev-parse', '--verify', 'HEAD'])
     if (!verifiedHead.ok)
-      throw new ControlFailure('workspace_not_git', 'Isolated sessions require a Git repository with a commit.')
+      throw new ControlFailure(
+        'workspace_not_git',
+        'Isolated sessions require a Git repository with a commit.',
+      )
     const scratch = await mkdtemp(join(tmpdir(), 'ari-snapshot-'))
     try {
       const env = {
