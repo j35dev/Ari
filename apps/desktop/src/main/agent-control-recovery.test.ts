@@ -331,7 +331,7 @@ async function start(): Promise<void> {
     store,
     registry,
     publish: () => undefined,
-    resolveWorkspace: async () => join(dir, 'worker-project'),
+    resolveWorkspace: async (id) => projects.list().find((project) => project.id === id)?.path ?? join(dir, 'worker-project'),
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
   runtime = await startAgentRuntime({
