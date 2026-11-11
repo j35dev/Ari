@@ -250,7 +250,7 @@ describe('delegated agents', () => {
       }),
     )
     // Its own turn is over, but the work is not: the header must not say "ready".
-    expect(screen.getByText('Ari, 1 agent needs you')).toBeTruthy()
+    expect(screen.getByText('phone · Ari, 1 agent needs you')).toBeTruthy()
     expect(screen.getByText('Parser fixed and tested.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open Tests: Needs you' }))
     expect(onOpen).toHaveBeenCalledWith('child_ask')
@@ -277,7 +277,7 @@ describe('delegated agents', () => {
     await screen.findByRole('heading', { name: 'Fix pairing' })
     expect(screen.queryByRole('button', { name: /^Delegated agents:/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Open parent session/ })).toBeNull()
-    expect(screen.getByText('Ari, ready')).toBeTruthy()
+    expect(screen.getByText('phone · Ari, ready')).toBeTruthy()
   })
 
   it('links a delegated agent back to the session it works for', async () => {
