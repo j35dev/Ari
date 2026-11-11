@@ -72,6 +72,10 @@ export class MachinesService {
     this.#assertOpen()
     const row = this.#registry.add(name?.trim() || identity?.name || `Legacy Ari · ${new URL(route.origin).hostname}`, route, identity)
     if (invitationId !== undefined) this.#invitations.set(row.id, invitationId)
+    if (this.#views.has(row.id)) {
+      this.#changed()
+      return this.#view(row)
+    }
     this.#views.set(row.id, {
       status: identity !== null && identity.protocolVersion !== REMOTE_PROTOCOL_VERSION ? 'incompatible' : error === null ? 'unpaired' : 'offline',
       error: identity !== null && identity.protocolVersion !== REMOTE_PROTOCOL_VERSION ? 'This computer uses an unsupported Ari protocol.' : error,
@@ -153,6 +157,15 @@ export class MachinesService {
   async connect(machineId: string): Promise<MachineView> {
     this.#assertOpen()
     this.#registry.get(machineId)
+    const prior = this.#connections.get(machineId)
+    if (prior?.connecting !== undefined) return prior.connecting
+    if (prior?.pairing !== undefined) return this.#view(this.#registry.get(machineId))
+    if (prior !== undefined) {
+      this.#connections.delete(machineId)
+      prior.controller.abort()
+      prior.session.disconnect()
+      this.#closeSubscriptions(machineId)
+    }
     let connection: Connection
     try { connection = await this.#connection(machineId) }
     catch (error) {
@@ -217,7 +230,7 @@ export class MachinesService {
   }
 
   async #revokeRemoved(record: MachineRecord, credential: DesktopMachineCredential): Promise<void> {
-    const client = new GatewayClient(await this.#network.clientOptions(record.routes[0]!))
+    const client = new GatewayClient(await this.#routeOptions(record))
     try {
       const info = machineIdentitySchema.parse(await client.info())
       if (info.protocolVersion !== REMOTE_PROTOCOL_VERSION || (record.identity?.machineId !== undefined && record.identity.machineId !== info.machineId) || !info.capabilities.includes('device.revoke')) return
@@ -276,6 +289,7 @@ export class MachinesService {
       })
       pending.close = () => { cancelled = true; close() }
     } catch (error) {
+      if (cancelled || this.#subscriptions.get(id) !== pending) return
       if (!cancelled && this.#subscriptions.get(id) === pending) this.#subscriptions.delete(id)
       throw error
     }
@@ -294,7 +308,7 @@ export class MachinesService {
     const existing = this.#connections.get(machineId)
     if (existing !== undefined) return existing
     const row = this.#registry.get(machineId)
-    const options = await this.#network.clientOptions(row.routes[0]!)
+    const options = await this.#routeOptions(row)
     this.#assertOpen()
     this.#registry.get(machineId)
     // An overlapping read may already have installed the connection.
@@ -319,9 +333,43 @@ export class MachinesService {
       },
     })
     const connection: Connection = { client, credential, session, controller }
-    this.#connections.set(machineId, connection)
-    await credential.load()
+    try {
+      // Failed unlocks must never install an incomplete credential. A later
+      // keyring recovery reloads the original sealed key and device id.
+      await credential.load()
+      this.#assertOpen()
+      this.#registry.get(machineId)
+      const winner = this.#connections.get(machineId)
+      if (winner !== undefined) return winner
+      this.#connections.set(machineId, connection)
+    } catch (error) {
+      controller.abort()
+      session.disconnect()
+      throw error
+    }
     return connection
+  }
+  async #routeOptions(row: MachineRecord): Promise<ConstructorParameters<typeof GatewayClient>[0]> {
+    let failure: unknown = new RemoteError('unreachable', 'No saved computer route is reachable.')
+    const deadline = Date.now() + 20_000
+    for (const route of row.routes) {
+      if (Date.now() >= deadline || this.#disposed) break
+      try {
+        const options = await this.#network.clientOptions(route)
+        const identity = machineIdentitySchema.parse(await new GatewayClient(options).info())
+        if (row.identity?.machineId !== undefined && identity.machineId !== row.identity.machineId)
+          throw new RemoteError('access_revoked', 'A saved route now belongs to another computer. Remove it and pair again.')
+        if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
+          throw new RemoteError('unsupported_version', 'This computer uses an unsupported Ari protocol.')
+        return options
+      } catch (error) {
+        // Refusals of identity/version are not a license to try a credential
+        // elsewhere. Only read-only unreachable routes allow fallover.
+        if (error instanceof RemoteError && error.code !== 'unreachable') throw error
+        failure = error
+      }
+    }
+    throw failure
   }
   async #probe(route: MachineRoute): Promise<MachineIdentity> {
     const options = await this.#network.clientOptions(route)
@@ -348,10 +396,11 @@ export class MachinesService {
   }
   async #ready(machineId: string, operation: string): Promise<Connection> {
     this.#assertOpen()
-    const connection = await this.#connection(machineId)
+    let connection = await this.#connection(machineId)
     if (!connection.session.usable) {
       const view = await this.connect(machineId)
       if (view.status !== 'connected') throw new RemoteError(view.status === 'incompatible' ? 'unsupported_version' : view.status === 'revoked' ? 'access_revoked' : 'unauthenticated', view.error ?? 'Reconnect or pair this computer first.')
+      connection = await this.#connection(machineId)
     }
     try { await this.#negotiate(machineId, connection, operation) }
     catch (error) { this.#operationFailed(machineId, connection, error); throw error }
