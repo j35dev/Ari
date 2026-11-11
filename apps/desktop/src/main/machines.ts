@@ -61,6 +61,11 @@ export class MachinesService {
   async add(address: string, name?: string): Promise<MachineView> {
     this.#assertOpen()
     const { route, invitationId } = parseMachineAddress(address, this.#deps.allowLoopback)
+    const previous = this.#registry.list().find((row) => row.routes.some((item) => item.origin === route.origin))
+    if (previous !== undefined) {
+      if (invitationId !== undefined) this.#invitations.set(previous.id, invitationId)
+      return this.#view(previous)
+    }
     let identity: MachineIdentity | null = null
     let error: string | null = null
     try { identity = await this.#probe(route) } catch (failure) { error = publicFailure(failure) }
@@ -108,7 +113,8 @@ export class MachinesService {
     const connection = await this.#connection(params.machineId)
     if (connection.pairing !== undefined) return this.pairStatus(params.machineId)
     // Probe and verify identity/version before code resolution or request/redeem.
-    await this.#negotiate(params.machineId, connection)
+    try { await this.#negotiate(params.machineId, connection) }
+    catch (error) { this.#operationFailed(params.machineId, connection, error); throw error }
     if (connection.credential.deviceId !== null && connection.session.usable)
       return { machineId: params.machineId, status: 'connected', confirmationCode: null, expiresAt: null, error: null }
     let invitationId = params.invitationId ?? this.#invitations.get(params.machineId)
@@ -146,7 +152,13 @@ export class MachinesService {
 
   async connect(machineId: string): Promise<MachineView> {
     this.#assertOpen()
-    const connection = await this.#connection(machineId)
+    this.#registry.get(machineId)
+    let connection: Connection
+    try { connection = await this.#connection(machineId) }
+    catch (error) {
+      this.#failed(machineId, error)
+      return this.#view(this.#registry.get(machineId))
+    }
     if (connection.connecting !== undefined) return connection.connecting
     if (connection.pairing !== undefined) return this.#view(this.#registry.get(machineId))
     connection.connecting = this.#connect(machineId, connection).finally(() => { connection.connecting = undefined })
@@ -317,7 +329,8 @@ export class MachinesService {
       const view = await this.connect(machineId)
       if (view.status !== 'connected') throw new RemoteError(view.status === 'incompatible' ? 'unsupported_version' : view.status === 'revoked' ? 'access_revoked' : 'unauthenticated', view.error ?? 'Reconnect or pair this computer first.')
     }
-    await this.#negotiate(machineId, connection, operation)
+    try { await this.#negotiate(machineId, connection, operation) }
+    catch (error) { this.#operationFailed(machineId, connection, error); throw error }
     if (operation.startsWith('terminal.') && !connection.session.allowTerminal)
       throw new RemoteError('unsupported_capability', 'The host has not granted terminal access to this device.')
     return connection
