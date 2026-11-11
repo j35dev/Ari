@@ -32,18 +32,18 @@ owned. Pairing checks protocol before request and again before redemption.
 Version 1's mandatory anonymous handshake remains compatible with legacy info
 responses that list only host capabilities.
 
-| Desktop RPC | Result |
-| --- | --- |
-| `machines.list(undefined)` | `MachineView[]` |
-| `machines.discover(undefined)` | `MachineDiscovery[]` |
-| `machines.add({address,name?})` | `MachineView` |
+| Desktop RPC                                                  | Result                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `machines.list(undefined)`                                   | `MachineView[]`                                              |
+| `machines.discover(undefined)`                               | `MachineDiscovery[]`                                         |
+| `machines.add({address,name?})`                              | `MachineView`                                                |
 | `machines.pair({machineId,displayName,invitationId?,code?})` | `MachinePairingView`; host decision continues asynchronously |
-| `machines.pairStatus({machineId})` | `MachinePairingView` |
-| `machines.connect({machineId})` | `MachineView` |
-| `machines.rename({machineId,name})` | `MachineView` |
-| `machines.remove({machineId})` | `{removed:boolean}` |
-| `machines.query({machineId,query:RemoteQuery})` | `{ok:true,result}` or `{ok:false,error:{code,message}}` |
-| `machines.command({machineId,command:RemoteCommand})` | Same structured result |
+| `machines.pairStatus({machineId})`                           | `MachinePairingView`                                         |
+| `machines.connect({machineId})`                              | `MachineView`                                                |
+| `machines.rename({machineId,name})`                          | `MachineView`                                                |
+| `machines.remove({machineId})`                               | `{removed:boolean}`                                          |
+| `machines.query({machineId,query:RemoteQuery})`              | `{ok:true,result}` or `{ok:false,error:{code,message}}`      |
+| `machines.command({machineId,command:RemoteCommand})`        | Same structured result                                       |
 
 Unknown IPC failures remain rejected with an uncertain outcome. Known failures,
 including `command.status` not-found/conflict/unreachable, remain plain data across

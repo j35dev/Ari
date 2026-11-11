@@ -334,7 +334,12 @@ export class RemoteSession {
         throw new RemoteError(error.code, error.message, error.status, idempotencyKey)
       }
     }
-    throw new RemoteError('unreachable', 'The command outcome is unknown. Inspect this computer before sending it again.', 0, idempotencyKey)
+    throw new RemoteError(
+      'unreachable',
+      'The command outcome is unknown. Inspect this computer before sending it again.',
+      0,
+      idempotencyKey,
+    )
   }
 
   /** A read, renewed once if the token has aged out. */
@@ -505,19 +510,31 @@ export class RemoteSession {
     try {
       const result = await this.#client.query<unknown>('command.status', { idempotencyKey })
       signal.throwIfAborted()
-      if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true || !('result' in result))
-        throw new RemoteError('unreachable', 'The computer returned no authoritative command outcome. Inspect it before sending again.', 0, idempotencyKey)
+      if (
+        typeof result !== 'object' ||
+        result === null ||
+        !('ok' in result) ||
+        result.ok !== true ||
+        !('result' in result)
+      )
+        throw new RemoteError(
+          'unreachable',
+          'The computer returned no authoritative command outcome. Inspect it before sending again.',
+          0,
+          idempotencyKey,
+        )
       return result
     } catch (error) {
       signal.throwIfAborted()
       // Receipt absence can mean lost, corrupt, expired or evicted history.
       // It cannot authorize another mutation, even under the original key.
-      if (error instanceof RemoteError) throw new RemoteError(
-        error.code === 'not_found' ? 'unreachable' : error.code,
-        'The command may have executed, but its outcome cannot be confirmed. Inspect this computer before sending it again.',
-        error.status,
-        idempotencyKey,
-      )
+      if (error instanceof RemoteError)
+        throw new RemoteError(
+          error.code === 'not_found' ? 'unreachable' : error.code,
+          'The command may have executed, but its outcome cannot be confirmed. Inspect this computer before sending it again.',
+          error.status,
+          idempotencyKey,
+        )
       throw error
     }
   }

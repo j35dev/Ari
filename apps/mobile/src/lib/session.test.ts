@@ -764,13 +764,23 @@ describe('mobile commands', () => {
     const browser = browserFetch({ loseFirstMutation: true })
     const missingReceipt: typeof fetch = async (input, init) => {
       if (String(input).endsWith('/query') && String(init?.body).includes('command.status'))
-        return Response.json({ ok: false, error: { code: 'not_found', message: 'receipt history was evicted' } }, { status: 404 })
+        return Response.json(
+          { ok: false, error: { code: 'not_found', message: 'receipt history was evicted' } },
+          { status: 404 },
+        )
       return browser(input, init)
     }
     const session = sessionFor(gateway, new DeviceKeyring(store), missingReceipt)
     await session.connect()
-    await expect(session.send({ op: 'session.prompt', sessionId: 'sess_1', text: 'only once' }, 'lost_prompt_receipt')).rejects.toMatchObject({
-      code: 'unreachable', idempotencyKey: 'lost_prompt_receipt', retryable: false,
+    await expect(
+      session.send(
+        { op: 'session.prompt', sessionId: 'sess_1', text: 'only once' },
+        'lost_prompt_receipt',
+      ),
+    ).rejects.toMatchObject({
+      code: 'unreachable',
+      idempotencyKey: 'lost_prompt_receipt',
+      retryable: false,
       message: expect.stringMatching(/may have executed/),
     })
     expect(host.executed.filter((entry) => entry.op === 'session.prompt')).toHaveLength(1)
