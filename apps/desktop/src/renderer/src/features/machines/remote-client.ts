@@ -128,8 +128,7 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
 
 function assertScope(scope: string, action: RemoteAction): void {
   if ('sessionId' in action) {
-    const sessionScope = scope.replace(/^terminal(?:-close)?:/, '')
-    if (action.sessionId !== sessionScope) throw new Error('The command belongs to another session.')
+    if (![action.sessionId, `terminal:${action.sessionId}`, `terminal-close:${action.sessionId}`].includes(scope)) throw new Error('The command belongs to another session.')
   } else if (action.op === 'session.create' && scope !== 'new-session') {
     throw new Error('Session creation belongs to the selected host’s creation draft.')
   }
