@@ -23,7 +23,9 @@
                     "../../packages/engine/src/session-store.ts",
                     "../../packages/engine/src/workspace.test.ts",
                     "../../packages/engine/src/workspace.ts",
-                    "../../apps/desktop/src/assets.d.ts"
+                    "../../apps/desktop/src/assets.d.ts",
+                    "../../apps/desktop/src/**/*.d.ts",
+                    "../../apps/desktop/src/test-setup.dom.ts"
                 ],
     "extends":  "../../apps/desktop/tsconfig.json"
 }
