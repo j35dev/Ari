@@ -36,6 +36,7 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  experimental?: Partial<Settings['experimental']>
   speech?: Partial<Settings['speech']>
   onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
@@ -177,6 +178,7 @@ export class SettingsStore {
       if (error) throw new Error(error)
     }
     const next: Settings = {
+      experimental: { ...this.#current.experimental, ...patch.experimental },
       speech: { ...this.#current.speech, ...patch.speech },
       onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },

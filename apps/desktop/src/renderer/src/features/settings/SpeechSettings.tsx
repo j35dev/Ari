@@ -36,6 +36,9 @@ function inProgress(
 
 export function SpeechSettings() {
   const { settings, update } = useEngineSettings()
+  const ariaEnabled = settings?.experimental.ariaEnabled === true
+  const ariaEnabledRef = useRef(ariaEnabled)
+  ariaEnabledRef.current = ariaEnabled
   const { status, progress, refresh } = useSpeech()
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -110,6 +113,9 @@ export function SpeechSettings() {
     .filter(Boolean)
   const shortcut = settings?.speech.shortcut || defaultSpeechShortcut(platform)
   const dictationShortcut = settings?.speech.dictationShortcut || defaultDictationShortcut(platform)
+  useEffect(() => {
+    if (!ariaEnabled && recordingShortcut === 'shortcut') setRecordingShortcut(null)
+  }, [ariaEnabled, recordingShortcut])
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
@@ -133,11 +139,16 @@ export function SpeechSettings() {
         setShortcutError(result.error)
         return
       }
-      const error = speechBindingsError(
+      const bindingError = speechBindingsError(
         recordingShortcut === 'shortcut' ? result.shortcut : shortcut,
         recordingShortcut === 'dictationShortcut' ? result.shortcut : dictationShortcut,
         platform,
       )
+      const error =
+        !ariaEnabled &&
+        bindingError === 'Aria dictation and general dictation must use different shortcuts.'
+          ? 'This shortcut is reserved by another saved dictation binding.'
+          : bindingError
       if (error) {
         setShortcutError(error)
         return
@@ -168,7 +179,7 @@ export function SpeechSettings() {
       window.removeEventListener('keyup', release, true)
       window.removeEventListener('blur', cancel)
     }
-  }, [recordingShortcut, platform, update, shortcut, dictationShortcut])
+  }, [recordingShortcut, platform, update, shortcut, dictationShortcut, ariaEnabled])
 
   return (
     <SettingsPage
@@ -263,82 +274,90 @@ export function SpeechSettings() {
             }
           />
         </SettingsRow>
-        {(['shortcut', 'dictationShortcut'] as const).map((field) => {
-          const aria = field === 'shortcut'
-          const label = aria ? 'Aria dictation shortcut' : 'General dictation shortcut'
-          const recording = recordingShortcut === field
-          return (
-            <SettingsRow
-              key={field}
-              label={label}
-              hint={
-                shortcutError && shortcutErrorField === field ? (
-                  <span role="alert">{shortcutError}</span>
-                ) : recording ? (
-                  'Press a shortcut. Esc cancels.'
-                ) : aria ? (
-                  'Hold to speak to Aria. Release to send.'
-                ) : (
-                  'Hold to dictate into the focused text field. Release to insert without sending. Outside Ari: Windows only.'
-                )
-              }
-            >
-              <input
-                aria-label={label}
-                readOnly
-                value={aria ? shortcut : dictationShortcut}
-                className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-label={`Record ${label}`}
-                aria-pressed={recording}
-                disabled={bindingPending || (recordingShortcut !== null && !recording)}
-                onClick={() => {
-                  setShortcutError(null)
-                  setShortcutErrorField(field)
-                  if (recording) {
-                    setRecordingShortcut(null)
-                    return
-                  }
-                  if (!window.ari?.dictation) {
-                    setRecordingShortcut(field)
-                    return
-                  }
-                  setBindingPending(true)
-                  void window.ari.dictation.acquire().then(
-                    (token) => {
-                      if (!bindingMounted.current) {
-                        void window.ari?.dictation?.release(token).catch(() => undefined)
-                        return
-                      }
-                      setBindingPending(false)
-                      bindingLease.current = token
-                      setRecordingShortcut(field)
-                    },
-                    (reason: unknown) => {
-                      if (bindingMounted.current) {
-                        setBindingPending(false)
-                        setShortcutError(reason instanceof Error ? reason.message : String(reason))
-                      }
-                    },
+        {(['shortcut', 'dictationShortcut'] as const)
+          .filter((field) => ariaEnabled || field !== 'shortcut')
+          .map((field) => {
+            const aria = field === 'shortcut'
+            const label = aria ? 'Aria dictation shortcut' : 'General dictation shortcut'
+            const recording = recordingShortcut === field
+            return (
+              <SettingsRow
+                key={field}
+                label={label}
+                hint={
+                  shortcutError && shortcutErrorField === field ? (
+                    <span role="alert">{shortcutError}</span>
+                  ) : recording ? (
+                    'Press a shortcut. Esc cancels.'
+                  ) : aria ? (
+                    'Hold to speak to Aria. Release to send.'
+                  ) : (
+                    'Hold to dictate into the focused text field. Release to insert without sending. Outside Ari: Windows only.'
                   )
-                }}
+                }
               >
-                {recording ? 'Cancel' : 'Record shortcut'}
-              </Button>
-            </SettingsRow>
-          )
-        })}
+                <input
+                  aria-label={label}
+                  readOnly
+                  value={aria ? shortcut : dictationShortcut}
+                  className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label={`Record ${label}`}
+                  aria-pressed={recording}
+                  disabled={bindingPending || (recordingShortcut !== null && !recording)}
+                  onClick={() => {
+                    setShortcutError(null)
+                    setShortcutErrorField(field)
+                    if (recording) {
+                      setRecordingShortcut(null)
+                      return
+                    }
+                    if (!window.ari?.dictation) {
+                      setRecordingShortcut(field)
+                      return
+                    }
+                    setBindingPending(true)
+                    void window.ari.dictation.acquire().then(
+                      (token) => {
+                        if (
+                          !bindingMounted.current ||
+                          (field === 'shortcut' && !ariaEnabledRef.current)
+                        ) {
+                          setBindingPending(false)
+                          void window.ari?.dictation?.release(token).catch(() => undefined)
+                          return
+                        }
+                        setBindingPending(false)
+                        bindingLease.current = token
+                        setRecordingShortcut(field)
+                      },
+                      (reason: unknown) => {
+                        if (bindingMounted.current) {
+                          setBindingPending(false)
+                          setShortcutError(
+                            reason instanceof Error ? reason.message : String(reason),
+                          )
+                        }
+                      },
+                    )
+                  }}
+                >
+                  {recording ? 'Cancel' : 'Record shortcut'}
+                </Button>
+              </SettingsRow>
+            )
+          })}
         <SettingsRow
           label="Lower other apps while listening"
           hint={
             platform === 'darwin'
               ? 'Unavailable on macOS. Audio output stays unchanged.'
               : platform === 'win32'
-                ? 'Both dictation shortcuts lower other apps to 25% of their volume while listening, then restore them. Your volume changes are preserved.'
-                : 'Both dictation shortcuts lower playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
+                ? 'Dictation lowers other apps to 25% of their volume while listening, then restores them. Your volume changes are preserved.'
+                : 'Dictation lowers playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
           }
         >
           <Switch

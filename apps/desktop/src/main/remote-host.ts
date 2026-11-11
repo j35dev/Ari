@@ -21,6 +21,7 @@ import type {
   RemoteRedeem,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
+import { HELM_PROJECT_ID } from '@ari/contracts/helm'
 import type {
   ProviderAccountsResult,
   ProviderAllowance,
@@ -122,9 +123,7 @@ export interface RemoteHostDeps {
   /** The account allowance the desktop's own usage pill reads; never throws. */
   allowance?: (kind: DriverKind) => Promise<ProviderAllowance>
   /** Spends one banked reset of the account a provider runs as, as the usage pill's button does. */
-  redeemReset?: (
-    kind: DriverKind,
-  ) => Promise<RpcResults['providers.consumeResetCredit']>
+  redeemReset?: (kind: DriverKind) => Promise<RpcResults['providers.consumeResetCredit']>
   /** A provider's accounts and the switch between them. Signing one in is not offered remotely. */
   accounts?: {
     list: (kind: DriverKind) => Promise<ProviderAccountsResult>
@@ -214,7 +213,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
-    return caller.projectIds.includes(projectId)
+    return projectId !== HELM_PROJECT_ID && caller.projectIds.includes(projectId)
   }
 
   /**

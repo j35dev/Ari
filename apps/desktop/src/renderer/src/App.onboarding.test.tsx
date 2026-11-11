@@ -32,7 +32,7 @@ let sessions: SessionSummary[]
 beforeEach(() => {
   localStorage.clear()
   splitLayoutActions.reset()
-  settings = settingsSchema.parse({ version: 1 })
+  settings = settingsSchema.parse({ experimental: { ariaEnabled: true }, version: 1 })
   projects = []
   sessions = []
   invoke.mockReset()
@@ -129,7 +129,11 @@ beforeEach(() => {
 
 describe('App onboarding integration', () => {
   it('opens Aria on startup when there is no session to restore', async () => {
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: 1 },
+    })
     projects = [project]
     render(<App />)
     expect(await screen.findByText('Opened session aria')).toBeVisible()
@@ -146,7 +150,11 @@ describe('App onboarding integration', () => {
   })
 
   it('opens a fresh Aria chat only after its sidebar confirmation', async () => {
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: 1 },
+    })
     projects = [project]
     render(<App />)
     await screen.findByText('Opened session aria')
@@ -161,7 +169,11 @@ describe('App onboarding integration', () => {
   })
 
   it('keeps a restored session and opens Aria with its pinned row and Mod+0', async () => {
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: 1 },
+    })
     projects = [project]
     sessions = [
       {
@@ -190,7 +202,11 @@ describe('App onboarding integration', () => {
 
   it('selects the known Aria chat by pointer and shortcut without waiting for discovery', async () => {
     const user = userEvent.setup()
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: 1 },
+    })
     projects = [project]
     sessions = [
       {
@@ -254,7 +270,11 @@ describe('App onboarding integration', () => {
 
   it('does not let a late Aria open replace a newer session selection', async () => {
     const user = userEvent.setup()
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: 1 },
+    })
     projects = [project]
     sessions = [
       {
@@ -307,7 +327,11 @@ describe('App onboarding integration', () => {
     'can retry a failed %s without losing the selected chat',
     async (failure) => {
       const user = userEvent.setup()
-      settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+      settings = settingsSchema.parse({
+        experimental: { ariaEnabled: true },
+        version: 1,
+        onboarding: { completedAt: 1 },
+      })
       projects = [project]
       sessions = [
         {
@@ -383,7 +407,11 @@ describe('App onboarding integration', () => {
   })
 
   it('resumes an interrupted setup without duplicating its already-created first session', async () => {
-    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: null } })
+    settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
+      version: 1,
+      onboarding: { completedAt: null },
+    })
     projects = [project]
     sessions = [
       {

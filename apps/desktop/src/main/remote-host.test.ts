@@ -151,6 +151,24 @@ function command(op: RemoteCommand['op'], fields: Record<string, unknown>): Remo
   return { op, clientCommandId: 'cmd-1', idempotencyKey: 'idem-0001', ...fields } as RemoteCommand
 }
 
+it('keeps Aria out of mobile lists, deep links and attention even with a legacy explicit grant', async () => {
+  const store = await tempStore()
+  await store.append('coordinator', sessionCreated('coordinator', 'helm'))
+  await store.append('ordinary', sessionCreated('ordinary'))
+  const caller: RemoteCaller = { ...CALLER, projectIds: [...CALLER.projectIds, 'helm'] }
+  const host = hostFor(store, fakeEngine(), {
+    listProjects: async () => [
+      { id: 'helm', name: 'Aria' },
+      { id: 'proj_1', name: 'Project' },
+    ],
+  })
+  expect((await host.listSessions(caller)).map((session) => session.id)).toEqual(['ordinary'])
+  expect((await host.listProjects(caller)).map((project) => project.id)).toEqual(['proj_1'])
+  expect(await host.getSession(caller, 'coordinator')).toBeUndefined()
+  expect(await host.query(caller, 'session.get', { sessionId: 'coordinator' })).toBeNull()
+  expect(await host.query(caller, 'attention.list', { limit: 20 })).toMatchObject({ items: [] })
+})
+
 describe('remote host capabilities', () => {
   it('reports only what it can actually serve', async () => {
     const host = hostFor(await tempStore(), fakeEngine())
@@ -1059,7 +1077,11 @@ describe('spending a banked reset from a phone', () => {
   })
 
   it('answers with what the provider said and the allowance it leaves, without a grant id', async () => {
-    const redeemReset = vi.fn(async () => ({ ok: true as const, outcome: 'reset' as const, allowance: after }))
+    const redeemReset = vi.fn(async () => ({
+      ok: true as const,
+      outcome: 'reset' as const,
+      allowance: after,
+    }))
     const host = hostFor(await tempStore(), fakeEngine(), { redeemReset })
     expect(host.capabilities()).toContain('usage.redeem')
 
@@ -1171,14 +1193,22 @@ describe('a provider’s accounts from a phone', () => {
     expect(deps.activate).toHaveBeenCalledWith('claude', 'work')
     expect(reply).toMatchObject({
       ok: true,
-      result: { accounts: [{ id: 'default', active: false }, { id: 'work', active: true }] },
+      result: {
+        accounts: [
+          { id: 'default', active: false },
+          { id: 'work', active: true },
+        ],
+      },
     })
   })
 
   it('refuses with the desktop’s reason when the switch did not happen', async () => {
     const deps = {
       ...accounts(),
-      activate: vi.fn(async () => ({ ...listed('default'), error: 'That account no longer exists.' })),
+      activate: vi.fn(async () => ({
+        ...listed('default'),
+        error: 'That account no longer exists.',
+      })),
     }
     const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
     expect(

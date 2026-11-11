@@ -181,6 +181,8 @@ function raceApproval(pending: Promise<boolean>, signal?: AbortSignal): Promise<
 }
 
 export interface ControlHost {
+  /** Disabled Aria retains its journal but cannot invoke cross-project powers. */
+  ariaEnabled?(): boolean
   orchestration?(
     callerId: string,
     method: string,
@@ -344,6 +346,8 @@ export class AgentControlService {
   }
 
   async #appNavigationCaller(caller: Session): Promise<void> {
+    if (this.host.ariaEnabled?.() === false)
+      throw new ControlFailure('scope_denied', 'Aria is off. Enable it in Settings → Experimental.')
     if (
       !isHelmSession(caller) ||
       caller.archived ||
@@ -516,6 +520,8 @@ export class AgentControlService {
   }
 
   async #helmProjects(caller: Session, rows?: readonly SessionListEntry[]): Promise<HelmProject[]> {
+    if (this.host.ariaEnabled?.() === false)
+      throw new ControlFailure('scope_denied', 'Aria is off. Enable it in Settings → Experimental.')
     if (!isHelmSession(caller))
       throw new ControlFailure('scope_denied', 'Only Aria works across projects.')
     if (!this.host.projects)
@@ -611,6 +617,11 @@ export class AgentControlService {
             : 'Invalid command parameters.',
         )
       const caller = await this.#get(callerId)
+      if (isHelmSession(caller) && this.host.ariaEnabled?.() === false)
+        throw new ControlFailure(
+          'scope_denied',
+          'Aria is off. Enable it in Settings → Experimental.',
+        )
       const params = parsed.data
       const run = () => this.#run(caller, method, params, signal)
       // Orchestration owns durable receipts and serializes its own mutations;
@@ -893,6 +904,8 @@ export class AgentControlService {
     signal?: AbortSignal,
   ): Promise<unknown> {
     caller = await this.#get(caller.id)
+    if (isHelmSession(caller) && this.host.ariaEnabled?.() === false)
+      throw new ControlFailure('scope_denied', 'Aria is off. Enable it in Settings → Experimental.')
     if (method.startsWith('orchestration.')) {
       if (!this.host.orchestration)
         throw new ControlFailure('unsupported', 'Orchestration is unavailable in this runtime.')
@@ -2260,6 +2273,11 @@ export class AgentControlService {
     this.#activeDeliveries.add(messageId)
     try {
       let message = (await this.host.store.load(targetId)).inbox?.[messageId] ?? accepted
+      if (
+        this.host.ariaEnabled?.() === false &&
+        isHelmSession((await this.host.store.load(targetId)).session)
+      )
+        return message
       if (message.status !== 'pending') return this.#coordinationState(message)
       // Pure inbox delivery works while either agent is blocked in a cooperative wait.
       // Only an actually live transport may bypass it; ACP follow-up steering is not live delivery.

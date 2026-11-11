@@ -1187,11 +1187,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...(await controlReady).environment(session),
       ...providerEnvironment(session.driverKind),
     }),
+    ariaEnabled: () => getSettingsStore().current.experimental.ariaEnabled,
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     turnContext: async (session) => {
-      if (!isHelmSession(session)) return null
+      if (!isHelmSession(session) || !getSettingsStore().current.experimental.ariaEnabled)
+        return null
       const rows = await getSessionStore().listSessions()
       const projects = await (await controlReady).service.projects(session, rows)
       const names = new Map(projects.map((project) => [project.projectId, project.name]))
@@ -1274,6 +1276,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Timed prompts outlive a session turn and a restart: they are journaled in
   // their own file, and the control runtime schedules into the same store.
   const resumeSchedule: ResumeSchedule = new ResumeSchedule({
+    enabled: async (id) =>
+      !isHelmSession((await getSessionStore().loadExisting(id))?.session) ||
+      getSettingsStore().current.experimental.ariaEnabled,
     path: join(app.getPath('userData'), 'resume-schedule.json'),
     store: getSessionStore(),
     dispatch: (command) => engine.dispatch(command),
@@ -1303,6 +1308,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         store: getSessionStore(),
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
+        ariaEnabled: () => getSettingsStore().current.experimental.ariaEnabled,
         recover: firstRuntime,
         onDrop: async (id, reason) => {
           browserMcpHandle?.revoke(id)
@@ -1612,6 +1618,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('settings.update', async (params) => {
     const settings = await getSettingsStore().update(params)
+    if (params.experimental?.ariaEnabled !== undefined)
+      await (await controlReady).refreshAriaExperiment()
     if (params.providers !== undefined) {
       const kinds = cliKindSchema.array().parse(Object.keys(params.providers))
       // Off takes effect before this call returns: detection may be seconds
