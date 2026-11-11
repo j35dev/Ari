@@ -10,6 +10,7 @@ import type { Session } from '@ari/contracts/session'
 import { SessionStore } from '@ari/engine/session-store'
 import { GitService } from '@ari/engine/git'
 import { DriverRegistry } from '@ari/providers/registry'
+import { UNKNOWN_PROVIDER_CAPABILITIES } from '@ari/providers/driver'
 import { err } from '@ari/shared/result'
 import { Engine } from './engine'
 import { startAgentRuntime } from './agent-runtime'
@@ -19,6 +20,7 @@ let dir: string, repo: string
 let store: SessionStore, engine: Engine
 let runtime: Awaited<ReturnType<typeof startAgentRuntime>>
 const folders = new Map<string, string>()
+let steer: () => Promise<boolean>
 const base = {
   driverKind: 'codex' as const,
   modelId: 'fixture',
@@ -48,6 +50,8 @@ async function boot(recover = false): Promise<void> {
         end = resolve
       })
       return {
+        capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, steering: 'live' }),
+        steer: async () => steer(),
         start: () => ({
           async *[Symbol.asyncIterator]() {
             await waiting
@@ -94,6 +98,7 @@ async function boot(recover = false): Promise<void> {
 }
 
 beforeEach(async () => {
+  steer = async () => true
   dir = await mkdtemp(join(tmpdir(), 'ari-root-concurrency-'))
   repo = join(dir, 'repository')
   await mkdir(repo)
@@ -175,6 +180,26 @@ it('atomically refuses simultaneous starts sharing a folder, even under differen
   expect((await store.load('two')).activeTurnId).toBeNull()
   await stop('one')
   expect(await start('two')).toEqual({ accepted: true })
+})
+
+it('admits another root while a provider steering response is slow', async () => {
+  await seed('slow'); await start('slow')
+  await vi.waitFor(() => expect(engine.liveCapabilities('slow').steer).toBe(true))
+  const other = await createSession({ loadProject: async () => undefined, createSession: (s) => engine.createSession(s), prepareRootWorkspace: runtime.prepareRootWorkspace }, { ...base, projectId: 'p', title: 'Other', workspaceMode: 'isolated' })
+  await engine.dispatch({ type: 'message.enqueue', sessionId: 'slow', text: 'Steering', attachments: [] })
+  let release!: () => void
+  let calls = 0
+  const waiting = new Promise<void>((resolve) => { release = resolve })
+  steer = async () => { calls++; await waiting; return true }
+  const steering = engine.dispatch({ type: 'message.steer', sessionId: 'slow', text: 'Steering', attachments: [] })
+  try {
+    await vi.waitFor(() => expect(calls).toBe(1))
+    const starting = start(other.sessionId)
+    await vi.waitFor(async () => expect((await store.load(other.sessionId)).activeTurnId).not.toBeNull())
+    expect(await starting).toEqual({ accepted: true })
+  } finally {
+    release(); await steering
+  }
 })
 
 it('automatically gives Aria a root worktree alongside a busy human folder and reuses its durable spawn', async () => {
