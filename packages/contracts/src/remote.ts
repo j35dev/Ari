@@ -7,6 +7,8 @@ import {
   timestampSchema,
 } from './common'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
+import { delegationRoleSchema, sessionSchema, sessionSummarySchema } from './session'
+import { messageSchema } from './message'
 
 /**
  * The remote surface is an allowlist, not a filter.
@@ -860,6 +862,46 @@ export const remoteSnapshotSchema = z.object({
   pendingInputs: z.array(remoteInputSchema),
 })
 export type RemoteSnapshot = z.infer<typeof remoteSnapshotSchema>
+
+/** The full RemoteHost.getSession result, including history and delegated work. */
+export const remoteChildTaskSchema = z.object({
+  sessionId: z.string(),
+  parentSessionId: z.string().nullable(),
+  title: z.string(),
+  role: delegationRoleSchema.nullable(),
+  driverKind: z.string(),
+  modelId: z.string().nullable(),
+  workState: z.enum(['not_started', 'queued', 'working', 'blocked_on_parent', 'blocked_on_user', 'waiting_for_children', 'result_available']),
+  blockedOn: z.enum(['approval', 'input']).nullable(),
+  lastSeq: z.number().int().optional(),
+  questionOwnerSessionId: z.string().nullable().optional(),
+  pendingInputs: z.array(remoteInputSchema).optional(),
+  pendingApprovals: z.array(remoteApprovalSchema.omit({ options: true })).optional(),
+  queuedMessages: z.number().int().nonnegative(),
+  latestTurn: z.object({
+    turnId: z.string(),
+    stopReason: z.enum(['completed', 'interrupted', 'error']),
+    settledAt: timestampSchema,
+    errorMessage: z.string().nullable().optional(),
+  }).nullable(),
+  report: z.string().nullable(),
+  reportTruncated: z.boolean(),
+  delivered: z.boolean().nullable(),
+  usage: z.object({ inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().nullable() }),
+  workspaceKind: z.enum(['project', 'managed-worktree']),
+  branch: z.string().nullable(),
+})
+export const remoteSessionResultSchema = z.object({
+  session: sessionSchema,
+  summary: sessionSummarySchema,
+  seq: z.number().int().nonnegative(),
+  messages: z.array(messageSchema),
+  pendingApprovals: z.array(remoteApprovalSchema),
+  pendingInputs: z.array(remoteInputSchema),
+  tasks: z.array(remoteChildTaskSchema).optional(),
+  parent: z.object({ id: z.string(), title: z.string() }).nullable().optional(),
+})
+export type RemoteSessionResult = z.infer<typeof remoteSessionResultSchema>
 
 export const remoteJournalEventSchema = z.object({
   seq: z.number().int().nonnegative(),
