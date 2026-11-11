@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Monitor, Plus } from 'lucide-react'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
@@ -33,6 +33,8 @@ export function RemoteWorkspace({ target, onSelect, onBack, onManage }: {
 }
 
 function RemoteNewSession({ machine, onCreated }: { machine: MachineView; onCreated: (id: string) => void }) {
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const { projects, error: inventoryError } = useMachineInventory(machine)
   const { catalog, error: catalogError } = useRemoteCatalog(machine)
   const [projectId, setProjectId] = useState('')
@@ -50,7 +52,7 @@ function RemoteNewSession({ machine, onCreated }: { machine: MachineView; onCrea
     setBusy(true); setError(null)
     try {
       const result = pending ? await resolveReceipt(machine.id, scope, retry && !check) : await sendRemote(machine.id, scope, { op: 'session.create', projectId: project, ...(title.trim() ? { title: title.trim() } : {}), ...choice!, ...(choice!.modelId ? { modelId: choice!.modelId } : { modelId: undefined }) })
-      onCreated(createdSessionSchema.parse(result).sessionId)
+      if (alive.current) onCreated(createdSessionSchema.parse(result).sessionId)
     } catch (error) { setError(messageOf(error)) }
     finally { setBusy(false); setPending(readReceipt(machine.id, scope) !== null) }
   }

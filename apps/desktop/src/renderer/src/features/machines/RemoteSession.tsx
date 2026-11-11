@@ -72,7 +72,9 @@ export function RemoteSession({ machine, sessionId, onOpenSession }: {
   }, [load])
   const finish = (action: RemoteAction, result: unknown) => {
     if (action.op === 'session.prompt' || action.op === 'session.queue' || action.op === 'session.steer') {
-      writeRemoteDraft(machine.id, sessionId, { text: '', attachments: [] })
+      const draft = readRemoteDraft(machine.id, sessionId)
+      const sentIds = action.op === 'session.steer' ? [] : action.attachmentIds ?? []
+      if (draft.text === action.text && JSON.stringify(draft.attachments.map((item) => item.id)) === JSON.stringify(sentIds)) writeRemoteDraft(machine.id, sessionId, { text: '', attachments: [] })
       setComposerEpoch((value) => value + 1)
     }
     if (action.op === 'attachments.stage') {
@@ -83,7 +85,7 @@ export function RemoteSession({ machine, sessionId, onOpenSession }: {
     if (action.op === 'session.fork') onOpenSession(forkedSchema.parse(result).child.id)
   }
   async function act(action: RemoteAction): Promise<void> {
-    if (busy || !machineCan(machineRef.current, action.op)) throw new Error('Reconnect to the host before this action.')
+    if (!alive.current || busy || !machineCan(machineRef.current, action.op)) throw new Error('Reconnect to the host before this action.')
     setBusy(true); setError(null)
     try {
       const result = await sendRemote(machine.id, sessionId, action)
@@ -112,7 +114,7 @@ export function RemoteSession({ machine, sessionId, onOpenSession }: {
   const activeView = view === 'terminal' && !terminalGranted ? 'chat' : view
   return <div className="flex min-h-0 flex-1 flex-col">
     <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-5 py-3"><div className="mr-auto min-w-0"><h1 className="truncate text-sm font-semibold">{snapshot?.session.title ?? 'Remote session'}</h1><p className="text-xs text-fg-muted">{snapshot?.session.driverKind ?? 'Host agent'} · {snapshot?.session.status ?? 'Loading'}{snapshot?.session.effort ? ` · ${snapshot.session.effort}` : ''}</p></div><Button size="sm" variant="ghost" onClick={() => void load()} disabled={machine.status !== 'connected'}>Refresh</Button><Button size="sm" variant="danger" disabled={!can('session.interrupt')} onClick={() => run({ op: 'session.interrupt', sessionId })}>Stop</Button></header>
-    <nav aria-label="Remote session tools" className="flex shrink-0 gap-1 border-b border-border px-5 py-2">{(['chat', 'changes', 'files', ...(terminalGranted ? ['terminal'] as const : []), 'details'] as const).map((tab) => <Button key={tab} size="sm" variant={activeView === tab ? 'secondary' : 'ghost'} aria-pressed={activeView === tab} onClick={() => setView(tab)}>{tab === 'chat' ? 'Conversation' : tab[0].toUpperCase() + tab.slice(1)}</Button>)}</nav>
+    <nav aria-label="Remote session tools" className="flex shrink-0 gap-1 border-b border-border px-5 py-2">{(['chat', 'changes', 'files', ...(terminalGranted ? ['terminal'] as const : []), 'details'] as const).map((tab) => <Button key={tab} size="sm" variant={activeView === tab ? 'secondary' : 'ghost'} aria-pressed={activeView === tab} onClick={() => setView(tab)}>{tab === 'chat' ? 'Conversation' : tab.charAt(0).toUpperCase() + tab.slice(1)}</Button>)}</nav>
     {error && <p role="alert" className="shrink-0 border-b border-border px-5 py-3 text-sm text-danger">{error}</p>}
     {pending && <section aria-label="Unconfirmed remote action" className="shrink-0 border-b border-warning/40 bg-surface-1 px-5 py-3"><p className="text-sm text-warning">Unconfirmed {pending.command.op} on {machine.name}. The exact action and receipt are saved.</p><div className="mt-2 flex gap-2"><Button size="sm" disabled={busy || machine.status !== 'connected'} onClick={() => void reconcile(false)}>Check receipt</Button><Button size="sm" disabled={busy || machine.status !== 'connected'} onClick={() => void reconcile(true)}>Retry saved action</Button></div></section>}
     {activeView === 'chat' ? <><div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"><div className="mx-auto max-w-3xl space-y-5">

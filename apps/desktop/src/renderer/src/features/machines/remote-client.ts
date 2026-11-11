@@ -51,10 +51,10 @@ export async function remoteQuery(machineId: string, query: RemoteQuery): Promis
 
 /** Gateway mutations may retain their wire envelope; queries are normally unwrapped. */
 export function resultOf(raw: unknown): unknown {
-  const envelope = z.object({ ok: z.boolean(), result: z.unknown().optional(), error: remoteErrorSchema.optional() }).safeParse(raw)
+  const envelope = z.object({ ok: z.boolean(), result: z.unknown().optional(), error: z.object({ code: z.string(), message: z.string() }).optional() }).safeParse(raw)
   if (!envelope.success) return raw
   if (!envelope.data.ok) throw Object.assign(new Error(envelope.data.error?.message ?? 'Host refused the request.'), envelope.data.error)
-  return envelope.data.result
+  return resultOf(envelope.data.result)
 }
 
 /** Persist the exact command before IPC, and never automatically repeat a mutation. */

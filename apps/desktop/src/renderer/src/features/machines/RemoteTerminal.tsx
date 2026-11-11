@@ -99,7 +99,10 @@ export function RemoteTerminal({ machine, sessionId }: { machine: MachineView; s
     try {
       const receipt = readReceipt(machine.id, scope)
       const result = receipt ? await resolveReceipt(machine.id, scope, retry) : await sendRemote(machine.id, scope, { op: 'terminal.create', sessionId, cols: 80, rows: 24 })
-      if (!alive.current) return
+      if (!alive.current) {
+        if ((!receipt || receipt.command.op === 'terminal.create') && can('terminal.kill')) void sendRemote(machine.id, `terminal-close:${sessionId}`, { op: 'terminal.kill', sessionId, terminalId: created.parse(result).terminalId }).catch(() => undefined)
+        return
+      }
       if (!receipt || receipt.command.op === 'terminal.create') { terminalId.current = created.parse(result).terminalId; setOpened(true) }
       blocked.current = false; if (terminal.current) { terminal.current.options.disableStdin = false; terminal.current.focus() }
     } catch (error) { if (alive.current) setError(messageOf(error)) }
