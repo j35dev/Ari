@@ -11,7 +11,7 @@ const { createServer } = await import(pathToFileURL(resolve(root, 'apps/mobile/n
 const { default: react } = await import(pathToFileURL(resolve(root, 'apps/mobile/node_modules/@vitejs/plugin-react/dist/index.js')))
 const fixture = resolve(root, 'apps/mobile/scripts/fixtures/app-state.ts')
 const server = await createServer({
-  configFile: false, root, plugins: [
+  configFile: false, root: resolve(root, 'apps/mobile'), optimizeDeps: { entries: ['scripts/fixtures/index.html'] }, plugins: [
     { name: 'local-review-app-state', enforce: 'pre', resolveId(source, importer) {
       if (importer && importer.replaceAll('\\', '/').includes('/apps/mobile/src/') && /(?:^|\/)app-state$/.test(source)) return fixture
     } }, react(),
@@ -35,7 +35,10 @@ let id = 0
 const pause = (ms) => new Promise((r) => setTimeout(r, ms))
 async function command(method, params = {}) {
   const commandId = ++id
-  const promise = new Promise((resolve, reject) => pending.set(commandId, { resolve, reject }))
+  const promise = new Promise((resolve, reject) => {
+    const deadline = setTimeout(() => { pending.delete(commandId); reject(new Error(`CDP timed out: ${method}`)) }, 20_000)
+    pending.set(commandId, { resolve: (value) => { clearTimeout(deadline); resolve(value) }, reject: (error) => { clearTimeout(deadline); reject(error) } })
+  })
   socket.send(JSON.stringify({ id: commandId, method, params }))
   return promise
 }
@@ -66,7 +69,7 @@ try {
     for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline']) {
       await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
       await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
-      await command('Page.navigate', { url: `http://127.0.0.1:${address.port}/apps/mobile/scripts/fixtures/index.html?theme=${theme}&view=${view}` })
+      await command('Page.navigate', { url: `http://127.0.0.1:${address.port}/scripts/fixtures/index.html?theme=${theme}&view=${view}` })
       let ready = false
       for (let tries = 0; tries < 100; tries++) {
         ready = await evaluate('document.querySelector("#root")?.textContent.length > 0')
@@ -96,5 +99,7 @@ try {
 } finally {
   socket?.close()
   chrome.kill()
+  // Chrome's browser process can survive kill on Windows; close this isolated profile explicitly.
+  if (process.platform === 'win32') spawn('taskkill.exe', ['/PID', String(chrome.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
   await server.close()
 }
