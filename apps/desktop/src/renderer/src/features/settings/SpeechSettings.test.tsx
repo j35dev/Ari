@@ -5,6 +5,7 @@ import { defaultSettings } from '@ari/contracts/settings'
 import type { SpeechModel, SpeechStatus, SpeechProgress } from '@ari/contracts/rpc'
 
 const mocks = vi.hoisted(() => ({
+  ariaEnabled: true,
   invoke: vi.fn(),
   update: vi.fn(),
   refresh: vi.fn(),
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke: mocks.invoke } }))
 vi.mock('./useEngineSettings', () => ({
-  useEngineSettings: () => ({ settings: defaultSettings, update: mocks.update }),
+  useEngineSettings: () => ({
+    settings: { ...defaultSettings, experimental: { ariaEnabled: mocks.ariaEnabled } },
+    update: mocks.update,
+  }),
 }))
 vi.mock('../speech/useSpeech', () => ({
   useSpeech: () => ({
@@ -45,6 +49,7 @@ const downloadable: SpeechModel = {
   installed: false,
 }
 beforeEach(() => {
+  mocks.ariaEnabled = true
   mocks.status = { engine: 'missing', engineInstallable: true, model: null, ready: false }
   mocks.progress = {}
   mocks.invoke
@@ -56,6 +61,32 @@ beforeEach(() => {
   mocks.refresh.mockReset().mockResolvedValue(undefined)
 })
 afterEach(() => vi.restoreAllMocks())
+it('keeps general dictation settings when experimental Aria is off', async () => {
+  mocks.ariaEnabled = false
+  render(<SpeechSettings />)
+  await screen.findByText('Found model')
+  expect(screen.queryByRole('textbox', { name: 'Aria dictation shortcut' })).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Record Aria dictation shortcut' }),
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'General dictation shortcut' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Record General dictation shortcut' }))
+  fireEvent.keyDown(window, { key: 'F20', code: 'F20' })
+  await waitFor(() =>
+    expect(mocks.update).toHaveBeenCalledWith({ speech: { dictationShortcut: 'f20' } }),
+  )
+})
+
+it('ends shortcut recording when the Aria experiment is disabled', async () => {
+  const view = render(<SpeechSettings />)
+  await screen.findByText('Found model')
+  fireEvent.click(screen.getByRole('button', { name: 'Record Aria dictation shortcut' }))
+  mocks.ariaEnabled = false
+  view.rerender(<SpeechSettings />)
+  fireEvent.keyDown(window, { key: 'F20', code: 'F20' })
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Record General dictation shortcut' })).toBeEnabled()
+})
 it('offers existing models in place and a separate engine download', async () => {
   render(<SpeechSettings />)
   await screen.findByText('Found model')

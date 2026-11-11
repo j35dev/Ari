@@ -112,6 +112,7 @@ import { AriaWidget } from './index'
 let widget: AriaWidget
 const configured = {
   ...defaultSettings,
+  experimental: { ariaEnabled: true },
   speech: { enabled: true, shortcut: 'ctrl+space' },
 } as Settings
 const key = (keycode: number): HookKey => ({
@@ -675,6 +676,59 @@ it('uses the appearance theme already resolved by the main renderer', async () =
 })
 
 const generalKey = (): HookKey => ({ ...key(32), altKey: true })
+it('disarms the saved Aria chord while general dictation still inserts with the experiment off', async () => {
+  const insert = vi.fn(async () => undefined)
+  const invoke = vi.fn(async (method: string) => ({ ready: method === 'speech.status' }))
+  widget = new AriaWidget({
+    invoke,
+    openSettings: vi.fn(),
+    captureTarget: async () => ({ insert, cancel: vi.fn() }),
+  })
+  await widget.configure({ ...configured, experimental: { ariaEnabled: false } })
+  expect(mock.start).toHaveBeenCalledOnce()
+  mock.keys.get('keydown')!(key(57))
+  mock.keys.get('keyup')!(key(57))
+  expect(mock.windows[0]!.showInactive).not.toHaveBeenCalled()
+  mock.keys.get('keydown')!(generalKey())
+  await vi.advanceTimersByTimeAsync(0)
+  mock.keys.get('keyup')!(generalKey())
+  await mock.handlers.get('ari:ariaWidget.complete')!(
+    { sender: mock.windows[0]!.webContents },
+    { id: 1, text: 'Into this field' },
+  )
+  expect(insert).toHaveBeenCalledWith('Into this field', expect.any(Function))
+  expect(invoke.mock.calls).toEqual([['speech.status']])
+})
+
+it('does not require a usable Aria binding to arm general dictation while off', async () => {
+  widget = new AriaWidget({ invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure({
+    ...configured,
+    experimental: { ariaEnabled: false },
+    speech: { ...configured.speech, shortcut: 'invalid-old-binding' },
+  })
+  expect(mock.start).toHaveBeenCalledOnce()
+})
+
+it('cancels a pending Aria recording on disable and restores the same shortcut on enable', async () => {
+  const invoke = vi.fn(async (method: string) => ({ ready: method === 'speech.status' }))
+  widget = new AriaWidget({ invoke, openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(key(57))
+  mock.keys.get('keyup')!(key(57))
+  await widget.configure({ ...configured, experimental: { ariaEnabled: false } })
+  await mock.handlers.get('ari:ariaWidget.complete')!(
+    { sender: mock.windows[0]!.webContents },
+    { id: 1, text: 'Stale recording' },
+  )
+  expect(invoke.mock.calls.every(([method]) => method === 'speech.status')).toBe(true)
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(key(57))
+  expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ destination: 'aria', phase: 'listening' }),
+  )
+})
 it('captures the general target before showing the pill and inserts once without opening Aria', async () => {
   const insert = vi.fn(async () => undefined)
   const cancel = vi.fn()

@@ -17,6 +17,7 @@ import {
   type TaskAttempt,
 } from '@ari/contracts/orchestration'
 import type { Session } from '@ari/contracts/session'
+import { isHelmSession } from '@ari/contracts/helm'
 import type { ControlHost } from './agent-control'
 import { descendantIds, type AgentControlService } from './agent-control'
 import { finalAssistantText } from './delegation-state'
@@ -59,6 +60,10 @@ export class OrchestrationService {
   readonly #queues = new Map<string, Promise<unknown>>()
   readonly #activeOperations = new Set<string>()
   constructor(readonly options: OrchestrationHost) {}
+
+  #ariaDisabled(session: Session): boolean {
+    return isHelmSession(session) && this.options.host.ariaEnabled?.() === false
+  }
 
   /** One coalesced journal observer; no polling or broad per-event scans. */
   subscribeChanged(listener: (frame: OrchestrationChangedFrame) => void, delayMs = 75): () => void {
@@ -114,6 +119,8 @@ export class OrchestrationService {
           : targetId
     const target = resolvedId ? (await this.options.host.store.load(resolvedId)).session : null
     if (!caller || !target) throw new ControlFailure('session_not_found', 'Session not found.')
+    if (this.#ariaDisabled(caller))
+      throw new ControlFailure('scope_denied', 'Aria is off. Enable it in Settings → Experimental.')
     const ids = descendantIds(await this.options.host.store.listSessions(), callerId)
     if (
       target.projectId !== caller.projectId ||
@@ -456,6 +463,7 @@ export class OrchestrationService {
       !dependenciesAccepted(task, await this.#tasks(parent.id))
     )
       return task
+    if (this.#ariaDisabled(parent)) return task
     return this.#operation(
       parent.id,
       `submit:${attempt.attemptId}`,
@@ -561,8 +569,9 @@ export class OrchestrationService {
 
   async schedule(parentId: string): Promise<void> {
     const parent = (await this.options.host.store.load(parentId)).session
-    if (!parent) return
+    if (!parent || this.#ariaDisabled(parent)) return
     await this.#serial(parentId, async () => {
+      if (this.#ariaDisabled(parent)) return
       await this.#refresh(parent)
       for (const task of await this.#tasks(parentId))
         await this.#submit(parent, task).catch(() => undefined)

@@ -157,6 +157,10 @@ export interface SessionDefaults {
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
   const reducedMotion = useReducedMotionConfig()
+  const engineSettings = useEngineSettings()
+  const ariaEnabled = engineSettings.settings?.experimental.ariaEnabled === true
+  const ariaEnabledRef = useRef(ariaEnabled)
+  ariaEnabledRef.current = ariaEnabled
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
   // are tools, so they dock to the trailing rail beside the transcript.
@@ -173,7 +177,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // Sidebar changes show the moment they are clicked; the list catches up.
   const [patches, setPatches] = useState<readonly PendingPatch[]>([])
   const patchTokenRef = useRef(0)
-  const sessions = useMemo(() => applyPatches(listedSessions, patches), [listedSessions, patches])
+  const sessions = useMemo(
+    () =>
+      applyPatches(listedSessions, patches).filter(
+        (session) => ariaEnabled || !isHelmSession(session),
+      ),
+    [listedSessions, patches, ariaEnabled],
+  )
   const [projects, setProjects] = useState<ProjectRow[]>([])
   // Which session is active is now a property of the panes: it is whatever the
   // focused pane is showing, so every single-session view in the shell — the
@@ -394,6 +404,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const navigationGeneration = useRef(0)
   const selectSession = useCallback(
     (id: string) => {
+      if (
+        !ariaEnabled &&
+        listedSessions.some((session) => session.id === id && isHelmSession(session))
+      )
+        return
       navigationGeneration.current++
       // A session already open is shown where it is, in whichever space holds
       // it; anything else replaces what the focused pane was showing, which is
@@ -405,7 +420,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       setChangesContext(null)
     },
-    [layout, clearTransientInspector, leaveWorkspaceTool],
+    [layout, clearTransientInspector, leaveWorkspaceTool, ariaEnabled, listedSessions],
   )
 
   // Clicking an OS notification asks to see the session it was about.
@@ -615,7 +630,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   // New sessions start in the mode Settings → Permissions names; without this
   // the seed above never left `ask`, whatever the setting said.
-  const engineSettings = useEngineSettings()
   const openSourceControl = useCallback(
     (
       tab: 'changes' | 'requests' = 'changes',
@@ -642,11 +656,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [sessions, activityOf, attentionCountOf],
   )
   const ariaStartedIds = useMemo(
-    () => new Set(sessions.filter(startedByAria).map((session) => session.id)),
-    [sessions],
+    () => new Set(ariaEnabled ? sessions.filter(startedByAria).map((session) => session.id) : []),
+    [sessions, ariaEnabled],
   )
   const openAria = useCallback(
     (newChat = false): void => {
+      if (!ariaEnabled) return
       // The pinned row is navigation, just like any other known session.
       // Discovery scans every saved journal and must not hold up switching
       // back to the Aria chat the shell has already listed.
@@ -663,6 +678,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       const request = newChat ? rpc.invoke('aria.newChat') : rpc.invoke('aria.open', defaults)
       void request
         .then(async ({ sessionId }) => {
+          if (!ariaEnabledRef.current) return
           if (newChat)
             for (const session of sessions)
               if (isHelmSession(session) && !session.archived) forget(session.id)
@@ -677,6 +693,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           selectSessionRef.current(sessionId)
         })
         .catch((error: unknown) => {
+          if (!ariaEnabledRef.current) return
           log.warn('Aria could not open', error)
           toast({
             tone: 'danger',
@@ -685,7 +702,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           })
         })
     },
-    [defaults, reloadSessions, toast, sessions, forget],
+    [defaults, reloadSessions, toast, sessions, forget, ariaEnabled],
   )
   const openAriaRef = useRef(openAria)
   openAriaRef.current = openAria
@@ -751,10 +768,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   }, [])
 
   const commands = useCommands({
-    onOpenAria: () => {
-      openAria()
-      setPaletteOpen(false)
-    },
+    onOpenAria: ariaEnabled
+      ? () => {
+          openAria()
+          setPaletteOpen(false)
+        }
+      : undefined,
     onNavigate: (view) => {
       if (view === 'settings') {
         setHubOpen(false)
@@ -899,7 +918,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         e.preventDefault()
         setPaletteOpen((o) => !o)
       }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
+      if (ariaEnabled && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
         e.preventDefault()
         openAriaRef.current()
         return
@@ -1018,6 +1037,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => window.removeEventListener('keydown', onKey)
   }, [
     setupCovered,
+    ariaEnabled,
     paletteOpen,
     settingsOpen,
     hubOpen,
@@ -1206,6 +1226,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         const session = next.find((session) => session.id === target.sessionId && !session.archived)
         if (
           !session ||
+          (!ariaEnabled && isHelmSession(session)) ||
           (target.view === 'aria' && !isHelmSession(session)) ||
           (target.view === 'changes' && session.projectId !== target.projectId)
         )
@@ -1359,12 +1380,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 onSearch={() => sidebarSearchRef.current?.focus()}
                 onCollapse={toggleSidebar}
               />
-              <AriaRow
-                selected={isHelmSession(activeSession)}
-                activity={ariaStatus}
-                onOpen={() => openAria()}
-                onNewChat={() => openAria(true)}
-              />
+              {ariaEnabled && (
+                <AriaRow
+                  selected={isHelmSession(activeSession)}
+                  activity={ariaStatus}
+                  onOpen={() => openAria()}
+                  onNewChat={() => openAria(true)}
+                />
+              )}
               <SessionsUnderProjects
                 sessions={sessions}
                 projects={openProjects}
@@ -1623,47 +1646,59 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                               </ErrorBoundary>
                             )
                           }}
-                          renderSession={(current, paneId) => (
-                            // One view per session, never reused for another: composer
-                            // seeds and review notes belong to the session, not to the
-                            // position it sits in. Recent ones stay mounted, hidden.
-                            <SessionKeepAlive
-                              key={paneId}
-                              poolId={paneId}
-                              sessionId={current}
-                              hidden={!visible}
-                              render={(sessionId, hidden) => (
-                                <SessionView
-                                  sessionId={sessionId}
-                                  onOpenAria={() => openAria()}
-                                  startedByAria={ariaStartedIds.has(sessionId)}
-                                  hidden={hidden}
-                                  onComposerReady={
-                                    composerFocusRequest?.sessionId === sessionId &&
-                                    composerFocusRequest.intent.scope.spaceId === space.id &&
-                                    composerFocusRequest.intent.scope.paneId === paneId
-                                      ? composerFocusRequest.intent.ready
-                                      : undefined
-                                  }
-                                  defaults={defaultsFor(sessionId)}
-                                  onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                  onPick={rememberPick}
-                                  // A child session opens in the pane it was opened from,
-                                  // rather than yanking the whole shell to it.
-                                  onOpenSession={(childId) =>
-                                    splitLayoutActions.assign(paneId, childId)
-                                  }
-                                  activityOf={activityOf}
-                                  childSessions={sessions.filter(
-                                    (session) =>
-                                      session.parentSessionId === sessionId && !session.archived,
-                                  )}
-                                  sessionTitle={sessionTitle}
-                                  parentSession={parentOf(sessions, sessionId)}
-                                />
-                              )}
-                            />
-                          )}
+                          renderSession={(current, paneId) =>
+                            sessionsLoadedRef.current &&
+                            (ariaEnabled ||
+                              !listedSessions.some(
+                                (session) => session.id === current && isHelmSession(session),
+                              )) ? (
+                              // One view per session, never reused for another: composer
+                              // seeds and review notes belong to the session, not to the
+                              // position it sits in. Recent ones stay mounted, hidden.
+                              <SessionKeepAlive
+                                key={paneId}
+                                poolId={paneId}
+                                sessionId={current}
+                                canRender={(sessionId) =>
+                                  ariaEnabled ||
+                                  !listedSessions.some(
+                                    (session) => session.id === sessionId && isHelmSession(session),
+                                  )
+                                }
+                                hidden={!visible}
+                                render={(sessionId, hidden) => (
+                                  <SessionView
+                                    sessionId={sessionId}
+                                    onOpenAria={ariaEnabled ? () => openAria() : undefined}
+                                    startedByAria={ariaStartedIds.has(sessionId)}
+                                    hidden={hidden}
+                                    onComposerReady={
+                                      composerFocusRequest?.sessionId === sessionId &&
+                                      composerFocusRequest.intent.scope.spaceId === space.id &&
+                                      composerFocusRequest.intent.scope.paneId === paneId
+                                        ? composerFocusRequest.intent.ready
+                                        : undefined
+                                    }
+                                    defaults={defaultsFor(sessionId)}
+                                    onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                                    onPick={rememberPick}
+                                    // A child session opens in the pane it was opened from,
+                                    // rather than yanking the whole shell to it.
+                                    onOpenSession={(childId) =>
+                                      splitLayoutActions.assign(paneId, childId)
+                                    }
+                                    activityOf={activityOf}
+                                    childSessions={sessions.filter(
+                                      (session) =>
+                                        session.parentSessionId === sessionId && !session.archived,
+                                    )}
+                                    sessionTitle={sessionTitle}
+                                    parentSession={parentOf(sessions, sessionId)}
+                                  />
+                                )}
+                              />
+                            ) : null
+                          }
                         />
                       </ErrorBoundary>
                     )}

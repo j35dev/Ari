@@ -245,6 +245,11 @@ export class RequestSupervisor {
 
   evaluate(id: string): Promise<void> {
     return this.#serial(`recipient:${id}`, async () => {
+      if (
+        this.host.ariaEnabled?.() === false &&
+        isHelmSession((await this.#reads.store.loadExisting(id))?.session)
+      )
+        return
       await this.#reconcile(id)
       if (!this.host.policy().enabled || !this.host.policy().autoDeliverResults) return
       const parent = await this.#reads.store.loadExisting(id)
@@ -307,6 +312,7 @@ export class RequestSupervisor {
       // Source reads and operation persistence can yield to delivery/acknowledgement.
       // Recheck the exact inbox batch last, without another await before dispatch.
       const current = await this.#reads.store.loadExisting(id)
+      if (isHelmSession(current?.session) && this.host.ariaEnabled?.() === false) return
       const currentMessages: CoordinationMessage[] = []
       for (const message of messages) {
         const fresh = current?.inbox?.[message.messageId]

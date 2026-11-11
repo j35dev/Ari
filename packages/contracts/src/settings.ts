@@ -278,6 +278,9 @@ export const speechSettingsSchema = z.object({
 
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  experimental: z
+    .object({ ariaEnabled: z.boolean().default(false) })
+    .default({ ariaEnabled: false }),
   speech: speechSettingsSchema.default(() => speechSettingsSchema.parse({})),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
@@ -385,6 +388,7 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  experimental: z.object({ ariaEnabled: z.boolean() }).partial().optional(),
   speech: z
     .object({
       enabled: z.boolean(),
@@ -499,6 +503,7 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  experimental: { ariaEnabled: false },
   speech: speechSettingsSchema.parse({}),
   delegation: delegationSettingsSchema.parse({}),
   version: 1,

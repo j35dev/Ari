@@ -715,6 +715,26 @@ async function askByAria(id: string): Promise<void> {
   )
 }
 
+it('holds Aria reports without consuming them while ordinary parents still receive worker results', async () => {
+  await createAria()
+  await askByAria('a')
+  await settle('a', 'completed', 'Exact saved project report')
+  host.ariaEnabled = () => false
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(0)
+  expect((await store.load('helm1')).childCompletions?.a?.acknowledged).toBe(false)
+  await start('root')
+  await settle('root')
+  await start('b')
+  await settle('b', 'completed', 'Ordinary worker report')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(1)
+  host.ariaEnabled = () => true
+  await supervisor.evaluate('helm1')
+  expect(await notices('helm1')).toHaveLength(1)
+  expect(JSON.stringify((await notices('helm1'))[0]?.parts)).toContain('Exact saved project report')
+})
+
 it('holds a top-level lead report through running workers and delivers only the lead completion-wake result', async () => {
   await createAria()
   await store.append('lead', {

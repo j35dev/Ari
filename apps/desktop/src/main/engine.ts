@@ -20,6 +20,7 @@ import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
 import { helmReportRecipient } from '@ari/engine/helm'
+import { isHelmSession } from '@ari/contracts/helm'
 import {
   coordinationContext,
   providerTurnContext,
@@ -124,6 +125,8 @@ export interface CheckpointCapturer {
 const MAX_CHECKPOINTS_PER_SESSION = 50
 
 export interface EngineDeps {
+  /** Dynamic application experiment setting; ordinary sessions never consult it. */
+  ariaEnabled?: () => boolean
   store: SessionStore
   registry: DriverRegistry
   /** Delivers a journal event to live subscribers of that session. */
@@ -503,6 +506,22 @@ export class Engine {
     this.#deps = deps
   }
 
+  /** Stops only Aria on disable, preserving its journal, queue and delegated work. */
+  async refreshAriaExperiment(): Promise<void> {
+    const rows = await this.#deps.store.listSessions()
+    for (const row of rows) {
+      if (!isHelmSession(row)) continue
+      if (this.#deps.ariaEnabled?.() !== false) {
+        this.#scheduleQueueDrain(row.id, row.rootSessionId ?? null)
+        continue
+      }
+      const model = await this.#deps.store.loadExisting(row.id)
+      if (model?.activeTurnId) await this.dispatch({ type: 'turn.interrupt', sessionId: row.id })
+      await this.quiesce(row.id)
+      await this.#releaseProviderConnection(row.id)
+    }
+  }
+
   async dispatch(command: Command, origin?: MessageOrigin): Promise<CommandReceipt> {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
@@ -539,6 +558,12 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
+    if (
+      isHelmSession(model.session) &&
+      this.#deps.ariaEnabled?.() === false &&
+      ['turn.start', 'message.enqueue', 'message.steer'].includes(command.type)
+    )
+      return { accepted: false, reason: 'Aria is off. Enable it in Settings → Experimental.' }
     if (
       command.type === 'approval.respond' &&
       command.approvalId.startsWith('ari_delegate_') &&
@@ -869,7 +894,7 @@ export class Engine {
     turnId: string,
     providerContext: ProviderTurnContext,
   ): Promise<void> {
-    if (this.#closing) {
+    if (this.#closing || (isHelmSession(session) && this.#deps.ariaEnabled?.() === false)) {
       await this.#settle(session.id, turnId, 'interrupted', null)
       return
     }
@@ -1577,6 +1602,7 @@ export class Engine {
     const fresh = await this.#deps.store.load(sessionId)
     const session = fresh.session
     if (!session || session.archived || fresh.activeTurnId !== null) return
+    if (isHelmSession(session) && this.#deps.ariaEnabled?.() === false) return
     // A user's Stop holds the user's own queue, but delegated work is already
     // promised to a lead: after any settle it may take the next free slot.
     const heldOnly = fresh.lastTurn !== undefined && fresh.lastTurn.stopReason !== 'completed'
@@ -1617,7 +1643,7 @@ export class Engine {
       }
     }
     this.#capacityBlockedQueues.get(session.rootSessionId ?? session.id)?.delete(sessionId)
-    if (this.#closing) return
+    if (this.#closing || (isHelmSession(session) && this.#deps.ariaEnabled?.() === false)) return
     const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
     const decision = decideCommand(
       fresh,

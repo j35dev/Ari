@@ -104,7 +104,7 @@ it('removes the socket directory when startup fails after creating it', async ()
   }
 })
 
-it('runs the shipped CLI through scoped transport, a real isolated worker and exact integration', async () => {
+it('runs the shipped CLI through scoped transport, a real isolated worker and exact integration with Aria off', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-e2e-'))
   const repo = join(dir, 'repo space')
   await mkdir(repo)
@@ -139,6 +139,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     },
   })
   const engine = new Engine({
+    ariaEnabled: () => false,
     store,
     registry,
     publish: () => undefined,
@@ -155,6 +156,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
   await schedule.load()
   schedule.start()
   const runtime = await startAgentRuntime({
+    ariaEnabled: () => false,
     engine,
     store,
     userData: dir,

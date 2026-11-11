@@ -59,6 +59,7 @@ it.each(['idle', 'responding'] as const)(
       effort: 'xhigh',
     }
     const settings = settingsSchema.parse({
+      experimental: { ariaEnabled: true },
       version: 1,
       onboarding: { completedAt: 1 },
       sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'full' },

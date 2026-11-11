@@ -29,7 +29,7 @@ beforeEach(() => {
       saved.delete(id)
       rows = rows.filter((row) => row.id !== id)
     }),
-    settings: async () => defaultSettings,
+    settings: async () => ({ ...defaultSettings, experimental: { ariaEnabled: true } }),
     defaults: vi.fn<AriaThreadDeps['defaults']>(async () => ({
       driverKind: 'codex',
       modelId: 'gpt-6',
@@ -41,9 +41,20 @@ beforeEach(() => {
 })
 
 describe('AriaThread', () => {
+  it('refuses disabled opens and resets while retaining the same saved chat on enable', async () => {
+    const current = await aria.open()
+    deps.settings = async () => defaultSettings
+    await expect(aria.open()).rejects.toThrow('Aria is off')
+    await expect(aria.newChat()).rejects.toThrow('Aria is off')
+    expect(deps.destroySession).not.toHaveBeenCalled()
+    deps.settings = async () => ({ ...defaultSettings, experimental: { ariaEnabled: true } })
+    expect(await aria.open()).toEqual(current)
+    expect(deps.createSession).toHaveBeenCalledOnce()
+  })
   it('validates no-params widget dictation through the real RPC registry and reuses app defaults', async () => {
     deps.settings = async () => ({
       ...defaultSettings,
+      experimental: { ariaEnabled: true },
       sessions: { defaultDriverKind: 'codex', defaultPermissionMode: 'allow-edits' },
     })
     const registry = new RpcRegistry({ send: vi.fn() })
@@ -109,6 +120,7 @@ describe('AriaThread', () => {
   it('uses the app new-session provider and model with the app default permission', async () => {
     deps.settings = async () => ({
       ...defaultSettings,
+      experimental: { ariaEnabled: true },
       sessions: { defaultDriverKind: null, defaultPermissionMode: 'allow-edits' },
     })
     await aria.open({

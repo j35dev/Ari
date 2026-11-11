@@ -77,7 +77,11 @@ beforeEach(() => {
     messageCount: 1,
     updatedAt: 1,
   }))
-  settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
+  settings = settingsSchema.parse({
+    experimental: { ariaEnabled: true },
+    version: 1,
+    onboarding: { completedAt: 1 },
+  })
   callbacks = new Map()
   sequence = 0
   validate = async () => ({ allowed: true })

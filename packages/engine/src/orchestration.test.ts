@@ -341,6 +341,7 @@ it.each(['parentSessionId', 'projectId'] as const)(
 )
 
 it('keeps dependency waits distinct and dispatches only accepted prerequisites, rejecting cycles', async () => {
+  host.ariaEnabled = () => false
   const a = await launch('A')
   const b = await launch('B', [a.taskId])
   expect(attempt(b).sessionId).toBeNull()
@@ -384,6 +385,61 @@ it('keeps dependency waits distinct and dispatches only accepted prerequisites, 
   reload()
   await orchestration.schedule('root')
   expect(submissions).toBe(2)
+})
+
+it('preserves Aria assignments through disabled startup scheduling without poisoning submission receipts', async () => {
+  await store.append('root', {
+    type: 'session.created',
+    session: { ...root, projectId: 'helm' },
+  })
+  const task: OrchestrationTaskRecord = {
+    taskId: 'held-task',
+    title: 'Saved assignment',
+    assignment: {
+      goal: 'Continue the saved assignment',
+      role: 'implementation',
+      ownedPaths: ['file.txt'],
+      acceptanceCriteria: ['Preserve the request'],
+      dependsOn: [],
+    },
+    driverKind: 'claude',
+    modelId: null,
+    effort: null,
+    workspaceMode: 'isolated',
+    attempts: [
+      {
+        attemptId: 'held-attempt',
+        sessionId: null,
+        createdAt: 1,
+        contextId: null,
+        consumedContextAt: null,
+        submission: 'pending',
+        baselineTurnId: null,
+      },
+    ],
+    currentAttemptId: 'held-attempt',
+    results: [],
+    currentResultId: null,
+    stopRequestedAt: null,
+  }
+  await store.append('root', { type: 'orchestration.task.updated', task })
+  host.ariaEnabled = () => false
+  reload()
+  const calls = vi.spyOn(control, 'invoke')
+  const before = (await store.load('root')).orchestration
+  await orchestration.schedule('root')
+  await expect(
+    orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' }),
+  ).rejects.toMatchObject({ code: 'scope_denied' })
+  expect(calls).not.toHaveBeenCalled()
+  expect((await store.load('root')).orchestration).toEqual(before)
+  expect((await store.load('root')).orchestration!.tasks[task.taskId]).toEqual(task)
+  expect(submissions).toBe(0)
+  host.ariaEnabled = () => true
+  const restored = await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+  expect(restored.tasks.find((entry) => entry.taskId === task.taskId)).toMatchObject(task)
+  expect(submissions).toBe(0)
+  calls.mockRestore()
 })
 
 it('versions failed and corrected results, preserves claims, and integrates only exact accepted snapshots', async () => {
