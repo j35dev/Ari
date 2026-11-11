@@ -109,6 +109,8 @@ window.__captureLoaded = true
     [
       '--headless=new',
       '--disable-gpu',
+      '--no-proxy-server',
+      '--no-sandbox',
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-sync',
@@ -117,8 +119,9 @@ window.__captureLoaded = true
       `--user-data-dir=${profile}`,
       'about:blank',
     ],
-    { windowsHide: true, stdio: 'ignore' },
+    { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] },
   )
+  browser.stderr.on('data', (bytes) => process.stderr.write(bytes))
   let port
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
@@ -142,6 +145,8 @@ window.__captureLoaded = true
   const errors = []
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data))
+    if (message.method === 'Network.requestWillBeSent') process.stdout.write(JSON.stringify({ browserRequest: message.params.request.url }) + '\n')
+    if (message.method === 'Network.loadingFailed') process.stdout.write(JSON.stringify({ browserFailure: message.params }) + '\n')
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails)
     const request = pending.get(message.id)
     if (request) {
@@ -165,6 +170,7 @@ window.__captureLoaded = true
     })
   await send('Runtime.enable')
   await send('Page.enable')
+  await send('Network.enable')
   await send('Emulation.setDeviceMetricsOverride', {
     width: 1080,
     height: 1600,
