@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { z } from 'zod'
+import type { z } from 'zod'
 import { Button } from '@ari/ui/button'
 import type { MachineView } from '@ari/contracts/machines'
 import {

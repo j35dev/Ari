@@ -155,6 +155,7 @@ export async function resolveReceipt(
     if (retry) return submitReceipt(receipt)
     throw new Error(
       'The host has no receipt for this action. You can explicitly retry the saved action.',
+      { cause: error },
     )
   }
 }
