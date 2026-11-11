@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { remoteCommandEnvelopeSchema, remoteQuerySchema } from './remote'
+import { remoteCommandEnvelopeSchema, remoteQuerySchema, remoteServerMessageSchema } from './remote'
 import type { RemoteServerMessage } from './remote'
 
 /** Public host identity. No paths, inventories or authentication material. */
@@ -27,6 +27,8 @@ export const machineViewSchema = z.object({
   identity: machineIdentitySchema.nullable(),
   lastSeenAt: z.number().nullable(),
   error: z.string().nullable(),
+  /** This authenticated device's grant; public host capabilities never grant a shell. */
+  allowTerminal: z.boolean().default(false),
 })
 export type MachineView = z.infer<typeof machineViewSchema>
 export const machinePairingViewSchema = z.object({
@@ -77,3 +79,7 @@ export interface MachineEventsFrame {
   machineId: string
   message: RemoteServerMessage
 }
+export const machineEventsFrameSchema = z.object({
+  machineId: z.string().min(1).max(200),
+  message: remoteServerMessageSchema,
+}).strict()
