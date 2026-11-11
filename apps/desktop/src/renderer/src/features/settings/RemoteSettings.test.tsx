@@ -780,7 +780,8 @@ describe('RemoteSettings', () => {
         {
           deviceId: 'dev_1',
           displayName: 'Pixel 9',
-              pairedAt: 1_700_000_000_000,
+          projectIds: [],
+          pairedAt: 1_700_000_000_000,
           lastSeenAt: 1_700_000_600_000,
         },
       ],
