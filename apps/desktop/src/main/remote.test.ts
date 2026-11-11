@@ -138,8 +138,9 @@ async function pair(
   service: RemoteService,
   key: ReturnType<typeof deviceKey>,
   projectIds: string[] = ['proj_1'],
+  method: 'tailscale' | 'connect' = 'tailscale',
 ): Promise<string> {
-  const invited = service.invite()
+  const invited = service.invite(method)
   const invitationId = invited.invitation?.invitationId
   if (invitationId === undefined) throw new Error('expected an invitation')
   const origin = invited.origin
@@ -164,6 +165,21 @@ async function pair(
 }
 
 describe('remote service lifecycle', () => {
+  it('refreshes managed registrations with new projects without registering local-only devices', async () => {
+    const projects = [{ id: 'proj_1', name: 'Ari' }]
+    const { service } = makeService({ listProjects: async () => projects })
+    await service.start()
+    await pair(service, deviceKey())
+    await service.startManaged({ port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null })
+    await pair(service, deviceKey(), [], 'connect')
+    const managedDevice = service.state().devices[1]
+    expect(service.pairedRecords().devices.map((device) => device.deviceId)).toEqual([managedDevice?.deviceId])
+    projects.push({ id: 'future', name: 'New project' })
+    const refreshed = await service.currentPairedRecords()
+    expect(refreshed.devices).toHaveLength(1)
+    expect(refreshed.devices[0]).toMatchObject({ deviceId: managedDevice?.deviceId, allProjects: true, projectIds: ['proj_1', 'future'] })
+  })
+
   it('is off until it is started, and says where it listens once it is', async () => {
     const { service } = makeService()
     expect(service.state().enabled).toBe(false)

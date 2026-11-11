@@ -236,7 +236,7 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
     expect(await screen.findByRole('checkbox', { name: 'Allow terminal access' })).not.toBeChecked()
     expect(screen.getByText(/a project folder is not a sandbox/)).toBeInTheDocument()
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'The codes match' }))
     await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     await user.click(screen.getByRole('button', { name: 'Approve' }))
     expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
@@ -565,7 +565,8 @@ describe('RemoteSettings', () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
     render(<RemoteSettings />)
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'The codes match' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
     publish(
       remote({
@@ -575,6 +576,7 @@ describe('RemoteSettings', () => {
       }),
     )
     expect(screen.getByRole('checkbox', { name: 'The codes match' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Allow terminal access' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
 
     // An approval names the code on screen when it is given, never the one
@@ -853,7 +855,7 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     await user.click(await screen.findByRole('button', { name: 'Serve Ari over Tailscale' }))
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable'))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable', undefined))
 
     const stop = await screen.findByRole('button', { name: 'Stop serving Ari' })
     expect(screen.getByText(`Ari is available at ${TAILNET}.`)).toBeInTheDocument()

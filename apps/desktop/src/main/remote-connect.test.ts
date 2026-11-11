@@ -138,7 +138,7 @@ describe('desktop Ari Connect lifecycle', () => {
     const registrations = () => h.calls.filter((call) => call.method === 'POST' && call.url.endsWith('/devices'))
     expect(registrations().at(-1)?.body).toMatchObject({ projectIds: ['proj_1'] })
     projects.push('future')
-    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(registrations().at(-1)?.body).toMatchObject({ projectIds: ['proj_1', 'future'] })
     expect(registrations().at(-1)?.body).not.toHaveProperty('allProjects')
     expect(currentPairedRecords).toHaveBeenCalled()

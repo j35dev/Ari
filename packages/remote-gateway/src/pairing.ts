@@ -116,7 +116,7 @@ interface Options {
   /** Devices and revocations read back from disk at construction. */
   restored?: PersistedPairing
   /** Current registered IDs, exposed as a compatibility view rather than an authorization limit. */
-  projectIds?: () => readonly string[]
+  projectIds?: () => readonly string[] | undefined
   /**
    * Called whenever the pairing state a user would see has changed: a device
    * asked to pair, the user decided, a device was redeemed or revoked. The
@@ -148,7 +148,7 @@ export class PairingService {
   readonly #tokenTtlMs: number
   readonly #persist: PairingPersistence | undefined
   readonly #onChange: (() => void) | undefined
-  readonly #projectIds: (() => readonly string[]) | undefined
+  readonly #projectIds: (() => readonly string[] | undefined) | undefined
 
   constructor(options: Options = {}) {
     this.#now = options.now ?? (() => Date.now())
@@ -469,7 +469,7 @@ export class PairingService {
 
   #idsFor(device: PersistedDevice): readonly string[] {
     return device.allProjects === true && this.#projectIds !== undefined
-      ? this.#projectIds()
+      ? (this.#projectIds() ?? device.projectIds)
       : device.projectIds
   }
 
