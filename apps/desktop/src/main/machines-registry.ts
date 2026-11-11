@@ -95,7 +95,10 @@ export class DesktopMachineCredential implements DeviceCredential {
   }
   get deviceId(): string | null { return this.#deviceId }
   load(): Promise<void> {
-    if (this.#loaded) return Promise.resolve()
+    return Promise.resolve().then(() => this.#load())
+  }
+  #load(): void {
+    if (this.#loaded) return
     const cipher = this.#registry.get(this.#id).credentialCipher
     if (cipher !== null) {
       const plain = this.#box().decrypt(cipher)
@@ -110,7 +113,6 @@ export class DesktopMachineCredential implements DeviceCredential {
       this.#displayName = stored.displayName
     }
     this.#loaded = true
-    return Promise.resolve()
   }
   async publicKey(): Promise<PairingPublicKey> {
     await this.load()
@@ -127,10 +129,11 @@ export class DesktopMachineCredential implements DeviceCredential {
     return sign('sha256', Buffer.from(nonce), { key: this.#privateKey, dsaEncoding: 'der' }).toString('base64')
   }
   remember(record: { deviceId: string; displayName: string; projectIds: string[] }): Promise<void> {
-    this.#deviceId = record.deviceId
-    this.#displayName = record.displayName
-    this.#persist()
-    return Promise.resolve()
+    return Promise.resolve().then(() => {
+      this.#deviceId = record.deviceId
+      this.#displayName = record.displayName
+      this.#persist()
+    })
   }
   #box(): SecretBox {
     const box = this.#secretBox()
