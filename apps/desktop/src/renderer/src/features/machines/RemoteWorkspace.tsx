@@ -14,6 +14,7 @@ import {
 } from './RemoteConfiguration'
 import { RemoteSession } from './RemoteSession'
 import { readCreationDraft, writeCreationDraft, type RemoteCreationDraft } from './remote-drafts'
+import { ErrorBoundary } from '../../shell/ErrorBoundary'
 
 export interface RemoteTarget {
   machineId: string
@@ -80,18 +81,18 @@ export function RemoteWorkspace({
               </div>
             )}
             {target.sessionId ? (
-              <RemoteSession
+              <ErrorBoundary key={JSON.stringify([machine.id, target.sessionId])} label="Remote session"><RemoteSession
                 key={JSON.stringify([machine.id, target.sessionId])}
                 machine={machine}
                 sessionId={target.sessionId}
                 onOpenSession={(id) => onSelect(machine.id, id)}
-              />
+              /></ErrorBoundary>
             ) : (
-              <RemoteNewSession
+              <ErrorBoundary key={machine.id} label="Remote session creation"><RemoteNewSession
                 key={machine.id}
                 machine={machine}
                 onCreated={(id) => onSelect(machine.id, id)}
-              />
+              /></ErrorBoundary>
             )}
           </>
         ) : (

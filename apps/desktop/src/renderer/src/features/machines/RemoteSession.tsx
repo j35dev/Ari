@@ -574,7 +574,10 @@ function RemoteComposer({
     }
     const data = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') { reject(new Error('The image could not be read.')); return }
+        resolve(reader.result.split(',')[1] ?? '')
+      }
       reader.onerror = reject
       reader.readAsDataURL(file)
     })

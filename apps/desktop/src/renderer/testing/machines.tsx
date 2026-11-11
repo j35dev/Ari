@@ -46,6 +46,7 @@ const trace: string[] = []
 const reply = (result: unknown) => ({ ok: true, result })
 window.ari = {
   async invoke(method: string, params?: unknown) {
+    await Promise.resolve()
     trace.push(method)
     if (method === 'machines.list') return machines
     if (method === 'machines.pairStatus')

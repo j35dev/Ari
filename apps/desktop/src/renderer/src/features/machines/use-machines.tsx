@@ -19,7 +19,7 @@ interface MachinesState {
 const Context = createContext<MachinesState>({
   machines: [],
   error: null,
-  refresh: async () => undefined,
+  refresh: () => Promise.resolve(),
 })
 
 export function MachinesProvider({ children }: { children: ReactNode }) {
