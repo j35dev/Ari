@@ -58,6 +58,7 @@ try {
   await new Promise((r, reject) => { socket.onopen = r; socket.onerror = reject })
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Runtime.exceptionThrown') process.stdout.write(`Browser exception ${JSON.stringify(message.params.exceptionDetails)}\n`)
     if (pending.has(message.id)) {
       const item = pending.get(message.id); pending.delete(message.id)
       if (message.error) item.reject(new Error(JSON.stringify(message.error))); else item.resolve(message.result)
@@ -65,6 +66,7 @@ try {
   }
   process.stdout.write(`Review server http://127.0.0.1:${address.port}\n`)
   await command('Page.enable')
+  await command('Runtime.enable')
   const results = []
   for (const width of [360, 390]) for (const theme of ['light', 'dark']) {
     for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline']) {
@@ -89,6 +91,7 @@ try {
       if (view === 'changes') await evaluate('document.querySelector("button[aria-label=Changes]")?.click()')
       await pause(250)
       const geometry = await evaluate('({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent})')
+      if (!geometry.text) throw new Error(`Fixture became empty in ${view}`)
       if (geometry.scrollWidth > width) throw new Error(`Page overflow in ${view} at ${width}`)
       const screenshot = await command('Page.captureScreenshot', { format: 'png' })
       const filename = `${width}-${theme}-${view}.png`

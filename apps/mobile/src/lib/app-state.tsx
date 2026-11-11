@@ -15,8 +15,12 @@ import { GatewayClient } from './gateway-client'
 import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
 import { visibleProjects, visibleSessions } from './visibility'
+import {
+  computerAddress, computerDestination, forgetComputerState, LEGACY_ORIGIN_KEY,
+  readComputers, saveComputer, takeComputerDirectory, writeComputers, type SavedComputer,
+} from './computers'
 
-const ORIGIN_KEY = 'ari.remote.origin'
+const ORIGIN_KEY = LEGACY_ORIGIN_KEY
 const RECONNECT_DELAY_MS = 2000
 
 function canReconnect(state: ConnectionState): boolean {
@@ -28,6 +32,11 @@ function canReconnect(state: ConnectionState): boolean {
   )
 }
 export interface AppValue {
+  computers: SavedComputer[]
+  activeComputer: SavedComputer | null
+  addComputer: (address: string, name?: string) => void
+  switchComputer: (origin: string) => void
+  renameComputer: (origin: string, name: string) => void
   origin: string | null
   booted: boolean
   connection: ConnectionState
@@ -67,12 +76,8 @@ export function takeInvitationFromUrl(href: string): string | null {
 }
 function initialOrigin(): string | null {
   if (IS_CONNECT_BUILD) return null
-  try {
-    const remembered = localStorage.getItem(ORIGIN_KEY)
-    if (remembered !== null) return new URL(remembered).origin
-  } catch (error) {
-    console.warn('Ari could not read the remembered computer', error)
-  }
+  // A private host serves its own PWA. A remembered address is directory metadata,
+  // never permission to fetch another host from this origin.
   return location.protocol.startsWith('http') ? location.origin : null
 }
 
@@ -85,6 +90,12 @@ export function AppProvider({
   children: ReactNode
 }): ReactNode {
   const [origin, setOrigin] = useState<string | null>(initialOrigin)
+  const [computers, setComputers] = useState<SavedComputer[]>(() => {
+    let saved = takeComputerDirectory(location.href, readComputers())
+    const initial = initialOrigin()
+    if (initial !== null) saved = saveComputer(saved, initial)
+    return saved
+  })
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [booted, setBooted] = useState(false)
   const [capabilities, setCapabilities] = useState<readonly string[]>([])
@@ -102,6 +113,7 @@ export function AppProvider({
     null,
   )
   const refreshingSession = useRef<MobileSession | null>(null)
+  useEffect(() => { writeComputers(computers) }, [computers])
   const keyring = useMemo(
     () => new DeviceKeyring(origin === null ? store : (store.forOrigin?.(origin) ?? store)),
     [origin, store],
@@ -180,6 +192,9 @@ export function AppProvider({
         if (state === 'reconnecting') scheduleReconnect()
         else cancelRetry()
         setConnection(state)
+        setComputers((saved) => saved.map((computer) => computer.origin === origin
+          ? { ...computer, status: state, lastConnectedAt: state === 'connected' ? Date.now() : computer.lastConnectedAt }
+          : computer))
         if (!canReconnect(state)) {
           setCapabilities([])
           setProjects([])
@@ -276,48 +291,109 @@ export function AppProvider({
     await connectionOwner.current?.connect()
   }, [])
   const forget = useCallback(async (): Promise<void> => {
+    const selected = origin
+    // Close the visible workspace before deleting its credential. Late reads cannot repaint it.
+    live.current = null
+    setLinked(null)
     await keyring.forget()
+    if (selected !== null) {
+      forgetComputerState(selected)
+      setComputers((saved) => saved.filter((computer) => computer.origin !== selected))
+    }
     try {
       localStorage.removeItem(ORIGIN_KEY)
     } catch (failure) {
       console.warn('Could not forget the saved address', failure)
     }
     setOrigin(null)
+    setManagedComputerId(null)
     setConnection('unpaired')
     setLinked(null)
-  }, [keyring])
+  }, [keyring, origin])
   const rememberOrigin = useCallback((next: string): void => {
-    const url = new URL(next)
-    if (
-      url.protocol !== 'https:' &&
-      !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
-    )
-      throw new Error('Use HTTPS for your computer address.')
+    const url = computerAddress(next, false)
     try {
       localStorage.setItem(ORIGIN_KEY, url.origin)
     } catch (failure) {
       console.warn('Could not save the computer address', failure)
     }
     setBooted(false)
+    live.current = null
+    setLinked(null)
+    setProjects([])
+    setSessions([])
+    setCapabilities([])
+    setCatalog(null)
+    setPairingCode(null)
+    setError(null)
+    setConnection('connecting')
+    setComputers((saved) => saveComputer(saved, url.origin))
     setOrigin(url.origin)
   }, [])
   const chooseComputer = useCallback(
     (computerId: string, next: string): void => {
       if (!IS_CONNECT_BUILD) throw new Error('This build uses your own private network.')
       setManagedComputerId(computerId)
+      setComputers((saved) => saveComputer(saved, next, undefined, computerId))
       rememberOrigin(next)
     },
     [rememberOrigin],
   )
   const changeComputer = useCallback((): void => {
+    live.current = null
+    setLinked(null)
+    setProjects([])
+    setSessions([])
+    setCatalog(null)
+    setCapabilities([])
+    setError(null)
     setOrigin(null)
     setManagedComputerId(null)
     setBooted(true)
     setConnection('unpaired')
   }, [])
+  const switchComputer = useCallback((next: string): void => {
+    const computer = computers.find((entry) => entry.origin === next)
+    if (IS_CONNECT_BUILD) {
+      if (computer?.managedComputerId === undefined) throw new Error('Choose this computer from Ari Connect.')
+      chooseComputer(computer.managedComputerId, computer.origin)
+      return
+    }
+    const destination = computerAddress(next)
+    if (destination.origin !== location.origin) {
+      location.assign(computerDestination(destination.href, computers))
+      return
+    }
+    setManagedComputerId(null)
+    if (origin === destination.origin) void reconnect()
+    else rememberOrigin(destination.origin)
+  }, [computers, chooseComputer, origin, reconnect, rememberOrigin])
+  const addComputer = useCallback((address: string, name?: string): void => {
+    if (IS_CONNECT_BUILD) throw new Error('Choose computers from your approved Ari Connect account.')
+    const destination = computerAddress(address)
+    const saved = saveComputer(computers, destination.origin, name)
+    setComputers(saved)
+    writeComputers(saved)
+    if (destination.origin !== location.origin) {
+      location.assign(computerDestination(destination.href, saved))
+      return
+    }
+    rememberOrigin(destination.origin)
+  }, [computers, rememberOrigin])
+  const renameComputer = useCallback((selected: string, name: string): void => {
+    if (!name.trim()) throw new Error('Give this computer a name.')
+    setComputers((saved) => saved.map((computer) => computer.origin === selected
+      ? { ...computer, name: name.trim().slice(0, 80) } : computer))
+  }, [])
+  const activeComputer = computers.find((computer) => computer.origin === origin) ?? null
   return (
     <AppContext.Provider
       value={{
+        computers,
+        activeComputer,
+        addComputer,
+        switchComputer,
+        renameComputer,
         origin,
         booted,
         connection,

@@ -9,7 +9,7 @@ import { view, app } from './app-state'
 import '../../src/styles/index.css'
 
 const theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'porcelain' : 'obsidian'
-localStorage.setItem('ari.theme', theme)
+localStorage.setItem('ari.theme', JSON.stringify({ mode: theme, wallpaper: 'none' }))
 document.documentElement.dataset.ariTheme = theme
 sessionStorage.setItem(`ari.draft:${app.origin}:fixture-phone:review-session`, 'Keep the draft on Studio while I switch computers.')
 const noAction = () => {}
