@@ -247,19 +247,28 @@ export class RemoteSession {
   }
 
   /** Validate the mandatory handshake version and any requested host operations. */
-  async negotiate(signal?: AbortSignal, requiredCapabilities: readonly string[] = []): Promise<void> {
+  async negotiate(
+    signal?: AbortSignal,
+    requiredCapabilities: readonly string[] = [],
+  ): Promise<void> {
     signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     const info = await this.#client.info()
     signal?.throwIfAborted()
     if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
       this.#set('version-mismatch')
-      throw new RemoteError('unsupported_version', 'Update Ari on your computer to use this version.')
+      throw new RemoteError(
+        'unsupported_version',
+        'Update Ari on your computer to use this version.',
+      )
     }
     this.#capabilities = info.capabilities
     for (const operation of requiredCapabilities) {
       if (!info.capabilities.some((item) => item === operation)) {
-        throw new RemoteError('unsupported_capability', `This computer does not support ${operation}.`)
+        throw new RemoteError(
+          'unsupported_capability',
+          `This computer does not support ${operation}.`,
+        )
       }
     }
   }

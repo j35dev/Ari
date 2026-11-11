@@ -425,12 +425,17 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   }
 
   function publicInfo(): {
-    machineId?: string; name?: string; ariVersion?: string;
-    protocolVersion: number; capabilities: string[]
+    machineId?: string
+    name?: string
+    ariVersion?: string
+    protocolVersion: number
+    capabilities: string[]
   } {
     const identity = options.identity
     return {
-      ...(identity === undefined ? {} : { machineId: identity.machineId, name: identity.name, ariVersion: identity.ariVersion }),
+      ...(identity === undefined
+        ? {}
+        : { machineId: identity.machineId, name: identity.name, ariVersion: identity.ariVersion }),
       protocolVersion: REMOTE_PROTOCOL_VERSION,
       capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...host.capabilities()])],
     }

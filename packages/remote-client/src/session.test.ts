@@ -6,7 +6,12 @@ import type { DeviceCredential, LeaseAdapter } from './credential'
 afterEach(() => vi.useRealTimers())
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void
-  return { promise: new Promise<T>((done) => { resolve = done }), resolve: (value) => resolve(value) }
+  return {
+    promise: new Promise<T>((done) => {
+      resolve = done
+    }),
+    resolve: (value) => resolve(value),
+  }
 }
 function keyring(paired = true): DeviceCredential {
   return {
@@ -17,9 +22,19 @@ function keyring(paired = true): DeviceCredential {
     remember: vi.fn(async () => undefined),
   }
 }
-function success(result: unknown): Response { return Response.json({ ok: true, result }) }
-const info = { protocolVersion: 1, capabilities: ['session.list', 'session.prompt', 'events.subscribe'] }
-const authorized = { deviceId: 'device_fixture', token: 'fixture_token', projectIds: ['project'], allowTerminal: true }
+function success(result: unknown): Response {
+  return Response.json({ ok: true, result })
+}
+const info = {
+  protocolVersion: 1,
+  capabilities: ['session.list', 'session.prompt', 'events.subscribe'],
+}
+const authorized = {
+  deviceId: 'device_fixture',
+  token: 'fixture_token',
+  projectIds: ['project'],
+  allowTerminal: true,
+}
 
 describe('RemoteSession disposal boundary', () => {
   it('discards a late connect authorization even after a fresh connection succeeds', async () => {
@@ -29,7 +44,10 @@ describe('RemoteSession disposal boundary', () => {
       const path = String(input)
       if (path.endsWith('/info')) return success(info)
       if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
-      if (path.endsWith('/device/authorize')) return ++authorizations === 1 ? late.promise : success({ ...authorized, token: 'fresh_token', allowTerminal: false })
+      if (path.endsWith('/device/authorize'))
+        return ++authorizations === 1
+          ? late.promise
+          : success({ ...authorized, token: 'fresh_token', allowTerminal: false })
       return success([])
     })
     const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
@@ -44,41 +62,55 @@ describe('RemoteSession disposal boundary', () => {
     expect(session.state).toBe('connected')
     expect(session.allowTerminal).toBe(false)
     await client.query('session.list')
-    expect(new Headers(request.mock.calls.at(-1)?.[1]?.headers).get('authorization')).toBe('Bearer fresh_token')
+    expect(new Headers(request.mock.calls.at(-1)?.[1]?.headers).get('authorization')).toBe(
+      'Bearer fresh_token',
+    )
   })
 
-  it.each(['query', 'send'] as const)('cannot reinstall a token from delayed %s reauthorization after disconnect', async (operation) => {
-    const late = deferred<Response>()
-    let authorizations = 0
-    let operations = 0
-    const request = vi.fn<typeof fetch>(async (input) => {
-      const path = String(input)
-      if (path.endsWith('/info')) return success(info)
-      if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
-      if (path.endsWith('/device/authorize')) return ++authorizations === 1 ? success(authorized) : late.promise
-      operations++
-      return Response.json({ ok: false, error: { code: 'authentication_expired', message: 'expired' } }, { status: 401 })
-    })
-    const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
-    const session = new RemoteSession({ client, keyring: keyring() })
-    await session.connect()
-    const pending = operation === 'query' ? session.query('session.list') : session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'receipt_same')
-    const cancelled = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    await vi.waitFor(() => expect(authorizations).toBe(2))
-    session.disconnect()
-    late.resolve(success(authorized))
-    await cancelled
-    expect(session.state).toBe('unpaired')
-    expect(session.usable).toBe(false)
-    expect(session.allowTerminal).toBe(false)
-    expect(operations).toBe(1)
-    await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
-  })
+  it.each(['query', 'send'] as const)(
+    'cannot reinstall a token from delayed %s reauthorization after disconnect',
+    async (operation) => {
+      const late = deferred<Response>()
+      let authorizations = 0
+      let operations = 0
+      const request = vi.fn<typeof fetch>(async (input) => {
+        const path = String(input)
+        if (path.endsWith('/info')) return success(info)
+        if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+        if (path.endsWith('/device/authorize'))
+          return ++authorizations === 1 ? success(authorized) : late.promise
+        operations++
+        return Response.json(
+          { ok: false, error: { code: 'authentication_expired', message: 'expired' } },
+          { status: 401 },
+        )
+      })
+      const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
+      const session = new RemoteSession({ client, keyring: keyring() })
+      await session.connect()
+      const pending =
+        operation === 'query'
+          ? session.query('session.list')
+          : session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'receipt_same')
+      const cancelled = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      await vi.waitFor(() => expect(authorizations).toBe(2))
+      session.disconnect()
+      late.resolve(success(authorized))
+      await cancelled
+      expect(session.state).toBe('unpaired')
+      expect(session.usable).toBe(false)
+      expect(session.allowTerminal).toBe(false)
+      expect(operations).toBe(1)
+      await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
+    },
+  )
 
   it('cannot install a late lease or publish state after disconnect', async () => {
     const late = deferred<string>()
     let leases = 0
-    const lease: LeaseAdapter = { token: async () => ++leases === 1 ? 'initial_lease' : late.promise }
+    const lease: LeaseAdapter = {
+      token: async () => (++leases === 1 ? 'initial_lease' : late.promise),
+    }
     const request = vi.fn<typeof fetch>(async (input) => {
       if (String(input).endsWith('/info')) return success(info)
       if (String(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
@@ -87,7 +119,12 @@ describe('RemoteSession disposal boundary', () => {
     })
     const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
     const states: string[] = []
-    const session = new RemoteSession({ client, keyring: keyring(), lease, onState: (state) => states.push(state) })
+    const session = new RemoteSession({
+      client,
+      keyring: keyring(),
+      lease,
+      onState: (state) => states.push(state),
+    })
     await session.connect()
     const query = session.query('session.list')
     const cancelled = expect(query).rejects.toMatchObject({ name: 'AbortError' })
@@ -101,13 +138,17 @@ describe('RemoteSession disposal boundary', () => {
     await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
     client.token = 'inspection_token'
     await client.query('session.list')
-    expect(new Headers(request.mock.calls.at(-1)?.[1]?.headers).has('x-ari-connect-lease')).toBe(false)
+    expect(new Headers(request.mock.calls.at(-1)?.[1]?.headers).has('x-ari-connect-lease')).toBe(
+      false,
+    )
   })
 
   it('closes owned streams and cancels delayed stream lease renewal', async () => {
     const late = deferred<string>()
     let leases = 0
-    const lease: LeaseAdapter = { token: async () => ++leases === 1 ? 'initial_lease' : late.promise }
+    const lease: LeaseAdapter = {
+      token: async () => (++leases === 1 ? 'initial_lease' : late.promise),
+    }
     const request: typeof fetch = async (input) => {
       if (String(input).endsWith('/info')) return success(info)
       if (String(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
@@ -115,7 +156,15 @@ describe('RemoteSession disposal boundary', () => {
     }
     const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
     const open = vi.fn(() => socket as unknown as WebSocket)
-    const session = new RemoteSession({ client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request, webSocket: open }), keyring: keyring(), lease })
+    const session = new RemoteSession({
+      client: new GatewayClient({
+        origin: 'https://a.tailnet.ts.net',
+        fetch: request,
+        webSocket: open,
+      }),
+      keyring: keyring(),
+      lease,
+    })
     await session.connect()
     vi.useFakeTimers()
     const onFrame = vi.fn()
@@ -126,7 +175,11 @@ describe('RemoteSession disposal boundary', () => {
     session.disconnect()
     late.resolve('late_lease')
     await vi.advanceTimersByTimeAsync(0)
-    socket.dispatchEvent(Object.assign(new Event('message'), { data: JSON.stringify({ type: 'events.frame', sessionId: 'same', events: [] }) }))
+    socket.dispatchEvent(
+      Object.assign(new Event('message'), {
+        data: JSON.stringify({ type: 'events.frame', sessionId: 'same', events: [] }),
+      }),
+    )
     socket.dispatchEvent(Object.assign(new Event('close'), { code: 1008, reason: 'late refusal' }))
     expect(open).toHaveBeenCalledTimes(1)
     expect(socket.close).toHaveBeenCalledTimes(1)
@@ -141,9 +194,13 @@ describe('RemoteSession disposal boundary', () => {
     const request: typeof fetch = async (input) => {
       const path = String(input)
       if (path.endsWith('/info')) return success(info)
-      if (path.endsWith('/pair/request')) return success({ nonce: 'nonce', confirmationCode: 'AAAA-BBBB' })
+      if (path.endsWith('/pair/request'))
+        return success({ nonce: 'nonce', confirmationCode: 'AAAA-BBBB' })
       if (path.endsWith('/pair/status')) return success({ status: 'approved' })
-      if (path.endsWith('/pair/redeem')) { redeeming = true; return late.promise }
+      if (path.endsWith('/pair/redeem')) {
+        redeeming = true
+        return late.promise
+      }
       return success(authorized)
     }
     const credential = keyring(false)

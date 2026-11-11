@@ -1762,19 +1762,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { port: getSettingsStore().current.remote.port },
     )
   remoteRef = remote
-  const machines = machinesRef ?? new MachinesService({
-    dir: join(app.getPath('userData'), 'machines'),
-    secretBox: () => {
-      if (!safeStorage.isEncryptionAvailable()) return null
-      if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return null
-      return safeStorageBox(safeStorage)
-    },
-    onChange: (views) => rpcRegistryRef?.publish('machines.updates', views),
-  })
+  const machines =
+    machinesRef ??
+    new MachinesService({
+      dir: join(app.getPath('userData'), 'machines'),
+      secretBox: () => {
+        if (!safeStorage.isEncryptionAvailable()) return null
+        if (
+          process.platform === 'linux' &&
+          safeStorage.getSelectedStorageBackend() === 'basic_text'
+        )
+          return null
+        return safeStorageBox(safeStorage)
+      },
+      onChange: (views) => rpcRegistryRef?.publish('machines.updates', views),
+    })
   machinesRef = machines
   machines.clearSubscriptions()
   registerMachinesRpc(r, machines)
-  shutdownTasks.push(() => { machines.dispose(); machinesRef = null })
+  shutdownTasks.push(() => {
+    machines.dispose()
+    machinesRef = null
+  })
   const connect =
     remoteConnectRef ??
     new RemoteConnectService({
