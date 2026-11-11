@@ -61,6 +61,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-root-concurrency-'))
   repo = join(dir, 'repository'); await mkdir(repo)
   git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com')
+  git('config', 'core.autocrlf', 'false')
   await writeFile(join(repo, 'base.txt'), 'base\n'); git('add', '.'); git('commit', '-qm', 'base')
   folders.clear(); folders.set('p', repo); folders.set('alias', repo); folders.set('helm', dir)
   store = new SessionStore({ rootDir: join(dir, 'sessions') })

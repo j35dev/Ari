@@ -1661,10 +1661,8 @@ export class AgentControlService {
       workspacePath,
       stage: 'session_creating',
     }, method)
-    let created = false
     try {
       await this.host.create(session)
-      created = true
       await this.#spawnProgress(
         caller.id,
         p.idempotencyKey,
@@ -1698,7 +1696,7 @@ export class AgentControlService {
         initialTurn,
       }
     } catch (error) {
-      if (created && error instanceof ControlFailure)
+      if (error instanceof ControlFailure)
         throw new ControlFailure(
           'uncertain_outcome',
           'Session creation was attempted before a later refusal. Inspect it before recovery.',
