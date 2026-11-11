@@ -7,6 +7,7 @@ import type { Duplex } from 'node:stream'
 import { z } from 'zod'
 import {
   REMOTE_PROTOCOL_VERSION,
+  REMOTE_ANONYMOUS_OPERATIONS,
   MAX_REMOTE_IMAGE_BYTES,
   pairingResolveSchema,
   remoteClientMessageSchema,
@@ -63,6 +64,8 @@ export interface RemoteGatewayOptions {
   now?: () => number
   /** Dedicated managed listener: absent verification fails closed. Local/Tailscale listeners omit this. */
   managedAccess?: { verifier: () => ConnectLeaseVerifier | null }
+  /** Persisted public host metadata, never project or credential data. */
+  identity?: { machineId: string; name: string; ariVersion: string }
   /**
    * Where command deduplication records go if they are to outlive the
    * process. Absent, they live as long as the gateway does, which is exactly
@@ -349,6 +352,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const origin = requestOrigin(req.headers)
 
+    // Navigation/probes do not carry Origin. This route exposes only public
+    // identity, and a supplied cross-origin request still follows exact policy.
+    if (url.pathname === '/api/identity' && req.method === 'GET') {
+      if (origin !== undefined && !originAllowed(origin))
+        return send(res, 403, fail('origin_not_allowed', 'origin is not allowed'))
+      return send(res, 200, { ok: true, result: publicInfo() }, origin)
+    }
+
     // The PWA is served before the allowlist check, because a browser sends no
     // `Origin` on a navigation. These are the app's own public files — no
     // project name, path, or transcript is reachable through them — but an
@@ -384,10 +395,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       // ever makes.
       return reply(200, {
         ok: true,
-        result: {
-          protocolVersion: REMOTE_PROTOCOL_VERSION,
-          capabilities: [...host.capabilities()],
-        },
+        result: publicInfo(),
       })
     }
 
@@ -413,6 +421,18 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         return query(req, reply, body)
       default:
         return reply(404, fail('not_found', 'no such route'))
+    }
+  }
+
+  function publicInfo(): {
+    machineId?: string; name?: string; ariVersion?: string;
+    protocolVersion: number; capabilities: string[]
+  } {
+    const identity = options.identity
+    return {
+      ...(identity === undefined ? {} : { machineId: identity.machineId, name: identity.name, ariVersion: identity.ariVersion }),
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+      capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...host.capabilities()])],
     }
   }
 
