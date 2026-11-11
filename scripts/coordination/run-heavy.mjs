@@ -17,6 +17,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const output = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 let child = null
 let heartbeat = null
+let cancelled = false
 
 async function readLock() {
   try { return await readFile(lockPath, 'utf8') }
@@ -25,6 +26,7 @@ async function readLock() {
 async function acquire() {
   await mkdir(dirname(lockPath), { recursive: true })
   for (;;) {
+    if (cancelled) throw new Error('Heavy step cancelled while waiting for its lease')
     try {
       const file = await open(lockPath, 'wx')
       try { await file.writeFile(JSON.stringify(owner)) } finally { await file.close() }
@@ -51,6 +53,7 @@ async function release() {
   if (current !== null && JSON.parse(current).id === owner.id) await unlink(lockPath)
 }
 function run(exe, argv, capture = false) {
+  if (cancelled) throw new Error('Heavy step cancelled')
   return new Promise((resolve, reject) => {
     child = spawn(exe, argv, { cwd, windowsHide: true, stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' })
     let stdout = ''
@@ -76,7 +79,7 @@ async function resourceGate() {
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { if (child !== null) child.kill(signal); process.exitCode = 130 })
+  process.on(signal, () => { cancelled = true; if (child !== null) child.kill(signal); process.exitCode = 130 })
 }
 
 setPriority(process.pid, constants.priority.PRIORITY_BELOW_NORMAL)
@@ -102,7 +105,7 @@ try {
   }
   const result = await run(executable, args)
   output({ heavyResult: { worker, executable, args, exitCode: result.code, signal: result.signal } })
-  process.exitCode = result.code ?? 1
+  process.exitCode = cancelled ? 130 : result.code ?? 1
 } finally {
   await release()
 }

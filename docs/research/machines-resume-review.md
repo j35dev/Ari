@@ -4,12 +4,19 @@
 approximately 3GB when coordination resumed. The new resource rules are in the
 design doc; they replace the earlier disk-only and physical-memory gates.
 
-The old Tailscale conversation permanently failed with a provider resource
-mismatch. Its clean D: branch contains cfa56105 (contract) and 0852e3a4 (WIP
-backend/tests/docs). A fresh codex/gpt-6.1-sol high/full worker is validating it.
-No other worker is running heavy work. B has uncommitted grant/settings changes
-and will be completed by a fresh worker after A finishes. C's uncommitted
-shared-client/contracts extraction draft is preserved. D/E/F remain pending.
+The Tailscale provider resource mismatch proved intermittent: the old session
+continued after the fresh worker started and rewrote WIP history. Both workers'
+edits were preserved in b63c309f. The coordinator explicitly confirmed the old
+writer idle/stopped, then gave sole ownership to the fresh worker. Its validation
+code tree matches b63c309f; 9df9d9ba records final evidence. A is now integrated
+after review, with 69 focused tests, desktop/contracts typecheck, scoped lint
+and formatting passing. The integration preserves A as separable commits.
+
+Fresh B/C/D/E/F workers author in parallel, one per D: worktree, and all heavy
+checks take the shared atomic .heavy.lock lease via scripts/coordination/run-heavy.mjs.
+Transient resource-gate failures wait/recheck for up to 15 minutes. Core will
+commit shared client/types first for desktop/mobile to cherry-pick. Remaining
+workstreams and the two-real-engine proof are still incomplete.
 
 ## Review follow-ups for B
 

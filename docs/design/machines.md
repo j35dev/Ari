@@ -162,16 +162,20 @@ feat/machines. Final security review is a separate report-only worker.
 
 No worker installs or builds in the user's checkout or its managed C: worktree.
 Each uses the precreated D: worktree, D: pnpm store/cache/temp. The resumed work
-uses one heavy worker/process at a time. Before every install, test, typecheck,
+uses parallel authoring and one heavy worker/process at a time, serialized by
+the atomic D:/Projects/Ari-machines-wt/.heavy.lock lease. Before every install, test, typecheck,
 lint, build or browser capture, require at least 5GB free on C: and 1.5GB of
 commit headroom (commit limit minus committed bytes). Available physical memory
 is not a gate. Commit WIP before each long step, run tests with one worker and
 no file parallelism, and run heavy processes below normal priority. Stop/report
-a failed gate or killed/OOM step without a retry loop. The coordinator may do
+a gate that remains failed for 15 minutes or a killed/OOM step without a retry
+loop; transient gate failures wait two minutes and recheck. Heartbeat active
+leases and reclaim locks stale for 30 minutes. The coordinator may do
 read-only review, planning and git integration while the worker runs. Run wide
 checks once, alone, after integration. Prefer fresh workers after pauses where
 the implementation state is on disk, because old provider conversations have
-failed permanently on this machine.
+failed intermittently on this machine. Confirm the old writer is stopped
+before starting a replacement in its worktree.
 
 ## Verification and release gates
 
