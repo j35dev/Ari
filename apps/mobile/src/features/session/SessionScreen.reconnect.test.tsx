@@ -73,6 +73,7 @@ vi.mock('../../lib/session', () => ({
     supports(op: string): boolean {
       return this.capabilities.includes(op)
     }
+    disconnect(): void {}
     query = vi.fn(async (op: string): Promise<unknown> => (op === 'session.get' ? snapshot : []))
     send = vi.fn<(command: unknown, key?: string) => Promise<unknown>>()
     subscribe = vi.fn(
@@ -131,7 +132,7 @@ const store = (): MemoryDeviceStore => new MemoryDeviceStore()
 async function mount() {
   const deviceStore = store()
   const view = render(
-    <AppProvider store={deviceStore}>
+    <AppProvider store={deviceStore} navigateTo={vi.fn()}>
       <View />
     </AppProvider>,
   )

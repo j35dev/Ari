@@ -275,7 +275,7 @@ function SessionWorkspace({
       </nav>
       {app.connection !== 'connected' && <div role="status" className="flex shrink-0 items-center gap-3 border-b border-border bg-warning-subtle px-4 py-2 text-xs">
         <p className="min-w-0 flex-1 leading-relaxed">{connectionLabel(app.connection)}. Your draft stays on this phone; reconnect before sending or answering.</p>
-        <button type="button" className="min-h-11 shrink-0 font-medium" onClick={() => void app.reconnect().catch((error: unknown) => setFailure(messageOf(error)))}>Reconnect</button>
+        <button type="button" aria-label="Reconnect computer" className="min-h-11 shrink-0 font-medium" onClick={() => void app.reconnect().catch((error: unknown) => setFailure(messageOf(error)))}>Reconnect</button>
       </div>}
       {toolsOpen && (
         <BottomSheet

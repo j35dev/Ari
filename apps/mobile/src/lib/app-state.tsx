@@ -116,9 +116,18 @@ export function AppProvider({
   const [managedComputerId, setManagedComputerId] = useState<string | null>(null)
   const [linked, setLinked] = useState<MobileSession | null>(null)
   const live = useRef<MobileSession | null>(null)
-  const connectionOwner = useRef<{ session: MobileSession; connect: () => Promise<void> } | null>(
-    null,
-  )
+  const connectionOwner = useRef<{
+    session: MobileSession
+    connect: () => Promise<void>
+    controller: AbortController
+    pairing: Promise<void> | null
+  } | null>(null)
+  const abandonConnection = useCallback((): void => {
+    const owner = connectionOwner.current
+    owner?.controller.abort()
+    owner?.session.disconnect()
+    live.current = null
+  }, [])
   const refreshingSession = useRef<MobileSession | null>(null)
   useEffect(() => { writeComputers(computers) }, [computers])
   const keyring = useMemo(
@@ -212,7 +221,7 @@ export function AppProvider({
         }
       },
       onPairCode: (code) => {
-        if (!cancelled) setPairingCode(code)
+        if (!cancelled && live.current === session) setPairingCode(code)
       },
     })
     live.current = session
@@ -259,7 +268,7 @@ export function AppProvider({
       })()
       return connecting
     }
-    connectionOwner.current = { session, connect: () => connect('manual') }
+    connectionOwner.current = { session, connect: () => connect('manual'), controller, pairing: null }
     void connect('initial')
     const visible = (): void => {
       if (document.visibilityState === 'visible') void connect()
@@ -272,6 +281,7 @@ export function AppProvider({
     return () => {
       cancelled = true
       controller.abort()
+      session.disconnect()
       cancelRetry()
       if (live.current === session) live.current = null
       if (connectionOwner.current?.session === session) connectionOwner.current = null
@@ -286,7 +296,13 @@ export function AppProvider({
   const pair = useCallback(
     async (invitationId: string, displayName: string): Promise<void> => {
       if (linked === null) throw new Error('Choose a computer first.')
-      await linked.pair(invitationId, displayName)
+      const owner = connectionOwner.current
+      if (owner === null || owner.session !== linked) throw new Error('Choose this computer again before pairing.')
+      if (owner.pairing !== null) throw new Error('A pairing attempt is already waiting for this computer.')
+      const pending = linked.pair(invitationId, displayName, owner.controller.signal)
+      owner.pairing = pending
+      try { await pending }
+      finally { if (owner.pairing === pending) owner.pairing = null }
       if (live.current !== linked) return
       setConnection(linked.state)
       setCapabilities(linked.capabilities)
@@ -299,12 +315,16 @@ export function AppProvider({
   }, [])
   const forget = useCallback(async (): Promise<void> => {
     const selected = origin
+    const pendingPairing = connectionOwner.current?.pairing
     // Close the visible workspace before deleting its credential. Late reads cannot repaint it.
-    live.current = null
+    abandonConnection()
     setLinked(null)
     setOrigin(null)
     setManagedComputerId(null)
     setConnection('unpaired')
+    // A record write already in progress must finish before the explicit clear.
+    // Otherwise its late completion could put the forgotten identity back in storage.
+    await pendingPairing?.catch(() => undefined)
     await keyring.forget()
     if (selected !== null) {
       forgetComputerState(selected)
@@ -315,11 +335,11 @@ export function AppProvider({
     } catch (failure) {
       console.warn('Could not forget the saved address', failure)
     }
-  }, [keyring, origin])
+  }, [keyring, origin, abandonConnection])
   const rememberOrigin = useCallback((next: string): void => {
     const url = computerAddress(next, !IS_CONNECT_BUILD)
     if (!IS_CONNECT_BUILD && url.origin !== location.origin) {
-      live.current = null
+      abandonConnection()
       setLinked(null)
       setOrigin(null)
       setBooted(true)
@@ -335,7 +355,7 @@ export function AppProvider({
     if (url.origin === origin) return
     history.replaceState(null, '', routeUrl({ destination: 'home', sessionId: null }, location.href))
     setBooted(false)
-    live.current = null
+    abandonConnection()
     setLinked(null)
     setProjects([])
     setSessions([])
@@ -346,7 +366,7 @@ export function AppProvider({
     setConnection('connecting')
     setComputers((saved) => saveComputer(saved, url.origin))
     setOrigin(url.origin)
-  }, [origin, computers, navigateTo])
+  }, [origin, computers, navigateTo, abandonConnection])
   const chooseComputer = useCallback(
     (computerId: string, next: string): void => {
       if (!IS_CONNECT_BUILD) throw new Error('This build uses your own private network.')
@@ -357,7 +377,7 @@ export function AppProvider({
     [rememberOrigin],
   )
   const changeComputer = useCallback((): void => {
-    live.current = null
+    abandonConnection()
     setLinked(null)
     setProjects([])
     setSessions([])
@@ -368,7 +388,7 @@ export function AppProvider({
     setManagedComputerId(null)
     setBooted(true)
     setConnection('unpaired')
-  }, [])
+  }, [abandonConnection])
   const switchComputer = useCallback((next: string): void => {
     const computer = computers.find((entry) => entry.origin === next)
     if (IS_CONNECT_BUILD) {

@@ -39,6 +39,7 @@ vi.mock('./session', () => ({
     supports(): boolean {
       return false
     }
+    disconnect(): void {}
     query(op: string): Promise<unknown> {
       return control.query(op)
     }
