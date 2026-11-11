@@ -16,6 +16,10 @@ Tailscale is the production transport in this change; HTTP loopback is for tests
 Routes are a list so a future relay does not change ownership or pairing. No
 Funnel, repository sync, local execution against remote files, load balancing,
 headless host, or machine-to-machine Ari Connect implementation is included.
+Each added origin is independently paired in this release. Anonymous identity
+metadata cannot authorize sharing a paired credential with another origin.
+Multi-route credential failover requires an authenticated host route binding
+in a future protocol; matching public machine IDs is insufficient.
 
 Host-approved P-256 device pairing, confirmation codes, revocation, short-lived
 memory-only bearer tokens, strict origin checks and the remote operation allowlist
@@ -67,8 +71,8 @@ Desktop RPC (core owns registration and contracts):
 - machines.rename({ machineId, name }) -> MachineView
 - machines.remove({ machineId }) -> { removed: boolean }; close subscriptions,
   clear the local sealed credential, attempt self-revocation when reachable.
-- machines.query({ machineId, query: RemoteQuery }) -> unknown
-- machines.command({ machineId, command: RemoteCommand }) -> unknown
+- machines.query({ machineId, query: RemoteQuery }) -> MachineOperationResult
+- machines.command({ machineId, command: RemoteCommand }) -> MachineOperationResult
 - stream machines.events with { machineId, sessionId, fromSeq? }; payload is
   { machineId, message: RemoteServerMessage }. Subscription and cleanup remain tied
   to their originating machine. Core may expose a narrow explicit subscription
@@ -77,6 +81,10 @@ Desktop RPC (core owns registration and contracts):
 Queries/commands are the existing validated remote allowlist. No generic local RPC
 tunnel. UI must parse results with the existing remote schemas where available.
 The renderer never receives device private keys, bearer tokens or Connect leases.
+MachineOperationResult is { ok: true, result: unknown } or
+{ ok: false, error: { code, message } }. Named remote failures retain their
+codes across Electron IPC. Generic IPC failures remain thrown and uncertain;
+clients preserve their original receipt and never automatically resubmit.
 
 ## Tailscale Serve contract (independent ship-first change)
 
