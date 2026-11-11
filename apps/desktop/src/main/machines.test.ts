@@ -240,9 +240,14 @@ describe('Machines with two real gateways and engines', () => {
     await machines.subscribe('stream_a', { machineId: machineA, sessionId: 'sess_same', fromSeq: snapshotA.seq }, (frame) => framesA.push(frame))
     await machines.subscribe('stream_b', { machineId: machineB, sessionId: 'sess_same', fromSeq: snapshotB.seq }, (frame) => framesB.push(frame))
     const promptA = command({ op: 'session.prompt', sessionId: 'sess_same', text: 'approval please' })
-    await machines.command(machineA, promptA)
-    await machines.command(machineB, command({ op: 'session.prompt', sessionId: 'sess_same', text: 'simple prompt' }))
-    await vi.waitFor(async () => expect((await a.store.load('sess_same')).pendingApprovals).toHaveLength(1))
+    expect(await machines.command(machineA, promptA)).toMatchObject({ accepted: true })
+    expect(await machines.command(machineB, command({ op: 'session.prompt', sessionId: 'sess_same', text: 'simple prompt' }))).toMatchObject({ accepted: true })
+    try {
+      await vi.waitFor(async () => expect((await a.store.load('sess_same')).pendingApprovals).toHaveLength(1), { timeout: 6000 })
+    } catch (error) {
+      const model = await a.store.load('sess_same')
+      throw new Error(`Approval fixture state: ${JSON.stringify({ session: model.session, lastTurn: model.lastTurn, prompts: a.prompts, journal: await a.engine.replaySession('sess_same') })}`, { cause: error })
+    }
     await vi.waitFor(() => expect(framesA.some((frame) => frame.message.type === 'events.frame' && frame.message.events.some((row) => (row.event as { type?: string }).type === 'approval.requested'))).toBe(true))
     await machines.command(machineA, command({ op: 'approval.respond', sessionId: 'sess_same', approvalId: 'approval_same', optionId: 'accept' }))
     await a.engine.quiesce('sess_same')
