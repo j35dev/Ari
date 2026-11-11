@@ -1,6 +1,6 @@
 // Run only inside the swarm's shared run-heavy lease. No installs or wide suites.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, URL } from 'node:url'
 
 const cwd = fileURLToPath(new URL('../../', import.meta.url))
 const pnpm = process.argv[2]
