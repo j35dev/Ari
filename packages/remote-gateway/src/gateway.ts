@@ -216,6 +216,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         : {
             ...caller,
             allProjects: false,
+            managedLeaseExpiresAt: lease.expiresAt,
             projectIds: lease.projectIds.filter((id) => hasProject(caller, id)),
           }
     }
@@ -672,6 +673,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
           caller: {
             deviceId: device.deviceId,
             allProjects: false,
+            managedLeaseExpiresAt: lease.expiresAt,
             projectIds: lease.projectIds,
             allowTerminal: device.allowTerminal === true,
           },

@@ -12,6 +12,7 @@ interface Entry {
   data: string
   seq: number
   exited: boolean
+  managedLeaseExpiresAt?: number
 }
 const log = createLogger('desktop:remote-terminals')
 
@@ -20,8 +21,10 @@ export class RemoteTerminals {
   readonly #entries = new Map<string, Entry>()
   readonly #terminals: TerminalService
   readonly #watchdog: ReturnType<typeof setInterval>
+  readonly #now: () => number
 
-  constructor(factory: PtyFactory, allowed: (deviceId: string, projectId: string) => boolean) {
+  constructor(factory: PtyFactory, allowed: (deviceId: string, projectId: string) => boolean, now: () => number = Date.now) {
+    this.#now = now
     this.#terminals = new TerminalService(
       {
         onData: (id, data) => {
@@ -49,7 +52,7 @@ export class RemoteTerminals {
     )
     this.#watchdog = setInterval(() => {
       for (const [id, entry] of this.#entries)
-        if (!allowed(entry.deviceId, entry.projectId)) this.#kill(id)
+        if (!allowed(entry.deviceId, entry.projectId) || this.#expired(entry)) this.#kill(id)
     }, 1000)
     this.#watchdog.unref()
   }
@@ -66,6 +69,8 @@ export class RemoteTerminals {
         message:
           'Terminal access requires explicit approval on this computer. Pair again with terminal access enabled.',
       }
+    if (caller.managedLeaseExpiresAt !== undefined && caller.managedLeaseExpiresAt <= this.#now())
+      return { ok: false, code: 'access_revoked', message: 'The Ari Connect lease expired.' }
     try {
       if (command.op === 'terminal.create') {
         if (
@@ -86,6 +91,7 @@ export class RemoteTerminals {
           data: '',
           seq: 0,
           exited: false,
+          ...(caller.managedLeaseExpiresAt === undefined ? {} : { managedLeaseExpiresAt: caller.managedLeaseExpiresAt }),
         })
         try {
           this.#terminals.create(terminalId, session.workspace)
@@ -100,7 +106,8 @@ export class RemoteTerminals {
       if (
         entry === undefined ||
         entry.deviceId !== caller.deviceId ||
-        entry.sessionId !== command.sessionId
+        entry.sessionId !== command.sessionId ||
+        !this.#authorizeEntry(caller, command.terminalId, entry)
       )
         return { ok: false, code: 'not_found', message: 'no such terminal' }
       if (command.op === 'terminal.kill') {
@@ -134,7 +141,8 @@ export class RemoteTerminals {
       caller.allowTerminal !== true ||
       entry === undefined ||
       entry.deviceId !== caller.deviceId ||
-      entry.sessionId !== sessionId
+      entry.sessionId !== sessionId ||
+      !this.#authorizeEntry(caller, terminalId, entry)
     )
       return null
     const start = entry.seq - entry.data.length
@@ -156,6 +164,27 @@ export class RemoteTerminals {
     clearInterval(this.#watchdog)
     this.#entries.clear()
     return this.#terminals.close()
+  }
+  closeManaged(): void {
+    for (const [id, entry] of this.#entries)
+      if (entry.managedLeaseExpiresAt !== undefined) this.#kill(id)
+  }
+
+  #expired(entry: Entry): boolean {
+    return entry.managedLeaseExpiresAt !== undefined && entry.managedLeaseExpiresAt <= this.#now()
+  }
+
+  #authorizeEntry(caller: RemoteCaller, id: string, entry: Entry): boolean {
+    if (this.#expired(entry)) {
+      this.#kill(id)
+      return false
+    }
+    if ((entry.managedLeaseExpiresAt === undefined) !== (caller.managedLeaseExpiresAt === undefined)) return false
+    if (caller.managedLeaseExpiresAt !== undefined) {
+      if (caller.managedLeaseExpiresAt <= this.#now() || !caller.projectIds.includes(entry.projectId)) return false
+      entry.managedLeaseExpiresAt = Math.max(entry.managedLeaseExpiresAt ?? 0, caller.managedLeaseExpiresAt)
+    }
+    return true
   }
   #kill(id: string): void {
     void this.#terminals.kill(id)

@@ -29,6 +29,8 @@ export interface RemoteCaller {
   allProjects?: boolean
   /** Explicit desktop approval; shells run as the host user, not inside a filesystem sandbox. */
   allowTerminal?: boolean
+  /** Set only by gateway verification of a signed Connect lease. Never supplied by a client. */
+  managedLeaseExpiresAt?: number
 }
 
 /**

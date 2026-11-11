@@ -74,6 +74,8 @@ export interface RemoteServiceDeps {
   onChange?: (state: RemoteState) => void
   now?: () => number
   terminalFactory?: PtyFactory
+  /** Trusted listener factory; tests can hold publication while stop cancels startup. */
+  createGateway?: typeof createRemoteGateway
   fork?: RemoteHostDeps['fork']
   tasks?: RemoteHostDeps['tasks']
 }
@@ -93,6 +95,11 @@ export class RemoteService {
   #port: number
   #error: string | null = null
   #projectIds: string[] | undefined
+  #generation = 0
+  #managedGeneration = 0
+  #lifecycle: Promise<void> = Promise.resolve()
+  #starting: Promise<RemoteState> | null = null
+  #startingManaged: Promise<number | null> | null = null
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
@@ -117,12 +124,25 @@ export class RemoteService {
   }
 
   /** Starts the gateway and records that remote access is on. */
-  async start(port?: number): Promise<RemoteState> {
+  start(port?: number): Promise<RemoteState> {
+    if (this.#starting !== null) return this.#starting
+    const generation = this.#generation
+    const pending = this.#serialize(() => this.#start(generation, port))
+    this.#starting = pending
+    void pending.finally(() => {
+      if (this.#starting === pending) this.#starting = null
+    }).catch(() => undefined)
+    return pending
+  }
+
+  async #start(generation: number, port?: number): Promise<RemoteState> {
+    if (generation !== this.#generation) return this.state()
     if (port !== undefined) this.#port = port
     if (this.#gateway !== null) return this.state()
     this.#error = null
     try {
       await this.#refreshProjects()
+      if (generation !== this.#generation) return this.state()
       // Rebuilt rather than reused: the pairing service reads its records at
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
@@ -137,9 +157,9 @@ export class RemoteService {
                 device.allowTerminal === true &&
                 (device.allProjects === true || device.projectIds.includes(projectId)),
             ),
-        )
+          this.#deps.now)
       const webRoot = this.#deps.webRoot?.()
-      this.#gateway = await createRemoteGateway({
+      const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
@@ -176,21 +196,38 @@ export class RemoteService {
         ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
         ...(webRoot === undefined ? {} : { webRoot }),
       })
+      if (generation !== this.#generation) {
+        await gateway.close()
+        await this.#terminals?.close()
+        this.#terminals = undefined
+        return this.state()
+      }
+      this.#gateway = gateway
       log.info('remote access listening', { port: this.#gateway.port })
     } catch (error) {
       await this.#terminals?.close()
       this.#terminals = undefined
-      this.#error = error instanceof Error ? error.message : String(error)
+      this.#error = generation === this.#generation
+        ? (error instanceof Error ? error.message : String(error))
+        : null
       log.error('remote access failed to start', { error: this.#error })
       this.#gateway = null
     }
     return this.#changed()
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    this.#generation++
+    this.#managedGeneration++
+    this.#starting = null
+    this.#startingManaged = null
+    return this.#serialize(() => this.#stop())
+  }
+
+  async #stop(): Promise<void> {
     await this.#terminals?.close()
     this.#terminals = undefined
-    await this.stopManaged()
+    await this.#stopManaged()
     const gateway = this.#gateway
     this.#gateway = null
     this.#invitation = null
@@ -202,17 +239,24 @@ export class RemoteService {
   }
 
   /** An independent listener makes a forged Origin unable to bypass managed membership. */
-  async startManaged(options: {
+  startManaged(options: {
     port: number
     issuer: string
     hostname: string
     computerId: string
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
-    if (!this.running) await this.start()
-    if (!this.running) return null
-    await this.stopManaged()
-    this.#managedGateway = await createRemoteGateway({
+    if (this.#startingManaged !== null) return this.#startingManaged
+    const generation = this.#generation
+    const managedGeneration = this.#managedGeneration
+    const pending = this.#serialize(async () => {
+      const current = () => generation === this.#generation && managedGeneration === this.#managedGeneration
+      if (!current()) return null
+      if (!this.running) await this.#start(generation)
+      if (!this.running || !current()) return null
+      await this.#stopManaged()
+      if (!current()) return null
+      const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
       host: createRemoteHost({
         engine: this.#deps.engine,
         store: this.#deps.store,
@@ -240,22 +284,47 @@ export class RemoteService {
       port: options.port,
       pairing: this.#pairing,
       managedAccess: { verifier: options.verifier },
+      ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
       idempotency: {
         restore: this.#read('managed-idempotency.json') ?? undefined,
         persist: (json) => this.#write('managed-idempotency.json', json),
       },
+      })
+      if (!current()) {
+        await gateway.close()
+        return null
+      }
+      this.#managedGateway = gateway
+      this.#managedClientUrl = `${options.issuer}/?computer=${encodeURIComponent(options.computerId)}`
+      this.#changed()
+      return gateway.port
     })
-    this.#managedClientUrl = `${options.issuer}/?computer=${encodeURIComponent(options.computerId)}`
-    this.#changed()
-    return this.#managedGateway.port
+    this.#startingManaged = pending
+    void pending.finally(() => {
+      if (this.#startingManaged === pending) this.#startingManaged = null
+    }).catch(() => undefined)
+    return pending
   }
 
-  async stopManaged(): Promise<void> {
+  stopManaged(): Promise<void> {
+    this.#managedGeneration++
+    this.#startingManaged = null
+    return this.#serialize(() => this.#stopManaged())
+  }
+
+  async #stopManaged(): Promise<void> {
     const gateway = this.#managedGateway
     this.#managedGateway = null
     this.#managedClientUrl = null
+    this.#terminals?.closeManaged()
     if (gateway !== null) await gateway.close()
     this.#changed()
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#lifecycle.then(operation)
+    this.#lifecycle = result.then(() => undefined, () => undefined)
+    return result
   }
 
   pairedRecords(): PersistedPairing {

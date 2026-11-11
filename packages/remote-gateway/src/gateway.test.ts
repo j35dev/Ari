@@ -896,6 +896,23 @@ describe('isolated managed gateway', () => {
     expect(host.executed).toHaveLength(0)
   })
 
+  it('passes only a verified signed lease deadline to the host and refuses expired or altered leases', async () => {
+    const seen: RemoteCaller[] = []
+    const host = fakeHost({ query: async (caller) => { seen.push(caller); return caller.managedLeaseExpiresAt } })
+    const h = await managed(host)
+    const allowed = await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })
+    expect(allowed).toMatchObject({ status: 200, body: { result: 101000 } })
+    expect(seen[0]).toMatchObject({ allProjects: false, managedLeaseExpiresAt: 101000 })
+    const parts = h.lease.split('.')
+    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString()) as Record<string, unknown>
+    claims['exp'] = 999999
+    parts[1] = Buffer.from(JSON.stringify(claims)).toString('base64url')
+    expect((await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': parts.join('.') } })).status).toBe(403)
+    h.advance(1000)
+    expect((await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })).status).toBe(403)
+    expect(seen).toHaveLength(1)
+  })
+
   it('never carries local all-project approval into managed HTTP or stream calls', async () => {
     const base = fakeHost()
     const seen: RemoteCaller[] = []
