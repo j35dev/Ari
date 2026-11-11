@@ -15,6 +15,7 @@ import { GatewayClient } from './gateway-client'
 import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
 import { visibleProjects, visibleSessions } from './visibility'
+import { routeUrl } from './routes'
 import {
   computerAddress, computerDestination, forgetComputerState, LEGACY_ORIGIN_KEY,
   readComputers, saveComputer, takeComputerDirectory, writeComputers, type SavedComputer,
@@ -22,6 +23,7 @@ import {
 
 const ORIGIN_KEY = LEGACY_ORIGIN_KEY
 const RECONNECT_DELAY_MS = 2000
+const navigateToComputer = (href: string): void => location.assign(href)
 
 function canReconnect(state: ConnectionState): boolean {
   return (
@@ -85,15 +87,20 @@ function initialOrigin(): string | null {
 export function AppProvider({
   store,
   children,
+  navigateTo = navigateToComputer,
 }: {
   store: DeviceStore
   children: ReactNode
+  /** Injectable navigation for deterministic origin-boundary tests. */
+  navigateTo?: (href: string) => void
 }): ReactNode {
   const [origin, setOrigin] = useState<string | null>(initialOrigin)
   const [computers, setComputers] = useState<SavedComputer[]>(() => {
     let saved = takeComputerDirectory(location.href, readComputers())
     const initial = initialOrigin()
     if (initial !== null) saved = saveComputer(saved, initial)
+    // StrictMode may run this initializer again after the fragment was consumed.
+    writeComputers(saved)
     return saved
   })
   const [connection, setConnection] = useState<ConnectionState>('connecting')
@@ -295,28 +302,38 @@ export function AppProvider({
     // Close the visible workspace before deleting its credential. Late reads cannot repaint it.
     live.current = null
     setLinked(null)
+    setOrigin(null)
+    setManagedComputerId(null)
+    setConnection('unpaired')
     await keyring.forget()
     if (selected !== null) {
       forgetComputerState(selected)
       setComputers((saved) => saved.filter((computer) => computer.origin !== selected))
     }
     try {
-      localStorage.removeItem(ORIGIN_KEY)
+      if (localStorage.getItem(ORIGIN_KEY) === selected) localStorage.removeItem(ORIGIN_KEY)
     } catch (failure) {
       console.warn('Could not forget the saved address', failure)
     }
-    setOrigin(null)
-    setManagedComputerId(null)
-    setConnection('unpaired')
-    setLinked(null)
   }, [keyring, origin])
   const rememberOrigin = useCallback((next: string): void => {
-    const url = computerAddress(next, false)
+    const url = computerAddress(next, !IS_CONNECT_BUILD)
+    if (!IS_CONNECT_BUILD && url.origin !== location.origin) {
+      live.current = null
+      setLinked(null)
+      setOrigin(null)
+      setBooted(true)
+      setConnection('unpaired')
+      navigateTo(computerDestination(url.href, saveComputer(computers, url.origin)))
+      return
+    }
     try {
       localStorage.setItem(ORIGIN_KEY, url.origin)
     } catch (failure) {
       console.warn('Could not save the computer address', failure)
     }
+    if (url.origin === origin) return
+    history.replaceState(null, '', routeUrl({ destination: 'home', sessionId: null }, location.href))
     setBooted(false)
     live.current = null
     setLinked(null)
@@ -329,7 +346,7 @@ export function AppProvider({
     setConnection('connecting')
     setComputers((saved) => saveComputer(saved, url.origin))
     setOrigin(url.origin)
-  }, [])
+  }, [origin, computers, navigateTo])
   const chooseComputer = useCallback(
     (computerId: string, next: string): void => {
       if (!IS_CONNECT_BUILD) throw new Error('This build uses your own private network.')
@@ -361,13 +378,14 @@ export function AppProvider({
     }
     const destination = computerAddress(next)
     if (destination.origin !== location.origin) {
-      location.assign(computerDestination(destination.href, computers))
+      changeComputer()
+      navigateTo(computerDestination(destination.href, computers))
       return
     }
     setManagedComputerId(null)
     if (origin === destination.origin) void reconnect()
     else rememberOrigin(destination.origin)
-  }, [computers, chooseComputer, origin, reconnect, rememberOrigin])
+  }, [computers, chooseComputer, origin, reconnect, rememberOrigin, changeComputer, navigateTo])
   const addComputer = useCallback((address: string, name?: string): void => {
     if (IS_CONNECT_BUILD) throw new Error('Choose computers from your approved Ari Connect account.')
     const destination = computerAddress(address)
@@ -375,11 +393,14 @@ export function AppProvider({
     setComputers(saved)
     writeComputers(saved)
     if (destination.origin !== location.origin) {
-      location.assign(computerDestination(destination.href, saved))
+      changeComputer()
+      navigateTo(computerDestination(destination.href, saved))
       return
     }
-    rememberOrigin(destination.origin)
-  }, [computers, rememberOrigin])
+    if (destination.hash) navigateTo(computerDestination(destination.href, saved))
+    else if (origin === destination.origin) void reconnect()
+    else rememberOrigin(destination.origin)
+  }, [computers, origin, reconnect, rememberOrigin, changeComputer, navigateTo])
   const renameComputer = useCallback((selected: string, name: string): void => {
     if (!name.trim()) throw new Error('Give this computer a name.')
     setComputers((saved) => saved.map((computer) => computer.origin === selected

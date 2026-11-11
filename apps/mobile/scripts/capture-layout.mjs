@@ -69,11 +69,12 @@ try {
   await command('Runtime.enable')
   const results = []
   for (const width of [360, 390]) for (const theme of ['light', 'dark']) {
-    for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline']) {
-      await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
+    for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline', ...(stage === 'after' ? ['computers', 'computer-add', 'session-short', 'approval-short'] : [])]) {
+      const fixtureView = view === 'computers' || view === 'computer-add' ? 'home' : view.replace('-short', '')
+      await command('Emulation.setDeviceMetricsOverride', { width, height: view.endsWith('-short') ? 480 : 844, deviceScaleFactor: 1, mobile: true })
       await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
       process.stdout.write(`Opening ${width}-${theme}-${view}\n`)
-      await evaluate(`location.href = ${JSON.stringify(`http://127.0.0.1:${address.port}/scripts/fixtures/index.html?theme=${theme}&view=${view}`)}`)
+      await evaluate(`location.href = ${JSON.stringify(`http://127.0.0.1:${address.port}/scripts/fixtures/index.html?theme=${theme}&view=${fixtureView}`)}`)
       let ready = false
       for (let tries = 0; tries < 450; tries++) {
         ready = await evaluate('document.querySelector("#root")?.textContent.length > 0')
@@ -88,7 +89,12 @@ try {
         await pause(100)
         await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Files")?.click()')
       }
-      if (view === 'changes') await evaluate('document.querySelector("button[aria-label=Changes]")?.click()')
+      if (view === 'changes') await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.getAttribute("aria-label") === "Changes" || b.textContent.trim() === "Changes")?.click()')
+      if (view === 'computers' || view === 'computer-add') {
+        await evaluate('document.querySelector("button[aria-label^=\"Switch computer:\"]")?.click()')
+        await pause(100)
+        if (view === 'computer-add') await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Add computer")?.click()')
+      }
       await pause(250)
       const geometry = await evaluate('({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent})')
       if (!geometry.text) throw new Error(`Fixture became empty in ${view}`)

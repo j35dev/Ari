@@ -65,12 +65,15 @@ function parseComputers(value: unknown): SavedComputer[] {
 }
 
 export function readComputers(): SavedComputer[] {
+  let computers: SavedComputer[] = []
   try {
-    let computers = parseComputers(JSON.parse(localStorage.getItem(COMPUTERS_KEY) ?? '[]') as unknown)
+    computers = parseComputers(JSON.parse(localStorage.getItem(COMPUTERS_KEY) ?? '[]') as unknown)
+  } catch { /* Still recover the single-computer entry when the new cache is damaged. */ }
+  try {
     const legacy = localStorage.getItem(LEGACY_ORIGIN_KEY)
     if (legacy !== null && !computers.some((item) => item.origin === legacy)) computers = saveComputer(computers, legacy)
     return computers
-  } catch { return [] }
+  } catch { return computers }
 }
 
 export function writeComputers(computers: SavedComputer[]): void {
@@ -82,7 +85,10 @@ export function writeComputers(computers: SavedComputer[]): void {
 export function computerDestination(address: string, computers: SavedComputer[]): string {
   const url = computerAddress(address)
   const params = new URLSearchParams(url.hash.slice(1))
-  const directory = computers.filter((item) => item.managedComputerId === undefined).map(({ origin, name }) => ({ origin, name }))
+  const directory = computers.filter((item) => {
+    if (item.managedComputerId !== undefined) return false
+    try { computerAddress(item.origin); return true } catch { return false }
+  }).map(({ origin, name }) => ({ origin, name }))
   params.set(HANDOFF, JSON.stringify(directory))
   url.search = ''
   url.hash = params.toString()
