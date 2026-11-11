@@ -24,6 +24,8 @@ import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
 import { RemoteService } from './remote'
+import { MachinesService } from './machines'
+import { registerMachinesRpc, subscribeMachineStream } from './machines-rpc'
 import { RemoteConnectService } from './remote-connect'
 import { forkRemoteSession } from './remote-fork'
 import { catalogEfforts, catalogModes, remoteCatalogProviders } from './remote-catalog'
@@ -667,6 +669,7 @@ let appUpdaterRef: UpdateController | null = null
 /** Set once a runtime has started in this process; see `AgentRuntimeOptions.recover`. */
 let agentRuntimeStarted = false
 let remoteRef: RemoteService | null = null
+let machinesRef: MachinesService | null = null
 let remoteConnectRef: RemoteConnectService | null = null
 
 /** The port the gateway is bound to, or the one settings name before it runs. */
@@ -1696,6 +1699,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         engine,
         store: getSessionStore(),
         dir: join(app.getPath('userData'), 'remote'),
+        ariVersion: app.getVersion(),
         driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
         defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
         defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
@@ -1758,6 +1762,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { port: getSettingsStore().current.remote.port },
     )
   remoteRef = remote
+  const machines = machinesRef ?? new MachinesService({
+    dir: join(app.getPath('userData'), 'machines'),
+    secretBox: () => {
+      if (!safeStorage.isEncryptionAvailable()) return null
+      if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return null
+      return safeStorageBox(safeStorage)
+    },
+    onChange: (views) => rpcRegistry.publish('machines.updates', views),
+  })
+  machinesRef = machines
+  machines.clearSubscriptions()
+  registerMachinesRpc(r, machines)
+  shutdownTasks.push(() => { machines.dispose(); machinesRef = null })
   const connect =
     remoteConnectRef ??
     new RemoteConnectService({
@@ -2845,6 +2862,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('scripts.list', async (params) => listScripts(await resolveScopeRoot(params)))
 
   r.register('stream.subscribe', (params) => {
+    // Machine streams have their own validated host/session scope and never
+    // enter local journal replay, filesystem resolution, or command dispatch.
+    if (params.name === 'machines.events' || params.name === 'machines.updates') {
+      subscribeMachineStream(rpcRegistry, machines, params)
+      return { subscribed: true }
+    }
+    machines.unsubscribe(params.id)
     rpcRegistry.subscribe({
       id: params.id,
       name: params.name,
@@ -2932,6 +2956,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('stream.unsubscribe', async (params) => {
+    machines.unsubscribe(params.id)
     await sourceControlLive.unwatch(params.id)
     rpcRegistry.unsubscribe(params.id)
     return { unsubscribed: true }

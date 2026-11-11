@@ -18,6 +18,7 @@ import { RemoteTerminals } from './remote-terminals'
 import type { PtyFactory } from './terminal-service'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { RemoteIntegration } from './remote-integration'
+import { loadMachineIdentity, type HostIdentity } from './machine-identity'
 
 const log = createLogger('desktop:remote')
 
@@ -41,6 +42,8 @@ export interface RemoteServiceDeps {
   store: SessionStore
   /** Directory holding the desktop's remote records (device + idempotency). */
   dir: string
+  /** Running app version, reported alongside the persistent public host id. */
+  ariVersion?: string
   /** Providers this desktop can drive right now. */
   driverKinds: () => readonly DriverKind[]
   /** The mode a session created from a phone takes when the phone does not choose. */
@@ -80,6 +83,7 @@ export interface RemoteServiceDeps {
 
 export class RemoteService {
   readonly #deps: RemoteServiceDeps
+  readonly #identity: HostIdentity
   #gateway: RemoteGateway | null = null
   #managedGateway: RemoteGateway | null = null
   #managedClientUrl: string | null = null
@@ -95,6 +99,7 @@ export class RemoteService {
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
+    this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
     this.#integration = new RemoteIntegration(
       new ManagedWorkspaces(join(dirname(deps.dir), 'worktrees')),
       deps.engine,
@@ -138,6 +143,7 @@ export class RemoteService {
         )
       const webRoot = this.#deps.webRoot?.()
       this.#gateway = await createRemoteGateway({
+        identity: this.#identity,
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
@@ -211,6 +217,7 @@ export class RemoteService {
     if (!this.running) return null
     await this.stopManaged()
     this.#managedGateway = await createRemoteGateway({
+      identity: this.#identity,
       host: createRemoteHost({
         engine: this.#deps.engine,
         store: this.#deps.store,
