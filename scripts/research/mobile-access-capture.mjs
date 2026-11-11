@@ -150,8 +150,10 @@ window.__captureLoaded = true
   const errors = []
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data))
-    if (message.method === 'Network.requestWillBeSent') process.stdout.write(JSON.stringify({ browserRequest: message.params.request.url }) + '\n')
-    if (message.method === 'Network.loadingFailed') process.stdout.write(JSON.stringify({ browserFailure: message.params }) + '\n')
+    if (message.method === 'Network.requestWillBeSent')
+      process.stdout.write(JSON.stringify({ browserRequest: message.params.request.url }) + '\n')
+    if (message.method === 'Network.loadingFailed')
+      process.stdout.write(JSON.stringify({ browserFailure: message.params }) + '\n')
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails)
     const request = pending.get(message.id)
     if (request) {
