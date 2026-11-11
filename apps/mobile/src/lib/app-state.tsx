@@ -11,6 +11,7 @@ import {
 import type { RemoteModelCatalog, RemoteProject } from '@ari/contracts/remote'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { DeviceKeyring, type DeviceStore } from './device-key'
+import { LifecycleDeviceStore } from './lifecycle-device-store'
 import { GatewayClient } from './gateway-client'
 import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
@@ -131,7 +132,7 @@ export function AppProvider({
   const refreshingSession = useRef<MobileSession | null>(null)
   useEffect(() => { writeComputers(computers) }, [computers])
   const keyring = useMemo(
-    () => new DeviceKeyring(origin === null ? store : (store.forOrigin?.(origin) ?? store)),
+    () => new DeviceKeyring(new LifecycleDeviceStore(origin === null ? store : (store.forOrigin?.(origin) ?? store))),
     [origin, store],
   )
   const refreshWith = useCallback(async (session: MobileSession): Promise<void> => {
@@ -315,16 +316,13 @@ export function AppProvider({
   }, [])
   const forget = useCallback(async (): Promise<void> => {
     const selected = origin
-    const pendingPairing = connectionOwner.current?.pairing
     // Close the visible workspace before deleting its credential. Late reads cannot repaint it.
     abandonConnection()
     setLinked(null)
     setOrigin(null)
     setManagedComputerId(null)
     setConnection('unpaired')
-    // A record write already in progress must finish before the explicit clear.
-    // Otherwise its late completion could put the forgotten identity back in storage.
-    await pendingPairing?.catch(() => undefined)
+    // The local store generation rejects delayed pairing writes; no remote wait is needed.
     await keyring.forget()
     if (selected !== null) {
       forgetComputerState(selected)

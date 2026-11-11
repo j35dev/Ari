@@ -46,9 +46,10 @@ describe('forget during host-approved pairing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
     await waitFor(() => expect(transport.redeem).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: 'Forget' }))
-    gate.release()
+    // Forget finishes locally even while the gateway has not answered.
     await waitFor(() => expect(transport.forgotten).toHaveBeenCalledOnce())
-    expect(transport.failure).toHaveBeenCalledOnce()
+    gate.release()
+    await waitFor(() => expect(transport.failure).toHaveBeenCalledOnce())
     expect(await store.forOrigin(location.origin).loadRecord()).toBeNull()
     expect(await store.forOrigin(location.origin).loadKey()).toBeNull()
     expect(transport.token).toBeNull()
