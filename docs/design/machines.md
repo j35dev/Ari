@@ -161,9 +161,17 @@ worktree/concurrency engine/CLI/desktop human path fix and is never merged into
 feat/machines. Final security review is a separate report-only worker.
 
 No worker installs or builds in the user's checkout or its managed C: worktree.
-Each uses the precreated D: worktree, D: pnpm store/cache/temp. Check C: free
-space between phases and stop below 3GB. Limit test worker concurrency and avoid
-running full desktop suites in several workers simultaneously.
+Each uses the precreated D: worktree, D: pnpm store/cache/temp. The resumed work
+uses one heavy worker/process at a time. Before every install, test, typecheck,
+lint, build or browser capture, require at least 5GB free on C: and 1.5GB of
+commit headroom (commit limit minus committed bytes). Available physical memory
+is not a gate. Commit WIP before each long step, run tests with one worker and
+no file parallelism, and run heavy processes below normal priority. Stop/report
+a failed gate or killed/OOM step without a retry loop. The coordinator may do
+read-only review, planning and git integration while the worker runs. Run wide
+checks once, alone, after integration. Prefer fresh workers after pauses where
+the implementation state is on disk, because old provider conversations have
+failed permanently on this machine.
 
 ## Verification and release gates
 
