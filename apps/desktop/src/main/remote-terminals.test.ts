@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exec } from 'node:child_process'
 import type * as ChildProcess from 'node:child_process'
 import type { RemoteCommand } from '@ari/contracts/remote'
+import type { RemoteCaller } from '@ari/remote-gateway/host'
 import { RemoteTerminals } from './remote-terminals'
 import type { PtySpawnOptions } from './terminal-service'
 
@@ -64,9 +65,9 @@ function setup(allowed: (deviceId: string, projectId: string) => boolean = () =>
     return pty
   }, allowed)
   managers.push(manager)
-  const create = () => {
+  const create = (authorized: RemoteCaller = caller) => {
     const result = manager.execute(
-      caller,
+      authorized,
       { ...envelope, op: 'terminal.create', cols: 80, rows: 24 },
       { projectId: 'p', workspace: '/trusted/workspace' },
     )
@@ -81,6 +82,63 @@ function setup(allowed: (deviceId: string, projectId: string) => boolean = () =>
 }
 
 describe('remote terminals', () => {
+  it('expires managed shells while preserving local shells for the same device', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const { manager, shells, create } = setup()
+    const managed = { ...caller, managedLeaseExpiresAt: 1500 }
+    const id = create(managed)
+    const local = create()
+    expect(manager.read(caller, 's', id, 0)).toBeNull()
+    expect(manager.read(managed, 's', local, 0)).toBeNull()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(shells[0]?.kill).toHaveBeenCalledOnce()
+    expect(shells[1]?.kill).not.toHaveBeenCalled()
+    expect(manager.read(caller, 's', local, 0)).not.toBeNull()
+  })
+
+  it('renews only the matching managed device/session/project terminal before expiry', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const { manager, shells, create } = setup()
+    const managed = { ...caller, managedLeaseExpiresAt: 1500 }
+    const id = create(managed)
+    await vi.advanceTimersByTimeAsync(1000)
+    const renewed = { ...managed, managedLeaseExpiresAt: 3500 }
+    expect(manager.read({ ...renewed, deviceId: 'other' }, 's', id, 0)).toBeNull()
+    expect(manager.read(renewed, 'another-session', id, 0)).toBeNull()
+    expect(manager.read({ ...renewed, projectIds: ['other'] }, 's', id, 0)).toBeNull()
+    expect(manager.read(renewed, 's', id, 0)).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(shells[0]?.kill).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(shells[0]?.kill).toHaveBeenCalledOnce()
+    expect(manager.read({ ...renewed, managedLeaseExpiresAt: 10000 }, 's', id, 0)).toBeNull()
+  })
+
+  it('closes managed shells on connector stop without closing local shells', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const { manager, shells, create } = setup()
+    create({ ...caller, managedLeaseExpiresAt: 10000 })
+    create()
+    manager.closeManaged()
+    expect(shells[0]?.kill).toHaveBeenCalledOnce()
+    expect(shells[1]?.kill).not.toHaveBeenCalled()
+  })
+
+  it('rejects an expired lease at execution and does not renew a shell after its prior lease expires', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const { manager, shells, create } = setup()
+    const managed = { ...caller, managedLeaseExpiresAt: 500 }
+    const id = create(managed)
+    vi.setSystemTime(501)
+    expect(manager.read({ ...managed, managedLeaseExpiresAt: 5000 }, 's', id, 0)).toBeNull()
+    expect(shells[0]?.kill).toHaveBeenCalledOnce()
+    expect(manager.execute(managed, { ...envelope, op: 'terminal.create', cols: 80, rows: 24 }, { projectId: 'p', workspace: '.' })).toMatchObject({ ok: false, code: 'access_revoked' })
+  })
+
   it('requires a desktop grant and preserves ownership for every operation', () => {
     const { manager, shells, create, command } = setup()
     expect(

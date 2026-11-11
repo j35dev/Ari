@@ -12,6 +12,7 @@ import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
 import type { PtyFactory } from './terminal-service'
 import { RemoteService, type RemoteServiceDeps } from './remote'
+import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
 import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
@@ -165,6 +166,102 @@ async function pair(
 }
 
 describe('remote service lifecycle', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((done) => { resolve = done })
+    return { promise, resolve }
+  }
+
+  const managedOptions = { port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null }
+
+  it('shares duplicate starts while project loading is delayed', async () => {
+    const projects = deferred<{ id: string; name: string }[]>()
+    const createGateway = vi.fn(createRemoteGateway)
+    const { service } = makeService({ listProjects: () => projects.promise, createGateway })
+    const first = service.start()
+    expect(service.start()).toBe(first)
+    projects.resolve([{ id: 'proj_1', name: 'Ari' }])
+    const ready = await first
+    expect(ready.enabled).toBe(true)
+    expect(createGateway).toHaveBeenCalledOnce()
+  })
+
+  it('stop waits for and cancels project loading before a listener is created', async () => {
+    const projects = deferred<{ id: string; name: string }[]>()
+    const entered = deferred<void>()
+    const createGateway = vi.fn(createRemoteGateway)
+    const { service } = makeService({ listProjects: () => { entered.resolve(); return projects.promise }, createGateway })
+    const starting = service.start()
+    await entered.promise
+    let stopped = false
+    const stopping = service.stop().then(() => { stopped = true })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    projects.resolve([])
+    await Promise.all([starting, stopping])
+    expect(createGateway).not.toHaveBeenCalled()
+    expect(service.running).toBe(false)
+  })
+
+  it('closes a cancelled listener that finishes binding after stop', async () => {
+    const bound = deferred<RemoteGateway>()
+    const release = deferred<void>()
+    const { service } = makeService({ createGateway: async (options) => {
+      const gateway = await createRemoteGateway(options)
+      bound.resolve(gateway)
+      await release.promise
+      return gateway
+    } })
+    const starting = service.start()
+    const gateway = await bound.promise
+    const stopping = service.stop()
+    release.resolve()
+    await Promise.all([starting, stopping])
+    expect(service.running).toBe(false)
+    await expect(fetch(`${gateway.origin}/info`, { headers: { origin: ALLOWED } })).rejects.toThrow()
+  })
+
+  it.each(['managed', 'shutdown'] as const)('fences delayed managed binding during %s stop', async (mode) => {
+    const bound = deferred<RemoteGateway>()
+    const release = deferred<void>()
+    const { service } = makeService({ createGateway: async (options) => {
+      const gateway = await createRemoteGateway(options)
+      if (options.managedAccess !== undefined) {
+        bound.resolve(gateway)
+        await release.promise
+      }
+      return gateway
+    } })
+    await service.start()
+    const local = service.state().origin
+    const starting = service.startManaged(managedOptions)
+    expect(service.startManaged(managedOptions)).toBe(starting)
+    const gateway = await bound.promise
+    const stopping = mode === 'managed' ? service.stopManaged() : service.stop()
+    release.resolve()
+    expect(await starting).toBeNull()
+    await stopping
+    expect(service.state().clientUrl).toBeNull()
+    await expect(fetch(`${gateway.origin}/info`, { headers: { origin: 'https://connect.example' } })).rejects.toThrow()
+    expect(service.running).toBe(mode === 'managed')
+    if (mode === 'shutdown') await expect(fetch(`${local}/info`, { headers: { origin: ALLOWED } })).rejects.toThrow()
+  })
+
+  it('does not resurrect a queued managed start after shutdown cancels local startup', async () => {
+    const projects = deferred<{ id: string; name: string }[]>()
+    const entered = deferred<void>()
+    const createGateway = vi.fn(createRemoteGateway)
+    const { service } = makeService({ listProjects: () => { entered.resolve(); return projects.promise }, createGateway })
+    const starting = service.startManaged(managedOptions)
+    await entered.promise
+    const stopping = service.stop()
+    projects.resolve([])
+    expect(await starting).toBeNull()
+    await stopping
+    expect(createGateway).not.toHaveBeenCalled()
+    expect(service.running).toBe(false)
+  })
+
   it('refreshes managed registrations with new projects without registering local-only devices', async () => {
     const projects = [{ id: 'proj_1', name: 'Ari' }]
     const { service } = makeService({ listProjects: async () => projects })
