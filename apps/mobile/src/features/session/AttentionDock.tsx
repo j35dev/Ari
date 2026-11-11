@@ -34,17 +34,19 @@ export function AttentionDock({
   inputs,
   onApprove,
   onAnswer,
+  disabled = false,
 }: {
   approvals: readonly RemoteApproval[]
   inputs: readonly RemoteInput[]
   onApprove: (approvalId: string, optionId: string) => Promise<void>
   onAnswer: (inputId: string, value: string) => Promise<void>
+  disabled?: boolean
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const total = approvals.length + inputs.length
   const send = (answer: () => Promise<void>): void => {
-    if (busy) return
+    if (busy || disabled) return
     setBusy(true)
     setFailure(null)
     void answer()
@@ -58,7 +60,7 @@ export function AttentionDock({
   return (
     <section
       aria-label="The agent is waiting for you"
-      className="mobile-composer dock-rise shrink-0 px-4 pt-2"
+      className="mobile-composer dock-rise max-h-[65%] shrink-0 overflow-y-auto px-4 pt-2"
     >
       <div className="rounded-3xl border border-warning bg-surface-1 p-4">
         {total > 1 && <p className="mb-2 text-xs text-fg-subtle">1 of {total}</p>}
@@ -66,14 +68,14 @@ export function AttentionDock({
           <Approval
             key={approval.approvalId}
             approval={approval}
-            busy={busy}
+            busy={busy || disabled}
             onPick={(optionId) => send(() => onApprove(approval.approvalId, optionId))}
           />
         ) : input !== undefined ? (
           <Question
             key={input.inputId}
             input={input}
-            busy={busy}
+            busy={busy || disabled}
             onAnswer={(value) => send(() => onAnswer(input.inputId, value))}
           />
         ) : null}

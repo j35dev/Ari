@@ -4,6 +4,7 @@ import { useApp } from '../../lib/app-state'
 import { IS_CONNECT_BUILD } from '../../lib/connect'
 import { RemoteError } from '../../lib/gateway-client'
 import { readPairingEntry } from '../../lib/pairing-entry'
+import { ComputerButton } from '../computers/ComputerSwitcher'
 
 /** Pairing is a deliberate desktop approval with the same confirmation code on both screens. */
 export function PairScreen({
@@ -103,6 +104,7 @@ export function PairScreen({
           ari<span className="text-accent">.</span>
         </span>
       </header>
+      <div className="mt-5"><ComputerButton /></div>
       <div className="mb-8 mt-14">
         <h1 className="text-[32px] font-semibold leading-tight tracking-[-0.055em]">
           {recovering
@@ -118,7 +120,7 @@ export function PairScreen({
         <p className="mt-3 text-sm leading-relaxed text-fg-muted">
           {recovering
             ? invitationId !== null
-              ? 'A fresh pairing link is ready. Confirm the matching code in Ari on your computer, then choose the projects this phone can access again.'
+              ? 'A fresh pairing link is ready. Confirm the matching code in Ari on your computer to approve this phone again.'
               : revoked
                 ? 'This phone’s access was revoked. Show a pairing code in desktop Settings → Mobile access, enter the new pairing code below, then approve this phone again. Retrying the old connection cannot restore access.'
                 : 'Your computer no longer recognizes this phone. Show a pairing code in desktop Settings → Mobile access, enter the new pairing code below, then approve this phone again.'
@@ -126,7 +128,7 @@ export function PairScreen({
               ? installed
                 ? 'On iPhone, this Home Screen app has its own secure storage. Pair it once here, even if Safari is already connected. Future launches reconnect automatically.'
                 : 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
-              : 'Give this phone a name. Confirm the matching code in Ari on your computer, then choose the projects it can access.'}
+              : 'Give this phone a name. Confirm the matching code in Ari on your computer to approve this phone. Terminal access is a separate permission.'}
         </p>
       </div>
       {invitationId !== null ? (
@@ -166,8 +168,7 @@ export function PairScreen({
                 {app.pairingCode ?? '••••••'}
               </p>
               <p className="text-xs leading-relaxed text-fg-subtle">
-                Approve only if both screens show the same code. Choose projects explicitly before
-                granting access.
+                Approve only if both screens show the same code. Your computer approves this phone’s access.
               </p>
             </div>
           )}
