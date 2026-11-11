@@ -76,6 +76,8 @@ export class RemoteSession {
   #listeners = new Set<() => void>()
   #connectRetryMs: number
   readonly #managed: LeaseAdapter | null
+  #lifecycle = new AbortController()
+  readonly #subscriptions = new Set<() => void>()
 
   constructor(deps: SessionDeps) {
     this.#client = deps.client
@@ -141,6 +143,7 @@ export class RemoteSession {
    * retried a few times before the UI is told anything is wrong.
    */
   async connect(signal?: AbortSignal): Promise<ConnectionState> {
+    signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     await this.#keyring.load()
     signal?.throwIfAborted()
@@ -182,6 +185,7 @@ export class RemoteSession {
    * mechanism available at this one moment.
    */
   async pair(invitationId: string, displayName: string, signal?: AbortSignal): Promise<void> {
+    signal = this.#operationSignal(signal)
     // Version 1 defines the anonymous handshake as mandatory. Negotiate before
     // creating any host-side invitation request, not after redeeming it.
     await this.negotiate(signal)
@@ -199,8 +203,9 @@ export class RemoteSession {
     signal?.throwIfAborted()
     const redeemed = await this.#client.pairRedeem(invitationId, { nonce, signature })
     signal?.throwIfAborted()
-    this.#useToken(redeemed.token)
+    this.#useToken(redeemed.token, signal)
     await this.#keyring.remember({ deviceId: redeemed.deviceId, displayName, projectIds: [] })
+    signal.throwIfAborted()
     await this.#authorize(redeemed.deviceId, signal)
     this.#set('connected')
   }
@@ -232,13 +237,17 @@ export class RemoteSession {
   }
 
   /** Trades the short code on the desktop's screen for the invitation it names. */
-  async resolvePairingCode(code: string): Promise<string> {
-    await this.negotiate()
-    return this.#client.pairResolve(code)
+  async resolvePairingCode(code: string, signal?: AbortSignal): Promise<string> {
+    signal = this.#operationSignal(signal)
+    await this.negotiate(signal)
+    const invitationId = await this.#client.pairResolve(code)
+    signal.throwIfAborted()
+    return invitationId
   }
 
   /** Validate the mandatory handshake version and any requested host operations. */
   async negotiate(signal?: AbortSignal, requiredCapabilities: readonly string[] = []): Promise<void> {
+    signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     const info = await this.#client.info()
     signal?.throwIfAborted()
@@ -256,6 +265,9 @@ export class RemoteSession {
 
   /** Dispose credentials held in memory when their owning computer is removed. */
   disconnect(): void {
+    this.#lifecycle.abort(new DOMException('Computer connection disposed.', 'AbortError'))
+    for (const unsubscribe of [...this.#subscriptions]) unsubscribe()
+    this.#lifecycle = new AbortController()
     this.#token = null
     this.#client.token = null
     this.#client.lease = null
@@ -266,8 +278,11 @@ export class RemoteSession {
   }
 
   /** What the desktop currently thinks of this device's registration. */
-  async pairingStatus(invitationId: string): Promise<string> {
-    return this.#client.pairStatus(invitationId)
+  async pairingStatus(invitationId: string, signal?: AbortSignal): Promise<string> {
+    signal = this.#operationSignal(signal)
+    const status = await this.#client.pairStatus(invitationId)
+    signal.throwIfAborted()
+    return status
   }
 
   /**
@@ -280,7 +295,8 @@ export class RemoteSession {
    * all — repeating it would ask the same question and get the same answer.
    */
   async send<T extends { op: string }>(envelope: T, idempotencyKey = mintKey()): Promise<unknown> {
-    await this.#renewLease()
+    const signal = this.#operationSignal()
+    await this.#renewLease(false, signal)
     const body = {
       ...envelope,
       clientCommandId: idempotencyKey,
@@ -288,20 +304,23 @@ export class RemoteSession {
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await this.#client.command(body)
+        const result = await this.#client.command(body)
+        signal.throwIfAborted()
+        return result
       } catch (error) {
+        signal.throwIfAborted()
         if (!(error instanceof RemoteError)) throw error
         if (error.code === 'unauthenticated' || error.code === 'authentication_expired') {
           // The token aged out. Renewing it is invisible to the user, and is
           // why the device key exists.
-          await this.#reauth()
+          await this.#reauth(signal)
           continue
         }
         if (error.code === 'unreachable' && attempt === 0) {
           // The request may or may not have arrived. Asking about the key is
           // the only way to tell, and it is what keeps a prompt from being
           // sent twice.
-          const outcome = await this.#reconcile(idempotencyKey)
+          const outcome = await this.#reconcile(idempotencyKey, signal)
           if (outcome !== undefined) return outcome
           continue
         }
@@ -313,16 +332,22 @@ export class RemoteSession {
 
   /** A read, renewed once if the token has aged out. */
   async query<T>(op: string, params: Record<string, unknown> = {}): Promise<T> {
-    await this.#renewLease()
+    const signal = this.#operationSignal()
+    await this.#renewLease(false, signal)
     try {
-      return await this.#client.query<T>(op, params)
+      const result = await this.#client.query<T>(op, params)
+      signal.throwIfAborted()
+      return result
     } catch (error) {
+      signal.throwIfAborted()
       if (
         error instanceof RemoteError &&
         (error.code === 'unauthenticated' || error.code === 'authentication_expired')
       ) {
-        await this.#reauth()
-        return await this.#client.query<T>(op, params)
+        await this.#reauth(signal)
+        const result = await this.#client.query<T>(op, params)
+        signal.throwIfAborted()
+        return result
       }
       throw error
     }
@@ -341,15 +366,16 @@ export class RemoteSession {
     let close: (() => void) | null = null
     let renewal: ReturnType<typeof setTimeout> | null = null
     const renewalController = new AbortController()
+    const signal = this.#operationSignal(renewalController.signal)
     let cursor = options.fromSeq
     const onFrame = (message: RemoteServerMessage): void => {
-      if (disposed || renewalController.signal.aborted) return
+      if (disposed || signal.aborted) return
       if (message.type === 'events.frame')
         for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
       options.onFrame(message)
     }
     const onClose = (info: { code: number; reason: string }): void => {
-      if (disposed || renewalController.signal.aborted) return
+      if (disposed || signal.aborted) return
       renewalController.abort()
       if (renewal !== null) clearTimeout(renewal)
       renewal = null
@@ -364,7 +390,7 @@ export class RemoteSession {
       options.onClose(info)
     }
     const open = (): void => {
-      if (disposed || renewalController.signal.aborted) return
+      if (disposed || signal.aborted) return
       close = this.#client.subscribe(sessionId, {
         ...(cursor === undefined ? {} : { fromSeq: cursor }),
         onFrame,
@@ -373,15 +399,15 @@ export class RemoteSession {
       if (this.#managed !== null)
         renewal = setTimeout(() => {
           renewal = null
-          void this.#renewLease(true, renewalController.signal)
+          void this.#renewLease(true, signal)
             .then(() => {
-              if (!disposed && !renewalController.signal.aborted) {
+              if (!disposed && !signal.aborted) {
                 close?.()
                 open()
               }
             })
             .catch((error: unknown) => {
-              if (!disposed && !renewalController.signal.aborted) {
+              if (!disposed && !signal.aborted) {
                 close?.()
                 onClose({
                   code: 1013,
@@ -392,12 +418,15 @@ export class RemoteSession {
         }, 45000)
     }
     open()
-    return () => {
+    const unsubscribe = (): void => {
       disposed = true
       renewalController.abort()
       close?.()
       if (renewal !== null) clearTimeout(renewal)
+      this.#subscriptions.delete(unsubscribe)
     }
+    this.#subscriptions.add(unsubscribe)
+    return unsubscribe
   }
 
   #set(state: ConnectionState): ConnectionState {
@@ -411,6 +440,7 @@ export class RemoteSession {
 
   /** Exchanges a signature over a fresh nonce for a new token. */
   async #authorize(deviceId: string, signal?: AbortSignal): Promise<void> {
+    signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     const { nonce } = await this.#client.deviceChallenge(deviceId)
     signal?.throwIfAborted()
@@ -420,12 +450,13 @@ export class RemoteSession {
     signal?.throwIfAborted()
     await this.#renewLease(false, signal)
     signal?.throwIfAborted()
-    this.#useToken(authorized.token)
+    this.#useToken(authorized.token, signal)
     this.#projectIds = authorized.projectIds
     this.#allowTerminal = authorized.allowTerminal === true
   }
 
   async #renewLease(force = false, signal?: AbortSignal): Promise<void> {
+    signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     if (this.#managed === null) return
     try {
@@ -441,28 +472,35 @@ export class RemoteSession {
   }
 
   /** The one place the token moves, so it cannot be set but not installed. */
-  #useToken(token: string): void {
+  #useToken(token: string, signal: AbortSignal): void {
+    signal.throwIfAborted()
     this.#token = token
     this.#client.token = token
   }
 
-  async #reauth(): Promise<void> {
+  async #reauth(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted()
     const deviceId = this.#keyring.deviceId
     if (deviceId === null) throw new RemoteError('unauthenticated', 'this browser is not paired')
     try {
-      await this.#authorize(deviceId)
+      await this.#authorize(deviceId, signal)
+      signal.throwIfAborted()
       this.#set('connected')
     } catch (error) {
+      signal.throwIfAborted()
       this.#set(stateForError(error))
       throw error
     }
   }
 
   /** Asks the desktop what became of a command whose answer was lost. */
-  async #reconcile(idempotencyKey: string): Promise<unknown> {
+  async #reconcile(idempotencyKey: string, signal: AbortSignal): Promise<unknown> {
     try {
-      return await this.#client.query('command.status', { idempotencyKey })
+      const result = await this.#client.query('command.status', { idempotencyKey })
+      signal.throwIfAborted()
+      return result
     } catch (error) {
+      signal.throwIfAborted()
       // A key the desktop never saw means the command never arrived, and the
       // caller is free to send it again under the same key.
       if (error instanceof RemoteError && error.code === 'not_found') return undefined
@@ -473,6 +511,11 @@ export class RemoteSession {
       }
       throw error
     }
+  }
+
+  #operationSignal(signal?: AbortSignal): AbortSignal {
+    const lifecycle = this.#lifecycle.signal
+    return signal === undefined ? lifecycle : AbortSignal.any([lifecycle, signal])
   }
 }
 
