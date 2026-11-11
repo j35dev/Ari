@@ -1,6 +1,7 @@
 // Isolated Settings component capture. Run only through the Machines heavy-work runner.
 // No Electron, real desktop RPC, saved settings, device keys or Tailscale commands are used.
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -10,14 +11,14 @@ import { clearTimeout, setTimeout } from 'node:timers'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 if (!root.startsWith('D:\\') && !root.startsWith('D:/')) throw new Error('Capture must run on D:')
 const requireDesktop = createRequire(join(root, 'apps/desktop/package.json'))
-const { createServer } = await import(pathToFileURL(requireDesktop.resolve('vite')).href)
+const { build } = await import(pathToFileURL(requireDesktop.resolve('vite')).href)
 const { default: react } = await import(pathToFileURL(requireDesktop.resolve('@vitejs/plugin-react')).href)
 const scratchParent = join(root, 'fixtures/tmp')
 await mkdir(scratchParent, { recursive: true })
 const scratch = await mkdtemp(join(scratchParent, 'mobile-access-'))
 const output = join(root, 'docs/screenshots/mobile-access')
 await mkdir(output, { recursive: true })
-const fsUrl = (path) => `/@fs/${path.replaceAll('\\', '/')}`
+const fsUrl = (path) => relative(scratch, path).replaceAll('\\', '/')
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
 let server
 let browser
@@ -46,7 +47,7 @@ document.head.appendChild(style)
 createRoot(document.getElementById('root')).render(<RemoteSettings />)
 window.__captureLoaded = true
 `)
-  server = await createServer({
+  await build({
     configFile: false,
     root: scratch,
     plugins: [react()],
@@ -58,11 +59,25 @@ window.__captureLoaded = true
       dedupe: ['react', 'react-dom'],
     },
     css: { postcss: join(root, 'apps/desktop') },
-    cacheDir: join(scratch, '.vite'),
-    server: { host: '127.0.0.1', port: 0, fs: { allow: [root] } },
+    cacheDir: join(scratch, 'node_modules/.vite'),
+    build: { outDir: join(scratch, 'dist'), emptyOutDir: true },
   })
-  await server.listen()
-  const address = server.httpServer.address()
+  const distribution = resolve(scratch, 'dist')
+  server = createServer((request, response) => {
+    const url = new globalThis.URL(request.url, 'http://127.0.0.1')
+    const file = resolve(distribution, url.pathname === '/' ? 'index.html' : `.${decodeURIComponent(url.pathname)}`)
+    const path = relative(distribution, file)
+    if (path.startsWith('..') || resolve(distribution, path) !== file) {
+      response.writeHead(403).end()
+      return
+    }
+    void readFile(file).then((bytes) => {
+      const mime = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.woff2') ? 'font/woff2' : 'text/html'
+      response.writeHead(200, { 'content-type': mime }).end(bytes)
+    }).catch(() => response.writeHead(404).end())
+  })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  const address = server.address()
   const origin = `http://127.0.0.1:${address.port}`
   const preflight = await globalThis.fetch(`${origin}/`, { signal: globalThis.AbortSignal.timeout(20000) })
   if (!preflight.ok) throw new Error(`Fixture server returned ${preflight.status}`)
@@ -135,7 +150,7 @@ window.__captureLoaded = true
     browser.kill()
     await new Promise((done) => { browser.once('exit', done); setTimeout(done, 5000) })
   }
-  await server?.close()
+  if (server) await new Promise((done) => { server.closeAllConnections(); server.close(done) })
   const ownedRelative = relative(scratchParent, scratch)
   if (!ownedRelative.startsWith('mobile-access-') || ownedRelative.includes('..')) throw new Error('Refusing cleanup outside owned fixture')
   await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
