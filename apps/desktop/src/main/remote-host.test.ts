@@ -170,6 +170,11 @@ describe('remote host capabilities', () => {
     expect(engine.dispatched).toHaveLength(0)
     expect(await host.execute(local, prompt)).toMatchObject({ ok: true })
     expect(engine.dispatched).toHaveLength(1)
+    const create = command('session.create', { projectId: 'future', title: 'A new project session' })
+    expect(await host.execute(managed, create)).toMatchObject({ ok: false, code: 'not_found' })
+    expect(engine.created).toHaveLength(0)
+    expect(await host.execute(local, create)).toMatchObject({ ok: true })
+    expect(engine.created[0]).toMatchObject({ projectId: 'future' })
   })
 
   it('reports only what it can actually serve', async () => {

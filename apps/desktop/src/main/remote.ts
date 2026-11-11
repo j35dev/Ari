@@ -92,7 +92,7 @@ export class RemoteService {
   /** The port the user chose, so a restart can come back on the same one. */
   #port: number
   #error: string | null = null
-  #projectIds: string[] = []
+  #projectIds: string[] | undefined
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
