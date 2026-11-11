@@ -3,7 +3,7 @@ import { newTypedId } from '@ari/shared/ids'
 import { createHash } from 'node:crypto'
 import type { OperationReceipt } from '@ari/contracts/orchestration'
 import { z } from 'zod'
-import { exceedsPermission } from '@ari/contracts/common'
+import { exceedsPermission, permissionModeSchema } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import {
   AGENT_CONTROL_VERSION,
@@ -111,6 +111,7 @@ const workerRecoveryReceiptSchema = z.object({
       projectId: z.string().min(1).max(128).optional(),
       workspace: sessionWorkspaceSchema.optional(),
       workspacePath: z.string().min(1).max(32_767).optional(),
+      permissionMode: permissionModeSchema.optional(),
     })
     .strict()
     .refine(
@@ -814,7 +815,7 @@ export class AgentControlService {
       const recovery: Record<string, unknown> = projectFailure?.success
         ? projectFailure.data
         : workerFailure?.success
-          ? workerFailure.data.recovery
+          ? { ...recoveryDetails(method, progress), ...workerFailure.data.recovery }
           : recoveryDetails(method, progress)
       if (
         method === 'projects.create' &&
@@ -1081,7 +1082,7 @@ export class AgentControlService {
             'The target model changed during effort discovery. Retry the assignment.',
           )
         if (isHelmSession(current) && !fresh.parentSessionId)
-          await this.#checkProjectCode(fresh)
+          await this.#checkProjectCode(fresh, true)
         if ((fresh.effort ?? null) !== effortSelection.resolved) {
           const updated = await this.host.dispatch({
             type: 'session.update',
@@ -1222,6 +1223,10 @@ export class AgentControlService {
       }
       case 'session.destroy': {
         const id = (raw as ControlParams<'session.destroy'>).targetSessionId
+        if (isHelmSession(caller) && id !== 'self' && id !== 'parent' && !(await this.host.store.loadExisting(id))?.session) {
+          const recovery = await this.#rootCleanupTarget(caller, id)
+          if (recovery) return this.#destroy(caller, recovery, true)
+        }
         const candidate =
           isHelmSession(caller) && id !== 'self' && id !== 'parent'
             ? await this.#get(id)
@@ -1638,6 +1643,7 @@ export class AgentControlService {
       childSessionId: id,
       projectId: project.projectId,
       stage: 'workspace_preparing',
+      permissionMode,
     }, method)
     const workspace = await this.prepareRootWorkspace(session, p.workspaceMode, p.baseSnapshotCommit)
     session.workspace = workspace
@@ -1648,6 +1654,7 @@ export class AgentControlService {
       workspace,
       workspacePath,
       stage: 'workspace_prepared',
+      permissionMode,
     }, method)
     const launchCaller = await this.#get(caller.id)
     if (signal?.aborted || launchCaller.archived || exceedsPermission(permissionMode, launchCaller.permissionMode)) {
@@ -1660,6 +1667,7 @@ export class AgentControlService {
       workspace,
       workspacePath,
       stage: 'session_creating',
+      permissionMode,
     }, method)
     try {
       await this.host.create(session)
@@ -1672,6 +1680,7 @@ export class AgentControlService {
           workspace,
           workspacePath,
           stage: 'session_created',
+          permissionMode,
         },
         lead ? 'projects.ask' : 'session.spawn',
       )
@@ -1706,15 +1715,35 @@ export class AgentControlService {
     }
   }
 
+  /** Only this caller's journaled launch may authorize cleanup without a session. */
+  async #rootCleanupTarget(caller: Session, id: string): Promise<Session | null> {
+    const operations = (await this.host.store.load(caller.id)).orchestration?.operations ?? {}
+    for (const operation of Object.values(operations)) {
+      if (!['session.spawn', 'projects.ask'].includes(operation.method) || operation.status === 'completed') continue
+      const parsed = workerRecoveryReceiptSchema.safeParse(operation.result)
+      if (!parsed.success) continue
+      const recovery = parsed.data.recovery
+      if (recovery.childSessionId !== id || !recovery.projectId || !recovery.permissionMode || recovery.workspace?.kind !== 'managed-worktree') continue
+      return {
+        id, projectId: recovery.projectId, title: 'Unconfirmed session',
+        createdBy: { kind: 'session', sessionId: caller.id }, workspace: recovery.workspace,
+        permissionMode: recovery.permissionMode, driverKind: caller.driverKind, modelId: caller.modelId,
+        status: 'idle', createdAt: 0, updatedAt: 0,
+      }
+    }
+    return null
+  }
+
   async #destroy(
     caller: Session,
     target: Session,
+    unconfirmed = false,
   ): Promise<{ sessionId: string; destroyed: boolean; count: number }> {
     if (isHelmSession(caller)) {
       const current = await this.#get(caller.id)
       if (current.archived)
         throw new ControlFailure('scope_denied', 'Restore Aria before destroying a session.')
-      this.#checkReachPermission(current, await this.#get(target.id))
+      this.#checkReachPermission(current, unconfirmed ? target : await this.#get(target.id))
     }
     if (target.id === caller.id)
       throw new ControlFailure('scope_denied', 'A session cannot destroy itself.')
@@ -2049,12 +2078,15 @@ export class AgentControlService {
           : 'Session permissions cannot exceed Aria permissions.',
       )
     const working = await this.#workingProjectSessions(session.id)
-    if (session.projectId && !preparingWorkspace)
-      await this.#refuseConcurrentCode(session as Session, working)
     const model = session.id ? await this.host.store.load(session.id) : null
+    const occupancy = model?.session ? { ...model.session, ...session } : session as Session
+    if (session.projectId && !preparingWorkspace)
+      await this.#refuseConcurrentCode(occupancy, existing ? this.#outsideTree(occupancy, working) : working)
+    const workingRoots = await this.#workingProjectRoots(working)
+    if (existing && session.id) workingRoots.delete(session.id)
     if (
       (!model || (model.activeTurnId === null && model.queuedMessages.length === 0)) &&
-      (await this.#workingProjectRoots(working)).size >= policy.maxConcurrentChildren
+      workingRoots.size >= policy.maxConcurrentChildren
     )
       throw new ControlFailure(
         'delegation_limit',
@@ -2151,9 +2183,14 @@ export class AgentControlService {
     return Number.isFinite(waitingSince) && now - waitingSince < PROJECT_HUMAN_WAIT_MS
   }
 
-  async #checkProjectCode(session: Session): Promise<void> {
+  #outsideTree(session: Session, working: readonly Session[]): Session[] {
+    const root = session.rootSessionId ?? session.id
+    return working.filter((active) => (active.rootSessionId ?? active.id) !== root)
+  }
+
+  async #checkProjectCode(session: Session, queueWithinTree = false): Promise<void> {
     const working = await this.#workingProjectSessions(session.id)
-    await this.#refuseConcurrentCode(session, working)
+    await this.#refuseConcurrentCode(session, queueWithinTree ? this.#outsideTree(session, working) : working)
   }
 
   async #conflictingSession(session: Session, working: readonly Session[]): Promise<Session | undefined> {
@@ -2341,7 +2378,9 @@ export class AgentControlService {
     if (++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    if (isHelmSession(caller)) await this.#checkProjectCode(target)
+    // Work inside an existing tree can queue behind a shared-folder worker.
+    // The engine still checks every actual start against that worker's cwd.
+    if (isHelmSession(caller)) await this.#checkProjectCode(target, true)
     const state = await this.host.store.load(target.id)
     if (state.queuedMessages.length >= 32)
       throw new ControlFailure('delegation_limit', 'Target message queue is full.')
