@@ -11,7 +11,8 @@ import { DriverRegistry } from '@ari/providers/registry'
 import { UNKNOWN_PROVIDER_CAPABILITIES, type Driver, type AdapterApprovalDecision } from '@ari/providers/driver'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { remoteCommandEnvelopeSchema, remoteSessionResultSchema, type RemoteCommand } from '@ari/contracts/remote'
-import { machineEventsFrameSchema, type MachineEventsFrame } from '@ari/contracts/machines'
+import { machineEventsFrameSchema, machineOperationResultSchema, type MachineEventsFrame } from '@ari/contracts/machines'
+import { RemoteError } from '@ari/remote-client'
 import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
 import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
 import { Engine } from './engine'
@@ -116,7 +117,7 @@ async function realHost(label: string): Promise<RunningHost> {
         // Both hosts deliberately reuse this id: route and machine scope must carry ownership.
         mintSessionId: () => 'sess_same',
       }),
-      identity: { ...identity, name: label }, port, allowedOrigins: [], pairing,
+      identity: { ...identity, name: label }, port, allowedOrigins: () => [`http://localhost:${gateway.port}`], pairing,
       idempotency: { ...(existsSync(receiptsPath) ? { restore: readFileSync(receiptsPath, 'utf8') } : {}), persist: (json) => writeFileSync(receiptsPath, json) },
     })
   }
@@ -127,13 +128,14 @@ async function realHost(label: string): Promise<RunningHost> {
       const port = gateway.port
       await gateway.close()
       await engine.shutdown()
+      await store.closeJournal('sess_same')
       store = new SessionStore({ rootDir: join(dir, 'sessions') })
       engine = makeEngine(store)
       gateway = await start(port)
       Object.assign(host, { store, engine, gateway })
     },
   }
-  cleanups.push(async () => { await gateway.close(); await engine.shutdown() })
+  cleanups.push(async () => { await gateway.close(); await engine.shutdown(); await store.closeJournal('sess_same') })
   return host
 }
 async function pair(machines: MachinesService, host: RunningHost, terminal = false): Promise<string> {
@@ -308,7 +310,7 @@ describe('Machines with two real gateways and engines', () => {
     expect(a.prompts).toEqual([])
   })
 
-  it('registers only scoped RPCs and disposes a stream removed during authorization', async () => {
+  it('registers only scoped RPCs and validates stream params before registering', async () => {
     const machines = client()
     const registry = new RpcRegistry({ send: vi.fn() })
     registerMachinesRpc(registry, machines)
@@ -316,5 +318,129 @@ describe('Machines with two real gateways and engines', () => {
     await expect(registry.invoke('machines.command', { machineId: 'unknown', command: { op: 'command.dispatch', path: 'C:/private' } })).rejects.toThrow(/invalid params/)
     expect(() => subscribeMachineStream(registry, machines, { id: 'bad', name: 'machines.events', params: { sessionId: 'sess_same' } })).toThrow()
     expect(registry.subscriberCount()).toBe(0)
+  })
+
+  it('preserves named IPC failures and leaves generic command outcomes uncertain', async () => {
+    const machines = client()
+    const registry = new RpcRegistry({ send: vi.fn() })
+    registerMachinesRpc(registry, machines)
+    const params = { machineId: 'fixture', query: { op: 'command.status', idempotencyKey: 'receipt_1' } }
+    const query = vi.spyOn(machines, 'query')
+    for (const code of ['not_found', 'conflict', 'unreachable'] as const) {
+      query.mockRejectedValueOnce(new RemoteError(code, `fixture ${code}`))
+      const result = JSON.parse(JSON.stringify(await registry.invoke('machines.query', params))) as unknown
+      expect(machineOperationResultSchema.parse(result)).toEqual({ ok: false, error: { code, message: `fixture ${code}` } })
+    }
+    const mutation = vi.spyOn(machines, 'command').mockResolvedValueOnce({ accepted: true })
+    expect(await registry.invoke('machines.command', { machineId: 'fixture', command: command({ op: 'session.prompt', sessionId: 'sess_same', text: 'one' }) })).toEqual({ ok: true, result: { accepted: true } })
+    mutation.mockRejectedValueOnce(new Error('unknown transport outcome'))
+    await expect(registry.invoke('machines.command', { machineId: 'fixture', command: command({ op: 'session.prompt', sessionId: 'sess_same', text: 'two' }) })).rejects.toThrow(/unknown outcome/)
+    expect(mutation).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops late frames and failures when a subscription id is reused', async () => {
+    const machines = client()
+    const send = vi.fn()
+    const registry = new RpcRegistry({ send })
+    let fail!: (error: unknown) => void
+    let emit!: (frame: MachineEventsFrame) => void
+    vi.spyOn(machines, 'subscribe').mockImplementation((_id, _scope, listener) => {
+      emit = listener
+      return new Promise<void>((_resolve, reject) => { fail = reject })
+    })
+    subscribeMachineStream(registry, machines, { id: 'reused', name: 'machines.events', params: { machineId: 'A', sessionId: 'same' } })
+    registry.unsubscribe('reused')
+    registry.subscribe({ id: 'reused', name: 'session.events', params: { sessionId: 'local' } })
+    emit({ machineId: 'A', message: { type: 'events.frame', sessionId: 'same', events: [] } })
+    fail(new RemoteError('not_found', 'old subscription failure'))
+    await vi.waitFor(() => expect(send).not.toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('cancels actual delayed authorization before opening a removed/reused stream', async () => {
+    const host = await realHost('A')
+    const profile = temporary()
+    const box = aesGcmSecretBox(randomBytes(32))
+    const original = client(profile, { secretBox: () => box })
+    const machineId = await pair(original, host)
+    original.dispose()
+    const network = new MachineNetwork({ allowLoopback: true })
+    const clientOptions = network.clientOptions.bind(network)
+    let release!: () => void
+    let entered = false
+    let sockets = 0
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.spyOn(network, 'clientOptions').mockImplementation(async (route) => {
+      const options = await clientOptions(route)
+      return { ...options,
+        fetch: async (input, init) => {
+          const response = await options.fetch!(input, init)
+          if (String(input).endsWith('/device/authorize')) { entered = true; await gate }
+          return response
+        },
+        webSocket: (url, protocols) => { sockets++; return options.webSocket!(url, protocols) },
+      }
+    })
+    const machines = client(profile, { secretBox: () => box, network })
+    const send = vi.fn()
+    const registry = new RpcRegistry({ send })
+    subscribeMachineStream(registry, machines, { id: 'pending', name: 'machines.events', params: { machineId, sessionId: 'sess_same' } })
+    await vi.waitFor(() => expect(entered).toBe(true))
+    machines.unsubscribe('pending')
+    registry.unsubscribe('pending')
+    registry.subscribe({ id: 'pending', name: 'session.events', params: { sessionId: 'local' } })
+    release()
+    await vi.waitFor(() => expect(machines.list()[0]?.status).toBe('connected'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(sockets).toBe(0)
+    expect(send).not.toHaveBeenCalled()
+    await expect(machines.query(machineId, { op: 'project.list' })).resolves.toHaveLength(1)
+  })
+
+  it('merges verified host routes and fails over reads without replacing credentials', async () => {
+    const host = await realHost('A')
+    const profile = temporary()
+    const network = new MachineNetwork({ allowLoopback: true, resolve: async () => [{ address: '127.0.0.1', family: 4 }] })
+    const options = network.clientOptions.bind(network)
+    let primaryOffline = false
+    vi.spyOn(network, 'clientOptions').mockImplementation((route) => {
+      if (primaryOffline && route.origin === host.gateway.origin) return Promise.reject(new RemoteError('unreachable', 'primary route offline'))
+      return options(route)
+    })
+    const machines = client(profile, { network })
+    const id = await pair(machines, host)
+    const cipher = new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher
+    const alternate = await machines.add(`http://localhost:${host.gateway.port}`)
+    expect(alternate.id).toBe(id)
+    expect(alternate.routes).toHaveLength(2)
+    expect(machines.list()).toHaveLength(1)
+    primaryOffline = true
+    expect((await machines.connect(id)).status).toBe('connected')
+    expect(await machines.query(id, { op: 'project.list' })).toHaveLength(1)
+    expect(new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher).toBe(cipher)
+    expect(host.gateway.pairing.devices()).toHaveLength(1)
+  })
+
+  it('recovers a failed OS-keyring unlock using the original paired key', async () => {
+    const host = await realHost('A')
+    const profile = temporary()
+    const box = aesGcmSecretBox(randomBytes(32))
+    let available = true
+    const original = client(profile, { secretBox: () => box })
+    const id = await pair(original, host)
+    const cipher = new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher
+    original.dispose()
+    available = false
+    const restored = client(profile, { secretBox: () => available ? box : null })
+    expect((await restored.connect(id)).status).toBe('offline')
+    available = true
+    expect((await restored.connect(id)).status).toBe('connected')
+    expect(new MachinesRegistry(join(profile, 'machines.json')).get(id).credentialCipher).toBe(cipher)
+    expect(host.gateway.pairing.devices()).toHaveLength(1)
+    restored.dispose()
+    const removing = client(profile, { secretBox: () => box })
+    expect(await removing.remove(id)).toEqual({ removed: true })
+    expect(host.gateway.pairing.devices()).toHaveLength(0)
   })
 })

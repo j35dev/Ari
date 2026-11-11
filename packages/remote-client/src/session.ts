@@ -195,6 +195,7 @@ export class RemoteSession {
     )
     this.#onPairCode?.(confirmationCode)
     await this.#awaitDecision(invitationId, signal)
+    await this.negotiate(signal)
     const signature = await this.#keyring.sign(nonce)
     signal?.throwIfAborted()
     const redeemed = await this.#client.pairRedeem(invitationId, { nonce, signature })
