@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { machineViewSchema, type MachineView } from '@ari/contracts/machines'
 import { rpc } from '../../lib/rpc'
 import { messageOf } from './remote-client'
@@ -8,7 +16,11 @@ interface MachinesState {
   error: string | null
   refresh: () => Promise<void>
 }
-const Context = createContext<MachinesState>({ machines: [], error: null, refresh: async () => undefined })
+const Context = createContext<MachinesState>({
+  machines: [],
+  error: null,
+  refresh: async () => undefined,
+})
 
 export function MachinesProvider({ children }: { children: ReactNode }) {
   const [machines, setMachines] = useState<MachineView[]>([])
@@ -30,11 +42,18 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
     alive.current = true
     const unsubscribe = rpc.subscribe('machines.updates', {}, (raw) => {
       const parsed = machineViewSchema.array().safeParse(raw)
-      if (alive.current && parsed.success) { revision.current++; setMachines(parsed.data) }
+      if (alive.current && parsed.success) {
+        revision.current++
+        setMachines(parsed.data)
+      }
     })
     void refresh()
     const timer = setInterval(() => void refresh(), 15_000)
-    return () => { alive.current = false; unsubscribe(); clearInterval(timer) }
+    return () => {
+      alive.current = false
+      unsubscribe()
+      clearInterval(timer)
+    }
   }, [refresh])
   return <Context.Provider value={{ machines, error, refresh }}>{children}</Context.Provider>
 }

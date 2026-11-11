@@ -231,10 +231,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
   const panesVisible =
-    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null && fullPage === null
+    !setupCovered &&
+    !settingsOpen &&
+    !hubOpen &&
+    !galleryOpen &&
+    remoteTarget === null &&
+    fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
-  const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null
+  const tabsVisible =
+    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null
   const [composerFocusRequest, setComposerFocusRequest] = useState<{
     sessionId: string
     intent: SessionStartIntent
@@ -909,7 +915,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       if (remoteTargetRef.current !== null) {
         if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
           e.preventDefault()
-          setRemoteTarget((target) => target ? { ...target, sessionId: null } : target)
+          setRemoteTarget((target) => (target ? { ...target, sessionId: null } : target))
         }
         return
       }
@@ -1315,24 +1321,28 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
-      {remoteTarget !== null ? <Titlebar minimal /> : <Titlebar
-        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
-        onSelectTool={selectWorkspaceTool}
-        changeCount={changeSummary.summary?.changedFiles ?? null}
-        git={
-          sourceControlScope && changeSummary.summary ? (
-            <GitControl
-              scope={sourceControlScope}
-              summary={changeSummary.summary}
-              refresh={changeSummary.refresh}
-              onReview={() => openSourceControl('changes')}
-              onPullRequests={() => openSourceControl('requests')}
-            />
-          ) : undefined
-        }
-        usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
-        onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
-      />}
+      {remoteTarget !== null ? (
+        <Titlebar minimal />
+      ) : (
+        <Titlebar
+          activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
+          onSelectTool={selectWorkspaceTool}
+          changeCount={changeSummary.summary?.changedFiles ?? null}
+          git={
+            sourceControlScope && changeSummary.summary ? (
+              <GitControl
+                scope={sourceControlScope}
+                summary={changeSummary.summary}
+                refresh={changeSummary.refresh}
+                onReview={() => openSourceControl('changes')}
+                onPullRequests={() => openSourceControl('requests')}
+              />
+            ) : undefined
+          }
+          usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
+          onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
+        />
+      )}
       {/* Settings and the hub cover the workspace rather than replace it: the
           sidebar, sessions and terminals stay mounted underneath, so going
           back is instant and nothing replays. */}
@@ -1341,7 +1351,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           section={settingsSection}
           onSectionChange={setSettingsSection}
           onBack={() => setSettingsOpen(false)}
-          onOpenMachine={(machineId) => { setSettingsOpen(false); setHubOpen(false); setRemoteTarget({ machineId, sessionId: null }) }}
+          onOpenMachine={(machineId) => {
+            setSettingsOpen(false)
+            setHubOpen(false)
+            setRemoteTarget({ machineId, sessionId: null })
+          }}
           onOpenSetup={onOpenSetup}
           workspacePath={sessionWorkspace?.path ?? null}
           onOpenTerminal={() => {
@@ -1357,7 +1371,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onBack={() => setHubOpen(false)}
         />
       ) : null}
-      {remoteTarget !== null && !settingsOpen && !hubOpen && <RemoteWorkspace target={remoteTarget} onSelect={(machineId, sessionId) => { setPaletteOpen(false); setSearchOpen(false); setRemoteTarget({ machineId, sessionId }) }} onBack={() => setRemoteTarget(null)} onManage={() => { setSettingsSection('machines'); setSettingsOpen(true) }} />}
+      {remoteTarget !== null && !settingsOpen && !hubOpen && (
+        <RemoteWorkspace
+          target={remoteTarget}
+          onSelect={(machineId, sessionId) => {
+            setPaletteOpen(false)
+            setSearchOpen(false)
+            setRemoteTarget({ machineId, sessionId })
+          }}
+          onBack={() => setRemoteTarget(null)}
+          onManage={() => {
+            setSettingsSection('machines')
+            setSettingsOpen(true)
+          }}
+        />
+      )}
       <div
         className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
         hidden={workspaceToolOpen}
@@ -1476,7 +1504,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   })()
                 }}
               />
-              <RemoteMachineGroups onOpen={(machineId, sessionId) => { setRemoteTarget({ machineId, sessionId }); setPaletteOpen(false); setSearchOpen(false) }} onManage={() => { setSettingsSection('machines'); setSettingsOpen(true) }} query={sidebarQuery} />
+              <RemoteMachineGroups
+                onOpen={(machineId, sessionId) => {
+                  setRemoteTarget({ machineId, sessionId })
+                  setPaletteOpen(false)
+                  setSearchOpen(false)
+                }}
+                onManage={() => {
+                  setSettingsSection('machines')
+                  setSettingsOpen(true)
+                }}
+                query={sidebarQuery}
+              />
             </motion.aside>
           ) : null}
         </AnimatePresence>
@@ -1829,7 +1868,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         scope={activeScope}
       />
       {setupCovered || remoteTarget !== null ? null : <KeyboardCheatSheet />}
-      {newSessionRequest !== null && machines.length > 0 && !localSessionChosen && <MachineChooser machines={machines} onClose={closeNewSessionMenu} onChoose={(machineId) => { if (machineId === null) setLocalSessionChosen(true); else { closeNewSessionMenu(); setSettingsOpen(false); setHubOpen(false); setRemoteTarget({ machineId, sessionId: null }) } }} />}
+      {newSessionRequest !== null && machines.length > 0 && !localSessionChosen && (
+        <MachineChooser
+          machines={machines}
+          onClose={closeNewSessionMenu}
+          onChoose={(machineId) => {
+            if (machineId === null) setLocalSessionChosen(true)
+            else {
+              closeNewSessionMenu()
+              setSettingsOpen(false)
+              setHubOpen(false)
+              setRemoteTarget({ machineId, sessionId: null })
+            }
+          }}
+        />
+      )}
       <NewSessionLauncher
         open={newSessionRequest !== null && (machines.length === 0 || localSessionChosen)}
         projects={projects}
@@ -1853,8 +1906,8 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <RendererMotion>
         <ToastProvider>
           <MachinesProvider>
-          <UpdateToastWatcher />
-          {children}
+            <UpdateToastWatcher />
+            {children}
           </MachinesProvider>
         </ToastProvider>
       </RendererMotion>
