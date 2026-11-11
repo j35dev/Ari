@@ -289,11 +289,10 @@ export class RemoteSession {
   /**
    * Sends a mutation, with the retry behaviour a phone needs.
    *
-   * The key is minted once and reused for every attempt: if the first request
-   * arrived and the response was lost, the retry is recognized and the
-   * recorded outcome is returned instead of the work happening twice. A
-   * command that fails for a reason the desktop can explain is not retried at
-   * all — repeating it would ask the same question and get the same answer.
+   * The key is minted once. A lost response triggers read-only receipt lookup,
+   * never an automatic resend: missing history cannot prove nonexecution.
+   * Only a gateway authentication refusal before dispatch permits renewal and
+   * another attempt under the same key.
    */
   async send<T extends { op: string }>(envelope: T, idempotencyKey = mintKey()): Promise<unknown> {
     const signal = this.#operationSignal()
@@ -317,18 +316,16 @@ export class RemoteSession {
           await this.#reauth(signal)
           continue
         }
-        if (error.code === 'unreachable' && attempt === 0) {
+        if (error.code === 'unreachable') {
           // The request may or may not have arrived. Asking about the key is
           // the only way to tell, and it is what keeps a prompt from being
           // sent twice.
-          const outcome = await this.#reconcile(idempotencyKey, signal)
-          if (outcome !== undefined) return outcome
-          continue
+          return await this.#reconcile(idempotencyKey, signal)
         }
-        throw error
+        throw new RemoteError(error.code, error.message, error.status, idempotencyKey)
       }
     }
-    throw new RemoteError('unreachable', 'the desktop did not answer')
+    throw new RemoteError('unreachable', 'The command outcome is unknown. Inspect this computer before sending it again.', 0, idempotencyKey)
   }
 
   /** A read, renewed once if the token has aged out. */
@@ -497,19 +494,21 @@ export class RemoteSession {
   /** Asks the desktop what became of a command whose answer was lost. */
   async #reconcile(idempotencyKey: string, signal: AbortSignal): Promise<unknown> {
     try {
-      const result = await this.#client.query('command.status', { idempotencyKey })
+      const result = await this.#client.query<unknown>('command.status', { idempotencyKey })
       signal.throwIfAborted()
+      if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true || !('result' in result))
+        throw new RemoteError('unreachable', 'The computer returned no authoritative command outcome. Inspect it before sending again.', 0, idempotencyKey)
       return result
     } catch (error) {
       signal.throwIfAborted()
-      // A key the desktop never saw means the command never arrived, and the
-      // caller is free to send it again under the same key.
-      if (error instanceof RemoteError && error.code === 'not_found') return undefined
-      // Anything still running reports as a conflict; the outcome is not
-      // knowable yet, and guessing would be worse than saying so.
-      if (error instanceof RemoteError && error.code === 'conflict') {
-        throw new RemoteError('conflict', 'the desktop is still working on that')
-      }
+      // Receipt absence can mean lost, corrupt, expired or evicted history.
+      // It cannot authorize another mutation, even under the original key.
+      if (error instanceof RemoteError) throw new RemoteError(
+        error.code === 'not_found' ? 'unreachable' : error.code,
+        'The command may have executed, but its outcome cannot be confirmed. Inspect this computer before sending it again.',
+        error.status,
+        idempotencyKey,
+      )
       throw error
     }
   }
