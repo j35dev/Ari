@@ -37,6 +37,13 @@ describe('computer directory boundary', () => {
     forgetComputerState(one)
     expect(sessionStorage.length).toBe(12)
     expect(sessionStorage.getItem(`ari.pending:${two}:phone:same`)).toBe('two')
+    const firstFork = `ari.fork:${JSON.stringify([one, 'phone', 'same'])}`
+    const secondFork = `ari.fork:${JSON.stringify([two, 'phone', 'same'])}`
+    sessionStorage.setItem(firstFork, 'one')
+    sessionStorage.setItem(secondFork, 'two')
+    forgetComputerState(one)
+    expect(sessionStorage.getItem(firstFork)).toBeNull()
+    expect(sessionStorage.getItem(secondFork)).toBe('two')
   })
   it('ignores invalid saved entries and never restores connected status as live proof', () => {
     localStorage.setItem(COMPUTERS_KEY, JSON.stringify([{ origin: one, name: 'Studio', status: 'connected', lastConnectedAt: 123 }, { origin: 'file:///private' }]))

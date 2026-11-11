@@ -4,13 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider, useApp } from './app-state'
 import { MemoryDeviceStore, type DeviceStore } from './device-key'
+import type * as GatewayClientModule from './gateway-client'
 
 const transport = vi.hoisted(() => ({
   redeem: vi.fn<() => Promise<{ token: string; deviceId: string }>>(),
   failure: vi.fn(), forgotten: vi.fn(), token: null as string | null,
 }))
 vi.mock('./gateway-client', async (original) => ({
-  ...(await original<typeof import('./gateway-client')>()),
+  ...(await original<typeof GatewayClientModule>()),
   GatewayClient: class {
     get token() { return transport.token }
     set token(value: string | null) { transport.token = value }

@@ -47,8 +47,9 @@ export function saveComputer(
 
 function parseComputers(value: unknown): SavedComputer[] {
   if (!Array.isArray(value)) return []
+  const entries: readonly unknown[] = value
   let computers: SavedComputer[] = []
-  for (const item of value.slice(0, MAX_COMPUTERS)) {
+  for (const item of entries.slice(0, MAX_COMPUTERS)) {
     if (typeof item !== 'object' || item === null || !('origin' in item) || typeof item.origin !== 'string') continue
     try {
       const name = 'name' in item && typeof item.name === 'string' ? item.name : undefined
@@ -122,7 +123,14 @@ export function forgetComputerState(origin: string): void {
     const remove: string[] = []
     for (let index = 0; index < sessionStorage.length; index++) {
       const key = sessionStorage.key(index)
-      if (key !== null && prefixes.some((prefix) => key.startsWith(`ari.${prefix}:${origin}:`))) remove.push(key)
+      if (key === null) continue
+      if (prefixes.some((prefix) => key.startsWith(`ari.${prefix}:${origin}:`))) remove.push(key)
+      else if (key.startsWith('ari.fork:')) {
+        try {
+          const scope: unknown = JSON.parse(key.slice('ari.fork:'.length))
+          if (Array.isArray(scope) && scope[0] === origin) remove.push(key)
+        } catch { /* Not a scoped fork receipt. */ }
+      }
     }
     remove.forEach((key) => sessionStorage.removeItem(key))
   } catch (error) { console.warn('Could not clear this computer’s local drafts', error) }

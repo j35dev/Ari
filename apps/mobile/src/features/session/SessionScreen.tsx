@@ -34,6 +34,7 @@ import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { SessionControls } from '../../components/SessionControls'
 import { EmptyState } from '../../components/EmptyState'
 import { connectionLabel } from '../../lib/format'
+import { computerName } from '../../lib/computers'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
   return { default: module.Terminal }
@@ -244,7 +245,7 @@ function SessionWorkspace({
               className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting || delegated?.endsWith('you') === true ? 'bg-warning' : 'bg-fg-subtle'}`}
             />
             <span className="truncate">
-              {`${projectName}, ${
+              {`${app.activeComputer?.name ?? (app.origin === null ? 'Computer' : computerName(app.origin))} · ${projectName}, ${
                 app.connection !== 'connected'
                   ? 'offline'
                   : snapshot?.session.status === 'running'
