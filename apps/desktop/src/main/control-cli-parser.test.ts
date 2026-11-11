@@ -10,8 +10,20 @@ const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
 }
 
 it('passes explicit root worktree selection through project session spawn', () => {
-  expect(cli.parse(['session', 'spawn', '--project', 'project', '--title', 'Parallel', '--workspace', 'isolated'])).toMatchObject({
-    method: 'session.spawn', params: { projectId: 'project', workspaceMode: 'isolated' },
+  expect(
+    cli.parse([
+      'session',
+      'spawn',
+      '--project',
+      'project',
+      '--title',
+      'Parallel',
+      '--workspace',
+      'isolated',
+    ]),
+  ).toMatchObject({
+    method: 'session.spawn',
+    params: { projectId: 'project', workspaceMode: 'isolated' },
   })
 })
 

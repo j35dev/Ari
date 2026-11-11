@@ -169,7 +169,10 @@ export function useSessionStart(options: {
             )?.id
           : undefined)
       if (reusable) {
-        const workspace = await rpc.invoke('session.workspace', { sessionId: reusable, checkOccupancy: true })
+        const workspace = await rpc.invoke('session.workspace', {
+          sessionId: reusable,
+          checkOccupancy: true,
+        })
         if (workspace.busyReason) {
           reusable = undefined
           attempt.reusableId = undefined
