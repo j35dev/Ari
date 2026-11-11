@@ -16,7 +16,9 @@ Fresh B/C/D/E/F workers author in parallel, one per D: worktree, and all heavy
 checks take the shared atomic .heavy.lock lease via scripts/coordination/run-heavy.mjs.
 Transient resource-gate failures wait/recheck for up to 15 minutes. Core will
 commit shared client/types first for desktop/mobile to cherry-pick. Remaining
-workstreams and the two-real-engine proof are still incomplete.
+workstreams are being reviewed. Core's authored branch now has a passing
+two-real-engine/two-gateway loopback proof (nine focused Machines tests), not yet
+certified against the final integrated snapshot.
 
 ## Review follow-ups for B
 
@@ -48,3 +50,23 @@ workstreams and the two-real-engine proof are still incomplete.
   or command.dispatch handlers.
 
 These notes are review observations, not accepted implementation or test claims.
+
+## Active integration review
+
+The desktop reviewer identified that Electron IPC drops custom Error.code.
+Core published additive contract b0bb6ddb for structured query/command results
+and will preserve named remote failures at that boundary. Unknown IPC failures
+remain uncertain; the renderer retains the original machine-scoped receipt and
+does not automatically repeat a mutation.
+
+Core follow-ups cover a late stream failure sent to a reused subscription ID,
+failed credential loading leaving a cached connection, and verified multi-route
+merging/failover. Desktop follow-ups cover machine-scoped new-session drafts,
+streaming scroll behavior and explicit differences from the normal session view.
+Mobile follow-ups cover pairing cancellation and disconnecting abandoned clients
+so delayed work cannot restore a forgotten credential.
+
+Review Machines security is an independent report-only worker, running
+codex/gpt-6.1-sol at high effort with full permissions. It initially audits the
+authored branches read-only, then reviews the exact integrated snapshot. It
+shares the heavy-work lease if any reproduction needs a test process.
