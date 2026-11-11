@@ -40,7 +40,7 @@ export const app = {
     supports: (op: string) => capabilities.includes(op),
     watch: () => () => {},
     query: async (op: string, args: { sessionId?: string } = {}) => {
-      if (op === 'attention.list') return { items: view === 'empty' ? [] : [{ sessionId: 'review-approval', projectId: 'ari', title: 'Review mobile access', kind: 'approval', count: 1, summary: 'Run the mobile typecheck?', updatedAt: now - 60_000 }], nextCursor: null }
+      if (op === 'attention.list') return { items: view === 'empty' ? [] : [{ sessionId: 'review-approval', projectId: 'ari', title: 'Review mobile access', status: 'waiting-approval', pendingApprovals: [approval], pendingInputs: [], error: null, updatedAt: now - 60_000 }], nextCursor: null }
       if (op === 'changes.files') return { base: 'session-base', error: null, files: [{ path: 'apps/mobile/src/features/session/SessionScreen.tsx', hunks: [], isNew: false }, { path: 'apps/mobile/src/lib/computers.ts', hunks: [], isNew: true }] }
       if (op === 'files.list') return { path: '', entries: [{ path: 'src', name: 'src', kind: 'directory' }, { path: 'README.md', name: 'README.md', kind: 'file' }, { path: 'package.json', name: 'package.json', kind: 'file' }], error: null, nextCursor: null }
       if (op === 'session.get') {

@@ -8,7 +8,7 @@ import { OptionSheet } from '../../components/OptionSheet'
 import { SessionControls } from '../../components/SessionControls'
 import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
-import { writeDraft, writePending, type PendingSubmission } from '../../lib/draft'
+import { readDraft, writeDraft, writePending, type PendingSubmission } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
 import { readCreation, writeCreation, type NewSessionRequest } from '../../lib/new-session'
 
@@ -40,7 +40,7 @@ export function NewChatScreen({
   const [model, setModel] = useState(restored?.modelId ?? '')
   const [effort, setEffort] = useState<string | null>(restored?.effort ?? null)
   const [mode, setMode] = useState<PermissionMode | null>(restored?.permissionMode ?? null)
-  const [text, setText] = useState(restored?.draft ?? '')
+  const [text, setText] = useState(restored?.draft ?? readDraft(app.origin, '$new', deviceId))
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(
     restored === null
@@ -50,6 +50,7 @@ export function NewChatScreen({
   const [pending, setPending] = useState<NewSessionRequest | null>(restored)
   const [picking, setPicking] = useState<'model' | 'project' | null>(null)
   const area = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { writeDraft(app.origin, '$new', text, deviceId) }, [app.origin, deviceId, text])
   useEffect(() => {
     if (area.current !== null) {
       area.current.style.height = 'auto'
@@ -104,6 +105,7 @@ export function NewChatScreen({
       return
     }
     writeCreation(app.origin, deviceId, null)
+    writeDraft(app.origin, '$new', '', deviceId)
     await sendFirst(id, command.draft)
     await app
       .refresh()
