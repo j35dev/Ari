@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { machinesRpcParams, type MachinesRpcResults } from './machines'
 import { orchestrationParams, type OrchestrationResults } from './orchestration'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
@@ -319,6 +320,8 @@ export const streamNames = [
   'app.updates',
   'browser.updated',
   'remote.updates',
+  'machines.events',
+  'machines.updates',
   'app.navigate',
   'scm.changed',
 ] as const
@@ -1128,6 +1131,7 @@ export const rpcParams = {
   }),
   'plan.get': z.object({ sessionId: z.string().min(1) }),
   'scripts.list': gitScopeSchema,
+  ...machinesRpcParams,
   'remote.status': z.undefined(),
   /**
    * Turning remote access on is the act that starts the gateway and records
@@ -1198,7 +1202,7 @@ export const rpcParams = {
 
 export type RpcMethod = keyof typeof rpcParams
 
-export interface RpcResults extends OrchestrationResults {
+export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   ping: { pong: boolean; at: number }
   'app.navigation.consumer': { registered: boolean }
   'app.navigation.validate': z.infer<typeof appNavigationValidationSchema>

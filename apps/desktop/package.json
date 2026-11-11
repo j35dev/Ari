@@ -70,6 +70,7 @@
     "shiki": "^4.4.3",
     "tailwindcss": "^4.3.3",
     "unified": "^11.0.5",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "@ari/remote-client": "workspace:*"
   }
 }
