@@ -146,6 +146,9 @@ importers:
       '@ari/providers':
         specifier: workspace:*
         version: link:../../packages/providers
+      '@ari/remote-client':
+        specifier: workspace:*
+        version: link:../../packages/remote-client
       '@ari/remote-gateway':
         specifier: workspace:*
         version: link:../../packages/remote-gateway
@@ -224,6 +227,9 @@ importers:
       '@ari/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ari/remote-client':
+        specifier: workspace:*
+        version: link:../../packages/remote-client
       '@ari/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -324,6 +330,12 @@ importers:
       '@ari/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/remote-client:
+    dependencies:
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/remote-gateway:
     dependencies:

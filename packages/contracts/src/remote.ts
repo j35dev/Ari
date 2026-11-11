@@ -575,6 +575,9 @@ export type RemoteAccounts = z.infer<typeof remoteAccountsSchema>
  * before anyone has authenticated.
  */
 export const gatewayInfoSchema = z.object({
+  machineId: z.string().min(1).max(200).optional(),
+  name: z.string().min(1).max(100).optional(),
+  ariVersion: z.string().min(1).max(100).optional(),
   protocolVersion: z.number().int().positive(),
   capabilities: z.array(remoteOperationSchema),
 })
