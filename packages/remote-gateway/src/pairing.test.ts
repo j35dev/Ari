@@ -69,7 +69,11 @@ describe('pairing', () => {
       projectIds: () => registry.projectIds,
       persist: { save: (state) => saved.push(state) },
     })
-    expect(saved[0]?.devices[0]).toMatchObject({ allProjects: true, projectIds: ['saved'], allowTerminal: true })
+    expect(saved[0]?.devices[0]).toMatchObject({
+      allProjects: true,
+      projectIds: ['saved'],
+      allowTerminal: true,
+    })
     expect(service.devices()[0]?.projectIds).toEqual(['saved'])
     registry.projectIds = []
     expect(service.devices()[0]?.projectIds).toEqual([])
