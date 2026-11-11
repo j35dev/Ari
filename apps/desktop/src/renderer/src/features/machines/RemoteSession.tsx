@@ -194,6 +194,7 @@ export function RemoteSession({
     }
   }
   const can = (op: string) => !busy && !pending && machineCan(machine, op)
+  const pendingSessionId = pending && 'sessionId' in pending.command ? pending.command.sessionId : null
   const blocked = !can('session.prompt')
   const terminalGranted = machine.allowTerminal && machineCan(machine, 'terminal.create')
   const activeView = view === 'terminal' && !terminalGranted ? 'chat' : view
@@ -275,7 +276,7 @@ export function RemoteSession({
             saved.
           </p>
           <div className="mt-2 flex gap-2">
-            {'sessionId' in pending.command && pending.command.sessionId !== sessionId && <Button size="sm" onClick={() => onOpenSession(pending.command.sessionId)}>Open affected agent</Button>}
+            {pendingSessionId && pendingSessionId !== sessionId && <Button size="sm" onClick={() => onOpenSession(pendingSessionId)}>Open affected agent</Button>}
             <Button
               size="sm"
               disabled={busy || machine.status !== 'connected'}
