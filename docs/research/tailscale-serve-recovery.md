@@ -71,15 +71,57 @@ unknown configuration and Funnel rejection.
 
 The added pairing test uses a real temporary loopback gateway and PWA fixture
 with stub host dependencies. It checks non-443 invitation/PWA/allowed origins,
-gateway restart repair, and rejection of the unselected 443 origin. It is an
-origin integration check, not a two-computer or full-engine end-to-end test.
-Updated focused verification passed 3 files / 62 tests, with one Vitest worker.
-Desktop and contracts package typechecks passed. Scoped ESLint passed for all
-changed TypeScript files. Prettier's API confirmed exact formatted content for
-the three new/reworked Tailscale files; the CLI formatting check passed the other
-changed files. Heavy commands ran individually at below-normal priority, after
-saving WIP commits and checking C: free space and virtual commit headroom.
-The implementation commit is recorded in the final report.
+P-256 pairing with matching confirmation codes, persisted device identity,
+gateway restart repair, fresh signed authorization after restart, and rejection
+of the unselected 443 origin. The existing QR component consumes that exact
+invitation URL; visual QR/PWA installation checks belong to B and hardware.
+This is an origin/authentication integration check, not a two-computer or
+full-engine end-to-end test.
+
+Final replacement-worker verification on 2026-11-11 (all commands exited 0):
+
+```powershell
+pnpm --filter @ari/desktop exec vitest run src/main/tailscale.test.ts src/main/remote-origins.test.ts src/main/tailscale-pairing.test.ts --maxWorkers=1 --no-file-parallelism
+pnpm --filter @ari/desktop typecheck
+pnpm --filter @ari/contracts typecheck
+pnpm exec eslint apps/desktop/src/main
+pnpm exec eslint packages/contracts
+```
+
+Focused suites passed 3 files / 69 tests. The replacement worker's first run
+passed 62 tests before its review fixes. Prettier formatted all eight changed
+files; the final formatting check is recorded in the final report.
+
+Each heavy step ran sequentially from a clean committed checkpoint. Its
+PowerShell parent used BelowNormal priority, with Node heap capped at 1536 MiB.
+TEMP/TMP were `D:/Projects/.ari-cache/tmp` and pnpm store configuration was
+`D:/Projects/.ari-cache/pnpm-store`; no install or build was required.
+Every step required at least 5 GiB free on C: and at least 1.5 GiB of commit
+headroom, measured as commit limit minus committed bytes using
+`Win32_PerfFormattedData_PerfOS_Memory`. Pre-step readings
+(C: free / commit headroom, GiB):
+
+- Initial focused tests: 16.796 / 2.012.
+- Formatting: 16.804 / 2.861.
+- Final focused tests: 16.804 / 2.929.
+- Desktop typecheck: 16.803 / 2.765.
+- Contracts typecheck: 16.804 / 2.507.
+- Desktop main lint: 16.803 / 2.966.
+- Contracts lint: 16.802 / 4.370.
+
+Self-review tightened two previously ambiguous cases: successful empty CLI
+output and Web handlers without a recognizable TCP listener now fail closed.
+It also enabled exact confirmation of a valid empty text root without allowing
+empty proxy/path targets. Added regression coverage checks replacement-kind
+races, incompatible HTTP/TCP selection, and the 16-target/two-probe bound.
+No other unresolved code finding remained after scoped validation.
+
+Implementation: `b63c309f`, following contract commit `cfa56105`. The previous
+worker rewrote WIP history while the replacement worker was validating; a full
+diff from its tested `86c1b33d` checkpoint to `b63c309f` shows only documentation
+changes, proving the implementation code tree is identical. After the parent
+confirmed the old writer was idle, the replacement worker appended this evidence
+without rewriting either retained commit.
 
 ## Remaining release checks and limits
 
