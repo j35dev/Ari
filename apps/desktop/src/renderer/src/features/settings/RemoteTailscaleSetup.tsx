@@ -52,9 +52,13 @@ export function RemoteTailscaleSetup({
           aria-label="Existing Tailscale addresses"
           className="rounded-lg bg-surface-2/60 p-3"
         >
-          <p className="text-sm font-medium">An address is already in use</p>
+          <p className="text-sm font-medium">
+            {owned ? 'Other services share this address' : 'An address is already in use'}
+          </p>
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            Use another port to keep the existing service available, or review a replacement below.
+            {owned
+              ? 'Repair Ari on its saved port. These services stay available.'
+              : 'Use another port to keep these services available. Review a root replacement only if you want Ari to take its address.'}
           </p>
           <ul className="mt-2 divide-y divide-border">
             {conflicts.map((conflict, index) => (
