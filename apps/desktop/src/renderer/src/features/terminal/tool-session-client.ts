@@ -1,5 +1,8 @@
 import { useMemo, useSyncExternalStore } from 'react'
-import { observeMachineInventory, machineInventoryRevision } from '../session/session-machine-access'
+import {
+  observeMachineInventory,
+  machineInventoryRevision,
+} from '../session/session-machine-access'
 import { registerSessionCacheInvalidator } from '../session/session-scope'
 import { forgetMachineTerminals } from './terminal-dock'
 import {
@@ -13,13 +16,20 @@ import {
 registerSessionCacheInvalidator(forgetMachineTerminals)
 
 function refuse(client: SessionClient, reason: string): SessionClient {
-  const reject = async (): Promise<never> => { throw new Error(reason) }
+  const reject = async (): Promise<never> => {
+    throw new Error(reason)
+  }
   return {
     ...client,
-    availability: 'unavailable', readOnly: true,
-    invoke: reject, subscribe: () => () => undefined,
+    availability: 'unavailable',
+    readOnly: true,
+    invoke: reject,
+    subscribe: () => () => undefined,
     capabilityReason: () => reason,
-    receipt: () => null, checkReceipt: reject, stageImages: reject, reconnect: reject,
+    receipt: () => null,
+    checkReceipt: reject,
+    stageImages: reject,
+    reconnect: reject,
   }
 }
 
@@ -37,8 +47,10 @@ export function useToolSessionClient(sessionId?: string): SessionClient {
     if (scope?.kind !== 'remote') return refuse(inherited, 'The remote tool reference is invalid.')
     return createSessionClient(scope)
   }, [inherited, sessionId])
-  useSyncExternalStore(client.scope.kind === 'remote' ? observeMachineInventory : () => () => undefined,
-    machineInventoryRevision)
+  useSyncExternalStore(
+    client.scope.kind === 'remote' ? observeMachineInventory : () => () => undefined,
+    machineInventoryRevision,
+  )
   return client
 }
 
@@ -47,8 +59,11 @@ export function toolWireScope<T extends { sessionId?: string; projectId?: string
   client: SessionClient,
   scope: T,
 ): T | { sessionId: string } {
-  if (client.scope.kind === 'remote' && scope.sessionId &&
-    (scope.sessionId === client.scope.sessionId || scope.sessionId === client.viewKey))
+  if (
+    client.scope.kind === 'remote' &&
+    scope.sessionId &&
+    (scope.sessionId === client.scope.sessionId || scope.sessionId === client.viewKey)
+  )
     return { sessionId: client.scope.sessionId }
   return scope
 }
