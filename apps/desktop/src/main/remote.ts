@@ -184,7 +184,7 @@ export class RemoteService {
   }
 
   /** A metadata-only local RPC; no local privileged RPC is exported to a remote client. */
-  async localSnapshot(): Promise<MachinesLocalSnapshot> {
+  async localSnapshot(params?: { sampleResources?: boolean }): Promise<MachinesLocalSnapshot> {
     if (!this.#identity) throw new Error(IDENTITY_ERROR)
     const host = createRemoteHost({
       engine: this.#deps.engine, store: this.#deps.store, driverKinds: this.#deps.driverKinds,
@@ -195,7 +195,10 @@ export class RemoteService {
     })
     const caller = { deviceId: 'local', projectIds: [], allProjects: true }
     const [catalog, resources, version, models] = await Promise.all([
-      host.query(caller, 'project.catalog', {}), host.query(caller, 'host.resources', {}),
+      host.query(caller, 'project.catalog', {}), params?.sampleResources === true
+        ? host.query(caller, 'host.resources', {})
+        : { status: 'unavailable', sampledAt: null, cpuUtilization: null, cpuCount: null,
+            availableMemoryBytes: null, totalMemoryBytes: null, reason: 'Resource sampling was not requested.' },
       host.query(caller, 'host.version', {}), host.query(caller, 'models.list', {}),
     ])
     return machinesLocalSnapshotSchema.parse({ identity: { machineId: this.#identity.machineId, name: this.#identity.name },

@@ -1,5 +1,4 @@
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises'
-import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
 import { parseJsonLines, type ParsedLine } from '@ari/shared/jsonl'
 import { createLogger } from '@ari/shared/logger'
@@ -178,14 +177,16 @@ export class Journal<T> {
       try {
         const { size } = await handle.stat()
         if (size === 0) continue
-        const stream = createReadStream(segment.path, { fd: handle.fd, autoClose: false,
-          end: size - 1, highWaterMark: 64 * 1024, ...(signal ? { signal } : {}) })
         let tail = Buffer.alloc(0)
         let lineNumber = 0
-        try {
-          for await (const data of stream) {
+        const buffer = Buffer.alloc(64 * 1024)
+        let position = 0
+          while (position < size) {
             signal?.throwIfAborted()
-            tail = Buffer.concat([tail, data as Buffer])
+            const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, size - position), position)
+            if (bytesRead === 0) throw new Error('journal segment changed during replay')
+            position += bytesRead
+            tail = Buffer.concat([tail, buffer.subarray(0, bytesRead)])
             let newline = tail.indexOf(10)
             while (newline >= 0) {
               if (newline > 256 * 1024) throw new Error('journal line exceeds replay bound')
@@ -206,9 +207,6 @@ export class Journal<T> {
             if (tail.length > 256 * 1024) throw new Error('journal line exceeds replay bound')
           }
           if (tail.length > 0) throw new Error('incomplete journal tail')
-        } finally {
-          stream.destroy()
-        }
       } finally {
         await handle.close()
       }
