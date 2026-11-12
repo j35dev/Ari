@@ -14,7 +14,7 @@ import { Button } from '@ari/ui/button'
 import { Dialog } from '@ari/ui/dialog'
 import { Popover } from '@ari/ui/popover'
 import { Select } from '@ari/ui/select'
-import { rpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import type { ReviewControlsState } from './ReviewWorkspace'
 
 /** Every local mutation uses the snapshot currently being reviewed. */
@@ -26,6 +26,11 @@ export function ReviewActions({
   loading,
   refresh,
 }: ReviewControlsState) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
+  const unavailableReason = rpc.scope.kind === 'remote'
+    ? 'Git changes must be made on the owning machine. These controls are unavailable remotely.'
+    : rpc.readOnly ? 'Reconnect to the owning machine to change files.' : null
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
   const [commitOpen, setCommitOpen] = useState(false)
@@ -41,13 +46,13 @@ export function ReviewActions({
     context?.status.files.some((file) => paths.includes(file.path) && file.unstaged) ?? false
   const canUnstage =
     context?.status.files.some((file) => paths.includes(file.path) && file.staged) ?? false
-  const disabled = busy || loading || !manifest || !context || !mutable
+  const disabled = unavailableReason !== null || busy || loading || !manifest || !context || !mutable
   const run = async (action: GitMutation): Promise<void> => {
-    if (busy) return
+    if (unavailableReason || busy) return
     setBusy(true)
     setNotice(null)
     try {
-      const result = await rpc.invoke('scm.mutate', { ...scope, action })
+      const result = await rpc.invoke('scm.mutate', { ...wireScope, action })
       setNotice(
         result.ok
           ? { text: result.value.message, error: false }
@@ -89,6 +94,7 @@ export function ReviewActions({
               : 'Save all local changes, including untracked files, in a stash?'
   return (
     <div className="shrink-0 border-t border-border/60 bg-surface-0">
+      {unavailableReason ? <p role="status" className="px-3 py-2 text-xs text-fg-muted">{unavailableReason}</p> : null}
       {notice ? (
         <p
           role={notice.error ? 'alert' : 'status'}

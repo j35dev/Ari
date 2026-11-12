@@ -592,6 +592,7 @@ export const gatewayInfoSchema = z.object({
   protocolVersion: z.number().int().positive(),
   capabilities: z.array(remoteOperationSchema),
   machinesExtensions: machinesExtensionsSchema.optional(),
+  routeIdentity: z.object({ version: z.literal(1) }).strict().optional(),
 })
 export type GatewayInfo = z.infer<typeof gatewayInfoSchema>
 
