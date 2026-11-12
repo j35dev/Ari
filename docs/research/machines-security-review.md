@@ -1,7 +1,9 @@
 # Machines security review
 
-Status: initial authoring audit; final integrated snapshot review pending.
-Reviewer: security worker, branch `machines/security-review`, 2026-11-11.
+Status: final integrated snapshot audit in progress; historical proofs preserved below.
+Reviewer: security worker, branch `machines/security-review`, 2026-11-12.
+Final review target: `a16e785ce8370fdaf45dd0ea27b4f28fdee06f6e`, based on
+`origin/main` `6f018a75`, including all A–F workstreams.
 
 Scope: `feat/machines`, `machines/core`, `machines/mobile-access`,
 `machines/desktop-ui`, and `machines/mobile-ui`. Worker code was read only.
