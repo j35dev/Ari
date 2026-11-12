@@ -27,7 +27,15 @@ export function DelegatedResultDiff({
   target: Target
 }) {
   const client = useSessionClient()
-  if (client.scope.kind === 'remote') return <Dialog open={open} onOpenChange={onOpenChange} title={title}><p className="text-xs text-fg-muted">Versioned result comparisons are unavailable on this host.</p></Dialog>
+  if (client.scope.kind === 'remote') return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content>
+        <Dialog.Title>{title}</Dialog.Title>
+        <Dialog.Description>Versioned result comparisons are unavailable on this host.</Dialog.Description>
+        <Dialog.Close className={resultButton}>Close review</Dialog.Close>
+      </Dialog.Content>
+    </Dialog>
+  )
   const identity = JSON.stringify([
     client.viewKey, client.authorizationEpoch,
     sessionId,

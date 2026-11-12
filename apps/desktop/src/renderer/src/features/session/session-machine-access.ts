@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 import { machineViewSchema, type MachineView } from '@ari/contracts/machines'
 import { machinesExtensionsSchema, machinesExtensionOperationSchema } from '@ari/contracts/remote'
 import { rpc } from '../../lib/rpc'
@@ -39,10 +39,15 @@ function adopt(next: SessionMachine[]): void {
   const ids = new Set(next.map((machine) => machine.id))
   for (const [id, previous] of machines) {
     const replacement = next.find((machine) => machine.id === id)
+    const lostProjects = previous.status === 'connected' && replacement?.status === 'connected' &&
+      ((previous.allProjects === true && replacement.allProjects === false) ||
+        (previous.projectIds !== undefined && replacement.projectIds !== undefined &&
+          previous.projectIds.some((projectId) => !replacement.projectIds!.includes(projectId))))
     const revoked = !replacement || ['revoked', 'unpaired'].includes(replacement.status) ||
+      lostProjects ||
       (previous.identity?.machineId && replacement.identity?.machineId &&
         previous.identity.machineId !== replacement.identity.machineId)
-    if (revoked && (!replacement || previous.status !== replacement.status ||
+    if (revoked && (lostProjects || !replacement || previous.status !== replacement.status ||
       previous.identity?.machineId !== replacement.identity?.machineId)) {
       epochs.set(id, machineEpoch(id) + 1)
       invalidateMachineSessionCaches(id)
@@ -67,7 +72,7 @@ export function machineCapabilityReason(machine: SessionMachine | MachineView | 
       machine.status === 'revoked' ? 'Access to this machine was revoked.' : 'Reconnect to this machine to continue.')
   const extension = machinesExtensionOperationSchema.safeParse(operation)
   if (extension.success) {
-    const identity = machine.identity as SessionMachine['identity']
+    const identity = machine.identity
     return identity?.machinesExtensions?.version === 1 &&
       identity.machinesExtensions.operations.includes(extension.data) ? null :
       'This host does not support this desktop operation. Update the host to enable it.'
