@@ -1,5 +1,6 @@
 {
-  "at": "2026-11-12T14:20:26.588Z",
+  "at": "2026-11-12T15:47:33.341Z",
+  "sourceSha": "1d602e77dbafa978ad45667867ad5a746048a474",
   "cpu": "Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz",
   "cores": 12,
   "ramGB": 15.909957885742188,
@@ -35,26 +36,28 @@
       "name": "ready",
       "written": "<!-- aria:speak {\"text\":\"The checks passed, and the changes are ready for your review.\"} -->\nAll 28 tests passed. The code and table are below.",
       "spoken": "The checks passed, and the changes are ready for your review.",
-      "firstAudioMs": 1457.5647,
-      "wallMs": 3618.5966,
-      "audioMs": 3354.375,
-      "rtf": 1.0787692491149619,
-      "avgCoresBusy": 1.835241872498305,
-      "rssMB": 667.17578125,
+      "firstAudioMs": 1076.5148000000008,
+      "wallMs": 3161.3247,
+      "audioMs": 3354.333333333333,
+      "rtf": 0.9424599125509293,
+      "avgCoresBusy": 1.922611745639415,
+      "rssMB": 719.09765625,
+      "peak": 0.3903413414955139,
+      "rms": 0.06119825065043735,
       "chunks": [
         {
           "text": "The checks passed,",
           "prepared": "the checks passed,",
           "spelled": [],
-          "genMs": 1457.1220999999996,
+          "genMs": 1075.9171999999999,
           "audioMs": 1069.5833333333333
         },
         {
           "text": "and the changes are ready for your review.",
           "prepared": "and the changes are ready for your review.",
           "spelled": [],
-          "genMs": 2160.8463999999994,
-          "audioMs": 2284.7916666666665
+          "genMs": 2084.659599999999,
+          "audioMs": 2284.75
         }
       ]
     },
@@ -62,26 +65,28 @@
       "name": "question",
       "written": "<!-- aria:speak {\"text\":\"Codex finished the pairing screen. Would you like Pi to handle the mobile polish?\"} -->\n| Agent | State |\n|---|---|\n|Codex|Done|\n```ts\nconst status = 42\n```",
       "spoken": "Codex finished the pairing screen. Would you like Pi to handle the mobile polish?",
-      "firstAudioMs": 1857.7385999999988,
-      "wallMs": 3928.9645,
-      "audioMs": 3950.5833333333335,
-      "rtf": 0.9945276857847997,
-      "avgCoresBusy": 1.916790034626172,
-      "rssMB": 629.4375,
+      "firstAudioMs": 1642.4614000000001,
+      "wallMs": 3675.5776000000005,
+      "audioMs": 3950.916666666667,
+      "rtf": 0.9303100799392546,
+      "avgCoresBusy": 1.9469048891798664,
+      "rssMB": 607.75390625,
+      "peak": 0.43459805846214294,
+      "rms": 0.06217214011950879,
       "chunks": [
         {
           "text": "Codex finished the pairing screen.",
           "prepared": "codex finished the pairing screen.",
           "spelled": [],
-          "genMs": 1857.7019,
-          "audioMs": 1754
+          "genMs": 1642.4281999999985,
+          "audioMs": 1754.4166666666667
         },
         {
           "text": "Would you like Pi to handle the mobile polish?",
           "prepared": "would you like pi to handle the mobile polish?",
           "spelled": [],
-          "genMs": 2071.1181000000015,
-          "audioMs": 2196.5833333333335
+          "genMs": 2032.8548999999985,
+          "audioMs": 2196.5
         }
       ]
     },
@@ -89,40 +94,42 @@
       "name": "fallback",
       "written": "Ari Connect is the only project that needs you.\n\n| Project | State |\n|---|---|\n| Ari Connect | waiting |\n\n```ari-viz\n{\"version\":1}\n```\nShould I run the checks?",
       "spoken": "Ari Connect is the only project that needs you. I put the details in the chat. Should I run the checks?",
-      "firstAudioMs": 1341.6450999999997,
-      "wallMs": 7742.5147000000015,
-      "audioMs": 6830.458333333334,
-      "rtf": 1.1335278428119149,
-      "avgCoresBusy": 1.8526280615263149,
-      "rssMB": 646.6484375,
+      "firstAudioMs": 1318.1579999999994,
+      "wallMs": 5515.184899999998,
+      "audioMs": 5827.875,
+      "rtf": 0.9463457778349739,
+      "avgCoresBusy": 1.977449568372586,
+      "rssMB": 624.70703125,
+      "peak": 0.46208739280700684,
+      "rms": 0.06421460369036479,
       "chunks": [
         {
           "text": "Ari Connect is the",
           "prepared": "ari connect is the",
           "spelled": [],
-          "genMs": 1341.3672000000006,
-          "audioMs": 1235.4583333333333
+          "genMs": 1318.1345000000001,
+          "audioMs": 1235.7083333333335
         },
         {
           "text": "only project that needs you.",
           "prepared": "only project that needs you.",
           "spelled": [],
-          "genMs": 2164.259899999999,
-          "audioMs": 1574.25
+          "genMs": 1519.1616000000013,
+          "audioMs": 1575.2083333333333
         },
         {
           "text": "I put the details in the chat.",
-          "prepared": "i put the d e t a i l s in the chat.",
-          "spelled": ["details"],
-          "genMs": 2862.740099999999,
-          "audioMs": 2696.9166666666665
+          "prepared": "i put the details in the chat.",
+          "spelled": [],
+          "genMs": 1481.8087999999989,
+          "audioMs": 1693.0833333333333
         },
         {
           "text": "Should I run the checks?",
           "prepared": "should i run the checks?",
           "spelled": [],
-          "genMs": 1373.4532,
-          "audioMs": 1323.8333333333335
+          "genMs": 1195.7801999999974,
+          "audioMs": 1323.875
         }
       ]
     },
@@ -130,32 +137,34 @@
       "name": "names",
       "written": "<!-- aria:speak {\"text\":\"Ari, Aria, Claude Code, Codex, Grok, OpenCode and Pi are ready. The PR and CLI checks passed.\"} -->",
       "spoken": "Ari, Aria, Claude Code, Codex, Grok, OpenCode and Pi are ready. The PR and CLI checks passed.",
-      "firstAudioMs": 1109.4179000000004,
-      "wallMs": 6703.347900000001,
-      "audioMs": 6385.083333333333,
-      "rtf": 1.0498450137690714,
-      "avgCoresBusy": 1.9415671384145226,
-      "rssMB": 648.5546875,
+      "firstAudioMs": 991.5354000000007,
+      "wallMs": 6011.395500000002,
+      "audioMs": 6384.041666666666,
+      "rtf": 0.9416284877004515,
+      "avgCoresBusy": 1.972919599118041,
+      "rssMB": 629.28515625,
+      "peak": 0.4017127454280853,
+      "rms": 0.06213960168409439,
       "chunks": [
         {
           "text": "Ari,",
           "prepared": "ari,",
           "spelled": [],
-          "genMs": 1109.388899999998,
+          "genMs": 991.4932999999983,
           "audioMs": 692.2083333333333
         },
         {
           "text": "Aria, Claude Code, Codex, Grok, OpenCode and Pi are ready.",
           "prepared": "aria, claude code, codex, grok, open code and pi are ready.",
           "spelled": [],
-          "genMs": 3762.013799999997,
-          "audioMs": 3731.7916666666665
+          "genMs": 3157.9614,
+          "audioMs": 3730.75
         },
         {
           "text": "The PR and CLI checks passed.",
           "prepared": "the pr and cli checks passed.",
           "spelled": [],
-          "genMs": 1831.5810999999994,
+          "genMs": 1861.5414999999994,
           "audioMs": 1961.0833333333333
         }
       ]
@@ -164,32 +173,36 @@
       "name": "unknown",
       "written": "<!-- aria:speak {\"text\":\"Quuxwidget has twelve updates. The ACP checks passed.\"} -->",
       "spoken": "Quuxwidget has twelve updates. The ACP checks passed.",
-      "firstAudioMs": 2631.382999999998,
-      "wallMs": 4058.212599999999,
-      "audioMs": 4944.125,
-      "rtf": 0.8208151290673271,
-      "avgCoresBusy": 1.9715576261332395,
-      "rssMB": 669.80859375,
+      "firstAudioMs": 2718.0272000000004,
+      "wallMs": 4210.9130000000005,
+      "audioMs": 4944.166666666667,
+      "rtf": 0.8516931737738076,
+      "avgCoresBusy": 1.9812805441480266,
+      "rssMB": 649.4375,
+      "peak": 0.4968471825122833,
+      "rms": 0.06166910663396636,
       "chunks": [
         {
           "text": "Quuxwidget has twelve updates.",
           "prepared": "q u u x w i d g e t has twelve updates.",
-          "spelled": ["Quuxwidget"],
-          "genMs": 2631.340900000003,
+          "spelled": [
+            "Quuxwidget"
+          ],
+          "genMs": 2717.9127999999982,
           "audioMs": 3299.125
         },
         {
           "text": "The ACP checks passed.",
           "prepared": "the acp checks passed.",
           "spelled": [],
-          "genMs": 1426.7508000000016,
-          "audioMs": 1645
+          "genMs": 1492.8129999999983,
+          "audioMs": 1645.0416666666667
         }
       ]
     }
   ],
-  "loadMs": 2775.6933,
-  "rssAfterLoadMB": 625.1875,
-  "warmupMs": 1794.6903000000002,
-  "peakRssMB": 669.81640625
+  "loadMs": 2634.6601,
+  "rssAfterLoadMB": 664.69140625,
+  "warmupMs": 1250.1147,
+  "peakRssMB": 720.15234375
 }
