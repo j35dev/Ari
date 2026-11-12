@@ -1,5 +1,10 @@
 # Machines desktop parity, 2026-11-12
 
+Historical completion and correction record. The subsequent clean full pass,
+reviewed packaging fixes, refreshed captures and authorized PR publication are
+recorded in [Machines publication, 2026-11-13](machines-publication-final-2026-11-13.md).
+The no-push handoff below describes the earlier instruction and has been superseded.
+
 Integration: `feat/machines`, `D:/Projects/Ari-machines`. Desktop core parity is
 complete. Final runtime source is `da40bbef99343f9dce054889cb336e7ba3977e25`;
 later commits contain fixtures, security reports and verification evidence.

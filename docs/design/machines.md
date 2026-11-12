@@ -1,8 +1,8 @@
 # Machines and remote access
 
-Status: desktop core parity implemented, 2026-11-12; integrated final checks and
-preview restart are recorded in the
-[completion report](../research/machines-parity-final-2026-11-12.md). Headless
+Status: desktop core parity implemented; the clean full verification pass and
+publication boundaries are recorded in the
+[publication report](../research/machines-publication-final-2026-11-13.md). Headless
 hosting and transactional remote update execution are deferred with full designs.
 The matrix below preserves its preimplementation baseline and scope decisions.
 Supersedes the earlier dedicated
