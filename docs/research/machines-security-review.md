@@ -296,3 +296,54 @@ changes, terminal withdrawal against real PTYs, safeStorage across desktop
 restarts, and the private managed broker/tunnel lease-refresh behavior. The
 private broker must accept updated registered IDs while keeping its own
 account/project restrictions; this repository does not deploy or verify it.
+
+## Fresh takeover audit, 2026-11-12
+
+Reviewer remains report-only in `D:/Projects/Ari-machines-wt/security`, using
+codex / gpt-6.1-sol, high effort, full permissions. The coordinator's current
+two-slot resource runner supersedes the old single-slot documentation. F must
+now integrate into `feat/machines` while retaining its independent main-based
+branch. No worker code, live accounts, settings, devices or Serve mappings are
+changed by this review.
+
+Immutable authored snapshots read during takeover:
+
+| Stream | Commit |
+| --- | --- |
+| Core | `8471f3f30d5ab01779ce15272fc5951d5e14a4fe` |
+| Desktop | `92d29b6bf69d13f899c58ed7189f1a5c3790baa8` |
+| Mobile | `bd1821684cedb7cdba9b4715d3c95b2e5513d375` |
+| Grants WIP | `63b602af33b1fa7f34bc7e57708fec2ce945763b` |
+| Parallel roots F | `89b22dbd10e22854e20c253629c291b148a2bfaa` |
+| Coordinator before final integration | `2afa3454eecd1a5ecac087650d9a23479ebf0a72` |
+
+S1-S4 corrections remain present in authored source. S7 is corrected by
+`08415210`: fork validates and opens `sessionId`; child actions retain their
+own session receipts and provide navigation for reconciliation. Core's
+`23ba62d1` and mobile's equivalent now make lost-response reconciliation
+read-only, retain the original key on absence, and accept only an authoritative
+success envelope. Grants WIP pins in-flight claims, refuses fresh admission
+when all capacity is pinned, rejects corrupt restore, and returns an uncertain
+`conflict` for absent status. This is partial S6 closure only.
+
+S5 remains open at the recorded grants WIP: `RemoteService.#write` still logs
+and swallows writes, `#read` collapses every read failure into absence, and
+the new `PairingService.suspendAuthorization` is not yet wired to the writer.
+The parent confirmed the grants worker owns throwing writes, latched runtime
+denial, strict reads, blocked damaged restore and restart regressions.
+
+Two further authored risks are assigned by the parent and require review at
+their corrected snapshots: mobile retry controls still call `send` for saved
+prompt/create/fork/integration receipts, and legacy unscoped phone-key migration
+uses mutable `ari.remote.origin` as ownership evidence. The agreed legacy-key
+policy preserves the unscoped database and requires fresh per-origin pairing.
+Neither a missing receipt nor a mutable address proves the needed trust binding.
+
+F source review traced actual physical folder resolution, cross-root admission,
+parked-turn reauthorization, uncertain-root recovery and owned cleanup. The
+uncertain-root path consults only the caller's durable launch receipt and
+rechecks its current archive/permission cap before destruction. Cleanup derives
+paths from the validated session ID below the managed root, resolves containment,
+and detaches links before recursive deletion. Focused adversarial reproductions
+and exact results will be appended after the required WIP commit. Final
+integrated SHA review and certification remain pending.
