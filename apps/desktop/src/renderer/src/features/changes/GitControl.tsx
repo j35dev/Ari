@@ -22,7 +22,8 @@ import { Dialog } from '@ari/ui/dialog'
 import { Popover } from '@ari/ui/popover'
 import { useToast } from '@ari/ui/toast'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
+import { rpc as localRpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { menuActions, pushesToDefault, quickAction, type MenuAction } from './git-quick-action'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { branchLabel } from '../session/branch-label'
@@ -53,23 +54,25 @@ function doneTitle(outcome: GitShipOutcome): string {
 }
 
 const openUrl = (url: string): void => {
-  void rpc.invoke('shell.openUrl', { url }).catch((error: unknown) => {
+  void localRpc.invoke('shell.openUrl', { url }).catch((error: unknown) => {
     log.warn('could not open link', { error: String(error) })
   })
 }
 
 /** The open PR for the current branch, re-read when the branch or revision moves. */
 function usePullRequest(scope: GitScope, branch: string | null, revision: number) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
   const [pr, setPr] = useState<PullRequest | null>(null)
   const key = JSON.stringify(scope)
   useEffect(() => {
     let live = true
-    if (!branch) {
+    if (!branch || rpc.scope.kind === 'remote' || rpc.readOnly) {
       setPr(null)
       return
     }
     void rpc
-      .invoke('scm.pullRequest', { ...scope, ...(revision > 0 ? { refresh: true } : {}) })
+      .invoke('scm.pullRequest', { ...wireScope, ...(revision > 0 ? { refresh: true } : {}) })
       .then((result) => {
         if (live) setPr(result.ok ? result.value : null)
       })
@@ -79,7 +82,7 @@ function usePullRequest(scope: GitScope, branch: string | null, revision: number
     return () => {
       live = false
     }
-  }, [key, branch, revision])
+  }, [key, branch, revision, rpc, rpc.authorizationEpoch, rpc.availability])
   return pr
 }
 
@@ -101,6 +104,11 @@ export function GitControl({
   onReview: () => void
   onPullRequests: () => void
 }) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
+  const unavailableReason = rpc.scope.kind === 'remote'
+    ? 'Git actions must be performed on the owning machine.'
+    : rpc.readOnly ? 'Reconnect to the owning machine to use Git actions.' : null
   const { toast, update } = useToast()
   const [revision, setRevision] = useState(0)
   const pr = usePullRequest(scope, summary.branch, revision)
@@ -121,26 +129,26 @@ export function GitControl({
 
   // Background fetch keeps ahead/behind current so Pull shows up when someone else pushed.
   useEffect(() => {
-    if (fetchSeconds <= 0 || !summary.hasRemote) return
+    if (unavailableReason || fetchSeconds <= 0 || !summary.hasRemote) return
     const timer = setInterval(() => {
       if (document.hidden) return
       void rpc
-        .invoke('scm.ship', { ...scope, action: 'fetch' })
+        .invoke('scm.ship', { ...wireScope, action: 'fetch' })
         .then((result) => {
           if (result.ok) refresh()
         })
         .catch((error: unknown) => log.debug('background fetch failed', { error: String(error) }))
     }, fetchSeconds * 1000)
     return () => clearInterval(timer)
-  }, [scopeKey, fetchSeconds, summary.hasRemote])
+  }, [scopeKey, fetchSeconds, summary.hasRemote, unavailableReason, rpc])
 
   const run = async (action: GitShipAction, message?: string, paths?: string[]): Promise<void> => {
-    if (busy) return
+    if (unavailableReason || busy) return
     setBusy(true)
     const id = toast({ title: PROGRESS[action], tone: 'info', durationMs: 0 })
     try {
       const result = await rpc.invoke('scm.ship', {
-        ...scope,
+        ...wireScope,
         action,
         ...(message ? { message } : {}),
         ...(paths ? { paths } : {}),
@@ -179,12 +187,14 @@ export function GitControl({
 
   /** Commits go through the dialog; pushes to a default branch ask first. */
   const start = (action: GitShipAction, message?: string, paths?: string[]): void => {
+    if (unavailableReason) return
     if (confirmDefault && pushesToDefault(summary, action))
       setConfirm({ action, ...(message ? { message } : {}), ...(paths ? { paths } : {}) })
     else void run(action, message, paths)
   }
 
   const onPrimary = (): void => {
+    if (unavailableReason) return
     if (primary.kind === 'view-pr') openUrl(primary.url)
     else if (primary.kind === 'ship') {
       if (primary.commits) setCommit(primary.action)
@@ -193,6 +203,7 @@ export function GitControl({
   }
 
   const onItem = (item: MenuAction): void => {
+    if (unavailableReason) return
     setMenuOpen(false)
     if (item.id === 'commit') setCommit('commit')
     else if (item.id === 'push') start('push')
@@ -211,13 +222,13 @@ export function GitControl({
             ? GitPullRequestArrow
             : ArrowUp
           : GitCommitHorizontal
-  const disabled = primary.kind === 'disabled' || busy
+  const disabled = unavailableReason !== null || primary.kind === 'disabled' || busy
 
   return (
     <div className="flex items-center" style={noDrag}>
       <div
         className="flex h-7 items-stretch overflow-hidden rounded-lg border border-border/70 bg-surface-1/70 text-xs text-fg shadow-sm"
-        title={primary.kind === 'disabled' ? primary.reason : undefined}
+        title={unavailableReason ?? (primary.kind === 'disabled' ? primary.reason : undefined)}
       >
         {/* The branch the workspace is on; it used to take a row of its own
             above the transcript. */}
@@ -278,8 +289,8 @@ export function GitControl({
                   key={item.id}
                   type="button"
                   role="menuitem"
-                  disabled={item.reason !== null || busy}
-                  title={item.reason ?? undefined}
+                  disabled={unavailableReason !== null || item.reason !== null || busy}
+                  title={unavailableReason ?? item.reason ?? undefined}
                   onClick={() => onItem(item)}
                   className="flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 disabled:pointer-events-none"
                 >
@@ -310,6 +321,8 @@ export function GitControl({
               <button
                 type="button"
                 role="menuitem"
+                disabled={unavailableReason !== null}
+                title={unavailableReason ?? undefined}
                 onClick={() => {
                   setMenuOpen(false)
                   onPullRequests()
@@ -383,6 +396,8 @@ function CommitDialog({
   onClose: () => void
   onCommit: (message: string | undefined, paths: string[] | undefined) => void
 }) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
   const [files, setFiles] = useState<GitReviewFile[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
@@ -390,7 +405,7 @@ function CommitDialog({
   useEffect(() => {
     let live = true
     void rpc
-      .invoke('scm.review', { ...scope, comparison: { kind: 'working-tree' } })
+      .invoke('scm.review', { ...wireScope, comparison: { kind: 'working-tree' } })
       .then((result) => {
         if (!live) return
         if (result.ok) setFiles(result.value.files)
@@ -400,7 +415,7 @@ function CommitDialog({
     return () => {
       live = false
     }
-  }, [JSON.stringify(scope)])
+  }, [JSON.stringify(scope), rpc])
   const included = useMemo(
     () => (files ?? []).filter((file) => !excluded.has(file.path)),
     [files, excluded],
@@ -417,7 +432,7 @@ function CommitDialog({
       return next
     })
   const submit = (): void => {
-    if (included.length === 0) return
+    if (rpc.scope.kind === 'remote' || rpc.readOnly || included.length === 0) return
     onCommit(
       message.trim() || undefined,
       excluded.size > 0 ? included.map((file) => file.path) : undefined,
