@@ -10,6 +10,7 @@ import { deviceKey } from './testing/device-key'
 import { RawWebSocket, handshake } from './testing/ws-client'
 import { createRemoteGateway, type RemoteGateway } from './gateway'
 import { ConnectLeaseVerifier } from './connect-lease'
+import { IdempotencyStore } from './idempotency'
 
 const ALLOWED = 'http://127.0.0.1:5173'
 
@@ -471,6 +472,10 @@ describe('remote gateway idempotency', () => {
     expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(409)
     expect((await call(gateway, '/query', { op: 'command.status', idempotencyKey: 'missing-receipt-key' }, { token })).body).toMatchObject({ ok: false, error: { code: 'conflict' } })
     expect(host.executed).toHaveLength(0)
+    const restarted = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, pairing: gateway.pairing, idempotency: { restore: '[]' } })
+    running.push(restarted)
+    expect((await call(restarted, '/command', COMMAND, { token })).status).toBe(200)
+    expect(host.executed).toHaveLength(1)
   })
 
   it('retains the durable claim when completion persistence fails, including after restart', async () => {
@@ -488,6 +493,19 @@ describe('remote gateway idempotency', () => {
     running.push(second)
     expect((await call(second, '/command', COMMAND, { token })).status).toBe(409)
     expect(host.executed).toHaveLength(1)
+  })
+
+  it('refuses fresh work when all receipt slots are pinned by unresolved claims', async () => {
+    const receipts = new IdempotencyStore()
+    for (let index = 0; index < 1000; index++) receipts.begin(`pending-${index}`, COMMAND)
+    const host = fakeHost()
+    const gateway = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, idempotency: { restore: receipts.toJSON() } })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey())
+    const refusal = await call(gateway, '/command', COMMAND, { token })
+    expect(refusal.status).toBe(429)
+    expect(errorCode(refusal.body)).toBe('rate_limited')
+    expect(host.executed).toHaveLength(0)
   })
 
   it.each(['broken', '{}', '[["key", {}]]', JSON.stringify([['key', { fingerprint: 'a'.repeat(64), at: 1, result: { reply: { ok: false } } }]])])('refuses to open a listener over corrupt receipt history: %s', async (restore) => {

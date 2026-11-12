@@ -134,7 +134,7 @@ export interface RemoteHostDeps {
   /** The children a session delegated to, as the desktop's own task cards read them. */
   tasks?: (sessionId: string) => Promise<ChildTask[]>
   attachments?: Pick<AttachmentStore, 'stage' | 'read'>
-  terminals?: RemoteTerminals
+  terminals?: Pick<RemoteTerminals, 'execute' | 'read'>
   integration?: RemoteIntegration
   fork?: (
     deviceId: string,
