@@ -95,10 +95,11 @@ describe('Machines settings', () => {
         <MachinesSettings onOpenMachine={onOpen} />
       </MachinesProvider>,
     )
-    const name = await screen.findByRole('textbox', { name: `Name for ${host.name}` })
+    await user.click(await screen.findByRole('button', { name: 'Rename' }))
+    const name = screen.getByRole('textbox', { name: `Name for ${host.name}` })
     await user.clear(name)
     await user.type(name, 'Build workstation')
-    await user.click(screen.getByRole('button', { name: 'Rename' }))
+    await user.click(screen.getByRole('button', { name: 'Save name' }))
     expect(mocks.invoke).toHaveBeenCalledWith('machines.rename', {
       machineId: 'host-a',
       name: 'Build workstation',
@@ -106,9 +107,9 @@ describe('Machines settings', () => {
     await user.click(screen.getByRole('button', { name: 'Reconnect' }))
     expect(mocks.invoke).toHaveBeenCalledWith('machines.connect', { machineId: 'host-a' })
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Open workspace' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'New session' })).toBeEnabled(),
     )
-    await user.click(screen.getByRole('button', { name: 'Open workspace' }))
+    await user.click(screen.getByRole('button', { name: 'New session' }))
     expect(onOpen).toHaveBeenCalledWith('host-a')
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(mocks.invoke.mock.calls.some(([method]) => method === 'machines.remove')).toBe(false)

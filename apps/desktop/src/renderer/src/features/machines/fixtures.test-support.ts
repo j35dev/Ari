@@ -1,5 +1,6 @@
 import { machineViewSchema } from '@ari/contracts/machines'
 import { remoteSessionResultSchema } from '@ari/contracts/remote'
+import { machinesExtensionOperationSchema, machinesLocalSnapshotSchema, remoteDesktopSessionResultSchema } from '@ari/contracts/remote'
 
 export const machineFixture = (id = 'host-a') =>
   machineViewSchema.parse({
@@ -101,4 +102,24 @@ export const catalogFixture = {
       ],
     },
   ],
+}
+
+export const desktopMachineFixture = (id = 'host-a') => ({ ...machineFixture(id), versionReady: true, permissionsReady: true,
+  identity: { ...machineFixture(id).identity!, machinesExtensions: { version: 1 as const, operations: machinesExtensionOperationSchema.options.slice() } },
+})
+export const resourcesFixture = () => ({ status: 'available' as const, sampledAt: Date.now(), cpuUtilization: 0.2,
+  cpuCount: 8, availableMemoryBytes: 4 * 1024 ** 3, totalMemoryBytes: 16 * 1024 ** 3, reason: null })
+export const versionFixture = { ariVersion: '0.3.13', protocolVersion: 1, hostingMode: 'desktop' as const,
+  update: { supported: false as const, reason: 'Updates run on the owning host.', availableVersion: null, stagedVersion: null,
+    guidance: 'Open Settings > Updates on the host to update Ari.' } }
+export const projectCatalogFixture = (id = 'same-project') => ({ projects: [{ id, name: 'Ari', sessionCount: 1,
+  status: 'ok' as const, defaultAgent: { driverKind: 'codex' as const, modelId: 'gpt-6.1-sol', permissionMode: 'ask' as const, effort: 'high' },
+  repositoryIdentity: { canonicalKey: 'github.com/j35dev/ari', displayName: 'j35dev/Ari', locator: { source: 'git-remote' as const, remoteName: 'origin' } },
+}] })
+export const localSnapshotFixture = () => machinesLocalSnapshotSchema.parse({ identity: { machineId: 'local-public', name: 'This PC' },
+  catalog: projectCatalogFixture(), resources: resourcesFixture(), models: catalogFixture, version: versionFixture })
+export const desktopSnapshotFixture = () => {
+  const { messages: _messages, ...snapshot } = snapshotFixture('sess_remote')
+  return remoteDesktopSessionResultSchema.parse({ ...snapshot, context: { hasMessages: true, hasTurns: true, hasProviderContext: true },
+    lastTurn: null, liveTurnId: null, liveCapabilities: { approval: false, question: false, steer: false } })
 }

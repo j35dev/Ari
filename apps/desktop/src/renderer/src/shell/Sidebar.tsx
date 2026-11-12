@@ -974,6 +974,7 @@ function ProjectGroupSection({
   canMoveUp?: boolean
   canMoveDown?: boolean
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -1140,8 +1141,8 @@ function ProjectGroupSection({
                 id: 'archive-all',
                 label: `Archive all in ${scope}`,
                 icon: Archive,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => bulk?.onArchiveAll(),
               },
               {
@@ -1149,8 +1150,8 @@ function ProjectGroupSection({
                 label: `Delete all in ${scope}`,
                 icon: Trash2,
                 danger: true,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => setConfirmDeleteAll(true),
               },
             ]}
@@ -1300,6 +1301,7 @@ function DraggableProjectGroup({
   canMoveDown: boolean
   onPressStart: () => void
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -1527,6 +1529,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     const selecting = selectingGroupId === groupId
     return {
       selecting,
+      administrationReason: visible.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) ? 'Session administration is unavailable for one or more owning hosts.' : undefined,
       selectedCount: selecting ? visible.filter((id) => selectedIds.has(id)).length : 0,
       allSelected: selecting && visible.length > 0 && visible.every((id) => selectedIds.has(id)),
       onEnterSelect: () => enterSelect(groupId),
