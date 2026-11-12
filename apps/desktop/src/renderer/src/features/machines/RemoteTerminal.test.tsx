@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RemoteTerminal } from './RemoteTerminal'
 import { machineFixture } from './fixtures.test-support'
+import { readReceipt } from './remote-client'
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -106,7 +107,7 @@ describe('granted host terminal', () => {
     ).toBe(true)
     expect(mocks.dispose).toHaveBeenCalled()
   })
-  it('blocks input after an uncertain write and never repeats it automatically', async () => {
+  it.each(['unreachable', 'internal_error', 'conflict'])('blocks input after an uncertain %s write and never repeats it automatically', async (code) => {
     const user = userEvent.setup()
     render(
       <RemoteTerminal
@@ -119,7 +120,7 @@ describe('granted host terminal', () => {
     const original = mocks.invoke.getMockImplementation()!
     mocks.invoke.mockImplementation(async (method, params) =>
       params.command?.op === 'terminal.write'
-        ? { ok: false, error: { code: 'unreachable', message: 'Lost terminal acknowledgement' } }
+        ? { ok: false, error: { code, message: 'Lost terminal acknowledgement' } }
         : original(method, params),
     )
     act(() => mocks.onData?.('one\r'))
@@ -128,5 +129,35 @@ describe('granted host terminal', () => {
     expect(
       mocks.invoke.mock.calls.filter(([, params]) => params.command?.op === 'terminal.write'),
     ).toHaveLength(1)
+    expect(readReceipt('host-a', 'terminal:same-session')?.command).toMatchObject({
+      op: 'terminal.write', sessionId: 'same-session', data: 'one\r',
+    })
+  })
+  it('ignores a late terminal read after switching and stops input when the grant is withdrawn', async () => {
+    const user = userEvent.setup()
+    let complete!: (result: unknown) => void
+    const original = mocks.invoke.getMockImplementation()!
+    mocks.invoke.mockImplementation((method, params) =>
+      params.query?.op === 'terminal.read' && params.machineId === 'host-a'
+        ? new Promise((resolve) => { complete = resolve })
+        : original(method, params),
+    )
+    const show = (id: string, allowTerminal = true) => (
+      <RemoteTerminal key={id} machine={{ ...machineFixture(id), allowTerminal }} sessionId="same-session" />
+    )
+    const { rerender } = render(show('host-a'))
+    await user.click(screen.getByRole('button', { name: 'Open host terminal' }))
+    await waitFor(() => expect(complete).toBeDefined())
+    rerender(show('host-b'))
+    await act(async () => complete({ ok: true, result: {
+      terminalId: 'host-terminal', data: 'Late host A', seq: 1, reset: false,
+      exited: false, hasMore: false, error: null,
+    } }))
+    expect(mocks.write).not.toHaveBeenCalledWith('Late host A')
+    await user.click(screen.getByRole('button', { name: 'Open host terminal' }))
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('Host output\r\n'))
+    rerender(show('host-b', false))
+    act(() => mocks.onData?.('blocked\r'))
+    expect(mocks.invoke.mock.calls.filter(([, params]) => params.command?.op === 'terminal.write')).toHaveLength(0)
   })
 })
