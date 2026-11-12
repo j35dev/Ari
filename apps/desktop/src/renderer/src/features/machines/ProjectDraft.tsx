@@ -79,7 +79,9 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   attemptRef.current = attempt
   const [selection, setSelection] = useState<DraftMachineSelection>(() => {
     if (restored.attempt) return { mode: 'manual', hostId: restored.attempt.hostId, reason: 'Original submission — check its status.' }
-    if (savedChoice) return savedChoice.selection
+    if (savedChoice) return savedChoice.selection.hostId !== null ? savedChoice.selection : {
+      ...savedChoice.selection, reason: 'Select Auto again for fresh resources, or choose a machine manually.',
+    }
     if (!initialHostId && autoEnabled) return { mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' }
     const remembered = hosts.find((host) => host.id === lastManualHostId && manualEligibility(host) === null)
     const hostId = initialHostId ?? remembered?.id ?? 'local'
