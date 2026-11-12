@@ -75,7 +75,7 @@ describe('normal host terminal adapter', () => {
   it('preserves the receipt when storing a confirmed host reference fails', async () => {
     const id = openTerminalTab({ title: 'shell', cwd: '.', owner })
     const original = Storage.prototype.setItem
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (name, value) {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, name, value) {
       if (name === 'ari.terminal.dock' && value.includes('host-pty')) throw new Error('storage full')
       original.call(this, name, value)
     })
