@@ -313,7 +313,8 @@ export class RemoteService {
     computerId: string
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
-    if (this.#identity === null) {
+    const identity = this.#identity
+    if (identity === null) {
       this.#error = IDENTITY_ERROR
       this.#changed()
       return Promise.resolve(null)
@@ -332,7 +333,7 @@ export class RemoteService {
       if (!current()) return null
       const terminals = this.#terminals
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
-        identity: this.#identity,
+        identity,
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,

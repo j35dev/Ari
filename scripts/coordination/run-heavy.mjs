@@ -5,6 +5,7 @@ import { mkdir, open, readFile, stat, unlink, utimes } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { setPriority, constants } from 'node:os'
 import { spawn } from 'node:child_process'
+import { clearInterval, setInterval, setTimeout } from 'node:timers'
 
 const [worker, cwd, separator, executable, ...args] = process.argv.slice(2)
 if (!worker || !cwd || separator !== '--' || !executable) {
