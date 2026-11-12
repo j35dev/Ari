@@ -28,7 +28,7 @@ const queues = new Map<string, Promise<unknown>>()
 /** Adds host-owned pty operations to the same typed client used by normal tools. */
 export function createTerminalSessionAdapter(client: SessionClient) {
   if (client.scope.kind === 'local')
-    return { ...client, checkTerminal: async (_id: string) => undefined }
+    return { ...client, checkTerminal: (_id: string) => Promise.resolve(undefined) }
   const { machineId, sessionId } = client.scope
   const owner: Extract<TerminalOwner, { kind: 'remote' }> = { kind: 'remote', machineId, sessionId }
   const receiptScope = (id: string) => `terminal:${sessionId}:${id}`
@@ -137,7 +137,7 @@ export function createTerminalSessionAdapter(client: SessionClient) {
         if (queues.get(key) === result) queues.delete(key)
       })
       .catch(() => undefined)
-    return (await result) as RpcResults[M]
+    return await result
   }
   const subscribe: SessionClient['subscribe'] = (name, params, onEvent) => {
     if (name !== 'terminal.data') return client.subscribe(name, params, onEvent)

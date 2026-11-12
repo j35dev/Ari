@@ -314,7 +314,7 @@ export function TerminalDock({
           </span>
           <button
             type="button"
-            onClick={() => retryTab(activeId)}
+            onClick={() => { void retryTab(activeId) }}
             className="flex shrink-0 items-center gap-1 rounded-md border border-danger px-2 py-0.5 text-2xs transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <RotateCcw size={10} aria-hidden /> {remote ? 'Check original action' : 'Retry'}
