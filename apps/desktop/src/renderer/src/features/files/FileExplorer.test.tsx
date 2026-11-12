@@ -64,10 +64,15 @@ describe('FileExplorer', () => {
     invokeMock.mockImplementation(async (method, params) => {
       if (method !== 'fs.list') throw new Error('unexpected method')
       const { sessionId, path } = params as { sessionId: string; path: string }
-      if (path === '.') return [{ name: 'src', type: 'dir', size: 0 },
-        { name: sessionId === 'sess_b' ? 'new-host.txt' : 'old-host.txt', type: 'file', size: 1 }]
+      if (path === '.')
+        return [
+          { name: 'src', type: 'dir', size: 0 },
+          { name: sessionId === 'sess_b' ? 'new-host.txt' : 'old-host.txt', type: 'file', size: 1 },
+        ]
       if (path === 'src' && sessionId === 'sess_a')
-        return new Promise<typeof SRC_ENTRIES>((resolve) => { finishOld = resolve })
+        return new Promise<typeof SRC_ENTRIES>((resolve) => {
+          finishOld = resolve
+        })
       return [{ name: 'new-host.ts', type: 'file', size: 1 }]
     })
     const a = { sessionId: 'sess_a' }
@@ -95,9 +100,7 @@ describe('FileExplorer', () => {
     // Collapsing and re-expanding serves from cache.
     await user.click(screen.getByRole('button', { name: 'src' }))
     await user.click(screen.getByRole('button', { name: 'src' }))
-    expect(
-      await screen.findByRole('treeitem', { name: /^main\.ts/ }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('treeitem', { name: /^main\.ts/ })).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledTimes(2)
   })
 
@@ -167,9 +170,7 @@ describe('FileExplorer', () => {
         content: 'saved version!',
       }),
     )
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' }),
-    )
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' }))
   })
 
   it('file rows drag with a workspace-relative mention payload', async () => {
