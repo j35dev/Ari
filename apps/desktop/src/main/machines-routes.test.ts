@@ -334,6 +334,36 @@ describe('verified ordered Machines routes', () => {
     ).toBe(true)
   })
 
+  it('stops fallback only when the pinned host proves an incompatible protocol', async () => {
+    const f = await fixture()
+    f.network.responses.set(f.a.origin, async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { nonce: string }
+      const payload = {
+        kind: 'ari.route-proof.v1' as const,
+        hostId: f.pin.hostId,
+        audience: f.a.origin,
+        nonce: body.nonce,
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 30_000,
+        protocolVersion: 99,
+      }
+      return Response.json({ ok: true, result: { payload, signature: f.signer.sign(payload) } })
+    })
+    f.network.calls.length = 0
+    expect(await f.machines.connect(f.saved.id)).toMatchObject({
+      status: 'incompatible',
+      permissionsReady: false,
+    })
+    expect(
+      f.network.calls.every(
+        (call) =>
+          call.origin === f.a.origin &&
+          call.path === '/routes/proof' &&
+          call.authorization === null,
+      ),
+    ).toBe(true)
+  })
+
   it('keeps anonymous descriptor/proof content minimal and requires authentication for the manifest', async () => {
     const f = await fixture()
     const a = new GatewayClient(
