@@ -1,5 +1,5 @@
 import { createPrivateKey, generateKeyPairSync, randomUUID } from 'node:crypto'
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { SecretBox } from '@ari/ari-core/endpoints'
@@ -25,7 +25,13 @@ export function loadHostSigningIdentity(dir: string, hostId: string, secretBox: 
     const temporary = `${path}.${randomUUID()}.tmp`
     const fd = openSync(temporary, 'wx', 0o600)
     try { writeFileSync(fd, raw); fsyncSync(fd) } finally { closeSync(fd) }
-    renameSync(temporary, path)
+    try {
+      // Publish without replacing a concurrently established identity.
+      try { linkSync(temporary, path) } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      }
+      raw = readFileSync(path, 'utf8')
+    } finally { unlinkSync(temporary) }
   }
   const record = stored.parse(JSON.parse(raw))
   if (record.hostId !== hostId) throw new Error('Host signing identity belongs to another host.')
