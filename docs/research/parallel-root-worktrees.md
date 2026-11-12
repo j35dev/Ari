@@ -96,8 +96,7 @@ and `apps/desktop/src/main/agent-runtime.ts`. RPC and control service merged
 automatically. This wrote no branch or working files.
 `d7399052` (neutral dictation indicator) has no file overlap. Nothing was merged
 or written in the experiment worktree. The parent should run the final wide
-checks/build on the independently integrated branch; this fix stays separate
-as an independent branch while the coordinator also integrates its commits into
+checks/build on the integrated branch; this fix remains an independent branch while the coordinator also integrates its commits into
 `feat/machines` (2026-11-12 takeover instruction supersedes the old exclusion).
 
 ## Fresh independent review, 2026-11-12
@@ -115,13 +114,21 @@ path kept its session ID while losing the path/branch. Both methods now preserve
 that identity and permission ceiling through retries and reload; explicit cleanup
 still requires the original caller's receipt and current permission cap. The
 regression exercises both methods against real temporary Git repositories and a
-fake provider. Final focused checks pending at WIP commit.
+fake provider. The final source tree (`3be07c1e`) passed scoped ESLint and
+typecheck, plus all 44 focused desktop tests. Its five focused engine suites
+reported 136 passes and one incorrect fixture assertion: `ari/child` contains
+the complete ID `child`, so exact-ID legacy compatibility correctly accepts
+it. `d1422ebe` corrects only that expectation; the three ownership unit tests
+then passed. This is 137 distinct passing engine cases across the focused
+runs, including both actual colliding-root cleanup cases. No production source
+changed after those checks. No killed/OOM step occurred.
 
 The coordinator supplied PR refs after this review started: 514 is
 `df66c4ed`, 515 is `64050689`, 516 is `d7399052` (including `f2591c40`).
 Read-only file comparison finds no overlap with 514/515; 516 overlaps engine,
 runtime, rpc and control service as in the prior immutable review. Preserve
-its off-by-default experiment guards. No fetch, push, PR or live Ari changes. Registered uncertain
+its off-by-default experiment guards. No fetch, push, PR or live Ari changes.
+Registered uncertain
 human-created worktrees remain inspectable; human `session.create` lacks the
 Aria caller's durable operation receipt and does not automatically clean an
 unconfirmed registered checkout. Shared descendants resolve the inherited cwd
@@ -140,3 +147,21 @@ can leave legacy branches behind after directory/ref cleanup. A real Git
 regression creates another root's unique, unintegrated commit, unregisters its
 checkout, and proves both current and legacy-short branches survive cleanup
 and a fresh manager while exact legacy full-ID cleanup still succeeds.
+
+Security reproduction IDs: `sess_mabcd123a_aaaaaa` and
+`sess_mabcd123a_bbbbbb`; the legacy shared ownership key was `mabcd123`. The
+regression confirms another root's unregistered branch and its unique commit
+remain intact under current and legacy-short naming, including numbered branch
+suffixes. Exact full-ID legacy branches for the cleanup target are removed,
+while full-ID branches for the other root remain. Prior owned cleanup tests
+also passed, including failed-removal restart retries, external junction targets
+and unrelated/sibling paths. The coordinator is receiving the corrected proof
+for independent security re-review before integration.
+
+Review commits before final evidence: `a26861db`, `77f9422d`, `5c7f359e`,
+`f76359ce`, `3be07c1e`, `d1422ebe`. Changed files: `agent-control.ts`,
+`root-concurrency.test.ts`, `git/orchestration-branch.ts` and its unit test,
+`git/managed-workspaces.test.ts`, this handoff, `parallel-root-typecheck.json`
+and `scripts/coordination/validate-parallel-root.mjs`. No broad suite, build or
+browser capture was run. The standalone branch remains based on main
+`6f018a75`; integration into `feat/machines` belongs to the coordinator.
