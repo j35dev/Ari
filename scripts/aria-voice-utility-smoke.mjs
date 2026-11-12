@@ -1,3 +1,4 @@
+import process from 'node:process'
 // Standalone Electron harness: never boots Ari or reads its installed profile.
 import { app, utilityProcess } from 'electron'
 import { mkdir, link, writeFile } from 'node:fs/promises'
@@ -6,6 +7,7 @@ const root = resolve('D:/Projects/Ari-aria-voice')
 const profile = join(root, '.voice-smoke')
 app.setPath('userData', profile)
 app.commandLine.appendSwitch('disable-breakpad')
+async function smoke() {
 const model = join(profile, 'speech', 'models', 'kokoro-82m-v1.0')
 await mkdir(model, { recursive: true })
 for (const name of ['model.onnx', 'voices.bin', 'tokens.txt', 'lexicon-us-en.txt']) {
@@ -45,3 +47,6 @@ try {
 } finally {
   worker.kill(); app.exit(process.exitCode ?? 0)
 }
+
+}
+void smoke().catch(error => { console.error(error); app.exit(1) })
