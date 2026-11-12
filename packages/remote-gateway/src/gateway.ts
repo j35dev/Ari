@@ -29,8 +29,12 @@ import { IdempotencyStore } from './idempotency'
 import { isOriginAllowed, requestOrigin } from './origin'
 import { PairingService, type PairedDevice } from './pairing'
 import { acceptUpgrade, isWebSocketUpgrade } from './ws'
-import { routeProofRequestSchema, routeChallengeRequestSchema, routeAuthorizeRequestSchema,
-  hostRouteManifestSchema } from '@ari/contracts/route-auth'
+import {
+  routeProofRequestSchema,
+  routeChallengeRequestSchema,
+  routeAuthorizeRequestSchema,
+  hostRouteManifestSchema,
+} from '@ari/contracts/route-auth'
 import { ownedRouteAudience, type RouteAuthority } from './route-auth'
 
 /**
@@ -135,8 +139,10 @@ function scopeOf(command: RemoteCommand): Omit<RecordedOutcome, 'reply'> {
 
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
   const host = options.host
-  const routeAudience = (): string | null => options.routeAuthority === undefined || options.managedAccess !== undefined
-    ? null : ownedRouteAudience(options.routeAuthority)
+  const routeAudience = (): string | null =>
+    options.routeAuthority === undefined || options.managedAccess !== undefined
+      ? null
+      : ownedRouteAudience(options.routeAuthority)
   const pairing = options.pairing ?? new PairingService()
   const idempotency =
     options.idempotency?.restore === undefined
@@ -616,46 +622,92 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const authority = options.routeAuthority
     if (routeAudience() === null || authority === undefined)
       return reply(400, fail('unsupported_capability', 'verified route authority is unavailable'))
-    if (authenticate(req) === undefined) return reply(401, fail('unauthenticated', 'a device credential is required'))
+    if (authenticate(req) === undefined)
+      return reply(401, fail('unauthenticated', 'a device credential is required'))
     const issuedAt = (options.now ?? Date.now)()
-    const payload = hostRouteManifestSchema.parse({kind: 'ari.routes.v1', hostId: authority.signer.hostId,
-      publicKey: authority.signer.publicKey, issuedAt, expiresAt: issuedAt + 5 * 60_000,
-      routes: [...new Set(authority.servedOrigins())]})
-    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+    const payload = hostRouteManifestSchema.parse({
+      kind: 'ari.routes.v1',
+      hostId: authority.signer.hostId,
+      publicKey: authority.signer.publicKey,
+      issuedAt,
+      expiresAt: issuedAt + 5 * 60_000,
+      routes: [...new Set(authority.servedOrigins())],
+    })
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
   }
 
   function routeProof(reply: Reply, body: unknown): void {
     const parsed = routeProofRequestSchema.safeParse(body)
     const authority = options.routeAuthority
     const audience = routeAudience()
-    if (!parsed.success || audience === null || authority === undefined || parsed.data.audience !== audience)
-      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
+    if (
+      !parsed.success ||
+      audience === null ||
+      authority === undefined ||
+      parsed.data.audience !== audience
+    )
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
     const issuedAt = (options.now ?? Date.now)()
-    const payload = {kind: 'ari.route-proof.v1' as const, hostId: authority.signer.hostId, audience,
-      nonce: parsed.data.nonce, issuedAt, expiresAt: issuedAt + 30_000, protocolVersion: REMOTE_PROTOCOL_VERSION}
-    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+    const payload = {
+      kind: 'ari.route-proof.v1' as const,
+      hostId: authority.signer.hostId,
+      audience,
+      nonce: parsed.data.nonce,
+      issuedAt,
+      expiresAt: issuedAt + 30_000,
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+    }
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
   }
 
   function routeChallenge(reply: Reply, body: unknown): void {
     const parsed = routeChallengeRequestSchema.safeParse(body)
     const authority = options.routeAuthority
     const audience = routeAudience()
-    if (!parsed.success || audience === null || authority === undefined || parsed.data.audience !== audience)
-      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
-    const payload = pairing.routeChallenge({kind: 'ari.route-challenge.v1', hostId: authority.signer.hostId,
-      audience, clientNonce: parsed.data.clientNonce, deviceId: parsed.data.deviceId})
-    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+    if (
+      !parsed.success ||
+      audience === null ||
+      authority === undefined ||
+      parsed.data.audience !== audience
+    )
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
+    const payload = pairing.routeChallenge({
+      kind: 'ari.route-challenge.v1',
+      hostId: authority.signer.hostId,
+      audience,
+      clientNonce: parsed.data.clientNonce,
+      deviceId: parsed.data.deviceId,
+    })
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
   }
 
   function routeAuthorize(reply: Reply, body: unknown): void {
     const parsed = routeAuthorizeRequestSchema.safeParse(body)
     const audience = routeAudience()
     if (!parsed.success || audience === null || parsed.data.audience !== audience)
-      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
     const result = pairing.authorizeRoute(parsed.data.deviceId, audience, parsed.data)
-    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'route authorization refused'))
-    return reply(200, {ok: true, result: {deviceId: result.device.deviceId, token: result.token,
-      projectIds: result.device.projectIds, allowTerminal: result.device.allowTerminal === true}})
+    if (!result.ok)
+      return reply(statusFor(result.code), fail(result.code, 'route authorization refused'))
+    return reply(200, {
+      ok: true,
+      result: {
+        deviceId: result.device.deviceId,
+        token: result.token,
+        projectIds: result.device.projectIds,
+        allowTerminal: result.device.allowTerminal === true,
+        allProjects: result.device.allProjects === true,
+      },
+    })
   }
 
   function pairRequest(reply: Reply, body: unknown): void {

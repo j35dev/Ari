@@ -406,17 +406,31 @@ export class PairingService {
     const expiresAt = issuedAt + 30_000
     const nonce = this.#issueChallenge(expiresAt, { deviceId: input.deviceId })
     const payload: RouteChallenge = { ...input, nonce, issuedAt, expiresAt }
-    this.#challenges.set(nonce, { deviceId: input.deviceId, audience: input.audience,
-      expiresAt, signingText: routeSigningText(payload) })
+    this.#challenges.set(nonce, {
+      deviceId: input.deviceId,
+      audience: input.audience,
+      expiresAt,
+      signingText: routeSigningText(payload),
+    })
     return payload
   }
 
-  authorizeRoute(deviceId: string, audience: string, proof: {nonce: string; signature: string}): PairingResult<{device: PairedDevice; token: string}> {
+  authorizeRoute(
+    deviceId: string,
+    audience: string,
+    proof: { nonce: string; signature: string },
+  ): PairingResult<{ device: PairedDevice; token: string }> {
     if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
     const device = this.#devices.get(deviceId)
-    if (device === undefined) return { ok: false, code: this.#revoked.has(deviceId) ? 'access_revoked' : 'not_found' }
-    if (!this.#proveKey({deviceId, audience}, device.publicKey, proof)) return { ok: false, code: 'invalid_signature' }
-    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(deviceId, audience) }
+    if (device === undefined)
+      return { ok: false, code: this.#revoked.has(deviceId) ? 'access_revoked' : 'not_found' }
+    if (!this.#proveKey({ deviceId, audience }, device.publicKey, proof))
+      return { ok: false, code: 'invalid_signature' }
+    return {
+      ok: true,
+      device: this.#publicDevice(device),
+      token: this.#mintToken(deviceId, audience),
+    }
   }
 
   /**
@@ -566,9 +580,13 @@ export class PairingService {
 
   #mintToken(deviceId: string, audience?: string): string {
     const token = randomBytes(32).toString('base64url')
-    this.#tokens.set(tokenDigest(token), { deviceId,
-      expiresAt: this.#now() + (audience === undefined ? this.#tokenTtlMs : Math.min(this.#tokenTtlMs, 60_000)),
-      ...(audience === undefined ? {} : { audience }) })
+    this.#tokens.set(tokenDigest(token), {
+      deviceId,
+      expiresAt:
+        this.#now() +
+        (audience === undefined ? this.#tokenTtlMs : Math.min(this.#tokenTtlMs, 60_000)),
+      ...(audience === undefined ? {} : { audience }),
+    })
     return token
   }
 

@@ -16,7 +16,10 @@ export const machineIdentitySchema = z.object({
   protocolVersion: z.number().int().positive(),
   capabilities: z.array(z.string().min(1).max(100)).max(200),
   machinesExtensions: machinesExtensionsSchema.optional(),
-  routeIdentity: z.object({ version: z.literal(1) }).strict().optional(),
+  routeIdentity: z
+    .object({ version: z.literal(1) })
+    .strict()
+    .optional(),
 })
 export type MachineIdentity = z.infer<typeof machineIdentitySchema>
 export const machineRouteSchema = z
@@ -51,6 +54,7 @@ export const machineViewSchema = z.object({
   versionReady: z.boolean().optional(),
   permissionsReady: z.boolean().optional(),
   projectIds: z.array(z.string()).optional(),
+  allProjects: z.boolean().optional(),
   autoPreference: z.enum(['prefer', 'normal', 'less-often', 'manual-only']).optional(),
 })
 export type MachineView = z.infer<typeof machineViewSchema>
@@ -85,15 +89,17 @@ const machineRef = z.object({ machineId: z.string().min(1).max(200) }).strict()
 export const machineAutoPreferenceSchema = z.enum(['prefer', 'normal', 'less-often', 'manual-only'])
 export type MachineAutoPreference = z.infer<typeof machineAutoPreferenceSchema>
 export const LOCAL_MACHINE_PREFERENCE_ID = 'local'
-export const machinesPreferencesSchema = z.object({
-  autoEnabled: z.boolean(),
-  hostTiers: z.record(z.string().min(1).max(200), machineAutoPreferenceSchema),
-  projectHosts: z.record(z.string().min(1).max(1024), z.string().min(1).max(200)),
-}).strict()
+export const machinesPreferencesSchema = z
+  .object({
+    autoEnabled: z.boolean(),
+    hostTiers: z.record(z.string().min(1).max(200), machineAutoPreferenceSchema),
+    projectHosts: z.record(z.string().min(1).max(1024), z.string().min(1).max(200)),
+  })
+  .strict()
 export type MachinesPreferences = z.infer<typeof machinesPreferencesSchema>
 export const machinesRpcParams = {
   'machines.list': z.undefined(),
-  'machines.localSnapshot': z.undefined(),
+  'machines.localSnapshot': z.object({ sampleResources: z.boolean().optional() }).strict().optional(),
   'machines.discover': z.undefined(),
   'machines.add': z
     .object({
@@ -111,13 +117,17 @@ export const machinesRpcParams = {
   'machines.rename': machineRef.extend({ name: z.string().trim().min(1).max(100) }),
   'machines.remove': machineRef,
   'machines.addRoute': machineRef.extend({ address: z.string().min(1).max(2048) }),
-  'machines.reorderRoutes': machineRef.extend({ origins: z.array(z.string().url().max(2048)).min(1).max(16) }),
+  'machines.reorderRoutes': machineRef.extend({
+    origins: z.array(z.string().url().max(2048)).min(1).max(16),
+  }),
   'machines.removeRoute': machineRef.extend({ origin: z.string().url().max(2048) }),
   'machines.precheck': z.object({ machineId: z.string().min(1).max(200).optional() }).strict(),
   'machines.preferences': z.undefined(),
   'machines.setAuto': z.object({ enabled: z.boolean() }).strict(),
   'machines.setPreference': machineRef.extend({ tier: machineAutoPreferenceSchema }),
-  'machines.rememberProjectHost': z.object({ projectKey: z.string().min(1).max(1024), machineId: z.string().min(1).max(200) }).strict(),
+  'machines.rememberProjectHost': z
+    .object({ projectKey: z.string().min(1).max(1024), machineId: z.string().min(1).max(200) })
+    .strict(),
   'machines.query': machineRef.extend({ query: remoteQuerySchema }),
   'machines.command': machineRef.extend({ command: remoteCommandEnvelopeSchema }),
 } as const

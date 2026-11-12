@@ -12,6 +12,24 @@ export function registerMachinesRpc(registry: RpcRegistry, machines: MachinesSer
   registry.register('machines.pair', (params) => machines.pair(params))
   registry.register('machines.pairStatus', (params) => machines.pairStatus(params.machineId))
   registry.register('machines.connect', (params) => machines.connect(params.machineId))
+  registry.register('machines.addRoute', (params) =>
+    machines.addRoute(params.machineId, params.address),
+  )
+  registry.register('machines.reorderRoutes', (params) =>
+    machines.reorderRoutes(params.machineId, params.origins),
+  )
+  registry.register('machines.removeRoute', (params) =>
+    machines.removeRoute(params.machineId, params.origin),
+  )
+  registry.register('machines.precheck', (params) => machines.precheck(params.machineId))
+  registry.register('machines.preferences', () => machines.preferences())
+  registry.register('machines.setAuto', (params) => machines.setAuto(params.enabled))
+  registry.register('machines.setPreference', (params) =>
+    machines.setPreference(params.machineId, params.tier),
+  )
+  registry.register('machines.rememberProjectHost', (params) =>
+    machines.rememberProjectHost(params.projectKey, params.machineId),
+  )
   registry.register('machines.rename', (params) => machines.rename(params.machineId, params.name))
   registry.register('machines.remove', (params) => machines.remove(params.machineId))
   registry.register('machines.query', (params) =>

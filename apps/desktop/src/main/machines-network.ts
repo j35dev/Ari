@@ -10,6 +10,7 @@ import type { MachineRoute } from '@ari/contracts/machines'
 
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 const TIMEOUT_MS = 10_000
+const ROUTE_CHECK_TIMEOUT_MS = 2500
 const DNS_NAME = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]+\.ts\.net$/i
 
 export function isTailnetAddress(address: string): boolean {
@@ -87,7 +88,7 @@ export class MachineNetwork {
       new Promise<never>((_, reject) => {
         dnsTimer = setTimeout(
           () => reject(new RemoteError('unreachable', 'Computer name lookup timed out.')),
-          this.#options.timeoutMs ?? TIMEOUT_MS,
+          Math.min(this.#options.timeoutMs ?? TIMEOUT_MS, ROUTE_CHECK_TIMEOUT_MS),
         )
         dnsTimer.unref()
       }),
@@ -112,6 +113,9 @@ export class MachineNetwork {
       if (target.origin !== route.origin || target.username || target.password)
         throw new Error('A computer request cannot change destinations.')
       const headers = Object.fromEntries(new Headers(init?.headers).entries())
+      const deadlineMs = ['/info', '/api/identity', '/routes/proof'].includes(target.pathname)
+        ? Math.min(timeout, ROUTE_CHECK_TIMEOUT_MS)
+        : timeout
       // A desktop main-process request acts as this host's same-origin client.
       // This never relaxes the destination gateway's origin allowlist for browsers.
       headers['origin'] = route.origin
@@ -158,7 +162,7 @@ export class MachineNetwork {
         )
         const deadline = setTimeout(
           () => request.destroy(new Error('The computer request timed out.')),
-          timeout,
+          deadlineMs,
         )
         request.once('close', () => clearTimeout(deadline))
         request.on('error', reject)

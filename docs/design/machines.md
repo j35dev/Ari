@@ -242,6 +242,10 @@ Unknown commit only reconciles; reconnect alone is not success. Show host-author
 interruption/resumable counts where available; do not add automatic continuation.
 
 Headless proposal uses `ari host` namespace to avoid existing CLI collisions:
+The full bootstrap, CLI, profile-lock, approval-channel, service and updater
+design is in [machines-headless.md](machines-headless.md); it is not implemented.
+
+The proposed commands are:
 `up` selects explicit reachability/service choice, `serve` foreground engine+
 gateway, `pair` fresh link and host-local approval, `status --json` separates
 configured/listening/ready/reachable/auth/update state. Noninteractive flags never
