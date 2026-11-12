@@ -92,7 +92,7 @@ export default async function afterPack(context) {
     // ws stays external so its optional native peers use guarded Node loading.
     // Resolve it from the actual packaged app, rather than this build checkout.
     const probe = `const requireApp = require('node:module').createRequire(${JSON.stringify(join(resourcesDir(context), 'app.asar', 'package.json'))});
-      const { WebSocket, WebSocketServer } = requireApp('ws');
+      const { WebSocket, WebSocketServer } = requireApp('./node_modules/ws');
       if (typeof WebSocket !== 'function' || typeof WebSocketServer !== 'function') throw new Error('Packaged WebSocket runtime is unavailable.');`
     await promisify(execFile)(executable, ['-e', probe], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
