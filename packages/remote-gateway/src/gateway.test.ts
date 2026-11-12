@@ -174,6 +174,7 @@ describe('remote gateway discovery', () => {
       result: {
         protocolVersion: REMOTE_PROTOCOL_VERSION,
         capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
+        machinesExtensions: { version: 1, operations: [] },
       },
     })
   })
@@ -188,6 +189,7 @@ describe('remote gateway discovery', () => {
     expect(Object.keys(body).sort()).toEqual(['ok', 'result'])
     expect(Object.keys(body['result'] as object).sort()).toEqual([
       'capabilities',
+      'machinesExtensions',
       'protocolVersion',
     ])
   })
@@ -199,6 +201,7 @@ describe('remote gateway discovery', () => {
     expect(body['result']).toEqual({
       protocolVersion: REMOTE_PROTOCOL_VERSION,
       capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
+      machinesExtensions: { version: 1, operations: [] },
     })
   })
 
@@ -217,6 +220,7 @@ describe('remote gateway discovery', () => {
       'ariVersion',
       'capabilities',
       'machineId',
+      'machinesExtensions',
       'name',
       'protocolVersion',
     ])
