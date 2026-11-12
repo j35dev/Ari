@@ -8,7 +8,8 @@
     "./idempotency": "./src/idempotency.ts",
     "./pairing": "./src/pairing.ts",
     "./host": "./src/host.ts",
-    "./gateway": "./src/gateway.ts"
+    "./gateway": "./src/gateway.ts",
+    "./route-auth": "./src/route-auth.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
