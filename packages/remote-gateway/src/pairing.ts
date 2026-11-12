@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
 import type { PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
+import { routeSigningText, type RouteChallenge } from '@ari/contracts/route-auth'
 import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
@@ -106,6 +107,8 @@ interface Challenge {
   /** Set for a remembered-device challenge, which is bound to its device. */
   deviceId?: string
   expiresAt: number
+  audience?: string
+  signingText?: string
 }
 
 interface Options {
@@ -141,7 +144,7 @@ export class PairingService {
    * hashed so a copy of the process's memory does not hand out working
    * credentials, and the digest is what a lookup compares.
    */
-  readonly #tokens = new Map<string, { deviceId: string; expiresAt: number }>()
+  readonly #tokens = new Map<string, { deviceId: string; expiresAt: number; audience?: string }>()
   /**
    * Nonces this server issued, to be signed back. A nonce is the only thing
    * that makes a proof fresh: without one, a signature captured from an
@@ -397,6 +400,25 @@ export class PairingService {
     return { nonce: this.#issueChallenge(expiresAt, { deviceId }), expiresAt }
   }
 
+  /** A route challenge has a separate signature domain and cannot redeem a legacy nonce. */
+  routeChallenge(input: Omit<RouteChallenge, 'nonce' | 'issuedAt' | 'expiresAt'>): RouteChallenge {
+    const issuedAt = this.#now()
+    const expiresAt = issuedAt + 30_000
+    const nonce = this.#issueChallenge(expiresAt, { deviceId: input.deviceId })
+    const payload: RouteChallenge = { ...input, nonce, issuedAt, expiresAt }
+    this.#challenges.set(nonce, { deviceId: input.deviceId, audience: input.audience,
+      expiresAt, signingText: routeSigningText(payload) })
+    return payload
+  }
+
+  authorizeRoute(deviceId: string, audience: string, proof: {nonce: string; signature: string}): PairingResult<{device: PairedDevice; token: string}> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
+    const device = this.#devices.get(deviceId)
+    if (device === undefined) return { ok: false, code: this.#revoked.has(deviceId) ? 'access_revoked' : 'not_found' }
+    if (!this.#proveKey({deviceId, audience}, device.publicKey, proof)) return { ok: false, code: 'invalid_signature' }
+    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(deviceId, audience) }
+  }
+
   /**
    * Re-authenticates a remembered device without re-pairing, which is what
    * makes a paired device survive a desktop restart: the phone still holds the
@@ -426,12 +448,13 @@ export class PairingService {
    * nothing was ever issued it. A revoked device has no token, so revocation
    * takes effect here rather than needing a second check at the call site.
    */
-  authenticate(token: string): PairedDevice | undefined {
+  authenticate(token: string, audience?: string | null): PairedDevice | undefined {
     if (this.#authorizationSuspended) return undefined
     if (token.length === 0) return undefined
     const digest = tokenDigest(token)
     const entry = this.#tokens.get(digest)
     if (entry === undefined) return undefined
+    if (entry.audience !== undefined && entry.audience !== audience) return undefined
     if (entry.expiresAt <= this.#now()) {
       this.#tokens.delete(digest)
       return undefined
@@ -525,7 +548,7 @@ export class PairingService {
    * another device, by presenting it with the right signature attached.
    */
   #proveKey(
-    binding: { invitationId: string } | { deviceId: string },
+    binding: { invitationId: string } | { deviceId: string; audience?: string },
     key: PairingPublicKey,
     proof: { nonce: string; signature: string },
   ): boolean {
@@ -537,12 +560,15 @@ export class PairingService {
       return false
     }
     if (challenge.deviceId !== ('deviceId' in binding ? binding.deviceId : undefined)) return false
-    return signatureMatches(key, proof)
+    if (challenge.audience !== ('audience' in binding ? binding.audience : undefined)) return false
+    return signatureMatches(key, { ...proof, nonce: challenge.signingText ?? proof.nonce })
   }
 
-  #mintToken(deviceId: string): string {
+  #mintToken(deviceId: string, audience?: string): string {
     const token = randomBytes(32).toString('base64url')
-    this.#tokens.set(tokenDigest(token), { deviceId, expiresAt: this.#now() + this.#tokenTtlMs })
+    this.#tokens.set(tokenDigest(token), { deviceId,
+      expiresAt: this.#now() + (audience === undefined ? this.#tokenTtlMs : Math.min(this.#tokenTtlMs, 60_000)),
+      ...(audience === undefined ? {} : { audience }) })
     return token
   }
 
