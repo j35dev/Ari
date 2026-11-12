@@ -159,7 +159,12 @@ app
           const bottom = await paintedFrame()
           const bottomName = `machines-settings-bottom-${theme}.png`
           await writeFile(join(evidence, bottomName), bottom.toPNG())
-          captures.push({ filename: bottomName, view: 'settings-bottom', theme, imageSize: bottom.getSize() })
+          captures.push({
+            filename: bottomName,
+            view: 'settings-bottom',
+            theme,
+            imageSize: bottom.getSize(),
+          })
         }
       }
     }
