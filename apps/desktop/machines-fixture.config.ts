@@ -7,6 +7,7 @@ export default defineConfig({
   root: resolve('src/renderer'),
   base: './',
   plugins: [react()],
+  worker: { format: 'es' },
   build: {
     outDir: resolve('out/machines-fixture'),
     emptyOutDir: true,
