@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/assets.d.ts",
+    "src/renderer/src/features/speech/assets.d.ts",
     "src/test-setup.dom.ts",
     "src/renderer/src/features/session/session-client.tsx",
     "src/renderer/src/features/session/session-draft-client.ts",
