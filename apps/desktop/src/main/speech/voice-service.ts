@@ -47,6 +47,7 @@ export class VoiceService {
     if (!this.worker) {
       const worker = utilityProcess.fork(join(import.meta.dirname, 'voice-worker.js'), [], { stdio: 'ignore', serviceName: 'Aria voice' })
       this.worker = worker
+      worker.postMessage({ kind: 'cancel', generation: this.generation })
       worker.on('message', (reply: Reply) => {
         const pending = this.pending.get(reply.id)
         if (!pending || this.worker !== worker) return
