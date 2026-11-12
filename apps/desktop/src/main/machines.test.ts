@@ -351,12 +351,31 @@ describe('persistent Machines safety', () => {
     registry.register('session.list', () => [])
     registerMachinesRpc(registry, machines)
     await expect(registry.invoke('session.list', {})).resolves.toEqual([])
-    await expect(registry.invoke('machines.list', undefined)).rejects.toThrow(/Saved computers could not be loaded/)
-    await expect(registry.invoke('machines.add', { address: 'http://127.0.0.1:8787' })).rejects.toThrow(/registry has been preserved/)
-    expect(await registry.invoke('machines.query', { machineId: 'saved', query: { op: 'project.list' } })).toMatchObject({
-      ok: false, error: { code: 'internal_error', message: expect.stringMatching(/registry has been preserved/) },
+    await expect(registry.invoke('machines.list', undefined)).rejects.toThrow(
+      /Saved computers could not be loaded/,
+    )
+    await expect(
+      registry.invoke('machines.add', { address: 'http://127.0.0.1:8787' }),
+    ).rejects.toThrow(/registry has been preserved/)
+    expect(
+      await registry.invoke('machines.query', {
+        machineId: 'saved',
+        query: { op: 'project.list' },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: 'internal_error',
+        message: expect.stringMatching(/registry has been preserved/),
+      },
     })
-    expect(() => subscribeMachineStream(registry, machines, { id: 'updates', name: 'machines.updates', params: {} })).toThrow(/Saved computers/)
+    expect(() =>
+      subscribeMachineStream(registry, machines, {
+        id: 'updates',
+        name: 'machines.updates',
+        params: {},
+      }),
+    ).toThrow(/Saved computers/)
     expect(registry.subscriberCount()).toBe(0)
     expect(transport).not.toHaveBeenCalled()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
