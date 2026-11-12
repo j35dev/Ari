@@ -4,6 +4,7 @@ import { app, utilityProcess } from 'electron'
 import { mkdir, link, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { setTimeout, clearTimeout } from 'node:timers'
 import { execFileSync } from 'node:child_process'
 import { missingNativeWords } from './aria-voice-diagnostics.mjs'
 const root = resolve('D:/Projects/Ari-aria-voice')
@@ -86,13 +87,29 @@ async function smoke() {
       speed: 1,
     })
     if (!cancelled.cancelled) throw new Error('Utility failed to reject stale speech')
-    const names = await request({ id: 4, kind: 'speak', path: model, generation: 1, text: 'Ari, Aria and Codex checked the PR, ACP and CLI. Quuxwidget has 12 updates and the details are in the chat.', voice: 'af_heart', speed: 1 })
-    if (!names.audio?.samples.length || !names.spelled.includes('Quuxwidget')) throw new Error('Utility failed to cover unknown words')
-    const interrupted = request({ id: 5, kind: 'speak', path: model, generation: 1, text: 'This reply is interrupted while synthesis is still running.', voice: 'af_heart', speed: 1 })
+    const names = await request({
+      id: 4,
+      kind: 'speak',
+      path: model,
+      generation: 1,
+      text: 'Ari, Aria and Codex checked the PR, ACP and CLI. Quuxwidget has 12 updates and the details are in the chat.',
+      voice: 'af_heart',
+      speed: 1,
+    })
+    if (!names.audio?.samples.length || !names.spelled.includes('Quuxwidget'))
+      throw new Error('Utility failed to cover unknown words')
+    const interrupted = request({
+      id: 5,
+      kind: 'speak',
+      path: model,
+      generation: 1,
+      text: 'This reply is interrupted while synthesis is still running.',
+      voice: 'af_heart',
+      speed: 1,
+    })
     setTimeout(() => worker.postMessage({ kind: 'cancel', generation: 2 }), 50)
     if (!(await interrupted).cancelled) throw new Error('Utility returned audio after interruption')
-    if (missingNativeWords(diagnostics))
-      throw new Error('Native engine dropped a word')
+    if (missingNativeWords(diagnostics)) throw new Error('Native engine dropped a word')
     const result = {
       ok: true,
       at: new Date().toISOString(),
@@ -101,7 +118,7 @@ async function smoke() {
       hardware: loaded.hardware,
       preloadMs,
       firstAudioMs,
-      utilityMetrics: app.getAppMetrics().find(metric => metric.pid === worker.pid),
+      utilityMetrics: app.getAppMetrics().find((metric) => metric.pid === worker.pid),
       sampleRate: audio.audio.sampleRate,
       samples: audio.audio.samples.length,
       cancellation: 'passed',

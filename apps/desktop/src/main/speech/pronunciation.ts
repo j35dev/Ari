@@ -11,6 +11,8 @@ export const ARIA_LEXICON = {
   acp: 'ˌ A s ˌ i p ˈ i',
   cli: 's ˌ i ɛ l ˌ I',
   pr: 'p ˌ i ˈ ɑ ɹ',
+  // The stock dictionary omits this everyday plural used by the fallback condenser.
+  details: 'd ə t ˈ A l z',
 } as const
 const ones =
   'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(
