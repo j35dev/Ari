@@ -72,6 +72,7 @@ const capabilities = [
   'changes.diff',
   'files.list',
   'files.read',
+  ...(view === 'fork-uncertain' ? ['session.fork'] : []),
   ...(view === 'integration-uncertain' ? ['changes.preview', 'changes.integrate'] : []),
 ]
 export const app = {

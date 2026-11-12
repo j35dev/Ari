@@ -12,7 +12,11 @@ const app = vi.hoisted(() => ({
   projects: [{ id: 'project-1', name: 'Ari' }],
   catalog: null,
   refresh: vi.fn(),
-  session: { deviceId: 'phone-1', supports: vi.fn(() => true), send: vi.fn(), query: vi.fn() },
+  session: {
+    deviceId: 'phone-1', supports: vi.fn(() => true),
+    send: vi.fn<(command: Record<string, unknown>, key?: string) => Promise<unknown>>(),
+    query: vi.fn<(op: string, params?: Record<string, unknown>) => Promise<unknown>>(),
+  },
 }))
 vi.mock('../../lib/app-state', () => ({ useApp: () => app }))
 let root: Root

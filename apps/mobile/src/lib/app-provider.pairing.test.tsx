@@ -97,9 +97,9 @@ describe('forget during host-approved pairing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Forget' }))
     await waitFor(() => expect(clear).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
-    expect(transport.failure).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('Wait') }),
-    )
+    expect(transport.failure.mock.calls[0]?.[0]).toMatchObject({
+      message: 'Wait for this computer to be forgotten before opening another.',
+    })
     expect(navigate).not.toHaveBeenCalled()
     clearing.release()
     await waitFor(() => expect(transport.forgotten).toHaveBeenCalledOnce())
