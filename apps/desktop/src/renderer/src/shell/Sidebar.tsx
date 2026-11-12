@@ -288,6 +288,7 @@ function SessionRow({
   childCount = 0,
   nested = false,
   projectName,
+  host,
   isActive,
   activity,
   startedByAria = false,
@@ -308,6 +309,7 @@ function SessionRow({
   nested?: boolean
   /** Origin project, surfaced as a tooltip in flat lists (search, archived, sessions view). */
   projectName: string | null
+  host?: { name: string; status: string; readOnly: boolean }
   isActive: boolean
   activity?: SessionActivity
   startedByAria?: boolean
@@ -486,6 +488,7 @@ function SessionRow({
               <span className="min-w-0 truncate text-2xs font-medium text-fg-subtle">
                 {projectName ?? 'Unfiled'}
               </span>
+              {host && <span className="max-w-24 truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ' · Offline' : ''}</span>}
               {session.driverKind ? (
                 <span className="shrink-0" title={driverLabel(session.driverKind)}>
                   <ProviderLogo kind={session.driverKind} />
@@ -525,6 +528,7 @@ function SessionRow({
             >
               {session.title}
             </span>
+            {host && <span className="max-w-24 shrink-0 truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ` · ${host.status}` : ''}</span>}
             {session.workspaceKind === 'managed-worktree' ? (
               <span
                 className="shrink-0 text-2xs text-fg-subtle"
@@ -653,6 +657,7 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
+  hostOf?: (sessionId: string) => { name: string; status: string; readOnly: boolean } | undefined
   selecting?: boolean
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string, shiftKey: boolean) => void
@@ -749,6 +754,7 @@ function SessionList({
                   nested={!flat && lastAtDepth.length > 0}
                   variant={rowVariant}
                   projectName={projectNameOf?.(s.projectId) ?? null}
+                  host={handlers.hostOf?.(s.id)}
                   isActive={s.id === handlers.activeSessionId}
                   activity={treeActivity(
                     handlers.activityOf?.(s.id),
@@ -908,6 +914,9 @@ export interface SidebarProject {
   name: string
   path?: string
   status?: ProjectStatus
+  hostLabel?: string
+  localProjectId?: string
+  localActions?: boolean
 }
 
 /** Per-project commands surfaced on group hover / in the degraded state. */
@@ -976,6 +985,7 @@ function ProjectGroupSection({
   // started on it: only a press that did not travel toggles the group.
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
+  const localActions = project?.localActions !== false
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
   const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
 
@@ -1028,6 +1038,7 @@ function ProjectGroupSection({
             >
               {name}
             </span>
+            {project?.hostLabel && <span className="max-w-24 truncate text-2xs text-fg-subtle" title={project.hostLabel}>{project.hostLabel}</span>}
             {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
             <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/project:opacity-0">
               {bulk?.selecting
@@ -1062,7 +1073,7 @@ function ProjectGroupSection({
                       id: 'import',
                       label: 'Import',
                       icon: ImportIcon,
-                      disabled: missing,
+                      disabled: missing || !localActions,
                       disabledReason: missing
                         ? 'Locate this project before importing sessions'
                         : undefined,
@@ -1072,13 +1083,14 @@ function ProjectGroupSection({
                       id: 'reveal',
                       label: 'Reveal in file manager',
                       icon: FolderOpen,
+                      disabled: !localActions,
                       onSelect: () => actions.onRevealProject?.(project.id),
                     },
                     {
                       id: 'move-up',
                       label: 'Move up',
                       icon: ArrowUp,
-                      disabled: !canMoveUp,
+                      disabled: !canMoveUp || !localActions,
                       disabledReason: canMoveUp ? undefined : 'Already the top project',
                       onSelect: () => actions.onMoveProject?.(project.id, -1),
                     },
@@ -1086,7 +1098,7 @@ function ProjectGroupSection({
                       id: 'move-down',
                       label: 'Move down',
                       icon: ArrowDown,
-                      disabled: !canMoveDown,
+                      disabled: !canMoveDown || !localActions,
                       disabledReason: canMoveDown ? undefined : 'Already the last project',
                       onSelect: () => actions.onMoveProject?.(project.id, 1),
                     },
@@ -1094,6 +1106,7 @@ function ProjectGroupSection({
                       id: 'close',
                       label: 'Close project',
                       icon: X,
+                      disabled: !localActions,
                       onSelect: () => actions.onCloseProject?.(project.id),
                     },
                     {
@@ -1101,6 +1114,7 @@ function ProjectGroupSection({
                       label: 'Remove project',
                       icon: Trash2,
                       danger: true,
+                      disabled: !localActions,
                       onSelect: () => setConfirmRemove(true),
                     },
                   ] as ContextMenuItem[])
@@ -1356,6 +1370,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onDeleteMany,
   onOpenInSplit,
   activityOf,
+  hostOf,
   startedByAria,
   onOpenProject,
   onNewSession,
@@ -1398,6 +1413,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     onToggleArchive: archiveOne,
     onOpenInSplit,
     activityOf,
+    hostOf,
   }
 
   const projectNameOf = useMemo(() => {
