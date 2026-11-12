@@ -10,8 +10,6 @@ import { sessionViewKey, SessionClientProvider } from './session-client'
 
 const bridge = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc: bridge }))
-// Speech is a separate input capability owned by the composer/shell seam.
-vi.mock('../composer/SpeechButton', () => ({ SpeechButton: () => null }))
 vi.mock('../transcript/MarkdownBlock', () => ({ MarkdownBlock: ({ text }: { text: string }) => <p>{text}</p> }))
 Element.prototype.scrollTo = () => {}
 Element.prototype.getBoundingClientRect = () => ({ height: 64 }) as DOMRect
@@ -42,6 +40,7 @@ beforeEach(async () => {
     if (method === 'settings.get') return { notifications: { settleSound: false }, appearance: {} }
     if (method === 'machines.command') {
       if (failCommands) throw new Error('response lost after host execution')
+      if (params.command.op === 'pastes.stage') return { ok: true, result: { path: '.ari/pastes/host-paste.txt', bytesWritten: params.command.text.length } }
       return { ok: true, result: { accepted: true } }
     }
     if (method === 'machines.query') {
@@ -150,5 +149,15 @@ describe('normal remote SessionView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(commands()).toHaveLength(1))
     expect(commands()[0]?.[1]).toMatchObject({ command: { op: 'session.queue', text: 'Queue after reconnect' } })
+  })
+
+  it('uses the host-issued path when the normal remote composer stages a large paste', async () => {
+    await mountHistory()
+    const text = 'x'.repeat(33 * 1024)
+    fireEvent.paste(screen.getByLabelText('Message'), { clipboardData: { files: [], getData: () => text } })
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('@.ari/pastes/host-paste.txt '))
+    expect(commands()[0]?.[1]).toMatchObject({ machineId: 'host-a', command: { op: 'pastes.stage', sessionId: scope.sessionId, text } })
+    expect(commands()[0]?.[1].command).not.toHaveProperty('path')
+    expect(bridge.invoke.mock.calls.every(([method]) => ['machines.list', 'machines.query', 'machines.command', 'settings.get'].includes(method))).toBe(true)
   })
 })
