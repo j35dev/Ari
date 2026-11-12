@@ -269,3 +269,35 @@ a separate approved launcher transaction. No runtime-host certification is claim
 Final integrated SHA, independent fix reruns, combined two-engine signed route
 fallback/move-back plus normal SessionClient proof, and real-hardware gates
 remain outstanding. Existing untracked `.review-temp/` is preserved.
+
+## Route correction source checkpoint 4
+
+Routes `439fd021838b9739c9c7a44d6d13b2651ddb4be5` was independently inspected.
+MachinesService blob `f12b34a18848743326aa77b3bf14cd7251c611f1` introduces a
+PendingRouteAttempt before asynchronous setup, an AbortController shared with
+the connection, and per-machine/origin generations. Membership changes after
+durable registry updates abort both pre-Connection and installed candidates.
+The same origin removed and re-added receives another generation; old work
+cannot publish. Signal checks follow DNS, candidate proof, identity, credential
+load and per-origin authorization, and generation/current membership checks
+fence negotiation, active-result adoption and walk publication. Existing
+authorizeRoute signal checks prevent an in-flight challenge reply from triggering
+the later device signature/authorize request. Reordering preserves unchanged
+membership rather than canceling a healthy connection. Manifest-driven learned
+removal uses the same fencing, while credential slots remain independent.
+
+Registry blob `093f6a3d56bfb87e2ea28c54f414fc487b275b37` retains T1's durable
+high-water and equal-time intersection and filters learned membership through
+the accepted transport-eligible routes. Added authored tests cover stale report
+replay across restart with byte-for-byte durable nonmutation, both equal-time
+completion orders with intervening reloads, manual-route/credential preservation,
+delayed DNS removal, removal/re-addition and delayed signed proof/challenge replies.
+These are source-reviewed regression assertions; no reviewer run of that suite
+or independent final integrated closure is claimed yet.
+
+The independent closure harness preparation is recorded in
+`evidence/machines-t3-security/closure-proof.md`. It preserves the historical
+reproduction and checks durable no-op rejection, equal-time narrowing after
+reload, credential-slot preservation and the original pending-DNS reproduction.
+T1/T2 now have source-closure candidates at this authored SHA; final merge and
+independent executed closure remain required.
