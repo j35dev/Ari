@@ -560,7 +560,15 @@ export class PairingService {
   }
 
   #save(): void {
-    this.#persist?.save(this.toPersisted())
+    try {
+      this.#persist?.save(this.toPersisted())
+    } catch (error) {
+      // Preserve runtime withdrawal, but never mint a credential against an
+      // approval/grant change that could not reach durable storage.
+      this.suspendAuthorization()
+      this.#notify()
+      throw error
+    }
     this.#onChange?.()
   }
 }
