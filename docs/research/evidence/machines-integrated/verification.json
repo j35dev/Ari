@@ -1,0 +1,451 @@
+{
+  "version": 1,
+  "base": "6f018a756e1ee23158d37c14f438f0f1167e0b47",
+  "securityReviewedRuntime": "3f55df73b1cdde0025789a3de9991e31aac2735e",
+  "finalFixtureCorrection": "3adf62129ca569518cedb1d84cca517197eee77f",
+  "finalIntegratedSnapshot": "14c63b5ee13e51ec91666d356a184b154eb7caab",
+  "originalPass": [
+    {
+      "name": "typecheck",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-typecheck",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "-r",
+        "--workspace-concurrency=1",
+        "typecheck"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:31:42.501Z",
+      "finishedAt": "2026-11-12T08:33:08.743Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\typecheck.log",
+      "exitCode": 2,
+      "signal": null
+    },
+    {
+      "name": "lint",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-lint",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "lint"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:33:08.744Z",
+      "finishedAt": "2026-11-12T08:33:39.402Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\lint.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "contracts-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-contracts-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/contracts",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:33:39.403Z",
+      "finishedAt": "2026-11-12T08:33:50.631Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\contracts-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "remote-gateway-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-remote-gateway-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/remote-gateway",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:33:50.632Z",
+      "finishedAt": "2026-11-12T08:33:58.606Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\remote-gateway-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "remote-client-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-remote-client-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/remote-client",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:33:58.607Z",
+      "finishedAt": "2026-11-12T08:34:03.241Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\remote-client-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "engine-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-engine-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/engine",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:34:03.242Z",
+      "finishedAt": "2026-11-12T08:43:38.149Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\engine-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "ari-core-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-ari-core-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/ari-core",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:43:38.150Z",
+      "finishedAt": "2026-11-12T08:43:59.346Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\ari-core-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "providers-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-providers-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/providers",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:43:59.347Z",
+      "finishedAt": "2026-11-12T08:44:33.873Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\providers-tests.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "shared-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-shared-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/shared",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:44:33.873Z",
+      "finishedAt": "2026-11-12T08:44:38.473Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\shared-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "ui-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-ui-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/ui",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:44:38.474Z",
+      "finishedAt": "2026-11-12T08:46:50.491Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\ui-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "mobile-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-mobile-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/mobile",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:46:50.492Z",
+      "finishedAt": "2026-11-12T08:48:29.274Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\mobile-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "desktop-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-desktop-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T08:48:29.275Z",
+      "finishedAt": "2026-11-12T09:08:39.565Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\desktop-tests.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "desktop-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-desktop-build",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T09:08:39.566Z",
+      "finishedAt": "2026-11-12T09:09:01.490Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\desktop-build.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "mobile-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-mobile-build",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/mobile",
+        "build"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T09:09:01.491Z",
+      "finishedAt": "2026-11-12T09:09:11.081Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-integrated\\mobile-build.log",
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "followupChecks": [
+    {
+      "name": "typecheck-recheck",
+      "detail": "monorepo typecheck after identity/timer fix",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/typecheck-recheck.log"
+    },
+    {
+      "name": "lint-recheck",
+      "detail": "full lint after timer imports",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/lint-recheck.log"
+    },
+    {
+      "name": "providers-baseline-final",
+      "detail": "main-export prompt-file tests in shared D temp; same ACL assertion",
+      "exitCode": 1,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/providers-baseline-final.log"
+    },
+    {
+      "name": "providers-baseline-private-temp",
+      "detail": "same main-export tests in protected private D temp; 3 passed",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/providers-baseline-private-temp.log"
+    },
+    {
+      "name": "providers-private-temp",
+      "detail": "full providers suite in protected private D temp; 702 passed, 1 skipped",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/providers-private-temp.log"
+    },
+    {
+      "name": "app-reuse-fixed",
+      "detail": "full App plus session-start-runtime suites; 52 passed",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/app-reuse-fixed.log"
+    },
+    {
+      "name": "app-fixture-lint",
+      "detail": "ESLint on changed App fixture",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/app-fixture-lint.log"
+    },
+    {
+      "name": "desktop-final-types",
+      "detail": "desktop typecheck after App fixture correction",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/desktop-final-types.log"
+    },
+    {
+      "name": "two-engine-proof",
+      "detail": "Machines and real-Git integration suites; 23 passed",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/two-engine-proof.log"
+    },
+    {
+      "name": "mobile-recovery-capture",
+      "detail": "24 recovery images; zero mutations and no overflow",
+      "exitCode": 0,
+      "logPath": "D:/Projects/.ari-cache/machines-integrated/mobile-recovery-capture.log"
+    }
+  ],
+  "outcomes": {
+    "contracts": {
+      "passed": 224
+    },
+    "gateway": {
+      "passed": 182
+    },
+    "client": {
+      "passed": 24
+    },
+    "engine": {
+      "passed": 803
+    },
+    "ariCore": {
+      "passed": 282
+    },
+    "providers": {
+      "passed": 702,
+      "skipped": 1
+    },
+    "shared": {
+      "passed": 16
+    },
+    "ui": {
+      "passed": 323
+    },
+    "mobile": {
+      "passed": 371
+    },
+    "desktop": {
+      "originalPassed": 3660,
+      "originalFailed": 1,
+      "skipped": 4,
+      "fixtureFollowupPassed": 52,
+      "closure": "The sole failure was the missing occupancy RPC mock. The complete App/session-start-runtime followup passed; no unresolved failing assertion remains. The original full desktop exit 1 is preserved."
+    },
+    "distinctPassingCasesAfterCorrections": 6588,
+    "skippedCases": 5,
+    "monorepoTypecheck": "passed on recheck",
+    "fullLint": "passed on recheck",
+    "finalDesktopTypecheck": "passed",
+    "desktopProductionBuild": "passed",
+    "mobileProductionBuild": "passed",
+    "twoEngineAndJournalFailureProof": {
+      "passed": 23,
+      "realEngines": true,
+      "realGateways": true,
+      "transport": "loopback",
+      "provider": "fixture",
+      "liveHardware": false
+    },
+    "recoveryCaptures": {
+      "count": 24,
+      "mutations": 0,
+      "pageOverflow": 0,
+      "sheetOverflow": 0
+    },
+    "unresolvedAssertions": 0
+  },
+  "environment": {
+    "tempBaseline": "Main prompt-file source and test exported from immutable 6f018a75, with main shared source/config and existing Vitest. Initial export setup attempts lacked the Vitest link/tsconfig and ran no tests. Corrected baseline reproduced the shared D temp Users ACL failure.",
+    "privateTemp": "D:/Projects/.ari-cache/machines-private-temp",
+    "privateTempAcl": "Protected inherited ACL; only current user, SYSTEM and Administrators, all inheritable; three entries and no Everyone/Users/Authenticated Users.",
+    "privateTempWrapper": "D:/Projects/.ari-cache/run-with-private-temp.mjs",
+    "resourcePolicy": "Two heavy slots only at >=6 GiB commit headroom; floors C free >=5 GiB and headroom >=1.5 GiB; below-normal priority; one test worker/no file parallelism.",
+    "noLiveAriOrTailscaleChanges": true,
+    "remainingHardwareAndPrivateServiceGates": true
+  }
+}

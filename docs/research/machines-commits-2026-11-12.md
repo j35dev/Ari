@@ -1,9 +1,10 @@
 # Machines commit ledger — 2026-11-12
 
-Base: `6f018a75`. Snapshot: `14ade277`. These 177 commits are reachable from
+Base: `6f018a75`. Snapshot: `14c63b5e`. These 180 commits are reachable from
 `feat/machines` and absent from the base, in reverse topological order. Each line
 is one commit and its subject, including merges and preserved worker evidence.
-The final validation/handoff-only commits follow this recorded snapshot.
+The final verification/handoff and formatting commits follow this recorded
+snapshot and are identified in the coordinator's final reply.
 
 ```text
 527d443a docs: define Machines architecture and shared contracts
@@ -183,6 +184,9 @@ f4bb8198 docs: complete final integrated Machines security review
 4a7aae9e docs: integrate final Machines security review
 3adf6212 test: provide occupancy result when reusing an empty session
 14ade277 docs(mobile): record integrated receipt checks and refreshed recovery captures
+28c6a04b docs: preserve complete Machines commit ledger
+5010f950 test: provide occupancy result when reusing an empty session
+14c63b5e Merge standalone occupancy fixture validation follow-up
 ```
 
 Standalone Tailscale tip: `9df9d9ba`. Standalone parallel-session tip: `5010f950`,
