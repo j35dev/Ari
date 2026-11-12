@@ -85,3 +85,49 @@ refresh. Existing signed leases remain restricted to their signed IDs.
 Real-tailnet/non-443 PWA, phone pairing/reconnect, sleep/wake, ACL denial, live
 broker refresh and revocation on real open terminals remain the design's
 hardware release checks. Component screenshots do not establish those results.
+
+## Takeover security corrections, 2026-11-12
+
+The four inherited WIP files were reviewed and preserved in `63b602af`.
+Corrections through `3cbbaaf8` cover these boundaries:
+
+- S3: local/managed lifecycle publication remains serialized and generation
+  fenced. Managed terminal execution has a listener-generation guard at the
+  actual terminal call, including after asynchronous workspace resolution;
+  an old host cannot create a shell after stop or a subsequent managed start.
+- S4: managed shells keep the verified lease expiration, cannot be accessed
+  through a private caller, renew only from a live project-authorized lease,
+  and close on expiration or connector stop. Managed stop awaits PTY cleanup.
+  Local shells retain their separate device/terminal grants. The watchdog
+  can take up to one second; real detached descendant cleanup is unverified.
+- S5: atomic record writes flush before rename and propagate filesystem
+  failures. A failed approval, revocation, grant withdrawal or command-history
+  write suspends both existing tokens and new device authorization. Terminal
+  watchdogs also honor that suspension. Non-ENOENT reads propagate; malformed
+  device records block startup with recovery guidance. Migration saves cannot
+  publish state before the pairing service constructor has finished.
+- After a failed withdrawal, runtime denial stays latched for this service
+  instance. Repair storage and explicitly retry the withdrawal before restart.
+  If a user restarts before successfully saving, the last durable approval may
+  return: the UI error says this plainly. A successful retry/restart has focused
+  coverage; no durable-success claim is made for a failed save.
+- S6: dispatch requires a successful durable claim write. Corrupt receipt
+  structure/outcomes block gateway startup. Unresolved claims survive expiry
+  and capacity pressure; full pinned stores refuse new work. Missing status
+  returns `conflict` with an unknown-outcome/host-inspection message, preventing
+  the old client's automatic `not_found` resend path. Recorded failures also
+  advise host inspection instead of suggesting a new key.
+- Legacy browser keys have no reliable gateway-origin binding. The original
+  IndexedDB database stays untouched; no key is copied to mutable selected
+  origins. Each origin requires fresh pairing and a new non-extractable key.
+
+Receipt retention remains bounded to 1,000 records per gateway (terminal
+receipts use a separate memory-only store). Completed/failed records can be
+evicted; unresolved claims cannot. This v1 protocol does not establish
+arbitrary-old exactly-once execution: a cached client can directly replay an
+evicted UUID without checking status. A negotiated epoch/reservation protocol
+would be needed for that guarantee. Missing receipts require inspection, and
+unknown terminal input must not be automatically replayed. Core owns shared
+client reconciliation changes; this branch changes the gateway response.
+
+Final exact checks and screenshot evidence are appended after completion.
