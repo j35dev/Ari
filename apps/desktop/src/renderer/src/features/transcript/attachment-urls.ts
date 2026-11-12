@@ -1,4 +1,5 @@
-import { rpc } from '../../lib/rpc'
+import { createSessionClient, type SessionClient } from '../session/session-client'
+import { parseSessionViewKey, registerSessionCacheInvalidator } from '../session/session-scope'
 
 /**
  * Data URLs for staged attachments, fetched once per id and shared by every
@@ -7,17 +8,30 @@ import { rpc } from '../../lib/rpc'
  */
 const cache = new Map<string, Promise<string | null>>()
 
-export function attachmentDataUrl(id: string): Promise<string | null> {
-  const cached = cache.get(id)
+const localClient = createSessionClient({ kind: 'local', sessionId: '' })
+registerSessionCacheInvalidator((machineId) => {
+  for (const key of cache.keys()) {
+    const [viewKey] = JSON.parse(key) as [string]
+    const scope = parseSessionViewKey(viewKey)
+    if (scope?.kind === 'remote' && scope.machineId === machineId) cache.delete(key)
+  }
+})
+export function refreshAttachmentUrls(client: SessionClient): void {
+  for (const key of cache.keys()) if ((JSON.parse(key) as [string])[0] === client.viewKey) cache.delete(key)
+}
+export function attachmentDataUrl(id: string, client = localClient): Promise<string | null> {
+  const epoch = client.authorizationEpoch
+  const key = JSON.stringify([client.viewKey, epoch, id])
+  const cached = cache.get(key)
   if (cached) return cached
-  const pending = rpc
+  const pending = client
     .invoke('attachments.read', { id })
     .then((result) =>
-      result.attachment === null
+      epoch !== client.authorizationEpoch || result.attachment === null
         ? null
         : `data:${result.attachment.mimeType};base64,${result.attachment.dataBase64}`,
     )
-    .catch(() => null)
-  cache.set(id, pending)
+    .catch(() => { cache.delete(key); return null })
+  cache.set(key, pending)
   return pending
 }

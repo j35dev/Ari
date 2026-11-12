@@ -83,6 +83,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
     return result
   }
   const act = async (action: RemoteAction): Promise<unknown> => {
+    if (client.readOnly) throw new Error('This remote session is read-only. Reconnect to a compatible host to continue.')
     await assertMachineOperation(machineId, action.op)
     return sendRemote(machineId, 'sessionId' in action ? action.sessionId : sessionId, action)
   }
@@ -275,7 +276,11 @@ export function SessionClientProvider({ scope, client: supplied, children }: {
   useSyncExternalStore(client.scope.kind === 'remote' ? observeMachineInventory : () => () => {}, machineInventoryRevision)
   return <Context.Provider value={client}>{children}</Context.Provider>
 }
-export function useSessionClient(): SessionClient { return useContext(Context) ?? localProjectClient }
+export function useSessionClient(): SessionClient {
+  const client = useContext(Context) ?? localProjectClient
+  useSyncExternalStore(client.scope.kind === 'remote' ? observeMachineInventory : () => () => {}, machineInventoryRevision)
+  return client
+}
 export async function readHostModelCatalog(machineId: string): Promise<RemoteModelCatalog> {
   await assertMachineOperation(machineId, 'models.list')
   return remoteModelCatalogSchema.parse(await remoteQuery(machineId, { op: 'models.list' } satisfies RemoteQuery))

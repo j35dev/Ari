@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { GitTurnDiffSummary, RpcResults } from '@ari/contracts/rpc'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from '../session/session-client'
 import { DiffViewer, type DiffComment } from '../diffs'
 
 /** Keep one file patch in memory; changing files cannot replace the turn's saved endpoints. */
@@ -15,6 +15,7 @@ export function TurnDiffFiles({
   summary: GitTurnDiffSummary
   onComment?: (comment: DiffComment) => void
 }) {
+  const rpc = useSessionClient()
   const [selected, setSelected] = useState(summary.files[0]?.path ?? '')
   const [retry, setRetry] = useState(0)
   const [patch, setPatch] = useState<{
@@ -22,7 +23,7 @@ export function TurnDiffFiles({
     result: RpcResults['git.turnDiffFile']
   } | null>(null)
   const file = summary.files.find((entry) => entry.path === selected) ?? summary.files[0]
-  const key = `${sessionId}:${summary.baseOid}:${summary.headOid}:${file?.path ?? ''}:${retry}`
+  const key = JSON.stringify([rpc.viewKey, rpc.authorizationEpoch, sessionId, summary.baseOid, summary.headOid, file?.path ?? '', retry])
   useEffect(() => {
     if (!active || !file || file.binary || patch?.key === key) return
     let cancelled = false
