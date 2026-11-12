@@ -257,7 +257,7 @@ it('routes normal remote session actions and file reads to their host without lo
   fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
     target: { value: 'Local unsent draft' },
   })
-  fireEvent.click(await screen.findByRole('button', { name: 'Remote task' }))
+  fireEvent.click(await screen.findByRole('button', { name: /^Remote task/ }))
   expect(await screen.findByTestId(`chat-${remoteKey}`)).toBeVisible()
   expect(activeSessionOf(splitLayoutSnapshot())).toBe(remoteKey)
   fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
@@ -293,7 +293,7 @@ it('routes normal remote session actions and file reads to their host without lo
   const frame = send({ view: 'session', sessionId: 'sess_a' })
   expect(await acknowledged(frame)).toMatchObject({ status: 'applied' })
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Local unsent draft')
-  fireEvent.click(screen.getByRole('button', { name: 'Remote task' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Remote task/ }))
   expect(await screen.findByTestId(`chat-${remoteKey}`)).toBeVisible()
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Host unsent draft')
 })
