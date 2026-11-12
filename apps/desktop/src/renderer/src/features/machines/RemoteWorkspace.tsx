@@ -11,6 +11,7 @@ import { RemoteConfiguration, SELECT_CLASS, useRemoteCatalog } from './RemoteCon
 import { RemoteSession } from './RemoteSession'
 import { readCreationDraft, writeCreationDraft, type RemoteCreationDraft } from './remote-drafts'
 import { ErrorBoundary } from '../../shell/ErrorBoundary'
+import './remote-workspace.css'
 
 export interface RemoteTarget {
   machineId: string
@@ -32,7 +33,7 @@ export function RemoteWorkspace({
   const { machines } = useMachines()
   const machine = machines.find((machine) => machine.id === target.machineId)
   return (
-    <div className="flex min-h-0 flex-1" aria-label="Remote workspace">
+    <div className="ari-remote-workspace flex min-h-0 flex-1" aria-label="Remote workspace">
       <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col bg-surface-0">
         <div className="p-3">
           <Button variant="ghost" className="w-full justify-start" onClick={onBack}>
