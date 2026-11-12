@@ -295,64 +295,75 @@ it('refuses busy non-Git projects and empty repositories without creating anothe
   expect((await store.listSessions()).filter((s) => s.projectId === 'plain')).toHaveLength(1)
 })
 
-it.each(['session.spawn', 'projects.ask'] as const)('preserves an uncertain %s checkout identity on retries and reload and allows explicit cleanup', async (method) => {
-  if (method === 'projects.ask') {
-    await seed('human')
-    await start('human')
-  }
-  const original = GitService.prototype.addWorktree
-  const add = vi.spyOn(GitService.prototype, 'addWorktree').mockImplementationOnce(async function (
-    this: GitService,
-    ...args
-  ) {
-    expect((await original.apply(this, args)).ok).toBe(true)
-    return err({ code: 'command_failed', message: 'lost checkout acknowledgement' })
-  })
-  const request = method === 'session.spawn'
-    ? { ...launch, prompt: undefined, workspaceMode: 'isolated', idempotencyKey: 'uncertain-root' }
-    : { projectId: 'p', text: 'Work', idempotencyKey: 'uncertain-root' }
-  const first = await runtime.service.invoke('aria', method, request)
-  expect(first).toMatchObject({
-    ok: false,
-    error: { code: 'uncertain_outcome', details: { workspace: { kind: 'managed-worktree' } } },
-  })
-  if (first.ok) throw new Error('Expected uncertainty')
-  const recovery = first.error.details as { childSessionId: string; workspace: { path: string } }
-  expect(existsSync(recovery.workspace.path)).toBe(true)
-  expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
-    ok: false,
-    error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
-  })
-  await runtime.close()
-  await engine.shutdown()
-  await boot(true)
-  expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
-    ok: false,
-    error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
-  })
-  expect(add).toHaveBeenCalledTimes(1)
-  expect(first.error.details).toMatchObject({ permissionMode: 'full', workspacePath: recovery.workspace.path })
-  await store.append('aria', { type: 'session.updated', permissionMode: 'allow-edits' })
-  expect(
-    await runtime.service.invoke('aria', 'session.destroy', {
+it.each(['session.spawn', 'projects.ask'] as const)(
+  'preserves an uncertain %s checkout identity on retries and reload and allows explicit cleanup',
+  async (method) => {
+    if (method === 'projects.ask') {
+      await seed('human')
+      await start('human')
+    }
+    const original = GitService.prototype.addWorktree
+    const add = vi
+      .spyOn(GitService.prototype, 'addWorktree')
+      .mockImplementationOnce(async function (this: GitService, ...args) {
+        expect((await original.apply(this, args)).ok).toBe(true)
+        return err({ code: 'command_failed', message: 'lost checkout acknowledgement' })
+      })
+    const request =
+      method === 'session.spawn'
+        ? {
+            ...launch,
+            prompt: undefined,
+            workspaceMode: 'isolated',
+            idempotencyKey: 'uncertain-root',
+          }
+        : { projectId: 'p', text: 'Work', idempotencyKey: 'uncertain-root' }
+    const first = await runtime.service.invoke('aria', method, request)
+    expect(first).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { workspace: { kind: 'managed-worktree' } } },
+    })
+    if (first.ok) throw new Error('Expected uncertainty')
+    const recovery = first.error.details as { childSessionId: string; workspace: { path: string } }
+    expect(existsSync(recovery.workspace.path)).toBe(true)
+    expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
+    })
+    await runtime.close()
+    await engine.shutdown()
+    await boot(true)
+    expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
+    })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(first.error.details).toMatchObject({
+      permissionMode: 'full',
+      workspacePath: recovery.workspace.path,
+    })
+    await store.append('aria', { type: 'session.updated', permissionMode: 'allow-edits' })
+    expect(
+      await runtime.service.invoke('aria', 'session.destroy', {
+        targetSessionId: recovery.childSessionId,
+        idempotencyKey: 'cleanup-cap',
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+    expect(existsSync(recovery.workspace.path)).toBe(true)
+    await store.append('aria', { type: 'session.updated', permissionMode: 'full' })
+    const cleanup = {
       targetSessionId: recovery.childSessionId,
-      idempotencyKey: 'cleanup-cap',
-    }),
-  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
-  expect(existsSync(recovery.workspace.path)).toBe(true)
-  await store.append('aria', { type: 'session.updated', permissionMode: 'full' })
-  const cleanup = {
-    targetSessionId: recovery.childSessionId,
-    idempotencyKey: 'cleanup-unconfirmed',
-  }
-  expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
-    ok: true,
-  })
-  expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
-    ok: true,
-  })
-  expect(existsSync(recovery.workspace.path)).toBe(false)
-})
+      idempotencyKey: 'cleanup-unconfirmed',
+    }
+    expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
+      ok: true,
+    })
+    expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
+      ok: true,
+    })
+    expect(existsSync(recovery.workspace.path)).toBe(false)
+  },
+)
 
 it('automatically isolates human new-session creation alongside a busy project', async () => {
   await seed('human')
