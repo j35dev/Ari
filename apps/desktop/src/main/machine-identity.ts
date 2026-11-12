@@ -93,8 +93,9 @@ function publishIdentity(
   } finally {
     try {
       unlinkSync(temporary)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    } catch {
+      // A leftover unique public-ID temporary is never authoritative. Cleanup
+      // must not replace a failed publication error or invalidate its winner.
     }
   }
 }
