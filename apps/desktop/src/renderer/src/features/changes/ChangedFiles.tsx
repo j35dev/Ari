@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, File, Folder } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GitReviewFile } from '@ari/contracts/rpc'
 import { setDragFilePath } from '../composer/drag-file'
+import { useSessionClient } from '../session/session-client'
 
 /** Search-filtered, virtualized file navigator; paths remain literal mention/selection sources. */
 export function ChangedFiles({
@@ -18,6 +19,7 @@ export function ChangedFiles({
   selectedPaths?: ReadonlySet<string>
   tree?: boolean
 }) {
+  const client = useSessionClient()
   const scroll = useRef<HTMLElement>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const rows = useMemo(() => {
@@ -112,7 +114,7 @@ export function ChangedFiles({
               aria-current={selected === file.path ? 'true' : undefined}
               aria-pressed={selectedPaths?.has(file.path)}
               draggable
-              onDragStart={(event) => setDragFilePath(event, file.path)}
+              onDragStart={(event) => setDragFilePath(event, file.path, client.viewKey)}
               onClick={(event) => onSelect(file.path, event.ctrlKey || event.metaKey)}
               style={{
                 position: 'absolute',
