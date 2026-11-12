@@ -1250,8 +1250,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const sessionDeps: SessionCreateDeps = {
     loadProject,
     createSession: (session) => engine.createSession(session),
-    prepareRootWorkspace: async (session, mode) =>
-      (await controlReady).prepareRootWorkspace(session, mode),
+    prepareRootWorkspace: async (session, mode, baseSnapshotCommit) =>
+      (await controlReady).prepareRootWorkspace(session, mode, baseSnapshotCommit),
   }
   // An archive follows a session's delegated children, and archived runs lose
   // their control grants.
@@ -1742,6 +1742,25 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        desktop: {
+          projects: async () => { await getProjectStore().load(); return getProjectStore().list() },
+          createSession: (params, selection) => createSession(sessionDeps, params, selection),
+          version: () => ({ ariVersion: app.getVersion(), protocolVersion: 1, hostingMode: 'desktop',
+            update: { supported: false, reason: 'Remote update execution is unavailable.', availableVersion: null,
+              stagedVersion: null, guidance: 'Update Ari on this machine.' } }),
+          stopChildren: async (sessionId) => ({ stopped: await (await controlReady).supervisor.stopBelow(sessionId) }),
+          resume: {
+            get: async (sessionId) => { await resumeReady; return { at: await resumeSchedule.get(sessionId) } },
+            schedule: async (sessionId, at) => { await resumeReady; return { at: (await resumeSchedule.schedule(sessionId, at)).at } },
+            cancel: async (sessionId) => { await resumeReady; return { cancelled: await resumeSchedule.cancel(sessionId) } },
+          },
+          scm: {
+            summary: async (sessionId) => rpcRegistry.invoke('scm.summary', { sessionId }) as Promise<RpcResults['scm.summary']>,
+            status: async (sessionId) => rpcRegistry.invoke('scm.status', { sessionId }) as Promise<RpcResults['scm.status']>,
+            review: async (sessionId, comparison) => rpcRegistry.invoke('scm.review', { sessionId, comparison }) as Promise<RpcResults['scm.review']>,
+            diff: async (sessionId, snapshotId, path, context) => rpcRegistry.invoke('scm.diff', { sessionId, snapshotId, path, context }) as Promise<RpcResults['scm.diff']>,
+          },
+        },
         terminalFactory: ptyFactory,
         fork: async (deviceId, command) =>
           forkRemoteSession((await controlReady).service, deviceId, command),
@@ -1765,6 +1784,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { port: getSettingsStore().current.remote.port },
     )
   remoteRef = remote
+  r.register('machines.localSnapshot', () => remote.localSnapshot())
   const machines =
     machinesRef ??
     new MachinesService({
