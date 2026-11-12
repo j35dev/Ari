@@ -99,6 +99,13 @@ interface RecordedOutcome {
   account?: true
 }
 
+const recordedOutcomeSchema = z.object({
+  reply: z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
+  sessionId: z.string().min(1).optional(),
+  projectId: z.string().min(1).optional(),
+  account: z.literal(true).optional(),
+}).strict().refine((outcome) => outcome.sessionId !== undefined || outcome.projectId !== undefined || outcome.account === true)
+
 /** What a finished command is filed under, which decides who may read its outcome back. */
 function scopeOf(command: RemoteCommand): Omit<RecordedOutcome, 'reply'> {
   if (command.op === 'session.create') return { projectId: command.projectId }
@@ -112,7 +119,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   const idempotency =
     options.idempotency?.restore === undefined
       ? new IdempotencyStore<RecordedOutcome>({ now: options.now })
-      : IdempotencyStore.fromJSON<RecordedOutcome>(options.idempotency.restore)
+      : IdempotencyStore.fromJSON<RecordedOutcome>(options.idempotency.restore, (result): result is RecordedOutcome => recordedOutcomeSchema.safeParse(result).success)
   const remember = (): void => options.idempotency?.persist?.(idempotency.toJSON())
   // Shell handles cannot survive this gateway lifetime. Keep their high-volume
   // receipts separate so keyboard input cannot evict durable prompt receipts.
@@ -541,6 +548,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       terminal && idempotency.lookup(key) === undefined ? terminalReceipts : idempotency
     const durable = receipts === idempotency
     const outcome = receipts.begin(key, command)
+    if (outcome.outcome === 'capacity')
+      return reply(429, fail('rate_limited', 'Remote command history is full of unresolved commands. Inspect the host before submitting more work.'))
     if (outcome.outcome === 'conflict') {
       return reply(409, fail('idempotency_conflict', 'that key was used for another command'))
     }
@@ -619,7 +628,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         return reply(401, fail('unauthenticated', 'a device credential is required'))
       const receiptKey = JSON.stringify([device.deviceId, requested.idempotencyKey])
       const record = idempotency.lookup(receiptKey) ?? terminalReceipts.lookup(receiptKey)
-      if (record === undefined) return reply(404, fail('not_found', 'no such key'))
+      if (record === undefined) return reply(409, fail('conflict', 'Outcome unknown: no retained receipt; inspect the host before submitting again.'))
       // Only the outcome goes back, not the store's own bookkeeping — when the
       // record was written is the gateway's business.
       if (record.failed) {

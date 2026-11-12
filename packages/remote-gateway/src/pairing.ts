@@ -127,6 +127,12 @@ interface Options {
 }
 
 export class PairingService {
+  #authorizationSuspended = false
+
+  /** A durable-state failure blocks existing tokens and new device authorization until reload. */
+  suspendAuthorization(): void {
+    this.#authorizationSuspended = true
+  }
   readonly #invitations = new Map<string, Invitation>()
   readonly #devices = new Map<string, PersistedDevice>()
   readonly #revoked = new Map<string, number>()
@@ -338,6 +344,7 @@ export class PairingService {
     invitationId: string,
     proof: { nonce: string; signature: string },
   ): PairingResult<{ device: PairedDevice; token: string }> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
     const invitation = this.#invitations.get(invitationId)
     if (invitation === undefined) return { ok: false, code: 'not_found' }
     const status = this.status(invitationId)
@@ -400,6 +407,7 @@ export class PairingService {
     deviceId: string,
     proof: { nonce: string; signature: string },
   ): PairingResult<{ device: PairedDevice; token: string }> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
     const device = this.#devices.get(deviceId)
     if (device === undefined) {
       // A revocation tombstone outlives the record, so a phone whose access
@@ -419,6 +427,7 @@ export class PairingService {
    * takes effect here rather than needing a second check at the call site.
    */
   authenticate(token: string): PairedDevice | undefined {
+    if (this.#authorizationSuspended) return undefined
     if (token.length === 0) return undefined
     const digest = tokenDigest(token)
     const entry = this.#tokens.get(digest)
@@ -441,7 +450,7 @@ export class PairingService {
   }
 
   isDeviceActive(deviceId: string): boolean {
-    return this.#devices.has(deviceId)
+    return !this.#authorizationSuspended && this.#devices.has(deviceId)
   }
 
   revoke(deviceId: string): boolean {
