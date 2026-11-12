@@ -236,6 +236,8 @@ export function createSessionClient(requested: SessionScope): SessionClient {
       let failed = false
       let nextSeq = 0
       let throughSeq = -1
+      let completed = false
+      let cursor = typeof params.fromSeq === 'number' ? params.fromSeq : -1
       const finishUnavailable = () => {
         if (closed || failed) return
         failed = true
@@ -257,6 +259,9 @@ export function createSessionClient(requested: SessionScope): SessionClient {
           switch (frame.kind) {
             case 'start':
               if (started) { finishUnavailable(); return }
+              if ((frame.replayMode === 'resume' && (frame.fromSeq !== cursor || frame.throughSeq < cursor)) ||
+                (frame.replayMode === 'full' && frame.fromSeq !== null)) { finishUnavailable(); return }
+              if (completed) onEvent({ sessionId, replayStart: true, replayMode: frame.replayMode })
               mode = frame.replayMode; started = true
               nextSeq = (frame.fromSeq ?? -1) + 1; throughSeq = frame.throughSeq
               break
@@ -265,6 +270,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
                 finishUnavailable(); return
               }
               nextSeq += frame.events.length
+              cursor = Math.max(cursor, nextSeq - 1)
               onEvent({ sessionId, events: frame.events, replay: true, replayMode: mode })
               break
             case 'terminal':
@@ -272,9 +278,14 @@ export function createSessionClient(requested: SessionScope): SessionClient {
                 finishUnavailable(); return
               }
               onEvent({ sessionId, replayDone: true, replayOutcome: frame.replayOutcome, liveTurnId: frame.liveTurnId, replayMode: mode, seq: frame.seq })
+              started = false; completed = true
+              cursor = Math.max(cursor, frame.seq)
               break
             case 'live':
-              if (frame.event.sessionId === sessionId) onEvent({ sessionId, event: frame.event })
+              if (frame.event.sessionId === sessionId) {
+                cursor = Math.max(cursor, frame.event.seq)
+                onEvent({ sessionId, event: frame.event })
+              }
               break
           }
         })

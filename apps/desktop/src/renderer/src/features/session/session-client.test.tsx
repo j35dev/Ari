@@ -138,6 +138,29 @@ describe('normal session host boundary', () => {
     dispose()
   })
 
+  it('admits exact-cursor reconnect replay after a terminal and rejects overlapping starts', async () => {
+    const received: SessionEventFrame[] = []
+    const dispose = createSessionClient(scope).subscribe('session.events', { sessionId: scope.sessionId }, (frame) => received.push(frame as SessionEventFrame))
+    await waitFor(() => expect(bridge.subscribe).toHaveBeenCalled())
+    const emit = (frame: unknown) => frames({ machineId: 'host-a', message: { type: 'events.desktop.frame', sessionId: scope.sessionId, frame } })
+    emit({ kind: 'start', replayMode: 'full', fromSeq: null, throughSeq: 0 })
+    emit({ kind: 'chunk', events: [event(0)] })
+    emit({ kind: 'terminal', replayOutcome: 'complete', seq: 0, liveTurnId: null, reason: null })
+    emit({ kind: 'live', event: event(1) })
+    emit({ kind: 'start', replayMode: 'resume', fromSeq: 1, throughSeq: 2 })
+    emit({ kind: 'chunk', events: [event(2)] })
+    emit({ kind: 'terminal', replayOutcome: 'complete', seq: 2, liveTurnId: 'live-turn', reason: null })
+    expect(received.filter((frame) => frame.replayDone)).toEqual([
+      expect.objectContaining({ replayOutcome: 'complete', seq: 0 }),
+      expect.objectContaining({ replayOutcome: 'complete', seq: 2, liveTurnId: 'live-turn' }),
+    ])
+    expect(received).toContainEqual(expect.objectContaining({ replayStart: true, replayMode: 'resume' }))
+    emit({ kind: 'start', replayMode: 'resume', fromSeq: 2, throughSeq: 2 })
+    emit({ kind: 'start', replayMode: 'resume', fromSeq: 2, throughSeq: 2 })
+    expect(received.at(-1)).toMatchObject({ replayDone: true, replayOutcome: 'incomplete' })
+    dispose()
+  })
+
   it('converts seq zero and more than 2,000 journal rows with an explicit empty-resume terminal', async () => {
     const client = createSessionClient(scope)
     const received: SessionEventFrame[] = []

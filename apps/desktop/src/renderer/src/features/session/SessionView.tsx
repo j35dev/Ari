@@ -321,7 +321,9 @@ function SessionViewContent({
   try { receiptPending = rpc.receipt() !== null } catch (error) { receiptPending = true; receiptError = error instanceof Error ? error.message : 'Submission evidence is unreadable.' }
   const hostBlocked = remote && (rpc.readOnly || receiptPending)
   const actionReason = (operation: string): string | null => remote
-    ? receiptPending ? 'Check the original submission receipt before another action.' : rpc.capabilityReason(operation)
+    ? receiptPending ? 'Check the original submission receipt before another action.'
+      : rpc.readOnly ? rpc.capabilityReason('events.desktop.subscribe') ?? 'This host session is read-only.'
+        : rpc.capabilityReason(operation)
     : null
   const updateReason = actionReason('session.update')
   const store = useMemo(() => transcriptStore(viewKey), [viewKey])
@@ -580,6 +582,7 @@ function SessionViewContent({
     let generation = 0
     let unsubscribe: (() => void) | null = null
     let retiring: { attempt: number; stop: () => void } | null = null
+    let continuedReplay = false
     const subscribeHistory = (): void => {
       if (generation > 0 && !replayDoneRef.current) return
       const attempt = ++generation
@@ -594,13 +597,23 @@ function SessionViewContent({
       setHistoryRetrying(true)
       unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
         if (cancelled) return
-        const frame = payload as SessionEventFrame & { seq?: number }
+        const frame = payload as SessionEventFrame & { seq?: number; replayStart?: boolean }
         if (frame.sessionId !== sessionId) return
         if (
           attempt !== generation &&
           (retiring?.attempt !== attempt || frame.replay === true || frame.replayDone === true)
         )
           return
+        if (frame.replayStart === true) {
+          if (!replayDoneRef.current) return
+          continuedReplay = true
+          replayDoneRef.current = false
+          appliedSeqsRef.current = new Set()
+          liveBufferRef.current = []
+          history.begin()
+          setHistoryRetrying(true)
+          return
+        }
         if (frame.replayDone === true) {
           if (replayDoneRef.current) return
           replayDoneRef.current = true
@@ -636,7 +649,7 @@ function SessionViewContent({
           setTelemetry(telemetry)
           setApprovals(model.pendingApprovals)
           setPendingQuestion(model.pendingInputs.at(-1) ?? null)
-          if (attempt > 1) {
+          if (attempt > 1 || continuedReplay) {
             setQueued(model.queuedMessages)
             setBackground((prev) => ({ ...prev, tasks: model.backgroundTasks ?? [] }))
           }
@@ -662,10 +675,10 @@ function SessionViewContent({
           // chunk folds and lands before the next one, so a long session
           // paints progressively instead of waiting for one serialization.
           for (const event of (frame.events ?? []) as JournalEvent[])
-            ingest(event, false, attempt > 1)
+            ingest(event, false, attempt > 1 || continuedReplay)
           // A retry retains the current transcript until the ordered merge can
           // commit once, rather than rebuilding a long history per old chunk.
-          if (attempt === 1) publishMessages()
+          if (attempt === 1 && !continuedReplay) publishMessages()
           return
         }
         const event = frame.event as JournalEvent
@@ -1850,12 +1863,14 @@ function SessionViewContent({
                   is not asked here — it has the side panel. */}
               {pendingQuestion !== null && pendingPlan === null ? (
                 <>
+                  <fieldset disabled={actionReason('input.respond') !== null} title={actionReason('input.respond') ?? undefined} className="min-w-0">
                   <QuestionPanel
                     prompt={pendingQuestion.prompt}
                     choicesJson={pendingQuestion.choicesJson}
                     onRespond={respondQuestion}
                     onCancel={cancelQuestion}
                   />
+                  </fieldset>
                   {approvals.length > 0 || childSessions.length > 0 ? (
                     <div className="mx-3 border-t border-border/60" />
                   ) : null}
@@ -1864,6 +1879,7 @@ function SessionViewContent({
               {approvals.length > 0 ? (
                 <div className="max-h-40 space-y-px overflow-y-auto">
                   {approvals.map((a, i) => (
+                    <fieldset key={a.approvalId} disabled={actionReason('approval.respond') !== null || (remote && a.options.length === 0)} title={actionReason('approval.respond') ?? (remote && a.options.length === 0 ? 'This host approval has no named options to answer.' : undefined)} className="min-w-0">
                     <ApprovalCard
                       key={a.approvalId}
                       approvalId={a.approvalId}
@@ -1874,6 +1890,7 @@ function SessionViewContent({
                       total={approvals.length}
                       onRespond={(answer) => respondApproval(a.approvalId, answer)}
                     />
+                    </fieldset>
                   ))}
                 </div>
               ) : null}
