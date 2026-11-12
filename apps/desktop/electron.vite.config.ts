@@ -46,6 +46,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    server: process.env.ARI_DEV_RENDERER_PORT
+      ? { port: Number(process.env.ARI_DEV_RENDERER_PORT), strictPort: true }
+      : undefined,
     plugins: [react()],
     worker: { format: 'es' },
     build: {
