@@ -721,13 +721,16 @@ describe('desktop host wire', () => {
   })
 
   it('filters both names of a sensitive rename from normal SCM status', async () => {
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, windowsHide: true, stdio: 'pipe' })
+    const repo = join(root, 'scm-repo')
+    await mkdir(repo)
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, windowsHide: true, stdio: 'pipe' })
     git('init', '-q'); git('config', 'user.email', 'fixture@example.test'); git('config', 'user.name', 'Fixture')
-    await writeFile(join(root, '.env'), 'SECRET=fixture')
+    await writeFile(join(repo, '.env'), 'SECRET=fixture')
     git('add', '.env'); git('commit', '-qm', 'private fixture'); git('mv', '.env', 'safe.txt')
     await engine.createSession(fixture())
+    vi.spyOn(engine, 'workspace').mockResolvedValue(repo)
     const scm = new SourceControlHost(new RpcRegistry({ send: () => undefined }), {
-      root: async () => root, session: (id) => store.load(id),
+      root: async () => repo, session: (id) => store.load(id),
     })
     try {
       const local = await scm.status({ sessionId: 's' })
