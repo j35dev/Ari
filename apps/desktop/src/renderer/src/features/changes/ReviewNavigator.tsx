@@ -23,6 +23,7 @@ export function ReviewNavigator({
   selectedPaths,
   selectedCommit,
   onSelectAll,
+  commitUnavailableReason,
 }: {
   files: GitReviewFile[]
   selected: string | undefined
@@ -34,6 +35,7 @@ export function ReviewNavigator({
   selectedPaths?: ReadonlySet<string>
   selectedCommit?: string
   onSelectAll?: () => void
+  commitUnavailableReason?: string
 }) {
   const [history, setHistory] = useState(false)
   const [tree, setTree] = useState(true)
@@ -127,6 +129,8 @@ export function ReviewNavigator({
                 <button
                   key={commit.oid}
                   type="button"
+                  disabled={commitUnavailableReason !== undefined}
+                  title={commitUnavailableReason}
                   onClick={() => onCommit(commit.oid)}
                   aria-current={selectedCommit === commit.oid ? 'true' : undefined}
                   className={`group relative mb-1 block w-full rounded-md py-2 pl-7 pr-2 text-left hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring ${selectedCommit === commit.oid ? 'bg-accent-subtle' : ''}`}
