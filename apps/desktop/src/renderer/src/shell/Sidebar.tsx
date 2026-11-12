@@ -309,7 +309,7 @@ function SessionRow({
   nested?: boolean
   /** Origin project, surfaced as a tooltip in flat lists (search, archived, sessions view). */
   projectName: string | null
-  host?: { name: string; status: string; readOnly: boolean }
+  host?: { name: string; status: string; readOnly: boolean; administrationReason?: string }
   isActive: boolean
   activity?: SessionActivity
   startedByAria?: boolean
@@ -565,6 +565,7 @@ function SessionRow({
             type="button"
             aria-label={`Archive ${session.title}`}
             title="Archive"
+            disabled={Boolean(host?.administrationReason || host?.readOnly)}
             onClick={() => onToggleArchive(session.id, true)}
             className={ROW_ACTION_BTN}
           >
@@ -607,12 +608,16 @@ function SessionRow({
               id: 'pin',
               label: session.pinned ? 'Unpin' : 'Pin to top',
               icon: session.pinned ? PinOff : Pin,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly ? 'Reconnect the owning machine to change this session.' : undefined,
               onSelect: () => onTogglePin(session.id, !session.pinned),
             },
             {
               id: 'rename',
               label: 'Rename',
               icon: Pencil,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly ? 'Reconnect the owning machine to rename this session.' : undefined,
               onSelect: () => {
                 setDraft(session.title)
                 setEditing(true)
@@ -628,6 +633,8 @@ function SessionRow({
                   ? 'Unarchive'
                   : 'Archive',
               icon: session.archived ? ArchiveRestore : Archive,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => onToggleArchive(session.id, !session.archived),
             },
             {
@@ -635,6 +642,8 @@ function SessionRow({
               label: hasChildren ? 'Delete session and children' : 'Delete session',
               icon: Trash2,
               danger: true,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => setConfirmDelete(true),
             },
           ]}
@@ -657,7 +666,7 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
-  hostOf?: (sessionId: string) => { name: string; status: string; readOnly: boolean } | undefined
+  hostOf?: (sessionId: string) => { name: string; status: string; readOnly: boolean; administrationReason?: string } | undefined
   selecting?: boolean
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string, shiftKey: boolean) => void
@@ -1394,6 +1403,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false)
 
   const archiveOne = (id: string, archived: boolean): void => {
+    if (hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) return
     if (!archived) {
       onToggleArchive(id, false)
       return
@@ -1495,6 +1505,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const archiveIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const expanded = new Set<string>()
     for (const id of ids) for (const target of archiveTargetIds(sessions, id)) expanded.add(target)
     const list = [...expanded]
@@ -1504,6 +1515,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const deleteIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const roots = selectionRoots(sessions, new Set(ids))
     if (onDeleteMany) onDeleteMany(roots)
     else for (const id of roots) onDelete(id)
@@ -1761,7 +1773,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </span>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
                 onClick={() => archiveIds([...selectedIds])}
                 className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
               >
@@ -1769,7 +1781,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </button>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
                 onClick={() => setConfirmDeleteSelected(true)}
                 className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-danger transition-colors hover:text-danger disabled:opacity-40"
               >

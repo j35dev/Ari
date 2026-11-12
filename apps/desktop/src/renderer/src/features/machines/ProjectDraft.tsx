@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import type { ProjectAgent } from '@ari/contracts/project'
+import { projectAgentSchema } from '@ari/contracts/project'
 import type { RemoteModelCatalog, RemoteProjectWorkspaces } from '@ari/contracts/remote'
 import type { SessionScope } from '../session/session-client'
 import { Composer, type ComposerSeed } from '../composer/Composer'
@@ -33,6 +34,11 @@ const attemptSchema = z.object({
 }).strict()
 type Attempt = z.infer<typeof attemptSchema>
 const attemptKey = (id: string) => `ari.machines.projectDraft.attempt.v1:${id}`
+const choiceKey = (id: string) => `ari.machines.projectDraft.choice.v1:${id}`
+const choiceSchema = z.object({
+  groupId: z.string(), selection: z.object({ mode: z.enum(['manual', 'auto']), hostId: z.string().nullable(), reason: z.string() }),
+  checkoutId: z.string().nullable(), workspaceToken: z.string().optional(), workspaceLocked: z.boolean(), pick: projectAgentSchema.nullable(),
+})
 const readyProvider = (row: RemoteModelCatalog['providers'][number]) =>
   row.available !== false && row.installed !== false && row.authStatus !== 'unauthenticated'
 
@@ -60,10 +66,18 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     } catch { return { attempt: null, error: 'This draft receipt cannot be read. Inspect its original host before sending again.' } }
   })
   const [attempt, setAttempt] = useState<Attempt | null>(restored.attempt)
+  const [savedChoice] = useState(() => {
+    try {
+      const raw = localStorage.getItem(choiceKey(draftId))
+      const value = raw ? choiceSchema.parse(JSON.parse(raw)) : null
+      return value?.groupId === group.id ? value : null
+    } catch { return null }
+  })
   const attemptRef = useRef(attempt)
   attemptRef.current = attempt
   const [selection, setSelection] = useState<DraftMachineSelection>(() => {
     if (restored.attempt) return { mode: 'manual', hostId: restored.attempt.hostId, reason: 'Original submission — check its status.' }
+    if (savedChoice) return savedChoice.selection
     if (!initialHostId && autoEnabled) return { mode: 'auto', ...selectAutoHost(hosts) }
     const remembered = hosts.find((host) => host.id === lastManualHostId && manualEligibility(host) === null)
     const hostId = initialHostId ?? remembered?.id ?? 'local'
@@ -73,19 +87,20 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   const hostsRef = useRef(hosts)
   hostsRef.current = hosts
   const choices = checkoutChoices(group, selection.hostId ?? '')
-  const [checkoutId, setCheckoutId] = useState<string | null>(restored.attempt?.projectId ?? null)
+  const [checkoutId, setCheckoutId] = useState<string | null>(restored.attempt?.projectId ?? savedChoice?.checkoutId ?? null)
   const projectId = checkoutId && choices.some((checkout) => checkout.projectId === checkoutId)
     ? checkoutId : choices.length === 1 ? choices[0]!.projectId : null
   const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(null)
   const [workspaces, setWorkspaces] = useState<RemoteProjectWorkspaces | null>(null)
-  const [workspaceToken, setWorkspaceToken] = useState<string | undefined>()
-  const [workspaceLocked, setWorkspaceLocked] = useState(false)
-  const [pick, setPick] = useState<ProjectAgent | null>(null)
+  const [workspaceToken, setWorkspaceToken] = useState<string | undefined>(savedChoice?.workspaceToken)
+  const [workspaceLocked, setWorkspaceLocked] = useState(savedChoice?.workspaceLocked ?? false)
+  const [pick, setPick] = useState<ProjectAgent | null>(savedChoice?.pick ?? null)
   const [pending, setPending] = useState(false)
   const pendingRef = useRef(false)
   const [failure, setFailure] = useState<string | null>(restored.error)
   const canvasRef = useRef<HTMLDivElement>(null)
   const client = useMemo(() => selection.hostId ? clientFor(selection.hostId) : null, [clientFor, selection.hostId])
+  const restoringChoice = useRef(true)
   const locked = workspaceLocked || attempt !== null || restored.error !== null
   const provider = catalog?.providers.find((row) => row.driverKind === pick?.driverKind)
   const model = provider?.models.find((row) => row.id === pick?.modelId || row.aliases?.includes(pick?.modelId ?? ''))
@@ -107,12 +122,23 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   useEffect(() => {
     let alive = true
     setWorkspaces(null)
-    setWorkspaceToken(undefined)
-    setPick(selection.hostId && projectId ? defaultFor(selection.hostId, projectId) : null)
+    if (!workspaceLocked) setWorkspaceToken(undefined)
+    if (!restoringChoice.current || !savedChoice) setPick(selection.hostId && projectId ? defaultFor(selection.hostId, projectId) : null)
+    restoringChoice.current = false
     if (!client || !projectId || attemptRef.current) return
     void client.workspaces(projectId).then((next) => { if (alive) setWorkspaces(next) }).catch((error) => { if (alive) setFailure(messageOf(error)) })
     return () => { alive = false }
   }, [client, projectId, selection.hostId, defaultFor])
+  useEffect(() => {
+    if (!pick && catalog?.defaults && projectId && !attemptRef.current) {
+      setPick({ driverKind: catalog.defaults.driverKind, modelId: catalog.defaults.modelId,
+        permissionMode: catalog.defaults.permissionMode, effort: null })
+    }
+  }, [catalog, pick, projectId])
+  useEffect(() => {
+    try { localStorage.setItem(choiceKey(draftId), JSON.stringify({ groupId: group.id, selection,
+      checkoutId: projectId, workspaceToken, workspaceLocked, pick })) } catch { /* The mutation receipt is required separately. */ }
+  }, [draftId, group.id, selection, projectId, workspaceToken, workspaceLocked, pick])
 
   const rememberAttempt = (next: Attempt) => {
     // Persist before the actual effect; a lost renderer never authorizes another create.
@@ -121,6 +147,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     setAttempt(next)
   }
   const verifyScope = (scope: SessionScope, hostId: string) => {
+    scopeSchema.parse(scope)
     if (hostId === 'local' ? scope.kind !== 'local' : scope.kind !== 'remote' || scope.machineId !== hostId)
       throw new Error('The creation result belongs to a different machine. Check the original submission.')
   }
@@ -141,6 +168,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
           pick: frozenPick, workspaceToken, workspaceMode: option?.workspaceMode ?? 'auto' })
         verifyScope(scope, hostId)
         rememberAttempt({ ...started, scope, phase: 'stage' })
+        const stageReason = validateSelection(hostsRef.current.find((host) => host.id === hostId), selection.mode === 'auto')
+        if (stageReason) throw new Error(stageReason)
         const attachmentIds = files.length > 0 ? await client.stage(scope, files) : []
         const dispatchReason = validateSelection(hostsRef.current.find((host) => host.id === hostId), selection.mode === 'auto')
         if (dispatchReason) throw new Error(dispatchReason)
@@ -174,6 +203,9 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     } catch (error) { setFailure(messageOf(error)) }
     finally { pendingRef.current = false; setPending(false) }
   }
+  const openCreated = (scope: SessionScope, text: string) => onCreated(scope, {
+    text, nonce: Date.now(), images: readSessionDraftIntent(`project-draft:${draftId}`).images,
+  })
   return <div className="flex h-full min-h-0 flex-col" ref={canvasRef}>
     <div className="ari-chat-column flex items-center justify-between py-3 text-xs text-fg-muted">
       <span>{group.name}{group.label ? ` · ${group.label}` : ''}</span>
@@ -184,7 +216,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
       {(failure || attempt) && <div className="mb-3 rounded-md border border-warning/30 bg-surface-1 p-3 text-xs">
         <p role="status">{failure ?? 'Check the original submission before continuing.'}</p>
         {attempt && !pending && <button type="button" className="mt-2 rounded border border-border px-2 py-1" onClick={() => void check()}>Check original submission</button>}
-        {attempt?.scope && attempt.phase === 'stage' && <button type="button" className="ml-2 rounded border border-border px-2 py-1" onClick={() => onCreated(attempt.scope!)}>Open created session</button>}
+        {attempt?.scope && attempt.phase === 'stage' && <button type="button" disabled={pending} className="ml-2 rounded border border-border px-2 py-1" onClick={() => openCreated(attempt.scope!, attempt.text)}>Open created session</button>}
       </div>}
       <Composer sessionId={`project-draft:${draftId}`} draftOnly centered disabled={pending || attempt !== null || restored.error !== null}
         sendPending={pending} onSend={send} placeholder="Describe what you want to do in this project…"

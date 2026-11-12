@@ -21,6 +21,7 @@ import { messageOf, remoteQuery } from './remote-client'
 import { queryMachineMetadata } from './machine-inventory'
 
 export interface MachineInventory {
+  identityMachineId?: string
   projects: RemoteProjectCatalogEntry[]
   sessions: SessionSummary[]
   catalog: RemoteModelCatalog | null
@@ -63,17 +64,27 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const inventoryRevision = useRef(0)
   const revision = useRef(0)
   const alive = useRef(true)
+  const acceptMachines = useCallback((next: MachineView[]) => {
+    inventoryRevision.current++
+    machinesRef.current = next
+    setMachines(next)
+    setInventories((old) => new Map([...old].filter(([id, inventory]) => {
+      const machine = next.find((item) => item.id === id)
+      return machine && !['revoked', 'unpaired'].includes(machine.status) &&
+        inventory.identityMachineId === machine.identity?.machineId
+    })))
+  }, [])
   const refresh = useCallback(async () => {
     const started = ++revision.current
     try {
       const next = machineViewSchema.array().parse(await rpc.invoke('machines.list'))
       if (!alive.current || revision.current !== started) return
-      setMachines(next)
+      acceptMachines(next)
       setError(null)
     } catch (error) {
       if (alive.current && revision.current === started) setError(messageOf(error))
     }
-  }, [])
+  }, [acceptMachines])
   const refreshInventory = useCallback(async () => {
     const generation = ++inventoryRevision.current
     const currentMachines = machinesRef.current
@@ -99,6 +110,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
             desktop ? queryMachineMetadata(machine.id, { op: 'host.version' }) : Promise.resolve(null),
           ])
           const next: MachineInventory = {
+            identityMachineId: machine.identity?.machineId,
             projects: desktop ? remoteProjectCatalogSchema.parse(projectRaw).projects :
               remoteProjectSchema.array().parse(projectRaw).map((project) => ({ ...project, status: 'ok', defaultAgent: null, repositoryIdentity: null })),
             sessions: sessionSummarySchema.array().parse(sessionsRaw),
@@ -113,7 +125,10 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
           setInventories((old) => new Map(old).set(machine.id, next))
         } catch (error) {
           if (!alive.current || inventoryRevision.current !== generation) return
-          setInventories((old) => new Map(old).set(machine.id, { ...old.get(machine.id) ?? emptyInventory, resources: null, error: messageOf(error) }))
+          const current = machinesRef.current.find((item) => item.id === machine.id)
+          if (current?.status !== 'connected' || current.identity?.machineId !== machine.identity?.machineId) return
+          setInventories((old) => new Map(old).set(machine.id, { ...old.get(machine.id) ?? emptyInventory,
+            identityMachineId: machine.identity?.machineId, catalog: null, permissions: null, resources: null, error: messageOf(error) }))
         }
       }),
     ])
@@ -134,7 +149,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       const parsed = machineViewSchema.array().safeParse(raw)
       if (alive.current && parsed.success) {
         revision.current++
-        setMachines(parsed.data)
+        acceptMachines(parsed.data)
       }
     })
     void refresh()
@@ -144,7 +159,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       unsubscribe()
       clearInterval(timer)
     }
-  }, [refresh])
+  }, [refresh, acceptMachines])
   return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, preferences, refreshInventory }}>{children}</Context.Provider>
 }
 
