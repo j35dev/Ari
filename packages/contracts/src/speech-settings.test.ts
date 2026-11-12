@@ -21,6 +21,11 @@ it('migrates settings without a configured speech model', () => {
     shortcut: '',
     dictationShortcut: '',
     duckAudio: true,
+    formatText: true,
+    spokenFormatting: false,
+    // The dictation and voice changes each added fields; together a migrated file has both.
+    provider: 'local',
+    groqModel: 'whisper-large-v3-turbo',
   })
 })
 it('keeps speech patches default-free and validates PCM bounds', () => {

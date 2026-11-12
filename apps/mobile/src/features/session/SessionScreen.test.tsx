@@ -190,6 +190,26 @@ describe('the session header', () => {
   })
 })
 
+describe('computer ownership of an open workspace', () => {
+  it('drops the old conversation and restores only the new computer’s draft with matching session IDs', async () => {
+    const original = app.origin
+    const next = 'https://second.tailnet.ts.net'
+    sessionStorage.setItem(`ari.draft:${original}:phone:sess_1`, 'First computer draft')
+    sessionStorage.setItem(`ari.draft:${next}:phone:sess_1`, 'Second computer draft')
+    const { rerender } = render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    expect((await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' })).value).toBe('First computer draft')
+    const query = app.session.query
+    app.origin = next
+    app.session.query = vi.fn().mockResolvedValue({ ...snapshot, summary: { ...snapshot.summary, title: 'Second computer session' } })
+    rerender(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Second computer session' })).toBeTruthy()
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' }).value).toBe('Second computer draft')
+    expect(sessionStorage.getItem(`ari.draft:${original}:phone:sess_1`)).toBe('First computer draft')
+    app.origin = original
+    app.session.query = query
+  })
+})
+
 describe('delegated agents', () => {
   const task = (sessionId: string, title: string, fields: Record<string, unknown> = {}) => ({
     sessionId,
@@ -230,7 +250,7 @@ describe('delegated agents', () => {
       }),
     )
     // Its own turn is over, but the work is not: the header must not say "ready".
-    expect(screen.getByText('Ari, 1 agent needs you')).toBeTruthy()
+    expect(screen.getByText('phone · Ari, 1 agent needs you')).toBeTruthy()
     expect(screen.getByText('Parser fixed and tested.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open Tests: Needs you' }))
     expect(onOpen).toHaveBeenCalledWith('child_ask')
@@ -257,7 +277,7 @@ describe('delegated agents', () => {
     await screen.findByRole('heading', { name: 'Fix pairing' })
     expect(screen.queryByRole('button', { name: /^Delegated agents:/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Open parent session/ })).toBeNull()
-    expect(screen.getByText('Ari, ready')).toBeTruthy()
+    expect(screen.getByText('phone · Ari, ready')).toBeTruthy()
   })
 
   it('links a delegated agent back to the session it works for', async () => {

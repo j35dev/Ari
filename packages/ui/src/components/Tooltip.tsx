@@ -1,4 +1,12 @@
-import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState } from 'react'
+import {
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import type { DetailedReactHTMLElement, HTMLAttributes, ReactElement, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
@@ -122,7 +130,7 @@ export function Tooltip({
               exit="hidden"
               variants={tooltipVariants}
               style={{ ...floatingStyles }}
-              className="pointer-events-none z-context rounded-md bg-surface-3 px-2 py-1 text-xs text-fg"
+              className="pointer-events-none z-context rounded-md bg-surface-3 px-2 py-1 text-xs text-fg shadow-2"
             >
               {content}
             </motion.span>

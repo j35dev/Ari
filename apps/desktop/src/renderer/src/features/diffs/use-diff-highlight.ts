@@ -25,6 +25,32 @@ const extensions: Record<string, string> = {
   java: 'java',
   toml: 'toml',
   dockerfile: 'dockerfile',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  mts: 'typescript',
+  cts: 'typescript',
+  scss: 'scss',
+  less: 'less',
+  xml: 'xml',
+  svg: 'xml',
+  vue: 'vue',
+  svelte: 'svelte',
+  rb: 'ruby',
+  php: 'php',
+  swift: 'swift',
+  kt: 'kotlin',
+  lua: 'lua',
+  ps1: 'powershell',
+  jsonc: 'jsonc',
+  ini: 'ini',
+}
+
+/** The highlighting language for a file, from its extension or name; null for plain text. */
+export function languageForPath(path: string): string | null {
+  const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  if (name === 'dockerfile') return 'dockerfile'
+  const extension = name.includes('.') ? name.split('.').pop() : undefined
+  return (extension !== undefined && extensions[extension]) || null
 }
 
 /** Highlights bounded review text off-thread; plain text stays usable during loading/failure. */
@@ -33,7 +59,7 @@ export function useDiffHighlight(rows: ReviewRow[], path: string): Record<string
     null,
   )
   useEffect(() => {
-    const lang = extensions[path.split('.').pop()?.toLowerCase() ?? '']
+    const lang = languageForPath(path)
     if (!lang || typeof Worker === 'undefined') return
     const lines: HighlightLine[] = []
     let chars = 0

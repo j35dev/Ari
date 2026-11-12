@@ -153,12 +153,12 @@ describe('RemoteSettings', () => {
     },
   )
 
-  it("edits a paired device's grants without asking it to pair again", async () => {
-    const other = { ...PROJECT, id: 'proj_other', name: 'Other project' }
+  it('edits terminal access while all projects remain included', async () => {
     const device = {
       deviceId: 'dev_1',
       displayName: 'Pixel 9',
-      projectIds: [PROJECT.id],
+      projectIds: [],
+      allProjects: true,
       pairedAt: 1,
       lastSeenAt: null,
       allowTerminal: true,
@@ -166,40 +166,25 @@ describe('RemoteSettings', () => {
     remoteState = remote({ devices: [device] })
     const normal = invokeMock.getMockImplementation()
     invokeMock.mockImplementation(async (method, params) => {
-      if (method === 'project.list') return [PROJECT, other]
       if (method === 'remote.updateDeviceGrants') {
-        const next = params as {
-          deviceId: string
-          projectIds: string[]
-          allowTerminal: boolean
-        }
-        remoteState = remote({
-          devices: [{ ...device, projectIds: next.projectIds, allowTerminal: next.allowTerminal }],
-        })
+        remoteState = remote({ devices: [{ ...device, allowTerminal: false }] })
         return remoteState
       }
       return normal!(method, params)
     })
     const user = userEvent.setup()
     render(<RemoteSettings />)
-
     await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
-    expect(screen.getByRole('checkbox', { name: 'Ari' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Other project' })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Allow terminal access' })).toBeChecked()
-
-    await user.click(screen.getByRole('checkbox', { name: 'Other project' }))
+    expect(screen.queryByRole('checkbox', { name: 'Ari' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     await user.click(screen.getByRole('button', { name: 'Save access for Pixel 9' }))
-
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('remote.updateDeviceGrants', {
         deviceId: 'dev_1',
-        projectIds: ['proj_ari', 'proj_other'],
         allowTerminal: false,
       }),
     )
-    expect(await screen.findByText('Projects: Ari, Other project')).toBeInTheDocument()
+    expect(screen.getByText('All projects, including future projects')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Save access for Pixel 9' }),
     ).not.toBeInTheDocument()
@@ -221,14 +206,13 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
     await user.click(screen.getByRole('button', { name: 'Cancel access for Pixel 9' }))
 
     expect(
       screen.queryByRole('button', { name: 'Save access for Pixel 9' }),
     ).not.toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalledWith('remote.updateDeviceGrants', expect.anything())
-    expect(screen.getByText('Projects: Ari')).toBeInTheDocument()
+    expect(screen.getByText('All projects, including future projects')).toBeInTheDocument()
   })
 
   it('keeps the editor open when saving device access fails', async () => {
@@ -261,45 +245,18 @@ describe('RemoteSettings', () => {
     expect(screen.getByRole('button', { name: 'Save access for Pixel 9' })).toBeEnabled()
   })
 
-  it('shows a path when two projects share a name, so an edit picks the right one', async () => {
-    const copy = { ...PROJECT, id: 'proj_copy', path: 'D:\\Projects\\Ari-copy' }
-    const normal = invokeMock.getMockImplementation()
-    invokeMock.mockImplementation((method, params) =>
-      method === 'project.list' ? Promise.resolve([PROJECT, copy]) : normal!(method, params),
-    )
-    remoteState = remote({
-      devices: [
-        {
-          deviceId: 'dev_1',
-          displayName: 'Pixel 9',
-          projectIds: [PROJECT.id],
-          pairedAt: 1,
-          lastSeenAt: null,
-        },
-      ],
-    })
-    const user = userEvent.setup()
-    render(<RemoteSettings />)
-
-    await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
-    expect(screen.getByText(PROJECT.path)).toBeInTheDocument()
-    expect(screen.getByText(copy.path)).toBeInTheDocument()
-  })
-
   it('grants terminal only when the user explicitly enables it while approving this device', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
     render(<RemoteSettings />)
     expect(await screen.findByRole('checkbox', { name: 'Allow terminal access' })).not.toBeChecked()
     expect(screen.getByText(/a project folder is not a sandbox/)).toBeInTheDocument()
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'The codes match' }))
     await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     await user.click(screen.getByRole('button', { name: 'Approve' }))
     expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
       invitationId: 'inv_1',
       confirmationCode: '7F3K-2Q9D',
-      projectIds: ['proj_ari'],
       allowTerminal: true,
     })
     publish(
@@ -357,7 +314,7 @@ describe('RemoteSettings', () => {
         ),
       )
       await user.click(screen.getByRole('button', { name: /Your Tailscale/ }))
-      expect(screen.getByText(/No address a phone can reach exists yet/)).toBeInTheDocument()
+      expect(screen.getByText(/No address a device can reach exists yet/)).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Show pairing code' })).not.toBeInTheDocument()
     },
   )
@@ -420,7 +377,7 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
     await screen.findByRole('heading', { name: 'Connected through Ari Connect' })
     await user.click(screen.getByRole('button', { name: /Your Tailscale/ }))
-    expect(screen.getByText(/No address a phone can reach exists yet/)).toBeInTheDocument()
+    expect(screen.getByText(/No address a device can reach exists yet/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Show pairing code' })).not.toBeInTheDocument()
   })
 
@@ -546,24 +503,14 @@ describe('RemoteSettings', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
-  it('does not grant projects implicitly when the project list arrives after the request', async () => {
-    let deliverProjects: ((projects: Project[]) => void) | undefined
-    const normal = invokeMock.getMockImplementation()
-    invokeMock.mockImplementation((method, params) =>
-      method === 'project.list'
-        ? new Promise((resolve) => {
-            deliverProjects = resolve
-          })
-        : normal!(method, params),
-    )
+  it('allows verified pairing before any projects exist', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
+    const user = userEvent.setup()
     render(<RemoteSettings />)
-    expect(await screen.findByText('No projects are registered yet.')).toBeInTheDocument()
-    await act(async () => {
-      deliverProjects!([PROJECT])
-    })
-    expect(screen.getByRole('checkbox', { name: 'Ari' })).not.toBeChecked()
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    await user.click(await screen.findByRole('checkbox', { name: 'The codes match' }))
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByText('All projects on this computer')).toBeInTheDocument()
+    expect(invokeMock.mock.calls.some(([method]) => method === 'project.list')).toBe(false)
   })
 
   it('explains a disconnected tailnet and prevents Serve without a network origin', async () => {
@@ -629,12 +576,12 @@ describe('RemoteSettings', () => {
     expect(toggle).not.toBeChecked()
   })
 
-  it('resets verification and project access when another device request replaces the first', async () => {
+  it('resets verification and terminal access when another device request replaces the first', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
     render(<RemoteSettings />)
-    await user.click(await screen.findByRole('checkbox', { name: 'Ari' }))
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'The codes match' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
     publish(
       remote({
@@ -643,46 +590,19 @@ describe('RemoteSettings', () => {
         pending: { ...PENDING, confirmationCode: 'NEW-CODE', displayName: 'Another phone' },
       }),
     )
-    expect(screen.getByRole('checkbox', { name: 'Ari' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'The codes match' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Allow terminal access' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
 
     // An approval names the code on screen when it is given, never the one
     // the prompt first opened with.
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
     await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
     await user.click(screen.getByRole('button', { name: 'Approve' }))
     expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
       invitationId: 'inv_1',
       confirmationCode: 'NEW-CODE',
-      projectIds: ['proj_ari'],
       allowTerminal: false,
     })
-  })
-
-  it('selects all only on request and sends exactly the narrowed project grant', async () => {
-    const other = { ...PROJECT, id: 'proj_other', name: 'Other project' }
-    const normal = invokeMock.getMockImplementation()
-    invokeMock.mockImplementation((method, params) =>
-      method === 'project.list' ? Promise.resolve([PROJECT, other]) : normal!(method, params),
-    )
-    remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
-    const user = userEvent.setup()
-    render(<RemoteSettings />)
-    await user.click(await screen.findByRole('button', { name: 'Select all' }))
-    expect(screen.getByRole('checkbox', { name: 'Ari' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Other project' })).toBeChecked()
-    await user.click(screen.getByRole('checkbox', { name: 'Other project' }))
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
-    await user.click(screen.getByRole('button', { name: 'Approve' }))
-    expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
-      invitationId: 'inv_1',
-      confirmationCode: '7F3K-2Q9D',
-      projectIds: ['proj_ari'],
-      allowTerminal: false,
-    })
-    await user.click(screen.getByRole('button', { name: 'Select none' }))
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
   })
 
   it('removes an expired pairing code and offers a new invitation', async () => {
@@ -785,7 +705,7 @@ describe('RemoteSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm revoke Phone' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save')
     expect(screen.getByRole('button', { name: 'Confirm revoke Phone' })).toBeEnabled()
-    expect(screen.getByText('Projects: none')).toBeInTheDocument()
+    expect(screen.getByText('All projects, including future projects')).toBeInTheDocument()
   })
 
   it('starts off, and offers the Tailscale step that would make it reachable', async () => {
@@ -793,9 +713,9 @@ describe('RemoteSettings', () => {
 
     const toggle = await screen.findByRole('switch', { name: 'Remote access' })
     expect(toggle).not.toBeChecked()
-    expect(screen.getByText('Turn remote access on to pair a phone.')).toBeInTheDocument()
+    expect(screen.getByText('Turn remote access on to pair a device.')).toBeInTheDocument()
     expect(
-      screen.getByText('Tailscale is connected; Ari is not served to the tailnet yet.'),
+      screen.getByText('Tailscale is connected. Choose an address for Ari.'),
     ).toBeInTheDocument()
     // Serve needs a listener to point at, so the button cannot lie about being
     // usable while remote access is off.
@@ -834,17 +754,16 @@ describe('RemoteSettings', () => {
     expect(await screen.findByText(/Pixel 9 asked to pair/)).toBeInTheDocument()
     expect(screen.getByLabelText('Confirmation code')).toHaveTextContent('7F3K-2Q9D')
     // The sentence that makes the code a deliberate act rather than a ritual.
-    expect(screen.getByText(/must match the one on the phone's screen/)).toBeInTheDocument()
+    expect(screen.getByText(/must match the one on the device's screen/)).toBeInTheDocument()
   })
 
-  it('requires matching codes and an explicit project grant before approving', async () => {
+  it('requires matching codes before approving all-project access', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
     render(<RemoteSettings />)
 
     const approve = await screen.findByRole('button', { name: 'Approve' })
     expect(approve).toBeDisabled()
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
     expect(approve).toBeDisabled()
     await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
     expect(approve).toBeEnabled()
@@ -854,23 +773,9 @@ describe('RemoteSettings', () => {
       expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
         invitationId: 'inv_1',
         confirmationCode: '7F3K-2Q9D',
-        projectIds: ['proj_ari'],
         allowTerminal: false,
       }),
     )
-  })
-
-  it('lets the user narrow the grant before approving', async () => {
-    remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
-    const user = userEvent.setup()
-    render(<RemoteSettings />)
-
-    await user.click(await screen.findByRole('checkbox', { name: 'Ari' }))
-    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
-    // A device granted nothing can reach nothing, so an empty grant is not an
-    // approval the user could have meant.
-    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled()
   })
 
   it('denies a device without granting anything', async () => {
@@ -892,7 +797,7 @@ describe('RemoteSettings', () => {
         {
           deviceId: 'dev_1',
           displayName: 'Pixel 9',
-          projectIds: ['proj_ari'],
+          projectIds: [],
           pairedAt: 1_700_000_000_000,
           lastSeenAt: 1_700_000_600_000,
         },
@@ -902,7 +807,7 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     expect(await screen.findByText('Pixel 9')).toBeInTheDocument()
-    expect(screen.getByText('Projects: Ari')).toBeInTheDocument()
+    expect(screen.getByText('All projects, including future projects')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Revoke Pixel 9' }))
     expect(invokeMock).not.toHaveBeenCalledWith('remote.revokeDevice', expect.anything())
@@ -937,7 +842,7 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     // The invitation exists, but loopback on a phone is the phone itself.
-    expect(await screen.findByText(/No address a phone can reach exists yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/No address a device can reach exists yet/)).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
@@ -965,10 +870,12 @@ describe('RemoteSettings', () => {
     render(<RemoteSettings />)
 
     await user.click(await screen.findByRole('button', { name: 'Serve Ari over Tailscale' }))
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable'))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable', undefined),
+    )
 
     const stop = await screen.findByRole('button', { name: 'Stop serving Ari' })
-    expect(screen.getByText(`Serving Ari at ${TAILNET}.`)).toBeInTheDocument()
+    expect(screen.getByText(`Ari is available at ${TAILNET}.`)).toBeInTheDocument()
     await user.click(stop)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.disable'))
   })

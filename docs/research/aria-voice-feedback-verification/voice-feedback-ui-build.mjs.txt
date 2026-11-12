@@ -1,0 +1,43 @@
+import { createRequire } from 'node:module'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+const root = 'D:/Projects/Ari-aria-voice'
+const requireDesktop = createRequire(join(root, 'apps/desktop/package.json'))
+const { build } = await import(pathToFileURL(requireDesktop.resolve('vite')).href)
+const { default: react } = await import(pathToFileURL(requireDesktop.resolve('@vitejs/plugin-react')).href)
+const { default: tailwind } = await import(pathToFileURL(requireDesktop.resolve('@tailwindcss/postcss')).href)
+const parent = join(root, 'fixtures/tmp')
+await mkdir(parent, { recursive: true })
+const scratch = await mkdtemp(join(parent, 'voice-feedback-'))
+await writeFile(join(scratch, 'index.html'), `<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'none'"></head><body><div id="root"></div><script type="module" src="/fixture.tsx"></script></body></html>`)
+await writeFile(join(scratch, 'fixture.tsx'), `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import '${root}/packages/ui/src/fonts.ts'
+import './fixture.css'
+import { VoiceNotice } from '${root}/apps/desktop/src/renderer/src/features/aria/VoiceNotice.tsx'
+import { SettingsSection } from '${root}/apps/desktop/src/renderer/src/features/settings/SettingsSection.tsx'
+import { SettingsRow } from '${root}/apps/desktop/src/renderer/src/features/settings/SettingsRow.tsx'
+const light = new URLSearchParams(location.search).get('theme') === 'light'
+document.documentElement.dataset.ariTheme = light ? 'porcelain' : 'obsidian'
+document.documentElement.dataset.ariScheme = light ? 'light' : 'dark'
+function Fixture() {
+ const [notice, setNotice] = React.useState(true)
+ return <main className="min-h-screen bg-bg p-8 text-fg">
+  <SettingsSection title="Aria voice" description="Voice replies include the main explanation; Read aloud includes the reply’s useful details.">
+    {notice && <VoiceNotice message="Kokoro’s English voice cannot read this language. Choose Groq in speech output settings." onDismiss={() => setNotice(false)} />}
+    <SettingsRow label="Speech output" hint="Choose independently from speech input."><select aria-label="Aria speech output"><option>Local · Kokoro</option><option>Cloud · Groq</option></select></SettingsRow>
+    <SettingsRow label="Local voice" hint="Kokoro English"><select><option>Heart</option></select></SettingsRow>
+  </SettingsSection>
+ </main>
+}
+createRoot(document.getElementById('root')!).render(<Fixture />)
+`)
+await writeFile(join(scratch, 'fixture.css'), `@import '${root}/apps/desktop/src/renderer/src/styles/index.css';\n@source '${root}/apps/desktop/src/renderer/src';\n@source './fixture.tsx';\n`)
+await build({ root: scratch, base: './', plugins: [react()], css: { postcss: { plugins: [tailwind({ base: join(root, 'apps/desktop') })] } }, resolve: { alias: {
+  react: dirname(requireDesktop.resolve('react/package.json')),
+  'react-dom': dirname(requireDesktop.resolve('react-dom/package.json')),
+}}, build: { outDir: join(scratch, 'dist'), emptyOutDir: true } })
+await writeFile('D:/Projects/.ari-cache/voice-feedback-ui-path.txt', join(scratch, 'dist/index.html'))
+console.log('Built isolated VoiceNotice and Settings components')

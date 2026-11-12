@@ -3,13 +3,14 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
-import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
+import type { GatewayInfo, RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
+import { REMOTE_PROTOCOL_VERSION, REMOTE_ANONYMOUS_OPERATIONS } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
 import { deviceKey } from './testing/device-key'
 import { RawWebSocket, handshake } from './testing/ws-client'
 import { createRemoteGateway, type RemoteGateway } from './gateway'
 import { ConnectLeaseVerifier } from './connect-lease'
+import { IdempotencyStore } from './idempotency'
 
 const ALLOWED = 'http://127.0.0.1:5173'
 
@@ -170,7 +171,10 @@ describe('remote gateway discovery', () => {
     // The same envelope every route uses, so a client parses one shape.
     expect(body).toEqual({
       ok: true,
-      result: { protocolVersion: REMOTE_PROTOCOL_VERSION, capabilities: OPERATIONS },
+      result: {
+        protocolVersion: REMOTE_PROTOCOL_VERSION,
+        capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
+      },
     })
   })
 
@@ -194,8 +198,45 @@ describe('remote gateway discovery', () => {
     expect(status).toBe(200)
     expect(body['result']).toEqual({
       protocolVersion: REMOTE_PROTOCOL_VERSION,
-      capabilities: OPERATIONS,
+      capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
     })
+  })
+
+  it('exposes only public identity without Origin and still rejects disallowed browser origins', async () => {
+    const gateway = await createRemoteGateway({
+      host: fakeHost(),
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      identity: { machineId: 'machine_public', name: 'Office', ariVersion: 'test' },
+    })
+    running.push(gateway)
+    const response = await fetch(`${gateway.origin}/api/identity`)
+    const envelope = (await response.json()) as { ok: boolean; result: GatewayInfo }
+    expect(response.status).toBe(200)
+    expect(Object.keys(envelope.result).sort()).toEqual([
+      'ariVersion',
+      'capabilities',
+      'machineId',
+      'name',
+      'protocolVersion',
+    ])
+    expect(envelope.result).toMatchObject({
+      machineId: 'machine_public',
+      name: 'Office',
+      ariVersion: 'test',
+    })
+    expect(envelope.result.capabilities.filter((op: string) => op === 'gateway.info')).toHaveLength(
+      1,
+    )
+    expect(
+      (
+        await fetch(`${gateway.origin}/api/identity`, {
+          headers: { origin: 'https://untrusted.example' },
+        })
+      ).status,
+    ).toBe(403)
+    const queryInfo = await call(gateway, '/query', { op: 'gateway.info' })
+    expect(queryInfo.body['result']).toEqual(envelope.result)
   })
 })
 
@@ -458,6 +499,114 @@ describe('remote gateway command allowlist', () => {
 })
 
 describe('remote gateway idempotency', () => {
+  it('does not dispatch when persisting the pre-dispatch claim fails', async () => {
+    const host = fakeHost()
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: {
+        persist: () => {
+          throw new Error('disk full')
+        },
+      },
+    })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey())
+    const failed = await call(gateway, '/command', COMMAND, { token })
+    expect(failed.status).toBe(500)
+    expect(host.executed).toHaveLength(0)
+    expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(409)
+    expect(
+      (
+        await call(
+          gateway,
+          '/query',
+          { op: 'command.status', idempotencyKey: 'missing-receipt-key' },
+          { token },
+        )
+      ).body,
+    ).toMatchObject({ ok: false, error: { code: 'conflict' } })
+    expect(host.executed).toHaveLength(0)
+    const restarted = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      pairing: gateway.pairing,
+      idempotency: { restore: '[]' },
+    })
+    running.push(restarted)
+    expect((await call(restarted, '/command', COMMAND, { token })).status).toBe(200)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it('retains the durable claim when completion persistence fails, including after restart', async () => {
+    const host = fakeHost()
+    let saved = '[]'
+    let writes = 0
+    const first = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: {
+        persist: (json) => {
+          if (++writes > 1) throw new Error('disk full')
+          saved = json
+        },
+      },
+    })
+    running.push(first)
+    const key = deviceKey()
+    const token = await paired(first, key)
+    expect((await call(first, '/command', COMMAND, { token })).status).toBe(500)
+    const second = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      pairing: first.pairing,
+      idempotency: { restore: saved },
+    })
+    running.push(second)
+    expect((await call(second, '/command', COMMAND, { token })).status).toBe(409)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it('refuses fresh work when all receipt slots are pinned by unresolved claims', async () => {
+    const receipts = new IdempotencyStore()
+    for (let index = 0; index < 1000; index++) receipts.begin(`pending-${index}`, COMMAND)
+    const host = fakeHost()
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: { restore: receipts.toJSON() },
+    })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey())
+    const refusal = await call(gateway, '/command', COMMAND, { token })
+    expect(refusal.status).toBe(429)
+    expect(errorCode(refusal.body)).toBe('rate_limited')
+    expect(host.executed).toHaveLength(0)
+  })
+
+  it.each([
+    'broken',
+    '{}',
+    '[["key", {}]]',
+    JSON.stringify([
+      ['key', { fingerprint: 'a'.repeat(64), at: 1, result: { reply: { ok: false } } }],
+    ]),
+  ])('refuses to open a listener over corrupt receipt history: %s', async (restore) => {
+    await expect(
+      createRemoteGateway({
+        host: fakeHost(),
+        allowedOrigins: [ALLOWED],
+        port: 0,
+        idempotency: { restore },
+      }),
+    ).rejects.toThrow()
+  })
+
   it('keeps high-volume terminal receipts out of durable prompt records while preserving replay and key conflicts', async () => {
     const written: string[] = []
     const host = fakeHost({ capabilities: () => [...OPERATIONS, 'terminal.write'] })
@@ -543,7 +692,7 @@ describe('remote gateway idempotency', () => {
           { token: second },
         )
       ).status,
-    ).toBe(404)
+    ).toBe(409)
     expect((await call(gateway, '/command', COMMAND, { token: second })).status).toBe(200)
     expect(host.executed).toHaveLength(2)
   })
@@ -793,7 +942,7 @@ describe('remote gateway idempotency', () => {
 })
 
 describe('isolated managed gateway', () => {
-  async function managed(host = fakeHost(), startAt = 100_000) {
+  async function managed(host = fakeHost(), startAt = 100_000, projectIds = ['proj_1']) {
     let now = startAt
     const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
     const jwk = publicKey.export({ format: 'jwk' }) as {
@@ -834,7 +983,7 @@ describe('isolated managed gateway', () => {
         computerId: 'comp_12345678',
         deviceId: device.deviceId,
         deviceKeyFingerprint: fingerprint,
-        projectIds: ['proj_1'],
+        projectIds,
         iat: Math.floor(now / 1000),
         exp: Math.floor(now / 1000) + 1,
         jti: 'unique',
@@ -896,6 +1045,91 @@ describe('isolated managed gateway', () => {
     expect(host.executed).toHaveLength(0)
   })
 
+  it('passes only a verified signed lease deadline to the host and refuses expired or altered leases', async () => {
+    const seen: RemoteCaller[] = []
+    const host = fakeHost({
+      query: async (caller) => {
+        seen.push(caller)
+        return caller.managedLeaseExpiresAt
+      },
+    })
+    const h = await managed(host)
+    const allowed = await call(
+      h.gateway,
+      '/query',
+      { op: 'session.list' },
+      { token: h.token, headers: { 'x-ari-connect-lease': h.lease } },
+    )
+    expect(allowed).toMatchObject({ status: 200, body: { result: 101000 } })
+    expect(seen[0]).toMatchObject({ allProjects: false, managedLeaseExpiresAt: 101000 })
+    const parts = h.lease.split('.')
+    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString()) as Record<
+      string,
+      unknown
+    >
+    claims['exp'] = 999999
+    parts[1] = Buffer.from(JSON.stringify(claims)).toString('base64url')
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { token: h.token, headers: { 'x-ari-connect-lease': parts.join('.') } },
+        )
+      ).status,
+    ).toBe(403)
+    h.advance(1000)
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { token: h.token, headers: { 'x-ari-connect-lease': h.lease } },
+        )
+      ).status,
+    ).toBe(403)
+    expect(seen).toHaveLength(1)
+  })
+
+  it('never carries local all-project approval into managed HTTP or stream calls', async () => {
+    const base = fakeHost()
+    const seen: RemoteCaller[] = []
+    const host = fakeHost({
+      getSession: async (caller, id) => {
+        seen.push(caller)
+        return caller.projectIds.includes('proj_2') ? base.getSession(caller, id) : undefined
+      },
+      execute: async (caller) => {
+        seen.push(caller)
+        return caller.projectIds.includes('proj_2')
+          ? { ok: true, result: {} }
+          : { ok: false, code: 'not_found', message: 'no such session' }
+      },
+    })
+    const h = await managed(host)
+    expect(h.gateway.pairing.devices()[0]?.allProjects).toBe(true)
+    const result = await call(h.gateway, '/command', COMMAND, {
+      token: h.token,
+      headers: { 'x-ari-connect-lease': h.lease },
+    })
+    expect(result.status).toBe(404)
+    const client = await RawWebSocket.open(h.gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_2' }))
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'error',
+      error: { code: 'not_found' },
+    })
+    expect(
+      seen.every((caller) => caller.allProjects === false && caller.projectIds.join() === 'proj_1'),
+    ).toBe(true)
+    client.close()
+  })
+
   it('closes an already open managed stream when its lease expires', async () => {
     let stopped = false
     const host = fakeHost({
@@ -922,7 +1156,7 @@ describe('isolated managed gateway', () => {
     ).toContain('403')
   })
 
-  it('narrows an already open managed stream to the edited device grants', async () => {
+  it('preserves signed managed stream scope after terminal grant edits', async () => {
     let emit: ((event: unknown) => void) | null = null
     const host = fakeHost({
       subscribe: (_caller, _sessionId, onEvent) => {
@@ -944,14 +1178,11 @@ describe('isolated managed gateway', () => {
     emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
     expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'events.frame' })
 
-    // The lease still names proj_1; the device record no longer grants it.
+    // A terminal edit and legacy project snapshot cannot widen or narrow the signed lease.
     h.gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
     emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
-    expect(JSON.parse(await client.nextMessage())).toMatchObject({
-      type: 'error',
-      error: { code: 'access_revoked' },
-    })
-    expect(emit).toBeNull()
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'events.frame' })
+    expect(emit).not.toBeNull()
     client.close()
   })
 })
@@ -1181,7 +1412,7 @@ describe('remote gateway grant edits', () => {
     expect(host.callers.at(-1)?.allowTerminal).toBe(true)
   })
 
-  it('stops streaming a project the device lost, on an open socket', async () => {
+  it('keeps all-project streams open when the legacy snapshot changes', async () => {
     let emit: ((event: unknown) => void) | null = null
     let unsubscribed = false
     const host = fakeHost({
@@ -1214,10 +1445,10 @@ describe('remote gateway grant edits', () => {
     gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
     emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
     expect(JSON.parse(await client.nextMessage())).toMatchObject({
-      type: 'error',
-      error: { code: 'access_revoked' },
+      type: 'events.frame',
+      events: [{ seq: 12 }],
     })
-    expect(unsubscribed).toBe(true)
+    expect(unsubscribed).toBe(false)
     client.close()
   })
 

@@ -1,0 +1,40 @@
+{"resourceGate":{"commitHeadroomBytes":9342185472,"cFreeBytes":21589786624}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"tailscale-publication-typecheck","pid":12368,"startedAt":"2026-11-12T15:43:36.144Z","id":"147a6408-dc04-45fe-8aae-3bbda9183f1c"}
+Scope: 9 of 10 workspace projects
+
+> @ari/contracts@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\contracts
+> tsc --noEmit
+
+
+> @ari/shared@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\shared
+> tsc --noEmit
+
+
+> @ari/engine@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\engine
+> tsc --noEmit
+
+
+> @ari/providers@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\providers
+> tsc --noEmit
+
+
+> @ari/remote-gateway@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\remote-gateway
+> tsc --noEmit
+
+
+> @ari/ui@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\ui
+> tsc --noEmit
+
+
+> @ari/mobile@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\apps\mobile
+> tsc --noEmit
+
+
+> @ari/ari-core@0.1.0 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\packages\ari-core
+> tsc --noEmit
+
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-machines-wt\tailscale-publication\apps\desktop
+> tsc --noEmit
+
+{"heavyResult":{"worker":"tailscale-publication-typecheck","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","-r","--workspace-concurrency=1","typecheck"],"exitCode":0,"signal":null}}

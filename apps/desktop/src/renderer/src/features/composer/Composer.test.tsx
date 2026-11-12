@@ -3,7 +3,9 @@ import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
-import { FILE_MIME } from './drag-file'
+import { FILE_MIME, FILE_SCOPE_MIME } from './drag-file'
+import * as dragFiles from './drag-file'
+import { createSessionClient, SessionClientProvider, type SessionClient } from '../session/session-client'
 import { PASTE_FILE_MIN_BYTES } from './paste-as-file'
 import { applyAppearance } from '../../lib/appearance'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -18,10 +20,11 @@ beforeEach(() => {
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   subscribe: vi.fn(() => () => undefined),
+  useSpeech: vi.fn(() => ({ status: { ready: false } })),
 }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
-vi.mock('../speech/useSpeech', () => ({ useSpeech: () => ({ status: { ready: false } }) }))
+vi.mock('../speech/useSpeech', () => ({ useSpeech: rpcMocks.useSpeech }))
 
 describe('Composer', () => {
   it('sends trimmed text on click and clears the field', async () => {
@@ -266,42 +269,43 @@ describe('Composer', () => {
   it('re-measures its height only when typing could shrink or overflow it', () => {
     render(<Composer onSend={vi.fn()} />)
     const field = screen.getByLabelText('Message')
-    let contentHeight = 52
+    // 62px is the field's floor: about two lines of draft.
+    let contentHeight = 62
     Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
-    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 62 })
     fireEvent.change(field, { target: { value: 'a' } })
     // A marker the old collapse-and-remeasure would overwrite.
-    field.style.height = '53px'
+    field.style.height = '63px'
 
     // Still fits: no collapse to `auto`, no write at all.
     fireEvent.change(field, { target: { value: 'ab' } })
-    expect(field.style.height).toBe('53px')
+    expect(field.style.height).toBe('63px')
 
     // Wrapped onto a new line: grows to the content.
-    contentHeight = 74
+    contentHeight = 84
     fireEvent.change(field, { target: { value: 'abc' } })
-    expect(field.style.height).toBe('74px')
+    expect(field.style.height).toBe('84px')
 
     // Deleting may shrink it: measured from scratch.
-    contentHeight = 52
+    contentHeight = 62
     fireEvent.change(field, { target: { value: 'ab' } })
-    expect(field.style.height).toBe('52px')
+    expect(field.style.height).toBe('62px')
   })
 
   it('reflows an existing draft in both directions after changing text size', async () => {
     const { unmount } = render(<Composer onSend={vi.fn()} />)
     const field = screen.getByLabelText('Message')
-    let contentHeight = 74
+    let contentHeight = 84
     Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
-    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 62 })
     fireEvent.change(field, { target: { value: 'keep this draft' } })
     try {
-      contentHeight = 96
+      contentHeight = 106
       applyAppearance({ ...defaultSettings.appearance, fontSize: 18 })
-      await waitFor(() => expect(field.style.height).toBe('96px'))
-      contentHeight = 52
+      await waitFor(() => expect(field.style.height).toBe('106px'))
+      contentHeight = 62
       applyAppearance(defaultSettings.appearance)
-      await waitFor(() => expect(field.style.height).toBe('52px'))
+      await waitFor(() => expect(field.style.height).toBe('62px'))
       expect(field).toHaveValue('keep this draft')
     } finally {
       unmount()
@@ -451,6 +455,26 @@ describe('Composer resting state', () => {
       <Composer onSend={vi.fn()} running above={<div>2 children</div>} />,
     )
     expect(isResting(container)).toBe(true)
+  })
+
+  it('opens to the full two-row layout: pickers and stash beside the field', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <Composer onSend={vi.fn()} leading={<button type="button">pick model</button>} />,
+    )
+    const pickers = screen.getByRole('button', { name: 'pick model' }).parentElement
+    const stash = screen.getByRole('button', { name: /prompt stash/i }).parentElement
+    // At rest only the field, the microphone and send are on show.
+    expect(isResting(container)).toBe(true)
+    expect(pickers).toHaveClass('hidden')
+    expect(stash).toHaveClass('hidden')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeVisible()
+
+    await user.click(screen.getByLabelText('Message'))
+    expect(isResting(container)).toBe(false)
+    expect(pickers).not.toHaveClass('hidden')
+    expect(stash).not.toHaveClass('hidden')
   })
 
   it('says a running send will queue rather than promising a send', () => {
@@ -898,6 +922,85 @@ describe('Composer large paste', () => {
     pasteText(input, pasted)
     expect(rpcMocks.invoke).not.toHaveBeenCalled()
     expect(input).toHaveValue(pasted)
+  })
+})
+
+describe('Composer owning machine input', () => {
+  const scope = { kind: 'remote' as const, machineId: 'host-a', sessionId: 'sess_wire' }
+  const viewKey = JSON.stringify(['host-a', 'sess_wire'])
+  let client: SessionClient
+  const hostInvoke = vi.fn<(method: string, params?: unknown) => Promise<unknown>>()
+  beforeEach(() => {
+    localStorage.clear(); rpcMocks.invoke.mockReset(); rpcMocks.useSpeech.mockClear()
+    hostInvoke.mockReset(); hostInvoke.mockResolvedValue({ bytesWritten: 32768, path: '.ari/pastes/host-issued.txt' })
+    client = { ...createSessionClient({ kind: 'local', sessionId: 'sess_wire' }), scope, viewKey,
+      invoke: hostInvoke as SessionClient['invoke'] }
+  })
+  const paste = (input: HTMLElement, text: string) => fireEvent.paste(input, {
+    clipboardData: { files: [], getData: (type: string) => type === 'text/plain' ? text : '' },
+  })
+  it('writes long text through the owning client with its wire ID and uses the host-issued path', async () => {
+    render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
+    const input = screen.getByRole('textbox', { name: 'Message' })
+    const text = 'a'.repeat(PASTE_FILE_MIN_BYTES)
+    paste(input, text)
+    expect(client.invoke).toHaveBeenCalledWith('fs.writeTextFile', expect.objectContaining({ sessionId: 'sess_wire', content: text }))
+    await waitFor(() => expect(input).toHaveValue('@.ari/pastes/host-issued.txt '))
+    expect(rpcMocks.invoke.mock.calls.some(([method]) => method === 'fs.writeTextFile')).toBe(false)
+    expect(rpcMocks.useSpeech).not.toHaveBeenCalled()
+  })
+  it('retains long text after an unknown host paste outcome and never falls back or retries', async () => {
+    hostInvoke.mockRejectedValue(new Error('Acknowledgement lost'))
+    const view = render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
+    const text = 'a'.repeat(PASTE_FILE_MIN_BYTES)
+    paste(screen.getByRole('textbox', { name: 'Message' }), text)
+    await waitFor(() => expect(client.invoke).toHaveBeenCalledOnce())
+    view.unmount()
+    render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(text)
+    expect(client.invoke).toHaveBeenCalledOnce()
+    expect(rpcMocks.invoke.mock.calls.some(([method]) => method === 'fs.writeTextFile')).toBe(false)
+  })
+  it('keeps a remote draft paste inline without local speech or filesystem calls', () => {
+    render(<Composer sessionId="project-draft:remote-input" draftOnly remoteInput onSend={vi.fn()} />)
+    const text = 'b'.repeat(PASTE_FILE_MIN_BYTES)
+    paste(screen.getByRole('textbox', { name: 'Message' }), text)
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(text)
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    expect(rpcMocks.useSpeech).not.toHaveBeenCalled()
+  })
+  it('refuses OS paths on paste/drop while retaining image bytes for the owning first-send handler', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn(() => false)
+    const osPath = vi.spyOn(dragFiles, 'osFilePath')
+    render(<Composer sessionId="project-draft:remote-files" draftOnly remoteInput onSend={onSend} />)
+    const input = screen.getByRole('textbox', { name: 'Message' })
+    const image = new File(['bytes'], 'shot.png', { type: 'image/png' })
+    const other = new File(['secret'], 'private.txt', { type: 'text/plain' })
+    fireEvent.paste(input, { clipboardData: { files: [other] } })
+    fireEvent.drop(input, { dataTransfer: { files: [other, image], getData: () => '' } })
+    expect(osPath).not.toHaveBeenCalled()
+    expect(input).toHaveValue('')
+    expect(screen.getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledWith('', [image])
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    osPath.mockRestore()
+  })
+  it('accepts only file references stamped with the owning session and refuses an unbound remote key', () => {
+    const view = render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
+    const input = screen.getByRole('textbox', { name: 'Message' })
+    const drag = (owner: string) => ({ files: [], getData: (type: string) =>
+      type === FILE_MIME ? 'src/host.ts' : type === FILE_SCOPE_MIME ? owner : '' })
+    fireEvent.drop(input, { dataTransfer: drag('') })
+    fireEvent.drop(input, { dataTransfer: drag(JSON.stringify(['host-b', 'sess_wire'])) })
+    expect(input).toHaveValue('')
+    fireEvent.drop(input, { dataTransfer: drag(viewKey) })
+    expect(input).toHaveValue('@src/host.ts ')
+    view.unmount(); localStorage.clear(); dropDraftTextMemory()
+    render(<Composer sessionId={viewKey} onSend={vi.fn()} />)
+    paste(screen.getByRole('textbox', { name: 'Message' }), 'c'.repeat(PASTE_FILE_MIN_BYTES))
+    expect(rpcMocks.invoke.mock.calls.some(([method]) => method === 'fs.writeTextFile')).toBe(false)
   })
 })
 

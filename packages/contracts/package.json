@@ -23,7 +23,10 @@
     "./settings": "./src/settings.ts",
     "./endpoint": "./src/endpoint.ts",
     "./project": "./src/project.ts",
-    "./remote": "./src/remote.ts"
+    "./remote": "./src/remote.ts",
+    "./machines": "./src/machines.ts",
+    "./route-auth": "./src/route-auth.ts",
+    "./aria-voice": "./src/aria-voice.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

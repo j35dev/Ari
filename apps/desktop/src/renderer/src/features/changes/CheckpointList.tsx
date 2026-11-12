@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@ari/ui/button'
 import { useToast } from '@ari/ui/toast'
 import { rpc } from '../../lib/rpc'
+import { sectionLabel } from '../../lib/recipes'
 
 interface CheckpointListProps {
   projectId: string
@@ -98,26 +99,26 @@ export function CheckpointList({ projectId: _projectId, sessionId }: CheckpointL
   const reverting = pendingTurnId !== null
 
   return (
-    <section aria-label="Checkpoints" className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold text-fg">Checkpoints</h3>
+    <section aria-label="Checkpoints" className="flex flex-col gap-1">
+      <h3 className={sectionLabel}>Checkpoints</h3>
       {loadError ? (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-[13px] text-danger">
           {loadError}
         </p>
       ) : null}
       {!loadError && loaded && checkpoints.length === 0 ? (
-        <p className="text-sm text-fg-subtle">No checkpoints captured for this session.</p>
+        <p className="text-[13px] text-fg-subtle">No checkpoints captured for this session.</p>
       ) : null}
-      <ul className="flex flex-col gap-1.5">
+      <ul className="-mx-2 flex flex-col">
         {checkpoints.map((checkpoint) => (
           <li
             key={checkpoint.gitRef}
-            className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-2 py-1.5"
+            className="flex min-h-[34px] items-center gap-2 rounded-md py-0.5 pl-2 pr-1 transition-colors hover:bg-fg/5"
           >
-            <span className="font-mono text-2xs text-fg-muted">{checkpoint.turnId}</span>
+            <span className="font-mono text-[12.5px] text-fg-muted">{checkpoint.turnId}</span>
             {confirmingTurnId === checkpoint.turnId ? (
               <>
-                <span className="min-w-0 text-xs text-fg">
+                <span className="min-w-0 text-[13px] text-fg">
                   Are you sure? Revert workspace to this checkpoint.
                 </span>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -162,7 +163,7 @@ export function CheckpointList({ projectId: _projectId, sessionId }: CheckpointL
       {status ? (
         <p
           role="alert"
-          className={`text-xs ${status.tone === 'success' ? 'text-success' : 'text-danger'}`}
+          className={`text-[13px] ${status.tone === 'success' ? 'text-fg-muted' : 'text-danger'}`}
         >
           {status.message}
         </p>

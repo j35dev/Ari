@@ -1,3 +1,4 @@
+import type { GroqSpeech } from './groq'
 // @vitest-environment node
 import { mkdtemp, mkdir, writeFile, readFile, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -329,7 +330,7 @@ it('pauses the dispatch watchdog during inference and rearms it for the next idl
   await vi.advanceTimersByTimeAsync(9 * 60_000)
   expect(child.kill).not.toHaveBeenCalled()
   child.emit('message', { id, result: { text: 'first' } })
-  expect(await pending).toEqual({ text: 'first' })
+  expect(await pending).toEqual({ text: 'First' })
   await vi.advanceTimersByTimeAsync(59_999)
   expect(child.kill).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(1)
@@ -1351,4 +1352,98 @@ it('returns an install receipt before queued inspection finishes and releases a 
   expect(await service.install()).toEqual({ started: true })
   await vi.waitFor(() => expect(service.status().engine).toBe('ready'), { timeout: 3000 })
   expect(installer).toHaveBeenCalledOnce()
+})
+
+it('uses the selected Groq Whisper model for both dictation callers without preloading local inference', async () => {
+  const { store, service } = await setup(false)
+  await store.update({
+    experimental: { ariaEnabled: true },
+    speech: { enabled: true, provider: 'groq', groqModel: 'whisper-large-v3' },
+  })
+  const transcribe = vi.fn(async () => ({ text: 'Cloud dictation' }))
+  service.groq = { transcribe } as unknown as GroqSpeech
+  expect(await service.transcribe(new Float32Array(160), 'en')).toEqual({ text: 'Cloud dictation' })
+  expect(transcribe).toHaveBeenCalledWith(expect.any(Float32Array), 'whisper-large-v3', 'en')
+  expect(mocks.fork).not.toHaveBeenCalled()
+})
+
+it('falls back from Groq transcription to the selected local model with a visible notice', async () => {
+  const { dir, store, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  await store.update({ experimental: { ariaEnabled: true }, speech: { provider: 'groq' } })
+  service.groq = {
+    transcribe: vi.fn(async () => {
+      throw new Error('Groq could not be reached. Using local speech.')
+    }),
+  } as unknown as GroqSpeech
+  const result = await service.transcribe(new Float32Array(160))
+  expect(result).toHaveProperty('text')
+  expect(service.snapshot()).toContainEqual(
+    expect.objectContaining({
+      id: 'groq',
+      phase: 'error',
+      error: 'Groq could not be reached. Using local speech.',
+    }),
+  )
+})
+
+it.each([
+  [
+    true,
+    false,
+    'i checked the logs. separately we should review useSpeech',
+    'I checked the logs.\n\nSeparately, we should review useSpeech.',
+  ],
+  [false, false, '  i want THIS exactly  ', '  i want THIS exactly  '],
+  [true, false, '\n\n', ''],
+  [
+    true,
+    true,
+    'please review the logs new paragraph can you help question mark',
+    'Please review the logs.\n\nCan you help?',
+  ],
+])(
+  'formats a finalized native result with the saved options (%s, %s)',
+  async (formatText, spokenFormatting, raw, expected) => {
+    const { dir, service, store } = await setup()
+    const path = join(dir, 'custom.gguf')
+    await writeFile(path, 'gguf')
+    await selectReady(service, { path })
+    await store.update({ speech: { formatText, spokenFormatting } })
+    mocks.manual = true
+    const result = service.transcribe(new Float32Array([0.1]))
+    const child = mocks.fork.mock.results[0]!.value
+    await vi.waitFor(() => expect(child.postMessage.mock.calls.at(-1)![0].kind).toBe('transcribe'))
+    const request = child.postMessage.mock.calls.at(-1)![0]
+    expect(request.formatText).toBe(formatText)
+    child.emit('message', { id: request.id, result: { text: raw, language: 'en' } })
+    expect(await result).toEqual({ text: expected })
+  },
+)
+
+it('uses native language and pause metadata without imposing English grammar', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  mocks.manual = true
+  const result = service.transcribe(new Float32Array([0.1]))
+  const child = mocks.fork.mock.results[0]!.value
+  await vi.waitFor(() => expect(child.postMessage.mock.calls.at(-1)![0].kind).toBe('transcribe'))
+  child.emit('message', {
+    id: child.postMessage.mock.calls.at(-1)![0].id,
+    result: {
+      text: 'bonjour Ari. merci beaucoup.',
+      language: 'fr',
+      words: [
+        { text: 'bonjour', t0Ms: 0, t1Ms: 200 },
+        { text: 'Ari.', t0Ms: 250, t1Ms: 600 },
+        { text: 'merci', t0Ms: 2700, t1Ms: 3000 },
+        { text: 'beaucoup.', t0Ms: 3100, t1Ms: 3500 },
+      ],
+    },
+  })
+  expect(await result).toEqual({ text: 'Bonjour Ari.\n\nMerci beaucoup.' })
 })

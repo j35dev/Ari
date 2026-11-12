@@ -1,10 +1,12 @@
-import { ChevronRight, GitBranch } from 'lucide-react'
-import { SessionActivityMark, useTickingText } from '../moment'
-import type { SessionActivity } from '../session/session-activity'
+import { useId, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { ProviderLogo } from '../composer/provider-logo'
+import { useTickingText } from '../moment'
 import { agentModelLabel } from './agent-label'
-import { summarizeDelegation } from './delegation-rows'
+import { delegationPhrases, isLiveChild, splitDelegation } from './delegation-rows'
+import { reportSnippet } from './report-snippet'
 import type { DelegatedChild, DelegatedChildState, DelegationRow } from './types'
-import { DelegatedResult } from './DelegatedResult'
+import { DelegatedResult, RESULT_SLOT } from './DelegatedResult'
 
 const STATE_LABEL: Record<DelegatedChildState, string> = {
   working: 'Working',
@@ -22,30 +24,25 @@ const STATE_LABEL: Record<DelegatedChildState, string> = {
   removed: 'Removed',
 }
 
-const STATE_TONE: Record<DelegatedChildState, string> = {
-  working: 'text-fg',
-  queued: 'text-fg-subtle',
-  'needs-lead': 'text-warning',
-  starting: 'text-fg-muted',
-  stopping: 'text-fg-muted',
-  unknown: 'text-fg-subtle',
-  'needs-you': 'text-warning',
-  waiting: 'text-fg-muted',
-  done: 'text-fg-muted',
-  failed: 'text-danger',
-  stopped: 'text-fg-subtle',
-  idle: 'text-fg-subtle',
-  removed: 'text-fg-subtle',
+/** The shared status glyph (styles/frame.css) each state draws. */
+const STATE_GLYPH: Record<DelegatedChildState, string> = {
+  working: 'working',
+  stopping: 'working',
+  waiting: 'working',
+  queued: 'queued',
+  starting: 'queued',
+  'needs-you': 'attention',
+  'needs-lead': 'attention',
+  done: 'done',
+  failed: 'error',
+  stopped: 'stopped',
+  idle: 'idle',
+  unknown: 'idle',
+  removed: 'idle',
 }
 
-/** The sidebar's activity mark for the states it has one for. */
-function markFor(state: DelegatedChildState, startedAt: number | null): SessionActivity | null {
-  if (state === 'working') return { phase: 'working', startedAt }
-  if (state === 'needs-you' || state === 'needs-lead') return { phase: 'paused', startedAt }
-  if (state === 'done') return { phase: 'done', startedAt: null }
-  if (state === 'failed') return { phase: 'error', startedAt: null }
-  return null
-}
+/** Provider tiles shown in a group row; one per provider, not one per agent. */
+const MAX_TILES = 3
 
 function formatElapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000))
@@ -65,60 +62,63 @@ function Elapsed({ startedAt }: { startedAt: number }) {
   )
 }
 
+/** The model on its own: the provider is already shown as a mark beside it. */
+function modelName(child: DelegatedChild): string {
+  const label = agentModelLabel(child.driverKind, child.modelId)
+  const split = label.indexOf(' · ')
+  return split === -1 ? label : label.slice(split + 3)
+}
+
+/**
+ * One agent as one line: the status glyph, its title, then what it is doing or
+ * what it reported in plain words, and at the right its provider and model.
+ */
 function ChildRow({ child, onOpen }: { child: DelegatedChild; onOpen?: (id: string) => void }) {
-  const mark = markFor(child.state, child.startedAt)
-  const openable = child.state !== 'removed' && onOpen !== undefined
-  const model = agentModelLabel(child.driverKind, child.modelId)
+  const removed = child.state === 'removed'
+  const openable = !removed && onOpen !== undefined
   const settled = child.state === 'done' || child.state === 'failed' || child.state === 'stopped'
+  const said = settled && child.report ? reportSnippet(child.report) : ''
+  const role = child.role && child.role !== 'general' ? child.role : null
   const body = (
     <>
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="flex size-2.5 shrink-0 items-center justify-center">
-          {mark ? (
-            <SessionActivityMark activity={mark} />
-          ) : (
-            <span aria-hidden className="size-1 rounded-[1px] bg-fg-subtle/50" />
-          )}
-        </span>
-        <span className="min-w-0 truncate text-xs text-fg">{child.title}</span>
-        {child.role && child.role !== 'general' ? (
-          <span className="shrink-0 rounded-sm border border-border px-1 font-mono text-2xs text-fg-subtle">
-            {child.role}
-          </span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-subtle">{model}</span>
-        <span className={`shrink-0 font-mono text-2xs ${STATE_TONE[child.state]}`}>
-          {STATE_LABEL[child.state]}
-          {child.state === 'working' && child.startedAt !== null ? (
-            <>
-              {' '}
-              <Elapsed startedAt={child.startedAt} />
-            </>
-          ) : null}
-        </span>
-        {openable ? (
-          <ChevronRight
-            size={12}
-            aria-hidden="true"
-            className="shrink-0 text-fg-subtle opacity-40 transition-opacity group-hover:opacity-100"
-          />
-        ) : null}
+      <span className="ari-status" data-status={STATE_GLYPH[child.state]} aria-hidden="true" />
+      <span
+        className={`max-w-[42%] shrink-0 truncate ${
+          removed ? 'text-fg-subtle' : 'font-medium text-fg'
+        }`}
+      >
+        {child.title}
       </span>
-      {settled && child.report ? (
-        <span className="mt-0.5 block truncate pl-[18px] text-2xs text-fg-muted">
-          {child.report.replace(/\s+/g, ' ')}
+      <span
+        className={`min-w-0 flex-1 truncate ${
+          child.state === 'needs-you'
+            ? 'text-accent'
+            : said === ''
+              ? 'text-fg-subtle'
+              : 'text-fg-muted'
+        }`}
+      >
+        {said === '' ? STATE_LABEL[child.state] : said}
+      </span>
+      <span
+        className="flex min-w-0 max-w-[30%] shrink-0 items-center gap-1.5 text-xs text-fg-subtle"
+        title={role === null ? undefined : `${role} agent`}
+      >
+        <span className="flex shrink-0 opacity-70 [&>span]:bg-transparent" aria-hidden="true">
+          <ProviderLogo kind={child.driverKind} size={12} />
         </span>
-      ) : null}
+        <span className="min-w-0 truncate">{modelName(child)}</span>
+      </span>
     </>
   )
   const className =
-    'group block w-full rounded-md px-1 py-[3px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring'
+    'flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md text-left text-[13.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring'
   return openable ? (
     <button
       type="button"
       onClick={() => onOpen(child.sessionId)}
       aria-label={`Open ${child.title}: ${STATE_LABEL[child.state]}`}
-      className={`${className} hover:bg-surface-1/70`}
+      className={`${className} -mx-1.5 px-1.5 transition-colors hover:bg-fg/5`}
     >
       {body}
     </button>
@@ -128,10 +128,53 @@ function ChildRow({ child, onOpen }: { child: DelegatedChild; onOpen?: (id: stri
 }
 
 /**
- * The children a turn delegated to, in place in the transcript: who is doing
- * what, how it is going, and what each reported. The rail is live while any of
- * them is running, so the eye finds unfinished work the same way it finds an
- * unfinished activity burst.
+ * One agent's line and its trailing slot: the result action once there is a
+ * result, the running time while it works, and the same width left empty
+ * otherwise, so the model column lines up down the list. An opened result
+ * drops to the line below.
+ */
+function ChildItem({
+  child,
+  sessionId,
+  onOpen,
+}: {
+  child: DelegatedChild
+  sessionId?: string
+  onOpen?: (id: string) => void
+}) {
+  const slot = (
+    <span className={`flex h-7 shrink-0 items-center px-2 text-xs text-fg-subtle ${RESULT_SLOT}`}>
+      {child.state === 'working' && child.startedAt !== null ? (
+        <Elapsed startedAt={child.startedAt} />
+      ) : null}
+    </span>
+  )
+  return (
+    <li className="flex flex-wrap items-center gap-x-1">
+      <ChildRow child={child} onOpen={onOpen} />
+      {sessionId ? (
+        <DelegatedResult
+          key={`${sessionId}:${child.sessionId}`}
+          sessionId={sessionId}
+          child={child}
+          placeholder={slot}
+        />
+      ) : (
+        slot
+      )}
+    </li>
+  )
+}
+
+/**
+ * The children a turn delegated to, in place in the transcript. Several agents
+ * are one row: a tile per provider, the count, and how it is going in words,
+ * with the part that needs the user in the accent. Opening the row lists each
+ * agent on the step hairline: who is doing what, what each reported, and its
+ * result to open. A single delegated agent is that one line outright.
+ *
+ * The row counts the agents that are running or finished recently. Removed
+ * sessions and long-finished work wait behind "Show N earlier agents".
  */
 export function DelegationCard({
   row,
@@ -142,41 +185,115 @@ export function DelegationCard({
   onOpenSession?: (id: string) => void
   sessionId?: string
 }) {
-  const live = row.children.some((child) =>
-    [
-      'working',
-      'needs-you',
-      'needs-lead',
-      'queued',
-      'starting',
-      'stopping',
-      'waiting',
-      'unknown',
-    ].includes(child.state),
+  const [open, setOpen] = useState(false)
+  const [earlierOpen, setEarlierOpen] = useState(false)
+  const listId = useId()
+  const earlierId = useId()
+  const { current, earlier } = splitDelegation(row.children, Date.now())
+  const live = current.some(isLiveChild)
+  const grouped = current.length > 1
+  const providers = [...new Set(current.map((child) => child.driverKind))]
+  // The group has been running since its longest-running child started.
+  const startedAt = current.reduce<number | null>(
+    (earliest, child) =>
+      child.state === 'working' && child.startedAt !== null
+        ? Math.min(earliest ?? child.startedAt, child.startedAt)
+        : earliest,
+    null,
   )
   return (
-    <div className="ari-burst my-1 pl-3" data-activity={live ? 'working' : 'settled'}>
-      {row.children.length > 1 ? (
-        <p className="flex items-center gap-2 px-1 py-[3px] text-xs text-fg-subtle">
-          <GitBranch size={11} aria-hidden="true" className="shrink-0 text-accent" />
-          <span className="text-fg-muted">Delegated to {row.children.length} sessions</span>
-          <span className="font-mono text-2xs">{summarizeDelegation(row.children)}</span>
-        </p>
+    <div className="ari-burst my-1" data-activity={live ? 'working' : 'settled'}>
+      {grouped ? (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-controls={listId}
+          className="group -mx-1.5 flex h-10 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left text-sm text-fg-muted transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <span className="flex shrink-0" aria-hidden="true">
+            {providers.slice(0, MAX_TILES).map((kind, index) => (
+              <span
+                key={kind}
+                className={`grid size-[22px] place-items-center rounded-full bg-surface-2 ring-2 ring-bg [&>span]:bg-transparent ${
+                  index > 0 ? '-ml-1.5' : ''
+                }`}
+              >
+                <ProviderLogo kind={kind} size={12} />
+              </span>
+            ))}
+          </span>
+          <span className="shrink-0 font-medium text-fg">{current.length} agents</span>
+          <span className="min-w-0 truncate">
+            {delegationPhrases(current).map(({ state, phrase }, index) => (
+              <span key={state}>
+                {index > 0 ? ', ' : null}
+                <span className={state === 'needs-you' ? 'text-accent' : undefined}>{phrase}</span>
+              </span>
+            ))}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-2 text-[13px] text-fg-subtle">
+            {startedAt !== null ? <Elapsed startedAt={startedAt} /> : null}
+            <ChevronRight
+              size={14}
+              aria-hidden="true"
+              className={`transition-[color,transform] duration-150 group-hover:text-fg motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
+            />
+          </span>
+        </button>
       ) : null}
-      <ul role="list" aria-label="Delegated sessions">
-        {row.children.map((child) => (
-          <li key={child.sessionId}>
-            <ChildRow child={child} onOpen={onOpenSession} />
-            {sessionId ? (
-              <DelegatedResult
-                key={`${sessionId}:${child.sessionId}`}
-                sessionId={sessionId}
-                child={child}
+      <div
+        id={listId}
+        hidden={grouped && !open}
+        className={
+          grouped ? 'ari-burst-steps mb-1 ml-[9px] border-l border-border-strong pl-5' : undefined
+        }
+      >
+        <ul role="list" aria-label="Delegated sessions">
+          {current.map((child) => (
+            <ChildItem
+              key={child.sessionId}
+              child={child}
+              sessionId={sessionId}
+              onOpen={onOpenSession}
+            />
+          ))}
+        </ul>
+        {earlier.length > 0 ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setEarlierOpen((value) => !value)}
+              aria-expanded={earlierOpen}
+              aria-controls={earlierId}
+              className="group flex h-8 items-center gap-1.5 rounded-md text-[13px] text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              {earlierOpen ? 'Hide' : 'Show'} {earlier.length} earlier{' '}
+              {earlier.length === 1 ? 'agent' : 'agents'}
+              <ChevronRight
+                size={13}
+                aria-hidden="true"
+                className={`transition-transform duration-150 motion-reduce:transition-none ${earlierOpen ? 'rotate-90' : ''}`}
               />
-            ) : null}
-          </li>
-        ))}
-      </ul>
+            </button>
+            <ul
+              id={earlierId}
+              role="list"
+              aria-label="Earlier delegated sessions"
+              hidden={!earlierOpen}
+            >
+              {earlier.map((child) => (
+                <ChildItem
+                  key={child.sessionId}
+                  child={child}
+                  sessionId={sessionId}
+                  onOpen={onOpenSession}
+                />
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }

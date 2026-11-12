@@ -17,7 +17,7 @@ const child = (id: string, title: string): SessionSummary => ({
 
 it('hides when no live children remain', () => {
   const { rerender } = render(<ChildSessionActivity sessions={[child('a', 'Audit A')]} />)
-  expect(screen.getByRole('button', { name: 'Child sessions' })).toHaveTextContent('1 child')
+  expect(screen.getByRole('button', { name: 'Child sessions' })).toHaveTextContent('1 agent')
   rerender(<ChildSessionActivity sessions={[]} />)
   expect(screen.queryByRole('button', { name: 'Child sessions' })).not.toBeInTheDocument()
 })

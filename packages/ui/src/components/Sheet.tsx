@@ -1,10 +1,5 @@
 import { createContext, useCallback, useContext, useId, useRef, useState } from 'react'
-import type {
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  ReactNode,
-  RefObject,
-} from 'react'
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
@@ -14,14 +9,14 @@ import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
 /** Scrim must blend over any theme, so it is a raw color-mix rather than a token. */
-const SCRIM_STYLE = { background: 'color-mix(in oklab, black 55%, transparent)' } as const
+const SCRIM_STYLE = { background: 'color-mix(in oklab, black 40%, transparent)' } as const
 
 export type SheetSide = 'right' | 'left' | 'bottom'
 
 const PANEL_CLASS: Record<SheetSide, string> = {
-  right: 'fixed top-0 right-0 h-full w-[min(420px,85vw)] rounded-l-lg',
-  left: 'fixed top-0 left-0 h-full w-[min(420px,85vw)] rounded-r-lg',
-  bottom: 'fixed bottom-0 left-0 w-full h-[min(420px,85vh)] rounded-t-lg',
+  right: 'fixed top-0 right-0 h-full w-[min(420px,85vw)] rounded-l-xl border-l',
+  left: 'fixed top-0 left-0 h-full w-[min(420px,85vw)] rounded-r-xl border-r',
+  bottom: 'fixed bottom-0 left-0 w-full h-[min(420px,85vh)] rounded-t-xl border-t',
 }
 
 const slideVariants: Record<SheetSide, Variants> = {
@@ -109,16 +104,15 @@ export function SheetTrigger({ onClick, type, ...rest }: SheetTriggerProps) {
   )
 }
 
-export interface SheetContentProps
-  extends Omit<
-    HTMLAttributes<HTMLDivElement>,
-    | 'onDrag'
-    | 'onDragStart'
-    | 'onDragEnd'
-    | 'onAnimationStart'
-    | 'onAnimationEnd'
-    | 'onAnimationIteration'
-  > {
+export interface SheetContentProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  | 'onDrag'
+  | 'onDragStart'
+  | 'onDragEnd'
+  | 'onAnimationStart'
+  | 'onAnimationEnd'
+  | 'onAnimationIteration'
+> {
   /** Which edge the sheet slides in from. */
   side?: SheetSide
 }
@@ -172,7 +166,7 @@ export function SheetContent({
           style={style}
           className={[
             PANEL_CLASS[side],
-            'z-overlay bg-surface-1 border border-border shadow-2 p-5 outline-none',
+            'z-overlay border-border-strong bg-surface-1 p-5 shadow-3 outline-none',
             className,
           ]
             .filter(Boolean)
@@ -195,7 +189,7 @@ export function SheetTitle({ className, ...rest }: SheetTitleProps) {
   return (
     <h2
       id={ctx.titleId}
-      className={['text-base font-semibold text-fg', className].filter(Boolean).join(' ')}
+      className={['text-[15px] font-semibold text-fg', className].filter(Boolean).join(' ')}
       {...rest}
     />
   )
@@ -209,7 +203,7 @@ export function SheetDescription({ className, ...rest }: SheetDescriptionProps) 
   return (
     <p
       id={ctx.descriptionId}
-      className={['text-sm text-fg-muted', className].filter(Boolean).join(' ')}
+      className={['text-[13px] text-fg-muted', className].filter(Boolean).join(' ')}
       {...rest}
     />
   )

@@ -15,6 +15,7 @@ interface Attempt {
   path?: string
   reusableId?: string
   intent: SessionStartIntent
+  draft?: boolean
 }
 interface Recovery {
   attempt: Attempt
@@ -76,7 +77,7 @@ export function useSessionStart(options: {
         description: recovery.checked
           ? 'The session list is refreshed. The earlier request may still have created a session. Open it from the sidebar, or explicitly start another.'
           : `${recovery.error} The request may have created a session. Check the session list before starting another.`,
-        action: recovery.checked
+        action: recovery.checked && !recovery.attempt.draft
           ? { label: 'Start another session', onClick: retry }
           : {
               label: 'Check sessions',
@@ -131,7 +132,7 @@ export function useSessionStart(options: {
       busy(false)
     }
   }
-  const run = async (attempt: Attempt): Promise<void> => {
+  const run = async (attempt: Attempt): Promise<string | undefined> => {
     if (pendingRef.current) {
       attempt.intent.dispose()
       return
@@ -161,13 +162,27 @@ export function useSessionStart(options: {
         attempt.intent.dispose()
         return
       }
-      const reusable =
+      let reusable =
         attempt.reusableId ??
         (attempt.allowReuse && !attempt.effective.lead
           ? latest.current.sessions.find(
               (session) => session.projectId === attempt.projectId && session.messageCount === 0,
             )?.id
           : undefined)
+      if (reusable) {
+        const workspace = await rpc.invoke('session.workspace', {
+          sessionId: reusable,
+          checkOccupancy: true,
+        })
+        if (workspace.busyReason) {
+          reusable = undefined
+          attempt.reusableId = undefined
+        }
+        if (!attempt.intent.isCurrent() || !mounted.current) {
+          attempt.intent.dispose()
+          return
+        }
+      }
       let sessionId: string
       let reseeded = false
       if (reusable) {
@@ -198,6 +213,7 @@ export function useSessionStart(options: {
           permissionMode: attempt.effective.permissionMode,
           effort: attempt.effective.effort,
           ...(attempt.effective.lead ? { lead: true } : {}),
+          ...(attempt.effective.workspaceMode ? { workspaceMode: attempt.effective.workspaceMode } : {}),
         })
         if (typeof result?.sessionId !== 'string' || result.sessionId.length === 0)
           throw new Error('Session creation acknowledgement unavailable.')
@@ -208,12 +224,12 @@ export function useSessionStart(options: {
         return
       }
       clearRecovery()
-      latest.current.onStarted(
-        sessionId,
-        reusable && !reseeded ? null : attempt.effective,
-        attempt.intent,
+      if (attempt.draft) attempt.intent.dispose()
+      else latest.current.onStarted(
+        sessionId, reusable && !reseeded ? null : attempt.effective, attempt.intent,
       )
       latest.current.refreshSessions()
+      return sessionId
     } catch (error) {
       attempt.intent.dispose()
       log.warn(`${stage} start failed`, error)
@@ -225,6 +241,8 @@ export function useSessionStart(options: {
       }
       recoveryRef.current = recovery
       showRecovery(recovery)
+      if (attempt.draft) throw error
+      return undefined
     } finally {
       busy(false)
     }
@@ -265,6 +283,18 @@ export function useSessionStart(options: {
   return {
     pending,
     canStart,
+    createDraft: useCallback(async (projectId: string, overrides: Partial<SessionDefaults>): Promise<string> => {
+      if (!canStart()) throw new Error('Check the earlier session creation before starting another.')
+      actions.current.clearRecovery()
+      const sessionId = await actions.current.run({
+        projectId, effective: { ...latest.current.defaults, ...overrides },
+        allowReuse: (overrides.driverKind === undefined || overrides.driverKind === latest.current.defaults.driverKind) &&
+          !overrides.lead && overrides.workspaceMode !== 'isolated',
+        intent: latest.current.captureIntent(), draft: true,
+      })
+      if (!sessionId) throw new Error('Session creation was not confirmed.')
+      return sessionId
+    }, [canStart]),
     create: useCallback(
       (projectId: string, overrides?: Partial<SessionDefaults>) => start(projectId, overrides),
       [start],

@@ -13,22 +13,22 @@ import { useSpeech } from '../speech/useSpeech'
 import { isShortcutModifier, shortcutFromKey } from '../speech/shortcut'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SettingsSection } from './SettingsSection'
+import { SETTINGS_FIELD_CLASS, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
-function sizeLabel(bytes: number): string {
+export function sizeLabel(bytes: number): string {
   return bytes >= 1_000_000_000
     ? `${(bytes / 1_000_000_000).toFixed(1)} GB`
     : `${Math.round(bytes / 1_000_000)} MB`
 }
-function progressLabel(frame: SpeechProgress): string {
+export function progressLabel(frame: SpeechProgress): string {
   if (frame.phase === 'verifying') return 'Verifying…'
   if (frame.phase === 'installing') return 'Preparing…'
   return frame.total
     ? `${Math.min(100, Math.round((frame.received / frame.total) * 100))}%`
     : 'Downloading…'
 }
-function inProgress(
+export function inProgress(
   frame?: SpeechProgress,
 ): frame is SpeechProgress & { phase: 'downloading' | 'verifying' | 'installing' } {
   return Boolean(frame && ['downloading', 'verifying', 'installing'].includes(frame.phase))
@@ -36,6 +36,9 @@ function inProgress(
 
 export function SpeechSettings() {
   const { settings, update } = useEngineSettings()
+  const ariaEnabled = settings?.experimental.ariaEnabled === true
+  const ariaEnabledRef = useRef(ariaEnabled)
+  ariaEnabledRef.current = ariaEnabled
   const { status, progress, refresh } = useSpeech()
   const [models, setModels] = useState<SpeechModel[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -70,7 +73,11 @@ export function SpeechSettings() {
       if (bindingLease.current === token) bindingLease.current = null
     }
   }, [recordingShortcut])
-  const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
+  const loadModels = useCallback(
+    async () =>
+      setModels((await rpc.invoke('speech.models')).filter((model) => model.kind !== 'tts')),
+    [],
+  )
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
   }, [loadModels])
@@ -110,6 +117,9 @@ export function SpeechSettings() {
     .filter(Boolean)
   const shortcut = settings?.speech.shortcut || defaultSpeechShortcut(platform)
   const dictationShortcut = settings?.speech.dictationShortcut || defaultDictationShortcut(platform)
+  useEffect(() => {
+    if (!ariaEnabled && recordingShortcut === 'shortcut') setRecordingShortcut(null)
+  }, [ariaEnabled, recordingShortcut])
   const modelBusy = Object.entries(progress).some(
     ([id, frame]) => id !== 'engine' && inProgress(frame),
   )
@@ -133,11 +143,16 @@ export function SpeechSettings() {
         setShortcutError(result.error)
         return
       }
-      const error = speechBindingsError(
+      const bindingError = speechBindingsError(
         recordingShortcut === 'shortcut' ? result.shortcut : shortcut,
         recordingShortcut === 'dictationShortcut' ? result.shortcut : dictationShortcut,
         platform,
       )
+      const error =
+        !ariaEnabled &&
+        bindingError === 'Aria dictation and general dictation must use different shortcuts.'
+          ? 'This shortcut is reserved by another saved dictation binding.'
+          : bindingError
       if (error) {
         setShortcutError(error)
         return
@@ -168,16 +183,20 @@ export function SpeechSettings() {
       window.removeEventListener('keyup', release, true)
       window.removeEventListener('blur', cancel)
     }
-  }, [recordingShortcut, platform, update, shortcut, dictationShortcut])
+  }, [recordingShortcut, platform, update, shortcut, dictationShortcut, ariaEnabled])
 
   return (
     <SettingsPage
       id="settings-speech"
       title="Speech to text"
-      description="Dictate locally. Your recordings stay on this computer; models and the speech engine download only when you set them up."
+      description={
+        ariaEnabled && settings?.speech.provider === 'groq'
+          ? 'Dictation uses Groq Whisper. Only your recording leaves this computer. Configure Groq and local fallback under Experimental ? Aria.'
+          : 'Dictate locally. Your recordings stay on this computer; models and the speech engine download only when you set them up.'
+      }
     >
       {(error || status.error || errors.length > 0) && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-[13px] leading-5 text-danger">
           {error ?? status.error ?? errors.at(-1)}
         </p>
       )}
@@ -192,7 +211,7 @@ export function SpeechSettings() {
         >
           {status.engine === 'downloading' || inProgress(engineProgress) ? (
             <>
-              <span role="status" className="text-xs text-fg-muted">
+              <span role="status" className="text-[13px] text-fg-subtle">
                 {engineProgress ? progressLabel(engineProgress) : 'Downloading…'}
               </span>
               <Button
@@ -204,9 +223,9 @@ export function SpeechSettings() {
               </Button>
             </>
           ) : status.engine === 'ready' && !status.engineError ? (
-            <span className="text-xs text-fg-muted">Ready</span>
+            <span className="text-[13px] text-fg-subtle">Ready</span>
           ) : !status.engineInstallable && !status.engineError ? (
-            <span role="status" className="text-xs text-fg-muted">
+            <span role="status" className="text-[13px] text-fg-subtle">
               Checking…
             </span>
           ) : (
@@ -250,95 +269,103 @@ export function SpeechSettings() {
           }
         >
           {status.loading && (
-            <span role="status" className="text-xs text-fg-muted">
+            <span role="status" className="text-[13px] text-fg-subtle">
               Loading…
             </span>
           )}
           <Switch
             aria-label="Enable speech to text"
             checked={status.ready || (settings?.speech.enabled ?? false)}
-            disabled={!status.model}
+            disabled={!status.model && !(ariaEnabled && settings?.speech.provider === 'groq')}
             onCheckedChange={(enabled) =>
               void run('enabled', () => update({ speech: { enabled } }))
             }
           />
         </SettingsRow>
-        {(['shortcut', 'dictationShortcut'] as const).map((field) => {
-          const aria = field === 'shortcut'
-          const label = aria ? 'Aria dictation shortcut' : 'General dictation shortcut'
-          const recording = recordingShortcut === field
-          return (
-            <SettingsRow
-              key={field}
-              label={label}
-              hint={
-                shortcutError && shortcutErrorField === field ? (
-                  <span role="alert">{shortcutError}</span>
-                ) : recording ? (
-                  'Press a shortcut. Esc cancels.'
-                ) : aria ? (
-                  'Hold to speak to Aria. Release to send.'
-                ) : (
-                  'Hold to dictate into the focused text field. Release to insert without sending. Outside Ari: Windows only.'
-                )
-              }
-            >
-              <input
-                aria-label={label}
-                readOnly
-                value={aria ? shortcut : dictationShortcut}
-                className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-label={`Record ${label}`}
-                aria-pressed={recording}
-                disabled={bindingPending || (recordingShortcut !== null && !recording)}
-                onClick={() => {
-                  setShortcutError(null)
-                  setShortcutErrorField(field)
-                  if (recording) {
-                    setRecordingShortcut(null)
-                    return
-                  }
-                  if (!window.ari?.dictation) {
-                    setRecordingShortcut(field)
-                    return
-                  }
-                  setBindingPending(true)
-                  void window.ari.dictation.acquire().then(
-                    (token) => {
-                      if (!bindingMounted.current) {
-                        void window.ari?.dictation?.release(token).catch(() => undefined)
-                        return
-                      }
-                      setBindingPending(false)
-                      bindingLease.current = token
-                      setRecordingShortcut(field)
-                    },
-                    (reason: unknown) => {
-                      if (bindingMounted.current) {
-                        setBindingPending(false)
-                        setShortcutError(reason instanceof Error ? reason.message : String(reason))
-                      }
-                    },
+        {(['shortcut', 'dictationShortcut'] as const)
+          .filter((field) => ariaEnabled || field !== 'shortcut')
+          .map((field) => {
+            const aria = field === 'shortcut'
+            const label = aria ? 'Aria dictation shortcut' : 'General dictation shortcut'
+            const recording = recordingShortcut === field
+            return (
+              <SettingsRow
+                key={field}
+                label={label}
+                hint={
+                  shortcutError && shortcutErrorField === field ? (
+                    <span role="alert">{shortcutError}</span>
+                  ) : recording ? (
+                    'Press a shortcut. Esc cancels.'
+                  ) : aria ? (
+                    'Hold to speak to Aria. Release to send.'
+                  ) : (
+                    'Hold to dictate into the focused text field. Release to insert without sending. Outside Ari: Windows only.'
                   )
-                }}
+                }
               >
-                {recording ? 'Cancel' : 'Record shortcut'}
-              </Button>
-            </SettingsRow>
-          )
-        })}
+                <input
+                  aria-label={label}
+                  readOnly
+                  value={aria ? shortcut : dictationShortcut}
+                  className={`${SETTINGS_FIELD_CLASS} w-36 font-mono text-xs`}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label={`Record ${label}`}
+                  aria-pressed={recording}
+                  disabled={bindingPending || (recordingShortcut !== null && !recording)}
+                  onClick={() => {
+                    setShortcutError(null)
+                    setShortcutErrorField(field)
+                    if (recording) {
+                      setRecordingShortcut(null)
+                      return
+                    }
+                    if (!window.ari?.dictation) {
+                      setRecordingShortcut(field)
+                      return
+                    }
+                    setBindingPending(true)
+                    void window.ari.dictation.acquire().then(
+                      (token) => {
+                        if (
+                          !bindingMounted.current ||
+                          (field === 'shortcut' && !ariaEnabledRef.current)
+                        ) {
+                          setBindingPending(false)
+                          void window.ari?.dictation?.release(token).catch(() => undefined)
+                          return
+                        }
+                        setBindingPending(false)
+                        bindingLease.current = token
+                        setRecordingShortcut(field)
+                      },
+                      (reason: unknown) => {
+                        if (bindingMounted.current) {
+                          setBindingPending(false)
+                          setShortcutError(
+                            reason instanceof Error ? reason.message : String(reason),
+                          )
+                        }
+                      },
+                    )
+                  }}
+                >
+                  {recording ? 'Cancel' : 'Record shortcut'}
+                </Button>
+              </SettingsRow>
+            )
+          })}
         <SettingsRow
           label="Lower other apps while listening"
           hint={
             platform === 'darwin'
               ? 'Unavailable on macOS. Audio output stays unchanged.'
               : platform === 'win32'
-                ? 'Both dictation shortcuts lower other apps to 25% of their volume while listening, then restore them. Your volume changes are preserved.'
-                : 'Both dictation shortcuts lower playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
+                ? 'Dictation lowers other apps to 25% of their volume while listening, then restores them. Your volume changes are preserved.'
+                : 'Dictation lowers playback streams to 25% while listening. Requires pactl with PulseAudio or PipeWire; audio stays unchanged if unavailable.'
           }
         >
           <Switch
@@ -347,6 +374,36 @@ export function SpeechSettings() {
             disabled={platform === 'darwin' || !settings}
             onCheckedChange={(duckAudio) =>
               void run('duck-audio', () => update({ speech: { duckAudio } }))
+            }
+          />
+        </SettingsRow>
+      </SettingsSection>
+      <SettingsSection title="Dictated text">
+        <SettingsRow
+          label="Format dictated text"
+          hint="Clean up spacing and sentence casing, and arrange clear spoken lists. Runs locally after transcription; your words and technical names stay intact."
+        >
+          <Switch
+            aria-label="Format dictated text"
+            checked={settings?.speech.formatText ?? true}
+            disabled={!settings}
+            onCheckedChange={(formatText) =>
+              void run('format-text', () => update({ speech: { formatText } }))
+            }
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Spoken formatting commands"
+          hint={
+            'Interpret English commands such as “new paragraph”, “new line”, “bullet point”, “numbered list”, “next item”, “end list”, “full stop” and “question mark”. Say “literal” before a command to keep its words.'
+          }
+        >
+          <Switch
+            aria-label="Spoken formatting commands"
+            checked={settings?.speech.spokenFormatting ?? false}
+            disabled={!settings}
+            onCheckedChange={(spokenFormatting) =>
+              void run('spoken-formatting', () => update({ speech: { spokenFormatting } }))
             }
           />
         </SettingsRow>
@@ -408,7 +465,7 @@ export function SpeechSettings() {
               >
                 {inProgress(frame) ? (
                   <>
-                    <span role="status" className="text-xs text-fg-muted">
+                    <span role="status" className="text-[13px] text-fg-subtle">
                       {progressLabel(frame)}
                     </span>
                     <Button
@@ -460,7 +517,7 @@ export function SpeechSettings() {
                 )}
                 {model.partial && !inProgress(frame) && (
                   <>
-                    <span className="text-xs text-fg-muted">
+                    <span className="text-[13px] text-fg-subtle">
                       {sizeLabel(model.partial.size)} saved
                     </span>
                     <Button

@@ -27,6 +27,8 @@ export function DataTable({ spec }: { spec: VisualizationSpec }) {
         : data.rows,
     [data, search],
   )
+  // A short comparison is read at a glance; filtering it would be chrome for its own sake.
+  const tools = spec.type !== 'comparison' || data.rows.length > 8
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(dataCsv(data.columns, rows))
@@ -38,7 +40,7 @@ export function DataTable({ spec }: { spec: VisualizationSpec }) {
   return (
     <InteractiveSurface resetKey={query}>
       <div className="ari-viz-data-view">
-        <div className="ari-viz-data-toolbar">
+        <div className="ari-viz-data-toolbar" hidden={!tools}>
           <label className="ari-viz-data-search">
             <span className="ari-viz-sr-only">Filter visualization data</span>
             <input

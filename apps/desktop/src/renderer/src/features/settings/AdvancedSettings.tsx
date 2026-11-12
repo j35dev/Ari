@@ -7,7 +7,7 @@ import { Button } from '@ari/ui/button'
 import { useAppUpdate, type AppUpdate, type AppUpdateState, type UpdatePhase } from '../updates'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SettingsSection } from './SettingsSection'
+import { SETTINGS_HINT_CLASS, SETTINGS_LABEL_CLASS, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:advanced')
@@ -202,13 +202,13 @@ export function AdvancedSettings() {
   return (
     <SettingsPage title="Advanced" description="Diagnostics and maintenance tools.">
       <SettingsSection title="Version" headingId="advanced-version-heading">
-        <div className="space-y-3 px-4 py-3">
-          <div className="flex min-h-8 items-center justify-between gap-6">
+        <div className="space-y-3 px-4 py-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-fg">
+              <p className={SETTINGS_LABEL_CLASS}>
                 Ari <span data-testid="app-version">{appUpdate.currentVersion ?? '…'}</span>
               </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted" role="status">
+              <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`} role="status">
                 {updateStatusText(appUpdate)}
               </p>
             </div>
@@ -221,10 +221,10 @@ export function AdvancedSettings() {
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={appUpdate.progress ?? 0}
-              className="h-1 w-full overflow-hidden rounded-full bg-surface-3"
+              className="h-1 w-full overflow-hidden rounded-full bg-fg/9"
             >
               <div
-                className="h-full rounded-full bg-accent transition-[width] duration-200"
+                className="h-full rounded-full bg-fg transition-[width] duration-200"
                 style={{ width: `${appUpdate.progress ?? 0}%` }}
               />
             </div>
@@ -241,11 +241,11 @@ export function AdvancedSettings() {
             Export diagnostics
           </Button>
         </SettingsRow>
-        <div className="px-4 py-3">
-          <div className="flex min-h-8 items-center justify-between gap-6">
+        <div className="px-4 py-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="min-w-0 max-w-lg">
-              <p className="text-sm font-medium text-fg">Settings bundle</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
+              <p className={SETTINGS_LABEL_CLASS}>Settings bundle</p>
+              <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>
                 Export appearance, session, notification, and permission settings as a JSON bundle,
                 or import one from another device. Window bounds stay local to this machine.
               </p>
@@ -268,7 +268,7 @@ export function AdvancedSettings() {
             </div>
           </div>
           {importError != null && (
-            <p role="alert" className="mt-2 text-xs text-danger">
+            <p role="alert" className="mt-2 text-[13px] text-danger">
               Import failed: {importError}
             </p>
           )}
@@ -278,25 +278,25 @@ export function AdvancedSettings() {
           hint={
             <>
               Session journals live under the app data directory at{' '}
-              <code className="font-mono text-2xs text-fg">userData/sessions</code>, one JSONL file
-              per session. Copy that folder to back up or move your history.
+              <code className="font-mono text-xs text-fg-muted">userData/sessions</code>, one JSONL
+              file per session. Copy that folder to back up or move your history.
             </>
           }
         />
       </SettingsSection>
 
       <SettingsSection title="Danger zone" headingId="advanced-danger-heading">
-        <div className="px-4 py-3">
-          <div className="flex min-h-8 items-center justify-between gap-6">
+        <div className="px-4 py-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-fg">Clear cached drafts</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
+              <p className={SETTINGS_LABEL_CLASS}>Clear cached drafts</p>
+              <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>
                 Deletes every unsent composer draft stored on this device.
               </p>
             </div>
             {confirmingClear ? (
               <div className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-fg-muted">Delete all drafts?</span>
+                <span className="text-[13px] text-fg-subtle">Delete all drafts?</span>
                 <Button variant="ghost" size="sm" onClick={() => setConfirmingClear(false)}>
                   Cancel
                 </Button>
@@ -311,7 +311,7 @@ export function AdvancedSettings() {
             )}
           </div>
           {clearedCount != null && (
-            <p role="status" className="mt-2 text-xs text-fg-muted">
+            <p role="status" className="mt-2 text-[13px] text-fg-subtle">
               Cleared {clearedCount} cached {clearedCount === 1 ? 'draft' : 'drafts'}.
             </p>
           )}

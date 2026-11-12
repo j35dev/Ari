@@ -8,6 +8,7 @@ import { parseDiff } from './parseDiff'
 import { reviewRows } from './review-rows'
 import { useDiffHighlight } from './use-diff-highlight'
 import { useEngineSettings } from '../settings/useEngineSettings'
+import { iconButton, menuItem } from '../../lib/recipes'
 
 export type DiffRange = Pick<GitReviewNote, 'side' | 'startLine' | 'endLine' | 'context'>
 export interface DiffSurfaceProps {
@@ -18,8 +19,12 @@ export interface DiffSurfaceProps {
   scrollOffset?: number
   onScrollOffset?: (offset: number) => void
 }
-const control =
-  'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg aria-pressed:bg-surface-2 aria-pressed:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
+const control = `${iconButton} aria-pressed:bg-fg/9 aria-pressed:text-fg`
+/** A text toggle in the toolbar: quiet until hovered, washed while on. */
+const toggleText =
+  'inline-flex h-7 items-center rounded-md px-2 text-xs text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg aria-pressed:bg-fg/9 aria-pressed:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+/** One diff line: 12.5px mono on a 21px row (about 1.65). Keep in step with the row classes. */
+const ROW_HEIGHT = 21
 
 /** Shared, virtualized split/unified review with bounded syntax, search and side-aware ranges. */
 export function DiffSurface({
@@ -86,7 +91,7 @@ export function DiffSurface({
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroll.current,
-    estimateSize: () => 24,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 12,
     initialOffset: scrollOffset,
   })
@@ -148,7 +153,7 @@ export function DiffSurface({
         disabled={!onRange || number === undefined}
         aria-label={`Select ${side} line ${number ?? ''}`}
         onClick={(event) => number !== undefined && select(side, number, event.shiftKey)}
-        className="w-12 shrink-0 select-none border-r border-border/40 px-2 text-right font-mono text-2xs tabular-nums text-fg-subtle enabled:hover:text-accent focus-visible:outline-none focus-visible:bg-accent-subtle"
+        className="w-12 shrink-0 select-none px-2 text-right font-mono text-[12.5px] tabular-nums text-fg-subtle/70 enabled:hover:text-fg focus-visible:bg-fg/9 focus-visible:text-fg focus-visible:outline-none"
       >
         {number}
       </button>
@@ -166,7 +171,7 @@ export function DiffSurface({
       line?.type === 'add' ? 'bg-success-subtle' : line?.type === 'del' ? 'bg-danger-subtle' : ''
     return (
       <div
-        className={`flex min-w-0 border-l-2 ${line?.type === 'add' ? 'border-success/40' : line?.type === 'del' ? 'border-danger/40' : 'border-transparent'} ${tint} ${selected ? 'ring-1 ring-inset ring-accent/40' : ''}`}
+        className={`flex min-w-0 text-fg ${tint} ${selected ? 'ring-1 ring-inset ring-accent/40' : ''}`}
         data-line-type={line?.type}
       >
         {!split ? gutter(line, 'old') : null}
@@ -175,7 +180,7 @@ export function DiffSurface({
           {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
         </span>
         <code
-          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
+          className={`min-w-0 flex-1 pr-4 font-mono text-[12.5px] ${wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
         >
           {line && highlights[`${index}:${side}`] ? (
             <span dangerouslySetInnerHTML={{ __html: highlights[`${index}:${side}`]! }} />
@@ -198,8 +203,8 @@ export function DiffSurface({
         }
       }}
     >
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 bg-surface-0 px-3 py-1">
-        <Search size={12} className="shrink-0 text-fg-subtle" aria-hidden />
+      <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-0.5 border-b border-border py-0.5 pl-4 pr-2">
+        <Search size={14} className="shrink-0 text-fg-subtle" aria-hidden />
         <input
           ref={search}
           type="search"
@@ -216,10 +221,10 @@ export function DiffSurface({
             }
           }}
           placeholder="Find in diff…"
-          className="h-7 min-w-20 flex-1 bg-transparent px-1 text-xs text-fg outline-none placeholder:text-fg-subtle focus-visible:ring-1 focus-visible:ring-accent-ring"
+          className="h-7 min-w-20 flex-1 rounded-md bg-transparent px-1.5 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         {query ? (
-          <span role="status" className="px-2 font-mono text-2xs text-fg-subtle">
+          <span role="status" className="px-2 font-mono text-xs tabular-nums text-fg-subtle">
             {matches.length ? currentMatch + 1 : 0}/{matches.length}
           </span>
         ) : null}
@@ -232,7 +237,7 @@ export function DiffSurface({
               disabled={!matches.length}
               onClick={() => navigate(-1)}
             >
-              <ArrowUp size={13} />
+              <ArrowUp size={14} />
             </button>
             <button
               type="button"
@@ -241,11 +246,11 @@ export function DiffSurface({
               disabled={!matches.length}
               onClick={() => navigate(1)}
             >
-              <ArrowDown size={13} />
+              <ArrowDown size={14} />
             </button>
           </>
         ) : null}
-        <span className="mx-1 h-4 w-px bg-border" />
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         <button
           type="button"
           className={control}
@@ -286,12 +291,14 @@ export function DiffSurface({
             <Popover.Trigger aria-label="Diff options" className={control}>
               <MoreHorizontal size={14} />
             </Popover.Trigger>
-            <Popover.Content align="end" className="w-44">
-              <label className="flex items-center gap-2 text-xs text-fg-muted">
+            {/* Two rows in the popover's own menu look (4px inset, 32px rows). */}
+            <Popover.Content align="end" className="w-48">
+              <label className="flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-fg-muted">
                 <input
                   type="checkbox"
                   checked={ignoreWhitespace}
                   onChange={(event) => setIgnoreWhitespace(event.target.checked)}
+                  className="size-3.5 accent-fg"
                 />
                 Ignore whitespace
               </label>
@@ -302,7 +309,7 @@ export function DiffSurface({
                   setRaw(!raw)
                   setOptionsOpen(false)
                 }}
-                className="mt-3 block w-full rounded-md py-1 text-left text-xs text-fg-muted hover:text-fg"
+                className={`${menuItem} aria-pressed:text-fg`}
               >
                 Raw patch
               </button>
@@ -310,17 +317,18 @@ export function DiffSurface({
           </Popover>
         ) : (
           <>
-            <label className="ml-2 flex items-center gap-1.5 text-2xs text-fg-muted">
+            <label className="ml-2 flex items-center gap-1.5 text-xs text-fg-muted">
               <input
                 type="checkbox"
                 checked={ignoreWhitespace}
                 onChange={(event) => setIgnoreWhitespace(event.target.checked)}
+                className="size-3.5 accent-fg"
               />
               Ignore whitespace
             </label>
             <button
               type="button"
-              className="ml-2 text-2xs text-fg-muted hover:text-fg"
+              className={`ml-1 ${toggleText}`}
               aria-pressed={raw}
               onClick={() => setRaw(!raw)}
             >
@@ -330,29 +338,29 @@ export function DiffSurface({
         )}
       </div>
       {split && !raw ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 bg-surface-0 font-mono text-2xs text-fg-subtle">
-          <span className="px-4 py-1.5">Before</span>
-          <span className="border-l border-border/60 px-4 py-1.5">After</span>
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border bg-surface-0 text-xs text-fg-subtle">
+          <span className="px-4 py-1">Before</span>
+          <span className="border-l border-border px-4 py-1">After</span>
         </div>
       ) : null}
       <div
         ref={scroll}
-        className="ari-scroll shiki min-h-0 flex-1 overflow-auto bg-bg [scrollbar-gutter:stable]"
+        className="ari-scroll shiki min-h-0 flex-1 overflow-auto bg-surface-0 [scrollbar-gutter:stable]"
         tabIndex={0}
         aria-label="Diff lines"
         onScroll={(event) => onScrollOffset?.(event.currentTarget.scrollTop)}
       >
         {raw ? (
-          <pre className="p-4 font-mono text-xs text-fg">{diffText}</pre>
+          <pre className="px-4 py-3 font-mono text-[12.5px] leading-[1.65] text-fg">{diffText}</pre>
         ) : file?.isBinary ? (
-          <p className="p-8 text-sm text-fg-muted">
+          <p className="px-4 py-3 text-[13px] text-fg-subtle">
             Binary content changed. Open the file to inspect it.
           </p>
         ) : rows.length === 0 ? (
-          <p className="p-8 text-sm text-fg-subtle">No text changes in this selection.</p>
+          <p className="px-4 py-3 text-[13px] text-fg-subtle">No text changes in this selection.</p>
         ) : (
           <div
-            className="font-mono text-xs"
+            className="font-mono text-[12.5px]"
             style={{
               height: virtual.getTotalSize(),
               position: 'relative',
@@ -378,14 +386,14 @@ export function DiffSurface({
                     width: '100%',
                     transform: `translateY(${item.start}px)`,
                   }}
-                  className={`min-h-6 leading-6 ${query && matches[currentMatch] === item.index ? 'outline outline-1 outline-accent/50' : ''}`}
+                  className={`min-h-[21px] leading-[21px] ${query && matches[currentMatch] === item.index ? 'outline outline-1 outline-accent/50' : ''}`}
                 >
                   {row.header ? (
-                    <div className="border-y border-border/40 bg-surface-1 px-4 font-mono text-2xs text-fg-subtle">
+                    <div className="bg-fg/4 px-4 font-mono text-xs leading-[21px] text-fg-subtle">
                       {row.header}
                     </div>
                   ) : split ? (
-                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] [&>div+div]:border-l [&>div+div]:border-border/60">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] [&>div+div]:border-l [&>div+div]:border-border">
                       {cell(row.old, 'old', item.index)}
                       {cell(row.next, 'new', item.index)}
                     </div>
@@ -398,7 +406,7 @@ export function DiffSurface({
           </div>
         )}
       </div>
-      <footer className="flex h-8 shrink-0 items-center gap-2 border-t border-border/60 px-3 text-2xs text-fg-subtle">
+      <footer className="flex h-8 shrink-0 items-center gap-0.5 border-t border-border pl-4 pr-2 text-xs text-fg-subtle">
         <span>
           {hunks.length} hunks{ignoreWhitespace ? ' · whitespace filtered' : ''}
         </span>
@@ -414,7 +422,7 @@ export function DiffSurface({
             virtual.scrollToIndex(hunks[next] ?? 0)
           }}
         >
-          <ArrowUp size={12} />
+          <ArrowUp size={14} />
         </button>
         <button
           type="button"
@@ -427,7 +435,7 @@ export function DiffSurface({
             virtual.scrollToIndex(hunks[next] ?? 0)
           }}
         >
-          <ArrowDown size={12} />
+          <ArrowDown size={14} />
         </button>
       </footer>
     </section>

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@ari/ui/dialog'
 import type { OrchestrationResultDiff, ResultPackage } from '@ari/contracts/orchestration'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from '../session/session-client'
 import { DiffSurface } from '../diffs/DiffSurface'
 import { ResultError, resultButton } from './result-controls'
 
 type Target = Pick<ResultPackage, 'resultId' | 'attemptId' | 'version' | 'snapshotCommit'>
 type Manifest = Extract<OrchestrationResultDiff, { kind: 'files' }>
+/** A one-line state in place of the comparison. */
+const NOTE = 'p-4 text-[13px] text-fg-muted'
 const message = (cause: unknown) =>
   cause instanceof Error ? cause.message : 'Could not load this comparison.'
 
@@ -26,7 +28,18 @@ export function DelegatedResultDiff({
   taskId: string
   target: Target
 }) {
+  const client = useSessionClient()
+  if (client.scope.kind === 'remote') return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content>
+        <Dialog.Title>{title}</Dialog.Title>
+        <Dialog.Description>Versioned result comparisons are unavailable on this host.</Dialog.Description>
+        <Dialog.Close className={resultButton}>Close review</Dialog.Close>
+      </Dialog.Content>
+    </Dialog>
+  )
   const identity = JSON.stringify([
+    client.viewKey, client.authorizationEpoch,
     sessionId,
     taskId,
     target.resultId,
@@ -47,6 +60,7 @@ function PinnedReview({
   taskId,
   target,
 }: Parameters<typeof DelegatedResultDiff>[0]) {
+  const rpc = useSessionClient()
   const [manifest, setManifest] = useState<Manifest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
@@ -143,34 +157,38 @@ function PinnedReview({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <Dialog.Content size="lg">
-        <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+        <header className="flex shrink-0 items-center gap-3 border-b border-border py-3 pl-4 pr-3">
           <div className="min-w-0 flex-1">
-            <Dialog.Title className="truncate text-sm">
+            <Dialog.Title className="truncate">
               {title} · Version {version}
             </Dialog.Title>
-            <Dialog.Description className="break-all font-mono text-2xs">
-              {manifest
-                ? `${manifest.baseCommit.slice(0, 12)} → ${manifest.currentSnapshotCommit.slice(0, 12)} · ${manifest.totals.files} files`
-                : 'Review selected result changes'}
+            <Dialog.Description className="break-all">
+              {manifest ? (
+                <span className="font-mono text-xs">
+                  {`${manifest.baseCommit.slice(0, 12)} → ${manifest.currentSnapshotCommit.slice(0, 12)} · ${manifest.totals.files} files`}
+                </span>
+              ) : (
+                'Review selected result changes'
+              )}
             </Dialog.Description>
           </div>
           <Dialog.Close className={resultButton}>Close review</Dialog.Close>
         </header>
         {error ? (
-          <div className="p-4 text-xs">
+          <div className="p-4">
             <ResultError message={error} />
             <button
               type="button"
               onClick={() => setRetry((value) => value + 1)}
-              className={resultButton}
+              className={`${resultButton} mt-1`}
             >
               Retry changes
             </button>
           </div>
         ) : !snapshotCommit ? (
-          <p className="p-4 text-xs text-fg-muted">No code snapshot available for this result.</p>
+          <p className={NOTE}>No code snapshot available for this result.</p>
         ) : !manifest ? (
-          <p role="status" className="p-4 text-xs text-fg-muted">
+          <p role="status" className={NOTE}>
             Loading changes…
           </p>
         ) : null}
@@ -181,7 +199,7 @@ function PinnedReview({
                 aria-label="Result changed file"
                 value={file.path}
                 onChange={(event) => setSelected(event.target.value)}
-                className="w-full min-w-0 rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                className="h-7 w-full min-w-0 rounded-md border border-border-strong bg-surface-1 px-2 font-mono text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
               >
                 {manifest?.files.map((entry) => (
                   <option key={entry.path} value={entry.path}>
@@ -192,23 +210,23 @@ function PinnedReview({
                 ))}
               </select>
               {manifest?.truncated ? (
-                <p className="mt-1 text-2xs text-warning">File list limited to 5,000 files.</p>
+                <p className="mt-1.5 text-xs text-fg-muted">File list limited to 5,000 files.</p>
               ) : null}
             </div>
             <div className="min-h-0 flex-1">
               {file.binary ? (
-                <p className="p-4 text-xs text-fg-muted">Binary file changed. No text preview.</p>
+                <p className={NOTE}>Binary file changed. No text preview.</p>
               ) : patch?.key !== key ? (
-                <p role="status" className="p-4 text-xs text-fg-muted">
+                <p role="status" className={NOTE}>
                   Loading file diff…
                 </p>
               ) : patch.error ? (
-                <div className="p-4 text-xs">
+                <div className="p-4">
                   <ResultError message={patch.error} />
                   <button
                     type="button"
                     onClick={() => setFileRetry((value) => value + 1)}
-                    className={resultButton}
+                    className={`${resultButton} mt-1`}
                   >
                     Retry file
                   </button>
@@ -225,12 +243,12 @@ function PinnedReview({
                   }
                 />
               ) : (
-                <p className="p-4 text-xs text-fg-muted">No text patch available for this file.</p>
+                <p className={NOTE}>No text patch available for this file.</p>
               )}
             </div>
           </>
         ) : manifest ? (
-          <p className="p-4 text-xs text-fg-muted">No changed files in this snapshot.</p>
+          <p className={NOTE}>No changed files in this snapshot.</p>
         ) : null}
       </Dialog.Content>
     </Dialog>

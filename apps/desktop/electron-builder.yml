@@ -43,6 +43,7 @@ extraResources:
 # platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
 # so both must be unpacked.
 asarUnpack:
+  - '**/node_modules/sherpa-onnx-*/**'
   - '**/node_modules/@koromix/koffi-*/**'
   - '**/node_modules/koffi/**'
   - '**/node_modules/@lydell/node-pty/**'
@@ -60,6 +61,8 @@ win:
   # payload. On the hosted runner NSIS extraction also drops that payload's
   # conpty/ folder, so the installed tree would differ from the tested one.
   files:
+    - '!**/node_modules/sherpa-onnx-{darwin,linux}-*/**'
+    - '!**/node_modules/sherpa-onnx-win-{arm64,ia32}/**'
     - '!**/node_modules/@lydell/node-pty-win32-arm64/**'
   # Signing scaffolding: electron-builder auto-picks up CSC_LINK /
   # CSC_KEY_PASSWORD (or a cert subject name via `sign`) when provided.
@@ -69,6 +72,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: Ari-Setup-${version}.exe
 mac:
+  files:
+    - '!**/node_modules/sherpa-onnx-{win,linux}-*/**'
   target:
     - target: dmg
       arch:
@@ -89,10 +94,12 @@ mac:
   # Mach-O in both slices unless it is declared here. These are single-arch
   # addons that the resolver stub picks at runtime, so copying them verbatim is
   # exactly right; there is nothing to lipo together.
-  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@koromix/koffi-*,uiohook-napi}/**'
+  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@koromix/koffi-*,sherpa-onnx-*,uiohook-napi}/**'
   extendInfo:
     NSMicrophoneUsageDescription: Ari uses your microphone for local speech to text.
 linux:
+  files:
+    - '!**/node_modules/sherpa-onnx-{win,darwin}-*/**'
   target:
     - AppImage
     - deb

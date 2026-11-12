@@ -1,4 +1,19 @@
-/* Transcript markdown styling — scoped under .ari-md. Tokens only. */
+/* Transcript styling. Tokens only. See docs/design/ari-design-language.md. */
+
+/*
+ * Wells (tool detail, diffs) read at 12.5px. The terminal chat style lifts
+ * tool detail to the conversation size, the same as it does for the
+ * `.text-xs` labels inside `.ari-tool-body`.
+ */
+.ari-reading-lane {
+  --ari-well-text: 0.78125rem;
+}
+
+[data-chat-style='terminal'] .ari-tool-body {
+  --ari-well-text: var(--ari-chat-text);
+}
+
+/* Assistant prose: unboxed, scoped under .ari-md. */
 
 .ari-md {
   font-size: var(--ari-chat-text, var(--ari-text-md));
@@ -7,8 +22,26 @@
   word-break: break-word;
 }
 
+/* The block carries no outer margin: the row around it sets the rhythm. */
+.ari-md > :first-child {
+  margin-top: 0;
+}
+
+.ari-md > :last-child {
+  margin-bottom: 0;
+}
+
+.ari-visual-reply > * + .ari-md,
+.ari-visual-reply > .ari-md + * {
+  margin-top: 0.75rem;
+}
+
 .ari-md p {
-  margin: 0.5rem 0;
+  margin: 0 0 0.75rem;
+}
+
+.ari-md strong {
+  font-weight: 600;
 }
 
 /*
@@ -30,25 +63,28 @@
 .ari-md h2,
 .ari-md h3,
 .ari-md h4 {
-  margin: 1rem 0 0.4rem;
+  margin: 1.5rem 0 0.5rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
 }
 
 .ari-md h1 {
-  font-size: calc(var(--ari-text-xl) * var(--ari-chat-scale, 1));
+  font-size: calc(1.25rem * var(--ari-chat-scale, 1));
 }
 .ari-md h2 {
-  font-size: calc(var(--ari-text-lg) * var(--ari-chat-scale, 1));
+  font-size: calc(1.0625rem * var(--ari-chat-scale, 1));
 }
-.ari-md h3 {
-  font-size: calc(var(--ari-text-md) * var(--ari-chat-scale, 1));
+.ari-md h3,
+.ari-md h4 {
+  margin-top: 1.25rem;
+  font-size: calc(0.9375rem * var(--ari-chat-scale, 1));
 }
 
 .ari-md ul,
 .ari-md ol {
-  margin: 0.5rem 0;
-  padding-left: 1.4rem;
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
 }
 
 .ari-md ul {
@@ -58,150 +94,105 @@
   list-style: decimal;
 }
 .ari-md li {
-  margin: 0.15rem 0;
+  margin: 0.25rem 0;
+  padding-left: 0.125rem;
+}
+.ari-md li::marker {
+  color: var(--ari-fg-subtle);
+}
+.ari-md li > ul,
+.ari-md li > ol {
+  margin: 0.25rem 0 0;
+}
+.ari-md li > p {
+  margin-bottom: 0.25rem;
+}
+.ari-md li > :last-child {
+  margin-bottom: 0;
 }
 
 .ari-md code {
   font-family: var(--ari-font-mono);
-  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
-  background: var(--ari-surface-2);
-  border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-sm);
-  padding: 0.05rem 0.3rem;
+  font-size: var(--ari-chat-code-text, var(--ari-text-sm));
+  background: color-mix(in oklab, var(--ari-fg) 8%, transparent);
+  border-radius: var(--ari-radius-md);
+  padding: 0.1em 0.4em;
 }
 
+/* Code blocks are wells sunk into the stage. */
 .ari-md pre {
-  margin: 0.75rem 0;
-  padding: 0.85rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.875rem;
   background: var(--ari-surface-0);
   border: 1px solid var(--ari-border);
   border-radius: var(--ari-radius-lg);
-  box-shadow: var(--ari-shadow-1);
   overflow-x: auto;
 }
 
 .ari-md pre code {
   background: none;
-  border: none;
+  border-radius: 0;
   padding: 0;
-  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
-  line-height: 1.55;
+  font-size: var(--ari-chat-code-text, var(--ari-text-sm));
+  line-height: 1.6;
 }
 
 .ari-md a {
   color: var(--ari-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+  text-underline-offset: 3px;
 }
 
 .ari-md a:hover {
-  color: var(--ari-accent-hover);
+  text-decoration: underline;
 }
 
 .ari-md blockquote {
-  margin: 0.75rem 0;
-  padding: 0.5rem 0.85rem;
-  border-left: 2px solid var(--ari-accent);
-  background: var(--ari-accent-subtle);
-  border-radius: 0 var(--ari-radius-md) var(--ari-radius-md) 0;
+  margin: 0 0 0.75rem;
+  padding: 0 0 0 0.875rem;
+  border-left: 2px solid var(--ari-border-strong);
   color: var(--ari-fg-muted);
 }
 
+.ari-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Tables: hairline row dividers, no outer box. */
 .ari-md table {
   display: block;
   max-width: 100%;
   overflow-x: auto;
-  margin: 0.6rem 0;
+  margin: 0 0 0.75rem;
   border-collapse: collapse;
-  font-size: var(--ari-chat-code-text, var(--ari-text-xs));
+  font-size: 0.9333em;
 }
 
 .ari-md th,
 .ari-md td {
-  border: 1px solid var(--ari-border);
-  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--ari-border);
+  padding: 0.45rem 1.25rem 0.45rem 0;
   text-align: left;
+  vertical-align: top;
 }
 
 .ari-md th {
-  background: var(--ari-surface-1);
-  font-weight: 600;
+  border-bottom-color: var(--ari-border-strong);
+  color: var(--ari-fg-muted);
+  font-weight: 500;
+}
+
+.ari-md tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .ari-md hr {
-  margin: 1rem 0;
+  margin: 1.25rem 0;
   border: none;
   border-top: 1px solid var(--ari-border);
 }
 
-/* Activity bursts — the hairline rail that carries a turn's tool timeline.
-   Paint and transform only; reduced motion freezes the travelling light. */
-
-.ari-burst {
-  position: relative;
-}
-
-.ari-burst::before {
-  content: '';
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 0;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--ari-border);
-  transition: background var(--ari-dur-fast) ease-out;
-}
-
-.ari-burst:hover::before {
-  background: var(--ari-border-strong);
-}
-
-.ari-burst[data-activity='working']::before {
-  background: color-mix(in oklab, var(--ari-accent) 45%, transparent);
-}
-
-.ari-error-note {
-  position: relative;
-}
-
-.ari-error-note::before {
-  content: '';
-  position: absolute;
-  inset-block: 3px;
-  left: 0;
-  width: 2px;
-  border-radius: 1px;
-  background: color-mix(in oklab, var(--ari-danger) 42%, transparent);
-}
-
-/* A burst is alive only while a call is unanswered: light walks the rail. */
-.ari-burst[data-activity='working']::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 2px;
-  height: 42%;
-  border-radius: 1px;
-  background: linear-gradient(180deg, transparent, var(--ari-accent), transparent);
-  animation: ari-burst-flow 1.9s var(--ari-ease-out-expo) infinite;
-}
-
-@keyframes ari-burst-flow {
-  0% {
-    transform: translateY(-60%);
-    opacity: 0;
-  }
-  30% {
-    opacity: 0.9;
-  }
-  100% {
-    transform: translateY(270%);
-    opacity: 0;
-  }
-}
-
+/* Steps of an opened burst arrive with a short fade. */
 .ari-burst-steps {
   animation: ari-burst-reveal var(--ari-dur-fast) ease-out;
 }
@@ -215,69 +206,8 @@
   }
 }
 
-/* Image generation gets a recognisable canvas instead of looking like a shell command. */
-.ari-image-generation-canvas {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 3px;
-  height: 4.75rem;
-  overflow: hidden;
-  padding: 3px;
-  border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-lg);
-  background: var(--ari-surface-0);
-}
-
-.ari-image-generation-canvas > span {
-  border-radius: var(--ari-radius-sm);
-  background: var(--ari-surface-2);
-  animation: ari-image-tile 2.4s ease-in-out infinite;
-}
-
-.ari-image-generation-canvas > span:nth-child(2n) {
-  animation-delay: -0.8s;
-}
-
-.ari-image-generation-canvas > span:nth-child(3n) {
-  animation-delay: -1.6s;
-}
-
-.ari-image-generation-mark {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  color: var(--ari-accent);
-  filter: drop-shadow(0 0 10px var(--ari-accent-ring));
-  transform: translate(-50%, -50%);
-}
-
-@keyframes ari-image-tile {
-  0%,
-  100% {
-    background: var(--ari-surface-2);
-    opacity: 0.45;
-  }
-  50% {
-    background: var(--ari-accent-subtle);
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .ari-burst[data-activity='working']::after {
-    animation: none;
-    top: 3px;
-    bottom: 3px;
-    height: auto;
-    background: var(--ari-accent);
-    opacity: 0.75;
-  }
-
   .ari-burst-steps {
-    animation: none;
-  }
-
-  .ari-image-generation-canvas > span {
     animation: none;
   }
 }

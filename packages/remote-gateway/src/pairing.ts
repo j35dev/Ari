@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
 import type { PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
+import { routeSigningText, type RouteChallenge } from '@ari/contracts/route-auth'
 import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
@@ -61,6 +62,8 @@ export interface PairedDevice {
   deviceId: string
   displayName: string
   projectIds: string[]
+  /** Local device scope includes existing and future projects. Absent on legacy records. */
+  allProjects?: boolean
   pairedAt: number
   lastSeenAt: number | null
   allowTerminal?: boolean
@@ -104,6 +107,8 @@ interface Challenge {
   /** Set for a remembered-device challenge, which is bound to its device. */
   deviceId?: string
   expiresAt: number
+  audience?: string
+  signingText?: string
 }
 
 interface Options {
@@ -113,6 +118,8 @@ interface Options {
   persist?: PairingPersistence
   /** Devices and revocations read back from disk at construction. */
   restored?: PersistedPairing
+  /** Current registered IDs, exposed as a compatibility view rather than an authorization limit. */
+  projectIds?: () => readonly string[] | undefined
   /**
    * Called whenever the pairing state a user would see has changed: a device
    * asked to pair, the user decided, a device was redeemed or revoked. The
@@ -123,6 +130,12 @@ interface Options {
 }
 
 export class PairingService {
+  #authorizationSuspended = false
+
+  /** A durable-state failure blocks existing tokens and new device authorization until reload. */
+  suspendAuthorization(): void {
+    this.#authorizationSuspended = true
+  }
   readonly #invitations = new Map<string, Invitation>()
   readonly #devices = new Map<string, PersistedDevice>()
   readonly #revoked = new Map<string, number>()
@@ -131,7 +144,7 @@ export class PairingService {
    * hashed so a copy of the process's memory does not hand out working
    * credentials, and the digest is what a lookup compares.
    */
-  readonly #tokens = new Map<string, { deviceId: string; expiresAt: number }>()
+  readonly #tokens = new Map<string, { deviceId: string; expiresAt: number; audience?: string }>()
   /**
    * Nonces this server issued, to be signed back. A nonce is the only thing
    * that makes a proof fresh: without one, a signature captured from an
@@ -144,6 +157,7 @@ export class PairingService {
   readonly #tokenTtlMs: number
   readonly #persist: PairingPersistence | undefined
   readonly #onChange: (() => void) | undefined
+  readonly #projectIds: (() => readonly string[] | undefined) | undefined
 
   constructor(options: Options = {}) {
     this.#now = options.now ?? (() => Date.now())
@@ -151,16 +165,20 @@ export class PairingService {
     this.#tokenTtlMs = options.tokenTtlMs ?? DEFAULT_TOKEN_TTL_MS
     this.#persist = options.persist
     this.#onChange = options.onChange
+    this.#projectIds = options.projectIds
     for (const device of options.restored?.devices ?? []) {
       if (isUsableP256Key(device.publicKey))
         this.#devices.set(device.deviceId, {
           ...device,
+          allProjects: true,
           allowTerminal: device.allowTerminal === true,
         })
     }
     for (const entry of options.restored?.revoked ?? []) {
       this.#revoked.set(entry.deviceId, entry.revokedAt)
+      this.#devices.delete(entry.deviceId)
     }
+    if (options.restored?.devices.some((device) => device.allProjects !== true)) this.#save()
   }
 
   /** This service's durable state, for a caller that owns the file. */
@@ -168,7 +186,7 @@ export class PairingService {
     return {
       devices: [...this.#devices.values()].map((device) => ({
         ...device,
-        projectIds: [...device.projectIds],
+        projectIds: [...this.#idsFor(device)],
         publicKey: { ...device.publicKey },
       })),
       revoked: [...this.#revoked.entries()].map(([deviceId, revokedAt]) => ({
@@ -289,7 +307,7 @@ export class PairingService {
   approve(
     invitationId: string,
     confirmationCode: string,
-    projectIds: readonly string[],
+    projectIds: readonly string[] = [],
     allowTerminal = false,
   ): PairingResult<object> {
     const invitation = this.#invitations.get(invitationId)
@@ -329,6 +347,7 @@ export class PairingService {
     invitationId: string,
     proof: { nonce: string; signature: string },
   ): PairingResult<{ device: PairedDevice; token: string }> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
     const invitation = this.#invitations.get(invitationId)
     if (invitation === undefined) return { ok: false, code: 'not_found' }
     const status = this.status(invitationId)
@@ -354,6 +373,7 @@ export class PairingService {
       deviceId: `dev_${randomUUID()}`,
       displayName: pending.displayName,
       projectIds: [...(invitation.projectIds ?? [])],
+      allProjects: true,
       publicKey: { ...pending.publicKey },
       pairedAt: this.#now(),
       lastSeenAt: null,
@@ -367,7 +387,7 @@ export class PairingService {
     this.#devices.set(device.deviceId, device)
     this.#save()
     this.#notify()
-    return { ok: true, device: publicDevice(device), token: this.#mintToken(device.deviceId) }
+    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(device.deviceId) }
   }
 
   /**
@@ -380,6 +400,39 @@ export class PairingService {
     return { nonce: this.#issueChallenge(expiresAt, { deviceId }), expiresAt }
   }
 
+  /** A route challenge has a separate signature domain and cannot redeem a legacy nonce. */
+  routeChallenge(input: Omit<RouteChallenge, 'nonce' | 'issuedAt' | 'expiresAt'>): RouteChallenge {
+    const issuedAt = this.#now()
+    const expiresAt = issuedAt + 30_000
+    const nonce = this.#issueChallenge(expiresAt, { deviceId: input.deviceId })
+    const payload: RouteChallenge = { ...input, nonce, issuedAt, expiresAt }
+    this.#challenges.set(nonce, {
+      deviceId: input.deviceId,
+      audience: input.audience,
+      expiresAt,
+      signingText: routeSigningText(payload),
+    })
+    return payload
+  }
+
+  authorizeRoute(
+    deviceId: string,
+    audience: string,
+    proof: { nonce: string; signature: string },
+  ): PairingResult<{ device: PairedDevice; token: string }> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
+    const device = this.#devices.get(deviceId)
+    if (device === undefined)
+      return { ok: false, code: this.#revoked.has(deviceId) ? 'access_revoked' : 'not_found' }
+    if (!this.#proveKey({ deviceId, audience }, device.publicKey, proof))
+      return { ok: false, code: 'invalid_signature' }
+    return {
+      ok: true,
+      device: this.#publicDevice(device),
+      token: this.#mintToken(deviceId, audience),
+    }
+  }
+
   /**
    * Re-authenticates a remembered device without re-pairing, which is what
    * makes a paired device survive a desktop restart: the phone still holds the
@@ -390,6 +443,7 @@ export class PairingService {
     deviceId: string,
     proof: { nonce: string; signature: string },
   ): PairingResult<{ device: PairedDevice; token: string }> {
+    if (this.#authorizationSuspended) return { ok: false, code: 'access_revoked' }
     const device = this.#devices.get(deviceId)
     if (device === undefined) {
       // A revocation tombstone outlives the record, so a phone whose access
@@ -400,7 +454,7 @@ export class PairingService {
     if (!this.#proveKey({ deviceId }, device.publicKey, proof)) {
       return { ok: false, code: 'invalid_signature' }
     }
-    return { ok: true, device: publicDevice(device), token: this.#mintToken(deviceId) }
+    return { ok: true, device: this.#publicDevice(device), token: this.#mintToken(deviceId) }
   }
 
   /**
@@ -408,21 +462,23 @@ export class PairingService {
    * nothing was ever issued it. A revoked device has no token, so revocation
    * takes effect here rather than needing a second check at the call site.
    */
-  authenticate(token: string): PairedDevice | undefined {
+  authenticate(token: string, audience?: string | null): PairedDevice | undefined {
+    if (this.#authorizationSuspended) return undefined
     if (token.length === 0) return undefined
     const digest = tokenDigest(token)
     const entry = this.#tokens.get(digest)
     if (entry === undefined) return undefined
+    if (entry.audience !== undefined && entry.audience !== audience) return undefined
     if (entry.expiresAt <= this.#now()) {
       this.#tokens.delete(digest)
       return undefined
     }
     const device = this.#devices.get(entry.deviceId)
-    return device === undefined ? undefined : publicDevice(device)
+    return device === undefined ? undefined : this.#publicDevice(device)
   }
 
   devices(): PairedDevice[] {
-    return [...this.#devices.values()].map(publicDevice)
+    return [...this.#devices.values()].map((device) => this.#publicDevice(device))
   }
 
   /** Desktop-only association used to register explicitly managed pairings with Connect. */
@@ -431,7 +487,7 @@ export class PairingService {
   }
 
   isDeviceActive(deviceId: string): boolean {
-    return this.#devices.has(deviceId)
+    return !this.#authorizationSuspended && this.#devices.has(deviceId)
   }
 
   revoke(deviceId: string): boolean {
@@ -446,14 +502,25 @@ export class PairingService {
     return true
   }
 
-  /** Replaces a paired device's grants; its tokens stay valid and carry the new grants. */
+  /** Changes terminal access; project IDs remain a legacy compatibility snapshot. */
   updateGrants(deviceId: string, projectIds: readonly string[], allowTerminal: boolean): boolean {
     const device = this.#devices.get(deviceId)
     if (device === undefined) return false
     device.projectIds = [...new Set(projectIds)]
+    device.allProjects = true
     device.allowTerminal = allowTerminal
     this.#save()
     return true
+  }
+
+  #idsFor(device: PersistedDevice): readonly string[] {
+    return device.allProjects === true && this.#projectIds !== undefined
+      ? (this.#projectIds() ?? device.projectIds)
+      : device.projectIds
+  }
+
+  #publicDevice(device: PersistedDevice): PairedDevice {
+    return { ...publicDevice(device), projectIds: [...this.#idsFor(device)] }
   }
 
   touch(deviceId: string): void {
@@ -495,7 +562,7 @@ export class PairingService {
    * another device, by presenting it with the right signature attached.
    */
   #proveKey(
-    binding: { invitationId: string } | { deviceId: string },
+    binding: { invitationId: string } | { deviceId: string; audience?: string },
     key: PairingPublicKey,
     proof: { nonce: string; signature: string },
   ): boolean {
@@ -507,12 +574,19 @@ export class PairingService {
       return false
     }
     if (challenge.deviceId !== ('deviceId' in binding ? binding.deviceId : undefined)) return false
-    return signatureMatches(key, proof)
+    if (challenge.audience !== ('audience' in binding ? binding.audience : undefined)) return false
+    return signatureMatches(key, { ...proof, nonce: challenge.signingText ?? proof.nonce })
   }
 
-  #mintToken(deviceId: string): string {
+  #mintToken(deviceId: string, audience?: string): string {
     const token = randomBytes(32).toString('base64url')
-    this.#tokens.set(tokenDigest(token), { deviceId, expiresAt: this.#now() + this.#tokenTtlMs })
+    this.#tokens.set(tokenDigest(token), {
+      deviceId,
+      expiresAt:
+        this.#now() +
+        (audience === undefined ? this.#tokenTtlMs : Math.min(this.#tokenTtlMs, 60_000)),
+      ...(audience === undefined ? {} : { audience }),
+    })
     return token
   }
 
@@ -530,7 +604,15 @@ export class PairingService {
   }
 
   #save(): void {
-    this.#persist?.save(this.toPersisted())
+    try {
+      this.#persist?.save(this.toPersisted())
+    } catch (error) {
+      // Preserve runtime withdrawal, but never mint a credential against an
+      // approval/grant change that could not reach durable storage.
+      this.suspendAuthorization()
+      this.#notify()
+      throw error
+    }
     this.#onChange?.()
   }
 }
@@ -540,6 +622,7 @@ function publicDevice(device: PersistedDevice): PairedDevice {
     deviceId: device.deviceId,
     displayName: device.displayName,
     projectIds: [...device.projectIds],
+    allProjects: device.allProjects === true,
     pairedAt: device.pairedAt,
     lastSeenAt: device.lastSeenAt,
     allowTerminal: device.allowTerminal === true,

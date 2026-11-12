@@ -32,10 +32,15 @@ export function ProviderSignIn({ kind, result, onOpenTerminal, onDone }: Provide
   const [error, setError] = useState<string | null>(null)
 
   if (result.status === 'ready') {
-    return <p className="text-2xs text-success">Signed in — this provider is ready.</p>
+    return (
+      <p className="flex items-center gap-1.5 text-[13px] leading-5 text-fg-subtle">
+        <span aria-hidden className="ari-status" data-status="done" />
+        Signed in — this provider is ready.
+      </p>
+    )
   }
   if (result.status === 'unknown') {
-    return <p className="text-2xs text-fg-subtle">{result.reason}</p>
+    return <p className="text-[13px] leading-5 text-fg-subtle">{result.reason}</p>
   }
 
   const runLogin = async (login: ProviderLoginMethod): Promise<void> => {
@@ -60,12 +65,12 @@ export function ProviderSignIn({ kind, result, onOpenTerminal, onDone }: Provide
 
   return (
     <div className="flex flex-col gap-2" data-testid={`provider-signin-${kind}`}>
-      <p role="alert" className="text-2xs text-warning">
+      <p role="alert" className="text-[13px] leading-5 text-warning">
         {result.label} needs you to sign in again.
       </p>
 
       {result.logins.length === 0 ? (
-        <p className="text-2xs text-fg-subtle">
+        <p className="text-[13px] leading-5 text-fg-subtle">
           This agent did not offer a sign-in Ari can run. Run its login once in a terminal, then
           re-check.
         </p>
@@ -86,12 +91,12 @@ export function ProviderSignIn({ kind, result, onOpenTerminal, onDone }: Provide
       )}
 
       {launched != null && (
-        <p className="text-2xs text-fg-muted">
+        <p className="text-[13px] leading-5 text-fg-subtle">
           Opened “{launched}” in the Terminal. Finish there, then send your message again.
         </p>
       )}
       {error != null && (
-        <p role="alert" className="text-2xs text-danger">
+        <p role="alert" className="text-[13px] leading-5 text-danger">
           {error}
         </p>
       )}

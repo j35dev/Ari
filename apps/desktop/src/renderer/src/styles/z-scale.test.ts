@@ -18,7 +18,9 @@ const RAW_LAYER = /(?<![\w-])-?z-(?:\[[^\]]+\]|[3-9]\d|\d{3,})(?![\w-])/g
 async function sources(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true })
   return entries
-    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name) && !entry.name.includes('.test.'))
+    .filter(
+      (entry) => entry.isFile() && /\.tsx?$/.test(entry.name) && !entry.name.includes('.test.'),
+    )
     .map((entry) => join(entry.parentPath, entry.name))
 }
 

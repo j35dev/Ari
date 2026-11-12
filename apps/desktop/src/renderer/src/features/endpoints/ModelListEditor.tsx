@@ -6,11 +6,11 @@ import { IconButton } from '@ari/ui/icon-button'
 import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { SETTINGS_HINT_CLASS } from '../settings/SettingsSection'
 
 /** State of a model-discovery request against one endpoint. */
 export type FetchState =
-  | { phase: 'fetching' }
-  | { phase: 'done'; found: number; error: string | null }
+  { phase: 'fetching' } | { phase: 'done'; found: number; error: string | null }
 
 export interface ModelListEditorProps {
   models: EndpointModel[]
@@ -72,9 +72,9 @@ export function ModelListEditor({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-fg">
+        <span className="text-[13px] font-medium text-fg">
           Models{models.length > 0 ? ` · ${models.length}` : ''}
         </span>
         {onFetch !== null && (
@@ -87,7 +87,8 @@ export function ModelListEditor({
             disabled={fetchState?.phase === 'fetching'}
           >
             <RefreshCw
-              className={`me-1 h-3 w-3 ${fetchState?.phase === 'fetching' ? 'animate-spin motion-reduce:animate-none' : ''}`}
+              className={`h-3.5 w-3.5 ${fetchState?.phase === 'fetching' ? 'animate-spin motion-reduce:animate-none' : ''}`}
+              strokeWidth={1.7}
               aria-hidden
             />
             {fetchState?.phase === 'fetching' ? 'Fetching…' : 'Fetch from endpoint'}
@@ -96,13 +97,13 @@ export function ModelListEditor({
       </div>
 
       {fetchState !== undefined && (
-        <p role="status" className="text-xs">
+        <p role="status" className="text-[13px] leading-5">
           {fetchState.phase === 'fetching' ? (
-            <span className="text-fg-muted">Asking the endpoint for its model list…</span>
+            <span className="text-fg-subtle">Asking the endpoint for its model list…</span>
           ) : fetchState.error !== null ? (
             <span className="text-danger">Could not fetch models: {fetchState.error}</span>
           ) : (
-            <span className="text-success">
+            <span className="text-fg-subtle">
               Added {fetchState.found} model{fetchState.found === 1 ? '' : 's'}.
             </span>
           )}
@@ -110,14 +111,14 @@ export function ModelListEditor({
       )}
 
       {models.length === 0 ? (
-        <p className="text-xs text-fg-muted">
+        <p className={SETTINGS_HINT_CLASS}>
           No models yet — fetch them from the endpoint or add a model id by hand.
         </p>
       ) : (
         <>
           {models.length > 1 && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-fg">Default for {scopeLabel}</span>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-medium text-fg">Default for {scopeLabel}</span>
               <Select
                 value={defaultModel}
                 onValueChange={(value) => onChange({ models, defaultModel: value })}
@@ -127,27 +128,29 @@ export function ModelListEditor({
           )}
           <ul
             aria-label={`Models on ${scopeLabel}`}
-            className="ari-scroll flex max-h-52 flex-col gap-1 overflow-y-auto pr-1"
+            className="ari-scroll flex max-h-52 flex-col divide-y divide-border overflow-y-auto pr-1"
           >
             {models.map((model) => (
-              <li key={model.id} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{model.id}</span>
+              <li key={model.id} className="flex min-h-9 items-center gap-2 py-1">
+                <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg">
+                  {model.id}
+                </span>
                 {model.label !== model.id && (
-                  <span className="truncate text-2xs text-fg-muted">{model.label}</span>
+                  <span className="truncate text-xs text-fg-subtle">{model.label}</span>
                 )}
                 {contextHint(model) !== null && (
-                  <span className="shrink-0 font-mono text-2xs text-fg-subtle">
+                  <span className="shrink-0 font-mono text-xs text-fg-subtle">
                     {contextHint(model)}
                   </span>
                 )}
-                {model.source === 'manual' && <Badge tone="neutral">manual</Badge>}
+                {model.source === 'manual' && <Badge tone="neutral">Manual</Badge>}
                 {model.id === defaultModel && models.length > 1 && (
-                  <Badge tone="accent">default</Badge>
+                  <Badge tone="neutral">Default</Badge>
                 )}
                 <IconButton
                   size="sm"
                   variant="ghost"
-                  icon={<Trash2 className="h-3 w-3" />}
+                  icon={<Trash2 className="h-3.5 w-3.5" strokeWidth={1.7} />}
                   aria-label={`Remove model ${model.id} from ${scopeLabel}`}
                   onClick={() => remove(model.id)}
                 />
@@ -157,8 +160,9 @@ export function ModelListEditor({
         </>
       )}
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <Input
+          className="min-w-0 flex-1 font-mono"
           aria-label={`Model id to add to ${scopeLabel}`}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -179,13 +183,13 @@ export function ModelListEditor({
           onClick={addManual}
           disabled={draft.trim() === ''}
         >
-          <Plus className="me-1 h-3 w-3" aria-hidden />
+          <Plus className="h-3.5 w-3.5" strokeWidth={1.7} aria-hidden />
           Add
         </Button>
       </div>
 
       {models.length > 0 && (
-        <p className="text-2xs text-fg-subtle">
+        <p className={SETTINGS_HINT_CLASS}>
           Fetch adds every model the endpoint serves. Remove any you do not want — they all appear
           in the session picker. The default is used when a session does not pick one.
         </p>

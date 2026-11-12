@@ -266,7 +266,20 @@ const defaultAppearance = {
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
 const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
 
+export const ariaVoiceSettingsSchema = z.object({
+  mode: z.enum(['voice-replies', 'off']).default('voice-replies'),
+  engine: z.enum(['kokoro', 'groq']).default('kokoro'),
+  kokoroVoice: z.enum(['af_heart', 'am_michael']).default('af_heart'),
+  groqVoice: z.enum(['autumn', 'diana', 'hannah', 'austin', 'daniel', 'troy']).default('troy'),
+  speed: z.number().min(0.75).max(1.3).default(1),
+  volume: z.number().min(0).max(1).default(1),
+})
+
 export const speechSettingsSchema = z.object({
+  provider: z.enum(['local', 'groq']).default('local'),
+  groqModel: z
+    .enum(['whisper-large-v3-turbo', 'whisper-large-v3'])
+    .default('whisper-large-v3-turbo'),
   enabled: z.boolean().default(false),
   modelId: z.string().nullable().default(null),
   modelPath: z.string().nullable().default(null),
@@ -274,10 +287,16 @@ export const speechSettingsSchema = z.object({
   shortcut: z.string().trim().max(80).default(''),
   dictationShortcut: z.string().trim().max(80).default(''),
   duckAudio: z.boolean().default(true),
+  formatText: z.boolean().default(true),
+  spokenFormatting: z.boolean().default(false),
 })
 
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  experimental: z
+    .object({ ariaEnabled: z.boolean().default(false) })
+    .default({ ariaEnabled: false }),
+  ariaVoice: ariaVoiceSettingsSchema.default(() => ariaVoiceSettingsSchema.parse({})),
   speech: speechSettingsSchema.default(() => speechSettingsSchema.parse({})),
   onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
@@ -385,10 +404,16 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  ariaVoice: ariaVoiceSettingsSchema.partial().optional(),
+  experimental: z.object({ ariaEnabled: z.boolean() }).partial().optional(),
   speech: z
     .object({
+      provider: z.enum(['local', 'groq']),
+      groqModel: z.enum(['whisper-large-v3-turbo', 'whisper-large-v3']),
       enabled: z.boolean(),
       duckAudio: z.boolean(),
+      formatText: z.boolean(),
+      spokenFormatting: z.boolean(),
       modelId: z.string().nullable(),
       modelPath: z.string().nullable(),
       shortcut: z
@@ -499,6 +524,8 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  ariaVoice: ariaVoiceSettingsSchema.parse({}),
+  experimental: { ariaEnabled: false },
   speech: speechSettingsSchema.parse({}),
   delegation: delegationSettingsSchema.parse({}),
   version: 1,

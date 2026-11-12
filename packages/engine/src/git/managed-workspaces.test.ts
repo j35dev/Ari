@@ -17,6 +17,7 @@ import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { err } from '@ari/shared/result'
 import { ManagedWorkspaces } from './managed-workspaces'
+import { orchestrationBranch } from './orchestration-branch'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof fs>()
@@ -336,14 +337,45 @@ it('rejects invalid, missing and foreign snapshots and stale parent previews bef
 
 it('names an isolated branch after the child title and releases a collision too', async () => {
   const id = 'sess_c2825b69-d75a-415c-aef6-1deba05b3ded'
-  git(repo, 'branch', 'ari/edit-queued-message-c2825b69')
+  const preferred = orchestrationBranch('Edit queued message', id)
+  git(repo, 'branch', preferred)
   const workspace = await manager.isolate(root, repo, id, 'Edit queued message')
   if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
-  expect(workspace.branch).toBe('ari/edit-queued-message-c2825b69-2')
+  expect(workspace.branch).toBe(`${preferred}-2`)
   await manager.release(id)
-  expect(git(repo, 'branch', '--list', 'ari/edit-queued-message-c2825b69')).toBe('')
+  expect(git(repo, 'branch', '--list', preferred)).toBe('')
   expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
 }, 30_000)
+
+it.each(['current', 'legacy-short'] as const)(
+  'preserves another unregistered %s root branch with a colliding timestamp prefix during cleanup',
+  async (format) => {
+    const one = 'sess_mabcd123a_aaaaaa'
+    const two = 'sess_mabcd123a_bbbbbb'
+    const workspace = await manager.isolate(root, repo, one, 'Work')
+    if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+    const otherPath = join(manager.rootDir, root.projectId, two)
+    const otherBranch =
+      format === 'current' ? `${orchestrationBranch('Work', two)}-2` : 'ari/work-mabcd123-2'
+    git(repo, 'worktree', 'add', '-b', otherBranch, otherPath)
+    await writeFile(join(otherPath, 'other.txt'), 'Unintegrated other root work\n')
+    git(otherPath, 'add', '.')
+    git(otherPath, 'commit', '-qm', 'other root work')
+    const otherCommit = git(otherPath, 'rev-parse', 'HEAD')
+    git(repo, 'worktree', 'remove', '--force', otherPath)
+
+    git(repo, 'branch', `ari/parent/${one}`)
+    git(repo, 'branch', `ari/parent/${two}`, otherCommit)
+    await manager.release(one)
+    await new ManagedWorkspaces(manager.rootDir).release(one)
+    expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+    expect(git(repo, 'branch', '--list', `ari/parent/${one}`)).toBe('')
+    expect(git(repo, 'rev-parse', '--verify', `refs/heads/ari/parent/${two}`)).toBe(otherCommit)
+    expect(git(repo, 'rev-parse', '--verify', `refs/heads/${otherBranch}`)).toBe(otherCommit)
+    expect(git(repo, 'show', `${otherBranch}:other.txt`)).toBe('Unintegrated other root work')
+  },
+  30_000,
+)
 
 it('releases the worktree, branch and orchestration refs and is idempotent', async () => {
   const workspace = await manager.isolate(root, repo, 'child')

@@ -35,13 +35,16 @@ interface ToastRecord {
   generation: number
 }
 
-/** Tone accent bar color; neutral borrows the accent-subtle token. */
-const TONE_ACCENT_CLASSES: Record<ToastTone, string> = {
-  neutral: 'border-l-accent-subtle',
-  success: 'border-l-success',
-  warning: 'border-l-warning',
-  danger: 'border-l-danger',
-  info: 'border-l-info',
+/**
+ * Tone is a small status dot beside the title, never a coloured surface.
+ * A neutral toast says nothing about status, so it has no dot.
+ */
+const TONE_DOT_CLASSES: Record<ToastTone, string | null> = {
+  neutral: null,
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+  info: 'bg-info',
 }
 
 const TOAST_VARIANTS: Variants = {
@@ -154,6 +157,7 @@ function ToastCard({
 }) {
   const dismiss = useCallback(() => onDismiss(record.id), [onDismiss, record.id])
   const sticky = record.durationMs === 0
+  const toneDot = TONE_DOT_CLASSES[record.tone]
 
   // Auto-dismiss timer that pauses while hovered: track remaining time so the
   // deadline survives pause/resume cycles. `durationMs: 0` is sticky.
@@ -199,24 +203,29 @@ function ToastCard({
       initial="hidden"
       animate="visible"
       exit="exit"
-      className={[
-        'w-80 rounded-lg border border-border border-l-4 bg-surface-2 p-3 shadow-2',
-        TONE_ACCENT_CLASSES[record.tone],
-      ].join(' ')}
+      className="w-80 rounded-xl border border-border-strong bg-surface-1 p-3 shadow-3"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-fg">{record.title}</p>
+      <div className="flex items-start gap-2.5">
+        {toneDot ? (
+          <span
+            data-toast-tone={record.tone}
+            aria-hidden="true"
+            // 6px dot centred on the title's 20px first line.
+            className={['mt-[7px] size-1.5 shrink-0 rounded-full', toneDot].join(' ')}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] leading-5 font-medium text-fg">{record.title}</p>
           {record.description ? (
             <p className="mt-0.5 text-xs text-fg-muted">{record.description}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           {record.action ? (
             <button
               type="button"
               onClick={handleAction}
-              className="rounded-sm px-1 py-0.5 text-xs font-medium text-accent transition-colors hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              className="rounded-md px-1.5 py-0.5 text-xs font-medium text-fg transition-colors hover:bg-fg/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             >
               {record.action.label}
             </button>
@@ -225,7 +234,7 @@ function ToastCard({
             type="button"
             aria-label="Dismiss"
             onClick={dismiss}
-            className="rounded-sm p-1 text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="rounded-md p-1 text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
               <path

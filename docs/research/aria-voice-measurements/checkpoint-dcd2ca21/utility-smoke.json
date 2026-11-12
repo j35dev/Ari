@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "hardware": {
+    "threads": 4,
+    "ramGB": 16,
+    "logicalCores": 12,
+    "provider": "cpu",
+    "rtf": 0.6566742431943395,
+    "firstAudioMs": 1345.8264999999992,
+    "slow": false
+  },
+  "sampleRate": 24000,
+  "samples": 47619,
+  "cancellation": "passed",
+  "nativeWords": "passed"
+}

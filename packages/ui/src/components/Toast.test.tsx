@@ -32,18 +32,17 @@ describe('Toast', () => {
     const region = screen.getByRole('status')
     expect(region).toHaveAttribute('aria-live', 'polite')
     expect(region).toHaveClass(
-      'bg-surface-2',
+      'bg-surface-1',
       'border',
-      'border-border',
-      'rounded-lg',
-      'shadow-2',
+      'border-border-strong',
+      'rounded-xl',
+      'shadow-3',
       'p-3',
       'w-80',
-      'border-l-4',
     )
   })
 
-  it('maps tones to accent bar token colors on the toast card', async () => {
+  it('maps tones to status dot token colors on the toast card', async () => {
     const user = userEvent.setup()
     const tones: ToastOptions[] = [
       { title: 'neutral' },
@@ -66,17 +65,24 @@ describe('Toast', () => {
       </ToastProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'show all' }))
-    const expected: Record<string, string> = {
-      neutral: 'border-l-accent-subtle',
-      success: 'border-l-success',
-      warning: 'border-l-warning',
-      danger: 'border-l-danger',
-      info: 'border-l-info',
+    // Tone is a dot beside the title; a neutral toast carries no status.
+    const expected: Record<string, string | null> = {
+      neutral: null,
+      success: 'bg-success',
+      warning: 'bg-warning',
+      danger: 'bg-danger',
+      info: 'bg-info',
     }
     for (const [title, cls] of Object.entries(expected)) {
       const card = screen.getByText(title).closest('[role="status"]')
       expect(card).not.toBeNull()
-      expect(card).toHaveClass(cls)
+      const dot = card?.querySelector('[data-toast-tone]') ?? null
+      if (cls === null) {
+        expect(dot).toBeNull()
+      } else {
+        expect(dot).toHaveAttribute('data-toast-tone', title)
+        expect(dot).toHaveClass(cls)
+      }
     }
   })
 
@@ -84,27 +90,25 @@ describe('Toast', () => {
     const user = userEvent.setup()
     render(
       <ToastProvider>
-        // Long enough that a loaded runner cannot let the timer fire before
-        // the assertion below runs; the test is about the dismissal, not the
-        // exact deadline.
+        // Long enough that a loaded runner cannot let the timer fire before // the assertion below
+        runs; the test is about the dismissal, not the // exact deadline.
         <Probe opts={{ title: 'Transient', durationMs: 500 }} />
       </ToastProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'show' }))
     expect(screen.getByText('Transient')).toBeInTheDocument()
-    await waitFor(
-      () => expect(screen.queryByText('Transient')).not.toBeInTheDocument(),
-      { timeout: 3000 },
-    )
+    await waitFor(() => expect(screen.queryByText('Transient')).not.toBeInTheDocument(), {
+      timeout: 3000,
+    })
   }, 8000)
 
   it('pauses dismissal while hovered and resumes on leave', async () => {
     const user = userEvent.setup()
     render(
       <ToastProvider>
-        // The click-to-hover gap has to fit inside the duration, and that gap
-        // can stretch past a fifth of a second on a loaded runner — a timer
-        // that already fired is not something hovering can undo.
+        // The click-to-hover gap has to fit inside the duration, and that gap // can stretch past a
+        fifth of a second on a loaded runner — a timer // that already fired is not something
+        hovering can undo.
         <Probe opts={{ title: 'Paused', durationMs: 1000 }} />
       </ToastProvider>,
     )
@@ -114,10 +118,9 @@ describe('Toast', () => {
     await new Promise((r) => setTimeout(r, 1200))
     expect(screen.getByText('Paused')).toBeInTheDocument()
     await user.unhover(screen.getByRole('status'))
-    await waitFor(
-      () => expect(screen.queryByText('Paused')).not.toBeInTheDocument(),
-      { timeout: 2500 },
-    )
+    await waitFor(() => expect(screen.queryByText('Paused')).not.toBeInTheDocument(), {
+      timeout: 2500,
+    })
   }, 8000)
 
   it('fires action onClick then dismisses', async () => {

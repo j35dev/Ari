@@ -1,0 +1,52 @@
+/*
+ * The file editor's code surface: a transparent textarea laid exactly over a
+ * highlighted copy of the same text. Both layers must share every metric that
+ * affects layout, so they take them from one rule.
+ */
+
+.ari-code-text {
+  margin: 0;
+  padding: 10px 24px 10px 12px;
+  border: 0;
+  font-family: var(--ari-font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  white-space: pre;
+  tab-size: 4;
+  overflow-wrap: normal;
+}
+
+.ari-code-input {
+  color: transparent;
+  caret-color: var(--ari-fg);
+  background: transparent;
+}
+
+.ari-code-input::selection {
+  color: transparent;
+  background: var(--ari-accent-subtle);
+}
+
+/* Every line is one fixed-height row, so the gutter and the caret line line
+   up with the text whatever the content. */
+.ari-code-line {
+  height: 20px;
+}
+
+.ari-code-gutter {
+  padding: 10px 12px 10px 16px;
+  font-family: var(--ari-font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+/* Shiki paints its dark palette by default; light schemes take the light one
+   it ships alongside. */
+[data-ari-scheme='light'] .ari-code-highlight span {
+  color: var(--shiki-light) !important;
+}

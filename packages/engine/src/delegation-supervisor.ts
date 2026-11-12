@@ -48,6 +48,8 @@ function automaticTurns(model: SessionReadModel): number {
 }
 
 export interface SupervisorHost {
+  /** The Aria experiment gates its wakes, never ordinary delegation. */
+  ariaEnabled?(): boolean
   store: Pick<
     SessionStore,
     'load' | 'loadExisting' | 'exists' | 'listSessions' | 'currentHelmSession'
@@ -315,6 +317,7 @@ export class DelegationSupervisor {
   async #stopped(sessionId: string, cascade = this.host.policy().cascadeStop): Promise<number> {
     const model = await this.#reads.store.load(sessionId)
     if (!model.session) return 0
+    if (isHelmSession(model.session) && this.host.ariaEnabled?.() === false) return 0
     for (const pending of pendingCompletions(model))
       await this.#acknowledge(sessionId, pending.childSessionId, pending.turnId, 'disposed')
     if (!cascade) return 0
@@ -417,6 +420,11 @@ export class DelegationSupervisor {
   }
 
   async #deliver(parentId: string): Promise<void> {
+    if (
+      this.host.ariaEnabled?.() === false &&
+      isHelmSession((await this.#reads.store.loadExisting(parentId))?.session)
+    )
+      return
     await this.#reconcileDeliveries(parentId)
     const policy = this.host.policy()
     if (!policy.enabled || !policy.autoDeliverResults) return
@@ -549,6 +557,7 @@ export class DelegationSupervisor {
     const current = await this.#reads.store.loadExisting(parentId)
     if (
       this.#closed ||
+      (isHelmSession(current?.session) && this.host.ariaEnabled?.() === false) ||
       !current ||
       current.activeTurnId !== null ||
       current.lastTurn?.turnId !== parent.lastTurn.turnId ||

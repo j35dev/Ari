@@ -8,9 +8,12 @@ import { Info } from 'lucide-react'
  */
 export function NoticeNote({ text }: { text: string }) {
   return (
-    <div role="note" className="my-1 flex items-start gap-2 px-1 py-[3px] pl-4">
-      <Info size={11} className="mt-[3px] shrink-0 text-fg-subtle" aria-hidden="true" />
-      <span className="min-w-0 flex-1 text-xs leading-relaxed text-fg-muted">{text.trim()}</span>
+    <div
+      role="note"
+      className="my-1 flex items-start gap-2 py-1 text-[13.5px] leading-relaxed text-fg-muted"
+    >
+      <Info size={14} className="mt-1 shrink-0 text-fg-subtle" aria-hidden="true" />
+      <span className="min-w-0 flex-1">{text.trim()}</span>
     </div>
   )
 }

@@ -7,21 +7,18 @@
     var(--ari-shadow-3);
 }
 
+/* The composer is one object on the stage: a strong hairline and one shadow.
+   Focus darkens the edge; the accent stays out of it. */
 .ari-composer-shell {
+  border-radius: var(--ari-radius-2xl);
   background: var(--ari-surface-1);
-  border: 1px solid var(--ari-border);
-  box-shadow:
-    inset 0 1px 0 0 var(--ari-inner-stroke),
-    var(--ari-shadow-3);
+  border: 1px solid var(--ari-border-strong);
+  box-shadow: var(--ari-shadow-2);
   transition: border-color var(--ari-dur-fast) var(--ari-ease-out-expo);
 }
 
 .ari-composer-shell:focus-within {
-  border-color: var(--ari-border-strong);
-  box-shadow:
-    inset 0 1px 0 0 var(--ari-border),
-    0 0 0 1px var(--ari-accent-ring),
-    var(--ari-shadow-3);
+  border-color: color-mix(in oklab, var(--ari-fg) 26%, transparent);
 }
 
 .ari-card-elevated {

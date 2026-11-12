@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://first.example/"}
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider, useApp } from '../../lib/app-state'
@@ -72,6 +73,7 @@ vi.mock('../../lib/session', () => ({
     supports(op: string): boolean {
       return this.capabilities.includes(op)
     }
+    disconnect(): void {}
     query = vi.fn(async (op: string): Promise<unknown> => (op === 'session.get' ? snapshot : []))
     send = vi.fn<(command: unknown, key?: string) => Promise<unknown>>()
     subscribe = vi.fn(
@@ -107,7 +109,7 @@ function View({ showSession = true }: { showSession?: boolean }) {
       <p data-testid="capabilities">{app.capabilities.join(',')}</p>
       <p data-testid="error">{app.error}</p>
       <button onClick={() => void app.reconnect()}>Reconnect</button>
-      <button onClick={() => app.rememberOrigin('https://second.example')}>
+      <button onClick={() => app.rememberOrigin('https://second.tailnet.ts.net')}>
         Select second computer
       </button>
       <button onClick={app.changeComputer}>Change computer</button>
@@ -130,7 +132,7 @@ const store = (): MemoryDeviceStore => new MemoryDeviceStore()
 async function mount() {
   const deviceStore = store()
   const view = render(
-    <AppProvider store={deviceStore}>
+    <AppProvider store={deviceStore} navigateTo={vi.fn()}>
       <View />
     </AppProvider>,
   )
@@ -273,7 +275,7 @@ describe('active-session reconnect ownership', () => {
     vi.useFakeTimers()
     act(() => session.streams[0]!.close(1006))
     rerender(
-      <AppProvider store={deviceStore}>
+      <AppProvider store={deviceStore} navigateTo={vi.fn()}>
         <View showSession={false} />
       </AppProvider>,
     )
@@ -289,8 +291,8 @@ describe('active-session reconnect ownership', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select second computer' }))
     await advance(2100)
     expect(session.connect).toHaveBeenCalledTimes(1)
-    expect(control.sessions[1]?.connect).toHaveBeenCalledTimes(1)
-    expect(control.sessions[1]?.subscribe).toHaveBeenCalledTimes(1)
+    expect(control.sessions[1]).toBeUndefined()
+    expect(screen.getByTestId('connection').textContent).toBe('unpaired')
   })
 
   it('ignores old-computer authorization after selection changes, even if it ignores cancellation', async () => {
@@ -299,9 +301,9 @@ describe('active-session reconnect ownership', () => {
     control.result.mockReturnValueOnce(attempt.promise).mockResolvedValue('unknown-device')
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
     fireEvent.click(screen.getByRole('button', { name: 'Select second computer' }))
-    await waitFor(() => expect(screen.getByTestId('connection').textContent).toBe('unknown-device'))
+    await waitFor(() => expect(screen.getByTestId('connection').textContent).toBe('unpaired'))
     await act(async () => attempt.resolve('connected'))
-    expect(screen.getByTestId('connection').textContent).toBe('unknown-device')
+    expect(screen.getByTestId('connection').textContent).toBe('unpaired')
     expect(screen.getByTestId('capabilities').textContent).toBe('')
     expect(session.connect.mock.calls[1]?.[0]?.aborted).toBe(true)
     expect(session.subscribe).toHaveBeenCalledTimes(1)
@@ -385,7 +387,7 @@ describe('active-session reconnect ownership', () => {
     expect(session.send).not.toHaveBeenCalled()
   })
 
-  it('retains an uncertain command identity and payload until the user explicitly retries it', async () => {
+  it('retains an uncertain command identity and payload when checking an absent host receipt', async () => {
     const pending = {
       key: 'exact-pending-receipt',
       text: 'Run the tests',
@@ -394,23 +396,19 @@ describe('active-session reconnect ownership', () => {
     }
     writePending('https://first.example', 'phone', 'sess_1', pending)
     const { session } = await mount()
-    session.send.mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
+    session.query.mockImplementation(async (op) => {
+      if (op === 'command.status') throw new RemoteError('not_found', 'Host history absent')
+      return op === 'session.get' ? snapshot : []
+    })
     vi.useFakeTimers()
     act(() => session.streams[0]!.close(1006))
     await advance(2100)
     expect(session.send).not.toHaveBeenCalled()
     expect(readPending('https://first.example', 'phone', 'sess_1')).toEqual(pending)
-    fireEvent.click(screen.getByRole('button', { name: 'Retry same submission' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check submission receipt' }))
     await advance(0)
-    expect(session.send).toHaveBeenCalledExactlyOnceWith(
-      {
-        op: 'session.queue',
-        sessionId: 'sess_1',
-        text: pending.text,
-        attachmentIds: pending.attachmentIds,
-      },
-      pending.key,
-    )
+    expect(session.send).not.toHaveBeenCalled()
+    expect(session.query).toHaveBeenCalledWith('command.status', { idempotencyKey: pending.key })
     expect(readPending('https://first.example', 'phone', 'sess_1')).toEqual(pending)
   })
 })

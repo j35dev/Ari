@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { rpc } from '../../lib/rpc'
+import { findTerminalTab } from './terminal-dock'
+import { useToolSessionClient } from './tool-session-client'
+import { createTerminalSessionAdapter } from './terminal-session-adapter'
 import { bindTerminalClipboard } from './terminal-clipboard'
 
 function readToken(name: string, fallback: string): string {
@@ -40,6 +42,19 @@ export function TerminalPane({
   /** Receives the `terminal.create` rejection message so the dock can offer a retry. */
   onError?: (message: string) => void
 }) {
+  const owner = findTerminalTab(terminalId)?.owner
+  const scopeKey =
+    owner?.kind === 'remote'
+      ? JSON.stringify([owner.machineId, owner.sessionId])
+      : terminalId.startsWith('rterm_')
+        ? '["invalid"]'
+        : undefined
+  const sessionClient = useToolSessionClient(scopeKey)
+  const rpc = useMemo(
+    () => createTerminalSessionAdapter(sessionClient),
+    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability],
+  )
+  const remote = sessionClient.scope.kind === 'remote' || terminalId.startsWith('rterm_')
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   // Kept out of the spawn effect's deps: reporting a failure must not respawn the pty.
@@ -47,7 +62,15 @@ export function TerminalPane({
   onErrorRef.current = onError
 
   useEffect(() => {
-    if (cwd === null) return
+    if (remote && rpc.readOnly) {
+      onErrorRef.current?.('Reconnect this terminal to its owning machine.')
+      return
+    }
+    if (remote && initialCommand) {
+      onErrorRef.current?.('Launch presets are unavailable remotely. Use the host shell directly.')
+      return
+    }
+    if (cwd === null && !remote) return
     const host = hostRef.current
     if (!host) return
 
@@ -143,12 +166,17 @@ export function TerminalPane({
     // a blank xterm with a blinking cursor and no way to tell it had failed.
     if (!attachOnly)
       void rpc
-        .invoke('terminal.create', { id: terminalId, cwd })
-        .then(() => {
-          if (initialCommand !== undefined && initialCommand.length > 0) {
-            return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
+        .invoke('terminal.create', { id: terminalId, cwd: cwd ?? '.' })
+        .then(async () => {
+          if (!remote && initialCommand !== undefined && initialCommand.length > 0) {
+            await rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
           }
-          return undefined
+          if (remote)
+            await rpc.invoke('terminal.resize', {
+              id: terminalId,
+              cols: term.cols,
+              rows: term.rows,
+            })
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
@@ -157,11 +185,32 @@ export function TerminalPane({
         })
 
     const dataSub = rpc.subscribe('terminal.data', { id: terminalId }, (payload) => {
-      const frame = payload as { id: string; data: string }
-      if (frame.id === terminalId) term.write(frame.data)
+      const frame = payload as {
+        id: string
+        data: string
+        reset?: boolean
+        exited?: boolean
+        error?: string
+      }
+      if (frame.id !== terminalId) return
+      if (frame.reset) term.reset()
+      if (frame.error || frame.exited) {
+        term.options.disableStdin = true
+        const message = frame.error ?? 'The host shell exited.'
+        term.writeln(`\r\n[${message}]`)
+        onErrorRef.current?.(message)
+      }
+      term.write(frame.data)
     })
     const inputSub = term.onData((data) => {
-      void rpc.invoke('terminal.write', { id: terminalId, data }).catch(() => undefined)
+      void rpc.invoke('terminal.write', { id: terminalId, data }).catch((error: unknown) => {
+        if (!remote) return
+        term.options.disableStdin = true
+        const message =
+          error instanceof Error ? error.message : 'The terminal action could not be confirmed.'
+        term.writeln(`\r\n[${message}]`)
+        onErrorRef.current?.(message)
+      })
     })
 
     const observer = new ResizeObserver(fitAndResize)
@@ -181,7 +230,7 @@ export function TerminalPane({
     }
     // initialCommand is consumed once at spawn; excluding it from these deps
     // keeps the pty alive across re-renders.
-  }, [terminalId, cwd, attachOnly])
+  }, [terminalId, cwd, attachOnly, rpc, remote])
 
   // Focus follows pane activation without re-creating anything.
   useEffect(() => {
@@ -190,7 +239,7 @@ export function TerminalPane({
 
   return (
     <div className="h-full min-h-0 w-full overflow-hidden">
-      <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden px-3 py-2" />
+      <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden p-2.5" />
     </div>
   )
 }

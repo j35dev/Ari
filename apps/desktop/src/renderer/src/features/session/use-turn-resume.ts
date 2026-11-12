@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from './session-client'
 import { formatResumeTime, resumeTime } from './resume-time'
 import { classifyTurnError, THROTTLED_TITLE } from './turnError'
 import type { TurnResume } from './TurnErrorBanner'
@@ -40,6 +40,7 @@ export function useTurnResume(
   turnError: string | null,
   driverKind: DriverKind,
 ): TurnResume | undefined {
+  const rpc = useSessionClient()
   const throttled = turnError !== null && classifyTurnError(turnError).title === THROTTLED_TITLE
   const generation = useRef(0)
   const request = useRef(0)
@@ -87,7 +88,7 @@ export function useTurnResume(
           update(owner, operation, { pending: null, error: 'lookup' })
         })
     },
-    [sessionId, update],
+    [sessionId, update, rpc],
   )
 
   useEffect(() => {

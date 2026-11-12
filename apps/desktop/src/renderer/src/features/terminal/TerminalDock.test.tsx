@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalDock } from './TerminalDock'
-import { resetTerminalDock } from './terminal-dock'
+import { openTerminalTab, resetTerminalDock } from './terminal-dock'
 import { requestTerminalTab } from './terminal-requests'
 
 const { invokeFn } = vi.hoisted(() => ({ invokeFn: vi.fn() }))
@@ -73,6 +73,24 @@ describe('TerminalDock', () => {
     expect(panes()[0]).toHaveAttribute('data-cwd', 'D:\\Projects\\Ari')
     expect(panes()[0]).toHaveAttribute('data-active', 'true')
     expect(screen.getByRole('button', { name: 'Ari Terminal' })).toBeInTheDocument()
+  })
+
+  it('never mounts a remote-owned stored shell in the local rail', async () => {
+    installRpc()
+    const id = openTerminalTab({
+      title: 'remote-only',
+      cwd: '/remote',
+      owner: {
+        kind: 'remote',
+        machineId: 'host',
+        sessionId: 'sess_remote',
+      },
+    })
+    render(<TerminalDock cwd="/local" />)
+    await waitFor(() => expect(panes()).toHaveLength(1))
+    expect(panes()[0]).toHaveAttribute('data-cwd', '/local')
+    expect(panes()[0]).not.toHaveAttribute('data-id', id)
+    expect(screen.queryByRole('button', { name: 'remote-only' })).not.toBeInTheDocument()
   })
 
   it('asks for a project instead of opening a shell it cannot run', async () => {
@@ -210,17 +228,17 @@ describe('TerminalDock', () => {
     expect(invokeFn).not.toHaveBeenCalledWith('terminal.kill', expect.anything())
   })
 
-  it('closes the rail through the host when asked', async () => {
-    const user = userEvent.setup()
+  it('leaves closing the panel to the host tab row', async () => {
     const onClose = vi.fn()
     installRpc()
     render(<TerminalDock cwd="/repo" onClose={onClose} />)
     await waitFor(() => expect(panes()).toHaveLength(1))
 
-    await user.click(screen.getByRole('button', { name: 'Close terminal panel' }))
-
-    expect(onClose).toHaveBeenCalledOnce()
-    // Parking the rail must not kill the shell — only the tab's × does that.
+    // The docked panel's tab row draws the one close button; the rail must not
+    // repeat it, and the only × it shows belongs to a tab.
+    expect(screen.queryByRole('button', { name: 'Close terminal panel' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close Ari Terminal' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
     expect(invokeFn).not.toHaveBeenCalledWith('terminal.kill', expect.anything())
   })
 })

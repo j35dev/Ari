@@ -1,21 +1,28 @@
-import { Spinner } from '@ari/ui/spinner'
 import type { StatusTone } from './provider-status'
 
-const DOT_CLASS: Partial<Record<StatusTone, string>> = {
-  ok: 'bg-success',
-  update: 'bg-accent',
-  warning: 'bg-warning',
-  error: 'bg-danger',
+/**
+ * Provider tones in the app's one status vocabulary (styles/frame.css). An
+ * update and a warning are both "needs you"; the headline beside the glyph
+ * says which.
+ */
+const STATUS: Partial<Record<StatusTone, 'done' | 'attention' | 'error' | 'working'>> = {
+  ok: 'done',
+  update: 'attention',
+  warning: 'attention',
+  error: 'error',
+  busy: 'working',
 }
 
-/** A coloured dot for states with a verdict, a spinner while one is pending. */
+/**
+ * The status glyph for states with a verdict or one pending; nothing for
+ * quiet ones. Sized to sit on the first line of 13px copy.
+ */
 export function StatusDot({ tone }: { tone: StatusTone }) {
-  if (tone === 'busy') return <Spinner className="mt-0.5 h-3 w-3 shrink-0" />
-  const dot = DOT_CLASS[tone]
-  if (dot === undefined) return null
+  const status = STATUS[tone]
+  if (status === undefined) return null
   return (
-    <span aria-hidden className="flex h-[1.5em] shrink-0 items-center">
-      <span className={`block size-1.5 rounded-full ${dot}`} />
+    <span aria-hidden className="flex h-5 shrink-0 items-center">
+      <span className="ari-status" data-status={status} />
     </span>
   )
 }

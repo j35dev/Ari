@@ -299,26 +299,10 @@ export async function defaultDeviceStore(
 ): Promise<DeviceStore> {
   try {
     if (await probe()) {
-      const store = new IndexedDbDeviceStore()
-      // Migrate the original single-computer store only to its remembered computer.
-      const remembered =
-        typeof localStorage === 'undefined'
-          ? null
-          : (localStorage.getItem('ari.remote.origin') ??
-            (typeof location === 'undefined' ? null : location.origin))
-      if (remembered !== null) {
-        const scoped = store.forOrigin(remembered)
-        if ((await scoped.loadRecord()) === null) {
-          const record = await store.loadRecord()
-          const key = await store.loadKey()
-          if (record !== null && key !== null) {
-            await scoped.saveKey(key)
-            await scoped.saveRecord(record)
-            await store.clear()
-          }
-        }
-      }
-      return store
+      // Legacy records have no trustworthy gateway binding. Neither the
+      // selected origin nor this PWA's origin proves who approved that key.
+      // Retain the legacy database untouched; each origin must pair afresh.
+      return new IndexedDbDeviceStore()
     }
   } catch {
     // A probe that throws is a probe that failed.

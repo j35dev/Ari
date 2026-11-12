@@ -1,0 +1,384 @@
+{
+  "recordedAt": "2026-11-12T16:22:33.162Z",
+  "source": "d8c812eee0163fe308d4fde472ef5e6bc80a9c53",
+  "collectionCheckpoint": "d8c812eee0163fe308d4fde472ef5e6bc80a9c53",
+  "allPassed": true,
+  "fixtureEnvironment": {
+    "temp": "D:/Projects/.ari-cache/mvp",
+    "testWorkers": 1,
+    "fileParallelism": false,
+    "priority": "BelowNormal",
+    "lease": "scripts/coordination/run-heavy.mjs"
+  },
+  "checks": [
+    {
+      "name": "install",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-install",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "install",
+        "--frozen-lockfile",
+        "--offline",
+        "--store-dir",
+        "D:/Projects/.ari-cache/pnpm-store"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:01:59.615Z",
+      "finishedAt": "2026-11-12T16:02:03.980Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\install.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "install.txt",
+      "sha256": "c5f7cb130eb0f795f87bf88d111a72ad77a221bacf0e2325df67145321285d0f",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-install",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "install",
+            "--frozen-lockfile",
+            "--offline",
+            "--store-dir",
+            "D:/Projects/.ari-cache/pnpm-store"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-typecheck",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "-r",
+        "--workspace-concurrency=1",
+        "typecheck"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:02:03.983Z",
+      "finishedAt": "2026-11-12T16:03:52.154Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\typecheck.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "typecheck.txt",
+      "sha256": "8af68047b2772bc19e7ab972c2803056cad536e2477a30f793c641b5320426dd",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-typecheck",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "-r",
+            "--workspace-concurrency=1",
+            "typecheck"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "lint",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-lint",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "lint"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:03:52.155Z",
+      "finishedAt": "2026-11-12T16:06:11.705Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\lint.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "lint.txt",
+      "sha256": "cd981d2946ba6c53f5d35fc7406d133b265835dd9cbc883e8298b203851c1845",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-lint",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "lint"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "packaging-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-packaging-tests",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "packaging/after-pack.test.js",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:06:11.706Z",
+      "finishedAt": "2026-11-12T16:06:16.109Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\packaging-tests.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "packaging-tests.txt",
+      "sha256": "0ffaf2a5dd89c212eb03e160248b43409b9d72121826acc8f97338caee5410a7",
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  3 passed (3)"
+      ],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-packaging-tests",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "test",
+            "packaging/after-pack.test.js",
+            "--maxWorkers=1",
+            "--no-file-parallelism"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "desktop-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-desktop-build",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:06:16.110Z",
+      "finishedAt": "2026-11-12T16:06:40.985Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\desktop-build.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "desktop-build.txt",
+      "sha256": "acc23e1dfd469e4bb1a2a56f964ac02fa5347b92d7a7ea0733ba6466d8f1efec",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-desktop-build",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "build"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "mobile-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-mobile-build",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/mobile",
+        "build"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:06:40.986Z",
+      "finishedAt": "2026-11-12T16:06:53.645Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\mobile-build.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "mobile-build.txt",
+      "sha256": "de77395d53091d9ffbbdb3a65873badbf5398f46cd6d1216c8225f51640310ab",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-mobile-build",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/mobile",
+            "build"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "directory-package",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-directory-package",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "exec",
+        "electron-builder",
+        "--dir",
+        "--win",
+        "--x64",
+        "--publish",
+        "never",
+        "--config.directories.output=D:/Projects/.ari-cache/machines-directory-package"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:06:53.646Z",
+      "finishedAt": "2026-11-12T16:09:03.639Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\directory-package.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "directory-package.txt",
+      "sha256": "8460e44b62234c4b00c8b25ec3e56fd2cbf39f0c527f12e3170ee3e2127a74dd",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-directory-package",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "exec",
+            "electron-builder",
+            "--dir",
+            "--win",
+            "--x64",
+            "--publish",
+            "never",
+            "--config.directories.output=D:/Projects/.ari-cache/machines-directory-package"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "mobile-after-screenshots",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-mobile-after-screenshots",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "exec",
+        "node",
+        "apps/mobile/scripts/capture-layout.mjs",
+        "after"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:09:03.642Z",
+      "finishedAt": "2026-11-12T16:10:24.536Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\mobile-after-screenshots.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "mobile-after-screenshots.txt",
+      "sha256": "b77f52733215a1712e56f8fc929461305b1a9610e1c38b206c42ab570d04d512",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-mobile-after-screenshots",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "exec",
+            "node",
+            "apps/mobile/scripts/capture-layout.mjs",
+            "after"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "mobile-recovery-screenshots",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "publication-packaging-mobile-recovery-screenshots",
+        "D:/Projects/Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "exec",
+        "node",
+        "apps/mobile/scripts/capture-layout.mjs",
+        "recovery"
+      ],
+      "cwd": "D:/Projects/Ari-machines",
+      "startedAt": "2026-11-12T16:10:24.537Z",
+      "finishedAt": "2026-11-12T16:10:58.071Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-packaging-verification\\mobile-recovery-screenshots.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "mobile-recovery-screenshots.txt",
+      "sha256": "7cc43a901c53f057170c3ca05ab91f91b65dc631b6e47b1c07436c3b4e833dd3",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "publication-packaging-mobile-recovery-screenshots",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "exec",
+            "node",
+            "apps/mobile/scripts/capture-layout.mjs",
+            "recovery"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    }
+  ]
+}

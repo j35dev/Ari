@@ -1,0 +1,7 @@
+{"resourceGate":{"commitHeadroomBytes":8194228224,"cFreeBytes":21768531968}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"final-desktop-types","pid":19004,"startedAt":"2026-11-12T14:06:16.555Z","id":"47c14910-534b-45e3-99dd-44ad00df5d30"}
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-machines\apps\desktop
+> tsc --noEmit
+
+{"heavyResult":{"worker":"final-desktop-types","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","typecheck"],"exitCode":0,"signal":null}}

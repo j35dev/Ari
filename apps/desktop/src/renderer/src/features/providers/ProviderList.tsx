@@ -31,8 +31,8 @@ export function ProviderList({ rows, selected, onSelect, onEnabledChange }: Prov
         return (
           <li
             key={row.kind}
-            className={`flex items-center gap-2 border-b border-border/60 pr-3 transition-colors last:border-b-0 ${
-              isSelected ? 'bg-surface-2' : 'hover:bg-surface-2/50'
+            className={`flex items-center gap-2 border-b border-border pr-4 transition-colors last:border-b-0 ${
+              isSelected ? 'bg-fg/9' : 'hover:bg-fg/5'
             }`}
           >
             <button
@@ -40,21 +40,23 @@ export function ProviderList({ rows, selected, onSelect, onEnabledChange }: Prov
               aria-label={`${name}, ${row.status.headline}`}
               aria-current={isSelected ? 'true' : undefined}
               onClick={() => onSelect(row.kind)}
-              className={`flex min-w-0 flex-1 items-start gap-2.5 py-3 pl-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
+              className={`flex min-w-0 flex-1 items-start gap-2.5 py-3 pl-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
                 row.enabled === false && !isSelected ? 'opacity-60' : ''
               }`}
             >
-              <span className="mt-0.5">
+              <span className="flex h-5 shrink-0 items-center">
                 <ProviderLogo kind={row.kind} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-sm font-medium text-fg">{name}</span>
                   {row.version !== null && (
-                    <code className="shrink-0 font-mono text-2xs text-fg-subtle">v{row.version}</code>
+                    <code className="shrink-0 font-mono text-xs text-fg-subtle">
+                      v{row.version}
+                    </code>
                   )}
                 </span>
-                <span className="mt-0.5 flex items-start gap-1.5 text-xs text-fg-muted">
+                <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-5 text-fg-subtle">
                   <StatusDot tone={row.status.tone} />
                   <span className="truncate">{row.status.headline}</span>
                 </span>

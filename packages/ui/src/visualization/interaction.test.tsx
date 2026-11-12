@@ -77,7 +77,7 @@ describe('visualization data tooltips', () => {
     const mark = screen.getByRole('img', { name: 'Before · Research: 12 hours' })
     fireEvent.click(mark)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Pinned')
-    fireEvent.click(screen.getByRole('button', { name: 'Horizontal bars' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show bars as rows' }))
     expect(screen.queryByRole('tooltip')).toBeNull()
     expect(screen.getByRole('img', { name: 'Before · Research: 12 hours' })).not.toBe(mark)
   })

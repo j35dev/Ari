@@ -9,7 +9,8 @@ import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SettingsSection } from './SettingsSection'
+import { SETTINGS_HINT_CLASS, SETTINGS_LABEL_CLASS, SettingsSection } from './SettingsSection'
+import { rowAction } from '../../lib/recipes'
 import { useEngineSettings } from './useEngineSettings'
 import { SourceControlConnectionsSettings } from './SourceControlConnectionsSettings'
 
@@ -30,27 +31,26 @@ const TOOLS: { key: 'git' | 'github' | 'gitlab'; label: string }[] = [
 ]
 
 function ToolRow({ label, tool }: { label: string; tool: SourceControlTool | null }) {
-  const tone =
+  // One status vocabulary: checking, not installed, ready, or needs a sign-in.
+  const status =
     tool === null
-      ? 'bg-fg-subtle/40'
+      ? 'working'
       : !tool.installed
-        ? 'bg-fg-subtle/60'
+        ? 'queued'
         : tool.account || label === 'Git'
-          ? 'bg-success'
-          : 'bg-warning'
+          ? 'done'
+          : 'attention'
   return (
-    <div className="flex min-h-14 items-center gap-3 px-4 py-3">
-      <span aria-hidden className={`size-2 shrink-0 rounded-full ${tone}`} />
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      <span aria-hidden className="ari-status" data-status={status} />
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-sm font-medium text-fg">
+        <p className={`flex items-center gap-2 ${SETTINGS_LABEL_CLASS}`}>
           {label}
           {tool?.version ? (
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-2xs font-normal text-fg-muted">
-              {tool.version}
-            </code>
+            <code className="font-mono text-xs font-normal text-fg-subtle">{tool.version}</code>
           ) : null}
         </p>
-        <p className="mt-0.5 text-xs text-fg-muted">{tool ? tool.detail : 'Checking…'}</p>
+        <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>{tool ? tool.detail : 'Checking…'}</p>
       </div>
     </div>
   )
@@ -94,7 +94,7 @@ export function SourceControlSettings() {
     >
       <SettingsSection title="Hosting connections">
         <SourceControlConnectionsSettings environment={environment} onChanged={scan} />
-        <p className="px-4 py-3 text-xs leading-relaxed text-fg-subtle">
+        <p className={`px-4 py-3.5 ${SETTINGS_HINT_CLASS}`}>
           Git commits, branches, fetch, push and pull work with any Git remote. Connect a host to
           create, review and manage its pull or merge requests.
         </p>
@@ -188,9 +188,14 @@ export function SourceControlSettings() {
             disabled={scanning}
             aria-label="Check again"
             title="Check Git and hosting tools again"
-            className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+            className={`${rowAction} disabled:opacity-50`}
           >
-            <RefreshCw size={12} className={scanning ? 'animate-spin' : ''} aria-hidden />
+            <RefreshCw
+              size={12}
+              strokeWidth={1.7}
+              className={scanning ? 'animate-spin' : ''}
+              aria-hidden
+            />
           </button>
         }
       >
@@ -198,7 +203,7 @@ export function SourceControlSettings() {
           <ToolRow key={tool.key} label={tool.label} tool={environment?.[tool.key] ?? null} />
         ))}
         {scanError ? (
-          <p role="alert" className="px-4 py-3 text-xs text-danger">
+          <p role="alert" className="px-4 py-3.5 text-[13px] text-danger">
             {scanError}
           </p>
         ) : null}

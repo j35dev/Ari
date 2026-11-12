@@ -12,6 +12,7 @@
  */
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
+import '@fontsource-variable/geist-pixel'
 import '@fontsource-variable/jetbrains-mono'
 import '@fontsource-variable/fira-code'
 import '@fontsource-variable/manrope'

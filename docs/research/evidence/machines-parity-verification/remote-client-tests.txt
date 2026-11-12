@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":8076337152,"cFreeBytes":22019870720}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-remote-client-tests","pid":26776,"startedAt":"2026-11-12T13:39:15.475Z","id":"bd51252c-2627-4249-95f2-00042429e2d1"}
+
+> @ari/remote-client@0.1.0 test D:\Projects\Ari-machines\packages\remote-client
+> vitest run --passWithNoTests "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/remote-client
+
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  21:39:18
+   Duration  1.22s (transform 227ms, setup 0ms, import 516ms, tests 336ms, environment 0ms)
+
+{"heavyResult":{"worker":"integrated-remote-client-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/remote-client","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

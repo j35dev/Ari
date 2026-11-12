@@ -48,7 +48,7 @@ describe('inline visualizations', () => {
       const figure = screen.getByRole('figure', { name: validated.title })
       expect(container.querySelector('.ari-viz-error')).toBeNull()
       if (validated.type !== 'comparison')
-        fireEvent.click(within(figure).getByRole('button', { name: 'Data' }))
+        fireEvent.click(within(figure).getByRole('button', { name: 'Show data table' }))
       expect(within(figure).getByRole('table')).toHaveAccessibleName(`${validated.title} — data`)
       expect(within(figure).getAllByRole('row').length).toBeGreaterThan(1)
     },
@@ -113,7 +113,7 @@ describe('inline visualizations', () => {
           title: 'Cycle',
           nodes: [
             { id: 'a', label: 'A' },
-            { id: 'b', label: 'B' },
+            { id: 'b', label: 'B', tone: 'warning' },
           ],
           edges: [
             { from: 'a', to: 'a' },
@@ -124,11 +124,10 @@ describe('inline visualizations', () => {
       />,
     )
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
-    expect(
-      [...container.querySelectorAll('rect')]
-        .map((rect) => rect.getAttribute('fill'))
-        .filter((fill) => fill === color(0) || fill === color(1)),
-    ).toEqual([color(0), color(1)])
+    // Position is not a category: only the node given a tone carries colour.
+    const fills = [...container.querySelectorAll('rect')].map((rect) => rect.getAttribute('fill'))
+    expect(fills.filter((fill) => fill === 'var(--ari-warning)')).toHaveLength(1)
+    expect(fills.filter((fill) => fill === color(0) || fill === color(1))).toEqual([])
     rerender(
       <Visualization
         source={JSON.stringify({
@@ -320,7 +319,10 @@ describe('inline visualizations', () => {
           type: 'bar',
           title: 'Series',
           labels: ['A'],
-          series: [{ name: seriesName, values: [1] }],
+          series: [
+            { name: seriesName, values: [1] },
+            { name: 'Other', values: [2] },
+          ],
         })}
       />,
     )
@@ -348,8 +350,8 @@ describe('inline visualizations', () => {
         const { unmount } = render(<Visualization source={source} />)
         const svg = screen.getByRole('img', { name: bar.title as string })
         // Text stays 12px at every width: the chart widens, its height does not grow.
-        expect(svg).toHaveStyle({ width: `${room}px`, height: '320px' })
-        expect(svg.getAttribute('viewBox')).toBe(`0 0 ${room} 320`)
+        expect(svg).toHaveStyle({ width: `${room}px`, height: '300px' })
+        expect(svg.getAttribute('viewBox')).toBe(`0 0 ${room} 300`)
         unmount()
       }
       width.mockReturnValue(368)
@@ -400,7 +402,7 @@ describe('inline visualizations', () => {
         />,
       )
       const gantt = screen.getByRole('img', { name: 'Plan' })
-      expect(Number(gantt.getAttribute('viewBox')?.split(' ')[2])).toBeLessThanOrEqual(368 - 48)
+      expect(Number(gantt.getAttribute('viewBox')?.split(' ')[2])).toBeLessThanOrEqual(368)
       rerender(
         <Visualization
           source={JSON.stringify({
@@ -484,7 +486,62 @@ describe('inline visualizations', () => {
         })}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Data' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show data table' }))
     expect(screen.getByRole('table')).toHaveTextContent('0.0000123')
+  })
+
+  it('draws many bars as ranked rows and names a lone series by the title alone', () => {
+    const many = {
+      version: 1,
+      type: 'bar',
+      title: 'Sizes',
+      unit: 'KB',
+      labels: Array.from({ length: 12 }, (_, i) => `file-${String(i)}`),
+      series: [{ name: 'Size', values: Array.from({ length: 12 }, (_, i) => 12 - i) }],
+    }
+    const { container, unmount } = render(<Visualization source={JSON.stringify(many)} />)
+    const flip = screen.getByRole('button', { name: 'Show bars as rows' })
+    expect(flip).toHaveAttribute('aria-pressed', 'true')
+    // One series: the title says what is plotted, so there is no legend to repeat it.
+    expect(screen.queryByRole('group', { name: 'Data series' })).toBeNull()
+    // A single series prints each value at its bar's tip.
+    expect(container.querySelectorAll('.ari-viz-value-label')).toHaveLength(12)
+    fireEvent.click(flip)
+    expect(flip).toHaveAttribute('aria-pressed', 'false')
+    unmount()
+    // The agent's own choice of orientation is kept.
+    render(<Visualization source={JSON.stringify({ ...many, orientation: 'vertical' })} />)
+    expect(screen.getByRole('button', { name: 'Show bars as rows' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('fits a long line to the reply and thins its labels instead of scrolling', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600)
+    try {
+      const { container } = render(
+        <Visualization
+          source={JSON.stringify({
+            version: 1,
+            type: 'line',
+            title: 'Day',
+            labels: Array.from({ length: 48 }, (_, i) => `t${String(i)}`),
+            series: [
+              { name: 'A', values: Array.from({ length: 48 }, (_, i) => i) },
+              { name: 'B', values: Array.from({ length: 48 }, (_, i) => 48 - i) },
+            ],
+          })}
+        />,
+      )
+      expect(screen.getByRole('img', { name: 'Day' })).toHaveStyle({ width: '600px' })
+      const printed = container.querySelectorAll('text.ari-viz-axis-label').length
+      expect(printed).toBeGreaterThan(2)
+      expect(printed).toBeLessThan(48)
+      // Every point of every series is still there to inspect.
+      expect(screen.getAllByRole('img', { name: /^[AB] · t\d+: / })).toHaveLength(96)
+    } finally {
+      width.mockRestore()
+    }
   })
 })

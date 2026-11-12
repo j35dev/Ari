@@ -1,0 +1,614 @@
+// @vitest-environment node
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { delegationSettingsSchema } from '@ari/contracts/agent-control'
+import type { Session } from '@ari/contracts/session'
+import { SessionStore } from '@ari/engine/session-store'
+import { GitService } from '@ari/engine/git'
+import { DriverRegistry } from '@ari/providers/registry'
+import { UNKNOWN_PROVIDER_CAPABILITIES } from '@ari/providers/driver'
+import { err } from '@ari/shared/result'
+import { Engine } from './engine'
+import { startAgentRuntime } from './agent-runtime'
+import { createSession } from './session-create'
+import { createRemoteHost, type RemoteDesktopDeps } from './remote-host'
+import { PairingService } from '@ari/remote-gateway/pairing'
+import { createRemoteGateway } from '@ari/remote-gateway/gateway'
+import { deviceKey } from '../../../../packages/remote-gateway/src/testing/device-key'
+import { remoteProjectWorkspacesSchema } from '@ari/contracts/remote'
+
+let dir: string, repo: string
+let store: SessionStore, engine: Engine
+let runtime: Awaited<ReturnType<typeof startAgentRuntime>>
+const folders = new Map<string, string>()
+let steer: () => Promise<boolean>
+const base = {
+  driverKind: 'codex' as const,
+  modelId: 'fixture',
+  permissionMode: 'full' as const,
+  status: 'idle' as const,
+  createdAt: 1,
+  updatedAt: 1,
+}
+const launch = {
+  projectId: 'p',
+  title: 'Parallel root',
+  driverKind: 'codex',
+  modelId: 'fixture',
+  prompt: 'Work',
+  idempotencyKey: 'parallel',
+}
+const git = (...args: string[]) =>
+  execFileSync('git', args, { cwd: repo, windowsHide: true, encoding: 'utf8' }).trim()
+
+async function boot(recover = false): Promise<void> {
+  const registry = new DriverRegistry()
+  registry.register({
+    kind: 'codex',
+    create: async () => {
+      let end!: () => void
+      const waiting = new Promise<void>((resolve) => {
+        end = resolve
+      })
+      return {
+        capabilities: () => ({ ...UNKNOWN_PROVIDER_CAPABILITIES, steering: 'live' }),
+        steer: async () => steer(),
+        start: () => ({
+          async *[Symbol.asyncIterator]() {
+            await waiting
+            yield { type: 'done' as const }
+          },
+        }),
+        interrupt: () => end(),
+        dispose: async () => end(),
+      }
+    },
+  })
+  engine = new Engine({
+    store,
+    registry,
+    publish: () => undefined,
+    resolveWorkspace: async (id) => folders.get(id) ?? null,
+    authorizeTurn: async (session) => runtime.authorizeTurn(session),
+    authorizeWorkspace: async (session) => runtime.service.authorizeWorkspace(session),
+    git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+  })
+  runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: join(dir, 'profile'),
+    cliPath: resolve('resources/cli/ari.cjs'),
+    executable: process.execPath,
+    version: 'test',
+    recover,
+    policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    providers: async () => [
+      { driverKind: 'codex', available: true, models: [{ id: 'fixture', label: 'Fixture' }] },
+    ],
+    projects: async () =>
+      [...folders]
+        .filter(([id]) => id !== 'helm')
+        .map(([projectId, path]) => ({
+          projectId,
+          path,
+          name: projectId,
+          available: true,
+          defaultAgent: { ...base, effort: null },
+        })),
+  })
+}
+
+beforeEach(async () => {
+  steer = async () => true
+  dir = await mkdtemp(join(tmpdir(), 'ari-root-concurrency-'))
+  repo = join(dir, 'repository')
+  await mkdir(repo)
+  git('init', '-q')
+  git('config', 'user.name', 'Fixture')
+  git('config', 'user.email', 'fixture@example.com')
+  git('config', 'core.autocrlf', 'false')
+  await writeFile(join(repo, 'base.txt'), 'base\n')
+  git('add', '.')
+  git('commit', '-qm', 'base')
+  folders.clear()
+  folders.set('p', repo)
+  folders.set('alias', repo)
+  folders.set('helm', dir)
+  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  await boot()
+  await engine.createSession({ ...base, id: 'aria', projectId: 'helm', title: 'Aria' })
+})
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await engine.shutdown()
+  await runtime.close()
+  for (const row of await store.listSessions()) await store.closeJournal(row.id)
+  await rm(dir, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 })
+})
+async function seed(id: string, projectId = 'p'): Promise<void> {
+  await engine.createSession({ ...base, id, projectId, title: id })
+}
+const start = (sessionId: string) =>
+  engine.dispatch({ type: 'turn.start', sessionId, text: 'Work', attachments: [] })
+
+it('creates the first remote desktop send through the actual root policy and replays its receipt once', async () => {
+  await seed('human')
+  expect(await start('human')).toEqual({ accepted: true })
+  await vi.waitFor(() => expect(engine.hasLiveTurn('human')).toBe(true))
+  const desktop: RemoteDesktopDeps = {
+    projects: async () => [
+      {
+        id: 'p',
+        name: 'Project',
+        path: repo,
+        colorIndex: 0,
+        createdAt: 1,
+        lastOpenedAt: 0,
+        open: true,
+        status: 'ok',
+        defaultAgent: null,
+      },
+    ],
+    createSession: (params, selection) =>
+      createSession(
+        {
+          loadProject: async () => undefined,
+          createSession: (session) => engine.createSession(session),
+          prepareRootWorkspace: runtime.prepareRootWorkspace,
+        },
+        params,
+        selection,
+      ),
+    version: () => ({
+      ariVersion: 'fixture',
+      protocolVersion: 1,
+      hostingMode: 'desktop',
+      update: {
+        supported: false,
+        reason: 'Manual only.',
+        availableVersion: null,
+        stagedVersion: null,
+        guidance: 'Update Ari on this machine.',
+      },
+    }),
+    stopChildren: async (id) => ({ stopped: await runtime.supervisor.stopBelow(id) }),
+    resume: {
+      get: async () => ({ at: null }),
+      schedule: async (_id, at) => ({ at }),
+      cancel: async () => ({ cancelled: false }),
+    },
+    scm: {
+      summary: async () => err({ code: 'unsupported', message: 'Fixture' }),
+      status: async () => err({ code: 'unsupported', message: 'Fixture' }),
+      review: async () => err({ code: 'unsupported', message: 'Fixture' }),
+      diff: async () => err({ code: 'unsupported', message: 'Fixture' }),
+    },
+  }
+  const host = createRemoteHost({
+    engine,
+    store,
+    pairing: new PairingService(),
+    desktop,
+    driverKinds: ['codex'],
+    defaultPermissionMode: () => 'full',
+    defaultDriverKind: () => 'codex',
+    hasProject: async () => true,
+    listProjects: async () => [{ id: 'p', name: 'Project' }],
+    listModels: async () => [
+      { driverKind: 'codex', available: true, models: [{ id: 'fixture', label: 'Fixture' }] },
+    ],
+    mintSessionId: () => 'unused',
+  })
+  const gateway = await createRemoteGateway({
+    host,
+    allowedOrigins: ['http://127.0.0.1:5173'],
+    port: 0,
+  })
+  const key = deviceKey()
+  let token: string | undefined
+  const call = async (path: string, payload: unknown) => {
+    const response = await fetch(gateway.origin + path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://127.0.0.1:5173',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    })
+    return {
+      status: response.status,
+      body: (await response.json()) as { ok: boolean; result: Record<string, unknown> },
+    }
+  }
+  try {
+    const invitation = gateway.pairing.begin(gateway.origin)
+    const request = await call('/pair/request', {
+      invitationId: invitation.invitationId,
+      displayName: 'Desktop fixture',
+      publicKey: key.jwk,
+    })
+    gateway.pairing.approve(
+      invitation.invitationId,
+      gateway.pairing.pending(invitation.invitationId)!.confirmationCode,
+      ['p'],
+    )
+    token = (
+      await call('/pair/redeem', {
+        invitationId: invitation.invitationId,
+        nonce: request.body.result.nonce,
+        signature: key.sign(String(request.body.result.nonce)),
+      })
+    ).body.result.token as string
+    const command = {
+      op: 'session.desktop.create',
+      projectId: 'p',
+      title: 'Remote first send',
+      driverKind: 'codex',
+      modelId: 'fixture',
+      effort: null,
+      permissionMode: 'full',
+      workspaceMode: 'auto',
+      clientCommandId: 'create-first-send',
+      idempotencyKey: 'create-first-send-key',
+    }
+    const created = await call('/command', command)
+    expect(created.status).toBe(200)
+    const sessionId = String(created.body.result.sessionId)
+    const session = (await store.load(sessionId)).session!
+    expect(session.workspace?.kind).toBe('managed-worktree')
+    expect(await engine.workspace(session)).not.toBe(repo)
+    expect(await call('/command', command)).toEqual(created)
+    expect(
+      (await store.listSessions()).filter((row) => row.title === 'Remote first send'),
+    ).toHaveLength(1)
+    expect(
+      (
+        await call('/command', {
+          op: 'session.prompt',
+          sessionId,
+          text: 'Remote work',
+          clientCommandId: 'first-prompt',
+          idempotencyKey: 'first-prompt-original-key',
+        })
+      ).status,
+    ).toBe(200)
+    await vi.waitFor(() => expect(engine.hasLiveTurn(sessionId)).toBe(true))
+    expect(engine.hasLiveTurn('human')).toBe(true)
+    await stop(sessionId)
+    const choices = remoteProjectWorkspacesSchema.parse(
+      (await call('/query', { op: 'project.workspaces', projectId: 'p' })).body.result,
+    )
+    const isolated = choices.options.find(
+      (option) => option.kind === 'checkout' && option.workspaceMode === 'isolated',
+    )!
+    const pinned = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, windowsHide: true })
+      .toString()
+      .trim()
+    const selected = await call('/command', {
+      ...command,
+      title: 'Pinned remote checkout',
+      workspaceMode: 'isolated',
+      workspaceToken: isolated.token,
+      clientCommandId: 'pinned-create',
+      idempotencyKey: 'pinned-create-original-key',
+    })
+    expect(selected.status).toBe(200)
+    expect(
+      (await store.load(String(selected.body.result.sessionId))).session?.workspace,
+    ).toMatchObject({
+      kind: 'managed-worktree',
+      baseCommit: pinned,
+    })
+  } finally {
+    await gateway.close()
+  }
+})
+async function stop(id: string): Promise<void> {
+  await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+  await engine.quiesce(id)
+}
+
+it('admits two top-level isolated worktrees together, snapshots dirty files, and cleans roots', async () => {
+  await writeFile(join(repo, 'dirty.txt'), 'uncommitted\n')
+  const originalHead = git('rev-parse', 'HEAD')
+  const ids: string[] = []
+  for (const title of ['One', 'Two']) {
+    const created = await createSession(
+      {
+        loadProject: async () => undefined,
+        createSession: (s) => engine.createSession(s),
+        prepareRootWorkspace: runtime.prepareRootWorkspace,
+      },
+      { ...base, projectId: 'p', title, workspaceMode: 'isolated' },
+    )
+    ids.push(created.sessionId)
+  }
+  const responses = await Promise.all(ids.map(start))
+  expect(responses).toEqual([{ accepted: true }, { accepted: true }])
+  await vi.waitFor(() => expect(ids.every((id) => engine.hasLiveTurn(id))).toBe(true))
+  const paths = await Promise.all(
+    ids.map(async (id) => engine.workspace((await store.load(id)).session!)),
+  )
+  expect(paths[0]).not.toBe(paths[1])
+  expect(paths).not.toContain(repo)
+  for (const path of paths)
+    expect(await readFile(join(path!, 'dirty.txt'), 'utf8')).toBe('uncommitted\n')
+  expect(git('rev-parse', 'HEAD')).toBe(originalHead)
+  expect(git('status', '--porcelain')).toContain('?? dirty.txt')
+  for (const id of ids) {
+    await stop(id)
+    await runtime.release(id)
+    await runtime.release(id)
+  }
+  expect(paths.every((path) => !existsSync(path!))).toBe(true)
+  expect(git('for-each-ref', '--format=%(refname)', 'refs/ari/orchestration/')).toBe('')
+  expect(git('branch', '--list', 'ari/*')).toBe('')
+})
+
+it('atomically refuses simultaneous starts sharing a folder, even under different project IDs', async () => {
+  await seed('one')
+  await seed('two', 'alias')
+  const replies = await Promise.all([start('one'), start('two')])
+  expect(replies.filter((r) => r.accepted)).toHaveLength(1)
+  expect(replies.find((r) => !r.accepted)?.reason).toContain('Working folder is busy')
+  expect((await store.load('two')).activeTurnId).toBeNull()
+  await stop('one')
+  expect(await start('two')).toEqual({ accepted: true })
+})
+
+it('admits another root while a provider steering response is slow', async () => {
+  await seed('slow')
+  await start('slow')
+  await vi.waitFor(() => expect(engine.liveCapabilities('slow').steer).toBe(true))
+  const other = await createSession(
+    {
+      loadProject: async () => undefined,
+      createSession: (s) => engine.createSession(s),
+      prepareRootWorkspace: runtime.prepareRootWorkspace,
+    },
+    { ...base, projectId: 'p', title: 'Other', workspaceMode: 'isolated' },
+  )
+  await engine.dispatch({
+    type: 'message.enqueue',
+    sessionId: 'slow',
+    text: 'Steering',
+    attachments: [],
+  })
+  let release!: () => void
+  let calls = 0
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  steer = async () => {
+    calls++
+    await waiting
+    return true
+  }
+  const steering = engine.dispatch({
+    type: 'message.steer',
+    sessionId: 'slow',
+    text: 'Steering',
+    attachments: [],
+  })
+  try {
+    await vi.waitFor(() => expect(calls).toBe(1))
+    const starting = start(other.sessionId)
+    await vi.waitFor(async () =>
+      expect((await store.load(other.sessionId)).activeTurnId).not.toBeNull(),
+    )
+    expect(await starting).toEqual({ accepted: true })
+  } finally {
+    release()
+    await steering
+  }
+})
+
+it('automatically gives Aria a root worktree alongside a busy human folder and reuses its durable spawn', async () => {
+  await seed('human')
+  expect(await start('human')).toEqual({ accepted: true })
+  const reply = await runtime.service.invoke('aria', 'session.spawn', launch)
+  expect(reply).toMatchObject({
+    ok: true,
+    result: { child: { workspace: { kind: 'managed-worktree' } } },
+  })
+  if (!reply.ok) throw new Error(reply.error.message)
+  const child = (reply.result as { child: Session }).child
+  expect(child.parentSessionId).toBeUndefined()
+  await vi.waitFor(() => expect(engine.hasLiveTurn(child.id)).toBe(true))
+  expect(engine.hasLiveTurn('human')).toBe(true)
+  expect(
+    await runtime.service.invoke('aria', 'session.spawn', {
+      ...launch,
+      workspaceMode: 'shared',
+      idempotencyKey: 'refuse-shared',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  await stop(child.id)
+  await stop('human')
+  await runtime.close()
+  await engine.shutdown()
+  for (const row of await store.listSessions()) await store.closeJournal(row.id)
+  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  await boot(true)
+  expect(await runtime.service.invoke('aria', 'session.spawn', launch)).toMatchObject({
+    ok: true,
+    result: { child: { id: child.id, workspace: child.workspace } },
+  })
+  await start('human')
+  expect(await start(child.id)).toEqual({ accepted: true })
+  await stop(child.id)
+  await stop('human')
+  expect(git('worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(2)
+  expect(
+    await runtime.service.invoke('aria', 'session.destroy', {
+      targetSessionId: child.id,
+      idempotencyKey: 'destroy',
+    }),
+  ).toMatchObject({ ok: true })
+  expect(
+    existsSync(child.workspace!.kind === 'managed-worktree' ? child.workspace!.path : ''),
+  ).toBe(false)
+})
+
+it('refuses busy non-Git projects and empty repositories without creating another session', async () => {
+  const plain = join(dir, 'plain')
+  await mkdir(plain)
+  folders.set('plain', plain)
+  await seed('plain-human', 'plain')
+  await start('plain-human')
+  for (const initialized of [false, true]) {
+    if (initialized) execFileSync('git', ['init', '-q'], { cwd: plain, windowsHide: true })
+    const reply = await runtime.service.invoke('aria', 'session.spawn', {
+      ...launch,
+      projectId: 'plain',
+      idempotencyKey: `plain-${initialized}`,
+    })
+    expect(reply).toMatchObject({ ok: false, error: { code: 'workspace_not_git' } })
+    expect(reply.ok ? '' : reply.error.message).toContain('plain-human')
+  }
+  expect((await store.listSessions()).filter((s) => s.projectId === 'plain')).toHaveLength(1)
+})
+
+it.each(['session.spawn', 'projects.ask'] as const)(
+  'preserves an uncertain %s checkout identity on retries and reload and allows explicit cleanup',
+  async (method) => {
+    if (method === 'projects.ask') {
+      await seed('human')
+      await start('human')
+    }
+    const original = GitService.prototype.addWorktree
+    const add = vi
+      .spyOn(GitService.prototype, 'addWorktree')
+      .mockImplementationOnce(async function (this: GitService, ...args) {
+        expect((await original.apply(this, args)).ok).toBe(true)
+        return err({ code: 'command_failed', message: 'lost checkout acknowledgement' })
+      })
+    const request =
+      method === 'session.spawn'
+        ? {
+            ...launch,
+            prompt: undefined,
+            workspaceMode: 'isolated',
+            idempotencyKey: 'uncertain-root',
+          }
+        : { projectId: 'p', text: 'Work', idempotencyKey: 'uncertain-root' }
+    const first = await runtime.service.invoke('aria', method, request)
+    expect(first).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { workspace: { kind: 'managed-worktree' } } },
+    })
+    if (first.ok) throw new Error('Expected uncertainty')
+    const recovery = first.error.details as { childSessionId: string; workspace: { path: string } }
+    expect(existsSync(recovery.workspace.path)).toBe(true)
+    expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
+    })
+    await runtime.close()
+    await engine.shutdown()
+    await boot(true)
+    expect(await runtime.service.invoke('aria', method, request)).toMatchObject({
+      ok: false,
+      error: { code: 'uncertain_outcome', details: { childSessionId: recovery.childSessionId } },
+    })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(first.error.details).toMatchObject({
+      permissionMode: 'full',
+      workspacePath: recovery.workspace.path,
+    })
+    await store.append('aria', { type: 'session.updated', permissionMode: 'allow-edits' })
+    expect(
+      await runtime.service.invoke('aria', 'session.destroy', {
+        targetSessionId: recovery.childSessionId,
+        idempotencyKey: 'cleanup-cap',
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+    expect(existsSync(recovery.workspace.path)).toBe(true)
+    await store.append('aria', { type: 'session.updated', permissionMode: 'full' })
+    const cleanup = {
+      targetSessionId: recovery.childSessionId,
+      idempotencyKey: 'cleanup-unconfirmed',
+    }
+    expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
+      ok: true,
+    })
+    expect(await runtime.service.invoke('aria', 'session.destroy', cleanup)).toMatchObject({
+      ok: true,
+    })
+    expect(existsSync(recovery.workspace.path)).toBe(false)
+  },
+)
+
+it('automatically isolates human new-session creation alongside a busy project', async () => {
+  await seed('human')
+  await start('human')
+  const created = await createSession(
+    {
+      loadProject: async () => undefined,
+      createSession: (s) => engine.createSession(s),
+      prepareRootWorkspace: runtime.prepareRootWorkspace,
+    },
+    { ...base, projectId: 'p', title: 'Another human session' },
+  )
+  expect((await store.load(created.sessionId)).session?.workspace?.kind).toBe('managed-worktree')
+  expect(await start(created.sessionId)).toEqual({ accepted: true })
+  expect(engine.hasLiveTurn('human')).toBe(true)
+})
+
+it('rechecks folder occupancy before resuming a long human wait', async () => {
+  await seed('parked')
+  await seed('new-work')
+  await start('parked')
+  await store.append('parked', {
+    type: 'input.requested',
+    inputId: 'question',
+    prompt: 'Continue?',
+    choicesJson: null,
+    at: Date.now() - 4 * 60_000,
+  })
+  expect(await start('new-work')).toEqual({ accepted: true })
+  expect(
+    await engine.dispatch({
+      type: 'input.respond',
+      sessionId: 'parked',
+      inputId: 'question',
+      value: 'Continue',
+    }),
+  ).toMatchObject({ accepted: false, reason: expect.stringContaining('new-work') })
+  expect((await store.load('parked')).pendingInputs).toHaveLength(1)
+})
+
+it('counts shared descendants in their effective folder and resumes a held root queue when it frees', async () => {
+  await seed('parent')
+  await seed('other')
+  await engine.createSession({
+    ...base,
+    id: 'descendant',
+    projectId: 'p',
+    title: 'Descendant',
+    parentSessionId: 'parent',
+    rootSessionId: 'parent',
+    workspace: { kind: 'project' },
+  })
+  expect(await start('descendant')).toEqual({ accepted: true })
+  expect(await start('other')).toMatchObject({
+    accepted: false,
+    reason: expect.stringContaining('Descendant'),
+  })
+  await engine.dispatch({
+    type: 'message.enqueue',
+    sessionId: 'other',
+    text: 'Held work',
+    attachments: [],
+    hold: true,
+  })
+  await engine.drainHeld()
+  expect((await store.load('other')).activeTurnId).toBeNull()
+  await stop('descendant')
+  await vi.waitFor(async () => expect((await store.load('other')).activeTurnId).not.toBeNull())
+})

@@ -7,6 +7,8 @@ const { invoke } = vi.hoisted(() => ({
   invoke: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(),
 }))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
+// The frame's scene art reads the theme and paints a canvas; neither is under test here.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 vi.mock('./OnboardingAgents', () => ({
   OnboardingAgents: ({
     onSelect,
@@ -74,16 +76,16 @@ describe('onboarding wizard', () => {
     expect(invoke.mock.calls.every(([method]) => method === 'settings.get')).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
     await waitFor(() =>
-      expect(onFinished).toHaveBeenCalledWith({ sessionId: 'first', driverKind: 'claude' }),
+      expect(onFinished).toHaveBeenCalledWith({ sessionId: null, projectId: '/work/ari', driverKind: 'claude' }),
     )
-    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(0)
   })
   it('skips without opening selected folders or changing the saved default', async () => {
     mount()
     review()
     fireEvent.click(screen.getByRole('button', { name: 'Skip setup' }))
     await waitFor(() =>
-      expect(onFinished).toHaveBeenCalledWith({ sessionId: null, driverKind: null }),
+      expect(onFinished).toHaveBeenCalledWith({ sessionId: null, projectId: null, driverKind: null }),
     )
     expect(
       invoke.mock.calls.some(
@@ -123,7 +125,7 @@ describe('onboarding wizard', () => {
     expect(screen.getByRole('button', { name: 'Back to workspace' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(onFinished).toHaveBeenCalledOnce())
-    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(0)
   })
   it('lets the user keep successful imports and omit unavailable folders', async () => {
     const base = invoke.getMockImplementation()!
@@ -139,7 +141,7 @@ describe('onboarding wizard', () => {
     await waitFor(() => expect(onFinished).toHaveBeenCalledOnce())
     expect(invoke.mock.calls.filter(([method]) => method === 'project.open')).toHaveLength(2)
   })
-  it('offers a no-session exit after creation fails', async () => {
+  it('opens a draft without calling a failing durable session creation', async () => {
     const base = invoke.getMockImplementation()!
     invoke.mockImplementation((method, params) =>
       method === 'session.create' ? Promise.reject(new Error('failed')) : base(method, params),
@@ -147,10 +149,10 @@ describe('onboarding wizard', () => {
     mount()
     review()
     fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue without a session' }))
     await waitFor(() =>
-      expect(onFinished).toHaveBeenCalledWith({ sessionId: null, driverKind: 'claude' }),
+      expect(onFinished).toHaveBeenCalledWith({ sessionId: null, projectId: '/work/ari', driverKind: 'claude' }),
     )
+    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(0)
   })
   it('re-entry defaults to no new session and can leave without resetting data', () => {
     mount(true)

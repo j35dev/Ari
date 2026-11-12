@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { motion } from 'motion/react'
-import { ArrowRight, Check, Loader2, PlugZap, Sparkles } from 'lucide-react'
+import { PlugZap } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Button } from '@ari/ui/button'
+import { Input } from '@ari/ui/input'
 import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
+import { card, outlineButton, primaryButton, sectionLabel } from '../../lib/recipes'
 import { rpc } from '../../lib/rpc'
 import { anchorBelow, type MenuAnchor } from '../../shell/ContextMenu'
 import type { SessionStartIntent } from '../../shell/session-start-focus'
+import { DitherScene } from '../scene/DitherScene'
 
 const log = createLogger('welcome')
 const CHECK_TIMEOUT_MS = 15_000
@@ -57,6 +60,13 @@ const CLI_LABELS: Record<string, string> = {
   pi: 'Pi',
   hermes: 'Hermes',
 }
+
+const KEYBOARD_HINTS = [
+  ['Mod+N', 'New session'],
+  ['Mod+K', 'Palette'],
+  ['@', 'Mention file'],
+  ['/', 'Commands'],
+] as const
 
 function hostLabel(baseUrl: string): string {
   try {
@@ -211,195 +221,195 @@ export function WelcomePanel({
   }
 
   return (
-    <div className="ari-scroll ari-welcome-glow relative flex h-full items-center justify-center overflow-y-auto p-6">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={transitions.fadeUp}
-        className="relative z-pane-chrome flex w-full max-w-lg flex-col gap-6"
-      >
-        <div className="flex flex-col items-center gap-1.5 text-center">
-          <h1 className="text-[28px] font-semibold tracking-[-0.035em] text-fg">
-            Ari
-            <span aria-hidden="true" className="text-accent">
-              .
-            </span>
-          </h1>
-          <p className="mx-auto max-w-sm text-xs leading-relaxed text-fg-muted">
-            One unified surface for every coding agent on your machine — chat, steer, review diffs,
-            and drive terminals.
-          </p>
-        </div>
-
-        {/* Primary start button */}
-        <button
-          type="button"
-          disabled={startPending || saving}
-          onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-[background-color,scale] duration-150 hover:bg-accent-hover active:scale-[0.99] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    <div className="relative h-full">
+      <DitherScene kind="session" />
+      {/* After the scene in the DOM, so the page paints over it without a
+          z-index. The spacers sit the column a little above the middle. */}
+      <div className="ari-scroll relative flex h-full flex-col overflow-y-auto px-8">
+        <div className="min-h-10 flex-[2]" aria-hidden="true" />
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={transitions.fadeUp}
+          // One solid card: the wallpaper can be any picture, so nothing here is
+          // set straight on it.
+          className={`${card} mx-auto flex w-full max-w-[600px] shrink-0 flex-col overflow-hidden shadow-2`}
         >
-          <Sparkles size={15} />
-          <span>{hasProjects ? 'Start a new session' : 'Add a project to start'}</span>
-          <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-        </button>
+          <div className="flex flex-col items-start gap-4 px-6 pb-6 pt-6">
+            <div>
+              <h1 className="text-[28px] font-[550] leading-9 tracking-[-0.02em] text-fg">
+                Ari
+                <span aria-hidden="true" className="text-accent">
+                  .
+                </span>
+              </h1>
+              <p className="mt-2 max-w-[480px] text-sm leading-relaxed text-fg-muted">
+                One unified surface for every coding agent on your machine — chat, steer, review
+                diffs, and drive terminals.
+              </p>
+            </div>
 
-        {checking ? (
-          <p role="status" className="flex items-center justify-center gap-2 text-xs text-fg-muted">
-            <Loader2 size={13} className="animate-spin" aria-hidden />
-            Checking local agents and saved model endpoints…
-          </p>
-        ) : null}
-        {failedChecks.length > 0 ? (
-          <div className="flex flex-col gap-3 rounded-xl border border-danger/30 bg-danger-subtle p-4">
-            <p role="alert" className="text-xs leading-relaxed text-danger">
-              Could not check {failedChecks.join(' and ')}. Retry, or review your setup in Settings.
-            </p>
-            <Button
-              size="sm"
-              onClick={() => {
-                if (providers.state.status === 'error') providers.retry()
-                if (endpoints.state.status === 'error') endpoints.retry()
-              }}
+            <button
+              type="button"
+              disabled={startPending || saving}
+              onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
+              className={primaryButton}
             >
-              Retry setup checks
-            </Button>
-          </div>
-        ) : null}
+              {hasProjects ? 'Start a new session' : 'Add a project to start'}
+            </button>
 
-        {/* Detected agents list */}
-        {clis.length > 0 ? (
-          <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-surface-1/40 p-3">
-            <p className="text-center text-2xs uppercase tracking-widest text-fg-subtle">
-              Detected local agents
-            </p>
-            <ul className="grid grid-cols-2 gap-1.5">
-              {clis.map((cli) => (
-                <li
-                  key={cli.kind}
-                  className={`flex items-center gap-2 rounded-lg border border-border/70 bg-surface-0/60 px-2.5 py-1.5 text-xs ${
-                    cli.installed ? 'text-fg-muted' : 'text-fg-subtle opacity-50'
-                  }`}
-                  title={
-                    cli.installed
-                      ? `${cli.label}${cli.version ? ` ${cli.version}` : ''}${
-                          cli.authenticated ? ' · signed in' : ''
-                        }`
-                      : `${cli.label} not installed`
-                  }
-                >
-                  <span
-                    aria-hidden
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      cli.installed && cli.authenticated
-                        ? 'bg-success'
-                        : cli.installed
-                          ? 'bg-warning'
-                          : 'bg-surface-3'
-                    }`}
-                  />
-                  <span className="min-w-0 flex-1 truncate">{cli.label}</span>
-                  {cli.installed ? (
-                    cli.authenticated ? (
-                      <Check size={12} className="shrink-0 text-success" />
-                    ) : null
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {needsSetup ? (
-          <form
-            onSubmit={(e) => void connect(e)}
-            className="flex flex-col gap-3 rounded-xl border border-border bg-surface-1 p-4"
-          >
-            <div className="flex items-center gap-2">
-              <PlugZap size={14} className="text-accent" />
-              <h2 className="text-sm font-medium text-fg">Connect a model to begin</h2>
-            </div>
-            <p className="text-xs leading-relaxed text-fg-muted">
-              Save an OpenAI-compatible endpoint to use with Ari Core. You can also install a coding
-              agent and check your setup in Settings.
-            </p>
-            <input
-              value={form.baseUrl}
-              onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
-              placeholder="Base URL · https://api.openai.com/v1"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label="Base URL"
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                value={form.model}
-                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                placeholder="Model · gpt-4o-mini"
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="Model id"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              />
-              <input
-                value={form.apiKey}
-                onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
-                placeholder="API key · optional"
-                type="password"
-                autoComplete="off"
-                aria-label="API key"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              />
-            </div>
-            {formError != null ? (
-              <p role="alert" className="text-xs text-danger">
-                {formError}
+            {checking ? (
+              <p role="status" className="flex items-center gap-2 text-[13px] text-fg-muted">
+                <span className="ari-status" data-status="working" aria-hidden="true" />
+                Checking local agents and saved model endpoints…
               </p>
             ) : null}
-            <button
-              ref={connectButtonRef}
-              type="submit"
-              disabled={saving || startPending}
-              className="flex items-center justify-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              {saving || startPending ? <Loader2 size={13} className="animate-spin" /> : null}
-              {startPending
-                ? 'Starting session…'
-                : alreadySaved
-                  ? 'Choose project'
-                  : 'Save and choose project'}
-            </button>
-          </form>
-        ) : null}
+            {failedChecks.length > 0 ? (
+              <div className="flex w-full items-center gap-3">
+                <span className="ari-status" data-status="error" aria-hidden="true" />
+                <p role="alert" className="min-w-0 flex-1 text-[13px] leading-5 text-fg">
+                  Could not check {failedChecks.join(' and ')}. Retry, or review your setup in
+                  Settings.
+                </p>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => {
+                    if (providers.state.status === 'error') providers.retry()
+                    if (endpoints.state.status === 'error') endpoints.retry()
+                  }}
+                >
+                  Retry setup checks
+                </Button>
+              </div>
+            ) : null}
+          </div>
 
-        {/* Keyboard hints footer */}
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-2xs text-fg-subtle">
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
-              Mod+N
-            </kbd>
-            <span>New session</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
-              Mod+K
-            </kbd>
-            <span>Palette</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
-              @
-            </kbd>
-            <span>Mention file</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
-              /
-            </kbd>
-            <span>Commands</span>
-          </span>
-        </div>
-      </motion.div>
+          {/* Detected agents list */}
+          {clis.length > 0 ? (
+            <div className="w-full border-t border-border">
+              <p className={`px-6 pb-1.5 pt-3.5 ${sectionLabel}`}>Detected local agents</p>
+              <ul>
+                {clis.map((cli) => (
+                  <li
+                    key={cli.kind}
+                    className="flex h-9 items-center gap-2.5 border-t border-border px-6 text-[13.5px]"
+                    title={
+                      cli.installed
+                        ? `${cli.label}${cli.version ? ` ${cli.version}` : ''}${
+                            cli.authenticated ? ' · signed in' : ''
+                          }`
+                        : `${cli.label} not installed`
+                    }
+                  >
+                    {cli.installed ? (
+                      <span
+                        className="ari-status"
+                        data-status={cli.authenticated ? 'done' : 'attention'}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <span className="size-3.5 shrink-0" aria-hidden="true" />
+                    )}
+                    <span
+                      className={`min-w-0 flex-1 truncate ${
+                        cli.installed ? 'text-fg' : 'text-fg-subtle'
+                      }`}
+                    >
+                      {cli.label}
+                    </span>
+                    {cli.installed && cli.version ? (
+                      <span className="shrink-0 text-xs text-fg-subtle" aria-hidden="true">
+                        {cli.version}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {needsSetup ? (
+            <form
+              onSubmit={(e) => void connect(e)}
+              className="flex w-full flex-col gap-3 border-t border-border px-6 py-5"
+            >
+              <div>
+                <h2 className="flex items-center gap-2 text-sm font-medium text-fg">
+                  <PlugZap
+                    size={16}
+                    strokeWidth={1.7}
+                    className="shrink-0 text-fg-subtle"
+                    aria-hidden="true"
+                  />
+                  Connect a model to begin
+                </h2>
+                <p className="mt-1 text-[13px] leading-5 text-fg-subtle">
+                  Save an OpenAI-compatible endpoint to use with Ari Core. You can also install a
+                  coding agent and check your setup in Settings.
+                </p>
+              </div>
+              <Input
+                value={form.baseUrl}
+                onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                placeholder="Base URL · https://api.openai.com/v1"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Base URL"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={form.model}
+                  onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                  placeholder="Model · gpt-4o-mini"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="Model id"
+                />
+                <Input
+                  value={form.apiKey}
+                  onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+                  placeholder="API key · optional"
+                  type="password"
+                  autoComplete="off"
+                  aria-label="API key"
+                />
+              </div>
+              {formError != null ? (
+                <p role="alert" className="text-[13px] text-danger">
+                  {formError}
+                </p>
+              ) : null}
+              <button
+                ref={connectButtonRef}
+                type="submit"
+                disabled={saving || startPending}
+                className={`${outlineButton} self-end`}
+              >
+                {saving || startPending ? (
+                  <span className="ari-status" data-status="working" aria-hidden="true" />
+                ) : null}
+                {startPending
+                  ? 'Starting session…'
+                  : alreadySaved
+                    ? 'Choose project'
+                    : 'Save and choose project'}
+              </button>
+            </form>
+          ) : null}
+
+          {/* Keyboard hints */}
+          <div className="flex w-full flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-border px-6 py-3 text-xs text-fg-subtle">
+            {KEYBOARD_HINTS.map(([keys, label]) => (
+              <span key={keys} className="flex items-center gap-1.5">
+                <kbd className="font-mono text-[11px] text-fg-muted">{keys}</kbd>
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
+        </motion.div>
+        <div className="min-h-10 flex-[3]" aria-hidden="true" />
+      </div>
     </div>
   )
 }

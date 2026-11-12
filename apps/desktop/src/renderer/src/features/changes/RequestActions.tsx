@@ -3,6 +3,7 @@ import type { ChangeRequest, ChangeRequestAction } from '@ari/contracts/rpc'
 import { Button } from '@ari/ui/button'
 import { Dialog } from '@ari/ui/dialog'
 import { Select } from '@ari/ui/select'
+import { cx, sectionLabel } from '../../lib/recipes'
 
 export function RequestActions({
   request,
@@ -54,7 +55,7 @@ export function RequestActions({
       void perform({ kind: 'request-changes', text })
   }
   return (
-    <div className="mt-6 border-t border-border/60 pt-4">
+    <div className="mt-6">
       {options.length ? (
         <form
           onSubmit={(event) => {
@@ -62,7 +63,7 @@ export function RequestActions({
             submit()
           }}
         >
-          <h3 className="mb-2 text-sm font-medium text-fg">Your review</h3>
+          <h3 className={cx(sectionLabel, 'mb-2')}>Your review</h3>
           <textarea
             aria-label="Review comment"
             rows={4}
@@ -71,7 +72,7 @@ export function RequestActions({
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder="Leave a comment or describe your review…"
-            className="w-full resize-y rounded-md border border-border bg-surface-0 px-3 py-2 text-xs leading-relaxed text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="w-full resize-y rounded-md border border-border bg-surface-1 px-3 py-2 text-[13px] leading-relaxed text-fg transition-colors placeholder:text-fg-subtle hover:border-border-strong focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
           />
           <div className="mt-2 flex items-center gap-2">
             <div className="w-40 shrink-0">
@@ -106,12 +107,12 @@ export function RequestActions({
       {notice ? (
         <p
           role={notice.ok ? 'status' : 'alert'}
-          className={`mt-3 text-xs ${notice.ok ? 'text-success' : 'text-danger'}`}
+          className={`mt-3 text-[13px] ${notice.ok ? 'text-fg-muted' : 'text-danger'}`}
         >
           {notice.message}
         </p>
       ) : null}
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border pt-4">
         {request.capabilities.close ? (
           <Button
             size="sm"
@@ -170,7 +171,7 @@ export function RequestActions({
                 onValueChange={(value) => setMethod(value as typeof method)}
                 className="w-full"
               />
-              <p className="mt-2 font-mono text-2xs text-fg-subtle">
+              <p className="mt-2 font-mono text-xs text-fg-subtle">
                 Reviewed head · {request.headOid?.slice(0, 12)}
               </p>
             </div>

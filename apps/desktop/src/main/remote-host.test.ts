@@ -17,6 +17,8 @@ import {
   remoteRedeemSchema,
   remoteQuerySchema,
   remoteModelCatalogSchema,
+  remoteOperationSchema,
+  machinesExtensionOperationSchema,
   type RemoteCommand,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
@@ -151,7 +153,60 @@ function command(op: RemoteCommand['op'], fields: Record<string, unknown>): Remo
   return { op, clientCommandId: 'cmd-1', idempotencyKey: 'idem-0001', ...fields } as RemoteCommand
 }
 
+it('keeps Aria out of mobile lists, deep links and attention even with a legacy explicit grant', async () => {
+  const store = await tempStore()
+  await store.append('coordinator', sessionCreated('coordinator', 'helm'))
+  await store.append('ordinary', sessionCreated('ordinary'))
+  const caller: RemoteCaller = { ...CALLER, projectIds: [...CALLER.projectIds, 'helm'] }
+  const host = hostFor(store, fakeEngine(), {
+    listProjects: async () => [
+      { id: 'helm', name: 'Aria' },
+      { id: 'proj_1', name: 'Project' },
+    ],
+  })
+  expect((await host.listSessions(caller)).map((session) => session.id)).toEqual(['ordinary'])
+  expect((await host.listProjects(caller)).map((project) => project.id)).toEqual(['proj_1'])
+  expect(await host.getSession(caller, 'coordinator')).toBeUndefined()
+  expect(await host.query(caller, 'session.get', { sessionId: 'coordinator' })).toBeNull()
+  expect(await host.query(caller, 'attention.list', { limit: 20 })).toMatchObject({ items: [] })
+})
+
 describe('remote host capabilities', () => {
+  it('exposes future projects locally while a managed caller stays within signed IDs', async () => {
+    const store = await tempStore()
+    const projects = [{ id: 'proj_1', name: 'Ari' }]
+    const engine = fakeEngine()
+    const host = hostFor(store, engine, { listProjects: async () => projects })
+    const local: RemoteCaller = { deviceId: 'dev_local', allProjects: true, projectIds: [] }
+    const managed: RemoteCaller = {
+      deviceId: 'dev_managed',
+      allProjects: false,
+      projectIds: ['proj_1'],
+    }
+    projects.push({ id: 'future', name: 'New project' })
+    await store.append('sess_future', sessionCreated('sess_future', 'future'))
+    expect((await host.listProjects(local)).map((project) => project.id)).toEqual([
+      'proj_1',
+      'future',
+    ])
+    expect((await host.listProjects(managed)).map((project) => project.id)).toEqual(['proj_1'])
+    expect(await host.getSession(local, 'sess_future')).toBeDefined()
+    expect(await host.getSession(managed, 'sess_future')).toBeUndefined()
+    const prompt = command('session.prompt', { sessionId: 'sess_future', text: 'hello' })
+    expect(await host.execute(managed, prompt)).toMatchObject({ ok: false, code: 'not_found' })
+    expect(engine.dispatched).toHaveLength(0)
+    expect(await host.execute(local, prompt)).toMatchObject({ ok: true })
+    expect(engine.dispatched).toHaveLength(1)
+    const create = command('session.create', {
+      projectId: 'future',
+      title: 'A new project session',
+    })
+    expect(await host.execute(managed, create)).toMatchObject({ ok: false, code: 'not_found' })
+    expect(engine.created).toHaveLength(0)
+    expect(await host.execute(local, create)).toMatchObject({ ok: true })
+    expect(engine.created[0]).toMatchObject({ projectId: 'future' })
+  })
+
   it('reports only what it can actually serve', async () => {
     const host = hostFor(await tempStore(), fakeEngine())
     const caps = host.capabilities()
@@ -175,39 +230,7 @@ describe('remote host capabilities', () => {
 
 /** Mirrors the contract's own lists, so a typo in a capability is caught here. */
 function commandOrReadExists(op: string): boolean {
-  const queries = new Set([
-    'gateway.info',
-    'session.list',
-    'session.get',
-    'attention.list',
-    'files.list',
-    'files.read',
-    'project.list',
-    'models.list',
-    'usage.allowance',
-    'accounts.list',
-    'changes.files',
-    'changes.diff',
-    'command.status',
-    'device.list',
-    'device.revoke',
-  ])
-  const commands = new Set([
-    'session.create',
-    'session.prompt',
-    'session.queue',
-    'session.steer',
-    'session.interrupt',
-    'session.archive',
-    'session.update',
-    'approval.respond',
-    'input.respond',
-    'changes.integrate',
-    'usage.redeem',
-    'accounts.activate',
-  ])
-  const overTheWire = new Set(['events.subscribe', 'events.ack', 'events.snapshot'])
-  return queries.has(op) || commands.has(op) || overTheWire.has(op)
+  return remoteOperationSchema.safeParse(op).success || machinesExtensionOperationSchema.safeParse(op).success
 }
 
 describe('reading sessions', () => {
@@ -1059,7 +1082,11 @@ describe('spending a banked reset from a phone', () => {
   })
 
   it('answers with what the provider said and the allowance it leaves, without a grant id', async () => {
-    const redeemReset = vi.fn(async () => ({ ok: true as const, outcome: 'reset' as const, allowance: after }))
+    const redeemReset = vi.fn(async () => ({
+      ok: true as const,
+      outcome: 'reset' as const,
+      allowance: after,
+    }))
     const host = hostFor(await tempStore(), fakeEngine(), { redeemReset })
     expect(host.capabilities()).toContain('usage.redeem')
 
@@ -1171,14 +1198,22 @@ describe('a provider’s accounts from a phone', () => {
     expect(deps.activate).toHaveBeenCalledWith('claude', 'work')
     expect(reply).toMatchObject({
       ok: true,
-      result: { accounts: [{ id: 'default', active: false }, { id: 'work', active: true }] },
+      result: {
+        accounts: [
+          { id: 'default', active: false },
+          { id: 'work', active: true },
+        ],
+      },
     })
   })
 
   it('refuses with the desktop’s reason when the switch did not happen', async () => {
     const deps = {
       ...accounts(),
-      activate: vi.fn(async () => ({ ...listed('default'), error: 'That account no longer exists.' })),
+      activate: vi.fn(async () => ({
+        ...listed('default'),
+        error: 'That account no longer exists.',
+      })),
     }
     const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
     expect(

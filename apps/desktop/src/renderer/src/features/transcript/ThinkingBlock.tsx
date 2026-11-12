@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { Brain, ChevronRight } from 'lucide-react'
 import { thoughtPreview } from './toolLabels'
 
 /**
- * Collapsible reasoning row, collapsed by default in the Claude style: a dim
- * italic preview line that expands to the full thought. Used standalone and
- * as a step inside an expanded activity burst.
+ * Collapsible reasoning, one quiet line until asked: "Thought" and a preview
+ * of its first line, opening to the full thought as plain subtle text. On its
+ * own it reads like a collapsed burst; `compact` is the same line as a step
+ * inside an expanded activity burst, where it leads with a glyph like its
+ * neighbours.
  */
 export function ThinkingBlock({
   text,
@@ -19,34 +21,42 @@ export function ThinkingBlock({
   const [openOverride, setOpenOverride] = useState<boolean | null>(null)
   const open = openOverride ?? expanded
   return (
-    <div
-      className={
-        compact
-          ? 'my-0.5'
-          : 'my-1 rounded-lg border border-border/50 bg-surface-1/30 px-2 py-1 transition-colors'
-      }
-    >
+    <div className={compact ? undefined : 'my-1'}>
       <button
         type="button"
         onClick={() => setOpenOverride((previous) => !(previous ?? expanded))}
         aria-expanded={open}
         aria-label="Reasoning"
-        className={`flex w-full items-center gap-2 rounded-md text-left transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${compact ? 'px-1 py-[3px]' : 'py-0.5'}`}
+        className={`group flex max-w-full items-center rounded-md text-left transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          compact
+            ? 'h-[30px] w-full gap-2.5 text-[13.5px] text-fg-muted'
+            : 'h-7 w-fit gap-1.5 text-sm text-fg-subtle'
+        }`}
       >
-        <ChevronRight
-          size={12}
-          className={`shrink-0 transition-transform duration-150 ${compact ? 'text-fg-subtle' : 'text-accent'} ${open ? 'rotate-90' : ''}`}
-        />
-        <span className={`shrink-0 text-xs ${compact ? 'text-fg-subtle' : 'text-fg-muted'}`}>
-          Thought
-        </span>
-        <span className="min-w-0 flex-1 truncate text-xs italic text-fg-subtle">
+        {compact ? (
+          <Brain size={14} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+        ) : null}
+        <span className="shrink-0">Thought</span>
+        <span
+          className={`min-w-0 truncate text-[13px] ${
+            compact ? 'text-fg-subtle transition-colors group-hover:text-fg-muted' : ''
+          }`}
+        >
           {thoughtPreview(text)}
         </span>
+        {compact ? null : (
+          <ChevronRight
+            size={14}
+            aria-hidden="true"
+            className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
+          />
+        )}
       </button>
       {open ? (
         <p
-          className={`ari-enter-rise mb-1 whitespace-pre-wrap border-l pl-3 text-xs italic leading-relaxed text-fg-muted ${compact ? 'ml-4 mt-1 border-border' : 'ml-4 mt-1.5 border-accent/30'}`}
+          className={`ari-enter-rise max-w-[620px] whitespace-pre-wrap text-[13.5px] leading-relaxed text-fg-subtle ${
+            compact ? 'pb-2 pl-6 pt-0.5' : 'ml-1.5 mt-0.5 border-l border-border-strong py-1 pl-4'
+          }`}
         >
           {text}
         </p>

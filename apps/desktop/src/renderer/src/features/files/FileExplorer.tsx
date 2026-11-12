@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FsScope, RpcResults } from '@ari/contracts/rpc'
-import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
-import { rpc } from '../../lib/rpc'
+import { iconButton } from '../../lib/recipes'
+import { SessionClientProvider } from '../session/session-client'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { setDragFilePath } from '../composer/drag-file'
 import { FileEditor } from './FileEditor'
 
@@ -77,33 +78,33 @@ function ExplorerRow({
         onDragStart={isDir ? undefined : (event) => onDragStartFile(event, path)}
         title={isDir ? undefined : 'Drag into the prompt to reference this file'}
         onClick={() => (isDir ? onToggleDir(path) : onSelectFile(path))}
-        className={`flex w-full items-center gap-1 rounded-sm py-0.5 pr-2 text-left text-xs font-mono transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
-          isSelected ? 'bg-surface-2 text-fg' : 'text-fg-muted'
+        className={`flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
+          isSelected ? 'bg-fg/9 text-fg' : 'text-fg-muted hover:bg-fg/5 hover:text-fg'
         }`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         {isDir ? (
           <ChevronRight
             aria-hidden="true"
-            className={`h-3 w-3 shrink-0 text-fg-subtle transition-transform duration-150 ${
+            className={`size-3.5 shrink-0 text-fg-subtle transition-transform duration-150 ${
               isExpanded ? 'rotate-90' : ''
             }`}
           />
         ) : (
-          <span aria-hidden="true" className="h-3 w-3 shrink-0" />
+          <span aria-hidden="true" className="size-3.5 shrink-0" />
         )}
         {isDir ? (
           isExpanded ? (
-            <FolderOpen aria-hidden="true" className="h-3 w-3 shrink-0 text-fg-subtle" />
+            <FolderOpen aria-hidden="true" className="size-3.5 shrink-0 text-fg-subtle" />
           ) : (
-            <Folder aria-hidden="true" className="h-3 w-3 shrink-0 text-fg-subtle" />
+            <Folder aria-hidden="true" className="size-3.5 shrink-0 text-fg-subtle" />
           )
         ) : (
-          <FileText aria-hidden="true" className="h-3 w-3 shrink-0 text-fg-subtle" />
+          <FileText aria-hidden="true" className="size-3.5 shrink-0 text-fg-subtle" />
         )}
         <span className="min-w-0 truncate">{entry.name}</span>
         {!isDir && (
-          <span className="ml-auto shrink-0 tabular-nums text-fg-subtle">
+          <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums text-fg-subtle">
             {formatSize(entry.size)}
           </span>
         )}
@@ -113,7 +114,7 @@ function ExplorerRow({
           {children == null ? (
             <li
               aria-hidden="true"
-              className="py-0.5 font-mono text-xs text-fg-subtle"
+              className="flex h-7 items-center text-[13px] text-fg-subtle"
               style={{ paddingLeft: 8 + (depth + 1) * 14 }}
             >
               …
@@ -150,9 +151,29 @@ export type FsTreeScope = Omit<FsScope, 'path'>
 /**
  * Lazy-loading workspace file tree for the inspector pane. Only the root is
  * listed on mount; directories are listed via the `fs.list` RPC the first
- * time they expand and cached until refresh.
+ * time they expand and cached until refresh. Opening a file swaps the tree
+ * for the editor; closing it brings the tree back as it was.
  */
-export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope }) {
+export function FileExplorer({
+  root,
+  scope: scopeProp,
+  readOnlyReason,
+}: {
+  root: string
+  scope: FsTreeScope
+  /** Why the open file cannot be saved here; it still previews. */
+  readOnlyReason?: string | null
+}) {
+  // Keyed on its ids: a caller handing over an equal but new object (one per
+  // render) must not reset the tree and close the open file.
+  const { projectId, sessionId } = scopeProp
+  const scope = useMemo<FsTreeScope>(
+    () => (projectId !== undefined ? { projectId } : { sessionId }),
+    [projectId, sessionId],
+  )
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
+  const generation = useRef(0)
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
@@ -166,6 +187,7 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
   )
 
   useEffect(() => {
+    const epoch = ++generation.current
     let cancelled = false
     setEntries({})
     setExpanded(new Set())
@@ -173,7 +195,7 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
     setEditingPath(null)
     setError(null)
     void rpc
-      .invoke('fs.list', { ...scope, path: '.' })
+      .invoke('fs.list', { ...wireScope, path: '.' })
       .then((result) => {
         if (!cancelled) setEntries((prev) => ({ ...prev, [root]: result }))
       })
@@ -184,23 +206,27 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
       })
     return () => {
       cancelled = true
+      if (generation.current === epoch) generation.current += 1
     }
-  }, [root, scope])
+  }, [root, wireScope, rpc, rpc.authorizationEpoch, rpc.availability])
 
   /** Lists a directory and caches it; surfaces failures in `error`. */
   const listDir = useCallback(
     (dir: string): void => {
+      const epoch = generation.current
       void rpc
-        .invoke('fs.list', { ...scope, path: scopedDir(dir) })
+        .invoke('fs.list', { ...wireScope, path: scopedDir(dir) })
         .then((result) => {
+          if (generation.current !== epoch) return
           setEntries((prev) => ({ ...prev, [dir]: result }))
           setError(null)
         })
         .catch((cause: unknown) => {
+          if (generation.current !== epoch) return
           setError(cause instanceof Error ? cause.message : String(cause))
         })
     },
-    [scope, scopedDir],
+    [wireScope, scopedDir, rpc],
   )
 
   const toggleDir = useCallback(
@@ -234,34 +260,52 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
   /** File rows drag as mention sources carrying the workspace-relative path. */
   const dragFile = useCallback(
     (event: React.DragEvent<HTMLButtonElement>, path: string): void => {
-      setDragFilePath(event, relativeToRoot(root, path))
+      setDragFilePath(event, relativeToRoot(root, path), rpc.viewKey)
     },
-    [root],
+    [root, rpc.viewKey],
   )
 
   const rootEntries = entries[root]
 
+  if (editingPath !== null) {
+    // The editor takes the explorer's place; the tree keeps its state behind it.
+    return (
+      <SessionClientProvider client={rpc}>
+        <FileEditor
+          scope={wireScope}
+          path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
+          onClose={() => setEditingPath(null)}
+          onSaved={refresh}
+          readOnlyReason={readOnlyReason}
+        />
+      </SessionClientProvider>
+    )
+  }
+
   return (
     <section aria-label="File explorer" className="flex h-full min-h-0 flex-col bg-bg">
-      <header className="flex items-center justify-between border-b border-border px-2 py-1">
-        <h2 className="truncate font-mono text-xs text-fg-muted">{root}</h2>
-        <IconButton
-          size="sm"
-          variant="ghost"
-          icon={<RotateCw className="h-3.5 w-3.5" />}
+      <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border pl-4 pr-2">
+        <h2 className="min-w-0 truncate font-mono text-[12.5px] text-fg-subtle" title={root}>
+          {root}
+        </h2>
+        <button
+          type="button"
           aria-label="Refresh file explorer"
           onClick={refresh}
-        />
+          className={iconButton}
+        >
+          <RotateCw size={14} aria-hidden />
+        </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1">
+      <div className="ari-scroll min-h-0 flex-1 overflow-y-auto p-2">
         {error != null && (
-          <p role="alert" className="px-1 py-1 font-mono text-xs text-danger">
+          <p role="alert" className="px-2 py-1 text-[13px] text-danger">
             {error}
           </p>
         )}
         {rootEntries == null ? (
           error == null && (
-            <p aria-hidden="true" className="px-1 py-1 font-mono text-xs text-fg-subtle">
+            <p aria-hidden="true" className="px-2 py-1 text-[13px] text-fg-subtle">
               …
             </p>
           )
@@ -284,14 +328,6 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
           </ul>
         )}
       </div>
-      {editingPath !== null && (
-        <FileEditor
-          scope={scope}
-          path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
-          onClose={() => setEditingPath(null)}
-          onSaved={refresh}
-        />
-      )}
     </section>
   )
 }

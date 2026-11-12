@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { color, type Inspect } from './charts'
+import type { Inspect } from './charts'
 import { CanvasViewport } from './CanvasViewport'
 import {
   graphEdgePath,
@@ -125,7 +125,7 @@ export function GraphDiagram({
             >
               <path
                 d="M0 0 L10 5 L0 10 Z"
-                fill={highlighted ? 'var(--ari-accent)' : 'var(--ari-fg-subtle)'}
+                fill={highlighted ? 'var(--ari-fg)' : 'var(--ari-fg-subtle)'}
               />
             </marker>
           ))}
@@ -172,9 +172,9 @@ export function GraphDiagram({
                 className="ari-viz-edge-path"
                 d={path}
                 fill="none"
-                stroke={highlighted ? 'var(--ari-accent)' : 'var(--ari-fg-subtle)'}
+                stroke={highlighted ? 'var(--ari-fg)' : 'var(--ari-fg-subtle)'}
                 strokeOpacity={highlighted ? 1 : 0.65}
-                strokeWidth={highlighted ? 2 : 1.5}
+                strokeWidth={highlighted ? 1.75 : 1.25}
                 markerEnd={`url(#${marker}${highlighted ? '-active' : ''})`}
               />
               {edge.label && (
@@ -185,7 +185,7 @@ export function GraphDiagram({
             </g>
           )
         })}
-        {spec.nodes.map((node, i) => {
+        {spec.nodes.map((node) => {
           const p = layout.positions.get(node.id)
           if (!p) return null
           const label = `${node.label}${node.description ? `: ${node.description}` : ''}`
@@ -194,7 +194,8 @@ export function GraphDiagram({
             outgoing = spec.edges.filter((edge) => edge.from === node.id).length
           const selectedNode = active.includes(node.id),
             decision = node.shape === 'decision'
-          const paint = node.tone ? `var(--ari-${node.tone})` : color(i)
+          // A node is neutral unless the agent gave it a tone; position is not a category.
+          const paint = node.tone ? `var(--ari-${node.tone})` : null
           return (
             <g
               key={node.id}
@@ -233,7 +234,9 @@ export function GraphDiagram({
                   className="ari-viz-node-shape"
                   points={`${p.x + NODE_WIDTH / 2},${p.y - 10} ${p.x + NODE_WIDTH + 10},${p.y + NODE_HEIGHT / 2} ${p.x + NODE_WIDTH / 2},${p.y + NODE_HEIGHT + 10} ${p.x - 10},${p.y + NODE_HEIGHT / 2}`}
                   fill="var(--ari-surface-1)"
-                  stroke={selectedNode ? paint : 'var(--ari-border-strong)'}
+                  stroke={
+                    selectedNode ? (paint ?? 'var(--ari-fg-muted)') : 'var(--ari-border-strong)'
+                  }
                 />
               ) : (
                 <rect
@@ -244,10 +247,12 @@ export function GraphDiagram({
                   height={NODE_HEIGHT}
                   rx={node.shape === 'start' || node.shape === 'end' ? 44 : 10}
                   fill="var(--ari-surface-1)"
-                  stroke={selectedNode ? paint : 'var(--ari-border-strong)'}
+                  stroke={
+                    selectedNode ? (paint ?? 'var(--ari-fg-muted)') : 'var(--ari-border-strong)'
+                  }
                 />
               )}
-              {!decision && (
+              {!decision && paint !== null && (
                 <rect x={p.x} y={p.y + 24} width="3" height="40" rx="1.5" fill={paint} />
               )}
               <text

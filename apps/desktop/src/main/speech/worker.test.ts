@@ -2,7 +2,12 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const model = vi.hoisted(() => ({ load: vi.fn(), transcribe: vi.fn(), dispose: vi.fn() }))
+const model = vi.hoisted(() => ({
+  load: vi.fn(),
+  transcribe: vi.fn(),
+  dispose: vi.fn(),
+  supports: vi.fn(),
+}))
 vi.mock('transcribe-cpp', () => ({ TranscribeModel: { load: model.load } }))
 
 let parent: EventEmitter & { postMessage: ReturnType<typeof vi.fn> }
@@ -12,6 +17,7 @@ beforeEach(async () => {
   model.load.mockReset().mockResolvedValue(model)
   model.transcribe.mockReset().mockResolvedValue({ text: 'Dictation' })
   model.dispose.mockReset()
+  model.supports.mockReset().mockReturnValue(false)
   parent = Object.assign(new EventEmitter(), { postMessage: vi.fn() })
   vi.stubGlobal('process', { ...process, parentPort: parent })
   await import('./worker')
@@ -74,4 +80,52 @@ it('reports native inference failures and loads a fresh model for a retry', asyn
     expect(parent.postMessage).toHaveBeenCalledWith({ id: 2, result: { text: 'Dictation' } }),
   )
   expect(model.load).toHaveBeenCalledTimes(2)
+})
+
+it.each([true, false])(
+  'requests native punctuation only when the existing model supports it (%s)',
+  async (supported) => {
+    model.supports.mockReturnValue(supported)
+    model.transcribe.mockResolvedValue({
+      text: 'bonjour Ari.',
+      language: 'fr',
+      words: [{ text: 'bonjour', t0Ms: 0, t1Ms: 300, unused: 'ignored' }],
+    })
+    parent.emit('message', {
+      data: {
+        id: 1,
+        kind: 'transcribe',
+        path: 'custom.gguf',
+        pcm: new Float32Array([0.1]),
+        formatText: true,
+      },
+    })
+    await vi.waitFor(() => expect(model.transcribe).toHaveBeenCalledOnce())
+    expect(model.transcribe.mock.calls[0]![1]).toEqual(supported ? { pnc: 'on' } : {})
+    expect(parent.postMessage).toHaveBeenCalledWith({
+      id: 1,
+      result: {
+        text: 'bonjour Ari.',
+        language: 'fr',
+        words: [{ text: 'bonjour', t0Ms: 0, t1Ms: 300 }],
+      },
+    })
+  },
+)
+
+it('keeps provider defaults and requested language when text formatting is disabled', async () => {
+  model.supports.mockReturnValue(true)
+  parent.emit('message', {
+    data: {
+      id: 1,
+      kind: 'transcribe',
+      path: 'custom.gguf',
+      pcm: new Float32Array([0.1]),
+      formatText: false,
+      language: 'zh',
+    },
+  })
+  await vi.waitFor(() => expect(model.transcribe).toHaveBeenCalledOnce())
+  expect(model.transcribe.mock.calls[0]![1]).toEqual({ language: 'zh' })
+  expect(model.supports).not.toHaveBeenCalled()
 })

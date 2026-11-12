@@ -4,15 +4,12 @@ export type ScrollAreaProps = ComponentProps<'div'>
 
 /**
  * Native scrolling container. Scrolling stays on the platform scroller for
- * performance; only the scrollbar chrome is themed via the `ari-scroll`
- * rules in `@ari/ui/scroll-area.css`.
+ * performance; the scrollbar chrome is themed for every scroller by the
+ * rules in `@ari/ui/scroll-area.css`, so the class here is only a marker.
  */
 export function ScrollArea({ className, children, ...rest }: ScrollAreaProps) {
   return (
-    <div
-      className={['ari-scroll overflow-auto', className].filter(Boolean).join(' ')}
-      {...rest}
-    >
+    <div className={['ari-scroll overflow-auto', className].filter(Boolean).join(' ')} {...rest}>
       {children}
     </div>
   )

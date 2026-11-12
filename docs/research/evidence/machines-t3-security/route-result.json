@@ -1,0 +1,33 @@
+{
+  "kind": "independent-reviewer-execution",
+  "source": "494566a5cf957c52c1a2b386c5e62034eaaa40c1",
+  "wipCommitBeforeRun": "98321da9",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-route-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-route-proof.mjs 494566a5cf957c52c1a2b386c5e62034eaaa40c1",
+  "runnerStartedAt": "2026-11-12T12:52:57.871Z",
+  "commitHeadroomBytes": 12958072832,
+  "cFreeBytes": 22109147136,
+  "priority": "below-normal",
+  "workers": 1,
+  "exitCode": 0,
+  "signal": null,
+  "result": {
+    "oldReportRejected": false,
+    "restoredDisappearedRoute": true,
+    "publishedRemovedRoute": true,
+    "proofToRemovedRoute": true,
+    "walkError": null,
+    "routeTokenAudience": true,
+    "singleUseChallenge": true,
+    "revocation": true,
+    "noReverseGrant": true,
+    "unownedAudienceDenied": true,
+    "proofBeforeCredentials": true,
+    "success": true
+  },
+  "limits": "Real immutable source and crypto with deterministic fake route transport; not two real engines, OS keyring, Serve, hardware or final integrated certification.",
+  "priorHarnessAttempt": {
+    "exitCode": 1,
+    "signal": null,
+    "cause": "The security worktree has no zod install; failed before source assertions. Corrected harness reads existing D integration dependencies without installing or modifying them."
+  }
+}

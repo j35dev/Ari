@@ -47,31 +47,6 @@
   }
 }
 
-.ari-focus-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ari-border-strong) transparent;
-}
-
-.ari-focus-scroll::-webkit-scrollbar {
-  width: 7px;
-}
-
-.ari-focus-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ari-focus-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: var(--ari-border-strong);
-  background-clip: padding-box;
-}
-
-.ari-focus-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--ari-fg-subtle);
-  background-clip: padding-box;
-}
-
 .ari-focus-range {
   appearance: none;
   background: transparent;

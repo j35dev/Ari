@@ -119,6 +119,25 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+it('retains scheduled prompts for a disabled experiment across restart and only dispatches after enabling', async () => {
+  let enabled = false
+  schedule = make({ enabled: async () => enabled })
+  await schedule.add({ sessionId: 's', prompt: 'Saved follow-up', at: 5_000 })
+  now = 5_000
+  await schedule.sweep()
+  expect(sent).toHaveLength(0)
+  expect(schedule.list()).toHaveLength(1)
+  schedule.close()
+  schedule = make({ enabled: async () => enabled })
+  await schedule.load()
+  await schedule.sweep()
+  expect(sent).toHaveLength(0)
+  enabled = true
+  await schedule.sweep()
+  expect(sent).toMatchObject([{ type: 'turn.start', text: 'Saved follow-up' }])
+  expect(schedule.list()).toHaveLength(0)
+})
+
 it('continues the session once its time comes, and only once', async () => {
   await runTurn('error')
   await schedule.schedule('s', 5_000)

@@ -1,7 +1,8 @@
 import { Kbd } from '@ari/ui/kbd'
 import { SettingsPage } from './SettingsPage'
 import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
-import { APP_SHORTCUTS } from './shortcuts'
+import { appShortcuts } from './shortcuts'
+import { useEngineSettings } from './useEngineSettings'
 
 function isApplePlatform(): boolean {
   return /mac|iphone|ipad|ipod/i.test(navigator.platform)
@@ -15,6 +16,7 @@ export function resolveChord(chord: string): string[] {
 
 /** Keybindings settings page: read-only table of the app's logical shortcuts. */
 export function KeybindingsSettings() {
+  const { settings } = useEngineSettings()
   return (
     <SettingsPage title="Keybindings" description="Every shortcut the workspace responds to.">
       <SettingsSection
@@ -24,12 +26,12 @@ export function KeybindingsSettings() {
         bare
       >
         <ul className={SETTINGS_CARD_CLASS}>
-          {APP_SHORTCUTS.map((shortcut) => {
+          {appShortcuts(settings?.experimental.ariaEnabled).map((shortcut) => {
             const keys = resolveChord(shortcut.chord)
             return (
               <li
                 key={shortcut.id}
-                className="flex min-h-11 items-center justify-between gap-4 px-4 py-2"
+                className="flex min-h-11 items-center justify-between gap-4 px-4 py-2.5"
               >
                 <span className="text-sm text-fg">{shortcut.label}</span>
                 <span

@@ -1,0 +1,62 @@
+{"resourceGate":{"commitHeadroomBytes":2975539200,"cFreeBytes":22002683904}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4434571264,"cFreeBytes":22003179520}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4389392384,"cFreeBytes":21998997504}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5097734144,"cFreeBytes":22004330496}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3544199168,"cFreeBytes":22004609024}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4059656192,"cFreeBytes":21988638720}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4672028672,"cFreeBytes":21972979712}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4482523136,"cFreeBytes":21987946496}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3542753280,"cFreeBytes":21969076224}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4502777856,"cFreeBytes":21972602880}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5237698560,"cFreeBytes":21975867392}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5248614400,"cFreeBytes":21977325568}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4928344064,"cFreeBytes":21958664192}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3913826304,"cFreeBytes":21950861312}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3734749184,"cFreeBytes":21947035648}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-ari-core-tests\",\"pid\":28160,\"startedAt\":\"2026-11-12T13:52:02.251Z\",\"id\":\"baed1fe8-fb99-4be0-a36a-d755a8b2d288\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":6320353280,"cFreeBytes":21937700864}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3082149888,"cFreeBytes":21920772096}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}","{\"worker\":\"integrated-providers-tests\",\"pid\":29944,\"startedAt\":\"2026-11-12T13:52:27.675Z\",\"id\":\"c254e039-0035-4b46-9333-0eac4b4af31a\"}"]}
+{"resourceGate":{"commitHeadroomBytes":5841305600,"cFreeBytes":21918576640}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}","{\"worker\":\"integrated-providers-tests\",\"pid\":29944,\"startedAt\":\"2026-11-12T13:52:27.675Z\",\"id\":\"c254e039-0035-4b46-9333-0eac4b4af31a\"}"]}
+{"resourceGate":{"commitHeadroomBytes":6687686656,"cFreeBytes":21923274752}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}","{\"worker\":\"integrated-providers-tests\",\"pid\":29944,\"startedAt\":\"2026-11-12T13:52:27.675Z\",\"id\":\"c254e039-0035-4b46-9333-0eac4b4af31a\"}"]}
+{"resourceGate":{"commitHeadroomBytes":5334228992,"cFreeBytes":21919334400}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4960968704,"cFreeBytes":21944823808}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5647511552,"cFreeBytes":21944127488}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"final-lint-correction\",\"pid\":24848,\"startedAt\":\"2026-11-12T13:41:15.434Z\",\"id\":\"018a3e32-2750-40a2-a97d-4c24e00c0490\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":6363516928,"cFreeBytes":21943156736}}
+{"heavyLock":"waiting","capacity":1,"owners":[null,"{\"worker\":\"final-engine-timing-correction\",\"pid\":6912,\"startedAt\":\"2026-11-12T13:54:32.379Z\",\"id\":\"89809acb-ad2f-4f9d-ae65-c1a7bfd495a6\"}"]}
+{"resourceGate":{"commitHeadroomBytes":7058616320,"cFreeBytes":21941739520}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"final-gateway-correction","pid":16480,"startedAt":"2026-11-12T13:42:33.281Z","id":"0e74ec93-f8a3-463b-b988-039cda866768"}
+
+> @ari/remote-gateway@0.1.0 test D:\Projects\Ari-machines\packages\remote-gateway
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/remote-gateway
+
+
+ Test Files  6 passed (6)
+      Tests  182 passed (182)
+   Start at  21:57:56
+   Duration  5.75s (transform 437ms, setup 0ms, import 1.48s, tests 2.31s, environment 1ms)
+
+{"heavyResult":{"worker":"final-gateway-correction","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/remote-gateway","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

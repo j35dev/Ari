@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, File, Folder } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, File, Folder } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GitReviewFile } from '@ari/contracts/rpc'
 import { setDragFilePath } from '../composer/drag-file'
+import { useSessionClient } from '../session/session-client'
 
 /** Search-filtered, virtualized file navigator; paths remain literal mention/selection sources. */
 export function ChangedFiles({
@@ -18,6 +19,7 @@ export function ChangedFiles({
   selectedPaths?: ReadonlySet<string>
   tree?: boolean
 }) {
+  const client = useSessionClient()
   const scroll = useRef<HTMLElement>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const rows = useMemo(() => {
@@ -52,7 +54,7 @@ export function ChangedFiles({
     <nav
       ref={scroll}
       aria-label="Changed files"
-      className="ari-scroll min-h-0 flex-1 overflow-auto px-1.5 pb-2"
+      className="ari-scroll min-h-0 flex-1 overflow-auto px-2 pb-2"
       onKeyDown={(event) => {
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
         event.preventDefault()
@@ -86,19 +88,19 @@ export function ChangedFiles({
                     return next
                   })
                 }
-                className="absolute left-0 top-0 flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs text-fg-subtle hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                className="absolute left-0 top-0 flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-[13px] text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
                 style={{
                   height: item.size,
                   transform: `translateY(${item.start}px)`,
-                  paddingLeft: 6 + node.depth * 12,
+                  paddingLeft: 8 + node.depth * 14,
                 }}
               >
                 {collapsed.has(node.folder) ? (
-                  <ChevronRight size={11} />
+                  <ChevronRight size={14} className="shrink-0 text-fg-subtle" aria-hidden />
                 ) : (
-                  <ChevronDown size={11} />
+                  <ChevronDown size={14} className="shrink-0 text-fg-subtle" aria-hidden />
                 )}
-                <Folder size={13} />
+                <Folder size={14} className="shrink-0 text-fg-subtle" aria-hidden />
                 <span className="truncate">{node.folder.split('/').at(-1)}</span>
               </button>
             )
@@ -112,7 +114,7 @@ export function ChangedFiles({
               aria-current={selected === file.path ? 'true' : undefined}
               aria-pressed={selectedPaths?.has(file.path)}
               draggable
-              onDragStart={(event) => setDragFilePath(event, file.path)}
+              onDragStart={(event) => setDragFilePath(event, file.path, client.viewKey)}
               onClick={(event) => onSelect(file.path, event.ctrlKey || event.metaKey)}
               style={{
                 position: 'absolute',
@@ -121,43 +123,37 @@ export function ChangedFiles({
                 width: '100%',
                 height: item.size,
                 transform: `translateY(${item.start}px)`,
-                paddingLeft: tree ? 23 + node.depth * 12 : 8,
+                // In the tree a file sits under its folder's icon, past the chevron.
+                paddingLeft: tree ? 28 + node.depth * 14 : 8,
               }}
-              className={`flex items-center gap-2 rounded-md px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring ${selected === file.path ? 'bg-accent-subtle text-fg' : 'text-fg-muted hover:bg-surface-1'}`}
+              className={`flex items-center gap-2.5 rounded-md pr-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${selected === file.path ? 'bg-fg/9' : 'hover:bg-fg/5'}`}
             >
-              <File size={13} className="shrink-0 text-fg-subtle" aria-hidden />
-              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className="min-w-0 truncate text-xs">{file.path.slice(at + 1)}</span>
+              <File size={14} className="shrink-0 text-fg-subtle" aria-hidden />
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className="min-w-0 truncate text-fg">{file.path.slice(at + 1)}</span>
                 {at >= 0 && !tree ? (
-                  <span className="min-w-0 truncate text-2xs text-fg-subtle" dir="rtl">
+                  <span className="min-w-0 truncate text-fg-subtle" dir="rtl">
                     {file.path.slice(0, at)}
                   </span>
                 ) : null}
               </span>
-              <span
-                title={file.kind}
-                className={`shrink-0 font-mono text-2xs ${file.kind === 'deleted' || file.kind === 'conflicted' ? 'text-danger' : file.kind === 'added' || file.kind === 'untracked' ? 'text-success' : 'text-fg-subtle'}`}
-              >
+              {selectedPaths?.has(file.path) ? (
+                <Check size={12} className="shrink-0 text-fg-muted" aria-hidden />
+              ) : null}
+              {file.staged ? (
+                <span className="size-1.5 shrink-0 rounded-full bg-fg-muted" title="Staged" />
+              ) : null}
+              <span title={file.kind} className="shrink-0 font-mono text-xs text-fg-subtle">
                 {file.kind === 'untracked' ? '?' : file.kind[0]?.toUpperCase()}
               </span>
               {file.additions > 0 || file.deletions > 0 ? (
-                <span className="shrink-0 font-mono text-2xs tabular-nums">
+                <span className="flex shrink-0 gap-2 font-mono text-xs tabular-nums">
                   {file.additions > 0 ? (
                     <span className="text-success">+{file.additions}</span>
                   ) : null}
                   {file.deletions > 0 ? (
-                    <span className="ml-1 text-danger">−{file.deletions}</span>
+                    <span className="text-danger">−{file.deletions}</span>
                   ) : null}
-                </span>
-              ) : null}
-              {selectedPaths?.has(file.path) ? (
-                <span className="text-accent" aria-hidden>
-                  ✓
-                </span>
-              ) : null}
-              {file.staged ? (
-                <span className="text-success" title="Staged">
-                  •
                 </span>
               ) : null}
             </button>

@@ -72,7 +72,7 @@ describe('DiffViewer', () => {
     const { container } = render(<DiffViewer diffText={DIFF} />)
     const section = container.querySelector('section[data-file-path="assets/logo.png"]')
     expect(section?.querySelector('[data-line-type]')).toBeNull()
-    expect(screen.getByText('binary')).toBeInTheDocument()
+    expect(screen.getByText('Binary')).toBeInTheDocument()
   })
 
   it('shows an empty state for input without any diff', () => {
@@ -84,9 +84,7 @@ describe('DiffViewer', () => {
 describe('DiffViewer review notes (M21.1)', () => {
   it('hides comment affordances without onLineComment', () => {
     render(<DiffViewer diffText={DIFF} />)
-    expect(
-      screen.queryByRole('button', { name: /Comment on src\/app.ts/ }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Comment on src\/app.ts/ })).not.toBeInTheDocument()
   })
 
   it('saves an inline note and reports path, line, and text', async () => {

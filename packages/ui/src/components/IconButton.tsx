@@ -9,7 +9,7 @@ import {
 
 const ICON_BUTTON_SIZE_CLASSES = {
   sm: 'h-7 w-7',
-  md: 'h-9 w-9',
+  md: 'h-8 w-8',
 } as const
 
 export type IconButtonProps = Omit<ComponentProps<'button'>, 'children'> & {

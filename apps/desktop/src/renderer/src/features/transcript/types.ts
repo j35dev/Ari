@@ -55,6 +55,10 @@ export interface DelegatedChild {
   startedAt: number | null
   /** The child's final message, once it has one. */
   report: string | null
+  /** Epoch ms the child was spawned, when the spawn event is known. */
+  spawnedAt?: number | null
+  /** Epoch ms its latest turn settled; null while it has not finished one. */
+  settledAt?: number | null
   /** Where in the transcript the spawn happened. */
   anchor: { messageId: string | null; partIndex: number }
 }

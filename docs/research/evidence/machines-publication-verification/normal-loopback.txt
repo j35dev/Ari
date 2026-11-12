@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":9450221568,"cFreeBytes":21377220608}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-normal-loopback","pid":21932,"startedAt":"2026-11-12T16:25:34.938Z","id":"e8de3584-b8d1-41a6-9764-04df6fda6f01"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines\apps\desktop
+> vitest run "src/main/machines-normal-loopback.test.ts" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:25:39
+   Duration  3.71s (transform 927ms, setup 0ms, import 1.43s, tests 1.99s, environment 0ms)
+
+{"heavyResult":{"worker":"publication-normal-loopback","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","src/main/machines-normal-loopback.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

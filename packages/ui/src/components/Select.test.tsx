@@ -116,10 +116,7 @@ describe('Select', () => {
     const codex = screen.getByRole('option', { name: 'Codex' })
     expect(codex).toHaveAttribute('aria-selected', 'true')
     expect(codex.querySelector('svg')).not.toBeNull()
-    expect(screen.getByRole('option', { name: 'Claude' })).toHaveAttribute(
-      'aria-selected',
-      'false',
-    )
+    expect(screen.getByRole('option', { name: 'Claude' })).toHaveAttribute('aria-selected', 'false')
     expect(screen.getByRole('button')).toHaveTextContent('Codex')
   })
 

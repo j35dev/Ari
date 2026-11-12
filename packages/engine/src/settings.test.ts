@@ -21,6 +21,30 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('migrates Aria off and preserves its choices across disable, restart and enable', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        speech: { shortcut: 'f20', dictationShortcut: 'f21', enabled: true },
+        sessions: { defaultDriverKind: 'codex', defaultPermissionMode: 'full' },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    const saved = await store.load()
+    expect(saved.experimental.ariaEnabled).toBe(false)
+    await store.update({ experimental: { ariaEnabled: true } })
+    await store.update({ experimental: { ariaEnabled: false } })
+    const restarted = new SettingsStore({ dir })
+    const off = await restarted.load()
+    expect(off.experimental.ariaEnabled).toBe(false)
+    expect(off.speech).toEqual(saved.speech)
+    expect(off.sessions).toEqual(saved.sessions)
+    const on = await restarted.update({ experimental: { ariaEnabled: true } })
+    expect(on.experimental.ariaEnabled).toBe(true)
+    expect(on.speech).toEqual(saved.speech)
+    expect(on.delegation).toEqual(saved.delegation)
+  })
   it.each(['ctrl+k', 'ctrl+enter', 'ctrl+alt+s'])(
     'repairs legacy Aria action binding %s without discarding speech preferences',
     async (shortcut) => {
@@ -129,6 +153,7 @@ describe('SettingsStore', () => {
         version: 1,
         aria: { driverKind: 'codex', modelId: 'gpt-6' },
         sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'allow-edits' },
+        fullAutoMigrated: true,
       }),
     )
     const store = new SettingsStore({ dir })
@@ -446,5 +471,26 @@ describe('SettingsStore', () => {
     const settings = await store.load()
     expect(settings.appearance.themeId).toBe('verdant')
     expect(JSON.stringify(settings)).not.toContain('bogus')
+  })
+
+  it('moves a saved Ask or Edits default to full auto once, then keeps a later choice', async () => {
+    const path = join(dir, 'settings.json')
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'ask' },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).sessions).toEqual({
+      defaultDriverKind: 'claude',
+      defaultPermissionMode: 'full',
+    })
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ fullAutoMigrated: true })
+
+    // Choosing Ask again afterwards is the user's own choice and survives a restart.
+    await store.update({ sessions: { defaultPermissionMode: 'ask' } })
+    expect((await new SettingsStore({ dir }).load()).sessions.defaultPermissionMode).toBe('ask')
   })
 })

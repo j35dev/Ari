@@ -1,6 +1,7 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { Message } from '@ari/contracts/message'
 import { createMessageFold, type MessageFold } from './message-fold'
+import { parseSessionViewKey, registerSessionCacheInvalidator } from './session-scope'
 
 /**
  * One session's message list, held outside React so a streaming flush
@@ -29,6 +30,8 @@ export interface TranscriptStore {
   /** The latest published list. Immutable; same identity until it changes. */
   getSnapshot: () => Message[]
   subscribe: (listener: () => void) => () => void
+  /** Clears watched presentation and disconnects every previously issued fold. */
+  dispose(): void
 }
 
 /** How many sessions keep their transcript after their view goes away. */
@@ -45,6 +48,7 @@ function createStore(sessionId: string): TranscriptStore {
   // A fresh fold's first publish replaces the cached snapshot even when the
   // replay brought nothing, or an emptied list would keep showing old rows.
   let replacing = false
+  let disposed = false
   const listeners = new Set<() => void>()
   const store: TranscriptStore = {
     sessionId,
@@ -54,6 +58,7 @@ function createStore(sessionId: string): TranscriptStore {
       return fold
     },
     publish() {
+      if (disposed) return
       const next = fold.commit() ?? (replacing && snapshot.length > 0 ? NO_MESSAGES : null)
       replacing = false
       if (next === null) return
@@ -61,6 +66,12 @@ function createStore(sessionId: string): TranscriptStore {
       for (const listener of listeners) listener()
     },
     getSnapshot: () => snapshot,
+    dispose() {
+      disposed = true
+      fold = createMessageFold()
+      snapshot = NO_MESSAGES
+      for (const listener of listeners) listener()
+    },
     subscribe(listener) {
       listeners.add(listener)
       watchers.set(store, listeners.size)
@@ -72,6 +83,15 @@ function createStore(sessionId: string): TranscriptStore {
   }
   return store
 }
+
+registerSessionCacheInvalidator((machineId) => {
+  for (const [key, store] of stores) {
+    const scope = parseSessionViewKey(key)
+    if (scope?.kind !== 'remote' || scope.machineId !== machineId) continue
+    store.dispose()
+    stores.delete(key)
+  }
+})
 
 /** The store for `sessionId`, created on first use and marked most recent. */
 export function transcriptStore(sessionId: string): TranscriptStore {

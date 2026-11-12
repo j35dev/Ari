@@ -135,6 +135,15 @@
   .error-banner {
     @apply my-3 rounded-xl border border-danger bg-danger-subtle p-3 text-sm text-danger;
   }
+  .computer-button {
+    @apply flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface-1 px-3 text-sm font-medium;
+  }
+  .computer-field {
+    @apply min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3;
+  }
+  .workspace-tab {
+    @apply min-h-11 shrink-0 rounded-lg px-4 text-sm text-fg-muted aria-pressed:bg-surface-2 aria-pressed:font-medium aria-pressed:text-fg disabled:opacity-40;
+  }
   .markdown {
     @apply min-w-0 break-words text-[15px] leading-[1.75];
   }
@@ -299,6 +308,27 @@ textarea {
 }
 button {
   touch-action: manipulation;
+}
+button {
+  transition: background-color var(--ari-dur-fast), color var(--ari-dur-fast);
+  overflow-wrap: anywhere;
+}
+button:enabled:active {
+  filter: brightness(0.94);
+}
+.primary-button,
+.secondary-button {
+  white-space: normal;
+  padding-block: 0.625rem;
+}
+.mobile-shell,
+.mobile-composer {
+  min-width: 0;
+}
+.step-detail,
+.markdown,
+.error-banner {
+  overflow-wrap: anywhere;
 }
 @media (min-width: 720px) {
   #root {

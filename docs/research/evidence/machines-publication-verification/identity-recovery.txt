@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":9366106112,"cFreeBytes":21385134080}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-identity-recovery","pid":25208,"startedAt":"2026-11-12T16:25:43.246Z","id":"ebece2e3-ed20-42d7-b53d-e71d81e66284"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines\apps\desktop
+> vitest run "src/main/machine-identity.test.ts" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  00:25:47
+   Duration  755ms (transform 39ms, setup 0ms, import 120ms, tests 392ms, environment 0ms)
+
+{"heavyResult":{"worker":"publication-identity-recovery","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","src/main/machine-identity.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

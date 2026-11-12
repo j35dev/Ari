@@ -1,0 +1,37 @@
+{"resourceGate":{"commitHeadroomBytes":9764679680,"cFreeBytes":21606846464}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-engine-tests","pid":30012,"startedAt":"2026-11-12T15:42:41.820Z","id":"53a0f868-70ed-493b-aa78-700d6a7cb5f0"}
+
+> @ari/engine@0.1.0 test D:\Projects\Ari-machines\packages\engine
+> vitest run "--maxWorkers=1" "--no-file-parallelism" "--testTimeout=60000" "--hookTimeout=60000"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/engine
+
+Preparing worktree (new branch 'ari/work-s_a536db87a7e78224376f458d7de064f4cc9b4956cd80c75af24c61f491bdf830-2')
+Preparing worktree (new branch 'ari/work-mabcd123-2')
+Switched to a new branch 'feature'
+Switched to a new branch 'feature/review'
+(node:28064) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:28064) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:28064) Warning: Closing file descriptor 6 on garbage collection
+(node:3556) Warning: Closing file descriptor 4 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3556) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:3556) Warning: Closing file descriptor 5 on garbage collection
+(node:3556) Warning: Closing file descriptor 6 on garbage collection
+(node:3556) Warning: Closing file descriptor 7 on garbage collection
+(node:3556) Warning: Closing file descriptor 8 on garbage collection
+(node:3556) Warning: Closing file descriptor 9 on garbage collection
+(node:3556) Warning: Closing file descriptor 10 on garbage collection
+(node:3556) Warning: Closing file descriptor 11 on garbage collection
+(node:3556) Warning: Closing file descriptor 12 on garbage collection
+(node:3556) Warning: Closing file descriptor 15 on garbage collection
+(node:3556) Warning: Closing file descriptor 16 on garbage collection
+
+ Test Files  42 passed (42)
+      Tests  803 passed (803)
+   Start at  23:42:44
+   Duration  552.87s (transform 1.71s, setup 0ms, import 7.78s, tests 535.44s, environment 5ms)
+
+{"heavyResult":{"worker":"publication-engine-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/engine","test","--maxWorkers=1","--no-file-parallelism","--testTimeout=60000","--hookTimeout=60000"],"exitCode":0,"signal":null}}

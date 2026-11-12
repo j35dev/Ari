@@ -7,6 +7,8 @@ import { SessionView, type SessionDefaults } from './SessionView'
 
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc }))
+// The scene paints on a canvas and reads the theme; it has no part in history.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 const sounds = vi.hoisted(() => ({ playSettleSound: vi.fn() }))
 vi.mock('../moment/settle-sound', () => sounds)
 
@@ -59,7 +61,7 @@ function texts(): string[] {
 }
 
 beforeEach(() => {
-  sessionId = `history_${++nextId}`
+  sessionId = `sess_history_${++nextId}`
   metadataFails = false
   attempts.length = 0
   localStorage.clear()
@@ -515,7 +517,7 @@ describe('SessionView history recovery', () => {
     emit({ replay: true, events: [message(1, 'cached first')] })
     emit({ replayDone: true })
     const first = attempts.at(-1)!
-    sessionId = `history_${++nextId}`
+    sessionId = `sess_history_${++nextId}`
     rendered.rerender(view())
     emit({ replay: true, events: [message(1, 'second session')] })
     emit({ replayDone: true })

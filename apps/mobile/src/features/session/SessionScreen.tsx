@@ -3,9 +3,7 @@ import {
   ArrowDown,
   ChevronLeft,
   CornerLeftUp,
-  Folder,
   Gauge,
-  GitBranch,
   MoreHorizontal,
   SlidersHorizontal,
   TerminalSquare,
@@ -34,6 +32,9 @@ import { UsageSheet } from '../usage/UsageSheet'
 import { ReviewIntegration } from './ReviewIntegration'
 import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { SessionControls } from '../../components/SessionControls'
+import { EmptyState } from '../../components/EmptyState'
+import { connectionLabel } from '../../lib/format'
+import { computerName } from '../../lib/computers'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
   return { default: module.Terminal }
@@ -53,7 +54,17 @@ interface Snapshot {
 type View = 'conversation' | 'changes' | 'files' | 'terminal'
 
 /** A phone-sized workspace with resumable activity, explicit approvals, and durable drafts. */
-export function SessionScreen({
+export function SessionScreen(props: {
+  sessionId: string
+  onBack: () => void
+  onForked: (sessionId: string) => void
+  onOpenSession?: (sessionId: string) => void
+}): ReactNode {
+  const app = useApp()
+  return <SessionWorkspace key={`${app.origin}:${app.session?.deviceId ?? ''}:${props.sessionId}`} {...props} />
+}
+
+function SessionWorkspace({
   sessionId,
   onBack,
   onForked,
@@ -234,7 +245,7 @@ export function SessionScreen({
               className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting || delegated?.endsWith('you') === true ? 'bg-warning' : 'bg-fg-subtle'}`}
             />
             <span className="truncate">
-              {`${projectName}, ${
+              {`${app.activeComputer?.name ?? (app.origin === null ? 'Computer' : computerName(app.origin))} · ${projectName}, ${
                 app.connection !== 'connected'
                   ? 'offline'
                   : snapshot?.session.status === 'running'
@@ -246,16 +257,6 @@ export function SessionScreen({
             </span>
           </p>
         </div>
-        {view === 'conversation' && can('changes.files') && (
-          <button
-            type="button"
-            className="icon-button text-fg-muted"
-            aria-label="Changes"
-            onClick={() => open('changes')}
-          >
-            <GitBranch size={20} />
-          </button>
-        )}
         <button
           type="button"
           className="icon-button text-fg-muted"
@@ -265,6 +266,18 @@ export function SessionScreen({
           <MoreHorizontal size={20} />
         </button>
       </header>
+      <nav aria-label="Session views" className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 pb-2">
+        {([
+          { id: 'conversation', label: 'Chat', available: true },
+          { id: 'changes', label: 'Changes', available: app.session?.supports('changes.files') === true },
+          { id: 'files', label: 'Files', available: app.session?.supports('files.list') === true },
+          { id: 'terminal', label: 'Terminal', available: app.session?.supports('terminal.create') === true },
+        ] as const).filter((entry) => entry.available).map((entry) => <button key={entry.id} type="button" aria-pressed={view === entry.id} className="workspace-tab" disabled={entry.id !== 'conversation' && app.connection !== 'connected'} onClick={() => open(entry.id)}>{entry.label}</button>)}
+      </nav>
+      {app.connection !== 'connected' && <div role="status" className="flex shrink-0 items-center gap-3 border-b border-border bg-warning-subtle px-4 py-2 text-xs">
+        <p className="min-w-0 flex-1 leading-relaxed">{connectionLabel(app.connection)}. Your draft stays on this phone; reconnect before sending or answering.</p>
+        <button type="button" aria-label="Reconnect computer" className="min-h-11 shrink-0 font-medium" onClick={() => void app.reconnect().catch((error: unknown) => setFailure(messageOf(error)))}>Reconnect</button>
+      </div>}
       {toolsOpen && (
         <BottomSheet
           title={snapshot?.summary.title || 'Session'}
@@ -273,7 +286,6 @@ export function SessionScreen({
           <ul className="pb-2">
             {(
               [
-                { id: 'files', label: 'Files', icon: Folder, enabled: can('files.list') },
                 {
                   id: 'terminal',
                   label: 'Terminal',
@@ -360,7 +372,9 @@ export function SessionScreen({
         }}
         className={`min-h-0 flex-1 px-5 py-5 ${view === 'terminal' ? 'overflow-hidden' : 'overflow-y-auto'}`}
       >
-        {snapshot === null && (
+        {snapshot === null && app.connection !== 'connected' ? (
+          <EmptyState title="Reconnect to this session" detail="The conversation stays on your computer. Your saved draft is here when the connection returns." />
+        ) : snapshot === null && (
           <p role="status" className="text-sm text-fg-muted">
             Loading session…
           </p>
@@ -422,6 +436,7 @@ export function SessionScreen({
       )}
       {view === 'conversation' && waiting && snapshot !== null && (
         <AttentionDock
+          disabled={app.connection !== 'connected'}
           approvals={snapshot.pendingApprovals}
           inputs={snapshot.pendingInputs}
           onApprove={async (approvalId, optionId) => {

@@ -21,12 +21,16 @@ it('persists speech selection and merges shortcut updates without losing the mod
     await store.update({ speech: { shortcut: 'ctrl+alt+space' } })
     const reloaded = await new SettingsStore({ dir }).load()
     expect(reloaded.speech).toEqual({
+      provider: 'local',
+      groqModel: 'whisper-large-v3-turbo',
       modelId: 'tiny',
       modelPath: '/models/tiny.gguf',
       enabled: true,
       shortcut: 'ctrl+alt+space',
       dictationShortcut: defaultDictationShortcut(process.platform),
       duckAudio: false,
+      formatText: true,
+      spokenFormatting: false,
     })
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -92,12 +96,16 @@ it('replaces a retired shortcut on load and persists the migration without chang
     )
     const store = new SettingsStore({ dir })
     expect((await store.load()).speech).toEqual({
+      provider: 'local',
+      groqModel: 'whisper-large-v3-turbo',
       modelId: 'tiny',
       modelPath: '/models/tiny.gguf',
       enabled: true,
       shortcut: defaultSpeechShortcut(process.platform),
       dictationShortcut: defaultDictationShortcut(process.platform),
       duckAudio: true,
+      formatText: true,
+      spokenFormatting: false,
     })
     expect(JSON.parse(await readFile(path, 'utf8')).speech.shortcut).toBe(
       defaultSpeechShortcut(process.platform),

@@ -9,8 +9,7 @@ export interface SegmentedOption {
   label: ReactNode
 }
 
-export interface SegmentedControlProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
+export interface SegmentedControlProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
   /** Options to render, in order. */
   options: SegmentedOption[]
   /** Controlled selected value; provide together with onChange. */
@@ -48,10 +47,7 @@ export function SegmentedControl({
 
   return (
     <div
-      className={[
-        'inline-flex items-center rounded-md border border-border bg-surface-1 p-0.5',
-        className,
-      ]
+      className={['inline-flex items-center rounded-lg bg-surface-2 p-[3px]', className]
         .filter(Boolean)
         .join(' ')}
       {...rest}
@@ -65,10 +61,10 @@ export function SegmentedControl({
             aria-pressed={selected}
             onClick={() => select(option.value)}
             className={[
-              'relative inline-flex items-center justify-center whitespace-nowrap rounded-sm font-medium transition-colors',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-              size === 'sm' ? 'h-6 px-2 text-xs' : 'h-7 px-3 text-sm',
-              selected ? 'text-fg' : 'text-fg-muted hover:text-fg',
+              'relative inline-flex items-center justify-center whitespace-nowrap rounded-md text-[13px] transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
+              size === 'sm' ? 'h-6 px-2.5' : 'h-7 px-3',
+              selected ? 'text-fg' : 'text-fg-subtle hover:text-fg',
             ].join(' ')}
           >
             {selected && (
@@ -76,7 +72,7 @@ export function SegmentedControl({
                 layoutId={thumbId}
                 data-thumb=""
                 aria-hidden
-                className="absolute inset-0 rounded-sm bg-surface-3"
+                className="absolute inset-0 rounded-md bg-bg shadow-1"
                 transition={{ duration: 0.2, ease: 'easeOut' }}
               />
             )}

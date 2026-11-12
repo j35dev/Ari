@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { ButtonHTMLAttributes } from 'react'
 
-export interface SwitchProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'checked' | 'defaultChecked' | 'onChange'> {
+export interface SwitchProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'checked' | 'defaultChecked' | 'onChange'
+> {
   /** Controlled on-state; provide together with onCheckedChange. */
   checked?: boolean
   /** Initial on-state for uncontrolled usage. */
@@ -37,9 +39,12 @@ export function Switch({
       aria-checked={on}
       onClick={handleClick}
       className={[
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors duration-200',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-        on ? 'bg-accent' : 'bg-surface-3',
+        'relative inline-flex h-5 w-[34px] shrink-0 items-center rounded-full px-0.5 transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
+        'disabled:cursor-not-allowed disabled:opacity-50',
+        // Ink, not the accent. The thumb is the stage colour in both states,
+        // so only the track changes: a wash when off, solid ink when on.
+        on ? 'bg-fg' : 'bg-fg/20',
         className,
       ]
         .filter(Boolean)
@@ -48,8 +53,8 @@ export function Switch({
     >
       <span
         className={[
-          'pointer-events-none block size-4 rounded-full bg-fg-on-accent transition-transform duration-200',
-          on ? 'translate-x-4' : 'translate-x-0',
+          'pointer-events-none block size-4 rounded-full bg-bg transition-transform duration-200',
+          on ? 'translate-x-3.5' : 'translate-x-0',
         ].join(' ')}
       />
     </button>

@@ -126,6 +126,8 @@ export async function createAcpAdapter(
 
   let folder = new AcpUpdateFolder()
   let nativeChildVisibility: 'lifecycle' | 'unknown' = 'unknown'
+  let failed = false
+  let disposed = false
   const queue: AgentEvent[] = []
   let notify: (() => void) | null = null
   const push = (events: AgentEvent[]): void => {
@@ -376,7 +378,17 @@ export async function createAcpAdapter(
         ) ?? session.modelId)
   const drift = new ModelDriftWatch(pickedModel, currentModelId(created.configOptions ?? null))
   connection.onSessionUpdate = (notification) => {
-    push(folder.fold(notification))
+    if (disposed || failed) return
+    const events = folder.fold(notification)
+    if (events.some((event) => event.type === 'error')) {
+      // A fatal update ends the stream even if the adapter forgot to answer
+      // session/prompt. Do not leave a stale request timing out behind it.
+      failed = true
+      connection.cancel(sessionId)
+      push([...events, { type: 'done' }])
+      return
+    }
+    push(events)
     // The agent announcing a configuration move has no transcript surface, but
     // a model it switched to on its own is something the user has to hear.
     const moved = configOptionsFromUpdate(notification)
@@ -503,11 +515,13 @@ export async function createAcpAdapter(
     /** The text came from `steer`, so the engine has already dequeued it. */
     steered = false,
   ): void => {
+    if (failed || disposed) return
     promptInFlight = true
     void connection
       .prompt(sessionId, text, { images })
       .then((stopReason) => {
         promptInFlight = false
+        if (disposed || failed) return
         // The transport died while this prompt ran, so nothing can be chained
         // onto it. Drain the buffer *and* report it: shifting first and then
         // bailing on `closed` threw the text away without a word.
@@ -538,6 +552,8 @@ export async function createAcpAdapter(
       })
       .catch((error: unknown) => {
         promptInFlight = false
+        if (disposed || failed) return
+        failed = true
         acceptingSteer = false
         log.debug('acp prompt failed', { error: String(error) })
         // A token can expire mid-turn, so the sign-in path has to be reachable
@@ -553,7 +569,12 @@ export async function createAcpAdapter(
         push([
           ...lostSteeringEvents(lost),
           ...folder.endPrompt('cancelled'),
-          { type: 'error', message: formatUnknownError(error), rawJson: null },
+          {
+            type: 'error',
+            message:
+              error instanceof AcpConnectionError ? error.message : formatUnknownError(error),
+            rawJson: null,
+          },
           { type: 'done' },
         ])
       })
@@ -718,12 +739,16 @@ export async function createAcpAdapter(
       pending.resolve(pending.toResult(value))
     },
     dispose: async () => {
+      disposed = true
+      acceptingSteer = false
       releasePending()
+      // A consumer can end a stream before the adapter's prompt RPC replies.
+      // Wake the iterator as well as retiring the RPC; neither owns a live turn.
+      push([{ type: 'done', stopReason: 'interrupted' }])
       // With a pool the process stays up for the session's next turn, so the
       // agent's background shells and sub-agents keep running. Only a prompt
       // still in flight (a stopped turn) is cancelled.
-      if (pool && !connection.closed) {
-        if (promptInFlight) connection.cancel(sessionId)
+      if (pool && !failed && connection.reusable && !promptInFlight) {
         pool.put(
           session.sessionId,
           {

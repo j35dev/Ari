@@ -1,0 +1,38 @@
+import { app, BrowserWindow } from 'electron'
+import { mkdir, readFile, writeFile, mkdtemp } from 'node:fs/promises'
+import { mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+const parent = 'D:/Projects/.ari-cache'
+app.setName('Ari Voice Feedback Fixture')
+app.setPath('userData', mkdtempSync(join(parent, 'voice-ui-profile-')))
+const watchdog = setTimeout(() => { console.error('Voice UI fixture timed out'); app.exit(1) }, 30000)
+async function run() {
+const output = 'D:/Projects/Ari-aria-voice/docs/screenshots/aria-voice-feedback'
+await mkdir(output, { recursive: true })
+await app.whenReady()
+const window = new BrowserWindow({ width: 900, height: 380, show: false, webPreferences: { sandbox: true, contextIsolation: true } })
+const errors = []
+window.webContents.on('console-message', details => { if (details.level === 'warning' || details.level === 'error') errors.push(details.message) })
+const page = (await readFile(join(parent, 'voice-feedback-ui-path.txt'), 'utf8')).trim()
+const captures = []
+try {
+  for (const theme of ['light', 'dark']) {
+    await window.loadFile(page, { query: { theme } })
+    await window.webContents.executeJavaScript('document.fonts.ready.then(() => true)')
+    await new Promise(resolve => setTimeout(resolve, 350))
+    const detail = await window.webContents.executeJavaScript(`(() => { const notice = document.querySelector('[role="alert"]'); const style = notice && getComputedStyle(notice); return { overflow: document.documentElement.scrollWidth > innerWidth, text: notice?.textContent, dismiss: !!document.querySelector('[aria-label="Dismiss voice notice"]'), display: style?.display, padding: parseFloat(style?.paddingLeft || '0') } })()`)
+    if (detail.overflow || !detail.text || !detail.dismiss || detail.display !== 'flex' || detail.padding < 12) throw new Error('Voice notice not styled/contained/actionable')
+    const filename = 'voice-notice-' + theme + '.png'
+    await writeFile(join(output, filename), (await window.webContents.capturePage()).toPNG())
+    captures.push({ filename, ...detail })
+    await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Dismiss voice notice"]').click()`)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    if (await window.webContents.executeJavaScript(`!!document.querySelector('[role="alert"]')`)) throw new Error('Voice notice did not dismiss')
+  }
+  if (errors.length) throw new Error(errors.join('\n'))
+  await writeFile(join(output, 'capture.json'), JSON.stringify({ fixture: 'isolated actual VoiceNotice and Settings components; no live Ari RPC or audio', captures, errors }, null, 2) + '\n')
+  console.log('Voice feedback screenshots passed: 2 themes, no overflow/errors')
+} catch (error) { console.error(error); process.exitCode = 1 }
+finally { clearTimeout(watchdog); window.destroy(); app.exit(process.exitCode ?? 0) }
+}
+void run().catch(error => { console.error(error); app.exit(1) })

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
+import { iconButton } from '../../lib/recipes'
 import { DiffViewer } from '../diffs'
 import { CodeBlock } from './CodeBlock'
 import { CopyButton } from './CopyButton'
@@ -25,8 +26,10 @@ export function isClippable(text: string): boolean {
   return text.split('\n').length > 12
 }
 
-const BODY_CLASS =
-  'overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted'
+/** A section of the step's well: a hairline above it unless it comes first. */
+const SECTION = 'border-t border-border first:border-t-0'
+
+const BODY_CLASS = 'overflow-auto px-3 py-2 font-mono'
 
 type McpContentItem =
   | { kind: 'text'; text: string }
@@ -125,7 +128,12 @@ export function ToolResultBody({
     }
   }, [resultJson])
 
-  if (isDiff) return <DiffViewer diffText={resultJson} />
+  if (isDiff)
+    return (
+      <div className={SECTION}>
+        <DiffViewer diffText={resultJson} />
+      </div>
+    )
   if (parsed.content) return <McpContentBody items={parsed.content} expanded={expanded} />
   return (
     <TextBody
@@ -138,14 +146,14 @@ export function ToolResultBody({
 
 function McpContentBody({ items, expanded }: { items: McpContentItem[]; expanded: boolean }) {
   return (
-    <div className="bg-surface-0">
+    <div className={SECTION}>
       {items.map((item, i) => {
         if (item.kind === 'text')
           return <TextBody key={i} text={item.text} lang="text" defaultExpanded={expanded} />
         if (item.kind === 'image')
           return <McpImage key={i} dataUrl={item.dataUrl} label={item.label} />
         return (
-          <div key={i} className="border-t border-border p-2 text-2xs text-fg-subtle">
+          <div key={i} className={`${SECTION} px-3 py-2 text-xs text-fg-subtle`}>
             {item.label}
           </div>
         )
@@ -158,35 +166,29 @@ function McpContentBody({ items, expanded }: { items: McpContentItem[]; expanded
 function McpImage({ dataUrl, label }: { dataUrl: string; label: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border-t border-border p-2">
+    <div className={`${SECTION} p-3`}>
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open image"
-        className="block max-w-full overflow-hidden rounded-md border border-border bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="block max-w-full overflow-hidden rounded-md border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <img src={dataUrl} alt={label} className="max-h-60 max-w-full object-contain" />
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <Dialog.Content size="lg" className="overflow-hidden bg-surface-0">
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+        {/* The panel is the shared dialog surface; the image sits in a well below its header. */}
+        <Dialog.Content size="lg">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border pl-4 pr-2.5">
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="truncate text-sm">{label}</Dialog.Title>
+              <Dialog.Title className="truncate">{label}</Dialog.Title>
               <Dialog.Description className="sr-only">Tool result image preview</Dialog.Description>
             </div>
-            <Dialog.Close
-              aria-label="Close image preview"
-              className="flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <X size={15} aria-hidden="true" />
+            <Dialog.Close aria-label="Close image preview" className={iconButton}>
+              <X size={16} aria-hidden="true" />
             </Dialog.Close>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface-0 p-4">
-            <img
-              src={dataUrl}
-              alt={label}
-              className="max-h-full max-w-full object-contain shadow-2"
-            />
+            <img src={dataUrl} alt={label} className="max-h-full max-w-full object-contain" />
           </div>
         </Dialog.Content>
       </Dialog>
@@ -207,29 +209,30 @@ function TextBody({
   const expanded = override ?? defaultExpanded
   const clippable = isClippable(text)
   return (
-    <div className="relative">
-      <div className="absolute right-1 top-1.5 z-pane-chrome">
+    <div className={`group/result relative ${SECTION}`}>
+      {/* Floats over the output and shows itself on hover or focus. */}
+      <div className="absolute right-1 top-1 z-pane-chrome rounded-md bg-surface-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover/result:opacity-100">
         <CopyButton text={text} />
       </div>
       <CodeBlock
         code={text}
         lang={lang}
-        className={`${BODY_CLASS} ${expanded ? 'max-h-[480px]' : 'max-h-40'} whitespace-pre-wrap break-all pr-8`}
+        className={`${BODY_CLASS} ${expanded ? 'max-h-[480px]' : 'max-h-40'} whitespace-pre-wrap break-all`}
       />
       {clippable ? (
         <button
           type="button"
           onClick={() => setOverride((previous) => !(previous ?? defaultExpanded))}
           aria-expanded={expanded}
-          className="flex w-full items-center justify-center gap-1 border-t border-border py-1 text-2xs text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+          className="flex h-7 w-full items-center justify-center gap-1 border-t border-border text-xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
         >
           {expanded ? (
             <>
-              <ChevronUp size={10} /> Show less
+              <ChevronUp size={12} aria-hidden="true" /> Show less
             </>
           ) : (
             <>
-              <ChevronDown size={10} /> Show more
+              <ChevronDown size={12} aria-hidden="true" /> Show more
             </>
           )}
         </button>
