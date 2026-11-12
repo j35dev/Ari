@@ -118,6 +118,26 @@ describe('normal session host boundary', () => {
     })
   })
 
+  it('uses the host paste destination and never grants authority to a generated client path', async () => {
+    bridge.invoke.mockImplementation(async (method) => method === 'machines.list' ? machines : success({ path: 'pastes/host-owned.txt', bytesWritten: 12 }))
+    const result = await createSessionClient(scope).invoke('fs.writeTextFile', { sessionId: scope.sessionId, path: 'C:/client-generated.txt', content: 'pasted bytes' })
+    expect(result).toEqual({ path: 'pastes/host-owned.txt', bytesWritten: 12 })
+    expect(commands()[0]?.[1]).toMatchObject({ machineId: 'host-a', command: { op: 'pastes.stage', sessionId: scope.sessionId, text: 'pasted bytes' } })
+    expect(commands()[0]?.[1].command).not.toHaveProperty('path')
+  })
+
+  it('reports replay gaps as incomplete even when a later terminal claims completion', async () => {
+    const received: SessionEventFrame[] = []
+    const dispose = createSessionClient(scope).subscribe('session.events', { sessionId: scope.sessionId }, (frame) => received.push(frame as SessionEventFrame))
+    await waitFor(() => expect(bridge.subscribe).toHaveBeenCalled())
+    const emit = (frame: unknown) => frames({ machineId: 'host-a', message: { type: 'events.desktop.frame', sessionId: scope.sessionId, frame } })
+    emit({ kind: 'start', replayMode: 'full', fromSeq: null, throughSeq: 1 })
+    emit({ kind: 'chunk', events: [event(1)] })
+    emit({ kind: 'terminal', replayOutcome: 'complete', seq: 1, liveTurnId: null, reason: null })
+    expect(received).toEqual([expect.objectContaining({ replayDone: true, replayOutcome: 'incomplete' })])
+    dispose()
+  })
+
   it('converts seq zero and more than 2,000 journal rows with an explicit empty-resume terminal', async () => {
     const client = createSessionClient(scope)
     const received: SessionEventFrame[] = []
