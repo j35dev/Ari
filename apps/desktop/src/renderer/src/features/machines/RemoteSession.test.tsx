@@ -94,12 +94,12 @@ describe('RemoteSession', () => {
         screen.getByRole('textbox', { name: 'Prompt on Studio computer' }),
         `Host ${name}`,
       )
-      await user.click(screen.getByRole('button', { name, exact: true }))
+      await user.click(screen.getByRole('button', { name }))
       await waitFor(() =>
         expect(screen.getByRole('textbox', { name: 'Prompt on Studio computer' })).toHaveValue(''),
       )
     }
-    await user.click(screen.getByRole('button', { name: 'Stop', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
     const commands = mocks.invoke.mock.calls
       .filter(([name]) => name === 'machines.command')
       .map(([, params]) => params)
@@ -172,11 +172,11 @@ describe('RemoteSession', () => {
       <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={vi.fn()} />,
     )
     await screen.findByText('Hello from the host')
-    expect(screen.queryByRole('button', { name: 'Terminal', exact: true })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Files', exact: true }))
+    expect(screen.queryByRole('button', { name: 'Terminal' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Files' }))
     await user.click(await screen.findByRole('button', { name: 'host.ts' }))
     await screen.findByText('host content')
-    await user.click(screen.getByRole('button', { name: 'Changes', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Changes' }))
     await user.click(await screen.findByRole('button', { name: 'host.ts' }))
     await screen.findByText('+changed on host')
     const queries = mocks.invoke.mock.calls
@@ -193,7 +193,7 @@ describe('RemoteSession', () => {
         onOpenSession={vi.fn()}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'Terminal', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(screen.getByText('Granted host terminal')).toBeInTheDocument()
     rerender(
       <RemoteSession
@@ -212,7 +212,7 @@ describe('RemoteSession', () => {
     await screen.findByText('Hello from the host')
     await user.type(screen.getByRole('textbox', { name: 'Prompt on Studio computer' }), 'Keep this')
     mocks.invoke.mockRejectedValueOnce(new Error('Lost reply'))
-    await user.click(screen.getByRole('button', { name: 'Send', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Send' }))
     await screen.findByRole('region', { name: 'Unconfirmed remote action' })
     rerender(
       <RemoteSession
@@ -221,7 +221,7 @@ describe('RemoteSession', () => {
         onOpenSession={vi.fn()}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Check receipt' })).toBeDisabled()
     expect(screen.getByRole('textbox', { name: 'Prompt on Studio computer' })).toHaveValue(
       'Keep this',
@@ -303,7 +303,7 @@ describe('RemoteSession', () => {
       <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />,
     )
     await screen.findByText('Hello from the host')
-    await user.click(screen.getByRole('button', { name: 'Details', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Details' }))
     await user.type(screen.getByRole('textbox', { name: 'Fork name' }), 'Host fork')
     await user.click(screen.getByRole('button', { name: 'Fork on host' }))
     await waitFor(() => expect(open).toHaveBeenCalledWith('forked-on-host'))
@@ -329,7 +329,7 @@ describe('RemoteSession', () => {
       <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />,
     )
     await screen.findByText('Hello from the host')
-    await user.click(screen.getByRole('button', { name: 'Details', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Details' }))
     await user.type(screen.getByRole('textbox', { name: 'Fork name' }), 'Host fork')
     await user.click(screen.getByRole('button', { name: 'Fork on host' }))
     await screen.findByRole('region', { name: 'Unconfirmed remote action' })
