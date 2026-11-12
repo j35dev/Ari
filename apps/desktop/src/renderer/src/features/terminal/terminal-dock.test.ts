@@ -198,7 +198,7 @@ describe('terminal-dock', () => {
     vi.resetModules()
     const reloaded = await import('./terminal-dock')
     expect(reloaded.terminalDockState().tabs).toEqual([
-      { id, title: 'shell', cwd: '.', owner, hostTerminalId: 'host-term' },
+      { id, title: 'shell', cwd: '.', owner, hostTerminalId: 'host-term', creationAttempted: true },
     ])
   })
 
