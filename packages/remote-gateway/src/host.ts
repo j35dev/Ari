@@ -31,6 +31,8 @@ export interface RemoteCaller {
   allowTerminal?: boolean
   /** Set only by gateway verification of a signed Connect lease. Never supplied by a client. */
   managedLeaseExpiresAt?: number
+  /** Gateway-owned live admission guard; never accepted from wire parameters. */
+  revalidate?: () => RemoteCaller | undefined
 }
 
 /**
@@ -107,6 +109,14 @@ export interface RemoteHost {
     sessionId: string,
     fromSeq: number,
   ): Promise<JournalEvent[] | undefined>
+
+  /** Desktop negotiation is optional so legacy/fake hosts remain compatible. */
+  desktopReplayState?(caller: RemoteCaller, sessionId: string): Promise<{ projectId: string; seq: number; liveTurnId: string | null; incomplete?: boolean } | undefined>
+  replayRange?(caller: RemoteCaller, sessionId: string,
+    options: { afterSeq?: number; throughSeq: number; signal: AbortSignal },
+    onChunk: (events: JournalEvent[]) => Promise<void>,
+  ): Promise<{ outcome: 'complete' | 'incomplete'; seq: number; reason: string | null }>
+  desktopEvent?(event: JournalEvent): JournalEvent
 
   /**
    * Runs a validated command. The gateway has already checked the operation is
