@@ -75,8 +75,11 @@ app
               .find(button => button.textContent.trim() === 'Check receipt').click()
           `)
           const deadline = Date.now() + 10_000
-          while (!await window.webContents.executeJavaScript(
-            'document.body.innerText.includes("Its outcome is unknown")')) {
+          while (
+            !(await window.webContents.executeJavaScript(
+              'document.body.innerText.includes("Its outcome is unknown")',
+            ))
+          ) {
             if (Date.now() > deadline) throw new Error('Missing old-host outcome warning')
             await new Promise((done) => setTimeout(done, 100))
           }
@@ -96,11 +99,17 @@ app
       })`)
         if (state.activeTheme !== (theme === 'light' ? 'porcelain' : 'obsidian'))
           throw new Error(`Wrong theme: ${state.activeTheme}`)
-        if ((view === 'receipt'
-          ? state.alerts.length !== 1 || !state.alerts[0].includes('Its outcome is unknown')
-          : state.alerts.length > 0) || state.horizontalOverflow)
+        if (
+          (view === 'receipt'
+            ? state.alerts.length !== 1 || !state.alerts[0].includes('Its outcome is unknown')
+            : state.alerts.length > 0) ||
+          state.horizontalOverflow
+        )
           throw new Error('Fixture has an alert or horizontal overflow')
-        if (state.trace.includes('machines.command') || state.buttons.some(button => /retry/i.test(button)))
+        if (
+          state.trace.includes('machines.command') ||
+          state.buttons.some((button) => /retry/i.test(button))
+        )
           throw new Error('A saved action was resent or a retry control is visible')
         if (
           state.trace.some(

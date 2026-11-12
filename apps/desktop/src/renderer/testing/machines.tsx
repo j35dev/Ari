@@ -24,11 +24,16 @@ localStorage.removeItem(`ari.machines.receipt.v1:${scopeKey('host-a', 'same-sess
 writeRemoteDraft('host-a', 'same-session', { text: '', attachments: [] })
 if (options.get('view') === 'receipt') {
   const command = remoteCommandEnvelopeSchema.parse({
-    op: 'session.prompt', sessionId: 'same-session', text: 'Continue the host task',
-    clientCommandId: 'fixture-command', idempotencyKey: 'fixture-command',
+    op: 'session.prompt',
+    sessionId: 'same-session',
+    text: 'Continue the host task',
+    clientCommandId: 'fixture-command',
+    idempotencyKey: 'fixture-command',
   })
-  localStorage.setItem(`ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`,
-    JSON.stringify({ machineId: 'host-a', scope: 'same-session', command }))
+  localStorage.setItem(
+    `ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`,
+    JSON.stringify({ machineId: 'host-a', scope: 'same-session', command }),
+  )
   writeRemoteDraft('host-a', 'same-session', { text: 'Continue the host task', attachments: [] })
 }
 const machines = [
@@ -92,7 +97,10 @@ window.ari = {
       if (request.query.op === 'session.get') return reply(snapshot)
       if (request.query.op === 'models.list') return reply(catalogFixture)
       if (request.query.op === 'command.status')
-        return { ok: false, error: { code: 'not_found', message: 'No retained receipt on this old host' } }
+        return {
+          ok: false,
+          error: { code: 'not_found', message: 'No retained receipt on this old host' },
+        }
     }
     throw new Error(`Fixture refused RPC: ${method}`)
   },
