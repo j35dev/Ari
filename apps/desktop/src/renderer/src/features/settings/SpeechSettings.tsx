@@ -16,19 +16,19 @@ import { SettingsRow } from './SettingsRow'
 import { SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
-function sizeLabel(bytes: number): string {
+export function sizeLabel(bytes: number): string {
   return bytes >= 1_000_000_000
     ? `${(bytes / 1_000_000_000).toFixed(1)} GB`
     : `${Math.round(bytes / 1_000_000)} MB`
 }
-function progressLabel(frame: SpeechProgress): string {
+export function progressLabel(frame: SpeechProgress): string {
   if (frame.phase === 'verifying') return 'Verifying…'
   if (frame.phase === 'installing') return 'Preparing…'
   return frame.total
     ? `${Math.min(100, Math.round((frame.received / frame.total) * 100))}%`
     : 'Downloading…'
 }
-function inProgress(
+export function inProgress(
   frame?: SpeechProgress,
 ): frame is SpeechProgress & { phase: 'downloading' | 'verifying' | 'installing' } {
   return Boolean(frame && ['downloading', 'verifying', 'installing'].includes(frame.phase))

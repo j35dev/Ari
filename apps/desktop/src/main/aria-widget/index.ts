@@ -309,6 +309,7 @@ export class AriaWidget {
   }
 
   private readonly keyDown = (event: HookKey): void => {
+    if (event.keycode === 1) void this.deps.invoke('aria.voice.stop').catch(() => undefined)
     const now = performance.now()
     const canStart = this.hold.canStart && !this.lease.busy
     const ariaAction = this.tracker?.down(event, now, canStart)
@@ -325,6 +326,8 @@ export class AriaWidget {
       if (!this.hold.down(now)) return
       this.token = this.lease.acquire()
       this.destination = ariaAction === 'down' ? 'aria' : 'dictation'
+      void this.deps.invoke('aria.voice.stop').catch(() => undefined)
+      if (this.destination === 'aria') void this.deps.invoke('aria.voice.warm').catch(() => undefined)
       this.recoveryDelay = 1_000
       if (this.destination === 'dictation') {
         const id = this.hold.state.id
@@ -445,6 +448,7 @@ export class AriaWidget {
                   this.hold.state.phase === 'transcribing' &&
                   this.settings?.experimental.ariaEnabled === true &&
                   !this.disposed,
+                arm: (sessionId, text) => this.deps.invoke('aria.voice.arm', { sessionId, text }),
                 open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
                 dispatch: async (command) =>
                   (await this.deps.invoke('command.dispatch', { command })) as {

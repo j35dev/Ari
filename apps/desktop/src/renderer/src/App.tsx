@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useVoicePlayback } from './features/aria/use-voice-playback'
 import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
@@ -1902,6 +1903,7 @@ const log = createLogger('app:shell')
  * wipes away to reveal it already painted.
  */
 export function App() {
+  useVoicePlayback()
   const [booted, setBooted] = useState(false)
   const [launched, setLaunched] = useState(false)
 

@@ -1,3 +1,4 @@
+import { AriaVoiceSettings } from './AriaVoiceSettings'
 import { useState } from 'react'
 import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
@@ -41,6 +42,7 @@ export function ExperimentalSettings() {
           />
         </SettingsRow>
       </SettingsSection>
+      {settings?.experimental.ariaEnabled && <AriaVoiceSettings/>}
     </SettingsPage>
   )
 }
