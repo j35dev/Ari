@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
+import type { GatewayInfo, RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 import { REMOTE_PROTOCOL_VERSION, REMOTE_ANONYMOUS_OPERATIONS } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
 import { deviceKey } from './testing/device-key'
@@ -210,7 +210,7 @@ describe('remote gateway discovery', () => {
     })
     running.push(gateway)
     const response = await fetch(`${gateway.origin}/api/identity`)
-    const envelope = await response.json()
+    const envelope = (await response.json()) as { ok: boolean; result: GatewayInfo }
     expect(response.status).toBe(200)
     expect(Object.keys(envelope.result).sort()).toEqual([
       'ariVersion',
