@@ -90,9 +90,10 @@ export function createTerminalSessionAdapter(client: SessionClient) {
     let reading = false
     let cursor = 0
     const read = async () => {
-      if (closed || reading || !tab(id).hostTerminalId) return
+      if (closed || reading) return
       reading = true
       try {
+        if (!tab(id).hostTerminalId) return
         const epoch = await guard('terminal.read')
         for (let i = 0; i < 4 && !closed; i++) {
           const hostTerminalId = tab(id).hostTerminalId!
