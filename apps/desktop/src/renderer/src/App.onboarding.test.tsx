@@ -241,7 +241,7 @@ describe('App onboarding integration', () => {
     expect(readProjectDrafts()).toHaveLength(0)
     await act(async () => release())
     fireEvent.click(await screen.findByRole('button', { name: 'Execution machine' }))
-    expect(screen.getByRole('option', { name: /Studio computer/ })).toBeEnabled()
+    expect(await screen.findByRole('menuitem', { name: /Studio computer/ })).toBeEnabled()
     expect(readProjectDrafts()[0]?.group.checkouts.map((entry) => entry.hostId)).toEqual(['local', host.id])
     expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
   })
