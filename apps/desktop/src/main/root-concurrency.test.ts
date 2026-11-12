@@ -15,6 +15,10 @@ import { err } from '@ari/shared/result'
 import { Engine } from './engine'
 import { startAgentRuntime } from './agent-runtime'
 import { createSession } from './session-create'
+import { createRemoteHost, type RemoteDesktopDeps } from './remote-host'
+import { PairingService } from '@ari/remote-gateway/pairing'
+import { createRemoteGateway } from '@ari/remote-gateway/gateway'
+import { deviceKey } from '../../../../packages/remote-gateway/src/testing/device-key'
 
 let dir: string, repo: string
 let store: SessionStore, engine: Engine
@@ -129,6 +133,59 @@ async function seed(id: string, projectId = 'p'): Promise<void> {
 }
 const start = (sessionId: string) =>
   engine.dispatch({ type: 'turn.start', sessionId, text: 'Work', attachments: [] })
+
+it('creates the first remote desktop send through the actual root policy and replays its receipt once', async () => {
+  await seed('human')
+  expect(await start('human')).toEqual({ accepted: true })
+  await vi.waitFor(() => expect(engine.hasLiveTurn('human')).toBe(true))
+  const desktop: RemoteDesktopDeps = {
+    projects: async () => [{ id: 'p', name: 'Project', path: repo, colorIndex: 0, createdAt: 1,
+      lastOpenedAt: 0, open: true, status: 'ok', defaultAgent: null }],
+    createSession: (params, selection) => createSession({ loadProject: async () => undefined,
+      createSession: (session) => engine.createSession(session), prepareRootWorkspace: runtime.prepareRootWorkspace }, params, selection),
+    version: () => ({ ariVersion: 'fixture', protocolVersion: 1, hostingMode: 'desktop', update: {
+      supported: false, reason: 'Manual only.', availableVersion: null, stagedVersion: null, guidance: 'Update Ari on this machine.' } }),
+    stopChildren: async (id) => ({ stopped: await runtime.supervisor.stopBelow(id) }),
+    resume: { get: async () => ({ at: null }), schedule: async (_id, at) => ({ at }), cancel: async () => ({ cancelled: false }) },
+    scm: { summary: async () => err({ code: 'unsupported', message: 'Fixture' }), status: async () => err({ code: 'unsupported', message: 'Fixture' }),
+      review: async () => err({ code: 'unsupported', message: 'Fixture' }), diff: async () => err({ code: 'unsupported', message: 'Fixture' }) },
+  }
+  const host = createRemoteHost({ engine, store, pairing: new PairingService(), desktop,
+    driverKinds: ['codex'], defaultPermissionMode: () => 'full', defaultDriverKind: () => 'codex',
+    hasProject: async () => true, listProjects: async () => [{ id: 'p', name: 'Project' }],
+    listModels: async () => [{ driverKind: 'codex', available: true, models: [{ id: 'fixture', label: 'Fixture' }] }], mintSessionId: () => 'unused' })
+  const gateway = await createRemoteGateway({ host, allowedOrigins: ['http://127.0.0.1:5173'], port: 0 })
+  const key = deviceKey()
+  let token: string | undefined
+  const call = async (path: string, payload: unknown) => {
+    const response = await fetch(gateway.origin + path, { method: 'POST', headers: { 'content-type': 'application/json',
+      origin: 'http://127.0.0.1:5173', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(payload) })
+    return { status: response.status, body: await response.json() as { ok: boolean; result: Record<string, unknown> } }
+  }
+  try {
+    const invitation = gateway.pairing.invite()
+    const request = await call('/pair/request', { invitationId: invitation.invitationId, displayName: 'Desktop fixture', publicKey: key.jwk })
+    gateway.pairing.approve(invitation.invitationId, gateway.pairing.pending(invitation.invitationId)!.confirmationCode, ['p'])
+    token = (await call('/pair/redeem', { invitationId: invitation.invitationId, nonce: request.body.result.nonce,
+      signature: key.sign(String(request.body.result.nonce)) })).body.result.token as string
+    const command = { op: 'session.desktop.create', projectId: 'p', title: 'Remote first send', driverKind: 'codex',
+      modelId: 'fixture', effort: null, permissionMode: 'full', workspaceMode: 'auto',
+      clientCommandId: 'create-first-send', idempotencyKey: 'create-first-send-key' }
+    const created = await call('/command', command)
+    expect(created.status).toBe(200)
+    const sessionId = String(created.body.result.sessionId)
+    const session = (await store.load(sessionId)).session!
+    expect(session.workspace?.kind).toBe('managed-worktree')
+    expect(await engine.workspace(session)).not.toBe(repo)
+    expect(await call('/command', command)).toEqual(created)
+    expect((await store.listSessions()).filter((row) => row.title === 'Remote first send')).toHaveLength(1)
+    expect((await call('/command', { op: 'session.prompt', sessionId, text: 'Remote work',
+      clientCommandId: 'first-prompt', idempotencyKey: 'first-prompt-original-key' })).status).toBe(200)
+    await vi.waitFor(() => expect(engine.hasLiveTurn(sessionId)).toBe(true))
+    expect(engine.hasLiveTurn('human')).toBe(true)
+    await stop(sessionId)
+  } finally { await gateway.close() }
+})
 async function stop(id: string): Promise<void> {
   await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
   await engine.quiesce(id)
