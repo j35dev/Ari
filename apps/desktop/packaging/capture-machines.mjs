@@ -15,6 +15,7 @@ const evidence = resolve('../../docs/research/evidence/desktop-machines-parity')
 const errors = []
 const watchdog = setTimeout(() => app.exit(1), 60_000)
 let window
+let activeCapture = 'startup'
 async function ready(view) {
   const expected = view === 'settings' || view === 'permissions' ? 'K7MV-4AX9' :
     view === 'draft' || view === 'auto' || view === 'picker' ? 'Execution machine' : 'The test runner now checks commit headroom'
@@ -48,9 +49,10 @@ app.whenReady().then(async () => {
   window.webContents.on('console-message', (details) => { if (details.level === 'error') errors.push(details.message) })
   const captures = []
   for (const theme of ['light', 'dark']) for (const view of ['settings', 'permissions', 'workspace', 'receipt', 'draft', 'auto', 'picker']) {
+    activeCapture = `${view}-${theme}`
     await window.loadFile(resolve('out/machines-fixture/testing/machines.html'), { query: { theme, view } })
     await ready(view)
-    if (view === 'picker') await window.webContents.executeJavaScript('document.querySelector("[aria-label=\"Execution machine\"]").click()')
+    if (view === 'picker') await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Execution machine"]').click()`)
     if (view === 'permissions') await window.webContents.executeJavaScript(`
       (() => { const card = document.querySelector('article[aria-label="Studio workstation"]');
         [...card.querySelectorAll('[role="tab"]')].find(button => button.textContent.trim() === 'Your permissions').click();
@@ -95,4 +97,4 @@ app.whenReady().then(async () => {
   }, null, 2) + '\n')
   process.stdout.write(JSON.stringify({ evidence, screenshots: 16, success: true }) + '\n')
   clearTimeout(watchdog); window.destroy(); app.quit()
-}).catch((error) => { process.stderr.write(String(error) + '\n'); app.exit(1) })
+}).catch((error) => { process.stderr.write(`Capture ${activeCapture}: ${String(error)}${errors.length ? `; ${errors.join('; ')}` : ''}\n`); app.exit(1) })
