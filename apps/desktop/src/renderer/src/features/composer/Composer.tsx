@@ -602,7 +602,7 @@ export function Composer({
       if (decision.action === 'inline') return
       e.preventDefault()
       // No session means no workspace to write into, so the text stays inline.
-      if (sessionId === undefined || draftOnly || (remote && !scopedRemote)) {
+      if (sessionId === undefined || draftOnly || inputScope === null || (remote && !scopedRemote)) {
         insertRange(start, end, pasted)
         return
       }
@@ -645,7 +645,7 @@ export function Composer({
           },
         )
     },
-    [addFiles, caret, client, draftOnly, insertAtCaret, insertRange, remote, scopedRemote, sessionId, setText, text],
+    [addFiles, caret, client, draftOnly, inputScope, insertAtCaret, insertRange, remote, scopedRemote, sessionId, setText, text],
   )
 
   const handleDrop = useCallback(

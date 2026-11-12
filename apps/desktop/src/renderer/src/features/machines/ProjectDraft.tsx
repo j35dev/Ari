@@ -127,7 +127,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     setSelection({ mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' })
     const candidates = hostsRef.current.filter((host) => host.preference !== 'manual-only' && manualEligibility(host) === null)
     void refreshHosts(candidates.map((host) => host.id)).then((fresh) => {
-      if (autoGeneration.current === generation) setSelection({ mode: 'auto', ...selectAutoHost(fresh) })
+      if (autoGeneration.current === generation) setSelection({ mode: 'auto',
+        ...selectAutoHost(fresh.filter((host) => candidates.some((candidate) => candidate.id === host.id))) })
     }).catch(() => {
       if (autoGeneration.current === generation) setSelection({ mode: 'auto', hostId: null,
         reason: 'Fresh CPU and memory data required — select a machine manually.' })
