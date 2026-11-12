@@ -194,4 +194,18 @@ describe('normal session host boundary', () => {
     expect(screen.getByText('offline')).toBeVisible()
     expect(createSessionClient(scope).capabilityReason('session.prompt')).toMatch(/Reconnect/)
   })
+
+  it('invalidates host presentation when a connected project grant shrinks', async () => {
+    machines = [{ ...desktopMachineFixture(), allProjects: false, projectIds: ['project-a', 'project-b'] }]
+    await refreshMachineInventory()
+    const client = createSessionClient(scope)
+    const epoch = client.authorizationEpoch
+    const store = transcriptStore(client.viewKey)
+    const history = historyJournal(store)
+    history.add(event(0, 'authorized project row')); history.publish()
+    machines = [{ ...desktopMachineFixture(), allProjects: false, projectIds: ['project-b'] }]
+    await refreshMachineInventory()
+    expect(client.authorizationEpoch).toBeGreaterThan(epoch)
+    expect(store.getSnapshot()).toEqual([])
+  })
 })
