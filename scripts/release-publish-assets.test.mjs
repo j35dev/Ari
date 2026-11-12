@@ -30,7 +30,7 @@ function installProof(platform, native, candidate, functional) {
       kind: 'installed-candidate-equivalence',
       previous: BASELINE[platform],
       candidate,
-      sequence: [{ version: '0.3.12' }, { version: '0.3.13' }],
+      sequence: [{ version: '0.3.13' }, { version: '0.3.14' }],
       fixture: { beforeSha256: hash, afterSha256: hash },
       osInstallerBehaviorTested: platform === 'win32',
       extractionOnly: platform === 'linux',
@@ -57,20 +57,20 @@ function suiteFor(arch, suiteRoot) {
         : { kind: 'clean-safety-profile' },
       observed: true,
       failure: null,
-      main: { arch, appVersion: '0.3.13', isPackaged: true, errors: [] },
+      main: { arch, appVersion: '0.3.14', isPackaged: true, errors: [] },
       exit: { code: 0, signal: null, forced: false, timedOut: false },
     })),
   }
 }
 // Mirrors the package job's transfer receipt and the Intel job's uploaded evidence.
 async function intelEvidence(root, packageRoot, verified, arm64) {
-  const zip = verified.files.find((file) => file.name === 'Ari-0.3.13-universal.zip')
+  const zip = verified.files.find((file) => file.name === 'Ari-0.3.14-universal.zip')
   await writeFile(
     join(packageRoot, 'macos-intel-transfer.json'),
     JSON.stringify({
       kind: 'macos-universal-transfer',
       sourceHead: head,
-      version: '0.3.13',
+      version: '0.3.14',
       platform: 'darwin',
       arch: 'x64',
       nativeExecuted: false,
@@ -106,20 +106,20 @@ async function releaseFixture() {
     [
       'windows-latest',
       'win32',
-      'Ari-Setup-0.3.13.exe',
+      'Ari-Setup-0.3.14.exe',
       'latest.yml',
-      ['Ari-Setup-0.3.13.exe.blockmap'],
+      ['Ari-Setup-0.3.14.exe.blockmap'],
       ['x64'],
     ],
     [
       'macos-latest',
       'darwin',
-      'Ari-0.3.13-universal.zip',
+      'Ari-0.3.14-universal.zip',
       'latest-mac.yml',
       [
-        'Ari-0.3.13-universal.zip.blockmap',
-        'Ari-0.3.13-universal.dmg',
-        'Ari-0.3.13-universal.dmg.blockmap',
+        'Ari-0.3.14-universal.zip.blockmap',
+        'Ari-0.3.14-universal.dmg',
+        'Ari-0.3.14-universal.dmg.blockmap',
       ],
       // The package runner launches ARM64; x64 comes from the Intel runner below.
       ['arm64'],
@@ -127,9 +127,9 @@ async function releaseFixture() {
     [
       'ubuntu-latest',
       'linux',
-      'Ari-0.3.13.AppImage',
+      'Ari-0.3.14.AppImage',
       'latest-linux.yml',
-      ['Ari-0.3.13.deb'],
+      ['Ari-0.3.14.deb'],
       ['x64'],
     ],
   ]) {
@@ -144,7 +144,7 @@ async function releaseFixture() {
     await writeFile(
       join(packageRoot, metadata),
       JSON.stringify({
-        version: '0.3.13',
+        version: '0.3.14',
         files: [
           {
             url: update,
@@ -154,11 +154,11 @@ async function releaseFixture() {
         ],
       }),
     )
-    const verified = await verifyArtifacts(packageRoot, platform, '0.3.13')
+    const verified = await verifyArtifacts(packageRoot, platform, '0.3.14')
     const native = arches.map((arch) => ({
       arch,
       platform,
-      version: '0.3.13',
+      version: '0.3.14',
       electron: '43.4.1',
       kind: 'packaged-native-module-load',
       physicalBehaviorTested: false,
@@ -191,7 +191,7 @@ async function releaseFixture() {
               : { kind: 'clean-safety-profile' },
             observed: true,
             failure: null,
-            main: { arch, appVersion: '0.3.13', isPackaged: true, errors: [] },
+            main: { arch, appVersion: '0.3.14', isPackaged: true, errors: [] },
             exit: { code: 0, signal: null, forced: false, timedOut: false },
           })),
         }),
@@ -204,7 +204,7 @@ async function releaseFixture() {
       installedSuites.push({ arch, suiteRoot: installedFolder })
     }
     if (platform === 'darwin') await intelEvidence(root, packageRoot, verified, native[0])
-    const installerName = BASELINE[platform].name.replace('0.3.12', '0.3.13')
+    const installerName = BASELINE[platform].name.replace('0.3.13', '0.3.14')
     await writeFile(
       join(installRoot, 'installed-probes.json'),
       JSON.stringify(
@@ -223,7 +223,7 @@ async function releaseFixture() {
 test('assembly rehashes the complete real file set before staging uploadable assets', async () => {
   const root = await releaseFixture()
   const output = join(root, 'stage')
-  const plan = await assemble(root, output, head, '0.3.13')
+  const plan = await assemble(root, output, head, '0.3.14')
   assert.equal(plan.files.length, 13)
   for (const file of plan.files) {
     const bytes = await readFile(join(output, file.name))
@@ -273,9 +273,9 @@ test('macOS publication needs the Intel x64 launch of the same universal build',
   }
   // Assembly itself refuses a missing or failed Intel proof.
   await writeFile(intelPath, JSON.stringify({ ...intel, functional: { passed: false } }))
-  await assert.rejects(assemble(root, join(root, 'blocked-intel'), head, '0.3.13'), /Intel/)
+  await assert.rejects(assemble(root, join(root, 'blocked-intel'), head, '0.3.14'), /Intel/)
   await rm(join(root, `ari-macos-intel-x64-${head}`), { recursive: true })
-  await assert.rejects(assemble(root, join(root, 'missing-intel'), head, '0.3.13'))
+  await assert.rejects(assemble(root, join(root, 'missing-intel'), head, '0.3.14'))
   await assert.rejects(stat(join(root, 'missing-intel')), { code: 'ENOENT' })
 })
 
@@ -286,7 +286,7 @@ test('missing installed evidence cannot stage an otherwise valid package set', a
     JSON.stringify({ passed: false }),
   )
   const output = join(root, 'blocked-install')
-  await assert.rejects(assemble(root, output, head, '0.3.13'))
+  await assert.rejects(assemble(root, output, head, '0.3.14'))
   await assert.rejects(stat(output), { code: 'ENOENT' })
 })
 
@@ -343,18 +343,18 @@ test('missing platform input or changed bytes cannot produce publication staging
   const root = await releaseFixture()
   const output = join(root, 'blocked')
   await writeFile(
-    join(root, `ari-candidate-windows-latest-${head}`, 'Ari-Setup-0.3.13.exe'),
+    join(root, `ari-candidate-windows-latest-${head}`, 'Ari-Setup-0.3.14.exe'),
     'corrupted',
   )
-  await assert.rejects(assemble(root, output, head, '0.3.13'), /size mismatch|checksum mismatch/)
+  await assert.rejects(assemble(root, output, head, '0.3.14'), /size mismatch|checksum mismatch/)
   await assert.rejects(stat(output), { code: 'ENOENT' })
-  await assert.rejects(assemble(join(root, 'missing-input'), output, head, '0.3.13'))
+  await assert.rejects(assemble(join(root, 'missing-input'), output, head, '0.3.14'))
   await assert.rejects(stat(output), { code: 'ENOENT' })
 })
 test('tag needs the latest successful required check at the exact tagged head', () => {
   const input = {
-    tag: 'v0.3.13',
-    version: '0.3.13',
+    tag: 'v0.3.14',
+    version: '0.3.14',
     head,
     tagCommit: head,
     check: { name: 'verify', head_sha: head, status: 'completed', conclusion: 'success' },
@@ -375,7 +375,7 @@ test('publication needs both universal slices and both packaged profile proofs',
     arch,
     kind: 'packaged-native-module-load',
     platform: 'darwin',
-    version: '0.3.13',
+    version: '0.3.14',
     electron: '43.4.1',
     executableSha256: hash,
     asarSha256: hash,
@@ -392,14 +392,14 @@ test('publication needs both universal slices and both packaged profile proofs',
         : { kind: 'clean-safety-profile' },
       observed: true,
       failure: null,
-      main: { arch, appVersion: '0.3.13', isPackaged: true, errors: [] },
+      main: { arch, appVersion: '0.3.14', isPackaged: true, errors: [] },
       exit: { code: 0, signal: null, forced: false, timedOut: false },
     })),
   })
   const receipt = {
     sourceHead: head,
     platform: 'darwin',
-    version: '0.3.13',
+    version: '0.3.14',
     native: [native('arm64'), native('x64')],
   }
   validateFunctional(receipt, [result('arm64'), result('x64')], head, 'darwin')
@@ -414,7 +414,7 @@ test('publication needs both universal slices and both packaged profile proofs',
 })
 test('only a complete checksum-matched draft can become public', () => {
   const plan = {
-    tag: 'v0.3.13',
+    tag: 'v0.3.14',
     files: [
       { name: 'test.exe', bytes: 10, sha256: hash },
       { name: 'SHA256SUMS', bytes: 20, sha256: hash },

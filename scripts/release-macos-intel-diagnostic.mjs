@@ -33,7 +33,7 @@ export function assertHostedDiagnosis(env = process.env) {
 }
 
 export async function universalTransferReceipt(root, version, sourceHead) {
-  assert.equal(version, '0.3.13', 'This transfer is scoped to candidate 0.3.13')
+  assert.equal(version, '0.3.14', 'This transfer is scoped to candidate 0.3.14')
   assert.match(sourceHead ?? '', /^[a-f0-9]{40}$/i, 'Exact candidate SHA is required')
   const verified = await verifyArtifacts(root, 'darwin', version)
   const zip = verified.files.find((file) => file.name === `Ari-${version}-universal.zip`)
@@ -62,10 +62,10 @@ export async function universalTransferReceipt(root, version, sourceHead) {
 export function assertZipPin(receipt, observed) {
   assert.equal(receipt?.kind, 'macos-universal-transfer')
   assert.equal(receipt.nativeExecuted, false, 'Transfer receipt cannot claim native execution')
-  assert.equal(receipt.version, '0.3.13')
+  assert.equal(receipt.version, '0.3.14')
   assert.equal(receipt.platform, 'darwin')
   assert.equal(receipt.arch, 'x64')
-  assert.equal(receipt.zip?.name, 'Ari-0.3.13-universal.zip')
+  assert.equal(receipt.zip?.name, 'Ari-0.3.14-universal.zip')
   assert.match(receipt.archiveName ?? '', /^app(-x64)?\.asar$/)
   assert.match(receipt.sourceHead ?? '', /^[a-f0-9]{40}$/)
   assert.match(observed.sourceHead ?? '', /^[a-f0-9]{40}$/i, 'Exact candidate SHA is required')

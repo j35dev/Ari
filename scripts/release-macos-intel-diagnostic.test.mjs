@@ -19,7 +19,7 @@ import {
   x64DiagnosticPlan,
 } from './release-macos-intel-diagnostic.mjs'
 
-const version = '0.3.13'
+const version = '0.3.14'
 const source = 'a305270df41ac5e37c66861e5feb700de0d66b97'
 const zipBytes = Buffer.from('synthetic universal zip; never executed')
 const executableBytes = Buffer.from('synthetic universal executable')

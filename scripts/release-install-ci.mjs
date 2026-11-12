@@ -16,11 +16,11 @@ import { contained, requireHostedCI } from './release-functional-support.mjs'
 export function installInput(receipt, context) {
   assert.equal(receipt.sourceHead, context.sourceHead)
   assert.equal(receipt.platform, context.platform)
-  assert.equal(receipt.version, '0.3.13')
+  assert.equal(receipt.version, '0.3.14')
   assert.ok(!receipt.nativeFailure, 'Failed packaged native gate')
   const baseline = BASELINE[context.platform]
   assert.ok(baseline, 'Unsupported install platform')
-  const candidateName = baseline.name.replace('0.3.12', '0.3.13')
+  const candidateName = baseline.name.replace('0.3.13', '0.3.14')
   assert.equal(receipt.files.filter((file) => file.name === candidateName).length, 1)
   const app =
     context.platform === 'darwin'
@@ -65,7 +65,7 @@ async function main() {
   })
   const baseline = BASELINE[process.platform]
   const response = await globalThis.fetch(
-    `https://github.com/j35dev/Ari/releases/download/v0.3.12/${baseline.name}`,
+    `https://github.com/j35dev/Ari/releases/download/v0.3.13/${baseline.name}`,
     {
       signal: globalThis.AbortSignal.timeout(120_000),
     },

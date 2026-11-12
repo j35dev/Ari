@@ -53,10 +53,10 @@ async function setup(platform = 'win32', mutate) {
   const root = await mkdtemp(join(tmpdir(), 'ari-install-test-'))
   const runner = join(root, 'runner')
   await mkdir(runner)
-  const old = await bundle(join(root, 'old'), '0.3.12', platform)
-  const candidate = await bundle(join(root, 'candidate'), '0.3.13', platform)
+  const old = await bundle(join(root, 'old'), '0.3.13', platform)
+  const candidate = await bundle(join(root, 'candidate'), '0.3.14', platform)
   const previousArtifact = join(root, BASELINE[platform].name)
-  const candidateArtifact = join(root, BASELINE[platform].name.replace('0.3.12', '0.3.13'))
+  const candidateArtifact = join(root, BASELINE[platform].name.replace('0.3.13', '0.3.14'))
   await writeFile(previousArtifact, 'synthetic baseline asset')
   await writeFile(candidateArtifact, 'synthetic candidate asset')
   const baseline = {
@@ -66,7 +66,7 @@ async function setup(platform = 'win32', mutate) {
   }
   const native = {
     kind: 'packaged-native-module-load',
-    version: '0.3.13',
+    version: '0.3.14',
     platform,
     arch: 'x64',
     electron: '43.4.1',
@@ -82,10 +82,10 @@ async function setup(platform = 'win32', mutate) {
   const receipt = {
     sourceHead,
     platform,
-    version: '0.3.13',
+    version: '0.3.14',
     files: [
       {
-        name: BASELINE[platform].name.replace('0.3.12', '0.3.13'),
+        name: BASELINE[platform].name.replace('0.3.13', '0.3.14'),
         bytes: 25,
         sha256: await sha256(candidateArtifact),
       },
@@ -148,7 +148,7 @@ async function setup(platform = 'win32', mutate) {
       : args[0] === 'attach'
         ? args.at(-1)
         : executable
-    const chosen = current.includes('0.3.12') ? old : candidate
+    const chosen = current.includes('0.3.13') ? old : candidate
     if (executable.endsWith('hdiutil') && args[0] === 'detach') return { stdout: '', stderr: '' }
     let destination
     if (executable.endsWith('hdiutil'))
@@ -157,7 +157,7 @@ async function setup(platform = 'win32', mutate) {
       await cp(args[0], args[1], { recursive: true })
       await mutate?.({
         root: commandOptions.cwd,
-        version: args[0].includes('0.3.12') ? '0.3.12' : '0.3.13',
+        version: args[0].includes('0.3.13') ? '0.3.13' : '0.3.14',
         destination: join(args[1], 'Contents'),
         calls,
       })
@@ -167,7 +167,7 @@ async function setup(platform = 'win32', mutate) {
     await cp(chosen.root, destination, { recursive: true })
     await mutate?.({
       root: commandOptions.cwd,
-      version: chosen === old ? '0.3.12' : '0.3.13',
+      version: chosen === old ? '0.3.13' : '0.3.14',
       destination,
       calls,
     })
@@ -179,9 +179,9 @@ async function setup(platform = 'win32', mutate) {
 test('production baseline pins and silent NSIS argv contract are exact', async () => {
   assert.equal(
     BASELINE.win32.sha256,
-    'f8f48d7c8d55f7387032ce2bc862407d8f54b437717eeca9fc0bef5301735f1b',
+    '51af1c458b2e7b941165076be1b506a60a9b7998dcee00ea4379747488df6e6f',
   )
-  assert.equal(BASELINE.win32.bytes, 123180599)
+  assert.equal(BASELINE.win32.bytes, 123506035)
   const destination = join(tmpdir(), 'ari-install-argv')
   const args = nsisArguments(destination)
   assert.deepEqual(args, ['/S', '/currentuser', '--no-desktop-shortcut', `/D=${destination}`])
@@ -279,7 +279,7 @@ for (const platform of ['win32', 'darwin', 'linux'])
     assert.equal(result.applicationProfileStartupTested, false)
     assert.deepEqual(
       result.sequence.map((stage) => stage.version),
-      ['0.3.12', '0.3.13'],
+      ['0.3.13', '0.3.14'],
     )
     assert.equal(result.sequence[0].executable, result.sequence[1].executable)
     assert.equal(result.fixture.beforeSha256, result.fixture.afterSha256)
@@ -343,14 +343,14 @@ test('linux upgrade reads the archive now at the install path', async () => {
   assert.equal(result.osInstallerBehaviorTested, false)
   assert.deepEqual(
     result.sequence.map((stage) => stage.version),
-    ['0.3.12', '0.3.13'],
+    ['0.3.13', '0.3.14'],
   )
 })
 
 for (const defect of ['executable', 'native', 'fixture', 'archive'])
   test(`rejects installed ${defect} corruption and retains failure without further stages`, async () => {
     const env = await setup('win32', async ({ root, version, destination }) => {
-      if (version !== '0.3.13') return
+      if (version !== '0.3.14') return
       if (defect === 'archive') {
         await cp(join(env.root, 'old/resources/app.asar'), join(destination, 'resources/app.asar'))
         return
@@ -382,7 +382,7 @@ for (const defect of ['executable', 'native', 'fixture', 'archive'])
 
 test('failed baseline installer never proceeds to candidate installation', async () => {
   const env = await setup('win32', async ({ version }) => {
-    if (version === '0.3.12')
+    if (version === '0.3.13')
       throw Object.assign(new Error('injected timeout'), {
         code: 'ETIMEDOUT',
         killed: true,
@@ -397,7 +397,7 @@ test('failed baseline installer never proceeds to candidate installation', async
   assert.equal(receipt.sequence.length, 0)
   assert.equal(receipt.commands.at(-1).timedOut, true)
   assert.equal(receipt.commands.at(-1).stderr, 'installer still running')
-  assert.match(receipt.failure, /nsis-0\.3\.12: installer still running/)
+  assert.match(receipt.failure, /nsis-0\.3\.13: installer still running/)
 })
 
 test('existing Windows registration refuses before any installer execution', async () => {

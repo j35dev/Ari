@@ -48,7 +48,7 @@ export function validateInstalled(receipt, proof, results, sourceHead, platform)
   assert.equal(install.candidate.sha256, candidate.sha256)
   assert.deepEqual(
     install.sequence.map((entry) => entry.version),
-    ['0.3.12', '0.3.13'],
+    ['0.3.13', '0.3.14'],
   )
   assert.equal(install.fixture.beforeSha256, install.fixture.afterSha256)
   assert.equal(install.osInstallerBehaviorTested, platform === 'win32')
