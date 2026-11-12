@@ -4,8 +4,9 @@ import {
   remoteQuerySchema,
   remoteServerMessageSchema,
   remoteErrorCodeSchema,
+  machinesExtensionsSchema,
 } from './remote'
-import type { RemoteServerMessage } from './remote'
+import type { RemoteServerMessage, MachinesLocalSnapshot } from './remote'
 
 /** Public host identity. No paths, inventories or authentication material. */
 export const machineIdentitySchema = z.object({
@@ -14,12 +15,17 @@ export const machineIdentitySchema = z.object({
   ariVersion: z.string().min(1).max(100).optional(),
   protocolVersion: z.number().int().positive(),
   capabilities: z.array(z.string().min(1).max(100)).max(200),
+  machinesExtensions: machinesExtensionsSchema.optional(),
+  routeIdentity: z.object({ version: z.literal(1) }).strict().optional(),
 })
 export type MachineIdentity = z.infer<typeof machineIdentitySchema>
 export const machineRouteSchema = z
   .object({
     kind: z.enum(['tailscale', 'loopback']),
     origin: z.string().url().max(2048),
+    source: z.enum(['manual', 'learned']).optional(),
+    /** Independently approved origin whose device key can authenticate this route. */
+    credentialOrigin: z.string().url().max(2048).optional(),
   })
   .strict()
 export type MachineRoute = z.infer<typeof machineRouteSchema>
@@ -71,8 +77,18 @@ export const machineOperationResultSchema = z.discriminatedUnion('ok', [
 ])
 export type MachineOperationResult = z.infer<typeof machineOperationResultSchema>
 const machineRef = z.object({ machineId: z.string().min(1).max(200) }).strict()
+export const machineAutoPreferenceSchema = z.enum(['prefer', 'normal', 'less-often', 'manual-only'])
+export type MachineAutoPreference = z.infer<typeof machineAutoPreferenceSchema>
+export const LOCAL_MACHINE_PREFERENCE_ID = 'local'
+export const machinesPreferencesSchema = z.object({
+  autoEnabled: z.boolean(),
+  hostTiers: z.record(z.string().min(1).max(200), machineAutoPreferenceSchema),
+  projectHosts: z.record(z.string().min(1).max(1024), z.string().min(1).max(200)),
+}).strict()
+export type MachinesPreferences = z.infer<typeof machinesPreferencesSchema>
 export const machinesRpcParams = {
   'machines.list': z.undefined(),
+  'machines.localSnapshot': z.undefined(),
   'machines.discover': z.undefined(),
   'machines.add': z
     .object({
@@ -94,6 +110,7 @@ export const machinesRpcParams = {
 } as const
 export interface MachinesRpcResults {
   'machines.list': MachineView[]
+  'machines.localSnapshot': MachinesLocalSnapshot
   'machines.discover': MachineDiscovery[]
   'machines.add': MachineView
   'machines.pair': MachinePairingView
@@ -107,6 +124,7 @@ export interface MachinesRpcResults {
 export const machineEventsParamsSchema = machineRef.extend({
   sessionId: z.string().min(1).max(200),
   fromSeq: z.number().int().nonnegative().optional(),
+  desktop: z.literal(true).optional(),
 })
 /** Standard stream.subscribe/unsubscribe; every frame carries its host scope. */
 export interface MachineEventsFrame {
