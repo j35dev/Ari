@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ChevronRight, X } from 'lucide-react'
+import { cx, iconButton, outlineButton } from '../../lib/recipes'
 import { friendlyErrorText } from '../moment'
 import { classifyTurnError, UNCLASSIFIED_TITLE } from './turnError'
 
@@ -23,11 +24,16 @@ const RESUME_ERRORS = {
   cancel: 'Could not cancel resume. Try again.',
 }
 
+/** A text action inside the row's own sentence: Cancel, Check schedule. */
+const INLINE_ACTION =
+  'rounded-sm text-fg underline decoration-border-strong underline-offset-2 transition-colors hover:decoration-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
+
 /**
- * The turn-failed banner docked above the composer: a danger strip with the
- * failure's family headline, the friendly message, an actionable hint when the
- * classifier recognises the failure, a Retry action, and a Details disclosure
- * carrying the raw error text (stderr tails and exit codes live there).
+ * The turn-failed row above the composer, in the chat column: the red status
+ * dot, the failure's family headline and friendly message, an actionable hint
+ * when the classifier recognises the failure, a Retry action, and a Details
+ * disclosure carrying the raw error text (stderr tails and exit codes live
+ * there).
  */
 export function TurnErrorBanner({
   message,
@@ -54,21 +60,18 @@ export function TurnErrorBanner({
   const headline = title === UNCLASSIFIED_TITLE ? 'Turn failed —' : `Turn failed — ${title}.`
 
   return (
-    <div
-      role="alert"
-      className="mx-3 mb-1 rounded-md border border-danger-subtle bg-danger-subtle px-3 py-2"
-    >
-      <div className="flex items-start gap-2">
-        <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-xs leading-relaxed text-fg-muted">
-            <span className="font-medium text-danger">{headline}</span> {friendly}
+    <div role="alert" className="ari-chat-column mb-2 shrink-0">
+      <div className="flex items-start gap-2.5 px-3">
+        <span aria-hidden="true" className="ari-status mt-[4px]" data-status="error" />
+        <div className="min-w-0 flex-1 py-0.5">
+          <p className="break-words text-[13.5px] leading-relaxed text-fg">
+            <span className="font-medium">{headline}</span> {friendly}
           </p>
           {hint !== null ? (
-            <p className="mt-0.5 break-words text-2xs leading-relaxed text-fg-subtle">{hint}</p>
+            <p className="mt-0.5 break-words text-[12.5px] leading-relaxed text-fg-muted">{hint}</p>
           ) : null}
           {resume ? (
-            <div role="status" className="mt-1 text-2xs text-fg-muted">
+            <div role="status" className="mt-1.5 text-[12.5px] text-fg-muted">
               {resume.pending === 'lookup' ? <p>Checking resume schedule…</p> : null}
               {resume.scheduledAt !== null ? (
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -79,7 +82,7 @@ export function TurnErrorBanner({
                     type="button"
                     onClick={resume.onCancel}
                     disabled={resume.pending !== null}
-                    className="rounded-sm underline decoration-dotted underline-offset-2 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+                    className={INLINE_ACTION}
                   >
                     {resume.pending === 'cancel' ? 'Cancelling…' : 'Cancel'}
                   </button>
@@ -90,7 +93,7 @@ export function TurnErrorBanner({
                   onClick={resume.onSchedule}
                   disabled={resume.pending !== null}
                   title="Continue this session automatically once the usage limit resets"
-                  className="max-w-full rounded-sm border border-border px-2 py-0.5 text-2xs font-medium text-fg transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+                  className={cx(outlineButton, 'max-w-full')}
                 >
                   {resume.pending === 'schedule'
                     ? 'Scheduling…'
@@ -98,16 +101,14 @@ export function TurnErrorBanner({
                 </button>
               ) : null}
               {resume.error !== null ? (
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="min-w-0 break-words text-danger">
-                    {RESUME_ERRORS[resume.error]}
-                  </span>
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="min-w-0 break-words text-fg">{RESUME_ERRORS[resume.error]}</span>
                   {resume.error === 'lookup' ? (
                     <button
                       type="button"
                       onClick={resume.onCheck}
                       disabled={resume.pending !== null}
-                      className="rounded-sm underline decoration-dotted underline-offset-2 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+                      className={INLINE_ACTION}
                     >
                       Check schedule
                     </button>
@@ -124,7 +125,7 @@ export function TurnErrorBanner({
             disabled={retryDisabled}
             aria-label="Retry last message"
             title="Resend the last message"
-            className="shrink-0 rounded-sm border border-danger px-2 py-0.5 text-2xs font-medium text-danger transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+            className={cx(outlineButton, 'shrink-0')}
           >
             Retry
           </button>
@@ -134,21 +135,20 @@ export function TurnErrorBanner({
           onClick={() => setShowDetails((d) => !d)}
           aria-expanded={showDetails}
           aria-label="Toggle error details"
-          className="shrink-0 rounded-sm p-0.5 text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={iconButton}
         >
-          {showDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          <ChevronRight
+            size={14}
+            aria-hidden="true"
+            className={`transition-transform duration-150 ${showDetails ? 'rotate-90' : ''}`}
+          />
         </button>
-        <button
-          type="button"
-          aria-label="Dismiss error"
-          onClick={onDismiss}
-          className="shrink-0 rounded-sm p-0.5 text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-        >
-          <X size={12} />
+        <button type="button" aria-label="Dismiss error" onClick={onDismiss} className={iconButton}>
+          <X size={14} aria-hidden="true" />
         </button>
       </div>
       {showDetails ? (
-        <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-surface-0 p-2 font-mono text-2xs text-fg-muted">
+        <pre className="mx-3 mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-md bg-surface-0 p-2.5 font-mono text-xs text-fg-muted">
           {message}
         </pre>
       ) : null}

@@ -184,7 +184,7 @@ export function SpaceTabs({
   }
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch border-b border-border/50 bg-surface-0">
+    <div className="flex h-8 shrink-0 items-start">
       <div
         ref={listRef}
         role="tablist"
@@ -194,7 +194,7 @@ export function SpaceTabs({
           if (draggingId !== null) event.preventDefault()
         }}
         onDrop={onDrop}
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {spaces.map((space, index) => {
           const selected = space.id === activeSpaceId
@@ -236,18 +236,21 @@ export function SpaceTabs({
                   const before = event.clientX < rect.left + rect.width / 2
                   setDropBeforeId(before ? space.id : (spaces[index + 1]?.id ?? null))
                 }}
-                className={`group relative isolate flex h-7 max-w-44 min-w-24 items-center gap-1.5 rounded-md px-2 text-xs outline-none transition-colors ${
-                  selected ? 'text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+                className={`group relative isolate flex h-7 max-w-44 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] outline-none transition-colors ${
+                  selected && spaces.length > 1
+                    ? 'text-fg'
+                    : 'text-fg-subtle hover:bg-fg/5 hover:text-fg'
                 } focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   draggingId === space.id ? 'opacity-40' : ''
                 }`}
               >
-                {selected ? (
+                {/* A lone space has nothing to be told apart from: no marker. */}
+                {selected && spaces.length > 1 ? (
                   <motion.span
                     layoutId="space-tab-active"
                     aria-hidden
                     transition={animation}
-                    className="absolute inset-0 -z-10 rounded-md border border-border bg-surface-2"
+                    className="absolute inset-0 -z-10 rounded-md bg-fg/9"
                   />
                 ) : null}
 
@@ -256,12 +259,7 @@ export function SpaceTabs({
                     aria-hidden
                     className={`size-1.5 shrink-0 rounded-full ${STATUS_CLASS[status]}`}
                   />
-                ) : (
-                  <span
-                    aria-hidden
-                    className={`size-1.5 shrink-0 rounded-full ${selected ? 'bg-fg-subtle' : 'bg-fg-subtle/40'}`}
-                  />
-                )}
+                ) : null}
 
                 {editing ? (
                   <input
@@ -281,7 +279,7 @@ export function SpaceTabs({
                         setEditingId(null)
                       }
                     }}
-                    className="min-w-0 flex-1 rounded-sm border border-accent/40 bg-surface-1 px-1 py-0.5 text-xs text-fg outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                    className="w-28 min-w-0 flex-1 rounded-sm border border-border-strong bg-surface-1 px-1 py-0.5 text-[13px] text-fg outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
                   />
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{space.name}</span>
@@ -296,7 +294,7 @@ export function SpaceTabs({
                       event.stopPropagation()
                       onClose(space.id)
                     }}
-                    className={`-mr-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                    className={`-mr-1 flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-opacity hover:bg-fg/9 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                       selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                     }`}
                   >
@@ -308,7 +306,7 @@ export function SpaceTabs({
               {dropBeforeId === space.id && draggingId !== null ? (
                 <span
                   aria-hidden
-                  className="pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-accent"
+                  className="pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-fg-muted"
                 />
               ) : null}
             </motion.div>
@@ -329,14 +327,14 @@ export function SpaceTabs({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center border-l border-border/50 px-1.5">
+      <div className="flex h-7 shrink-0 items-center pl-1">
         <button
           type="button"
           aria-label="New space"
           title="New space (Ctrl+Alt+T)"
           disabled={!canCreate}
           onClick={onCreate}
-          className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <Plus size={14} aria-hidden />
         </button>

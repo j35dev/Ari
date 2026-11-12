@@ -45,11 +45,14 @@ export function RemoteConnectSetup({
   const canSignIn = ['signed-out', 'denied', 'error'].includes(state.phase)
   const connected = !['unconfigured', 'signed-out'].includes(state.phase)
   return (
-    <section aria-labelledby="remote-connect-heading" className="space-y-3 p-4">
-      <h2 id="remote-connect-heading" className="flex items-center gap-3 text-sm font-semibold">
+    <section aria-labelledby="remote-connect-heading" className="space-y-3 px-4 py-3.5">
+      <h2
+        id="remote-connect-heading"
+        className="flex items-center gap-2.5 text-sm font-medium text-fg"
+      >
         <span
           aria-hidden="true"
-          className="flex size-6 items-center justify-center rounded-md bg-surface-2 text-xs font-medium tabular-nums text-fg-muted"
+          className="flex size-5 items-center justify-center rounded-sm bg-surface-2 text-xs font-medium tabular-nums text-fg-muted"
         >
           2
         </span>
@@ -75,12 +78,12 @@ export function RemoteConnectSetup({
                         : 'Check the error below and retry. Agents continue working on this computer.'}
       </p>
       {state.error !== null ? (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-[13px] leading-5 text-danger">
           {state.error}
         </p>
       ) : null}
       {state.phase === 'missing-cloudflared' ? (
-        <Button disabled={disabled} onClick={openConnectorGuide} className="min-h-11">
+        <Button disabled={disabled} onClick={openConnectorGuide}>
           Open connector installation guide
         </Button>
       ) : null}
@@ -93,7 +96,7 @@ export function RemoteConnectSetup({
           className="space-y-3"
         >
           <label
-            className="block text-xs font-medium text-fg-muted"
+            className="block text-[13px] font-medium text-fg-subtle"
             htmlFor="connect-computer-name"
           >
             Computer name
@@ -111,22 +114,23 @@ export function RemoteConnectSetup({
             type="submit"
             variant="primary"
             disabled={disabled || !enabled || name.trim().length === 0}
-            className="min-h-11"
           >
             Sign in with Ari Connect
           </Button>
           {!enabled ? (
-            <p className="text-xs text-fg-muted">Enable mobile access above before connecting.</p>
+            <p className="text-[13px] text-fg-subtle">
+              Enable mobile access above before connecting.
+            </p>
           ) : null}
         </form>
       ) : null}
       {state.phase === 'awaiting-approval' && state.browserUrl !== null ? (
-        <Button disabled={disabled} onClick={openBrowser} className="min-h-11">
+        <Button disabled={disabled} onClick={openBrowser}>
           Open sign-in again
         </Button>
       ) : null}
       {state.phase === 'awaiting-approval' && state.expiresAt !== null ? (
-        <p className="text-xs text-fg-muted">
+        <p className="text-[13px] text-fg-subtle">
           Approval expires{' '}
           {new Date(state.expiresAt).toLocaleTimeString(undefined, {
             hour: 'numeric',
@@ -136,52 +140,42 @@ export function RemoteConnectSetup({
         </p>
       ) : null}
       {state.phase === 'ready' && state.clientUrl !== null ? (
-        <p className="break-all font-mono text-xs text-fg-muted">{state.clientUrl}</p>
+        <p className="break-all font-mono text-[12.5px] text-fg-muted">{state.clientUrl}</p>
       ) : null}
       {connected ? (
         <div className="flex flex-wrap gap-2">
-          <Button disabled={disabled} onClick={refresh} className="min-h-11">
+          <Button disabled={disabled} onClick={refresh}>
             Check again
           </Button>
-          <Button
-            variant="ghost"
-            disabled={disabled}
-            onClick={() => setConfirmDisconnect(true)}
-            className="min-h-11"
-          >
+          <Button variant="ghost" disabled={disabled} onClick={() => setConfirmDisconnect(true)}>
             Disconnect Ari Connect
           </Button>
         </div>
       ) : null}
       {connected && confirmDisconnect ? (
-        <div className="space-y-3 rounded-lg border border-border p-4">
+        <div className="space-y-3 border-t border-border pt-3.5">
           <p className="text-sm leading-relaxed text-fg-muted">
             Disconnecting removes this computer from Ari Connect. Tailscale and local agents stay
             available.
           </p>
           <div className="flex gap-2">
-            <Button variant="danger" disabled={disabled} onClick={signOut} className="min-h-11">
+            <Button variant="danger" disabled={disabled} onClick={signOut}>
               Confirm disconnect
             </Button>
-            <Button
-              variant="ghost"
-              disabled={disabled}
-              onClick={() => setConfirmDisconnect(false)}
-              className="min-h-11"
-            >
+            <Button variant="ghost" disabled={disabled} onClick={() => setConfirmDisconnect(false)}>
               Keep connected
             </Button>
           </div>
         </div>
       ) : null}
-      <details className="text-xs text-fg-muted" open={state.phase === 'unconfigured'}>
-        <summary className="min-h-11 cursor-pointer py-3">Service configuration</summary>
+      <details className="text-[13px] text-fg-subtle" open={state.phase === 'unconfigured'}>
+        <summary className="cursor-pointer py-1.5">Service configuration</summary>
         <form
           onSubmit={(event) => {
             event.preventDefault()
             configure(origin.trim())
           }}
-          className="space-y-3 pb-3"
+          className="space-y-3 pb-1 pt-2"
         >
           <label className="block font-medium" htmlFor="connect-service-origin">
             Ari Connect service address
@@ -195,14 +189,10 @@ export function RemoteConnectSetup({
             required
             disabled={disabled || connected}
           />
-          <Button
-            type="submit"
-            disabled={disabled || connected || origin.trim().length === 0}
-            className="min-h-11"
-          >
+          <Button type="submit" disabled={disabled || connected || origin.trim().length === 0}>
             Save service address
           </Button>
-          <p className="leading-relaxed">
+          <p className="leading-5">
             Use the HTTPS address supplied by your Ari administrator. No hosted service is
             configured automatically.
           </p>

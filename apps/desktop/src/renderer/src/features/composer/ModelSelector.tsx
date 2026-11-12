@@ -6,6 +6,7 @@ import { modelsFor, resolveOfferedModel } from '@ari/providers/catalogs'
 import type { CatalogSource } from '@ari/providers/catalogs'
 import { Popover } from '@ari/ui/popover'
 import { rpc } from '../../lib/rpc'
+import { cx, textButton } from '../../lib/recipes'
 import { driverLabel } from './agent-mark'
 import { partitionProviders } from './provider-readiness'
 import type { ProviderReadiness } from './provider-readiness'
@@ -456,16 +457,10 @@ export function ModelSelector({
         onMouseEnter={() => setActiveOptionId(opt.id)}
         onClick={() => pickModel(opt)}
         className={`flex h-8 w-full items-center gap-3 rounded-md px-2.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-          isSelected
-            ? 'bg-accent-subtle text-fg'
-            : isActive
-              ? 'bg-surface-2 text-fg'
-              : 'text-fg-muted'
+          isSelected ? 'bg-fg/9 text-fg' : isActive ? 'bg-fg/6 text-fg' : 'text-fg-muted'
         }`}
       >
-        <span className="min-w-0 truncate text-[13px] font-medium">
-          {splitRecommended(opt.label).name}
-        </span>
+        <span className="min-w-0 truncate text-[13px]">{splitRecommended(opt.label).name}</span>
         {/* The agent's own summary, only for the row in hand: a list of twelve
             taglines is noise, one beside the row being considered is an answer. */}
         <span
@@ -473,7 +468,9 @@ export function ModelSelector({
         >
           {isActive ? (opt.description ?? opt.hint) : null}
         </span>
-        {isSelected ? <Check size={14} aria-hidden className="shrink-0 text-accent" /> : null}
+        {isSelected ? (
+          <Check size={14} strokeWidth={1.75} aria-hidden className="shrink-0 text-fg" />
+        ) : null}
       </button>
     )
   }
@@ -510,7 +507,7 @@ export function ModelSelector({
         type="button"
         onClick={() => setShowLegacy((shown) => !shown)}
         aria-expanded={showLegacy}
-        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg focus-visible:text-fg focus-visible:outline-none motion-reduce:transition-none"
+        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:bg-fg/5 hover:text-fg focus-visible:text-fg focus-visible:outline-none motion-reduce:transition-none"
       >
         {showLegacy ? 'Older models' : `${legacyCount} older`}
         <ChevronDown
@@ -521,7 +518,7 @@ export function ModelSelector({
       </button>
     ) : null
 
-  const noteClasses = 'border-t border-border px-3 py-2 text-[11px] leading-4 text-fg-subtle'
+  const noteClasses = 'border-t border-border px-2.5 py-2 text-[11px] leading-4 text-fg-subtle'
 
   return (
     <div ref={setAnchor} className="relative min-w-0">
@@ -539,12 +536,13 @@ export function ModelSelector({
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 w-full max-w-52 items-center gap-1.5 rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className={cx(textButton, 'w-full max-w-56', open && 'bg-fg/6')}
       >
-        <ProviderLogo kind={driverKind} />
-        <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        <ProviderLogo kind={driverKind} size={13} />
+        <span className="min-w-0 flex-1 truncate font-medium text-fg">{triggerLabel}</span>
         <ChevronDown
-          size={11}
+          size={13}
+          strokeWidth={1.75}
           aria-hidden
           className={`shrink-0 text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ease-[var(--ari-ease-out-expo)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
         />
@@ -565,13 +563,15 @@ export function ModelSelector({
           bare
           role="presentation"
           onKeyDown={onMenuKeyDown}
-          className="flex w-[21rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface-1 shadow-[inset_0_1px_0_0_var(--ari-inner-stroke),var(--ari-shadow-3)]"
+          // The menu surface: rows sit 4px in from the edge, and so do the
+          // hairlines between the search, the agents and the list.
+          className="flex w-[21rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-1 p-1 shadow-3"
         >
           <div className="relative border-b border-border">
             <Search
               size={13}
               aria-hidden
-              className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+              className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
             />
             <input
               ref={searchRef}
@@ -586,14 +586,14 @@ export function ModelSelector({
               aria-expanded
               autoComplete="off"
               spellCheck={false}
-              className="h-10 w-full bg-transparent pe-3 ps-9 text-[13px] text-fg placeholder:text-fg-subtle focus:outline-none"
+              className="h-9 w-full bg-transparent pe-2.5 ps-8 text-[13px] text-fg placeholder:text-fg-subtle focus:outline-none"
             />
           </div>
           {/* Agents run across the top as tabs: the one in view carries its
               name, the rest are their marks. Left/Right walks them. The row stays
               put during a search so the panel never resizes under the cursor. */}
           {lockedTo !== null ? (
-            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-fg">
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2.5 text-fg">
               <ProviderLogo kind={lockedTo} />
               <span className="text-[13px] font-medium">{driverLabel(lockedTo)}</span>
               <span className="min-w-0 flex-1 truncate text-right text-[11px] text-fg-subtle">
@@ -604,7 +604,7 @@ export function ModelSelector({
             <div
               role="presentation"
               aria-label="Providers"
-              className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-1.5"
+              className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border"
             >
               {providers.map((provider) => {
                 const isCurrent = !searching && provider.kind === activeKind
@@ -618,16 +618,14 @@ export function ModelSelector({
                       setActiveKind(provider.kind)
                       setQuery('')
                     }}
-                    className={`flex h-7 shrink-0 items-center justify-center gap-2 rounded-md transition-colors duration-[var(--ari-dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none ${
+                    className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md transition-colors duration-[var(--ari-dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none ${
                       isCurrent
-                        ? 'bg-surface-2 px-2.5 text-fg'
-                        : 'w-8 text-fg-muted hover:bg-surface-2/60 hover:text-fg'
+                        ? 'bg-fg/9 px-2.5 text-fg'
+                        : 'w-8 text-fg-muted hover:bg-fg/6 hover:text-fg'
                     }`}
                   >
                     <ProviderLogo kind={provider.kind} />
-                    <span className={isCurrent ? 'text-[13px] font-medium' : 'sr-only'}>
-                      {provider.label}
-                    </span>
+                    <span className={isCurrent ? 'text-[13px]' : 'sr-only'}>{provider.label}</span>
                   </button>
                 )
               })}
@@ -635,7 +633,7 @@ export function ModelSelector({
           ) : null}
 
           {/* A fixed height: switching agents must not make the panel jump. */}
-          <div ref={listRef} className="ari-scroll h-[15.5rem] overflow-y-auto p-1.5">
+          <div ref={listRef} className="ari-scroll h-[15.5rem] overflow-y-auto pt-1">
             {searching ? (
               <div id={listboxId} role="listbox" aria-label="Search results">
                 {visibleCount === 0

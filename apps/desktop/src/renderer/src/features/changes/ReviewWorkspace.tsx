@@ -18,14 +18,14 @@ import type {
 import { Select } from '@ari/ui/select'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
+import { iconButton } from '../../lib/recipes'
 import { DiffSurface, type DiffRange } from '../diffs/DiffSurface'
 import { ReviewNavigator } from './ReviewNavigator'
 import { useSourceControl } from './use-source-control'
 import { useReviewPreferences } from './use-review-preferences'
 
 const log = createLogger('ui:review')
-const control =
-  'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
+const control = iconButton
 export interface ReviewControlsState {
   scope: GitScope
   context: SourceControlContext | null
@@ -46,10 +46,10 @@ export interface ReviewWorkspaceProps {
 export function ReviewWorkspace(props: ReviewWorkspaceProps) {
   if (!props.scope)
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-        <FileDiff size={30} className="text-fg-subtle" />
-        <h2 className="text-base font-semibold text-fg">A place to review your work</h2>
-        <p className="max-w-xs text-sm text-fg-muted">
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+        <FileDiff size={24} className="mb-1 text-fg-subtle" aria-hidden />
+        <h2 className="text-sm font-medium text-fg">A place to review your work</h2>
+        <p className="max-w-xs text-[13px] text-fg-subtle">
           Open a project or session to see its code changes.
         </p>
       </div>
@@ -175,26 +175,31 @@ function ScopedReview({
   }
   return (
     <section className="@container flex h-full min-h-0 flex-col bg-bg" aria-label={label}>
-      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-3 border-b border-border/60 px-3 py-1.5 @[44rem]:min-h-14 @[44rem]:px-4 @[44rem]:py-2">
-        <FileDiff size={18} className="hidden text-accent @[44rem]:block" />
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-fg">{label}</h2>
-          <p className="flex items-center gap-1.5 font-mono text-2xs text-fg-subtle">
-            <GitBranch size={10} />
+      {/* The panel's tab row (or the page title) already names this view, so
+          the heading stays for assistive tech and the toolbar leads with the branch. */}
+      <header className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border py-1 pl-4 pr-2">
+        <h2 className="sr-only">{label}</h2>
+        <p className="flex min-w-0 items-center gap-1.5 text-[13px] text-fg-muted">
+          <GitBranch size={14} className="shrink-0 text-fg-subtle" aria-hidden />
+          <span className="min-w-0 truncate">
             {context
               ? (context.status.branch ?? 'Detached HEAD')
               : loading
                 ? 'Reading repository…'
                 : 'Repository unavailable'}{' '}
             · {scope.sessionId ? 'session' : 'project'}
-            {context?.status.ahead ? (
-              <span title="Commits ahead of upstream">↑{context.status.ahead}</span>
-            ) : null}
-            {context?.status.behind ? (
-              <span title="Commits behind upstream">↓{context.status.behind}</span>
-            ) : null}
-          </p>
-        </div>
+          </span>
+          {context?.status.ahead ? (
+            <span className="shrink-0 font-mono text-xs" title="Commits ahead of upstream">
+              ↑{context.status.ahead}
+            </span>
+          ) : null}
+          {context?.status.behind ? (
+            <span className="shrink-0 font-mono text-xs" title="Commits behind upstream">
+              ↓{context.status.behind}
+            </span>
+          ) : null}
+        </p>
         <div className="flex-1" />
         <Select
           aria-label="Compare changes"
@@ -208,7 +213,7 @@ function ScopedReview({
         </button>
       </header>
       {comparison.kind === 'branch' ? (
-        <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2 text-2xs text-fg-muted">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs text-fg-subtle">
           Compare from
           <Select
             aria-label="Base branch"
@@ -224,10 +229,7 @@ function ScopedReview({
         </div>
       ) : null}
       {error || watchError ? (
-        <div
-          role="alert"
-          className="border-b border-danger/20 bg-danger-subtle px-4 py-3 text-xs text-danger"
-        >
+        <div role="alert" className="border-b border-border px-4 py-2.5 text-[13px] text-danger">
           {error ?? watchError}
           <button type="button" className="ml-3 underline" onClick={refresh}>
             Retry
@@ -267,17 +269,22 @@ function ScopedReview({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {file && manifest ? (
             <>
-              <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2">
-                <FileDiff size={13} className="shrink-0 text-fg-subtle" aria-hidden />
+              {/* The file header and the diff toolbar under it share one hairline. */}
+              <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 py-0.5 pl-4 pr-2">
+                <FileDiff size={14} className="mr-1 shrink-0 text-fg-subtle" aria-hidden />
                 <span
-                  className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate font-mono text-xs text-fg @[44rem]:basis-auto"
+                  className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] truncate font-mono text-[12.5px] text-fg @[44rem]:basis-auto"
                   title={file.path}
                 >
                   {file.path}
                 </span>
-                <span className="font-mono text-2xs text-success">+{file.additions}</span>
-                <span className="font-mono text-2xs text-danger">−{file.deletions}</span>
-                <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-2xs text-fg-muted">
+                <span className="font-mono text-xs tabular-nums text-success">
+                  +{file.additions}
+                </span>
+                <span className="ml-1 font-mono text-xs tabular-nums text-danger">
+                  −{file.deletions}
+                </span>
+                <label className="ml-3 flex cursor-pointer items-center gap-1.5 text-xs text-fg-muted">
                   <input
                     type="checkbox"
                     aria-label={`Mark ${file.path} viewed`}
@@ -285,10 +292,11 @@ function ScopedReview({
                     onChange={(event) =>
                       preferences.markViewed(manifest, file, event.target.checked)
                     }
+                    className="size-3.5 accent-fg"
                   />
                   Viewed
                 </label>
-                <span className="mx-1 h-4 w-px bg-border/60" aria-hidden />
+                <span className="mx-1.5 h-4 w-px bg-border" aria-hidden />
                 <button
                   type="button"
                   className={control}
@@ -303,9 +311,9 @@ function ScopedReview({
                     }
                   }}
                 >
-                  <ChevronLeft size={13} />
+                  <ChevronLeft size={14} />
                 </button>
-                <span className="font-mono text-2xs tabular-nums text-fg-subtle">
+                <span className="font-mono text-xs tabular-nums text-fg-subtle">
                   {files.indexOf(file) + 1}/{files.length}
                 </span>
                 <button
@@ -322,7 +330,7 @@ function ScopedReview({
                     }
                   }}
                 >
-                  <ChevronRight size={13} />
+                  <ChevronRight size={14} />
                 </button>
                 <button
                   type="button"
@@ -330,7 +338,7 @@ function ScopedReview({
                   aria-label="Copy file path"
                   onClick={() => void copyPath(file.path)}
                 >
-                  <Copy size={13} />
+                  <Copy size={14} />
                 </button>
                 <button
                   type="button"
@@ -339,13 +347,13 @@ function ScopedReview({
                   disabled={contextLines >= 1000}
                   onClick={() => setContextLines((value) => Math.min(1000, value + 40))}
                 >
-                  <UnfoldVertical size={13} />
+                  <UnfoldVertical size={14} />
                 </button>
               </div>
               <div className="min-h-0 flex-1">
                 {patch?.key === key ? (
                   patch.error ? (
-                    <p role="alert" className="p-8 text-sm text-danger">
+                    <p role="alert" className="px-4 py-3 text-[13px] text-danger">
                       {patch.error}
                       <button
                         type="button"
@@ -373,9 +381,9 @@ function ScopedReview({
                     <span className="sr-only">Loading file diff…</span>
                     {[70, 90, 50, 80, 65, 85].map((width, index) => (
                       <div key={index} className="flex gap-4">
-                        <span className="h-2.5 w-7 animate-pulse rounded bg-surface-2" />
+                        <span className="h-2.5 w-7 animate-pulse rounded bg-fg/6" />
                         <span
-                          className="h-2.5 animate-pulse rounded bg-surface-2"
+                          className="h-2.5 animate-pulse rounded bg-fg/6"
                           style={{ width: `${width}%` }}
                         />
                       </div>
@@ -385,10 +393,10 @@ function ScopedReview({
               </div>
             </>
           ) : !loading && !error ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-              <Check size={30} className="text-success/60" />
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+              <Check size={24} className="mb-1 text-fg-subtle" aria-hidden />
               <h3 className="text-sm font-medium text-fg">Nothing to review here</h3>
-              <p className="max-w-xs text-xs leading-relaxed text-fg-subtle">
+              <p className="max-w-xs text-[13px] leading-relaxed text-fg-subtle">
                 {filter
                   ? 'No changed files match your search.'
                   : comparison.kind === 'working-tree'
@@ -399,14 +407,14 @@ function ScopedReview({
           ) : loading ? (
             <div role="status" className="space-y-3 p-6">
               <span className="sr-only">Loading changes…</span>
-              <div className="h-3 w-44 animate-pulse rounded bg-surface-2" />
-              <div className="h-3 w-64 animate-pulse rounded bg-surface-2" />
+              <div className="h-3 w-44 animate-pulse rounded bg-fg/6" />
+              <div className="h-3 w-64 animate-pulse rounded bg-fg/6" />
             </div>
           ) : null}
         </div>
       </div>
       {renderControls?.({ scope, context, manifest, paths, loading, refresh })}
-      <div className="flex h-7 shrink-0 items-center gap-2 border-t border-border/60 px-3 font-mono text-2xs text-fg-subtle">
+      <div className="flex h-7 shrink-0 items-center gap-2 border-t border-border px-4 font-mono text-xs text-fg-subtle">
         <span className="truncate">
           {manifest?.baseLabel ?? '—'} → {manifest?.headLabel ?? '—'}
         </span>

@@ -71,9 +71,7 @@ describe('FileExplorer', () => {
     // Collapsing and re-expanding serves from cache.
     await user.click(screen.getByRole('button', { name: 'src' }))
     await user.click(screen.getByRole('button', { name: 'src' }))
-    expect(
-      await screen.findByRole('treeitem', { name: /^main\.ts/ }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('treeitem', { name: /^main\.ts/ })).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledTimes(2)
   })
 
@@ -143,9 +141,31 @@ describe('FileExplorer', () => {
         content: 'saved version!',
       }),
     )
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' }),
-    )
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' }))
+  })
+
+  it('keeps the tree and the open file when re-rendered with an equal scope', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'fs.list') {
+        const path = (params as { path: string }).path
+        if (path === '.') return structuredClone(ROOT_ENTRIES)
+        throw new Error('path does not exist')
+      }
+      if (method === 'fs.readTextFile') return { content: 'kept', truncated: false }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    const { rerender } = render(<FileExplorer root={ROOT} scope={{ ...SCOPE }} />)
+    await user.click(await screen.findByRole('button', { name: /^README.md/ }))
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('kept'))
+    invokeMock.mockClear()
+
+    rerender(<FileExplorer root={ROOT} scope={{ ...SCOPE }} />)
+    rerender(<FileExplorer root={ROOT} scope={{ ...SCOPE }} />)
+
+    expect(screen.getByRole('textbox', { name: 'File contents' })).toBe(buffer)
+    expect(invokeMock).not.toHaveBeenCalled()
   })
 
   it('file rows drag with a workspace-relative mention payload', async () => {

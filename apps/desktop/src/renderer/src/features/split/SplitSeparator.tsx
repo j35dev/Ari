@@ -113,9 +113,15 @@ export function SplitSeparator({
       onPointerDown={onPointerDown}
       onDoubleClick={() => onResize(nodeId, EVEN)}
       onKeyDown={onKeyDown}
-      className={`shrink-0 transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-        hidden ? 'hidden' : row ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'
-      } ${dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'}`}
+      // A hairline between panes; the pseudo-element widens the grab area
+      // without widening the line.
+      className={`relative shrink-0 transition-colors before:absolute before:content-[''] focus-visible:bg-fg-subtle focus-visible:outline-none ${
+        hidden
+          ? 'hidden'
+          : row
+            ? 'w-px cursor-col-resize before:inset-y-0 before:-inset-x-1'
+            : 'h-px cursor-row-resize before:inset-x-0 before:-inset-y-1'
+      } ${dragging ? 'bg-fg-subtle' : 'bg-border hover:bg-fg-subtle'}`}
     />
   )
 }

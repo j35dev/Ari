@@ -27,10 +27,7 @@ describe('SegmentedControl', () => {
     await user.click(week)
     expect(onChange).toHaveBeenCalledWith('week')
     expect(week).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Day' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
+    expect(screen.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('renders a single thumb element inside the selected option', () => {
@@ -39,9 +36,7 @@ describe('SegmentedControl', () => {
     )
     const thumb = container.querySelector('[data-thumb]')
     expect(thumb).not.toBeNull()
-    expect(screen.getByRole('button', { name: 'Month' }).contains(thumb)).toBe(
-      true,
-    )
+    expect(screen.getByRole('button', { name: 'Month' }).contains(thumb)).toBe(true)
   })
 
   it('defers to the controlled value', async () => {
@@ -52,14 +47,8 @@ describe('SegmentedControl', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Week' }))
     expect(onChange).toHaveBeenCalledWith('week')
-    expect(screen.getByRole('button', { name: 'Day' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(screen.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
     rerender(<SegmentedControl options={options} value="week" onChange={onChange} />)
-    expect(screen.getByRole('button', { name: 'Week' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(screen.getByRole('button', { name: 'Week' })).toHaveAttribute('aria-pressed', 'true')
   })
 })

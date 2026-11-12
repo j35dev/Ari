@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { motion } from 'motion/react'
+import { FileText } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
+import { cx } from '../../lib/recipes'
 
 export interface FilePopupProps {
   /** Workspace paths to list, already filtered/limited by the caller. */
@@ -73,9 +75,13 @@ export function FilePopup({ items, onSelect, onClose }: FilePopupProps) {
       initial="hidden"
       animate="visible"
       variants={menuInVariants}
-      className="overflow-hidden rounded-md border border-border bg-surface-2 shadow-lg"
+      className="overflow-hidden rounded-xl border border-border-strong bg-surface-1 shadow-3"
     >
-      <ul role="listbox" aria-label="File mentions" className="max-h-[232px] overflow-y-auto p-1">
+      <ul
+        role="listbox"
+        aria-label="File mentions"
+        className="ari-scroll max-h-[232px] overflow-y-auto p-1"
+      >
         {items.map((path, index) => {
           const active = index === activeIndex
           const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
@@ -89,17 +95,26 @@ export function FilePopup({ items, onSelect, onClose }: FilePopupProps) {
               aria-selected={active}
               onMouseMove={() => setActiveIndex(index)}
               onClick={() => onSelect(path)}
-              className={[
-                'flex h-8 cursor-default select-none items-center gap-1 rounded-md px-2 font-mono text-sm',
-                'focus-visible:outline-none',
-                active ? 'bg-surface-2' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
+              className={cx(
+                'flex h-8 cursor-default select-none items-center gap-2.5 rounded-md px-2.5 text-[13px] transition-colors',
+                active && 'bg-fg/6',
+              )}
             >
-              <span className="shrink-0 text-accent">@</span>
-              {dir && <span className="min-w-0 truncate text-fg-subtle">{dir}</span>}
-              <span className="min-w-0 truncate text-fg">{base}</span>
+              <FileText
+                size={14}
+                strokeWidth={1.75}
+                aria-hidden
+                className="shrink-0 text-fg-subtle"
+              />
+              {/* The path stays in reading order in the markup (directory,
+                  then name); the row shows the name first and the directory
+                  after it as the quieter half. */}
+              {dir && (
+                <span className="order-2 min-w-0 flex-1 truncate text-xs text-fg-subtle">
+                  {dir}
+                </span>
+              )}
+              <span className="order-1 min-w-0 truncate text-fg">{base}</span>
             </li>
           )
         })}

@@ -54,6 +54,62 @@ export function insertDelegationRows(
   return [...group(-1), ...rows.flatMap((row, index) => [row, ...group(index)])]
 }
 
+/** States in which a child is still doing, or waiting to do, something. */
+const LIVE_STATES: ReadonlySet<string> = new Set([
+  'working',
+  'queued',
+  'starting',
+  'stopping',
+  'needs-you',
+  'needs-lead',
+  'waiting',
+  'unknown',
+])
+
+/** Whether a child is running or waiting, as opposed to finished or gone. */
+export function isLiveChild(child: DelegatedChild): boolean {
+  return LIVE_STATES.has(child.state)
+}
+
+/** A finished child stays in view this long after the group last did anything. */
+export const RECENT_WINDOW_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Splits a group into the agents worth showing now and the ones kept behind
+ * "earlier": removed sessions, and work that finished long before the group's
+ * latest activity. Old agents can share a group with new ones (their place in
+ * the conversation is no longer loaded), and a three-day-old run should not
+ * sit beside the one in progress.
+ *
+ * "Recent" is measured against the group, not the clock: a group that is
+ * running counts from now, one that settled counts from its last settle, so
+ * an old turn still shows its own agents. A child with no known time stays in
+ * view. If nothing would be left, the whole group is shown.
+ */
+export function splitDelegation(
+  children: readonly DelegatedChild[],
+  now: number,
+): { current: DelegatedChild[]; earlier: DelegatedChild[] } {
+  const activeAt = (child: DelegatedChild): number | null =>
+    isLiveChild(child) ? now : (child.settledAt ?? child.spawnedAt ?? null)
+  let latest: number | null = null
+  for (const child of children) {
+    if (child.state === 'removed') continue
+    const at = activeAt(child)
+    if (at !== null && (latest === null || at > latest)) latest = at
+  }
+  const current: DelegatedChild[] = []
+  const earlier: DelegatedChild[] = []
+  for (const child of children) {
+    const at = activeAt(child)
+    const stale =
+      child.state === 'removed' ||
+      (!isLiveChild(child) && latest !== null && at !== null && latest - at > RECENT_WINDOW_MS)
+    ;(stale ? earlier : current).push(child)
+  }
+  return current.length === 0 ? { current: [...children], earlier: [] } : { current, earlier }
+}
+
 const STATE_ORDER = [
   'needs-you',
   'needs-lead',
@@ -85,12 +141,26 @@ const STATE_PHRASE: Record<string, string> = {
   removed: 'removed',
 }
 
-/** `2 working · 1 done`, most urgent first. */
-export function summarizeDelegation(children: readonly DelegatedChild[]): string {
+/** One phrase per state present in a group (`2 working`), most urgent first. */
+export function delegationPhrases(
+  children: readonly DelegatedChild[],
+): Array<{ state: string; phrase: string }> {
   return STATE_ORDER.flatMap((state) => {
     const count = children.filter((child) => child.state === state).length
     return count > 0
-      ? [`${count} ${state === 'done' && count === 1 ? 'result ready' : STATE_PHRASE[state]}`]
+      ? [
+          {
+            state,
+            phrase: `${count} ${state === 'done' && count === 1 ? 'result ready' : STATE_PHRASE[state]}`,
+          },
+        ]
       : []
-  }).join(' · ')
+  })
+}
+
+/** `2 working · 1 done`, most urgent first. */
+export function summarizeDelegation(children: readonly DelegatedChild[]): string {
+  return delegationPhrases(children)
+    .map(({ phrase }) => phrase)
+    .join(' · ')
 }

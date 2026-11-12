@@ -14,6 +14,10 @@ body,
   align-items: center;
 }
 
+/* The hold-to-talk pill: Aria's mark, one word of state, and the level meter.
+   An object surface on a strong hairline, like the composer it stands in for.
+   The window is only as tall as the pill plus a small margin, so it carries
+   the tight shadow: a wide one would be cut off at the window's edge. */
 .aria-pill {
   display: flex;
   align-items: center;
@@ -21,12 +25,12 @@ body,
   max-width: calc(100% - 16px);
   min-height: 44px;
   box-sizing: border-box;
-  padding: 9px 15px;
+  padding: 9px 16px 9px 12px;
   border: 1px solid var(--ari-border-strong);
   border-radius: var(--ari-radius-full);
   background: var(--ari-surface-1);
   color: var(--ari-fg);
-  font: 500 var(--ari-text-sm)/1.4 var(--ari-font-ui);
+  font: 400 var(--ari-text-sm) / 1.4 var(--ari-font-ui);
   box-shadow: var(--ari-shadow-1);
   cursor: default;
   -webkit-app-region: no-drag;
@@ -50,32 +54,21 @@ body,
   color: var(--ari-fg-muted);
 }
 
-.aria-level {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 20px;
-  margin-left: 6px;
-}
-
-.aria-level i {
-  display: block;
-  width: 3px;
-  height: 20px;
-  border-radius: var(--ari-radius-full);
-  background: var(--ari-accent);
-  transition: transform 80ms linear;
+/* The same pixel meter the composer shows while dictating. */
+.aria-pill .ari-levels {
+  margin-left: 2px;
 }
 
 .aria-progress {
-  color: var(--ari-fg-muted);
-  font-size: 20px;
+  color: var(--ari-fg-subtle);
+  font-size: 16px;
   line-height: 1;
   animation: aria-progress 1s ease-in-out infinite alternate;
 }
 
+/* Done is a grey check everywhere in Ari; green is for diffs. */
 .aria-sent {
-  color: var(--ari-success);
+  color: var(--ari-fg-subtle);
 }
 
 @keyframes aria-progress {
@@ -88,10 +81,6 @@ body,
   animation: none;
 }
 
-[data-reduced-motion='true'] .aria-level i {
-  transition: none;
-}
-
 [data-reduced-motion='true'] .ari-aria-mark-eyes,
 [data-reduced-motion='true'] .ari-aria-mark-tuft {
   animation: none;
@@ -100,8 +89,5 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .aria-progress {
     animation: none;
-  }
-  .aria-level i {
-    transition: none;
   }
 }

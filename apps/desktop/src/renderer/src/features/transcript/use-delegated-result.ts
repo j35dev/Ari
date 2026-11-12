@@ -37,6 +37,8 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   const lock = useRef(false)
   const alive = useRef(true)
   const request = useRef(0)
+  /** The last view applied, serialized, so an unchanged refresh re-renders nothing. */
+  const applied = useRef<string | null>(null)
   useEffect(() => {
     alive.current = true
     return () => {
@@ -47,7 +49,11 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
 
   const refresh = useCallback(async () => {
     const sequence = ++request.current
-    setLoading(true)
+    // Only the first load (or a retry after a failure) shows as loading. Every
+    // orchestration change in the parent session triggers a refresh, and a
+    // sibling at work emits them constantly: flagging each one disabled the
+    // version picker and flashed "Loading result" for as long as it ran.
+    if (applied.current === null) setLoading(true)
     setLoadError(null)
     try {
       const view = await rpc.invoke('orchestration.view', { sessionId })
@@ -56,7 +62,11 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
         view.tasks.find((entry) =>
           entry.attempts.some((attempt) => attempt.sessionId === childSessionId),
         ) ?? null
-      setTask(next)
+      const serialized = JSON.stringify(next)
+      if (serialized !== applied.current) {
+        applied.current = serialized
+        setTask(next)
+      }
       setTarget((previous) => {
         // Never follow a newer version implicitly, including after our own action.
         if (previous || !next) return previous
@@ -69,8 +79,10 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
         return initial ? targetOf(initial) : null
       })
     } catch (cause) {
-      if (alive.current && sequence === request.current)
+      if (alive.current && sequence === request.current) {
+        applied.current = null
         setLoadError(cause instanceof Error ? cause.message : 'Could not load this result.')
+      }
     } finally {
       if (alive.current && sequence === request.current) setLoading(false)
     }
@@ -130,6 +142,8 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   }
   const update = (updated: ResultPackage) => {
     if (!alive.current) return
+    // A local edit: the next refresh must apply whatever the engine reports.
+    applied.current = ''
     setTask((previous) =>
       previous
         ? {

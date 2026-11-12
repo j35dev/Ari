@@ -1,17 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  ArrowLeft,
-  ArrowRight,
-  ExternalLink,
-  Globe,
-  MousePointer2,
-  RotateCw,
-  X,
-} from 'lucide-react'
-import { IconButton } from '@ari/ui/icon-button'
-import { Input } from '@ari/ui/input'
+import { ArrowLeft, ArrowRight, ExternalLink, MousePointer2, RotateCw } from 'lucide-react'
 import type { BrowserTabState } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { cx, iconButton, iconButtonActive } from '../../lib/recipes'
 import { addBrowserPick, fileFromPngBase64 } from './browser-picks'
 import { trackBounds, type Bounds } from './bounds-sync'
 import { useCovered } from './use-covered'
@@ -60,8 +51,12 @@ const EMPTY: BrowserTabState = {
  * So while app UI overlaps the host, the guest gives way to a still of itself:
  * registered overlays hide it before they first paint, anything else once the
  * hit-test sweep finds it.
+ *
+ * The panel starts at its address row. Its name and the close button live in
+ * the docked panel's tab row, drawn by the host, so `onClose` is accepted for
+ * the host's sake and never drawn here.
  */
-export function BrowserPanel({ onClose, sessionId }: { onClose?: () => void; sessionId?: string }) {
+export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
   const [draft, setDraft] = useState('')
@@ -215,86 +210,77 @@ export function BrowserPanel({ onClose, sessionId }: { onClose?: () => void; ses
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5">
-        <Globe size={13} className="ml-1 shrink-0 text-fg-subtle" aria-hidden />
-        <span className="truncate text-xs font-medium text-fg">Browser</span>
-        <div className="flex-1" />
-        {onClose !== undefined ? (
-          <IconButton
-            icon={<X size={13} />}
-            aria-label="Close browser panel"
-            size="sm"
-            variant="ghost"
-            onClick={onClose}
-          />
-        ) : null}
-      </div>
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5">
-        <IconButton
-          icon={<ArrowLeft size={13} />}
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-2">
+        <button
+          type="button"
           aria-label="Back"
-          size="sm"
-          variant="ghost"
           disabled={!tab.canGoBack}
           onClick={() => go('back')}
-        />
-        <IconButton
-          icon={<ArrowRight size={13} />}
+          className={iconButton}
+        >
+          <ArrowLeft size={14} aria-hidden />
+        </button>
+        <button
+          type="button"
           aria-label="Forward"
-          size="sm"
-          variant="ghost"
           disabled={!tab.canGoForward}
           onClick={() => go('forward')}
-        />
-        <IconButton
-          icon={<RotateCw size={13} className={tab.loading ? 'animate-spin' : undefined} />}
+          className={iconButton}
+        >
+          <ArrowRight size={14} aria-hidden />
+        </button>
+        <button
+          type="button"
           aria-label="Reload"
-          size="sm"
-          variant="ghost"
           onClick={() => go('reload')}
-        />
+          className={iconButton}
+        >
+          <RotateCw size={14} aria-hidden className={tab.loading ? 'animate-spin' : undefined} />
+        </button>
         <form
-          className="min-w-0 flex-1"
+          className="mx-1 min-w-0 flex-1"
           onSubmit={(event) => {
             event.preventDefault()
             submit()
           }}
         >
-          <Input
+          <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Enter a URL"
             aria-label="Address"
-            className="h-7 text-2xs"
-            invalid={tab.error !== null}
+            aria-invalid={tab.error !== null || undefined}
+            className="h-7 w-full min-w-0 rounded-md bg-fg/6 px-2.5 text-[13px] text-fg outline-none transition-shadow placeholder:text-fg-subtle focus-visible:ring-2 focus-visible:ring-accent-ring aria-invalid:ring-1 aria-invalid:ring-danger"
           />
         </form>
-        <IconButton
-          icon={<MousePointer2 size={13} />}
+        <button
+          type="button"
           aria-label="Pick element for agent"
           title="Pick an element to mention to the agent"
-          size="sm"
-          variant="ghost"
           disabled={blank || picking}
           onClick={pickElement}
-        />
-        <IconButton
-          icon={<ExternalLink size={13} />}
+          className={cx(iconButton, picking && iconButtonActive)}
+        >
+          <MousePointer2 size={14} aria-hidden />
+        </button>
+        <button
+          type="button"
           aria-label="Open in system browser"
-          size="sm"
-          variant="ghost"
           disabled={blank}
           onClick={openExternal}
-        />
+          className={iconButton}
+        >
+          <ExternalLink size={14} aria-hidden />
+        </button>
       </div>
       {tab.error !== null ? (
-        <p className="shrink-0 px-3 py-1.5 text-2xs text-danger">{tab.error}</p>
+        <p className="shrink-0 px-4 py-1.5 text-xs text-danger">{tab.error}</p>
       ) : null}
       <div ref={hostRef} className="relative min-h-0 flex-1">
         {blank ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
-            <p className="text-xs text-fg-subtle">In-app browser</p>
-            <p className="max-w-56 text-2xs text-fg-subtle/70">
+            <p className="text-[13px] text-fg-muted">In-app browser</p>
+            <p className="max-w-56 text-xs text-fg-subtle">
               Type a URL, then pick an element to mention it to the agent.
             </p>
           </div>

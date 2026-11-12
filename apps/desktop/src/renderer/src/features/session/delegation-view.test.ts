@@ -92,9 +92,20 @@ it('joins spawn history with the task snapshot, preferring its current title', (
       state: 'done',
       startedAt: null,
       report: 'Two findings.',
+      spawnedAt: null,
+      settledAt: 5,
       anchor: { messageId: 'a1', partIndex: 2 },
     },
   ])
+  // When the spawn and the last settle happened travels with the card, so a
+  // group can tell this run's agents from ones that finished days ago.
+  expect(delegatedChildren([{ ...spawn, spawnedAt: 3 }], [task()])[0]).toMatchObject({
+    spawnedAt: 3,
+    settledAt: 5,
+  })
+  expect(
+    delegatedChildren([{ ...spawn, spawnedAt: 3 }], [task({ latestTurn: null })])[0],
+  ).toMatchObject({ spawnedAt: 3, settledAt: null })
   expect(
     delegatedChildren([spawn], [], () => ({ phase: 'working', startedAt: 42 }))[0],
   ).toMatchObject({ title: 'Worker', state: 'working', startedAt: 42, report: null })

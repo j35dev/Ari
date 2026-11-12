@@ -1,6 +1,7 @@
 import { CopyButton } from './CopyButton'
 import type { Message } from '@ari/contracts/message'
 import { RefreshCw, TextQuote } from 'lucide-react'
+import { iconButton } from '../../lib/recipes'
 
 /** Usage figures for one assistant message, as extracted by the engine (M4.18). */
 export interface MessageUsage {
@@ -41,11 +42,15 @@ function quoteOf(text: string): string {
 }
 
 /**
- * Metadata row rendered under a message: local timestamp, optional token/cost
- * usage line, and affordances — copy for the message's text content, plus a
+ * The quiet row a reply ends on: local timestamp, optional token/cost usage,
+ * then ghost icon actions — copy for the message's text content, quote, and a
  * regenerate control on the newest assistant message (M19.4) that re-runs the
  * last user prompt. Regenerate is disabled while `actionDisabled` is set
  * (a turn is running).
+ *
+ * The newest reply shows its actions outright. Earlier ones keep the row's
+ * height but reveal the actions on hover or keyboard focus of the reply (the
+ * `group/turn` wrapper in TranscriptView), so history stays mostly prose.
  */
 export function MessageFooter({
   message,
@@ -68,44 +73,53 @@ export function MessageFooter({
 }) {
   const text = messageText(message)
   const quotable = quoteText?.trim() ?? ''
+  const newest = onRegenerate !== undefined
   return (
-    <div className="mt-1 flex items-center gap-2 text-2xs text-fg-subtle">
-      <span>
+    <div className="mt-2 flex h-7 items-center gap-2 text-[13px] text-fg-subtle">
+      <span className="tabular-nums">
         {new Date(message.createdAt).toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
         })}
       </span>
       {usage ? (
-        <span className="font-mono tabular-nums">
+        <span className="font-mono text-xs tabular-nums">
           ↑{formatTokenCount(usage.inputTokens)} ↓{formatTokenCount(usage.outputTokens)} ·{' '}
           {formatCost(usage.costUsd)}
         </span>
       ) : null}
-      {text ? <CopyButton text={text} /> : null}
-      {onQuote && quotable.length > 0 ? (
-        <button
-          type="button"
-          onClick={() => onQuote(quoteOf(quoteText ?? ''))}
-          aria-label="Quote reply"
-          title="Quote reply"
-          className="inline-flex items-center rounded-sm p-1 text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-        >
-          <TextQuote size={12} />
-        </button>
-      ) : null}
-      {onRegenerate ? (
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={actionDisabled}
-          aria-label="Regenerate response"
-          title="Regenerate response"
-          className="inline-flex items-center rounded-sm p-1 text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
-        >
-          <RefreshCw size={12} />
-        </button>
-      ) : null}
+      <span
+        className={`flex items-center ${
+          newest
+            ? ''
+            : 'opacity-0 transition-opacity focus-within:opacity-100 group-hover/turn:opacity-100'
+        }`}
+      >
+        {text ? <CopyButton text={text} /> : null}
+        {onQuote && quotable.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => onQuote(quoteOf(quoteText ?? ''))}
+            aria-label="Quote reply"
+            title="Quote reply"
+            className={iconButton}
+          >
+            <TextQuote size={14} />
+          </button>
+        ) : null}
+        {onRegenerate ? (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={actionDisabled}
+            aria-label="Regenerate response"
+            title="Regenerate response"
+            className={iconButton}
+          >
+            <RefreshCw size={14} />
+          </button>
+        ) : null}
+      </span>
     </div>
   )
 }

@@ -1,5 +1,4 @@
 import { useMemo, type ReactNode } from 'react'
-import { Check } from 'lucide-react'
 import { CopyButton } from './CopyButton'
 import { CodeBlock } from './CodeBlock'
 import { DiffViewer } from '../diffs'
@@ -20,7 +19,15 @@ import type { TranscriptBlock } from './types'
 const COMMAND_KEYS = ['command', 'cmd', 'script'] as const
 
 const OLD_KEYS = ['old_string', 'old_str', 'oldText', 'old_text', 'original'] as const
-const NEW_KEYS = ['new_string', 'new_str', 'newText', 'new_text', 'replacement', 'content', 'file_text'] as const
+const NEW_KEYS = [
+  'new_string',
+  'new_str',
+  'newText',
+  'new_text',
+  'replacement',
+  'content',
+  'file_text',
+] as const
 const DIFF_KEYS = ['diff', 'patch'] as const
 const PATH_KEYS = ['file_path', 'filePath', 'target_file', 'notebook_path', 'path'] as const
 const QUERY_KEYS = ['pattern', 'query', 'q', 'url'] as const
@@ -29,39 +36,43 @@ const FILTER_KEYS = ['path', 'include', 'glob', 'file_pattern'] as const
 /** Cap for Before/After panels so a huge rewrite cannot flood the card. */
 const MAX_PANEL_CHARS = 4000
 
-/** A labeled value row: uppercase field name, mono body. */
-function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
+/** Horizontal inset shared by everything in the well that is not a diff. */
+const INSET = 'px-3'
+
+/**
+ * A labeled value: a quiet caption over its body. `bleed` lets the body run
+ * edge to edge, so a diff's line tints reach the sides of the well.
+ */
+function Field({
+  label,
+  bleed = false,
+  children,
+}: {
+  label: ReactNode
+  bleed?: boolean
+  children: ReactNode
+}) {
   return (
     <div className="min-w-0">
-      <div className="mb-0.5 text-2xs uppercase tracking-wide text-fg-subtle">{label}</div>
-      {children}
+      <div className={`mb-1 text-xs text-fg-subtle first-letter:uppercase ${INSET}`}>{label}</div>
+      <div className={bleed ? 'border-t border-border' : INSET}>{children}</div>
     </div>
   )
 }
 
 function MonoValue({ value }: { value: string }) {
   return (
-    <div className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/70 bg-surface-0/80 p-2 font-mono text-2xs text-fg-muted shadow-sm">
+    <div className="max-h-60 overflow-auto whitespace-pre-wrap break-all font-mono">
       {value.length > MAX_PANEL_CHARS ? `${value.slice(0, MAX_PANEL_CHARS)}…` : value}
     </div>
   )
 }
 
-/** One structured section: a labeled mono body with a tinted left edge. */
-function Panel({
-  label,
-  labelClass,
-  value,
-  borderClass,
-}: {
-  label: string
-  labelClass: string
-  value: string
-  borderClass: string
-}) {
+/** One side of an edit with no diff to show: a labeled mono body in the diff tint. */
+function Panel({ label, value, tint }: { label: string; value: string; tint: string }) {
   return (
-    <Field label={<span className={labelClass}>{label}</span>}>
-      <div className={`border-l-2 ${borderClass} pl-1.5`}>
+    <Field label={label} bleed>
+      <div className={`px-3 py-1 text-fg ${tint}`}>
         <MonoValue value={value} />
       </div>
     </Field>
@@ -84,13 +95,11 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     if (command === null) return null
     return (
       <Field label="command">
-        <div className="rounded-sm bg-surface-0 p-1.5">
-          <CodeBlock
-            code={command}
-            lang="shellscript"
-            className="whitespace-pre-wrap break-all font-mono text-2xs"
-          />
-        </div>
+        <CodeBlock
+          code={command}
+          lang="shellscript"
+          className="whitespace-pre-wrap break-all font-mono"
+        />
       </Field>
     )
   },
@@ -98,7 +107,7 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     const diff = stringArg(payload, DIFF_KEYS)
     if (diff !== null) {
       return (
-        <Field label="patch">
+        <Field label="patch" bleed>
           <DiffViewer diffText={diff} />
         </Field>
       )
@@ -106,7 +115,7 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     const synthesized = editPayloadToDiff(payload)
     if (synthesized !== null) {
       return (
-        <Field label="changes">
+        <Field label="changes" bleed>
           <DiffViewer diffText={synthesized.diffText} />
         </Field>
       )
@@ -115,13 +124,9 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     const newText = stringArg(payload, NEW_KEYS)
     if (oldText === null && newText === null) return null
     return (
-      <div className="space-y-1.5">
-        {oldText !== null ? (
-          <Panel label="Before" labelClass="text-danger" value={oldText} borderClass="border-danger-subtle" />
-        ) : null}
-        {newText !== null ? (
-          <Panel label="After" labelClass="text-success" value={newText} borderClass="border-success-subtle" />
-        ) : null}
+      <div className="space-y-2">
+        {oldText !== null ? <Panel label="Before" value={oldText} tint="bg-danger-subtle" /> : null}
+        {newText !== null ? <Panel label="After" value={newText} tint="bg-success-subtle" /> : null}
       </div>
     )
   },
@@ -139,7 +144,7 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     if (query === null) return null
     const filter = stringArg(payload, FILTER_KEYS)
     return (
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Field label="query">
           <MonoValue value={query} />
         </Field>
@@ -155,24 +160,17 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     const items = todoItems(payload)
     if (items === null) return null
     return (
-      <div className="space-y-1">
+      <div className={`space-y-1 ${INSET}`}>
         {items.map((item, i) => (
-          <div key={i} className="flex items-start gap-1.5">
-            {item.done ? (
-              <Check size={11} aria-label="done" className="mt-0.5 shrink-0 text-fg-muted" />
-            ) : item.active ? (
-              <span
-                aria-label="in progress"
-                className="mt-1 size-1.5 shrink-0 animate-pulse rounded-full bg-warning"
-              />
-            ) : (
-              <span
-                aria-label="pending"
-                className="mt-1 size-1.5 shrink-0 rounded-full border border-fg-subtle"
-              />
-            )}
+          <div key={i} className="flex items-start gap-2">
             <span
-              className={`min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-2xs ${
+              role="img"
+              aria-label={item.done ? 'done' : item.active ? 'in progress' : 'pending'}
+              data-status={item.done ? 'done' : item.active ? 'working' : 'queued'}
+              className="ari-status mt-[3px]"
+            />
+            <span
+              className={`min-w-0 flex-1 whitespace-pre-wrap break-words ${
                 item.done ? 'text-fg-subtle line-through' : 'text-fg-muted'
               }`}
             >
@@ -186,12 +184,12 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
 }
 
 /**
- * Expanded body of one tool step, branded as an Ari tool: a header naming the
- * Ari identity ("Ari Run") beside the provider's own tool name, then the
- * arguments rendered per kind — highlighted command for runs, a synthesized
- * unified diff for edits, checklists for plans, labeled fields for reads and
- * searches. Anything the structured views cannot express falls back to the
- * raw pretty-printed JSON.
+ * Expanded body of one tool step, branded as an Ari tool: a quiet 28px header
+ * naming the Ari identity ("Ari Run") beside the provider's own tool name,
+ * then the arguments rendered per kind — highlighted command for runs, a
+ * synthesized unified diff for edits, checklists for plans, labeled fields for
+ * reads and searches. Anything the structured views cannot express falls back
+ * to the raw pretty-printed JSON.
  */
 export function ToolCallDetails({ call }: { call: TranscriptBlock }) {
   const kind = useMemo(() => classifyToolCall(call), [call])
@@ -200,15 +198,23 @@ export function ToolCallDetails({ call }: { call: TranscriptBlock }) {
   const body = parsed !== null ? KIND_BODY[kind](parsed.payload) : null
 
   return (
-    <div className="space-y-1.5 p-2">
-      <div className="flex items-center gap-1.5">
-        <span className="text-2xs font-semibold text-fg">{ariToolName(kind)}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-subtle" title={providerName}>
+    <div className="space-y-2 pb-2.5 pt-1">
+      <div className="flex h-7 items-center gap-2 pl-3 pr-1">
+        <span className="text-xs font-medium text-fg">{ariToolName(kind)}</span>
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-xs text-fg-subtle"
+          title={providerName}
+        >
           {providerName}
         </span>
         {call.argsJson ? <CopyButton text={call.argsJson} /> : null}
       </div>
-      {body ?? (call.argsJson ? <FallbackJson argsJson={call.argsJson} /> : null)}
+      {body ??
+        (call.argsJson ? (
+          <div className={INSET}>
+            <FallbackJson argsJson={call.argsJson} />
+          </div>
+        ) : null)}
     </div>
   )
 }

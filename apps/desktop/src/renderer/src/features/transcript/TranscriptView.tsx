@@ -10,9 +10,10 @@ import {
   type WheelEvent,
 } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
+import { ArrowDown, Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
+import { iconButton, outlineButton } from '../../lib/recipes'
 import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks, rowTurnId } from './groupBlocks'
@@ -613,7 +614,7 @@ export function TranscriptView({
         </span>
 
         {working ? (
-          <div className="ari-chat-column mt-3 px-1" aria-live="polite">
+          <div className="ari-chat-column mt-3" aria-live="polite">
             {working}
           </div>
         ) : null}
@@ -635,9 +636,10 @@ export function TranscriptView({
             setAtBottom(true)
             if (el) scrollToBottom(el, 'smooth')
           }}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1 text-xs font-medium text-fg-on-accent shadow-2 transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="absolute bottom-4 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-md border border-border-strong bg-surface-1 px-2.5 text-[13px] text-fg-muted shadow-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          Jump to latest ↓
+          <ArrowDown size={14} aria-hidden="true" />
+          Jump to latest
         </button>
       ) : null}
 
@@ -815,10 +817,13 @@ function renderRowBody({
             <UserBubble
               text={row.text ?? ''}
               onEdit={row.origin?.kind === 'session' ? undefined : onEditUserMessage}
+              labelled={row.origin?.kind === 'session'}
             />
           </div>
         ) : (
-          <div>
+          // `group/turn`: hovering a reply reveals its footer actions. The
+          // terminal style's output carries its own block margin.
+          <div className={terminal ? 'group/turn' : 'group/turn mb-2 mt-3'}>
             {terminal ? (
               <div className="ari-terminal-output" data-streaming={active || undefined}>
                 {row.text ?? ''}
@@ -889,21 +894,18 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
         >
           {images.map((image) => {
             const url = urls[image.attachmentId]
-            const frame = right ? 'h-20 w-20 rounded-lg' : 'max-h-[28rem] max-w-full rounded-xl'
+            const frame = right ? 'h-20 w-20 rounded-lg' : 'max-h-[28rem] max-w-full rounded-lg'
             return (
               <div
                 key={image.attachmentId}
                 role="listitem"
                 title={image.name}
-                className={`group relative overflow-hidden border border-border bg-surface-1 ${frame}`}
+                className={`group relative overflow-hidden border border-border bg-surface-0 ${frame}`}
               >
                 {url === undefined ? (
-                  <div
-                    className="h-full w-full animate-pulse bg-surface-2"
-                    aria-label={`Loading ${image.name}`}
-                  />
+                  <div className="h-full w-full" aria-label={`Loading ${image.name}`} />
                 ) : url === null ? (
-                  <div className="flex h-full w-full items-center justify-center px-1 text-center text-2xs text-fg-subtle">
+                  <div className="flex h-full w-full items-center justify-center break-all px-1.5 text-center text-xs text-fg-subtle">
                     {image.name}
                   </div>
                 ) : (
@@ -923,8 +925,8 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
                       }
                     />
                     <span className="absolute inset-0 flex items-center justify-center bg-surface-0/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                      <span className="flex items-center gap-1.5 rounded-md border border-border bg-surface-1/90 px-2.5 py-1.5 text-xs font-medium text-fg shadow-2">
-                        <Maximize2 size={13} aria-hidden="true" />
+                      <span className="flex h-7 items-center gap-1.5 rounded-md border border-border-strong bg-surface-1 px-2.5 text-[13px] font-medium text-fg">
+                        <Maximize2 size={14} aria-hidden="true" />
                         Open
                       </span>
                     </span>
@@ -937,27 +939,21 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
       </div>
 
       <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <Dialog.Content size="lg" className="overflow-hidden bg-surface-0">
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+        {/* The panel is the shared dialog surface; the image sits in a well below its header. */}
+        <Dialog.Content size="lg">
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border pl-4 pr-2.5">
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="truncate text-sm">{selected?.name ?? 'Image'}</Dialog.Title>
+              <Dialog.Title className="truncate">{selected?.name ?? 'Image'}</Dialog.Title>
               <Dialog.Description className="sr-only">Full-size image preview</Dialog.Description>
             </div>
             {selected !== null && typeof selectedUrl === 'string' ? (
-              <a
-                href={selectedUrl}
-                download={selected.name}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 text-xs font-medium text-fg transition-colors hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <Download size={13} aria-hidden="true" />
+              <a href={selectedUrl} download={selected.name} className={outlineButton}>
+                <Download size={14} aria-hidden="true" />
                 Download
               </a>
             ) : null}
-            <Dialog.Close
-              aria-label="Close image preview"
-              className="flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <X size={15} aria-hidden="true" />
+            <Dialog.Close aria-label="Close image preview" className={iconButton}>
+              <X size={16} aria-hidden="true" />
             </Dialog.Close>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface-0 p-4">
@@ -965,7 +961,7 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
               <img
                 src={selectedUrl}
                 alt={`Full-size ${selected.name}`}
-                className="max-h-full max-w-full object-contain shadow-2"
+                className="max-h-full max-w-full object-contain"
               />
             ) : null}
           </div>
@@ -985,9 +981,9 @@ function SenderLabel({
   title: string | undefined
   onOpenSession?: (id: string) => void
 }) {
-  const className = 'font-mono text-2xs text-fg-subtle'
+  const className = 'text-xs text-fg-subtle'
   return (
-    <p className="mt-2 text-right">
+    <p className="mt-6 text-right">
       {title !== undefined && onOpenSession ? (
         <button
           type="button"
@@ -1008,7 +1004,16 @@ function SenderLabel({
  * affordances. Edit hands the bubble's text back via `onEdit`, which fills
  * the composer for an edit-and-resend flow.
  */
-function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) => void }) {
+function UserBubble({
+  text,
+  onEdit,
+  labelled = false,
+}: {
+  text: string
+  onEdit?: (text: string) => void
+  /** True when a sender label sits directly above, which then carries the gap. */
+  labelled?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
     try {
@@ -1019,31 +1024,34 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
       // clipboard unavailable — affordance stays silent
     }
   }
+  // The bubble is at most 72% of the column; the actions sit outside that
+  // measure, to its left, and show on hover or focus.
+  const action = `${iconButton} mb-1 opacity-0 focus-visible:opacity-100 group-hover:opacity-100`
   return (
-    <div className="ari-user-message group my-5 flex justify-end">
-      <div className="flex max-w-[85%] items-end gap-1">
-        {onEdit ? (
-          <button
-            type="button"
-            onClick={() => onEdit(text)}
-            aria-label="Edit message"
-            title="Edit and resend"
-            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-[color,background-color,opacity] duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
-          >
-            <Pencil size={12} />
-          </button>
-        ) : null}
+    <div
+      className={`ari-user-message group mb-2 flex items-end justify-end gap-0.5 ${labelled ? 'mt-1' : 'mt-6'}`}
+    >
+      {onEdit ? (
         <button
           type="button"
-          onClick={() => void copy()}
-          aria-label={copied ? 'Copied' : 'Copy message'}
-          className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-[color,background-color,opacity] duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+          onClick={() => onEdit(text)}
+          aria-label="Edit message"
+          title="Edit and resend"
+          className={action}
         >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
+          <Pencil size={14} />
         </button>
-        <div className="ari-user-bubble ari-chat-copy whitespace-pre-wrap break-words rounded-xl bg-surface-1 px-4 py-3 text-fg">
-          {text}
-        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={copied ? 'Copied' : 'Copy message'}
+        className={action}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+      <div className="ari-user-bubble ari-chat-copy ml-1 min-w-0 max-w-[72%] whitespace-pre-wrap break-words rounded-2xl bg-surface-2 px-4 py-2.5 text-fg">
+        {text}
       </div>
     </div>
   )

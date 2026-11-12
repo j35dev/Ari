@@ -8,6 +8,8 @@ import { SessionView, type SessionDefaults } from './SessionView'
 
 const rpcMocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+// The scene paints on a canvas and reads the theme; it has no part in switching.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 
 afterEach(() => {
   cleanup()

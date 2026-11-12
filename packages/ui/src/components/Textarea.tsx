@@ -11,11 +11,7 @@ const MIN_ROWS = 3
 const MAX_ROWS = 10
 
 /** Clamp content height to the [MIN_ROWS, MAX_ROWS] band (plus vertical padding). */
-export function autoGrowHeight(
-  scrollHeight: number,
-  lineHeight: number,
-  padY: number,
-): number {
+export function autoGrowHeight(scrollHeight: number, lineHeight: number, padY: number): number {
   const min = lineHeight * MIN_ROWS + padY
   const max = lineHeight * MAX_ROWS + padY
   return Math.min(Math.max(scrollHeight, min), max)
@@ -42,8 +38,7 @@ export function Textarea({
     if (!el) return
     const cs = window.getComputedStyle(el)
     const lineHeight = Number.parseFloat(cs.lineHeight)
-    const padY =
-      Number.parseFloat(cs.paddingTop) + Number.parseFloat(cs.paddingBottom)
+    const padY = Number.parseFloat(cs.paddingTop) + Number.parseFloat(cs.paddingBottom)
     if (!Number.isFinite(lineHeight) || !Number.isFinite(padY)) return
 
     el.style.overflowY = 'hidden'
@@ -76,8 +71,9 @@ export function Textarea({
 
   const controlClass = [
     'w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5',
-    'text-fg outline-none placeholder:text-fg-subtle',
-    'focus:ring-2 focus:ring-accent-ring',
+    'text-[13px] leading-5 text-fg outline-none placeholder:text-fg-subtle',
+    'transition-[border-color,box-shadow] hover:border-border-strong',
+    'focus:border-border-strong focus:ring-2 focus:ring-accent-ring',
     'disabled:cursor-not-allowed disabled:opacity-50',
     autoGrow ? 'resize-none' : null,
     className,

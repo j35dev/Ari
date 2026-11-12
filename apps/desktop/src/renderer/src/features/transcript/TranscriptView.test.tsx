@@ -208,10 +208,16 @@ describe('TranscriptView delegation', () => {
       },
     ]
     const { container } = render(view([message('a')], { delegations }))
-    expect(screen.getByText('Delegated to 2 sessions')).toBeInTheDocument()
-    expect(screen.getByText('1 working · 1 result ready')).toBeInTheDocument()
-    expect(screen.getByText('Two findings. See notes.')).toBeInTheDocument()
+    // Several agents are one row: the count and how it is going, in words.
+    const group = screen.getByRole('button', { name: /^2 agents/ })
+    expect(group).toHaveTextContent('1 working, 1 result ready')
+    expect(group).toHaveAttribute('aria-expanded', 'false')
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
+    // Each agent stays out of the way until the row is opened.
+    expect(screen.queryByRole('button', { name: 'Open Parser: Result ready' })).toBeNull()
+    await userEvent.click(group)
+    expect(group).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Two findings. See notes.')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: 'Open Parser: Result ready' }))
     expect(onOpenSession).toHaveBeenCalledWith('child_a')
   })

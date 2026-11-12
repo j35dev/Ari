@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitTurnDiffSummary } from '@ari/contracts/rpc'
@@ -57,8 +57,12 @@ describe('large turn diff cards', () => {
     const user = userEvent.setup()
     renderCard()
     const toggle = screen.getByRole('button', { name: 'Turn diff: 3 files changed' })
-    expect(screen.getByText('+7000')).toBeInTheDocument()
-    expect(screen.getByText('−30')).toBeInTheDocument()
+    // Every file's own counts show on its chip, from the summary alone.
+    expect(within(screen.getByTitle('a.txt')).getByText('+3000')).toBeInTheDocument()
+    expect(within(screen.getByTitle('a.txt')).getByText('−20')).toBeInTheDocument()
+    expect(within(screen.getByTitle('b.txt')).getByText('+4000')).toBeInTheDocument()
+    expect(within(screen.getByTitle('b.txt')).getByText('−10')).toBeInTheDocument()
+    expect(screen.getByTitle('image.png')).toHaveTextContent('Binary')
     expect(invoke).not.toHaveBeenCalled()
     await user.click(toggle)
     expect(await screen.findByText('first file')).toBeInTheDocument()

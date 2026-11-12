@@ -469,7 +469,7 @@ describe('Shell split panes', () => {
     const alpha = await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
     expect(alpha).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Beta' })).toHaveAttribute('data-focused', 'true')
   })
 
   it("prefixes each pane header with the session's project title", async () => {
@@ -593,18 +593,18 @@ describe('Shell split panes', () => {
     render(<App />)
 
     const beta = await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
-    expect(beta).toHaveClass('border-accent/40')
-    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-border/60')
-    expect(row('Beta')).toHaveClass('bg-accent/15')
-    expect(row('Alpha')).not.toHaveClass('bg-accent/15')
+    expect(beta).toHaveAttribute('data-focused', 'true')
+    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveAttribute('data-focused', 'false')
+    expect(row('Beta')).toHaveClass('bg-fg/9')
+    expect(row('Alpha')).not.toHaveClass('bg-fg/9')
 
     fireEvent.pointerDown(screen.getByRole('region', { name: 'Alpha' }))
 
     await vi.waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-accent/40')
+      expect(screen.getByRole('region', { name: 'Alpha' })).toHaveAttribute('data-focused', 'true')
     })
-    expect(row('Alpha')).toHaveClass('bg-accent/15')
-    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+    expect(row('Alpha')).toHaveClass('bg-fg/9')
+    expect(row('Beta')).not.toHaveClass('bg-fg/9')
   })
 
   it('keeps the one-pane view chrome-free, as it was before the split existed', async () => {
@@ -652,7 +652,10 @@ describe('Shell split panes', () => {
     // Three panes now: the new one has the focus and is waiting for a session.
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(1)
-    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveAttribute(
+      'data-focused',
+      'true',
+    )
   })
 
   it('splits from a right-click on the one-pane view, which has no frame', async () => {
@@ -690,7 +693,10 @@ describe('Shell split panes', () => {
 
     // The focused pane splits; its new neighbour is blank until something is
     // dropped in it, and it is the vertical divider that separates them.
-    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveAttribute(
+      'data-focused',
+      'true',
+    )
     expect(screen.getByRole('separator', { name: 'Resize Beta and Empty pane' })).toHaveAttribute(
       'aria-orientation',
       'vertical',
@@ -715,12 +721,12 @@ describe('Shell split panes', () => {
     openTwoPanes()
     render(<App />)
     await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
-    expect(row('Beta')).toHaveClass('bg-accent/15')
+    expect(row('Beta')).toHaveClass('bg-fg/9')
 
     fireEvent.keyDown(window, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true })
 
-    expect(row('Alpha')).toHaveClass('bg-accent/15')
-    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+    expect(row('Alpha')).toHaveClass('bg-fg/9')
+    expect(row('Beta')).not.toHaveClass('bg-fg/9')
   })
 
   it('says why a chord did nothing when the layout is already full', async () => {

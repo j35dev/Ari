@@ -195,7 +195,8 @@ describe('FocusPill', () => {
     render(<FocusPill service={new StubService(idleState())} />)
     await settle()
     const pill = screen.getByRole('button', { name: 'Focus: music and timer' })
-    expect(pill).toHaveTextContent('Focus')
+    // At rest it is an icon; the name is in the label and the tooltip.
+    expect(pill).toHaveAttribute('title', 'Focus: music and timer')
 
     fireEvent.click(pill)
     await settle()
@@ -236,7 +237,7 @@ describe('FocusPill', () => {
     })
   })
 
-  it('combines an active timer with the music indicator and truncates long names', async () => {
+  it('shows the time left for an active timer beside the music indicator', async () => {
     localStorage.setItem(
       FOCUS_TIMER_STORAGE_KEY,
       JSON.stringify({
@@ -250,7 +251,9 @@ describe('FocusPill', () => {
     render(<FocusPill service={new StubService(playingState())} />)
     await settle()
     const pill = screen.getByRole('button', { name: /Focus timer a-very-long-focus-session-name/ })
-    expect(pill).toHaveTextContent('a-very-long-focus… · 38m')
+    // The footer shows the time left; the timer's name stays in the label.
+    expect(pill).toHaveTextContent('38m')
+    expect(pill).not.toHaveTextContent('a-very-long')
   })
 
   it('shows no station chips without a radio backend', async () => {

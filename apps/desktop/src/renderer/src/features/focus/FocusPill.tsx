@@ -47,7 +47,7 @@ const SOUND_PROFILES = [
 /** Subtle animated equalizer shown only while music is actually playing. */
 function EqBars() {
   return (
-    <span className="ari-focus-eq text-accent" aria-hidden="true">
+    <span className="ari-focus-eq text-fg-muted" aria-hidden="true">
       <i />
       <i />
       <i />
@@ -57,7 +57,7 @@ function EqBars() {
 }
 
 const iconButton =
-  'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40'
+  'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40'
 
 const fieldInput =
   'h-7 rounded-md border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none'
@@ -127,36 +127,35 @@ export function FocusPill({ service }: { service?: MusicService }) {
       : 'Focus: music and timer'
 
   return (
-    <div className="mr-2 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+    <div className="shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <Popover open={open} onOpenChange={setOpen}>
         <Popover.Trigger
           aria-label={pillLabel}
-          className="flex h-6 max-w-44 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2 text-[11px] text-fg-muted transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          title={pillLabel}
+          className="flex h-7 min-w-7 max-w-36 items-center justify-center gap-1.5 rounded-md px-1.5 text-[12.5px] text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           {timerActive ? (
             <>
-              <Timer size={11} aria-hidden="true" className="shrink-0" />
-              <span className="truncate font-medium tabular-nums text-fg">
-                {truncateTimerName(timer.name)} · {formatTimerRemaining(timer.remainingMs)}
+              <Timer size={16} strokeWidth={1.7} aria-hidden="true" className="shrink-0" />
+              <span className="truncate tabular-nums text-fg">
+                {formatTimerRemaining(timer.remainingMs)}
               </span>
               {music.playing ? <EqBars /> : null}
             </>
           ) : music.playing ? (
             <>
-              <Music size={11} aria-hidden="true" className="shrink-0" />
+              <Music size={16} strokeWidth={1.7} aria-hidden="true" className="shrink-0" />
               <EqBars />
             </>
           ) : (
-            <>
-              <Music size={11} aria-hidden="true" className="shrink-0" />
-              <span>Focus</span>
-            </>
+            <Music size={16} strokeWidth={1.7} aria-hidden="true" className="shrink-0" />
           )}
         </Popover.Trigger>
         <Popover.Content
+          side="top"
           align="end"
           aria-label="Focus"
-          className="ari-focus-scroll w-80 max-h-[min(72vh,32rem)] max-w-[calc(100vw-24px)] overflow-y-auto"
+          className="w-80 max-h-[min(72vh,32rem)] max-w-[calc(100vw-24px)] overflow-y-auto !p-3"
         >
           <LibrarySection
             adapter={adapter}
@@ -186,7 +185,7 @@ export function FocusPill({ service }: { service?: MusicService }) {
           ) : null}
           <TimerSection timer={timer} />
           {notice ? (
-            <p role="status" className="pt-2 text-[11px] text-fg-subtle">
+            <p role="status" className="pt-2 text-xs text-fg-subtle">
               {notice}
             </p>
           ) : null}
@@ -224,14 +223,12 @@ function MusicSection({
 }) {
   return (
     <section aria-label="Now playing" className="mt-2.5 border-t border-border pt-2.5">
-      <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
-        Now playing
-      </p>
+      <p className="pb-1 text-xs text-fg-subtle">Now playing</p>
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-fg">
           {track ? track.title : musicAvailable ? 'Nothing playing' : 'Music unavailable'}
         </p>
-        <p className="truncate text-[11px] text-fg-subtle">
+        <p className="truncate text-xs text-fg-subtle">
           {track
             ? [track.artist, track.station].filter((part) => part.length > 0).join(' · ') ||
               'Playing now'
@@ -243,7 +240,7 @@ function MusicSection({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="rounded text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             Check again
           </button>
@@ -293,7 +290,7 @@ function MusicSection({
           aria-pressed={shuffled}
           disabled={!musicAvailable}
           onClick={() => onControl(() => adapter.shuffle(!shuffled))}
-          className={`${iconButton} ${shuffled ? 'text-accent' : ''}`}
+          className={`${iconButton} ${shuffled ? 'bg-fg/9 text-fg' : ''}`}
         >
           <Shuffle size={14} aria-hidden="true" />
         </button>
@@ -342,7 +339,7 @@ function SeekBar({
         }}
         className="ari-focus-range h-3 w-full"
       />
-      <div className="flex justify-between font-mono text-[9px] tabular-nums text-fg-subtle">
+      <div className="flex justify-between font-mono text-[11px] tabular-nums text-fg-subtle">
         <span>{formatPlaybackTime(shown)}</span>
         <span>{formatPlaybackTime(durationMs)}</span>
       </div>
@@ -381,7 +378,7 @@ function VolumeSection({
   }
   return (
     <section aria-label="Volume" className="mt-2.5 border-t border-border pt-2.5">
-      <p className="pb-1.5 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">Sound</p>
+      <p className="pb-1.5 text-xs text-fg-subtle">Sound</p>
       <div className="flex flex-wrap gap-1 pb-2">
         {SOUND_PROFILES.map((row) => (
           <button
@@ -389,10 +386,10 @@ function VolumeSection({
             type="button"
             aria-pressed={activeProfile === row.id}
             onClick={() => commit(row.slider)}
-            className={`h-6 rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            className={`h-6 rounded-md border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
               activeProfile === row.id
-                ? 'border-accent/25 bg-accent/15 text-accent'
-                : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                ? 'border-transparent bg-fg/9 text-fg'
+                : 'border-border text-fg-muted hover:bg-fg/6 hover:text-fg'
             }`}
           >
             {row.label}
@@ -552,9 +549,7 @@ function LibrarySection({
         <Music size={12} aria-hidden="true" className="text-fg-subtle" />
         Your music
       </p>
-      <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
-        Add from YouTube
-      </p>
+      <p className="pb-1 text-xs text-fg-subtle">Add from YouTube</p>
       <form
         className="flex gap-1.5"
         onSubmit={(event) => {
@@ -589,13 +584,13 @@ function LibrarySection({
         <button
           type="submit"
           disabled={searching || !query.trim()}
-          className="h-7 shrink-0 rounded-md bg-accent px-2 text-[11px] font-medium text-fg-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+          className="h-7 shrink-0 rounded-md bg-fg px-2.5 text-xs font-medium text-bg transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
         >
           Add
         </button>
       </form>
       {error ? (
-        <p role="status" className="pt-1.5 text-[11px] text-fg-subtle">
+        <p role="status" className="pt-1.5 text-xs text-fg-subtle">
           {error}
         </p>
       ) : null}
@@ -610,13 +605,13 @@ function LibrarySection({
       ) : null}
       {resolved?.kind === 'playlist' ? (
         <div className="pt-1.5">
-          <p className="truncate text-[11px] text-fg">
+          <p className="truncate text-xs text-fg">
             {resolved.name} · {resolved.tracks.length} tracks
           </p>
           <div className="flex gap-1 pt-1">
             <button
               type="button"
-              className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+              className={`${iconButton} !h-6 !w-auto px-2 text-xs`}
               onClick={() =>
                 onControl(async () => {
                   const first = resolved.tracks[0]
@@ -631,7 +626,7 @@ function LibrarySection({
             </button>
             <button
               type="button"
-              className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+              className={`${iconButton} !h-6 !w-auto px-2 text-xs`}
               onClick={() =>
                 onControl(async () => {
                   await adapter.shuffle(true)
@@ -649,11 +644,9 @@ function LibrarySection({
         </div>
       ) : null}
       <div className="pt-2.5" aria-label="Saved playlists">
-        <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
-          Saved playlists
-        </p>
+        <p className="pb-1 text-xs text-fg-subtle">Saved playlists</p>
         {playlists.length === 0 ? (
-          <p className="text-[11px] text-fg-subtle">No playlists yet.</p>
+          <p className="text-xs text-fg-subtle">No playlists yet.</p>
         ) : (
           <ul>
             {playlists.map((playlist) => (
@@ -696,7 +689,7 @@ function LibrarySection({
             <button
               type="submit"
               disabled={!newPlaylistName.trim()}
-              className="h-7 rounded-md bg-accent px-2 text-[11px] font-medium text-fg-on-accent disabled:opacity-40"
+              className="h-7 rounded-md bg-fg px-2.5 text-xs font-medium text-bg disabled:opacity-40"
             >
               Create
             </button>
@@ -713,7 +706,7 @@ function LibrarySection({
           <button
             type="button"
             onClick={() => setCreatingPlaylist(true)}
-            className="mt-1 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-border text-[11px] text-fg-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="mt-1 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-border text-xs text-fg-muted transition-colors hover:border-border-strong hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <Plus size={11} aria-hidden="true" /> New playlist
           </button>
@@ -733,10 +726,10 @@ function LibrarySection({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => onPlay(station.id)}
-                className={`h-6 max-w-full truncate rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                className={`h-6 max-w-full truncate rounded-md border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   selected
-                    ? 'border-accent/25 bg-accent/15 text-accent'
-                    : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                    ? 'border-transparent bg-fg/9 text-fg'
+                    : 'border-border text-fg-muted hover:bg-fg/6 hover:text-fg'
                 }`}
               >
                 {station.title}
@@ -826,10 +819,10 @@ function PlaylistRow({
             aria-label={`Play ${playlist.name}`}
             disabled={!playable}
             onClick={() => onPlay(false)}
-            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-fg/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
           >
             <ListMusic size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
               {playlist.name}
               <span className="font-normal text-fg-subtle"> · {playlist.tracks.length}</span>
             </span>
@@ -874,7 +867,7 @@ function PlaylistRow({
                   type="button"
                   disabled={!musicAvailable}
                   onClick={() => onPlayTrack(track.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
                 >
                   <Play size={10} aria-hidden="true" className="shrink-0" />
                   <span className="min-w-0 truncate">
@@ -896,7 +889,7 @@ function PlaylistRow({
             ))}
           </ol>
         ) : (
-          <p className="ml-7 py-1 text-[11px] text-fg-subtle">
+          <p className="ml-7 py-1 text-xs text-fg-subtle">
             Empty playlist — paste a song link above, then choose this playlist.
           </p>
         )
@@ -929,14 +922,14 @@ function ResolvedTrack({
       <div className="flex gap-1 pt-1">
         <button
           type="button"
-          className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+          className={`${iconButton} !h-6 !w-auto px-2 text-xs`}
           onClick={onPlay}
         >
           Play
         </button>
         <button
           type="button"
-          className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+          className={`${iconButton} !h-6 !w-auto px-2 text-xs`}
           onClick={onQueue}
         >
           Queue
@@ -947,7 +940,7 @@ function ResolvedTrack({
           aria-expanded={pickerOpen}
           disabled={playlists.length === 0}
           onClick={() => setPickerOpen((value) => !value)}
-          className={`${iconButton} !h-6 !w-auto flex-1 justify-between px-2 text-[11px]`}
+          className={`${iconButton} !h-6 !w-auto flex-1 justify-between px-2 text-xs`}
         >
           Add to playlist
           <ChevronDown
@@ -966,7 +959,7 @@ function ResolvedTrack({
         <div
           role="menu"
           aria-label="Playlists"
-          className="ari-focus-scroll mt-1 max-h-28 overflow-y-auto rounded-md border border-border bg-surface-2 p-1"
+          className="mt-1 max-h-28 overflow-y-auto rounded-md border border-border bg-surface-2 p-1"
         >
           {playlists.map((playlist) => (
             <button
@@ -977,7 +970,7 @@ function ResolvedTrack({
                 onSave(playlist.id)
                 setPickerOpen(false)
               }}
-              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             >
               <span className="truncate">{playlist.name}</span>
               <span className="shrink-0 text-[10px] tabular-nums text-fg-subtle">
@@ -1001,7 +994,7 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
   return (
     <section aria-label="Focus timer" className="mt-2.5 border-t border-border pt-2.5">
       {timer.status === 'finished' ? (
-        <p role="status" className="pb-1.5 text-[11px] font-medium text-accent">
+        <p role="status" className="pb-1.5 text-xs font-medium text-accent">
           {truncateTimerName(timer.name)} — done. Nice work.
         </p>
       ) : null}
@@ -1054,7 +1047,7 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
             className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-3"
           >
             <div
-              className="h-full rounded-full bg-accent"
+              className="h-full rounded-full bg-fg-muted"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
@@ -1088,10 +1081,10 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
                   setPreset(minutes)
                   setCustom('')
                 }}
-                className={`h-6 rounded-full border px-2 text-[11px] tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                className={`h-6 rounded-md border px-2 text-xs tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   preset === minutes && !custom.trim()
-                    ? 'border-accent/25 bg-accent/15 text-accent'
-                    : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                    ? 'border-transparent bg-fg/9 text-fg'
+                    : 'border-border text-fg-muted hover:bg-fg/6 hover:text-fg'
                 }`}
               >
                 {minutes}m
@@ -1108,7 +1101,7 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
           </div>
           <button
             type="submit"
-            className="mt-1.5 h-7 w-full rounded-md bg-accent text-xs font-medium text-fg-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="mt-1.5 h-7 w-full rounded-md bg-fg text-xs font-medium text-bg transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             Start
           </button>

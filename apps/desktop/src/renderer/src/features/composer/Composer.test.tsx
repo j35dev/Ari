@@ -266,42 +266,43 @@ describe('Composer', () => {
   it('re-measures its height only when typing could shrink or overflow it', () => {
     render(<Composer onSend={vi.fn()} />)
     const field = screen.getByLabelText('Message')
-    let contentHeight = 52
+    // 62px is the field's floor: about two lines of draft.
+    let contentHeight = 62
     Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
-    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 62 })
     fireEvent.change(field, { target: { value: 'a' } })
     // A marker the old collapse-and-remeasure would overwrite.
-    field.style.height = '53px'
+    field.style.height = '63px'
 
     // Still fits: no collapse to `auto`, no write at all.
     fireEvent.change(field, { target: { value: 'ab' } })
-    expect(field.style.height).toBe('53px')
+    expect(field.style.height).toBe('63px')
 
     // Wrapped onto a new line: grows to the content.
-    contentHeight = 74
+    contentHeight = 84
     fireEvent.change(field, { target: { value: 'abc' } })
-    expect(field.style.height).toBe('74px')
+    expect(field.style.height).toBe('84px')
 
     // Deleting may shrink it: measured from scratch.
-    contentHeight = 52
+    contentHeight = 62
     fireEvent.change(field, { target: { value: 'ab' } })
-    expect(field.style.height).toBe('52px')
+    expect(field.style.height).toBe('62px')
   })
 
   it('reflows an existing draft in both directions after changing text size', async () => {
     const { unmount } = render(<Composer onSend={vi.fn()} />)
     const field = screen.getByLabelText('Message')
-    let contentHeight = 74
+    let contentHeight = 84
     Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
-    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 62 })
     fireEvent.change(field, { target: { value: 'keep this draft' } })
     try {
-      contentHeight = 96
+      contentHeight = 106
       applyAppearance({ ...defaultSettings.appearance, fontSize: 18 })
-      await waitFor(() => expect(field.style.height).toBe('96px'))
-      contentHeight = 52
+      await waitFor(() => expect(field.style.height).toBe('106px'))
+      contentHeight = 62
       applyAppearance(defaultSettings.appearance)
-      await waitFor(() => expect(field.style.height).toBe('52px'))
+      await waitFor(() => expect(field.style.height).toBe('62px'))
       expect(field).toHaveValue('keep this draft')
     } finally {
       unmount()
@@ -451,6 +452,26 @@ describe('Composer resting state', () => {
       <Composer onSend={vi.fn()} running above={<div>2 children</div>} />,
     )
     expect(isResting(container)).toBe(true)
+  })
+
+  it('opens to the full two-row layout: pickers and stash beside the field', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <Composer onSend={vi.fn()} leading={<button type="button">pick model</button>} />,
+    )
+    const pickers = screen.getByRole('button', { name: 'pick model' }).parentElement
+    const stash = screen.getByRole('button', { name: /prompt stash/i }).parentElement
+    // At rest only the field, the microphone and send are on show.
+    expect(isResting(container)).toBe(true)
+    expect(pickers).toHaveClass('hidden')
+    expect(stash).toHaveClass('hidden')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeVisible()
+
+    await user.click(screen.getByLabelText('Message'))
+    expect(isResting(container)).toBe(false)
+    expect(pickers).not.toHaveClass('hidden')
+    expect(stash).not.toHaveClass('hidden')
   })
 
   it('says a running send will queue rather than promising a send', () => {

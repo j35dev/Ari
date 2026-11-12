@@ -44,21 +44,22 @@ it('polls the level only while listening and clears the poll on release and unmo
     await Promise.resolve()
   })
   expect(vi.getTimerCount()).toBe(1)
-  const meter = () => document.querySelector('.aria-level i') as HTMLElement
-  expect(meter().style.transform).toBe('scaleY(0.15)')
+  // The meter's newest bar is the last one; at rest it is a single 3px cell.
+  const meter = () => document.querySelector('.ari-levels i:last-child') as HTMLElement
+  expect(meter().style.height).toBe('3px')
   await act(async () => {
     await vi.advanceTimersByTimeAsync(50)
   })
-  expect(meter().style.transform).not.toBe('scaleY(0.15)')
+  expect(meter().style.height).not.toBe('3px')
   await act(async () => {
     receive({ ...hidden, id: 2, phase: 'listening' })
     await Promise.resolve()
   })
-  expect(meter().style.transform).toBe('scaleY(0.15)')
+  expect(meter().style.height).toBe('3px')
   await act(async () => {
     await vi.advanceTimersByTimeAsync(50)
   })
-  expect(meter().style.transform).not.toBe('scaleY(0.15)')
+  expect(meter().style.height).not.toBe('3px')
   await act(async () => {
     receive({ ...hidden, id: 2, phase: 'transcribing' })
     await Promise.resolve()
@@ -69,7 +70,7 @@ it('polls the level only while listening and clears the poll on release and unmo
     await Promise.resolve()
   })
   expect(vi.getTimerCount()).toBe(1)
-  expect(meter().style.transform).toBe('scaleY(0.15)')
+  expect(meter().style.height).toBe('3px')
   cleanup()
   expect(vi.getTimerCount()).toBe(0)
 })

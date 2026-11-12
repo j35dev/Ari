@@ -3,9 +3,9 @@ import type { HTMLAttributes } from 'react'
 export type SpinnerSize = 'sm' | 'md' | 'lg'
 
 const SPINNER_SIZE_CLASSES: Record<SpinnerSize, string> = {
-  sm: 'size-4',
-  md: 'size-5',
-  lg: 'size-7',
+  sm: 'size-4 border-[1.5px]',
+  md: 'size-5 border-[1.5px]',
+  lg: 'size-7 border-2',
 }
 
 export interface SpinnerProps extends HTMLAttributes<HTMLSpanElement> {
@@ -22,7 +22,7 @@ export function Spinner({ size = 'md', className, ...rest }: SpinnerProps) {
       role="status"
       aria-label="Loading"
       className={[
-        'inline-block rounded-full border-2 border-current border-t-transparent motion-safe:animate-spin',
+        'inline-block rounded-full border-current border-t-transparent motion-safe:animate-spin',
         SPINNER_SIZE_CLASSES[size],
         className,
       ]

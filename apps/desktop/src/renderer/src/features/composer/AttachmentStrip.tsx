@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { rowAction } from '../../lib/recipes'
 
 export interface AttachmentStripProps {
   /** Pending images to preview, in arrival order. */
@@ -9,9 +10,10 @@ export interface AttachmentStripProps {
 }
 
 /**
- * Horizontal strip of pending image attachment thumbnails (M6.6). Each file
- * gets an object URL for its preview; URLs are revoked whenever the file set
- * changes or the strip unmounts. Renders nothing while empty.
+ * Pending image attachments as quiet chips: thumbnail, file name, remove
+ * (M6.6). Each file gets an object URL for its preview; URLs are revoked
+ * whenever the file set changes or the strip unmounts. Renders nothing while
+ * empty.
  */
 export function AttachmentStrip({ images, onRemove }: AttachmentStripProps) {
   const [urls, setUrls] = useState<string[]>([])
@@ -27,22 +29,30 @@ export function AttachmentStrip({ images, onRemove }: AttachmentStripProps) {
   if (images.length === 0) return null
 
   return (
-    <div role="list" aria-label="Attached images" className="flex gap-2 overflow-x-auto py-1">
+    <div role="list" aria-label="Attached images" className="flex flex-wrap gap-1.5">
       {images.map((file, index) => (
-        <div key={`${file.name}:${index}`} role="listitem" className="relative h-10 w-10 shrink-0">
+        <div
+          key={`${file.name}:${index}`}
+          role="listitem"
+          className="flex h-9 min-w-0 max-w-56 items-center gap-2 rounded-md border border-border bg-surface-2/50 pl-1 pr-1.5 text-xs text-fg-muted"
+        >
           <img
             src={urls[index]}
             alt={file.name}
             title={file.name}
-            className="h-10 w-10 rounded-md border border-border object-cover"
+            className="size-7 shrink-0 rounded-md object-cover"
           />
+          {/* The image already carries the name for assistive tech. */}
+          <span aria-hidden className="min-w-0 truncate">
+            {file.name}
+          </span>
           <button
             type="button"
             aria-label={`Remove ${file.name}`}
             onClick={() => onRemove?.(index)}
-            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-surface-1 text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={rowAction}
           >
-            <X size={10} strokeWidth={2.5} />
+            <X size={12} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
       ))}

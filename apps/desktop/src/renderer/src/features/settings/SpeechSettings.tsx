@@ -13,7 +13,7 @@ import { useSpeech } from '../speech/useSpeech'
 import { isShortcutModifier, shortcutFromKey } from '../speech/shortcut'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SettingsSection } from './SettingsSection'
+import { SETTINGS_FIELD_CLASS, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
 function sizeLabel(bytes: number): string {
@@ -177,7 +177,7 @@ export function SpeechSettings() {
       description="Dictate locally. Your recordings stay on this computer; models and the speech engine download only when you set them up."
     >
       {(error || status.error || errors.length > 0) && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-[13px] leading-5 text-danger">
           {error ?? status.error ?? errors.at(-1)}
         </p>
       )}
@@ -192,7 +192,7 @@ export function SpeechSettings() {
         >
           {status.engine === 'downloading' || inProgress(engineProgress) ? (
             <>
-              <span role="status" className="text-xs text-fg-muted">
+              <span role="status" className="text-[13px] text-fg-subtle">
                 {engineProgress ? progressLabel(engineProgress) : 'Downloading…'}
               </span>
               <Button
@@ -204,9 +204,9 @@ export function SpeechSettings() {
               </Button>
             </>
           ) : status.engine === 'ready' && !status.engineError ? (
-            <span className="text-xs text-fg-muted">Ready</span>
+            <span className="text-[13px] text-fg-subtle">Ready</span>
           ) : !status.engineInstallable && !status.engineError ? (
-            <span role="status" className="text-xs text-fg-muted">
+            <span role="status" className="text-[13px] text-fg-subtle">
               Checking…
             </span>
           ) : (
@@ -250,7 +250,7 @@ export function SpeechSettings() {
           }
         >
           {status.loading && (
-            <span role="status" className="text-xs text-fg-muted">
+            <span role="status" className="text-[13px] text-fg-subtle">
               Loading…
             </span>
           )}
@@ -287,7 +287,7 @@ export function SpeechSettings() {
                 aria-label={label}
                 readOnly
                 value={aria ? shortcut : dictationShortcut}
-                className="h-8 w-36 rounded-md border border-border bg-surface-0 px-2 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent-ring"
+                className={`${SETTINGS_FIELD_CLASS} w-36 font-mono text-xs`}
               />
               <Button
                 size="sm"
@@ -408,7 +408,7 @@ export function SpeechSettings() {
               >
                 {inProgress(frame) ? (
                   <>
-                    <span role="status" className="text-xs text-fg-muted">
+                    <span role="status" className="text-[13px] text-fg-subtle">
                       {progressLabel(frame)}
                     </span>
                     <Button
@@ -460,7 +460,7 @@ export function SpeechSettings() {
                 )}
                 {model.partial && !inProgress(frame) && (
                   <>
-                    <span className="text-xs text-fg-muted">
+                    <span className="text-[13px] text-fg-subtle">
                       {sizeLabel(model.partial.size)} saved
                     </span>
                     <Button

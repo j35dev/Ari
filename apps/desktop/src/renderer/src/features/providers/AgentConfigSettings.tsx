@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults } from '@ari/contracts/rpc'
-import { Badge } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
 import { Spinner } from '@ari/ui/spinner'
 import { Textarea } from '@ari/ui/textarea'
 import { createLogger } from '@ari/shared/logger'
+import { card, tabSelected } from '../../lib/recipes'
 import { SettingsPage } from '../settings/SettingsPage'
-import { SETTINGS_CARD_CLASS, SettingsSection } from '../settings/SettingsSection'
+import { SETTINGS_ROW_CLASS } from '../settings/SettingsRow'
+import {
+  SETTINGS_CARD_CLASS,
+  SETTINGS_HINT_CLASS,
+  SettingsSection,
+} from '../settings/SettingsSection'
 import { SessionImport } from './SessionImport'
 import { ExtensionInventory } from './ExtensionInventory'
 import { rpc } from '../../lib/rpc'
@@ -133,17 +138,17 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
       description="Edit each agent's own configuration — model defaults, extensions, system prompts. Ari saves these files verbatim in the agent's format."
     >
       <SettingsSection title="Agent" headingId="agents-picker-heading" bare>
-        <div className="flex flex-wrap gap-1.5 px-1">
+        {/* The tab recipe, with the colour set per state: the idle colour
+            would outrank the selected one in the stylesheet if both applied. */}
+        <div className="flex flex-wrap gap-0.5">
           {CONFIGURABLE.map((entry) => (
             <button
               key={entry}
               type="button"
               aria-pressed={entry === kind}
               onClick={() => selectKind(entry)}
-              className={`rounded-md border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-                entry === kind
-                  ? 'border-accent-ring bg-accent-subtle font-medium text-fg'
-                  : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+              className={`inline-flex h-7 items-center rounded-md px-2.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                entry === kind ? tabSelected : 'text-fg-subtle hover:bg-fg/6 hover:text-fg'
               }`}
             >
               {KIND_LABELS[entry] ?? entry}
@@ -151,31 +156,29 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
           ))}
         </div>
         {dir !== null ? (
-          <p className="mt-2.5 break-all px-1 font-mono text-xs text-fg-subtle">{dir}</p>
+          <p className="mt-2.5 break-all font-mono text-[12.5px] text-fg-subtle">{dir}</p>
         ) : null}
       </SettingsSection>
 
       <SettingsSection title="Configuration files" headingId="agents-files-heading" bare>
         {loading ? (
-          <div className="px-1">
-            <Spinner size="sm" />
-          </div>
+          <Spinner size="sm" />
         ) : files.length === 0 && kind !== 'ari-core' ? (
-          <p className="rounded-xl border border-border bg-surface-1/70 px-4 py-3.5 text-sm text-fg-muted">
+          <p className={`${card} px-4 py-3.5 ${SETTINGS_HINT_CLASS}`}>
             Ari has no confirmed config layout for this agent, so it will not guess at a path.
           </p>
         ) : files.length === 0 ? null : (
           <ul className={SETTINGS_CARD_CLASS}>
             {files.map((file) => (
-              <li key={file.id} className="flex min-h-14 items-center gap-3 px-4 py-3">
+              <li key={file.id} className={SETTINGS_ROW_CLASS}>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-fg">{file.label}</span>
-                    <Badge tone={file.exists ? 'neutral' : 'warning'}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[13px] font-medium text-fg">{file.label}</span>
+                    <span className="shrink-0 text-xs text-fg-subtle">
                       {file.exists ? formatBytes(file.size) : 'not created'}
-                    </Badge>
+                    </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-fg-muted">{file.description}</p>
+                  <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>{file.description}</p>
                 </div>
                 <Button
                   variant="secondary"
@@ -196,13 +199,13 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
         <SettingsSection
           title={openFile.label}
           headingId="agents-editor-heading"
-          description={<span className="break-all font-mono">{openFile.path}</span>}
+          description={<span className="break-all font-mono text-[12.5px]">{openFile.path}</span>}
           bare
           className="space-y-3"
         >
           <Textarea
             aria-label={`${openFile.label} contents`}
-            className="font-mono text-xs"
+            className="font-mono"
             rows={18}
             spellCheck={false}
             value={draft}
@@ -221,15 +224,15 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
               Revert
             </Button>
             {openFile.format === 'json' ? (
-              <span className="text-xs text-fg-subtle">Checked as JSON before saving.</span>
+              <span className="text-[13px] text-fg-subtle">Checked as JSON before saving.</span>
             ) : null}
           </div>
           {error !== null ? (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-[13px] leading-5 text-danger">
               {error}
             </p>
           ) : null}
-          {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+          {notice !== null ? <p className={SETTINGS_HINT_CLASS}>{notice}</p> : null}
         </SettingsSection>
       ) : null}
 

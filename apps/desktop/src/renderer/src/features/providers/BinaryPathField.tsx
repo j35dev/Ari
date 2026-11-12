@@ -2,6 +2,11 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { rpc } from '../../lib/rpc'
+import {
+  SETTINGS_CAPTION_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+} from '../settings/SettingsSection'
 import type { Detection } from './provider-status'
 
 export interface BinaryPathFieldProps {
@@ -76,10 +81,10 @@ export function BinaryPathField({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <label htmlFor={id} className="text-sm font-medium text-fg">
+        <label htmlFor={id} className={SETTINGS_LABEL_CLASS}>
           Binary path
         </label>
-        <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
+        <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>
           The {name} executable Ari runs. Leave empty to use the one found on PATH.
         </p>
       </div>
@@ -91,7 +96,7 @@ export function BinaryPathField({
           invalid={rejected}
           spellCheck={false}
           autoComplete="off"
-          className="min-w-0 flex-1 font-mono text-xs"
+          className="min-w-0 flex-1 font-mono"
           onChange={(event) => setDraft(event.target.value)}
           onBlur={() => commit(draft)}
           onKeyDown={(event) => {
@@ -110,46 +115,54 @@ export function BinaryPathField({
       </div>
 
       {browseError && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-[13px] leading-5 text-danger">
           Could not open the file picker.
         </p>
       )}
       {checking ? (
-        <p className="text-xs text-fg-subtle">Checking…</p>
+        <p className={SETTINGS_HINT_CLASS}>Checking…</p>
       ) : problem !== undefined ? (
-        <p role="alert" className={`text-xs ${rejected ? 'text-danger' : 'text-warning'}`}>
+        <p
+          role="alert"
+          className={`text-[13px] leading-5 ${rejected ? 'text-danger' : 'text-warning'}`}
+        >
           {problem}
         </p>
       ) : custom ? (
-        <p className="text-xs text-fg-subtle">
-          {off ? 'Checked when you turn the provider on.' : 'Ari runs this file and does not search PATH.'}
+        <p className={SETTINGS_HINT_CLASS}>
+          {off
+            ? 'Checked when you turn the provider on.'
+            : 'Ari runs this file and does not search PATH.'}
         </p>
       ) : found !== null ? (
-        <p className="text-xs text-fg-subtle">Found on PATH.</p>
+        <p className={SETTINGS_HINT_CLASS}>Found on PATH.</p>
       ) : (
-        <p className="text-xs text-fg-subtle">
-          Nothing named <code className="font-mono">{command}</code> is on PATH. Install it, or point
-          this at the executable.
+        <p className={SETTINGS_HINT_CLASS}>
+          Nothing named <code className="font-mono text-[12.5px]">{command}</code> is on PATH.
+          Install it, or point this at the executable.
         </p>
       )}
 
       {(candidates.length > 1 || (custom && candidates.length > 0)) && (
-        <div className="mt-1">
-          <p className="text-xs font-medium text-fg-muted">Found on this machine</p>
-          <ul className="mt-1.5 flex flex-col gap-1">
+        <div className="mt-2">
+          <p className={SETTINGS_CAPTION_CLASS}>Found on this machine</p>
+          {/* Hairline rows, no boxes: the pane's own edge is the structure. */}
+          <ul className="mt-1 flex flex-col divide-y divide-border">
             {candidates.map((candidate, index) => {
               const inUse = custom ? samePath(value, candidate) : index === 0
               return (
-                <li
-                  key={candidate}
-                  className="flex items-center gap-2 rounded-md border border-border/60 bg-surface-0 py-1 pl-2.5 pr-1"
-                >
-                  <code className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted" title={candidate}>
+                <li key={candidate} className="flex min-h-9 items-center gap-2 py-1">
+                  <code
+                    className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg-muted"
+                    title={candidate}
+                  >
                     {candidate}
                   </code>
-                  {index === 0 && <span className="shrink-0 text-2xs text-fg-subtle">first on PATH</span>}
+                  {index === 0 && (
+                    <span className="shrink-0 text-xs text-fg-subtle">first on PATH</span>
+                  )}
                   {inUse ? (
-                    <span className="shrink-0 px-2.5 text-xs font-medium text-fg">In use</span>
+                    <span className="shrink-0 px-2.5 text-[13px] font-medium text-fg">In use</span>
                   ) : (
                     <Button
                       size="sm"

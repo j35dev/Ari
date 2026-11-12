@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
+import { card, iconButton } from '../../lib/recipes'
+import {
+  SETTINGS_CAPTION_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+} from '../settings/SettingsSection'
 import { SessionImportList } from './SessionImport'
 
 export interface SessionImportDialogProps {
@@ -43,9 +49,9 @@ export function SessionImportDialog({
               type="button"
               aria-label="Back to import sources"
               onClick={() => setSource(null)}
-              className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              className={iconButton}
             >
-              <ArrowLeft size={15} aria-hidden />
+              <ArrowLeft size={16} strokeWidth={1.7} aria-hidden />
             </button>
           ) : null}
           <div className="min-w-0 flex-1">
@@ -54,44 +60,41 @@ export function SessionImportDialog({
               Import a session into {project.name}. The source keeps its own copy.
             </Dialog.Description>
           </div>
-          <Dialog.Close
-            aria-label="Close import"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <X size={15} aria-hidden />
+          <Dialog.Close aria-label="Close import" className={iconButton}>
+            <X size={16} strokeWidth={1.7} aria-hidden />
           </Dialog.Close>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {source === null ? (
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-fg">Choose a source</p>
+            <div>
+              <p className={`mb-2.5 ${SETTINGS_CAPTION_CLASS}`}>Choose a source</p>
               <button
                 type="button"
                 onClick={() => setSource('pi')}
-                className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface-1 px-4 py-3 text-left transition-colors hover:border-accent-ring hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                className={`${card} flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring`}
               >
                 <span
                   aria-hidden
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-3 font-mono text-base font-semibold text-fg"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 font-mono text-sm font-medium text-fg-muted"
                 >
                   π
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-medium text-fg">Pi</span>
-                  <span className="block text-xs text-fg-muted">
+                  <span className={`block ${SETTINGS_LABEL_CLASS}`}>Pi</span>
+                  <span className={`mt-0.5 block ${SETTINGS_HINT_CLASS}`}>
                     Import sessions stored by the Pi coding agent.
                   </span>
                 </span>
               </button>
             </div>
           ) : (
-            <section aria-labelledby="project-pi-sessions" className="space-y-3">
-              <div>
-                <h3 id="project-pi-sessions" className="text-sm font-medium text-fg">
+            <section aria-labelledby="project-pi-sessions">
+              <div className="mb-1">
+                <h3 id="project-pi-sessions" className={SETTINGS_CAPTION_CLASS}>
                   Pi sessions
                 </h3>
-                <p className="mt-1 text-xs text-fg-muted">
+                <p className={`mt-0.5 ${SETTINGS_HINT_CLASS}`}>
                   Only sessions recorded for this project are shown.
                 </p>
               </div>

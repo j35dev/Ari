@@ -21,7 +21,20 @@ export function settingsPageId(title: string): string {
   return `settings-${title.toLowerCase().replace(/\s+/g, '-')}`
 }
 
-/** Shared settings layout: one centered column, a titled header, then sections. */
+/**
+ * The page column: 680px of content (plus its gutters), 44px from the top of
+ * the stage. `wide` is for pages with side-by-side panes.
+ */
+export const SETTINGS_COLUMN_CLASS = 'mx-auto w-full max-w-[744px] px-8 pb-16 pt-11'
+export const SETTINGS_COLUMN_WIDE_CLASS = 'mx-auto w-full max-w-[984px] px-8 pb-16 pt-11'
+
+/** Page title: 24px, semibold, tightened. */
+export const SETTINGS_TITLE_CLASS = 'text-[24px] font-semibold leading-8 tracking-[-0.02em] text-fg'
+
+/** The one-line description under a page title. */
+export const SETTINGS_LEAD_CLASS = 'mt-1 text-sm text-fg-subtle'
+
+/** Shared settings layout: one centered column, a title, a line, then groups. */
 export function SettingsPage({
   title,
   description,
@@ -35,23 +48,21 @@ export function SettingsPage({
     <div
       id={id ?? settingsPageId(title)}
       className={[
-        'ari-settings-page mx-auto w-full px-8 pb-16 pt-9',
-        wide ? 'max-w-4xl' : 'max-w-3xl',
+        'ari-settings-page',
+        wide ? SETTINGS_COLUMN_WIDE_CLASS : SETTINGS_COLUMN_CLASS,
         className,
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      <header className="mb-8 flex items-start justify-between gap-6 px-1">
+      <header className="mb-[30px] flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-fg">{title}</h1>
-          {description != null && (
-            <p className="mt-1 max-w-xl text-sm leading-relaxed text-fg-muted">{description}</p>
-          )}
+          <h1 className={SETTINGS_TITLE_CLASS}>{title}</h1>
+          {description != null && <p className={SETTINGS_LEAD_CLASS}>{description}</p>}
         </div>
         {actions != null && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
-      <div className="space-y-9">{children}</div>
+      <div className="space-y-[26px]">{children}</div>
     </div>
   )
 }

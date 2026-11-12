@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, PointerEvent, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 
 const PADDING = 24,
   MIN_ZOOM = 0.01,
@@ -233,6 +233,10 @@ export function CanvasViewport({
         tabIndex={0}
         data-dragging={dragging ? '' : undefined}
         data-zoom={zoom}
+        // Tall enough to show the diagram whole; the stylesheet caps it.
+        style={
+          { '--ari-viz-canvas-height': `${String(height + PADDING * 2 + 2)}px` } as CSSProperties
+        }
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={end}

@@ -50,7 +50,7 @@ describe('SessionImport', () => {
     expect(screen.getByText(/12 messages/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import refactor the store' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Import already here' })).toBeDisabled()
-    expect(screen.getByText('in Ari')).toBeInTheDocument()
+    expect(screen.getByText('In Ari')).toBeInTheDocument()
   })
 
   it('says plainly that pi keeps its own copy', async () => {
@@ -121,7 +121,7 @@ describe('SessionImport', () => {
 
     const failedSession = screen.getByText('refactor the store').closest('li')
     if (failedSession === null) throw new Error('expected the failed session row')
-    expect(within(failedSession).getByText('error')).toHaveClass('bg-danger-subtle', 'text-danger')
+    expect(within(failedSession).getByText('Error')).toHaveClass('bg-danger-subtle', 'text-danger')
     expect(within(failedSession).getByRole('alert')).toHaveTextContent('open the folder first')
     expect(
       within(failedSession).getByRole('button', { name: 'Retry refactor the store' }),

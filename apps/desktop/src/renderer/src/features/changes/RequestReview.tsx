@@ -5,6 +5,7 @@ import { Button } from '@ari/ui/button'
 import { Dialog } from '@ari/ui/dialog'
 import { Select } from '@ari/ui/select'
 import { rpc } from '../../lib/rpc'
+import { cx, iconButton, tab as tabClass, tabSelected } from '../../lib/recipes'
 import { parseDiff } from '../diffs/parseDiff'
 import { DiffSurface } from '../diffs/DiffSurface'
 import { RequestActions } from './RequestActions'
@@ -133,24 +134,24 @@ export function RequestReview({
       setCheckingOut(false)
     }
   }
-  const iconControl =
-    'rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40'
+  const iconControl = iconButton
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+      <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <button
           type="button"
           aria-label="Back to requests"
           onClick={onBack}
           className={iconControl}
         >
-          <ArrowLeft size={15} />
+          <ArrowLeft size={14} />
         </button>
-        <span className="font-mono text-xs text-fg-muted">#{number}</span>
+        <span className="ml-1 font-mono text-[12.5px] text-fg-muted">#{number}</span>
         <div className="flex-1" />
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
+          className="mr-1"
           disabled={checkingOut || state.loading || !request}
           onClick={() => setCheckout(true)}
         >
@@ -181,7 +182,7 @@ export function RequestReview({
         </button>
       </header>
       {state.error ? (
-        <p role="alert" className="px-4 py-3 text-xs text-danger">
+        <p role="alert" className="px-4 py-2.5 text-[13px] text-danger">
           {state.error}
           <button type="button" onClick={refresh} className="ml-2 underline">
             Retry
@@ -189,32 +190,37 @@ export function RequestReview({
         </p>
       ) : null}
       {notice ? (
-        <p role="status" className="border-b border-border/60 px-4 py-2 text-xs text-fg-muted">
+        <p role="status" className="border-b border-border px-4 py-2 text-[13px] text-fg-muted">
           {notice}
         </p>
       ) : null}
       {request ? (
         <>
-          <div className="shrink-0 border-b border-border/60 px-4 pb-0 pt-4">
+          <div className="shrink-0 border-b border-border px-4 pt-4">
             <div className="flex items-start gap-2">
               <GitPullRequest
-                size={18}
-                className={`mt-0.5 shrink-0 ${request.state === 'merged' ? 'text-accent' : request.draft ? 'text-fg-subtle' : 'text-success'}`}
+                size={16}
+                aria-hidden
+                className={`mt-[3px] shrink-0 ${request.draft ? 'text-fg-subtle' : 'text-fg-muted'}`}
               />
               <h2 className="text-base font-semibold leading-snug tracking-tight text-fg">
                 {request.title}
               </h2>
             </div>
-            <p className="my-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-subtle">
-              <span className="rounded bg-surface-2 px-1.5 py-0.5">
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-subtle">
+              <span className="rounded-sm bg-fg/6 px-1.5 py-0.5 text-fg-muted">
                 {request.draft ? 'Draft' : request.state}
               </span>
               <span>{request.author}</span>
-              <span className="font-mono text-2xs">
+              <span className="font-mono">
                 {request.head} → {request.base}
               </span>
             </p>
-            <div className="flex gap-4" role="tablist" aria-label="Request view">
+            <div
+              className="-mx-2 mt-1 flex h-10 items-center gap-0.5"
+              role="tablist"
+              aria-label="Request view"
+            >
               {(['overview', 'files'] as const).map((value) => (
                 <button
                   key={value}
@@ -240,7 +246,7 @@ export function RequestReview({
                     }
                   }}
                   onClick={() => setTab(value)}
-                  className={`border-b-2 py-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${tab === value ? 'border-accent text-fg' : 'border-transparent text-fg-muted hover:text-fg'}`}
+                  className={cx(tabClass, tab === value && tabSelected)}
                 >
                   {value === 'overview' ? 'Overview & review' : 'Files changed'}
                 </button>
@@ -255,13 +261,13 @@ export function RequestReview({
               className="ari-scroll min-h-0 flex-1 overflow-auto p-4"
             >
               <div className="mx-auto max-w-3xl">
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg-muted">
+                <p className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-1 px-4 py-3 text-[13px] leading-relaxed text-fg-muted">
                   {request.body || 'No description provided.'}
                 </p>
                 {request.state === 'open' ? (
                   <RequestActions request={request} run={action} disabled={state.loading} />
                 ) : (
-                  <p className="mt-6 flex items-center gap-2 text-xs text-fg-subtle">
+                  <p className="mt-6 flex items-center gap-2 text-[13px] text-fg-subtle">
                     <Check size={14} />
                     This request is {request.state}.
                   </p>
@@ -276,11 +282,11 @@ export function RequestReview({
               className="flex min-h-0 flex-1 flex-col"
             >
               {diff.loading ? (
-                <p role="status" className="p-6 text-xs text-fg-subtle">
+                <p role="status" className="px-4 py-3 text-[13px] text-fg-subtle">
                   Loading request diff…
                 </p>
               ) : diff.error ? (
-                <p role="alert" className="p-6 text-xs text-danger">
+                <p role="alert" className="px-4 py-3 text-[13px] text-danger">
                   {diff.error}
                   <button type="button" onClick={refresh} className="ml-2 underline">
                     Retry
@@ -288,7 +294,7 @@ export function RequestReview({
                 </p>
               ) : selected ? (
                 <>
-                  <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
+                  <div className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-1.5">
                     <Select
                       aria-label="Request file"
                       value={selected.file.path}
@@ -299,7 +305,7 @@ export function RequestReview({
                       onValueChange={setFile}
                       className="min-w-0 flex-1"
                     />
-                    <span className="text-2xs text-fg-subtle">
+                    <span className="shrink-0 text-xs text-fg-subtle">
                       {patches.length} {patches.length === 1 ? 'file' : 'files'}
                     </span>
                   </div>
@@ -313,7 +319,9 @@ export function RequestReview({
                   </div>
                 </>
               ) : (
-                <p className="p-6 text-xs text-fg-subtle">No text changes in this request.</p>
+                <p className="px-4 py-3 text-[13px] text-fg-subtle">
+                  No text changes in this request.
+                </p>
               )}
             </div>
           )}
@@ -321,8 +329,8 @@ export function RequestReview({
       ) : state.loading ? (
         <div role="status" className="space-y-3 p-5">
           <span className="sr-only">Loading request…</span>
-          <div className="h-4 w-3/4 animate-pulse rounded bg-surface-2" />
-          <div className="h-3 w-1/2 animate-pulse rounded bg-surface-2" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-fg/6" />
+          <div className="h-3 w-1/2 animate-pulse rounded bg-fg/6" />
         </div>
       ) : null}
       <Dialog open={checkout} onOpenChange={setCheckout}>

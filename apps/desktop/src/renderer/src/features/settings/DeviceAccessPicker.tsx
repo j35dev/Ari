@@ -1,4 +1,5 @@
 import type { Project } from '@ari/contracts/project'
+import { quietButton } from '../../lib/recipes'
 
 interface Props {
   projects: readonly Project[]
@@ -26,12 +27,12 @@ export function DeviceAccessPicker({
     <fieldset disabled={disabled} className="space-y-3">
       <legend className="sr-only">Choose access</legend>
       <div className="border-t border-border pt-3">
-        <p className="text-sm font-medium">Projects this device may reach</p>
-        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+        <p className="text-sm font-medium text-fg">Projects this device may reach</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
           Choose its access. Nothing is selected automatically.
         </p>
         {projects.length > 1 ? (
-          <div className="flex gap-4">
+          <div className="-ml-2 mt-1 flex gap-1">
             <button
               type="button"
               onClick={() =>
@@ -40,24 +41,24 @@ export function DeviceAccessPicker({
                   allowTerminal,
                 )
               }
-              className="min-h-11 text-xs text-fg-muted underline"
+              className={quietButton}
             >
               Select all
             </button>
             <button
               type="button"
               onClick={() => onChange([], allowTerminal)}
-              className="min-h-11 text-xs text-fg-muted underline"
+              className={quietButton}
             >
               Select none
             </button>
           </div>
         ) : null}
         {projects.length === 0 ? (
-          <p className="py-3 text-sm text-fg-muted">No projects are registered yet.</p>
+          <p className="py-3 text-[13px] text-fg-subtle">No projects are registered yet.</p>
         ) : (
           projects.map((project) => (
-            <label key={project.id} className="flex min-h-11 items-center gap-3 text-sm">
+            <label key={project.id} className="flex min-h-10 items-center gap-3 text-sm text-fg">
               <input
                 type="checkbox"
                 checked={projectIds.includes(project.id)}
@@ -71,12 +72,12 @@ export function DeviceAccessPicker({
                     allowTerminal,
                   )
                 }}
-                className="size-4 shrink-0 accent-accent"
+                className="size-4 shrink-0 accent-fg"
               />
               <span className="min-w-0">
                 <span className="block">{project.name}</span>
                 {names.indexOf(project.name) !== names.lastIndexOf(project.name) ? (
-                  <span className="block truncate font-mono text-2xs text-fg-subtle">
+                  <span className="block truncate font-mono text-xs text-fg-subtle">
                     {project.path}
                   </span>
                 ) : null}
@@ -86,16 +87,16 @@ export function DeviceAccessPicker({
         )}
       </div>
       <div className="border-t border-border pt-3">
-        <label className="flex min-h-11 items-center gap-3 text-sm">
+        <label className="flex min-h-10 items-center gap-3 text-sm text-fg">
           <input
             type="checkbox"
             checked={allowTerminal}
             onChange={(event) => onChange([...projectIds], event.target.checked)}
-            className="size-4 accent-accent"
+            className="size-4 accent-fg"
           />
           Allow terminal access
         </label>
-        <p className="text-xs leading-relaxed text-fg-muted">
+        <p className="text-[13px] leading-5 text-fg-subtle">
           A shell runs with this computer&apos;s user permissions; a project folder is not a
           sandbox.
         </p>

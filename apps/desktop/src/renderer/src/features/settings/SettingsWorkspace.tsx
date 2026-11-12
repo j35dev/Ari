@@ -23,8 +23,9 @@ import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { SpeechSettings } from './SpeechSettings'
 import { SourceControlSettings } from './SourceControlSettings'
-import { SettingsPage } from './SettingsPage'
+import { SETTINGS_COLUMN_WIDE_CLASS, SettingsPage } from './SettingsPage'
 import { SettingsSearch } from './SettingsSearch'
+import { cx, iconButton, row, rowSelected, sectionLabel } from '../../lib/recipes'
 import { ProvidersView, AgentConfigSettings } from '../providers'
 import { EndpointsManager } from '../endpoints'
 
@@ -77,16 +78,19 @@ function isSettingsSection(value: string): value is SettingsSectionId {
   return SETTINGS_SECTIONS.some((entry) => entry.id === value)
 }
 
-function sectionLabel(id: SettingsSectionId): string {
-  return SETTINGS_SECTIONS.find((entry) => entry.id === id)?.label ?? id
-}
-
-const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+/**
+ * The `row` recipe at the frame's nav size (34px, 14px). Colour is set per
+ * state rather than layered: `row`'s muted text would outrank `rowSelected`'s
+ * in the stylesheet.
+ */
+const NAV_ROW =
+  'flex h-[34px] w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+const NAV_ROW_IDLE = 'text-fg-muted hover:bg-fg/5 hover:text-fg'
 
 /**
- * T3-style settings mode: the sessions sidebar is replaced by a section
- * list + Back, and the main pane shows one page. Chat stays mounted in the
- * parent — this view is swapped in, not overlaid.
+ * Settings mode follows the frame: the section list sits on the chrome where
+ * the sessions sidebar was, and the page is the stage. Chat stays mounted in
+ * the parent — this view is swapped in, not overlaid.
  */
 export function SettingsWorkspace({
   section: controlledSection,
@@ -115,37 +119,33 @@ export function SettingsWorkspace({
 
   return (
     <div className="ari-enter-fade flex min-h-0 flex-1">
-      <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col bg-surface-0">
-        {/* Back leads the header rather than sitting in a footer. The row is
+      <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col px-2.5 pb-2.5 pt-1">
+        {/* Back leads the list rather than sitting in a footer. The row is
             below the titlebar, so it clears the macOS hiddenInset traffic
             lights without needing a leading inset. */}
-        <div className="flex items-center gap-1.5 px-3 pb-1 pt-3">
-          <button
-            type="button"
-            aria-label="Back"
-            title="Back to workspace"
-            onClick={onBack}
-            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg ${FOCUS_RING}`}
-          >
-            <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />
-          </button>
-          <span className="text-sm font-semibold tracking-tight text-fg">Settings</span>
-        </div>
-        <div className="px-3 pb-3 pt-2">
+        <button
+          type="button"
+          aria-label="Back"
+          title="Back to workspace"
+          onClick={onBack}
+          className={cx(NAV_ROW, NAV_ROW_IDLE, 'shrink-0')}
+        >
+          <ArrowLeft size={16} strokeWidth={1.7} className="shrink-0" aria-hidden />
+          Back
+        </button>
+        <div className="pb-2 pt-2">
           <SettingsSearch onJump={handleSearchJump} />
         </div>
         <nav
           aria-label="Settings sections"
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-3"
+          className="ari-scroll -mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-1"
         >
           {NAV_GROUPS.map(({ group, entries }, index) => (
             <div
               key={group ?? `ungrouped-${index}`}
-              className={group ? 'mt-5' : index > 0 ? 'mt-auto pt-5' : undefined}
+              className={group ? 'mt-4' : index > 0 ? 'mt-auto pt-4' : undefined}
             >
-              {group ? (
-                <p className="mb-1 px-2.5 text-xs font-medium text-fg-subtle">{group}</p>
-              ) : null}
+              {group ? <p className={`mb-1 px-2.5 ${sectionLabel}`}>{group}</p> : null}
               <ul className="flex flex-col gap-0.5">
                 {entries.map((entry) => {
                   const Icon: LucideIcon = entry.icon
@@ -156,19 +156,10 @@ export function SettingsWorkspace({
                         type="button"
                         aria-current={selected ? 'page' : undefined}
                         onClick={() => setSection(entry.id)}
-                        className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm transition-colors ${FOCUS_RING} ${
-                          selected
-                            ? 'bg-accent-subtle font-medium text-fg'
-                            : 'text-fg-muted hover:bg-surface-2/70 hover:text-fg'
-                        }`}
+                        className={cx(NAV_ROW, selected ? rowSelected : NAV_ROW_IDLE)}
                       >
-                        <Icon
-                          size={15}
-                          strokeWidth={1.8}
-                          className={`shrink-0 ${selected ? 'text-accent' : 'opacity-80'}`}
-                          aria-hidden
-                        />
-                        {entry.label}
+                        <Icon size={16} strokeWidth={1.7} className="shrink-0" aria-hidden />
+                        <span className="truncate">{entry.label}</span>
                       </button>
                     </li>
                   )
@@ -178,42 +169,20 @@ export function SettingsWorkspace({
           ))}
         </nav>
         {onOpenSetup && (
-          <div className="border-t border-border/60 p-3">
-            <button
-              type="button"
-              onClick={onOpenSetup}
-              className={`w-full rounded-md px-2.5 py-2 text-left text-xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg ${FOCUS_RING}`}
-            >
-              Run setup again
-            </button>
-          </div>
+          <button type="button" onClick={onOpenSetup} className={cx(row, 'mt-1 shrink-0')}>
+            Run setup again
+          </button>
         )}
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
-        <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border pl-5 pr-3 text-sm">
-          <span className="text-fg-muted">Settings</span>
-          <span className="text-fg-subtle" aria-hidden>
-            /
-          </span>
-          <span className="font-medium text-fg">{sectionLabel(section)}</span>
-          <button
-            type="button"
-            aria-label="Close settings"
-            title="Close settings"
-            onClick={onBack}
-            className={`ml-auto flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg ${FOCUS_RING}`}
-          >
-            <X size={15} strokeWidth={1.8} aria-hidden />
-          </button>
-        </header>
+      <div className="ari-stage mb-[var(--ari-frame-gap)] mr-[var(--ari-frame-gap)] flex min-w-0 flex-1 flex-col">
         <div
           key={section}
           className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
         >
           {section === 'appearance' ? <AppearanceSettings /> : null}
           {section === 'providers' ? (
-            <div id="settings-providers" className="mx-auto w-full max-w-4xl px-8 pb-16 pt-9">
+            <div id="settings-providers" className={SETTINGS_COLUMN_WIDE_CLASS}>
               <ProvidersView
                 onOpenTerminal={onOpenTerminal}
                 onOpenEndpoints={() => setSection('endpoints')}
@@ -237,7 +206,18 @@ export function SettingsWorkspace({
           {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
         </div>
-      </section>
+        {/* After the page in the DOM so it paints over the scroller without a
+            z-index. The page title already says where you are. */}
+        <button
+          type="button"
+          aria-label="Close settings"
+          title="Close settings"
+          onClick={onBack}
+          className={`${iconButton} absolute right-3 top-3`}
+        >
+          <X size={16} strokeWidth={1.7} aria-hidden />
+        </button>
+      </div>
     </div>
   )
 }

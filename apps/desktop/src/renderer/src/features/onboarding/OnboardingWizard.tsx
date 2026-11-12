@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
 import type { Settings } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
+import { card } from '../../lib/recipes'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { OnboardingAgents } from './OnboardingAgents'
-import { OnboardingFrame } from './OnboardingFrame'
+import { ONBOARDING_TITLE_CLASS, OnboardingFrame } from './OnboardingFrame'
 import { OnboardingProjects } from './OnboardingProjects'
 import { OnboardingReady } from './OnboardingReady'
 import {
@@ -86,12 +86,7 @@ export function OnboardingWizard({
       dismissLabel={returning || attempted ? 'Back to workspace' : 'Skip setup'}
     >
       <div className="ari-enter-rise" key={step}>
-        <p className="mb-2 font-mono text-2xs text-fg-subtle">SETUP / 0{step + 1}</p>
-        <h2
-          ref={heading}
-          tabIndex={-1}
-          className="mb-6 text-2xl font-semibold tracking-tight text-fg outline-none"
-        >
+        <h2 ref={heading} tabIndex={-1} className={`mb-5 ${ONBOARDING_TITLE_CLASS}`}>
           {TITLES[step]}
         </h2>
         {step === 0 && (
@@ -118,9 +113,10 @@ export function OnboardingWizard({
         )}
       </div>
       {failure && (
-        <div className="mt-5 space-y-3 rounded-lg border border-danger/30 bg-danger-subtle p-4">
-          <p role="alert" className="text-xs leading-relaxed text-danger">
-            {failure.message}
+        <div className={`${card} mt-5 flex flex-wrap items-center gap-2 p-4`}>
+          <p role="alert" className="flex w-full items-start gap-2.5 text-[13px] leading-5 text-fg">
+            <span className="ari-status mt-[3px]" data-status="error" aria-hidden="true" />
+            <span className="min-w-0 flex-1">{failure.message}</span>
           </p>
           {failure.stage === 'projects' && (
             <Button
@@ -158,13 +154,13 @@ export function OnboardingWizard({
           </Button>
         </div>
       )}
-      <div className="mt-7 flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="mt-8 flex items-center justify-between gap-3">
         <Button
           variant="ghost"
           disabled={step === 0 || busy || attempted}
           onClick={() => setStep((prev) => prev - 1)}
         >
-          <ArrowLeft size={14} aria-hidden /> Back
+          Back
         </Button>
         <Button
           variant="primary"
@@ -176,7 +172,6 @@ export function OnboardingWizard({
           }}
         >
           {saving ? 'Setting up…' : failure ? 'Retry' : step === 2 ? 'Open workspace' : 'Continue'}
-          {!saving && <ArrowRight size={14} aria-hidden />}
         </Button>
       </div>
     </OnboardingFrame>

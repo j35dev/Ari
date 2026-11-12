@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronUp, Circle, CircleCheck, CircleDashed, ListTodo } from 'lucide-react'
+import { ChevronRight, ListTodo } from 'lucide-react'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
 
 type PlanItems = RpcResults['plan.get']['items']
+type PlanStatus = NonNullable<PlanItems>[number]['status']
+
+/** A step's place in the shared status vocabulary (styles/frame.css). */
+const PLAN_GLYPH: Record<PlanStatus, string> = {
+  done: 'done',
+  in_progress: 'working',
+  pending: 'queued',
+}
 
 /** The provider's checklist. Delegated work lives in the transcript and composer. */
 export function PlanPanel({
@@ -48,46 +56,44 @@ function PlanCard({
 }) {
   const done = items.filter((item) => item.status === 'done').length
   return (
-    <div className="rounded-lg border border-border bg-surface-1">
+    <div>
       <button
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="-mx-2 flex h-8 w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 text-left text-[13.5px] transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <ListTodo size={13} className="shrink-0 text-accent" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
+        <ListTodo size={14} className="shrink-0 text-fg-subtle" aria-hidden />
+        <span className="min-w-0 truncate font-medium text-fg">
           Plan
           {done === items.length ? ' — complete' : ''}
         </span>
-        <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+        <span className="shrink-0 text-xs tabular-nums text-fg-subtle">
           {done}/{items.length}
         </span>
-        {expanded ? (
-          <ChevronUp size={12} className="shrink-0 text-fg-subtle" aria-hidden />
-        ) : (
-          <ChevronDown size={12} className="shrink-0 text-fg-subtle" aria-hidden />
-        )}
+        <ChevronRight
+          size={14}
+          className={`ms-auto shrink-0 text-fg-subtle transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+          aria-hidden
+        />
       </button>
       {expanded ? (
-        <ul className="flex flex-col gap-1 border-t border-border px-3 py-2">
+        // One hairline carries the steps; the status glyph says where each is.
+        <ul className="ms-[7px] flex flex-col border-s border-border py-0.5 ps-4">
           {items.map((item, index) => (
-            <li key={`${index}-${item.text}`} className="flex items-start gap-2">
-              {item.status === 'done' ? (
-                <CircleCheck size={13} className="mt-0.5 shrink-0 text-success" aria-hidden />
-              ) : item.status === 'in_progress' ? (
-                <Circle
-                  size={13}
-                  className="mt-0.5 shrink-0 animate-pulse text-busy"
-                  fill="currentColor"
-                  aria-hidden
-                />
-              ) : (
-                <CircleDashed size={13} className="mt-0.5 shrink-0 text-fg-subtle" aria-hidden />
-              )}
+            <li key={`${index}-${item.text}`} className="flex items-start gap-2.5 py-1">
               <span
-                className={`min-w-0 flex-1 break-words text-xs leading-relaxed ${
-                  item.status === 'done' ? 'text-fg-subtle line-through' : 'text-fg-muted'
+                aria-hidden
+                className="ari-status mt-[3px]"
+                data-status={PLAN_GLYPH[item.status]}
+              />
+              <span
+                className={`min-w-0 flex-1 break-words text-[13.5px] leading-snug ${
+                  item.status === 'done'
+                    ? 'text-fg-subtle'
+                    : item.status === 'in_progress'
+                      ? 'text-fg'
+                      : 'text-fg-muted'
                 }`}
               >
                 {item.text}

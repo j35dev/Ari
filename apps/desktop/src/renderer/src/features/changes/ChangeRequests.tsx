@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, GitPullRequest, RefreshCw, Search } from 'lucide-react'
 import type { GitScope, HostConnection } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { iconButton } from '../../lib/recipes'
 import { SourceControlMark } from './SourceControlMark'
 import { RequestReview } from './RequestReview'
 
@@ -14,7 +15,7 @@ export function ChangeRequests({
 }) {
   if (!scope)
     return (
-      <div className="p-8 text-center text-sm text-fg-subtle">
+      <div className="p-8 text-center text-[13px] text-fg-subtle">
         Open a project to review its pull or merge requests.
       </div>
     )
@@ -103,15 +104,15 @@ function ScopedRequests({
         />
       ) : (
         <>
-          <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/60 px-4">
-            <span className="text-fg-muted">
-              <SourceControlMark provider={state.value?.repository?.provider ?? null} />
+          <header className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border py-1.5 pl-4 pr-2">
+            <span className="mr-2 shrink-0 text-fg-subtle">
+              <SourceControlMark provider={state.value?.repository?.provider ?? null} size={16} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-sm font-semibold text-fg">
+              <h2 className="truncate text-sm font-medium text-fg">
                 {state.value?.repository?.name ?? 'Pull & merge requests'}
               </h2>
-              <p className="mt-0.5 text-xs text-fg-subtle">
+              <p className="truncate text-xs text-fg-subtle">
                 {state.loading
                   ? 'Reading the hosting remote…'
                   : (state.value?.detail ?? 'Your repository on its hosting service')}
@@ -131,7 +132,7 @@ function ScopedRequests({
                       })),
                     )
                 }
-                className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                className={iconButton}
               >
                 <ExternalLink size={14} />
               </button>
@@ -141,16 +142,13 @@ function ScopedRequests({
               aria-label="Refresh requests"
               disabled={state.loading}
               onClick={() => setAttempt((value) => value + 1)}
-              className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+              className={iconButton}
             >
               <RefreshCw size={14} className={state.loading ? 'animate-spin' : ''} />
             </button>
           </header>
           {state.error ? (
-            <p
-              role="alert"
-              className="border-b border-danger/20 bg-danger-subtle px-4 py-3 text-xs text-danger"
-            >
+            <p role="alert" className="border-b border-border px-4 py-2.5 text-[13px] text-danger">
               {state.error}
               <button
                 type="button"
@@ -162,69 +160,65 @@ function ScopedRequests({
             </p>
           ) : null}
           {state.value?.requests.length ? (
-            <label className="mx-4 my-3 flex shrink-0 items-center gap-2 rounded-md border border-border/60 px-3">
-              <Search size={13} className="text-fg-subtle" />
+            <label className="mx-3 mt-3 flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface-1 px-2.5 transition-colors hover:border-border-strong focus-within:border-border-strong focus-within:ring-2 focus-within:ring-accent-ring">
+              <Search size={14} className="shrink-0 text-fg-subtle" aria-hidden />
               <input
                 aria-label="Filter requests"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 maxLength={256}
                 placeholder="Find a request, branch or author…"
-                className="h-9 min-w-0 flex-1 bg-transparent text-xs text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                className="h-8 min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle"
               />
             </label>
           ) : null}
           <div className="ari-scroll min-h-0 flex-1 overflow-auto">
             {state.loading && !state.value ? (
-              <div role="status" aria-label="Loading requests" className="space-y-4 p-4">
+              <div role="status" aria-label="Loading requests" className="space-y-5 p-4">
                 {[1, 2, 3].map((value) => (
-                  <div key={value} className="space-y-2 border-b border-border/50 pb-4">
-                    <div className="h-3 w-3/4 animate-pulse rounded bg-surface-2" />
-                    <div className="h-2 w-1/2 animate-pulse rounded bg-surface-2" />
+                  <div key={value} className="space-y-2">
+                    <div className="h-3 w-3/4 animate-pulse rounded bg-fg/6" />
+                    <div className="h-2 w-1/2 animate-pulse rounded bg-fg/6" />
                   </div>
                 ))}
               </div>
             ) : requests.length ? (
-              <ul className="mx-auto max-w-5xl divide-y divide-border/50 px-3 pb-4">
+              <ul className="mx-auto max-w-5xl px-2 pb-4 pt-2">
                 {requests.map((request) => (
                   <li key={request.number}>
                     <button
                       type="button"
                       onClick={() => setSelected(request.number)}
-                      className="group flex w-full items-start gap-3 rounded-md px-3 py-4 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                      className="group flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                     >
                       <GitPullRequest
-                        size={17}
-                        className={`mt-0.5 shrink-0 ${request.draft ? 'text-fg-subtle' : 'text-success'}`}
+                        size={14}
+                        className={`mt-[3px] shrink-0 ${request.draft ? 'text-fg-subtle' : 'text-fg-muted'}`}
                         aria-hidden
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium leading-snug text-fg">
                           {request.title}
                         </span>
-                        <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-subtle">
+                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-subtle">
                           <span className="font-mono">#{request.number}</span>
                           <span>{request.author}</span>
-                          <span className="font-mono text-2xs">
+                          <span className="font-mono">
                             {request.head} → {request.base}
                           </span>
                           {request.draft ? (
-                            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs">
-                              Draft
-                            </span>
+                            <span className="rounded-sm bg-fg/6 px-1.5 text-fg-muted">Draft</span>
                           ) : null}
                         </span>
                       </span>
-                      <span className="hidden text-2xs text-fg-subtle @[44rem]:block">
-                        Review →
-                      </span>
+                      <span className="hidden text-xs text-fg-subtle @[44rem]:block">Review →</span>
                     </button>
                   </li>
                 ))}
               </ul>
             ) : !state.error && !state.loading ? (
-              <div className="flex h-full min-h-48 flex-col items-center justify-center gap-3 p-8 text-center">
-                <GitPullRequest size={28} className="text-fg-subtle" />
+              <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 p-8 text-center">
+                <GitPullRequest size={24} className="mb-1 text-fg-subtle" aria-hidden />
                 <h3 className="text-sm font-medium text-fg">
                   {query
                     ? 'No matching requests'
@@ -232,7 +226,7 @@ function ScopedRequests({
                       ? 'No open requests'
                       : 'Repository remote unavailable'}
                 </h3>
-                <p className="max-w-sm text-xs leading-relaxed text-fg-muted">
+                <p className="max-w-sm text-[13px] leading-relaxed text-fg-subtle">
                   {query
                     ? 'Try a title, branch name or request number.'
                     : state.value?.repository

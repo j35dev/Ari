@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { AlertTriangle, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { friendlyErrorText } from '../moment'
 import { classifyTurnError, UNCLASSIFIED_TITLE } from '../session/turnError'
 
 /**
- * Historical turn failure rendered as one terminal-like status row. The
- * actionable banner owns the current failure; this row preserves older
- * failures in context without dumping provider stderr into the transcript.
+ * Historical turn failure as one quiet line: the red status dot and what went
+ * wrong. The actionable banner owns the current failure; this row preserves
+ * older failures in context, and keeps provider stderr folded until asked for.
  */
 export function ErrorNote({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -14,25 +14,24 @@ export function ErrorNote({ text }: { text: string }) {
   const summary = title === UNCLASSIFIED_TITLE ? friendlyErrorText(text) : title
 
   return (
-    <div className="ari-error-note my-1 pl-3">
+    <div className="ari-error-note my-1">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-label={`Turn failed: ${summary}`}
-        className="group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors hover:bg-danger-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+        className="group flex h-7 w-fit max-w-full items-center gap-2 rounded-md text-left text-sm text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <AlertTriangle size={11} className="shrink-0 text-danger" aria-hidden="true" />
-        <span className="shrink-0 text-xs font-medium text-danger">failed</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{summary}</span>
+        <span className="ari-status" data-status="error" aria-hidden="true" />
+        <span className="min-w-0 truncate">{summary}</span>
         <ChevronRight
-          size={12}
+          size={14}
           aria-hidden="true"
-          className={`shrink-0 text-fg-subtle opacity-50 transition-transform duration-150 group-hover:opacity-100 ${open ? 'rotate-90' : ''}`}
+          className={`shrink-0 text-fg-subtle transition-[color,transform] duration-150 group-hover:text-fg motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
         />
       </button>
       {open ? (
-        <pre className="ari-enter-rise mb-1 ml-5 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all border-l border-danger-subtle py-1 pl-3 font-mono text-2xs leading-relaxed text-fg-muted">
+        <pre className="ari-enter-rise ml-1.5 mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all border-l border-border-strong py-1 pl-4 font-mono text-[12.5px] leading-relaxed text-fg-muted">
           {text}
         </pre>
       ) : null}

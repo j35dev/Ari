@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { Popover } from '@ari/ui/popover'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
@@ -162,7 +162,7 @@ function ResetLine({
     </button>
   ) : null
   return (
-    <div className="mt-2 flex items-start justify-between gap-3 text-[11px]">
+    <div className="mt-2 flex items-start justify-between gap-3 text-xs">
       {count > 0 ? (
         <ul className="min-w-0 space-y-0.5">
           {groups.map((group, index) => (
@@ -233,7 +233,9 @@ export function ProviderUsagePill({
   const outdated = stale(selected, now)
   const banked = selected?.resetCredits?.availableCount ?? 0
   const label = NAMES[kind] ?? kind
-  const unread = rows.filter((row) => row.status === 'error').map((row) => NAMES[row.kind] ?? row.kind)
+  const unread = rows
+    .filter((row) => row.status === 'error')
+    .map((row) => NAMES[row.kind] ?? row.kind)
 
   async function useReset(row: ProviderAllowance) {
     const parsed = driverKindSchema.safeParse(row.kind)
@@ -255,10 +257,10 @@ export function ProviderUsagePill({
       ? 'text-danger'
       : used !== null && used >= 75
         ? 'text-warning'
-        : 'text-accent'
+        : 'text-fg-muted'
 
   return (
-    <div className="mr-2 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+    <div className="min-w-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -272,7 +274,8 @@ export function ProviderUsagePill({
       >
         <Popover.Trigger
           aria-label={`${label} usage: ${used === null ? 'unavailable' : `${primary?.label} ${used}% used${outdated ? ', stale' : ''}`}${banked > 0 ? `, ${banked} banked ${banked === 1 ? 'reset' : 'resets'}` : ''}`}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2 text-[11px] text-fg-muted transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          title={outdated ? 'Last known usage; awaiting a fresh reading' : undefined}
+          className="flex h-7 min-w-0 max-w-full items-center gap-2 rounded-md px-2 text-[12.5px] text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <svg viewBox="0 0 16 16" className={`size-3.5 ${tone}`} aria-hidden="true">
             <circle
@@ -297,16 +300,10 @@ export function ProviderUsagePill({
               transform="rotate(-90 8 8)"
             />
           </svg>
-          <span>{label}</span>
-          <span className="font-mono tabular-nums text-fg">
-            {primary
-              ? `${primary.label} · ${used}% used`
-              : refreshing && !selected?.checkedAt
-                ? '…'
-                : '—'}
+          <span className="truncate">{label}</span>
+          <span className={`tabular-nums ${outdated ? 'opacity-60' : ''}`}>
+            {primary ? `${used}%` : refreshing && !selected?.checkedAt ? '…' : '—'}
           </span>
-          {outdated ? <span title="Last known usage; awaiting a fresh reading">·</span> : null}
-          <ChevronDown size={11} aria-hidden="true" />
         </Popover.Trigger>
         <Popover.Content
           align="end"
@@ -321,7 +318,7 @@ export function ProviderUsagePill({
               aria-busy={refreshing || undefined}
               disabled={refreshing}
               onClick={() => void refresh()}
-              className="rounded p-1 text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:text-accent"
+              className="rounded p-1 text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:text-fg-muted"
             >
               <RefreshCw
                 size={12}
@@ -333,7 +330,7 @@ export function ProviderUsagePill({
           <div className="max-h-[min(65vh,480px)] overflow-y-auto px-3">
             {rows.map((row) => (
               <div key={row.kind} className="border-b border-border py-3 last:border-0">
-                <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
+                <div className="mb-2 flex items-center justify-between gap-2 text-xs">
                   <span className="font-medium text-fg">
                     {NAMES[row.kind] ?? row.kind}
                     {row.kind === kind ? (
@@ -356,7 +353,7 @@ export function ProviderUsagePill({
                 {row.windows.length ? (
                   row.windows.map((window) => (
                     <div key={window.label} className="mt-2">
-                      <div className="mb-1 flex justify-between text-[11px] text-fg-muted">
+                      <div className="mb-1 flex justify-between text-xs text-fg-muted">
                         <span>{window.label}</span>
                         <span className="font-mono tabular-nums">
                           {Math.round(window.usedPercent)}% used
@@ -368,14 +365,14 @@ export function ProviderUsagePill({
                         aria-valuenow={window.usedPercent}
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        className="h-1 overflow-hidden rounded-full bg-surface-3"
+                        className="h-1 overflow-hidden rounded-full bg-fg/10"
                       >
                         <div
-                          className={`h-full rounded-full ${stale(row, now) ? 'bg-fg-subtle' : window.usedPercent >= 90 ? 'bg-danger' : 'bg-accent'}`}
+                          className={`h-full rounded-full ${stale(row, now) ? 'bg-fg-subtle' : window.usedPercent >= 90 ? 'bg-danger' : 'bg-fg-muted'}`}
                           style={{ width: `${window.usedPercent}%` }}
                         />
                       </div>
-                      <div className="mt-1 text-[10px] text-fg-subtle">
+                      <div className="mt-1 text-xs text-fg-subtle">
                         {window.resetsAt !== null
                           ? window.resetsAt <= now
                             ? 'Reset due · awaiting refresh'
@@ -387,7 +384,7 @@ export function ProviderUsagePill({
                     </div>
                   ))
                 ) : (
-                  <p className="text-[11px] text-fg-subtle" title={row.detail}>
+                  <p className="text-xs text-fg-subtle" title={row.detail}>
                     {!row.checkedAt && refreshing
                       ? 'Checking usage…'
                       : (row.resetCredits?.availableCount ?? 0) > 0
@@ -410,12 +407,12 @@ export function ProviderUsagePill({
                   onConfirm={() => void useReset(row)}
                 />
                 {notice?.kind === row.kind && notice.failed ? (
-                  <p role="status" className="mt-1 text-[11px] text-fg-muted">
+                  <p role="status" className="mt-1 text-xs text-fg-muted">
                     {notice.text}
                   </p>
                 ) : null}
                 {row.status === 'error' ? (
-                  <p className="mt-1 text-[10px] text-fg-subtle">
+                  <p className="mt-1 text-xs text-fg-subtle">
                     Refresh failed · retrying automatically
                   </p>
                 ) : null}
@@ -432,7 +429,7 @@ export function ProviderUsagePill({
               </p>
             ) : null}
           </div>
-          <p aria-live="polite" className="border-t border-border px-3 py-2 text-[10px] text-fg-subtle">
+          <p aria-live="polite" className="border-t border-border px-3 py-2 text-xs text-fg-subtle">
             {refreshing
               ? 'Refreshing…'
               : checkedAt === null

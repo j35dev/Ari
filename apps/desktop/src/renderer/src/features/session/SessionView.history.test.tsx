@@ -7,6 +7,8 @@ import { SessionView, type SessionDefaults } from './SessionView'
 
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../../lib/rpc', () => ({ rpc }))
+// The scene paints on a canvas and reads the theme; it has no part in history.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 const sounds = vi.hoisted(() => ({ playSettleSound: vi.fn() }))
 vi.mock('../moment/settle-sound', () => sounds)
 

@@ -68,19 +68,19 @@ export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
     >
       {/* The chase is a compositor-only CSS loop (the sidebar mark's), so a
           long turn costs no JavaScript per frame and nothing on re-render. */}
-      <span className="grid grid-cols-3 gap-0.5" aria-hidden="true">
+      <span className="grid grid-cols-3 gap-px" aria-hidden="true">
         {Array.from({ length: 9 }, (_, cell) => {
           const ringPosition = RING_ORDER.indexOf(cell)
           return ringPosition >= 0 ? (
             <span
               key={cell}
-              className="ari-forge-cell size-1 rounded-[1px] bg-accent"
+              className="ari-forge-cell size-1 bg-fg-muted"
               style={{
                 animationDelay: `${ringPosition * (CHASE_DURATION_S / RING_ORDER.length)}s`,
               }}
             />
           ) : (
-            <span key={cell} className="size-1 rounded-[1px] bg-accent opacity-25" />
+            <span key={cell} className="size-1 bg-fg-muted opacity-25" />
           )
         })}
       </span>
