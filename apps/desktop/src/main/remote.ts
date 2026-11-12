@@ -150,8 +150,10 @@ export class RemoteService {
     this.#deps = deps
     try {
       this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
-      this.#routeSigner = deps.routeSigning === undefined ? null
-        : loadHostSigningIdentity(deps.dir, this.#identity.machineId, deps.routeSigning.secretBox)
+      this.#routeSigner =
+        deps.routeSigning === undefined
+          ? null
+          : loadHostSigningIdentity(deps.dir, this.#identity.machineId, deps.routeSigning.secretBox)
     } catch {
       // Host identity is required for remote access, not for local RPC startup.
       // Never replace unreadable identity data or publish a temporary identity.
@@ -233,16 +235,18 @@ export class RemoteService {
       const webRoot = this.#deps.webRoot?.()
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
         identity: this.#identity,
-        ...(this.#routeSigner === null || this.#deps.routeSigning === undefined ? {} : {
-          routeAuthority: {
-            signer: this.#routeSigner,
-            servedOrigins: this.#deps.routeSigning.servedOrigins,
-            audience: () => {
-              const exposures = this.#deps.routeSigning!.servedOrigins()
-              return exposures.length === 1 ? exposures[0]! : null
-            },
-          },
-        }),
+        ...(this.#routeSigner === null || this.#deps.routeSigning === undefined
+          ? {}
+          : {
+              routeAuthority: {
+                signer: this.#routeSigner,
+                servedOrigins: this.#deps.routeSigning.servedOrigins,
+                audience: () => {
+                  const exposures = this.#deps.routeSigning!.servedOrigins()
+                  return exposures.length === 1 ? exposures[0]! : null
+                },
+              },
+            }),
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
