@@ -471,6 +471,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     })
   }, [leaveWorkspaceTool])
 
+  // The titlebar has one toggle for the docked panel. It reopens on the tab
+  // last used, so closing the panel and opening it again loses nothing.
+  const lastPanelRef = useRef<InspectorId>('changes')
+  if (inspector !== null) lastPanelRef.current = inspector
+
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
   const clearTransientInspector = useCallback(() => {
@@ -1744,8 +1749,28 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         hideGit={workspaceToolOpen}
         onReview={() => openSourceControl('changes')}
         onRequests={() => openSourceControl('requests')}
-        activeTool={activeTool}
-        onSelectTool={selectWorkspaceTool}
+        panelOpen={inspector !== null}
+        onTogglePanel={() => {
+          if (inspector !== null) {
+            // Closing her overview is a choice; it stays closed.
+            if (inspector === 'overview') overviewDismissedRef.current = true
+            setInspector(null)
+            return
+          }
+          const last = lastPanelRef.current
+          const next: InspectorId =
+            last === 'overview'
+              ? ariaActive
+                ? 'overview'
+                : 'changes'
+              : last === 'browser' && remoteActive
+                ? 'changes'
+                : last
+          leaveWorkspaceTool()
+          setFullPage(null)
+          if (next === 'changes') setSourceControlTab('changes')
+          setInspector(next)
+        }}
         leading={
           sidebarOpen && !workspaceToolOpen ? (
             <SidebarHeader
@@ -1755,7 +1780,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           ) : undefined
         }
         leadingWidth={sidebar.width}
-        overview={ariaActive}
         usage={
           remoteActive ? undefined : (
             <ProviderUsagePill sessionId={activeSessionId} kind={activeDriverKind} />
