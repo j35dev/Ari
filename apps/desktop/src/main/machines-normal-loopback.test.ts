@@ -277,8 +277,16 @@ async function hostFixture(root: string, name: string, utilization: number, mess
     return gateway
   }
   return {
-    store, engine, pairing, listen, listeners, signer, origins,
-    setProtocolVersion: (version: number) => { protocolVersion = version },
+    store,
+    engine,
+    pairing,
+    listen,
+    listeners,
+    signer,
+    origins,
+    setProtocolVersion: (version: number) => {
+      protocolVersion = version
+    },
   }
 }
 
@@ -538,13 +546,19 @@ it('keeps normal session history and execution on the signed host across fallbac
   const versionCheckStart = network.calls.length
   b.setProtocolVersion(2)
   expect(await machines.connect(savedB.id)).toMatchObject({
-    status: 'incompatible', permissionsReady: false,
+    status: 'incompatible',
+    permissionsReady: false,
   })
   const versionChecks = network.calls.slice(versionCheckStart)
   expect(versionChecks.length).toBeGreaterThan(0)
-  expect(versionChecks.every((call) =>
-    call.origin === primary.origin && call.path === '/routes/proof' && call.authorization === null,
-  )).toBe(true)
+  expect(
+    versionChecks.every(
+      (call) =>
+        call.origin === primary.origin &&
+        call.path === '/routes/proof' &&
+        call.authorization === null,
+    ),
+  ).toBe(true)
   await refreshMachineInventory()
   expect(clientB.readOnly).toBe(true)
   await expect(clientB.invoke('session.load', { sessionId: wireId })).rejects.toThrow()
@@ -555,7 +569,9 @@ it('keeps normal session history and execution on the signed host across fallbac
   await refreshMachineInventory()
   await vi.waitFor(() => expect(terminals()).toHaveLength(4), { timeout: 10_000 })
   expect(terminals()[3]).toMatchObject({
-    replayMode: 'resume', replayOutcome: 'complete', liveTurnId: liveTurn,
+    replayMode: 'resume',
+    replayOutcome: 'complete',
+    liveTurnId: liveTurn,
   })
   expect(transcript.getSnapshot()).toHaveLength(2406)
   expect(dispatchB.mock.calls.filter(([command]) => command.type === 'turn.start')).toHaveLength(1)
