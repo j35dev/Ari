@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
@@ -24,7 +23,10 @@ import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
-import { Titlebar } from './shell/Titlebar'
+import { Titlebar, type TitlebarPlace } from './shell/Titlebar'
+import { SidebarFooter } from './shell/SidebarFooter'
+import { PanelTabs, type PanelTab } from './shell/PanelTabs'
+import { outlineButton } from './lib/recipes'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { SessionKeepAlive } from './features/session/SessionKeepAlive'
@@ -60,6 +62,7 @@ import { useSourceControl } from './features/changes/use-source-control'
 import { GitControl } from './features/changes/GitControl'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
+import { ProviderUsagePill } from './features/usage/ProviderUsagePill'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
@@ -99,6 +102,7 @@ import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell
 import { visibleProjects } from './features/aria/visibility'
 import { isHelmSession } from '@ari/contracts/helm'
 import { AriaRow } from './features/aria/AriaRow'
+import { AriaOverview } from './features/aria/AriaOverview'
 import { ariaActivity, startedByAria } from './features/aria/aria-activity'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
@@ -124,7 +128,8 @@ import { WelcomePanel } from './features/welcome'
 import { OnboardingGate, type OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'>
+type InspectorId =
+  Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'> | 'overview'
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -133,7 +138,24 @@ const INSPECTOR_TITLES: Record<InspectorId, string> = {
   changes: 'Changes',
   files: 'Files',
   usage: 'Usage',
+  overview: 'Overview',
 }
+
+/** Aria's own tab: the sessions she is leading. Offered only beside her chat. */
+const OVERVIEW_TAB: PanelTab<InspectorId> = { id: 'overview', label: 'Overview' }
+
+/** The overview is a list, not a terminal: it never needs the dock's full width. */
+const OVERVIEW_MAX_WIDTH = 400
+/** Below this the overview would squeeze the chat, so it waits to be asked for. */
+const OVERVIEW_MIN_WINDOW_WIDTH = 1180
+
+/** What a docked panel can show, in tab order. */
+const PANEL_TABS: readonly PanelTab<InspectorId>[] = [
+  { id: 'changes', label: 'Changes' },
+  { id: 'files', label: 'Files' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'browser', label: 'Browser' },
+]
 
 /** Where `Mod+Shift+<arrow>` sends focus, keyed by `KeyboardEvent.key`. */
 const ARROW_EDGES: Record<string, PaneEdge> = {
@@ -1107,7 +1129,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
 
   const selectWorkspaceTool = useCallback(
-    (id: SidebarNavId): void => {
+    (id: SidebarNavId | 'overview'): void => {
       if (id === 'settings') {
         setSettingsOpen(true)
         setHubOpen(false)
@@ -1145,6 +1167,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const ariaActive = activeSession !== undefined && isHelmSession(activeSession)
+  // Aria's overview is part of her page: it opens beside her chat when there
+  // is room and nothing else is docked, and leaves with her. Once the user
+  // closes it, it stays closed until they ask for it again.
+  const overviewDismissedRef = useRef(false)
+  useEffect(() => {
+    if (!ariaActive) {
+      setInspector((current) => (current === 'overview' ? null : current))
+      return
+    }
+    if (overviewDismissedRef.current || window.innerWidth < OVERVIEW_MIN_WINDOW_WIDTH) return
+    setInspector((current) => current ?? 'overview')
+  }, [ariaActive])
   // The usage chip names the driver of whichever session is active, which in a
   // split is the focused pane's — not the shell's seed for new sessions.
   const activeDriverKind =
@@ -1161,15 +1196,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // resolves by session id, a project folder by project id. The explorer
   // sends this scope plus relative paths only — absolute paths never cross
   // IPC for fs.* calls.
+  // Memoized on its ids: the explorer and content search reload whenever the
+  // scope changes identity, so a fresh object per render would reset them on
+  // every shell update (the file tree kept re-listing and closed open files).
   const activeScopeProjectId = activeSession?.projectId ?? projects[0]?.id
-  const activeScope =
-    activeSessionId !== null
-      ? sessionWorkspace?.id === activeSessionId
-        ? { sessionId: activeSessionId }
-        : null
-      : activeScopeProjectId !== undefined
-        ? { projectId: activeScopeProjectId }
-        : null
+  const activeWorkspaceReady = activeSessionId !== null && sessionWorkspace?.id === activeSessionId
+  const activeScope = useMemo(
+    () =>
+      activeSessionId !== null
+        ? activeWorkspaceReady
+          ? { sessionId: activeSessionId }
+          : null
+        : activeScopeProjectId !== undefined
+          ? { projectId: activeScopeProjectId }
+          : null,
+    [activeSessionId, activeWorkspaceReady, activeScopeProjectId],
+  )
   const changesSessionId = changesContext ? (changesContext.sessionId ?? null) : activeSessionId
   const changesProjectId = changesContext?.projectId ?? activeSession?.projectId ?? null
   const changesScope = changesContext
@@ -1272,35 +1314,70 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   if (galleryOpen) {
     return (
-      <div className="ari-wallpaper-pane flex h-full flex-col bg-bg">
-        <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-3">
-          <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
-          <span className="text-fg-subtle text-xs">/</span>
-          <span className="text-fg-muted text-xs">Component gallery</span>
+      <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
+        <header
+          className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-4 text-sm"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        >
+          <span className="text-fg-subtle">Ari</span>
+          <span className="text-fg-subtle opacity-50">/</span>
+          <span className="font-medium text-fg">Component gallery</span>
           <div className="flex-1" />
           <button
             type="button"
             onClick={() => setGalleryOpen(false)}
-            className="mr-3 flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={`${outlineButton} mr-[150px]`}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
-            ← Back to workspace
+            Back to workspace
           </button>
         </header>
-        <div className="min-h-0 flex-1">
+        <div className="ari-stage mx-[var(--ari-frame-gap)] mb-[var(--ari-frame-gap)] min-h-0 flex-1">
           <GalleryView />
         </div>
       </div>
     )
   }
 
+  const activeTool = settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)
+  const activeProjectName =
+    activeSession === undefined || activeSession.projectId === UNFILED_GROUP_ID
+      ? null
+      : (projects.find((project) => project.id === activeSession.projectId)?.name ?? null)
+  const titlebarPlace: TitlebarPlace | null = settingsOpen
+    ? { context: null, title: 'Settings' }
+    : hubOpen
+      ? { context: null, title: 'Pull requests and issues' }
+      : fullPage === 'usage'
+        ? { context: null, title: 'Usage' }
+        : fullPage !== null
+          ? { context: activeProjectName, title: 'Changes' }
+          : activeSession === undefined
+            ? null
+            : isHelmSession(activeSession)
+              ? { context: null, title: 'Aria' }
+              : { context: activeProjectName, title: activeSession.title || 'New session' }
+
   return (
-    <div className="ari-wallpaper-pane flex h-full flex-col">
+    <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
       <Titlebar
-        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
+        activeTool={activeTool}
         onSelectTool={selectWorkspaceTool}
+        leading={
+          sidebarOpen && !workspaceToolOpen ? (
+            <SidebarHeader
+              onSearch={() => sidebarSearchRef.current?.focus()}
+              onCollapse={toggleSidebar}
+            />
+          ) : undefined
+        }
+        leadingWidth={sidebar.width}
+        place={titlebarPlace}
+        overview={ariaActive}
         changeCount={changeSummary.summary?.changedFiles ?? null}
+        usage={<ProviderUsagePill sessionId={activeSessionId} kind={activeDriverKind} />}
         git={
-          sourceControlScope && changeSummary.summary ? (
+          sourceControlScope && changeSummary.summary && !workspaceToolOpen ? (
             <GitControl
               scope={sourceControlScope}
               summary={changeSummary.summary}
@@ -1310,7 +1387,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             />
           ) : undefined
         }
-        usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
       {/* Settings and the hub cover the workspace rather than replace it: the
@@ -1352,13 +1428,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               animate={{ width: sidebar.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={sidebar.dragging || reducedMotion ? { duration: 0 } : transitions.sidebar}
-              className="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden bg-surface-0"
+              className="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden pt-1"
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
-              <SidebarHeader
-                onSearch={() => sidebarSearchRef.current?.focus()}
-                onCollapse={toggleSidebar}
-              />
               <AriaRow
                 selected={isHelmSession(activeSession)}
                 activity={ariaStatus}
@@ -1454,6 +1526,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   })()
                 }}
               />
+              <SidebarFooter activeTool={activeTool} onSelectTool={selectWorkspaceTool} />
             </motion.aside>
           ) : null}
         </AnimatePresence>
@@ -1469,13 +1542,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             tabIndex={0}
             title="Drag to resize · double-click to reset"
             {...sidebar.handleProps}
-            className={`ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-              sidebar.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-            }`}
+            data-dragging={sidebar.dragging ? '' : undefined}
+            className="ari-sidebar-resize -mx-1 w-2 shrink-0 cursor-col-resize focus-visible:outline-none"
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+        <main
+          className={`flex min-w-0 flex-1 flex-col pb-[var(--ari-frame-gap)] pr-[var(--ari-frame-gap)] ${
+            sidebarOpen ? '' : 'pl-[var(--ari-frame-gap)]'
+          }`}
+        >
           <SpaceTabs
             spaces={spaceStore.spaces}
             activeSpaceId={spaceStore.activeSpaceId}
@@ -1493,7 +1569,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               id="space-panel"
               role="tabpanel"
               aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-              className="ari-enter-rise min-h-0 flex-1"
+              className="ari-stage ari-enter-rise min-h-0 flex-1"
             >
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
@@ -1540,7 +1616,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               id={fullPage === null ? 'space-panel' : undefined}
               role="tabpanel"
               aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-              className="relative min-h-0 min-w-0 flex-1"
+              className="ari-stage min-h-0 min-w-0 flex-1"
             >
               {/* The spaces visited last stay mounted, hidden: switching is a
                     same-frame swap, and every session and terminal in the
@@ -1637,6 +1713,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   sessionId={sessionId}
                                   onOpenAria={() => openAria()}
                                   startedByAria={ariaStartedIds.has(sessionId)}
+                                  ariaStatus={ariaStatus}
                                   hidden={hidden}
                                   onComposerReady={
                                     composerFocusRequest?.sessionId === sessionId &&
@@ -1683,9 +1760,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   tabIndex={0}
                   title="Drag to resize · double-click to reset"
                   {...dock.handleProps}
-                  className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-                    dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-                  }`}
+                  data-dragging={dock.dragging ? '' : undefined}
+                  className="ari-sidebar-resize w-[var(--ari-frame-gap)] shrink-0 cursor-col-resize focus-visible:outline-none"
                 />
                 <motion.aside
                   initial={{ opacity: 0, x: 12 }}
@@ -1693,10 +1769,43 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
                   role="complementary"
                   aria-label={INSPECTOR_TITLES[inspector]}
-                  className="flex shrink-0 flex-col border-l border-border"
-                  style={{ width: dock.width, maxWidth: '60vw' }}
+                  className="ari-stage flex shrink-0 flex-col"
+                  style={{
+                    width:
+                      inspector === 'overview'
+                        ? Math.min(dock.width, OVERVIEW_MAX_WIDTH)
+                        : dock.width,
+                    maxWidth: '60vw',
+                  }}
                 >
-                  {inspector === 'terminal' ? (
+                  <PanelTabs
+                    tabs={ariaActive ? [OVERVIEW_TAB, ...PANEL_TABS] : PANEL_TABS}
+                    active={inspector}
+                    onSelect={(id) => {
+                      if (id === 'changes') setSourceControlTab('changes')
+                      setInspector(id)
+                    }}
+                    onClose={() => {
+                      // Closing her overview is a choice; it stays closed.
+                      if (inspector === 'overview') overviewDismissedRef.current = true
+                      setInspector(null)
+                    }}
+                  />
+                  {inspector === 'overview' ? (
+                    <div className="min-h-0 flex-1">
+                      <ErrorBoundary label="Overview">
+                        <AriaOverview
+                          sessions={sessions}
+                          activityOf={activityOf}
+                          attentionCountOf={attentionCountOf}
+                          projectNameOf={(projectId) =>
+                            projects.find((project) => project.id === projectId)?.name ?? null
+                          }
+                          onOpen={selectSession}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  ) : inspector === 'terminal' ? (
                     <div className="min-h-0 flex-1">
                       <ErrorBoundary label="Terminal">
                         <TerminalDock
@@ -1718,20 +1827,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     </div>
                   ) : (
                     <>
-                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                        <span className="text-xs font-medium text-fg">
-                          {INSPECTOR_TITLES[inspector]}
-                        </span>
-                        <div className="flex-1" />
-                        <button
-                          type="button"
-                          aria-label="Close inspector"
-                          onClick={() => setInspector(null)}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
                       <div className="min-h-0 flex-1">
                         {inspector === 'changes' ? (
                           <ErrorBoundary label="Changes">
@@ -1765,7 +1860,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                           <FileExplorer root={activeProjectPath} scope={activeScope} />
                         ) : (
                           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                            Open a project first — the explorer browses its folder.
+                            Open a project to browse its files here.
                           </div>
                         )}
                       </div>

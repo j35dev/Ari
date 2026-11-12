@@ -10,7 +10,8 @@ import { useOverlayRef } from '../overlay-registry'
 
 type Side = 'top' | 'bottom' | 'left' | 'right'
 
-const PANEL_CHROME = 'bg-surface-2 border border-border rounded-lg shadow-2 p-3'
+/** The menu look: an object surface on a strong hairline, 4px in from its rows. */
+const PANEL_CHROME = 'rounded-xl border border-border-strong bg-surface-1 p-1 shadow-3'
 type Align = 'start' | 'center' | 'end'
 
 interface PopoverContextValue {
@@ -163,16 +164,15 @@ export function PopoverTrigger({ className, onClick, type, ...rest }: PopoverTri
   )
 }
 
-export interface PopoverContentProps
-  extends Omit<
-    HTMLAttributes<HTMLDivElement>,
-    | 'onDrag'
-    | 'onDragStart'
-    | 'onDragEnd'
-    | 'onAnimationStart'
-    | 'onAnimationEnd'
-    | 'onAnimationIteration'
-  > {
+export interface PopoverContentProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  | 'onDrag'
+  | 'onDragStart'
+  | 'onDragEnd'
+  | 'onAnimationStart'
+  | 'onAnimationEnd'
+  | 'onAnimationIteration'
+> {
   /** Which side of the trigger to attach to. */
   side?: Side
   /** Alignment along that side. */
@@ -223,9 +223,7 @@ export function PopoverContent({
           exit="exit"
           variants={menuInVariants}
           style={{ ...floatingStyles, transformOrigin: transformOriginFor(placement), ...style }}
-          className={['z-popover', bare ? null : PANEL_CHROME, className]
-            .filter(Boolean)
-            .join(' ')}
+          className={['z-popover', bare ? null : PANEL_CHROME, className].filter(Boolean).join(' ')}
           {...rest}
         >
           {children}

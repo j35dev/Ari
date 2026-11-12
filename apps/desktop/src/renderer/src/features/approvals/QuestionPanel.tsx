@@ -4,6 +4,9 @@ import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { Textarea } from '@ari/ui/textarea'
 import { Checkbox } from '@ari/ui/checkbox'
+import { Check } from 'lucide-react'
+import { cx } from '../../lib/recipes'
+import { destructiveButton } from './buttons'
 import {
   encodeAnswers,
   optionValue,
@@ -15,6 +18,18 @@ import {
 
 const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
+
+/** One answer: a 32px row that grows only when a description wraps. */
+const OPTION_ROW =
+  'flex min-h-8 w-full min-w-0 items-center rounded-md px-2.5 py-1 transition-colors'
+
+/** The row as a button: number key, label, and a check once it is the answer. */
+const OPTION_BUTTON =
+  'gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
+
+/** The digit that picks the row from the keyboard. */
+const OPTION_KEY =
+  'flex size-[18px] shrink-0 items-center justify-center rounded-sm bg-fg/9 font-mono text-[11px] text-fg-subtle'
 
 /** The values picked so far in a multi select. */
 function selectedValues(value: AnswerValue | undefined): string[] {
@@ -53,7 +68,13 @@ export interface QuestionPanelProps {
 export function QuestionPanel({ prompt, choicesJson, onRespond, onCancel }: QuestionPanelProps) {
   const payload = parseQuestionPayload(prompt, choicesJson)
   if (payload.kind === 'plan-approval') {
-    return <PlanApproval prompt={payload.prompt} planContent={payload.planContent} onRespond={onRespond} />
+    return (
+      <PlanApproval
+        prompt={payload.prompt}
+        planContent={payload.planContent}
+        onRespond={onRespond}
+      />
+    )
   }
   if (payload.kind === 'questionnaire') {
     return <Interview questions={payload.questions} onRespond={onRespond} onCancel={onCancel} />
@@ -231,7 +252,8 @@ function Interview({
       onCancel?.()
       return
     }
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+      return
     if (event.key === 'Enter') {
       event.preventDefault()
       continueNext()
@@ -260,44 +282,43 @@ function Interview({
       ? picked.length > 0
       : text.trim() !== ''
 
-  // The panel is one entry in the strip that peeks out from behind the
-  // composer, alongside approval cards — not a card of its own. So it carries
-  // no border, plate or shadow: the strip behind it already supplies those, and
-  // a second frame inside the first is what made it read as a separate window
-  // rather than something the composer grew.
+  // The panel is one entry in the tab on the composer's top edge, alongside
+  // approval rows, not a card of its own. So it carries no border, surface or
+  // shadow: the tab already supplies those, and a second frame inside the
+  // first is what made it read as a separate window rather than something the
+  // composer grew.
   return (
     <section
       role="region"
       aria-label="Agent question"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      className="px-3.5 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
     >
-      <div className="flex items-baseline gap-2">
-        {total > 1 ? (
-          <p className="font-mono text-2xs tabular-nums text-fg-subtle">
-            Question {index + 1} of {total}
-          </p>
-        ) : null}
-        {question.header ? (
-          <p className="ml-auto min-w-0 truncate text-[10px] uppercase tracking-[0.12em] text-fg-subtle">
-            {question.header}
-          </p>
-        ) : null}
-      </div>
-      <h2 className="mt-1 text-sm font-medium leading-snug text-fg" aria-live="polite">
+      {total > 1 || question.header ? (
+        <div className="mb-1 flex items-baseline gap-2 ps-6">
+          {total > 1 ? (
+            <p className="text-xs tabular-nums text-fg-subtle">
+              Question {index + 1} of {total}
+            </p>
+          ) : null}
+          {question.header ? (
+            <p className="ml-auto min-w-0 truncate text-xs text-fg-subtle">{question.header}</p>
+          ) : null}
+        </div>
+      ) : null}
+      <h2 className="flex items-start gap-2.5 text-sm leading-snug text-fg" aria-live="polite">
+        <span aria-hidden="true" className="ari-status mt-[3px]" data-status="attention" />
         {question.question}
       </h2>
-      <div className="mt-2 flex max-h-56 flex-col overflow-y-auto">
+      <div className="ari-scroll mt-2 flex max-h-56 flex-col overflow-y-auto">
         {question.multiSelect
           ? question.options.map((option) => {
               const selected = picked.includes(optionValue(option))
               return (
                 <div
                   key={option.id}
-                  className={`rounded-md px-2 py-1.5 transition-colors ${
-                    selected ? 'bg-accent-subtle' : 'hover:bg-surface-2'
-                  }`}
+                  className={cx(OPTION_ROW, selected ? 'bg-fg/9' : 'hover:bg-fg/5')}
                 >
                   <Checkbox
                     className="w-full min-w-0"
@@ -305,10 +326,10 @@ function Interview({
                     disabled={busy}
                     onChange={() => toggleMulti(optionValue(option))}
                   >
-                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                      <span className="text-xs font-medium text-fg">{option.label}</span>
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2.5">
+                      <span className="text-[13px] text-fg">{option.label}</span>
                       {option.description ? (
-                        <span className="text-2xs text-fg-muted">{option.description}</span>
+                        <span className="text-xs text-fg-subtle">{option.description}</span>
                       ) : null}
                     </span>
                   </Checkbox>
@@ -324,16 +345,17 @@ function Interview({
                   disabled={busy}
                   aria-pressed={selected}
                   onClick={() => commit(optionValue(option), true)}
-                  className={`flex w-full min-w-0 flex-wrap items-baseline gap-x-2.5 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50 ${
-                    selected ? 'bg-accent-subtle' : 'hover:bg-surface-2'
-                  }`}
+                  className={cx(OPTION_ROW, OPTION_BUTTON, selected ? 'bg-fg/9' : 'hover:bg-fg/5')}
                 >
-                  <kbd className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-surface-2 font-mono text-[10px] text-fg-subtle">
-                    {i + 1}
-                  </kbd>
-                  <span className="text-xs font-medium text-fg">{option.label}</span>
-                  {option.description ? (
-                    <span className="text-2xs text-fg-muted">{option.description}</span>
+                  <kbd className={OPTION_KEY}>{i + 1}</kbd>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2.5">
+                    <span className="text-[13px] text-fg">{option.label}</span>
+                    {option.description ? (
+                      <span className="text-xs text-fg-subtle">{option.description}</span>
+                    ) : null}
+                  </span>
+                  {selected ? (
+                    <Check size={14} strokeWidth={1.75} aria-hidden className="shrink-0 text-fg" />
                   ) : null}
                 </button>
               )
@@ -345,20 +367,21 @@ function Interview({
             aria-pressed={otherOpen}
             aria-expanded={otherOpen}
             onClick={() => setOtherOpen((open) => !open)}
-            className={`flex w-full min-w-0 flex-wrap items-baseline gap-x-2.5 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50 ${
-              otherOpen ? 'bg-accent-subtle' : 'hover:bg-surface-2'
-            }`}
+            className={cx(OPTION_ROW, OPTION_BUTTON, otherOpen ? 'bg-fg/9' : 'hover:bg-fg/5')}
           >
-            <kbd className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-surface-2 font-mono text-[10px] text-fg-subtle">
-              {question.options.length + 1}
-            </kbd>
-            <span className="text-xs text-fg-muted">{OTHER_LABEL}</span>
-            <span className="text-2xs text-fg-subtle">Describe your own answer</span>
+            <kbd className={OPTION_KEY}>{question.options.length + 1}</kbd>
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2.5">
+              <span className="text-[13px] text-fg-muted">{OTHER_LABEL}</span>
+              <span className="text-xs text-fg-subtle">Describe your own answer</span>
+            </span>
+            {otherOpen ? (
+              <Check size={14} strokeWidth={1.75} aria-hidden className="shrink-0 text-fg" />
+            ) : null}
           </button>
         )}
         {custom ? (
-          <div className="mt-1 rounded-md border border-border bg-surface-2 p-2">
-            <label htmlFor="question-other-input" className="mb-1 block text-2xs text-fg-muted">
+          <div className="mt-1.5 px-0.5 pb-0.5">
+            <label htmlFor="question-other-input" className="mb-1 block text-xs text-fg-subtle">
               {choiceLess ? 'Your answer' : 'Custom answer'}
             </label>
             <Textarea
@@ -378,13 +401,13 @@ function Interview({
               }}
               placeholder={choiceLess ? 'Type your answer…' : 'Describe what you want instead…'}
             />
-            <p className="mt-1 text-[10px] leading-relaxed text-fg-subtle">
+            <p className="mt-1 text-xs leading-relaxed text-fg-subtle">
               Your text is sent as the answer when you press {last ? 'Submit' : 'Continue'}.
             </p>
           </div>
         ) : null}
       </div>
-      <div className="mt-2 flex items-center gap-1.5">
+      <div className="mt-2.5 flex items-center gap-1.5">
         {onCancel ? (
           <Button
             type="button"
@@ -407,7 +430,13 @@ function Interview({
         >
           Back
         </Button>
-        <Button type="button" variant="primary" size="sm" disabled={busy || !canContinue} onClick={continueNext}>
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          disabled={busy || !canContinue}
+          onClick={continueNext}
+        >
           {last ? 'Submit' : 'Continue'}
         </Button>
       </div>
@@ -435,22 +464,30 @@ function PlanApproval({
   }
 
   return (
-    <section role="region" aria-label="Plan approval" className="rounded-lg border border-accent bg-surface-1 p-3">
-      <p className="text-sm font-medium text-fg">{prompt}</p>
-      <p className="mt-1 text-xs text-fg-muted">The full plan is in the side panel.</p>
+    <section role="region" aria-label="Plan approval" className="px-3.5 py-2.5">
+      <p className="flex items-start gap-2.5 text-sm leading-snug text-fg">
+        <span aria-hidden="true" className="ari-status mt-[3px]" data-status="attention" />
+        {prompt}
+      </p>
+      <p className="mt-1 ps-6 text-xs text-fg-subtle">The full plan is in the side panel.</p>
       {planContent.length > 0 ? (
-        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-2 p-2 font-mono text-2xs text-fg-muted">
+        <pre className="ari-scroll mt-2.5 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-0 px-3 py-2 font-mono text-[12.5px] leading-relaxed text-fg-muted">
           {planContent.slice(0, 280)}
           {planContent.length > 280 ? '…' : ''}
         </pre>
       ) : null}
       {mode === 'changes' ? (
         <form
-          className="mt-3 flex flex-col gap-2"
+          className="mt-2.5 flex flex-col gap-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
             const text = feedback.trim()
-            pick(JSON.stringify({ outcome: 'cancelled', ...(text.length > 0 ? { feedback: text } : {}) }))
+            pick(
+              JSON.stringify({
+                outcome: 'cancelled',
+                ...(text.length > 0 ? { feedback: text } : {}),
+              }),
+            )
           }}
         >
           <Textarea
@@ -470,16 +507,31 @@ function PlanApproval({
           </div>
         </form>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button variant="primary" size="sm" disabled={chosen != null} onClick={() => pick('approved')}>
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={chosen != null}
+            onClick={() => pick('approved')}
+          >
             Approve
           </Button>
-          <Button variant="secondary" size="sm" disabled={chosen != null} onClick={() => setMode('changes')}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={chosen != null}
+            onClick={() => setMode('changes')}
+          >
             Request changes
           </Button>
-          <Button variant="danger" size="sm" disabled={chosen != null} onClick={() => pick('abandoned')}>
+          <button
+            type="button"
+            className={destructiveButton}
+            disabled={chosen != null}
+            onClick={() => pick('abandoned')}
+          >
             Abandon
-          </Button>
+          </button>
         </div>
       )}
     </section>
@@ -507,7 +559,7 @@ function FreeText({
     <section
       role="region"
       aria-label="Agent question"
-      className="px-3 py-2.5"
+      className="px-3.5 py-2.5"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && chosen == null) {
           event.preventDefault()
@@ -515,9 +567,12 @@ function FreeText({
         }
       }}
     >
-      <p className="text-sm font-medium leading-snug text-fg">{prompt}</p>
+      <p className="flex items-start gap-2.5 text-sm leading-snug text-fg">
+        <span aria-hidden="true" className="ari-status mt-[3px]" data-status="attention" />
+        {prompt}
+      </p>
       <form
-        className="mt-2 flex items-center gap-2"
+        className="mt-2 flex items-center gap-1.5"
         onSubmit={(event) => {
           event.preventDefault()
           submit()
@@ -548,7 +603,12 @@ function FreeText({
             Skip
           </Button>
         ) : null}
-        <Button type="submit" variant="primary" size="sm" disabled={draft.trim() === '' || chosen != null}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          disabled={draft.trim() === '' || chosen != null}
+        >
           Submit
         </Button>
       </form>

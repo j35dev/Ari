@@ -29,35 +29,35 @@ export function RemotePairingApproval({
   return (
     <section
       aria-labelledby="remote-pending-heading"
-      className="rounded-xl border border-accent/40 bg-surface-1 p-5"
+      className="rounded-xl border border-border-strong bg-surface-1 px-4 py-3.5"
     >
-      <p className="mb-2 text-xs font-medium text-accent">Confirm on this computer</p>
-      <h2 id="remote-pending-heading" className="text-base font-semibold">
+      <p className="mb-2 flex items-center gap-2 text-[13px] text-accent">
+        <span className="ari-status" data-status="attention" aria-hidden="true" />
+        Confirm on this computer
+      </p>
+      <h2 id="remote-pending-heading" className="text-sm font-medium text-fg">
         A device wants to connect
       </h2>
-      <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+      <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
         {pending.displayName} asked to pair. This code must match the one on the phone&apos;s
         screen.
       </p>
-      <p
-        aria-label="Confirmation code"
-        className="my-4 font-mono text-2xl tracking-[0.2em] text-fg"
-      >
+      <p aria-label="Confirmation code" className="my-4 font-mono text-2xl text-fg">
         {pending.confirmationCode}
       </p>
       {expired ? (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="mb-2 text-[13px] text-danger">
           This request expired. Start a new invitation.
         </p>
       ) : null}
       <fieldset disabled={disabled || expired} className="space-y-3">
         <legend className="sr-only">Verify device and choose access</legend>
-        <label className="flex min-h-11 items-center gap-3 text-sm">
+        <label className="flex min-h-10 items-center gap-3 text-sm text-fg">
           <input
             type="checkbox"
             checked={verified}
             onChange={(event) => setVerified(event.target.checked)}
-            className="size-4 accent-accent"
+            className="size-4 accent-fg"
           />
           The codes match
         </label>
@@ -72,7 +72,7 @@ export function RemotePairingApproval({
           }}
         />
       </fieldset>
-      <p className="my-3 text-xs leading-relaxed text-fg-muted">
+      <p className="my-3 text-[13px] leading-5 text-fg-subtle">
         This device can direct agents and answer approvals in the selected projects. Agents use
         their desktop permissions.
       </p>
@@ -81,11 +81,10 @@ export function RemotePairingApproval({
           variant="primary"
           disabled={disabled || expired || !verified || projectIds.length === 0}
           onClick={() => approve(projectIds, allowTerminal)}
-          className="min-h-11"
         >
           Approve
         </Button>
-        <Button disabled={disabled} onClick={deny} className="min-h-11">
+        <Button disabled={disabled} onClick={deny}>
           Deny
         </Button>
       </div>

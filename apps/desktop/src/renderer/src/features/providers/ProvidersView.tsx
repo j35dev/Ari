@@ -5,6 +5,7 @@ import type { CliKind, ProviderConnection, SettingsUpdate } from '@ari/contracts
 import { Button } from '@ari/ui/button'
 import { RefreshCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { SETTINGS_LEAD_CLASS, SETTINGS_TITLE_CLASS } from '../settings/SettingsPage'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { ProviderEditor } from './ProviderEditor'
 import { ProviderList } from './ProviderList'
@@ -166,11 +167,11 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
   const row = rows.find((entry) => entry.kind === selected) ?? rows[0]
 
   return (
-    <section aria-label="Providers" className="flex flex-col gap-5">
-      <div className="mb-3 flex items-start justify-between gap-6 px-1">
+    <section aria-label="Providers" className="flex flex-col">
+      <div className="mb-[30px] flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-fg">Providers</h1>
-          <p className="mt-1 max-w-xl text-sm leading-relaxed text-fg-muted">
+          <h1 className={SETTINGS_TITLE_CLASS}>Providers</h1>
+          <p className={SETTINGS_LEAD_CLASS}>
             Choose which agents Ari uses and which install of each it runs.
           </p>
         </div>
@@ -181,18 +182,22 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
           title="Look for every provider again"
           onClick={() => void scan('providers.rescan')}
         >
-          <RefreshCw className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`} />
+          <RefreshCw
+            className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`}
+            strokeWidth={1.7}
+            aria-hidden
+          />
           {scanning || checkedAt === null ? 'Checking…' : `Checked ${checkedAgo(checkedAt, now)}`}
         </Button>
       </div>
 
       {error != null && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="mb-3 text-[13px] text-danger">
           {error}
         </p>
       )}
 
-      <div className="grid overflow-hidden rounded-xl border border-border bg-surface-1/70 md:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="grid overflow-hidden rounded-xl border border-border bg-surface-1 md:grid-cols-[16rem_minmax(0,1fr)]">
         <div className="border-b border-border md:border-b-0 md:border-r">
           <ProviderList
             rows={rows}

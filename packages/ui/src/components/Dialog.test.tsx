@@ -34,7 +34,7 @@ describe('Dialog', () => {
     expect(panel.className).toContain('w-[min(480px,90vw)]')
     expect(panel.className).not.toContain('w-[min(920px,92vw)]')
     expect(panel.parentElement).toHaveStyle({
-      background: 'color-mix(in oklab, black 55%, transparent)',
+      background: 'color-mix(in oklab, black 40%, transparent)',
     })
   })
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@ari/ui/dialog'
 import { Kbd } from '@ari/ui/kbd'
+import { primaryButton } from '../../lib/recipes'
 import { isEditableTarget } from '../../shell/editable-target'
 import { resolveChord } from './KeybindingsSettings'
 import { APP_SHORTCUTS } from './shortcuts'
@@ -60,13 +61,13 @@ export function KeyboardCheatSheet() {
       <Dialog.Content className="w-[min(560px,90vw)]">
         <Dialog.Title>Keyboard shortcuts</Dialog.Title>
         <Dialog.Description>Every shortcut the workspace responds to.</Dialog.Description>
-        <table className="mt-3 w-full border-collapse text-sm">
+        <table className="mt-4 w-full border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-border">
-              <th scope="col" className="py-1.5 pr-3 text-left font-medium text-fg-muted">
+              <th scope="col" className="pb-2 pr-3 text-left text-xs font-normal text-fg-subtle">
                 Action
               </th>
-              <th scope="col" className="py-1.5 text-left font-medium text-fg-muted">
+              <th scope="col" className="pb-2 text-left text-xs font-normal text-fg-subtle">
                 Keys
               </th>
             </tr>
@@ -76,8 +77,8 @@ export function KeyboardCheatSheet() {
               const keys = shortcutKeys(shortcut)
               return (
                 <tr key={shortcut.id} className="border-b border-border last:border-b-0">
-                  <td className="py-1.5 pr-3 align-middle text-fg">{shortcut.label}</td>
-                  <td className="py-1.5 align-middle">
+                  <td className="py-2 pr-3 align-middle text-fg">{shortcut.label}</td>
+                  <td className="py-2 align-middle">
                     <span
                       className="flex items-center gap-1"
                       aria-label={`${shortcut.label}: ${keys.join(' plus ')}`}
@@ -93,9 +94,7 @@ export function KeyboardCheatSheet() {
           </tbody>
         </table>
         <div className="mt-4 flex justify-end">
-          <Dialog.Close className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-fg-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
-            Close
-          </Dialog.Close>
+          <Dialog.Close className={primaryButton}>Close</Dialog.Close>
         </div>
       </Dialog.Content>
     </Dialog>

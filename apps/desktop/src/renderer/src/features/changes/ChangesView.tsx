@@ -8,8 +8,9 @@ import { rpc } from '../../lib/rpc'
 import { CheckpointList } from './CheckpointList'
 import { ReviewWorkspace, type ReviewWorkspaceProps } from './ReviewWorkspace'
 import { ChangeRequests } from './ChangeRequests'
-import { Maximize2, PanelRight, X } from 'lucide-react'
+import { ChevronDown, Maximize2, PanelRight, X } from 'lucide-react'
 import { ReviewActions } from './ReviewActions'
+import { cx, iconButton, tab as tabClass, tabSelected, textButton } from '../../lib/recipes'
 
 const log = createLogger('ui:changes')
 
@@ -86,10 +87,68 @@ export function ChangesView({
       cancelled = true
     }
   }, [sessionId, projectId, retry])
+  // Full page (it can be docked back) gets a title row; docked beside the
+  // conversation, the panel's own tab row already names it.
+  const page = onDock !== undefined
+  const tools = (
+    <>
+      {!sessionId && !projectId && projects.length ? (
+        <Select
+          aria-label="Source control project"
+          value={fallback ?? ''}
+          options={projects.map((project) => ({ value: project.id, label: project.name }))}
+          onValueChange={setFallback}
+          className="max-w-48"
+        />
+      ) : null}
+      {onExpand ? (
+        <button
+          type="button"
+          aria-label="Expand source control"
+          title="Open a full-width review workspace"
+          onClick={onExpand}
+          className={iconButton}
+        >
+          <Maximize2 size={14} />
+        </button>
+      ) : null}
+      {onDock ? (
+        <button
+          type="button"
+          aria-label="Dock source control"
+          title="Review beside your conversation"
+          onClick={onDock}
+          className={iconButton}
+        >
+          <PanelRight size={14} />
+        </button>
+      ) : null}
+      {onClose ? (
+        <button
+          type="button"
+          aria-label="Close source control"
+          onClick={onClose}
+          className={iconButton}
+        >
+          <X size={14} />
+        </button>
+      ) : null}
+    </>
+  )
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-surface-0 px-3">
-        <div className="flex self-stretch gap-4" role="tablist" aria-label="Source control view">
+    <div className="flex h-full min-h-0 flex-col bg-bg">
+      {page ? (
+        <header className="flex shrink-0 items-center gap-1 px-6 pb-2 pt-6">
+          <h1 className="text-[24px] font-semibold leading-8 tracking-[-0.02em] text-fg">
+            Changes
+          </h1>
+          <div className="flex-1" />
+          {tools}
+        </header>
+      ) : null}
+      {/* No hairline here: the view below opens with its own toolbar and edge. */}
+      <div className={cx('flex h-10 shrink-0 items-center gap-1', page ? 'px-5' : 'px-2')}>
+        <div className="flex items-center gap-0.5" role="tablist" aria-label="Source control view">
           {(['changes', 'requests'] as const).map((value) => (
             <button
               key={value}
@@ -115,57 +174,17 @@ export function ChangesView({
               }}
               aria-controls={`scm-panel-${value}`}
               onClick={() => selectTab(value)}
-              className={`border-b-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${tab === value ? 'border-accent text-fg' : 'border-transparent text-fg-subtle hover:text-fg'}`}
+              className={cx(tabClass, tab === value && tabSelected)}
             >
               {value === 'changes' ? 'Changes' : 'Pull requests'}
             </button>
           ))}
         </div>
         <div className="flex-1" />
-        {!sessionId && !projectId && projects.length ? (
-          <Select
-            aria-label="Source control project"
-            value={fallback ?? ''}
-            options={projects.map((project) => ({ value: project.id, label: project.name }))}
-            onValueChange={setFallback}
-            className="max-w-48"
-          />
-        ) : null}
-        {onExpand ? (
-          <button
-            type="button"
-            aria-label="Expand source control"
-            title="Open a full-width review workspace"
-            onClick={onExpand}
-            className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <Maximize2 size={13} />
-          </button>
-        ) : null}
-        {onDock ? (
-          <button
-            type="button"
-            aria-label="Dock source control"
-            title="Review beside your conversation"
-            onClick={onDock}
-            className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <PanelRight size={13} />
-          </button>
-        ) : null}
-        {onClose ? (
-          <button
-            type="button"
-            aria-label="Close source control"
-            onClick={onClose}
-            className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <X size={13} />
-          </button>
-        ) : null}
+        {page ? null : tools}
       </div>
       {error && !scope ? (
-        <p role="alert" className="p-6 text-sm text-danger">
+        <p role="alert" className="px-4 py-3 text-[13px] text-danger">
           {error}
           <button
             type="button"
@@ -205,17 +224,22 @@ export function ChangesView({
         </div>
       </div>
       {sessionId && tab === 'changes' ? (
-        <div className="shrink-0 border-t border-border/60 bg-surface-0 px-3 py-2">
+        <div className="shrink-0 border-t border-border px-2 py-1">
           <button
             type="button"
-            className="text-2xs text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+            className={textButton}
             aria-expanded={checkpoints}
             onClick={() => setCheckpoints(!checkpoints)}
           >
             Turn checkpoints
+            <ChevronDown
+              size={14}
+              aria-hidden
+              className={cx('text-fg-subtle', checkpoints && 'rotate-180')}
+            />
           </button>
           {checkpoints ? (
-            <div className="ari-scroll max-h-48 overflow-auto pt-2">
+            <div className="ari-scroll max-h-48 overflow-auto px-2 pb-2 pt-1">
               <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
             </div>
           ) : null}

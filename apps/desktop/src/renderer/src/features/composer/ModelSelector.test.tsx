@@ -6,7 +6,9 @@ import { ModelSelector } from './ModelSelector'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
-  subscribe: vi.fn((_name: string, _params: unknown, _listener: (payload: unknown) => void) => () => undefined),
+  subscribe: vi.fn(
+    (_name: string, _params: unknown, _listener: (payload: unknown) => void) => () => undefined,
+  ),
 }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
@@ -20,7 +22,12 @@ function setup(
 } {
   const onChange = vi.fn()
   render(
-    <ModelSelector driverKind={driverKind} modelId={modelId} onChange={onChange} lockedTo={lockedTo} />,
+    <ModelSelector
+      driverKind={driverKind}
+      modelId={modelId}
+      onChange={onChange}
+      lockedTo={lockedTo}
+    />,
   )
   return { onChange }
 }
@@ -96,10 +103,20 @@ describe('ModelSelector', () => {
     const list = screen.getByRole('listbox', { name: 'Models' })
     expect(within(list).getByText('GPT-5.6')).toBeInTheDocument()
     const invoke = rpcMocks.invoke.getMockImplementation()!
-    rpcMocks.invoke.mockImplementation(async (method: string) => method === 'providers.models'
-      ? [{ kind: 'codex', source: 'live', models: [{ id: 'future-cli-model', label: 'New CLI model' }] }]
-      : invoke(method) as Promise<unknown>)
-    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    rpcMocks.invoke.mockImplementation(async (method: string) =>
+      method === 'providers.models'
+        ? [
+            {
+              kind: 'codex',
+              source: 'live',
+              models: [{ id: 'future-cli-model', label: 'New CLI model' }],
+            },
+          ]
+        : (invoke(method) as Promise<unknown>),
+    )
+    const listener = rpcMocks.subscribe.mock.calls.find(
+      ([name]) => name === 'providers.updates',
+    )?.[2]
     expect(listener).toBeDefined()
     await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
     expect(await within(list).findByText('New CLI model')).toBeInTheDocument()
@@ -129,7 +146,9 @@ describe('ModelSelector', () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
 
-    await user.click(within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'))
+    await user.click(
+      within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'),
+    )
     const models = screen.getByRole('listbox', { name: 'Models' })
     expect(within(models).getByText('GPT-5.6')).toBeInTheDocument()
     expect(within(models).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
@@ -200,23 +219,32 @@ describe('ModelSelector', () => {
   })
 
   it('opens and scrolls to a selected model deep in the catalog', async () => {
-    replyWith('providers.models', [{
-      kind: 'pi', source: 'live',
-      models: Array.from({ length: 50 }, (_, i) => ({
-        id: `agentrouter/model-${i}`, label: `Model ${i}`,
-      })),
-    }])
+    replyWith('providers.models', [
+      {
+        kind: 'pi',
+        source: 'live',
+        models: Array.from({ length: 50 }, (_, i) => ({
+          id: `agentrouter/model-${i}`,
+          label: `Model ${i}`,
+        })),
+      },
+    ])
     const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
     const scrolled: HTMLElement[] = []
-    const scroll = vi.fn(function (this: HTMLElement) { scrolled.push(this) })
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    const scroll = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this)
+    })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scroll,
+    })
     try {
       const { onChange } = setup('pi', 'agentrouter/model-42', 'pi')
       const user = userEvent.setup()
       await user.click(await screen.findByRole('button', { name: /model:/i }))
       const selected = screen.getByRole('option', { selected: true })
       expect(selected).toHaveTextContent('Model 42')
-      expect(selected).toHaveClass('bg-accent-subtle')
+      expect(selected).toHaveClass('bg-fg/9')
       expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
       expect(scrolled).toContain(selected)
       expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
@@ -236,14 +264,15 @@ describe('ModelSelector', () => {
     const selected = screen.getByRole('option', { selected: true })
     const other = screen.getByRole('option', { name: /Sonnet/ })
     await user.hover(other)
-    expect(selected).toHaveClass('bg-accent-subtle')
-    expect(other).toHaveClass('bg-surface-2')
+    expect(selected).toHaveClass('bg-fg/9')
+    expect(other).toHaveClass('bg-fg/6')
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', other.id)
     expect(onChange).not.toHaveBeenCalled()
     await user.keyboard('{Escape}')
     await user.click(trigger)
     expect(screen.getByRole('combobox')).toHaveAttribute(
-      'aria-activedescendant', screen.getByRole('option', { selected: true }).id,
+      'aria-activedescendant',
+      screen.getByRole('option', { selected: true }).id,
     )
     await user.keyboard('{Enter}')
     expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
@@ -289,9 +318,18 @@ describe('ModelSelector', () => {
     )
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
-    await user.click(within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'))
+    await user.click(
+      within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'),
+    )
     expect(screen.getByRole('option')).toHaveTextContent('GPT-5.6')
-    rerender(<ModelSelector driverKind="claude" modelId="sonnet-4" onChange={onChange} lockedTo="claude" />)
+    rerender(
+      <ModelSelector
+        driverKind="claude"
+        modelId="sonnet-4"
+        onChange={onChange}
+        lockedTo="claude"
+      />,
+    )
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Sonnet 4.5')
     expect(screen.queryByText('GPT-5.6')).not.toBeInTheDocument()
     await user.type(screen.getByRole('combobox'), 'gpt')
@@ -304,13 +342,22 @@ describe('ModelSelector', () => {
     setup('codex', 'future-cli-model', 'codex')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
-    replyWith('providers.models', [{ kind: 'codex', source: 'live', models: [
-      { id: 'gpt-5.6', label: 'GPT-5.6' }, { id: 'future-cli-model', label: 'New CLI model' },
-    ] }])
-    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    replyWith('providers.models', [
+      {
+        kind: 'codex',
+        source: 'live',
+        models: [
+          { id: 'gpt-5.6', label: 'GPT-5.6' },
+          { id: 'future-cli-model', label: 'New CLI model' },
+        ],
+      },
+    ])
+    const listener = rpcMocks.subscribe.mock.calls.find(
+      ([name]) => name === 'providers.updates',
+    )?.[2]
     await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
     const selected = await screen.findByRole('option', { selected: true })
-    expect(selected).toHaveClass('bg-accent-subtle')
+    expect(selected).toHaveClass('bg-fg/9')
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
   })
 
@@ -319,49 +366,73 @@ describe('ModelSelector', () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
     await user.keyboard('{ArrowDown}')
-    replyWith('providers.models', [{ kind: 'claude', source: 'live', models: [
-      { id: 'opus-4', label: 'Opus 4' }, { id: 'sonnet-4', label: 'Sonnet 4.5' },
-    ] }])
-    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    replyWith('providers.models', [
+      {
+        kind: 'claude',
+        source: 'live',
+        models: [
+          { id: 'opus-4', label: 'Opus 4' },
+          { id: 'sonnet-4', label: 'Sonnet 4.5' },
+        ],
+      },
+    ])
+    const listener = rpcMocks.subscribe.mock.calls.find(
+      ([name]) => name === 'providers.updates',
+    )?.[2]
     await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
     expect(screen.getByRole('combobox')).toHaveAttribute(
-      'aria-activedescendant', screen.getByRole('option', { name: /Opus/ }).id,
+      'aria-activedescendant',
+      screen.getByRole('option', { name: /Opus/ }).id,
     )
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Sonnet 4.5')
   })
 
   it.each(['ep:end_1:llama3.1:8b', 'ep:end_1'])(
-    'highlights endpoint selection %s without guessing the first model', async (modelId) => {
-      replyWith('endpoints.list', [{
-        id: 'end_1', name: 'My Relay', model: 'llama3.1:8b', models: [
-          { id: 'relay-small', label: 'Relay Small', contextWindow: null },
-          { id: 'llama3.1:8b', label: 'Llama 3.1', contextWindow: null },
-        ],
-      }])
+    'highlights endpoint selection %s without guessing the first model',
+    async (modelId) => {
+      replyWith('endpoints.list', [
+        {
+          id: 'end_1',
+          name: 'My Relay',
+          model: 'llama3.1:8b',
+          models: [
+            { id: 'relay-small', label: 'Relay Small', contextWindow: null },
+            { id: 'llama3.1:8b', label: 'Llama 3.1', contextWindow: null },
+          ],
+        },
+      ])
       const { onChange } = setup('ari-core', modelId, 'ari-core')
       const user = userEvent.setup()
       const trigger = await screen.findByRole('button', { name: /model:/i })
       await waitFor(() => expect(trigger).toHaveTextContent('My Relay · Llama 3.1'))
       await user.click(trigger)
       const selected = screen.getByRole('option', { selected: true })
-      expect(selected).toHaveClass('bg-accent-subtle')
+      expect(selected).toHaveClass('bg-fg/9')
       expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
       await user.type(screen.getByRole('combobox'), 'small')
       expect(screen.getAllByRole('option')).toHaveLength(1)
       expect(screen.getByRole('option')).toHaveTextContent('My Relay · Relay Small')
       await user.clear(screen.getByRole('combobox'))
       await user.keyboard('{Enter}')
-      expect(onChange).toHaveBeenCalledWith({ driverKind: 'ari-core', modelId: 'ep:end_1:llama3.1:8b' })
+      expect(onChange).toHaveBeenCalledWith({
+        driverKind: 'ari-core',
+        modelId: 'ep:end_1:llama3.1:8b',
+      })
     },
   )
 
   it('does not mark a default-suffixed model when the selected endpoint id ends in a colon', async () => {
-    replyWith('endpoints.list', [{
-      id: 'end_1', name: 'My Relay', model: 'model:', models: [
-        { id: 'model:default', label: 'Other model', contextWindow: null },
-        { id: 'model:', label: 'Current model', contextWindow: null },
-      ],
-    }])
+    replyWith('endpoints.list', [
+      {
+        id: 'end_1',
+        name: 'My Relay',
+        model: 'model:',
+        models: [
+          { id: 'model:default', label: 'Other model', contextWindow: null },
+          { id: 'model:', label: 'Current model', contextWindow: null },
+        ],
+      },
+    ])
     const { onChange } = setup('ari-core', 'ep:end_1:model:', 'ari-core')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
@@ -407,7 +478,7 @@ describe('ModelSelector', () => {
     })
     const onChange = vi.fn()
     const user = userEvent.setup()
-    render(<ModelSelector driverKind='ari-core' modelId={null} onChange={onChange} />)
+    render(<ModelSelector driverKind="ari-core" modelId={null} onChange={onChange} />)
 
     await user.click(screen.getByRole('button', { name: /model:/i }))
     const models = await screen.findByRole('listbox', { name: 'Models' })
@@ -441,7 +512,7 @@ describe('ModelSelector', () => {
       throw new Error(`unexpected ${String(method)}`)
     })
     render(
-      <ModelSelector driverKind='ari-core' modelId='ep:end_1:relay-large' onChange={vi.fn()} />,
+      <ModelSelector driverKind="ari-core" modelId="ep:end_1:relay-large" onChange={vi.fn()} />,
     )
 
     const trigger = await screen.findByRole('button', { name: /model:/i })
@@ -467,7 +538,7 @@ describe('ModelSelector', () => {
       }
       throw new Error(`unexpected ${String(method)}`)
     })
-    render(<ModelSelector driverKind='ari-core' modelId='ep:end_1' onChange={vi.fn()} />)
+    render(<ModelSelector driverKind="ari-core" modelId="ep:end_1" onChange={vi.fn()} />)
 
     const trigger = await screen.findByRole('button', { name: /model:/i })
     expect(trigger).toHaveTextContent('My Relay · Relay Large')
@@ -563,7 +634,13 @@ describe('ModelSelector', () => {
       // No ~/.claude credentials file, but ANTHROPIC_API_KEY may still work —
       // "Ari cannot tell" must not hide a usable provider.
       detectAs([
-        { kind: 'claude', installed: true, binaryPath: 'C:/bin/claude', version: '1', authStatus: 'unknown' },
+        {
+          kind: 'claude',
+          installed: true,
+          binaryPath: 'C:/bin/claude',
+          version: '1',
+          authStatus: 'unknown',
+        },
       ])
       setup()
       const user = userEvent.setup()
@@ -648,7 +725,8 @@ describe('ModelSelector', () => {
         'Claude Opus 4.8',
       )
       expect(screen.getByRole('combobox')).toHaveAttribute(
-        'aria-activedescendant', within(models).getByRole('option', { selected: true }).id,
+        'aria-activedescendant',
+        within(models).getByRole('option', { selected: true }).id,
       )
     })
 
@@ -699,9 +777,7 @@ describe('ModelSelector', () => {
 
       await user.click(trigger)
       const models = screen.getByRole('listbox', { name: 'Models' })
-      expect(within(models).getByRole('option', { selected: true })).toHaveTextContent(
-        'Sonnet 5.5',
-      )
+      expect(within(models).getByRole('option', { selected: true })).toHaveTextContent('Sonnet 5.5')
     })
 
     it('keeps a registry pick checked once the agent lists that model its own way', async () => {

@@ -1,11 +1,49 @@
-/* Reply visuals share Ari's palette, typography and surface hierarchy in every theme. */
+/*
+ * Reply visuals: charts, diagrams and briefs an agent describes as data.
+ *
+ * The frame is quiet. A title, the data, and a few icon controls that stay
+ * faint until the visual is hovered. Marks are thin, grid lines are hairlines
+ * one step off the surface, and text is always in text ink: a coloured mark
+ * beside a label carries identity, never the label itself.
+ */
+
+/*
+ * Series colours. Eight hues in a fixed order, chosen so that neighbours stay
+ * apart for colour-blind readers and every hue holds 3:1 on a dark surface.
+ * They are the same in every theme: a series is told apart by hue, and a
+ * theme's accent or status colours must never be mistaken for one.
+ */
+:root {
+  --ari-viz-1: #3987e5;
+  --ari-viz-2: #d95926;
+  --ari-viz-3: #199e70;
+  --ari-viz-4: #c98500;
+  --ari-viz-5: #d55181;
+  --ari-viz-6: #008300;
+  --ari-viz-7: #9085e9;
+  --ari-viz-8: #e66767;
+  --ari-viz-other: var(--ari-fg-subtle);
+}
+[data-ari-scheme='light'] {
+  --ari-viz-1: #2a78d6;
+  --ari-viz-2: #eb6834;
+  --ari-viz-3: #1baf7a;
+  --ari-viz-4: #eda100;
+  --ari-viz-5: #e87ba4;
+  --ari-viz-6: #008300;
+  --ari-viz-7: #6250d6;
+  --ari-viz-8: #e34948;
+}
+
 .ari-viz {
+  /* What shows between touching marks and around dots: the card's own fill. */
+  --ari-viz-surface: var(--ari-surface-0);
   margin: 16px 0;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--ari-border-strong);
+  border: 1px solid var(--ari-border);
   border-radius: var(--ari-radius-lg);
-  background: var(--ari-surface-0);
+  background: var(--ari-viz-surface);
   color: var(--ari-fg);
   font-family: var(--ari-font-ui);
   font-size: var(--ari-text-sm);
@@ -17,39 +55,26 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 20px 12px;
+  padding: 16px 12px 4px 20px;
 }
 .ari-viz-header > div:first-child {
   min-width: 0;
-}
-.ari-viz-kind {
-  display: block;
-  margin-bottom: 4px;
-  font-size: var(--ari-text-xs);
-  color: var(--ari-fg-subtle);
+  padding-top: 2px;
 }
 .ari-viz-title {
   display: block;
   font-size: var(--ari-text-md);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 .ari-viz-toolbar,
 .ari-viz-controls {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   align-items: center;
   flex-shrink: 0;
 }
-.ari-viz-view-switch {
-  display: flex;
-  padding: 2px;
-  border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-sm);
-  background: var(--ari-surface-1);
-}
-.ari-viz-view-switch button,
 .ari-viz-action,
 .ari-viz-series button {
   border: 0;
@@ -60,21 +85,35 @@
   cursor: pointer;
   border-radius: var(--ari-radius-sm);
 }
-.ari-viz-view-switch button {
-  padding: 3px 8px;
-}
-.ari-viz-view-switch button[aria-pressed='true'] {
-  color: var(--ari-fg);
-  background: var(--ari-surface-3);
-}
 .ari-viz-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 28px;
   min-height: 28px;
-  padding: 4px 7px;
+  padding: 0 6px;
+  color: var(--ari-fg-subtle);
 }
 .ari-viz-action:hover,
 .ari-viz-series button:hover {
-  background: var(--ari-surface-2);
+  background: color-mix(in oklab, var(--ari-fg) 6%, transparent);
   color: var(--ari-fg);
+}
+.ari-viz-action[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--ari-fg) 9%, transparent);
+  color: var(--ari-fg);
+}
+/* The controls wait in the background until the pointer or keyboard reaches the visual. */
+@media (hover: hover) and (pointer: fine) {
+  .ari-viz .ari-viz-toolbar {
+    opacity: 0.55;
+    transition: opacity var(--ari-dur-micro) ease;
+  }
+  .ari-viz:hover .ari-viz-toolbar,
+  .ari-viz:focus-within .ari-viz-toolbar {
+    opacity: 1;
+  }
 }
 .ari-viz button:focus-visible,
 .ari-viz summary:focus-visible,
@@ -83,21 +122,19 @@
   outline-offset: 2px;
 }
 .ari-viz-description {
-  margin: 0;
-  padding: 0 20px 12px;
+  margin: 2px 0 0;
   color: var(--ari-fg-muted);
   font-size: var(--ari-text-sm);
+  overflow-wrap: anywhere;
 }
 .ari-viz-body {
-  padding: 8px 16px 16px;
+  padding: 12px 20px 18px;
   min-width: 0;
 }
 .ari-viz-scroll {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ari-border-strong) transparent;
 }
 .ari-viz-svg {
   display: block;
@@ -112,25 +149,45 @@
   stroke: var(--ari-border);
   stroke-width: 1;
 }
+/* The line marks grow from is one step stronger than the grid behind them. */
+.ari-viz-axis line.ari-viz-baseline {
+  stroke: var(--ari-border-strong);
+}
 .ari-viz-axis text,
 .ari-viz-axis-label {
-  fill: var(--ari-fg-muted);
+  fill: var(--ari-fg-subtle);
   font-size: 12px;
 }
 .ari-viz-axis text {
   font-variant-numeric: tabular-nums;
 }
+.ari-viz-value-label {
+  fill: var(--ari-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 .ari-viz-total {
   fill: var(--ari-fg);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
 }
 .ari-viz-treemap-label,
 .ari-viz-node-label,
 .ari-viz-heat-value {
   fill: var(--ari-fg);
   font-size: 13px;
+}
+.ari-viz-treemap-value {
+  fill: var(--ari-fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ari-viz-heat-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 .ari-viz-node-label {
   font-weight: 500;
@@ -139,21 +196,45 @@
   fill: var(--ari-fg-muted);
   font-size: 11px;
   paint-order: stroke;
-  stroke: var(--ari-surface-0);
+  stroke: var(--ari-viz-surface);
   stroke-width: 5px;
   stroke-linejoin: round;
 }
 .ari-viz-mark {
   outline: none;
-  cursor: crosshair;
+  cursor: default;
 }
-.ari-viz-mark:hover > rect,
-.ari-viz-mark:focus-visible > rect,
-.ari-viz-mark:focus-visible > circle,
-.ari-viz-mark:hover > circle,
-.ari-viz-mark:focus-visible > path {
+/* The mark under the pointer lifts; nothing is outlined. */
+.ari-viz-shape,
+.ari-viz-dot {
+  transition:
+    filter var(--ari-dur-micro) ease,
+    opacity var(--ari-dur-micro) ease;
+}
+.ari-viz-mark:hover > .ari-viz-shape,
+.ari-viz-mark:focus-visible > .ari-viz-shape,
+.ari-viz-mark[data-viz-pinned] > .ari-viz-shape {
+  filter: brightness(1.18) saturate(1.08);
+}
+[data-ari-scheme='light'] .ari-viz-mark:hover > .ari-viz-shape,
+[data-ari-scheme='light'] .ari-viz-mark:focus-visible > .ari-viz-shape,
+[data-ari-scheme='light'] .ari-viz-mark[data-viz-pinned] > .ari-viz-shape {
+  filter: brightness(0.9) saturate(1.1);
+}
+.ari-viz-mark:focus-visible > .ari-viz-shape,
+.ari-viz-mark:focus-visible > .ari-viz-dot {
   stroke: var(--ari-fg);
   stroke-width: 2;
+}
+/* On a long line the dots stay out of the way until a point is looked at. */
+.ari-viz-dot-quiet {
+  opacity: 0;
+}
+.ari-viz-column:hover .ari-viz-dot-quiet,
+.ari-viz-column:focus-within .ari-viz-dot-quiet,
+.ari-viz-column[data-viz-pinned] .ari-viz-dot-quiet,
+.ari-viz-mark[data-viz-pinned] > .ari-viz-dot-quiet {
+  opacity: 1;
 }
 .ari-viz-radar-grid {
   fill: none;
@@ -163,17 +244,16 @@
 .ari-viz-series {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 20px 8px;
+  gap: 2px 4px;
+  padding: 6px 14px 0;
 }
 .ari-viz-series button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   max-width: 100%;
   min-width: 0;
-  padding: 4px 7px;
-  border: 1px solid var(--ari-border);
+  padding: 3px 7px;
   white-space: normal;
   text-align: left;
 }
@@ -182,51 +262,44 @@
   overflow-wrap: anywhere;
 }
 .ari-viz-series button[aria-pressed='false'] {
-  opacity: 0.5;
-  text-decoration: line-through;
+  opacity: 0.45;
+}
+.ari-viz-series button[aria-pressed='false'] .ari-viz-swatch {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1.5px var(--ari-fg-subtle);
 }
 .ari-viz-series button:disabled {
   cursor: default;
 }
 .ari-viz-swatch {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2.5px;
   flex-shrink: 0;
 }
-.ari-viz-inspect {
-  min-height: 35px;
-  padding: 8px 20px;
-  border-top: 1px solid var(--ari-border);
-  background: var(--ari-surface-1);
-  font-size: var(--ari-text-xs);
-  color: var(--ari-fg-muted);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
 .ari-viz-source {
-  padding: 8px 20px;
-  border-top: 1px solid var(--ari-border);
+  padding: 0 20px 14px;
+  margin-top: -6px;
   font-size: var(--ari-text-xs);
   color: var(--ari-fg-subtle);
   overflow-wrap: anywhere;
 }
 .ari-viz-parts {
   display: grid;
-  grid-template-columns: minmax(180px, 320px) minmax(140px, 520px);
+  grid-template-columns: minmax(150px, 200px) minmax(140px, 300px);
   align-items: center;
-  gap: 32px;
-  padding: 0 12px;
+  gap: 40px;
+  padding: 4px 0;
 }
 /* Pie and donut draw at their natural size; stretching them clipped the circle on desktop. */
 .ari-viz-parts .ari-viz-svg {
-  max-width: 320px;
+  max-width: 200px;
   margin: 0 auto;
 }
 .ari-viz-item-legend {
   display: grid;
-  gap: 10px;
+  gap: 2px;
 }
 .ari-viz-item-legend > div,
 .ari-viz-item-legend > button {
@@ -241,12 +314,12 @@
 }
 .ari-viz-item-legend > button {
   display: grid;
-  grid-template-columns: 7px minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr) auto 3.25rem;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
-  margin: -2px -8px;
+  padding: 5px 8px;
+  margin: 0 -8px;
   border: 0;
   border-radius: var(--ari-radius-sm);
   text-align: left;
@@ -258,7 +331,12 @@
 }
 .ari-viz-item-legend > button:hover,
 .ari-viz-item-legend > button:focus-visible {
-  background: var(--ari-surface-2);
+  background: color-mix(in oklab, var(--ari-fg) 5%, transparent);
+}
+.ari-viz-legend-share {
+  color: var(--ari-fg-subtle);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .ari-viz-legend-label {
   min-width: 0;
@@ -266,20 +344,25 @@
 }
 .ari-viz-item-legend strong {
   font-weight: 500;
-  color: var(--ari-fg-muted);
+  color: var(--ari-fg);
   font-variant-numeric: tabular-nums;
 }
 .ari-viz-funnel {
   display: grid;
-  gap: 14px;
-  padding: 12px 4px;
+  gap: 6px;
+  padding: 4px 0;
 }
 .ari-viz-funnel-row {
   display: grid;
-  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr) minmax(2.5rem, auto) 3rem;
   gap: 14px;
   align-items: center;
   font-size: var(--ari-text-xs);
+}
+.ari-viz-funnel-rate {
+  color: var(--ari-fg-subtle);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .ari-viz-funnel-label {
   min-width: 0;
@@ -288,12 +371,15 @@
 .ari-viz-funnel-track {
   display: flex;
   justify-content: center;
-  height: 30px;
+  height: 24px;
 }
 .ari-viz-funnel-track button {
   border: 0;
-  border-radius: 3px;
-  cursor: crosshair;
+  border-radius: 4px;
+  cursor: default;
+}
+.ari-viz-funnel-track button:hover {
+  filter: brightness(1.15);
 }
 .ari-viz-funnel-row strong {
   text-align: right;
@@ -303,13 +389,13 @@
 .ari-viz .ari-viz-timeline,
 .ari-viz-modal .ari-viz-timeline {
   list-style: none;
-  margin: 8px 12px;
+  margin: 4px 0 0 4px;
   padding: 0;
 }
 .ari-viz-timeline li {
   position: relative;
   margin: 0;
-  padding: 0 0 24px 26px;
+  padding: 0 0 20px 22px;
   border-left: 1px solid var(--ari-border-strong);
 }
 .ari-viz-timeline li:last-child {
@@ -330,7 +416,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--viz-tone);
-  box-shadow: 0 0 0 4px var(--ari-surface-0);
+  box-shadow: 0 0 0 4px var(--ari-viz-surface);
 }
 .ari-viz-date {
   display: block;
@@ -353,31 +439,41 @@
   font-size: var(--ari-text-sm);
   color: var(--ari-fg-muted);
 }
+/* Figures sit in a row parted by hairlines, with no box around each one. */
 .ari-viz-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1px;
-  border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-md);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 20px 0;
+  margin: 2px 0 0 -20px;
   overflow: hidden;
-  background: var(--ari-border);
-  margin: 4px;
 }
 .ari-viz-metrics > div {
-  padding: 18px;
-  background: var(--ari-surface-1);
+  padding: 0 20px;
+  /* Drawn on every tile and clipped off the first column by the negative margin. */
+  box-shadow: -1px 0 0 var(--ari-border);
 }
 .ari-viz-metrics dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: var(--ari-text-xs);
   color: var(--ari-fg-muted);
 }
+.ari-viz-tone-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--viz-tone);
+  flex-shrink: 0;
+}
+/* Proportional figures: tabular digits look loose at this size. */
 .ari-viz-metrics dd {
-  margin: 6px 0;
-  font-size: 28px;
-  font-weight: 550;
-  letter-spacing: -0.04em;
+  margin: 4px 0 2px;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
   overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
 }
 .ari-viz-metrics p {
   margin: 0;
@@ -393,7 +489,7 @@
 }
 .ari-viz-table th,
 .ari-viz-table td {
-  padding: 10px 12px;
+  padding: 9px 16px 9px 0;
   border: 0;
   border-bottom: 1px solid var(--ari-border);
   font-variant-numeric: tabular-nums;
@@ -406,7 +502,7 @@
   color: var(--ari-fg-subtle);
   font-size: var(--ari-text-xs);
   font-weight: 500;
-  background: var(--ari-surface-1);
+  background: var(--ari-viz-surface);
 }
 .ari-viz-table tbody th {
   font-weight: 500;
@@ -440,29 +536,41 @@
   background: var(--ari-accent);
 }
 .ari-viz-error {
-  padding: 18px 20px;
+  padding: 14px 20px;
 }
 .ari-viz-error strong {
   font-weight: 500;
 }
 .ari-viz-error p {
   color: var(--ari-fg-muted);
-  margin: 6px 0;
+  margin: 2px 0 0;
   overflow-wrap: anywhere;
 }
 .ari-viz-error summary {
+  display: inline-block;
   cursor: pointer;
+  border-radius: var(--ari-radius-sm);
   font-size: var(--ari-text-xs);
   color: var(--ari-fg-subtle);
 }
+.ari-viz-error summary:hover {
+  color: var(--ari-fg);
+}
 .ari-viz-error pre {
-  max-height: 260px;
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
   overflow: auto;
+  border-radius: var(--ari-radius-md);
+  background: var(--ari-surface-1);
+  color: var(--ari-fg-muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: var(--ari-font-mono);
   font-size: var(--ari-text-xs);
 }
 .ari-viz-modal {
+  --ari-viz-surface: var(--ari-surface-0);
   width: min(1100px, calc(100vw - 32px));
   max-width: none;
   max-height: calc(100dvh - 48px);
@@ -485,38 +593,43 @@
   padding: 16px 0;
 }
 .ari-viz-modal .ari-viz-series {
-  padding: 16px 0 0;
+  padding: 8px 0 0;
+  margin-left: -7px;
 }
 @media (max-width: 600px) {
   .ari-viz-header {
-    padding: 14px 14px 10px;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .ari-viz-description {
-    padding: 0 14px 10px;
+    padding: 14px 8px 4px 14px;
+    gap: 8px;
   }
   .ari-viz-body {
-    padding: 6px 10px 12px;
+    padding: 10px 14px 14px;
   }
   .ari-viz-series {
-    padding: 0 14px 6px;
+    padding: 6px 8px 0;
+  }
+  .ari-viz-source {
+    padding: 0 14px 12px;
+  }
+  .ari-viz-metrics {
+    margin-left: -14px;
+  }
+  .ari-viz-metrics > div {
+    padding: 0 14px;
   }
   .ari-viz-parts {
     grid-template-columns: 1fr;
-    gap: 0;
-    padding: 0 8px;
-  }
-  .ari-viz-parts .ari-viz-svg {
-    max-width: 300px;
-    margin: 0 auto;
+    gap: 14px;
   }
   .ari-viz-item-legend {
-    padding: 0 8px 16px;
+    padding: 0 8px;
   }
   .ari-viz-funnel-row {
-    grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 6rem) minmax(0, 1fr) minmax(2rem, auto) 2.75rem;
     gap: 10px;
+  }
+  .ari-viz-action {
+    min-width: 34px;
+    min-height: 34px;
   }
   .ari-viz-modal {
     padding: 16px;
@@ -531,8 +644,8 @@
   z-index: var(--ari-z-context);
   max-width: min(360px, calc(100vw - 24px));
   max-height: calc(100dvh - 24px);
-  min-width: 190px;
-  padding: 13px 15px;
+  min-width: 168px;
+  padding: 10px 12px;
   border: 1px solid var(--ari-border-strong);
   border-radius: var(--ari-radius-md);
   background: var(--ari-surface-2);
@@ -548,8 +661,6 @@
   pointer-events: auto;
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ari-border-strong) transparent;
   user-select: text;
 }
 .ari-viz-visual-scroll:focus-visible,
@@ -567,7 +678,7 @@
   font-weight: 600;
 }
 .ari-viz-tooltip-head > span {
-  color: var(--ari-accent);
+  color: var(--ari-fg-subtle);
   font-size: var(--ari-text-xs);
 }
 .ari-viz-tooltip p {
@@ -576,8 +687,8 @@
 }
 .ari-viz-tooltip dl {
   display: grid;
-  gap: 7px;
-  margin: 10px 0 0;
+  gap: 5px;
+  margin: 8px 0 0;
 }
 .ari-viz-tooltip dl > div {
   display: flex;
@@ -601,32 +712,31 @@
   margin-top: 10px;
   font-size: var(--ari-text-xs);
 }
+/* Pinning is said once the reader has pinned; before that the hint is only for assistive tech. */
 .ari-viz-tooltip-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ari-viz-tooltip[data-pinned] .ari-viz-tooltip-hint {
+  position: static;
   display: block;
-  margin-top: 11px;
-  padding-top: 8px;
-  border-top: 1px solid var(--ari-border);
+  width: auto;
+  height: auto;
+  clip-path: none;
+  white-space: normal;
+  margin-top: 8px;
   color: var(--ari-fg-subtle);
   font-size: var(--ari-text-xs);
 }
+/* A visual is as tall as its content, so only a wide one scrolls, and only sideways. */
 .ari-viz-visual-scroll {
-  max-height: 430px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-/* Text-led visuals flow with the reply; a nested scroller cut their legends and lines mid-way. */
-.ari-viz:is(
-    [data-type='pie'],
-    [data-type='donut'],
-    [data-type='funnel'],
-    [data-type='timeline'],
-    [data-type='metrics']
-  )
-  .ari-viz-visual-scroll {
-  max-height: none;
-}
-.ari-viz-bar-options {
-  padding: 0 20px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
 }
 .ari-viz-heatmap-key {
   display: flex;
@@ -634,22 +744,22 @@
   align-items: center;
   justify-content: flex-end;
   gap: 9px;
-  padding: 4px 8px 10px;
+  padding: 10px 4px 0;
   color: var(--ari-fg-muted);
   font-size: var(--ari-text-xs);
   font-variant-numeric: tabular-nums;
 }
 .ari-viz-heatmap-key i {
   display: block;
-  width: 80px;
-  height: 5px;
-  border-radius: 3px;
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
 }
 .ari-viz-data-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 0 12px;
+  padding: 0 0 8px;
 }
 .ari-viz-data-search {
   flex: 1;
@@ -657,19 +767,18 @@
 }
 .ari-viz-data-search input {
   width: 100%;
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid var(--ari-border-strong);
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--ari-border);
   border-radius: var(--ari-radius-sm);
-  background: var(--ari-surface-1);
+  background: transparent;
   color: var(--ari-fg);
   font: inherit;
   font-size: var(--ari-text-xs);
   outline: none;
 }
 .ari-viz-data-search input:focus {
-  border-color: var(--ari-accent);
-  box-shadow: 0 0 0 2px var(--ari-accent-subtle);
+  border-color: var(--ari-accent-ring);
 }
 .ari-viz-data-search input::placeholder {
   color: var(--ari-fg-subtle);
@@ -684,8 +793,6 @@
   max-height: 430px;
   overflow: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-md);
 }
 .ari-viz-table-scroll .ari-viz-table {
   table-layout: auto;
@@ -694,14 +801,13 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  box-shadow: 0 1px 0 var(--ari-border-strong);
+  box-shadow: 0 1px 0 var(--ari-border);
 }
 .ari-viz-table tbody th {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: var(--ari-surface-0);
-  box-shadow: 1px 0 0 var(--ari-border);
+  background: var(--ari-viz-surface);
 }
 .ari-viz-table thead th:first-child {
   left: 0;
@@ -710,9 +816,8 @@
 .ari-viz-table td {
   min-width: 130px;
 }
-.ari-viz-table tbody tr:hover td,
 .ari-viz-table td:focus-visible {
-  background: var(--ari-surface-1);
+  background: color-mix(in oklab, var(--ari-fg) 5%, transparent);
 }
 .ari-viz-table td:focus-visible {
   outline: 2px solid var(--ari-accent);
@@ -740,9 +845,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 4px 6px;
   border-bottom: 1px solid var(--ari-border);
-  background: var(--ari-surface-1);
 }
 .ari-viz-canvas-options {
   min-width: 0;
@@ -767,9 +871,12 @@
   font-variant-numeric: tabular-nums;
 }
 .ari-viz-zoom-controls button:hover,
-.ari-viz-layout-switch button:hover,
+.ari-viz-layout-switch button:hover {
+  background: color-mix(in oklab, var(--ari-fg) 6%, transparent);
+  color: var(--ari-fg);
+}
 .ari-viz-layout-switch button[aria-pressed='true'] {
-  background: var(--ari-surface-3);
+  background: color-mix(in oklab, var(--ari-fg) 9%, transparent);
   color: var(--ari-fg);
 }
 .ari-viz-zoom-controls button:disabled {
@@ -779,12 +886,10 @@
 .ari-viz-viewport {
   position: relative;
   width: 100%;
-  height: 360px;
+  height: min(var(--ari-viz-canvas-height, 360px), 520px);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ari-border-strong) var(--ari-surface-0);
   cursor: grab;
   touch-action: pan-x pan-y;
   outline: none;
@@ -801,7 +906,7 @@
   position: relative;
   min-width: 100%;
   min-height: 100%;
-  background-image: radial-gradient(var(--ari-border-strong) 0.7px, transparent 0.7px);
+  background-image: radial-gradient(var(--ari-border) 0.7px, transparent 0.7px);
   background-size: 22px 22px;
 }
 .ari-viz-canvas-content {
@@ -815,12 +920,14 @@
   height: 100%;
   overflow: visible;
 }
+/* How to pan and zoom is read out, not printed under every diagram. */
 .ari-viz-canvas-hint {
-  padding: 7px 12px;
-  color: var(--ari-fg-subtle);
-  font-size: var(--ari-text-xs);
-  border-top: 1px solid var(--ari-border);
-  background: var(--ari-surface-1);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .ari-viz-node-description {
   fill: var(--ari-fg-subtle);
@@ -840,40 +947,32 @@
 .ari-viz-graph .ari-viz-mark {
   cursor: pointer;
 }
+.ari-viz-canvas {
+  position: relative;
+}
 .ari-viz-hit-target {
   pointer-events: all;
 }
 .ari-viz-crosshair {
   opacity: 0;
-  stroke: var(--ari-fg-subtle);
+  stroke: var(--ari-border-strong);
   stroke-width: 1;
-  stroke-dasharray: 4 4;
   pointer-events: none;
 }
-.ari-viz-mark:hover .ari-viz-crosshair,
-.ari-viz-mark:focus-visible .ari-viz-crosshair,
-.ari-viz-mark[data-viz-pinned] .ari-viz-crosshair {
-  opacity: 0.6;
-}
-.ari-viz-mark:hover > .ari-viz-hit-target,
-.ari-viz-mark:focus-visible > .ari-viz-hit-target {
-  stroke: transparent;
+.ari-viz-column:hover > .ari-viz-crosshair,
+.ari-viz-column:focus-within > .ari-viz-crosshair,
+.ari-viz-column[data-viz-pinned] > .ari-viz-crosshair {
+  opacity: 1;
 }
 .ari-viz-modal .ari-viz-viewport {
   height: min(64dvh, 640px);
-}
-.ari-viz-modal .ari-viz-visual-scroll {
-  max-height: min(64dvh, 640px);
 }
 .ari-viz-modal .ari-viz-table-scroll {
   max-height: min(64dvh, 640px);
 }
 @media (max-width: 600px) {
   .ari-viz-viewport {
-    height: 310px;
-  }
-  .ari-viz-canvas-hint {
-    font-size: 10px;
+    height: min(var(--ari-viz-canvas-height, 310px), 420px);
   }
   .ari-viz-canvas-toolbar {
     padding: 6px;
@@ -888,4 +987,7 @@
   .ari-viz-edge {
     transition: none;
   }
+}
+.ari-viz-data-toolbar[hidden] {
+  display: none;
 }

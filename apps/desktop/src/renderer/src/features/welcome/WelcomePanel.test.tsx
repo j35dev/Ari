@@ -8,6 +8,8 @@ import { WelcomePanel } from './WelcomePanel'
 const rpcMocks = vi.hoisted(() => ({ invoke: vi.fn() }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+// The scene art reads the theme and paints a canvas; neither is under test here.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 
 /** The panel toasts on connect and animates in, so it needs both providers. */
 function renderPanel(hasProjects: boolean, strict = false) {

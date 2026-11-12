@@ -10,7 +10,7 @@ describe('visualization data view', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: copy } })
     try {
       render(<Visualization source={JSON.stringify(visualizationExamples[0]?.spec)} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Data' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Show data table' }))
       fireEvent.change(screen.getByRole('searchbox', { name: 'Filter visualization data' }), {
         target: { value: 'report' },
       })

@@ -1,14 +1,42 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ChevronUp, GitBranch } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { SessionActivityMark } from '../moment'
-import type { SessionActivity } from './session-activity'
+import { cx, primaryButton, quietButton } from '../../lib/recipes'
+import { ElapsedSeconds } from '../moment'
+import { ACTIVITY_LABEL, type SessionActivity, type SessionActivityPhase } from './session-activity'
 
 /**
- * Compact composer-top rail. Live children expand inside the same cap as
- * the rail so the list reads as part of the composer, not a floating menu.
+ * One section of the tab on the composer's top edge. The composer draws the
+ * tab itself (its `above` slot: the edge, the shoulders, the stage fill), so a
+ * section only keeps the tab's 14px inset.
+ */
+export const composerTabSection = 'px-3.5'
+
+/** The 40px summary row of a {@link composerTabSection}. */
+export const composerTabRail =
+  'flex h-10 min-w-0 flex-1 items-center gap-3 rounded-md text-left text-[13px] text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
+/** One 32px row of an opened {@link composerTabSection}. */
+export const composerTabRow = 'flex h-8 min-w-0 items-center gap-2.5 text-[13px]'
+
+const STATUS_GLYPH: Record<SessionActivityPhase, string> = {
+  queued: 'queued',
+  working: 'working',
+  paused: 'attention',
+  done: 'done',
+  error: 'error',
+}
+
+/** Tiles shown in the stack; the count beside them carries the rest. */
+const MAX_TILES = 3
+
+/**
+ * Delegated sessions as one row on the composer: who is out there, the state
+ * in words, and how long the oldest has been working. Opened, the children
+ * list above the row inside the same tab, so it reads as part of the
+ * composer, not a floating menu.
  */
 export function ChildSessionActivity({
   sessions,
@@ -29,14 +57,24 @@ export function ChildSessionActivity({
 }) {
   const [open, setOpen] = useState(false)
   if (sessions.length === 0) return null
-  const working = sessions.filter((session) => activityOf?.(session.id)?.phase === 'working').length
+  const working = sessions.filter((session) => activityOf?.(session.id)?.phase === 'working')
   const queued = sessions.filter((session) => activityOf?.(session.id)?.phase === 'queued').length
   // A child waiting on an approval or a question is stuck until someone
   // answers it in that child, and from here nothing else says so.
   const blocked = sessions.filter((session) => activityOf?.(session.id)?.phase === 'paused')
   const firstBlocked = blocked[0]
+  const oldest = working.reduce<number | null>((min, session) => {
+    const startedAt = activityOf?.(session.id)?.startedAt ?? null
+    return startedAt !== null && (min === null || startedAt < min) ? startedAt : min
+  }, null)
+
+  const quiet: string[] = []
+  if (working.length > 0) quiet.push(`${working.length} working`)
+  if (queued > 0) quiet.push(`${queued} queued`)
+  if (quiet.length === 0 && blocked.length === 0) quiet.push('idle')
+
   return (
-    <div>
+    <div className={composerTabSection}>
       <AnimatePresence initial={false}>
         {open ? (
           <motion.ul
@@ -49,36 +87,49 @@ export function ChildSessionActivity({
             transition={transitions.morph}
             className="overflow-hidden"
           >
-            {sessions.map((session) => {
+            {sessions.map((session, index) => {
               const activity = activityOf?.(session.id)
+              const needsUser = activity?.phase === 'paused'
               return (
-                <li key={session.id}>
+                <li key={session.id} className={index === 0 ? 'pt-1.5' : undefined}>
                   <button
                     type="button"
                     onClick={() => {
                       onOpen?.(session.id)
                       setOpen(false)
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    className={cx(
+                      composerTabRow,
+                      '-mx-2 group w-[calc(100%+1rem)] rounded-md px-2 text-left transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
+                    )}
                   >
-                    <span className="flex size-2.5 shrink-0 items-center justify-center">
-                      {activity ? (
-                        <SessionActivityMark activity={activity} />
-                      ) : (
-                        <span aria-hidden className="size-1 rounded-[1px] bg-fg-subtle/50" />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs text-fg">{session.title}</span>
+                    {activity ? (
+                      <span
+                        role="status"
+                        aria-label={ACTIVITY_LABEL[activity.phase]}
+                        title={ACTIVITY_LABEL[activity.phase]}
+                        className="ari-status"
+                        data-status={STATUS_GLYPH[activity.phase]}
+                      />
+                    ) : (
+                      <span aria-hidden className="ari-status" />
+                    )}
+                    <span className="min-w-0 shrink truncate text-fg">{session.title}</span>
                     <span
-                      className={`shrink-0 font-mono text-2xs ${activity?.phase === 'paused' ? 'text-warning' : 'text-fg-subtle'}`}
+                      className={`min-w-0 flex-1 truncate ${needsUser ? 'text-accent' : 'text-fg-muted'}`}
                     >
                       {activity?.phase === 'working'
                         ? 'working'
                         : activity?.phase === 'queued'
                           ? 'queued'
-                          : activity?.phase === 'paused'
+                          : needsUser
                             ? 'needs you'
                             : session.status}
+                    </span>
+                    <span
+                      className={`shrink-0 transition-colors group-hover:text-fg group-focus-visible:text-fg ${needsUser ? 'font-medium text-fg' : 'text-fg-subtle'}`}
+                    >
+                      {needsUser ? 'Answer' : 'Open'}
                     </span>
                   </button>
                 </li>
@@ -87,40 +138,54 @@ export function ChildSessionActivity({
           </motion.ul>
         ) : null}
       </AnimatePresence>
-      <div className="flex items-center">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           aria-expanded={open}
           aria-label="Child sessions"
           onClick={() => setOpen((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-2xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={composerTabRail}
         >
-          <GitBranch size={11} aria-hidden className="shrink-0 text-accent" />
+          <span aria-hidden className="flex shrink-0">
+            {sessions.slice(0, MAX_TILES).map((session, index) => (
+              <span
+                key={session.id}
+                className={`grid size-[22px] place-items-center rounded-full bg-surface-2 text-[11px] font-semibold leading-none text-fg-muted ring-2 ring-bg ${index > 0 ? '-ms-1.5' : ''}`}
+              >
+                {tileLetter(session.title)}
+              </span>
+            ))}
+          </span>
           <span className="shrink-0 font-medium text-fg">
-            {sessions.length} child{sessions.length === 1 ? '' : 'ren'}
+            {sessions.length} agent{sessions.length === 1 ? '' : 's'}
           </span>
-          {blocked.length > 0 ? (
-            <span className="truncate text-warning">
-              {blocked.length === 1
-                ? `${firstBlocked?.title ?? 'One'} needs you`
-                : `${blocked.length} need you`}
-            </span>
-          ) : null}
-          <span className="shrink-0">
-            {working > 0 ? `${working} working` : queued > 0 || blocked.length > 0 ? null : 'idle'}
+          <span className="min-w-0 truncate">
+            {quiet.join(', ')}
+            {blocked.length > 0 ? (
+              <>
+                {quiet.length > 0 ? ', ' : ''}
+                <span className="text-accent">
+                  {blocked.length === 1
+                    ? `${firstBlocked?.title ?? 'One'} needs you`
+                    : `${blocked.length} need you`}
+                </span>
+              </>
+            ) : null}
           </span>
-          {queued > 0 ? <span className="shrink-0">{queued} queued</span> : null}
-          <ChevronUp
-            size={11}
-            aria-hidden
-            className={`ms-auto shrink-0 transition-transform duration-150 ${open ? '' : 'rotate-180'}`}
-          />
+          <span className="ms-auto flex shrink-0 items-center gap-2 text-fg-subtle">
+            {oldest !== null ? <ElapsedSeconds startedAt={oldest} /> : null}
+            <ChevronRight
+              size={14}
+              aria-hidden
+              className={`shrink-0 transition-transform duration-150 ${open ? '-rotate-90' : ''}`}
+            />
+          </span>
         </button>
         {firstBlocked && onOpen ? (
           <button
             type="button"
             onClick={() => onOpen(firstBlocked.id)}
-            className="me-2 shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={cx(primaryButton, 'shrink-0')}
           >
             Answer
           </button>
@@ -131,7 +196,7 @@ export function ChildSessionActivity({
             disabled={stopping}
             onClick={onStopAll}
             title="Stop every session this one delegated to"
-            className="me-2 shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+            className={cx(quietButton, 'shrink-0')}
           >
             {stopping ? 'Stopping…' : 'Stop all'}
           </button>
@@ -139,4 +204,9 @@ export function ChildSessionActivity({
       </div>
     </div>
   )
+}
+
+/** The first letter or digit of a title, for a child's tile. */
+function tileLetter(title: string): string {
+  return (title.match(/[\p{L}\p{N}]/u)?.[0] ?? '·').toUpperCase()
 }

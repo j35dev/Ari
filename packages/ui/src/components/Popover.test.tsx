@@ -110,7 +110,8 @@ describe('Popover', () => {
     await user.click(chip)
     const menu = screen.getByRole('listbox', { name: 'Choices' })
     expect(menu).toHaveClass('z-popover', 'w-52')
-    expect(menu).not.toHaveClass('p-3')
+    expect(menu).not.toHaveClass('p-1')
+    expect(menu).not.toHaveClass('bg-surface-1')
 
     await user.click(chip)
     await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())

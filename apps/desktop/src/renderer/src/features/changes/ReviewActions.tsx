@@ -15,7 +15,16 @@ import { Dialog } from '@ari/ui/dialog'
 import { Popover } from '@ari/ui/popover'
 import { Select } from '@ari/ui/select'
 import { rpc } from '../../lib/rpc'
+import { cx, iconButton, iconButtonActive, sectionLabel } from '../../lib/recipes'
 import type { ReviewControlsState } from './ReviewWorkspace'
+
+/** Text field in the input style: hairline on a raised surface. */
+const field =
+  'rounded-md border border-border bg-surface-1 text-[13px] text-fg transition-colors placeholder:text-fg-subtle hover:border-border-strong focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50'
+
+/** An icon action that throws work away: quiet until hovered, then danger. */
+const destructiveIcon =
+  'inline-flex size-7 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-fg/6 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-40'
 
 /** Every local mutation uses the snapshot currently being reviewed. */
 export function ReviewActions({
@@ -88,23 +97,23 @@ export function ReviewActions({
               ? 'Restore these saved changes into this worktree? The stash is kept.'
               : 'Save all local changes, including untracked files, in a stash?'
   return (
-    <div className="shrink-0 border-t border-border/60 bg-surface-0">
+    <div className="shrink-0 border-t border-border">
       {notice ? (
         <p
           role={notice.error ? 'alert' : 'status'}
-          className={`border-b border-border/50 px-3 py-2 text-xs ${notice.error ? 'text-danger' : 'text-fg-muted'}`}
+          className={`border-b border-border px-4 py-2 text-[13px] ${notice.error ? 'text-danger' : 'text-fg-muted'}`}
         >
           {notice.text}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
         <Button
           size="sm"
           variant="ghost"
           disabled={disabled || !canStage || !paths.length}
           onClick={() => void run({ kind: 'stage', snapshotId: manifest.id, paths })}
         >
-          <Plus size={13} />
+          <Plus size={14} />
           Stage{paths.length > 1 ? ` ${paths.length}` : ''}
         </Button>
         <Button
@@ -113,7 +122,7 @@ export function ReviewActions({
           disabled={disabled || !canUnstage || !paths.length}
           onClick={() => void run({ kind: 'unstage', snapshotId: manifest.id, paths })}
         >
-          <Minus size={13} />
+          <Minus size={14} />
           Unstage
         </Button>
         <button
@@ -124,21 +133,21 @@ export function ReviewActions({
           onClick={() =>
             setConfirm({ kind: 'discard', snapshotId: manifest.id, paths, confirmed: true })
           }
-          className="flex size-7 items-center justify-center rounded-md text-fg-subtle hover:bg-danger-subtle hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30"
+          className={destructiveIcon}
         >
-          <Trash2 size={13} />
+          <Trash2 size={14} />
         </button>
-        <span className="mx-1 h-4 w-px bg-border/60" />
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         <Popover open={branchesOpen} onOpenChange={setBranchesOpen}>
           <Popover.Trigger
             aria-label="Branches and stashes"
             disabled={disabled}
-            className="flex size-7 items-center justify-center rounded-md text-fg-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30"
+            className={cx(iconButton, branchesOpen && iconButtonActive)}
           >
             <GitBranch size={14} />
           </Popover.Trigger>
           <Popover.Content align="end" className="w-72 p-3">
-            <p className="mb-2 text-xs font-medium text-fg">Branches</p>
+            <p className={cx(sectionLabel, 'mb-2')}>Branches</p>
             <form
               onSubmit={(event) => {
                 event.preventDefault()
@@ -159,7 +168,7 @@ export function ReviewActions({
                 onChange={(event) => setBranch(event.target.value)}
                 placeholder="feature/my-change"
                 maxLength={240}
-                className="h-8 min-w-0 flex-1 rounded border border-border bg-bg px-2 text-xs text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                className={cx(field, 'h-7 min-w-0 flex-1 px-2.5')}
               />
               <Button type="submit" size="sm" variant="secondary" disabled={busy || !branch.trim()}>
                 Create
@@ -185,8 +194,8 @@ export function ReviewActions({
               }
               className="w-full"
             />
-            <div className="mt-3 border-t border-border/60 pt-3">
-              <p className="mb-2 text-xs font-medium text-fg">Stashes</p>
+            <div className="mt-3 border-t border-border pt-3">
+              <p className={cx(sectionLabel, 'mb-2')}>Stashes</p>
               <Button
                 size="sm"
                 variant="ghost"
@@ -200,7 +209,7 @@ export function ReviewActions({
                   })
                 }
               >
-                <Archive size={13} />
+                <Archive size={14} />
                 Stash changes
               </Button>
               {context?.stashes.map((stash) => (
@@ -216,7 +225,7 @@ export function ReviewActions({
                       confirmed: true,
                     })
                   }
-                  className="mt-1 block w-full truncate rounded px-2 py-2 text-left text-xs text-fg-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                  className="mt-1 block h-8 w-full truncate rounded-md px-2.5 text-left text-[13px] text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
                   title={stash.subject}
                 >
                   Apply · {stash.subject}
@@ -237,7 +246,7 @@ export function ReviewActions({
           }
           onClick={() => setConfirm({ kind: 'pull', snapshotId: manifest.id, confirmed: true })}
         >
-          <ArrowDown size={13} />
+          <ArrowDown size={14} />
           <span className="hidden @[44rem]:inline">Pull</span>
         </Button>
         <Button
@@ -250,23 +259,25 @@ export function ReviewActions({
             remote && setConfirm({ kind: 'push', snapshotId: manifest.id, remote, confirmed: true })
           }
         >
-          <ArrowUp size={13} />
+          <ArrowUp size={14} />
           <span className="hidden @[44rem]:inline">Push</span>
         </Button>
         <div className="flex-1" />
+        {/* One ink action at a time: once the message form is open, its
+            Commit button is the primary and this one steps back. */}
         <Button
           size="sm"
-          variant="secondary"
+          variant={commitOpen ? 'secondary' : 'primary'}
           disabled={disabled || !staged}
           onClick={() => setCommitOpen(!commitOpen)}
         >
-          <GitCommitHorizontal size={13} />
+          <GitCommitHorizontal size={14} />
           Commit staged{staged ? ` (${staged})` : ''}
         </Button>
       </div>
       {commitOpen ? (
         <form
-          className="border-t border-border/60 px-3 py-3"
+          className="border-t border-border px-3 py-3"
           onSubmit={(event) => {
             event.preventDefault()
             if (message.trim() && !disabled)
@@ -292,10 +303,10 @@ export function ReviewActions({
             }}
             maxLength={8000}
             placeholder="Describe this commit…"
-            className="w-full resize-none rounded-md border border-border bg-bg px-3 py-2 text-xs text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={cx(field, 'w-full resize-none px-3 py-2')}
           />
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-2xs text-fg-subtle">
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-xs text-fg-subtle">
               Only staged changes are committed · Ctrl / ⌘ Enter
             </span>
             <Button

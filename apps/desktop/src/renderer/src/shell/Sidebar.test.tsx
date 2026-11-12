@@ -94,13 +94,19 @@ describe('formatRelativeTime', () => {
     const toggle = screen.getByRole('button', { name: /children of Session tree-root/i })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.queryByText(/child sessions/i)).not.toBeInTheDocument()
-    expect(document.querySelector('svg.lucide-git-branch')).not.toBeNull()
-    expect(document.querySelector('[data-session-role="parent"]')).not.toBeNull()
+    const parent = document.querySelector('[data-session-role="parent"]') as HTMLElement
+    expect(parent).not.toBeNull()
     expect(document.querySelector('[data-session-role="child"]')).not.toBeNull()
-    expect(document.querySelector('[data-tree-guides]')).not.toBeNull()
-    expect(document.querySelector('[data-session-role="parent"]')?.textContent).toContain('1')
+    // The tree line hangs off the child, not the parent.
+    expect(parent.querySelector('[data-tree-guides]')).toBeNull()
+    expect(document.querySelector('[data-session-role="child"] [data-tree-guides]')).not.toBeNull()
+    // The child count is always in the tree, but only drawn once the children
+    // are folded away: listed underneath, they speak for themselves.
+    expect(parent.textContent).toContain('1')
+    expect(within(parent).getByText('1')).toHaveClass('sr-only')
     await user.click(toggle)
     expect(screen.queryByText('Session tree-child')).not.toBeInTheDocument()
+    expect(within(parent).getByText('1')).not.toHaveClass('sr-only')
     await user.click(toggle)
     expect(screen.getByText('Session tree-child')).toBeInTheDocument()
   })
@@ -142,9 +148,16 @@ describe('SessionsUnderProjects', () => {
     expect(screen.queryByRole('region', { name: 'Unfiled' })).not.toBeInTheDocument()
   })
 
-  it('shows each group session count', () => {
-    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')])
-    expect(screen.getByRole('region', { name: 'Ari' })).toHaveTextContent('2')
+  it('shows each group session count once the group is folded', async () => {
+    renderSidebar([session('a', 1, 'proj-1'), session('b', 3, 'proj-1')])
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    const header = within(ari).getByRole('button', { expanded: true })
+    // Open, the rows are the count; it stays in the header's name for
+    // assistive tech without being drawn.
+    expect(header).toHaveAccessibleName('Ari2')
+    expect(within(header).getByText('2')).toHaveClass('sr-only')
+    await userEvent.setup().click(header)
+    expect(within(header).getByText('2')).not.toHaveClass('sr-only')
   })
 
   it('shows context carets on project groups and a dashed one on Unfiled', () => {
@@ -167,25 +180,63 @@ describe('SessionsUnderProjects', () => {
     expect(toggle).toHaveTextContent('Ari')
   })
 
-  it('fills the active group caret and chips the active session row, no plate', () => {
-    renderSidebar([session('a', 1, 'proj-1')], 'a')
+  it('marks the active group folder and washes the active session row, no accent', () => {
+    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')], 'a')
     const ari = screen.getByRole('region', { name: 'Ari' })
     // The semantic hook survives; the hue plate it used to trigger is gone.
     expect(ari.querySelector('[data-active-group]')).not.toBeNull()
-    // The active session row keeps its accent chip…
-    const row = ari.querySelector('[data-session-mark="idle"]')?.closest('button')
-    expect(row).not.toBeNull()
-    expect(row?.className).toMatch(/bg-accent/)
-    // …and the project header caret fills with the accent.
-    const caret = ari.querySelector('[data-context-mark="project"][data-active]')
-    expect(caret).not.toBeNull()
+    // The active session row takes the selection wash, not an accent chip…
+    const row = within(ari).getByText('Session a').closest('button')
+    expect(row).toHaveClass('bg-fg/9', 'text-fg!')
+    expect(row?.className).not.toMatch(/bg-accent/)
+    expect(within(ari).getByText('Session b').closest('button')).not.toHaveClass('bg-fg/9')
+    // …and the project's folder is flagged as holding it: open, and no initial.
+    const mark = ari.querySelector('[data-context-mark="project"][data-active]')
+    expect(mark).not.toBeNull()
+    expect(mark).toHaveAttribute('data-open')
+    expect(mark).toHaveTextContent('')
   })
 
-  it('shows a neutral idle dot on session rows', () => {
+  it('closes a project folder when the project is collapsed', async () => {
+    const user = userEvent.setup()
     renderSidebar([session('a', 1, 'proj-1')])
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-session-mark="idle"]')).not.toBeNull()
-    expect(ari.querySelector('svg.lucide-message-square-text')).toBeNull()
+    const mark = () => ari.querySelector('[data-context-mark="project"]')
+    expect(mark()).toHaveAttribute('data-open')
+
+    await user.click(within(ari).getByRole('button', { expanded: true }))
+    expect(mark()).not.toHaveAttribute('data-open')
+  })
+
+  it('shows the age, not a mark, in the status slot of an idle session row', () => {
+    renderSidebar([session('a', 1, 'proj-1')])
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    const row = within(ari).getByText('Session a').closest('button') as HTMLElement
+    expect(within(row).getByText('1h')).toBeInTheDocument()
+    expect(within(row).queryByRole('status')).not.toBeInTheDocument()
+    expect(row.querySelector('svg')).toBeNull()
+  })
+
+  it('swaps the age for the status glyph while a session has something to say', () => {
+    const now = Date.now()
+    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')], null, {
+      activityOf: (id) =>
+        id === 'a'
+          ? { phase: 'paused', startedAt: now, pauseReason: 'approval' }
+          : id === 'b'
+            ? { phase: 'working', startedAt: now }
+            : undefined,
+    })
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    const waiting = within(ari).getByText('Session a').closest('button') as HTMLElement
+    const glyph = within(waiting).getByRole('status', { name: 'Waiting for you' })
+    expect(glyph).toHaveClass('ari-status')
+    expect(glyph).toHaveAttribute('data-status', 'attention')
+    expect(within(waiting).queryByText('1h')).not.toBeInTheDocument()
+    // No status words on a compact row: the glyph and its label carry it.
+    expect(waiting).not.toHaveTextContent(/Approval|Waiting|Working/)
+    const running = within(ari).getByText('Session b').closest('button') as HTMLElement
+    expect(running.querySelectorAll('.ari-forge-cell')).toHaveLength(8)
   })
 
   it('surfaces the Working mark on a group header while a session in it runs', () => {
@@ -330,10 +381,23 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByText('Session b')).toBeInTheDocument()
   })
 
-  it('promotes Add project to a full-width button in the compose row', async () => {
+  it('keeps Add project as an icon action beside the view switch', async () => {
     const onOpenProject = vi.fn()
     renderSidebar([], null, { onOpenProject })
     const user = userEvent.setup()
+    const add = screen.getByRole('button', { name: 'Add project' })
+    expect(add.querySelector('svg.lucide-plus')).not.toBeNull()
+    expect(add.parentElement).toContainElement(screen.getByRole('group', { name: 'Sidebar view' }))
+    await user.click(add)
+    expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('keeps Add project reachable while a search hides the view switch', async () => {
+    const onOpenProject = vi.fn()
+    renderSidebar([session('alpha', 1, 'proj-1')], null, { onOpenProject })
+    const user = userEvent.setup()
+    await user.type(screen.getByPlaceholderText('Search…'), 'alpha')
+    expect(screen.queryByRole('group', { name: 'Sidebar view' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Add project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
   })
@@ -430,6 +494,23 @@ describe('SessionsUnderProjects', () => {
     expect(active).toHaveTextContent('feat/session-inbox')
     expect(within(active).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
     expect(within(active).getByTitle('Claude')).toBeInTheDocument()
+  })
+
+  it('leads a session card with its title, then says where it lives', async () => {
+    const user = userEvent.setup()
+    renderSidebar([session('card', 0, 'proj-1', { branch: 'feat/x', driverKind: 'claude' })])
+    await user.click(screen.getByRole('button', { name: 'Sessions' }))
+
+    const card = screen.getByText('Session card').closest('button') as HTMLElement
+    const [first, second] = Array.from(card.children) as HTMLElement[]
+    // First line: the title and its age. Second: agent, project, branch.
+    expect(first).toHaveTextContent('Session card')
+    expect(first).not.toHaveTextContent('Ari')
+    expect(second).toHaveTextContent('Ari')
+    expect(second).toHaveTextContent('feat/x')
+    expect(within(second!).getByTitle('Claude')).toBeInTheDocument()
+    // A card names its project in words; it carries no project mark of its own.
+    expect(card.querySelector('[data-context-mark]')).toBeNull()
   })
 
   it('hides child agents from the Sessions list', async () => {
@@ -562,8 +643,14 @@ describe('SessionsUnderProjects', () => {
     })
     const user = userEvent.setup()
 
-    // Rows carry no inline action buttons any more — everything is in the menu.
-    expect(screen.queryByRole('button', { name: 'New session in Ari' })).not.toBeInTheDocument()
+    // The one action worth a press of its own sits on the header beside the
+    // menu affordance, as a sibling of the header button, never inside it.
+    const quickNew = screen.getByRole('button', { name: 'New session in Ari' })
+    expect(quickNew.parentElement?.tagName).not.toBe('BUTTON')
+    await user.click(quickNew)
+    expect(onNewSessionInProject).toHaveBeenCalledWith('proj-1')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    onNewSessionInProject.mockClear()
 
     const openMenu = async (): Promise<HTMLElement> => {
       await user.pointer({

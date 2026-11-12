@@ -21,6 +21,7 @@ import { Dialog } from '@ari/ui/dialog'
 import { Sheet } from '@ari/ui/sheet'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import type { ToastTone } from '@ari/ui/toast'
+import { card, outlineButton } from '../lib/recipes'
 
 const BUTTON_VARIANTS = ['primary', 'secondary', 'ghost', 'danger'] as const
 
@@ -28,15 +29,24 @@ const BADGE_TONES = ['neutral', 'accent', 'success', 'warning', 'danger'] as con
 
 const TOAST_TONES = ['neutral', 'success', 'warning', 'danger', 'info'] as const
 
-/** Stand-in for the secondary Button look on compound-primitive triggers (no asChild support). */
-const TRIGGER_BUTTON_CLASSES =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-surface-2 px-3.5 text-sm font-medium text-fg transition-colors duration-150 hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+/** Variant and tone names are identifiers; shown as labels they take sentence case. */
+function sentenceCase(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
 
+/** Stand-in for the secondary Button look on compound-primitive triggers (no asChild support). */
+const TRIGGER_BUTTON_CLASSES = outlineButton
+
+/** The danger look for a compound-primitive close button, at the same size. */
+const DANGER_BUTTON_CLASSES =
+  'inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-danger px-2.5 text-[13px] font-medium text-fg-on-accent transition-colors hover:bg-danger-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
+/** A group as on a settings page: a quiet caption, then a card. */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h2 className="text-2xs mb-3 uppercase tracking-widest text-fg-subtle">{title}</h2>
-      <div className="flex flex-col gap-4">{children}</div>
+      <h2 className="mb-2.5 text-[13px] font-medium text-fg-subtle">{title}</h2>
+      <div className={`${card} flex flex-col gap-4 p-4`}>{children}</div>
     </section>
   )
 }
@@ -93,9 +103,8 @@ function ToastsDemo() {
   const { toast } = useToast()
 
   const fire = (tone: ToastTone) => {
-    const label = tone.charAt(0).toUpperCase() + tone.slice(1)
     toast({
-      title: `${label} toast`,
+      title: `${sentenceCase(tone)} toast`,
       description: 'Queued bottom-right; hover pauses the auto-dismiss timer.',
       tone,
       ...(tone === 'info'
@@ -108,7 +117,7 @@ function ToastsDemo() {
     <Row>
       {TOAST_TONES.map((tone) => (
         <Button key={tone} variant="secondary" size="sm" onClick={() => fire(tone)}>
-          {tone}
+          {sentenceCase(tone)}
         </Button>
       ))}
     </Row>
@@ -124,11 +133,13 @@ export function GalleryView() {
 
   return (
     <ToastProvider>
-      <div className="ari-scroll h-full overflow-auto bg-bg p-8 text-fg">
-        <div className="mx-auto flex max-w-3xl flex-col gap-10">
-          <header className="flex flex-col gap-1">
-            <h1 className="text-lg font-semibold">Component gallery</h1>
-            <p className="text-sm text-fg-muted">
+      <div className="ari-scroll h-full overflow-auto bg-bg text-fg">
+        <div className="mx-auto flex w-full max-w-[744px] flex-col gap-[26px] px-8 pb-16 pt-11">
+          <header>
+            <h1 className="text-[24px] font-semibold leading-8 tracking-[-0.02em]">
+              Component gallery
+            </h1>
+            <p className="mt-1 text-sm text-fg-subtle">
               Every merged primitive, themed live via design tokens.
             </p>
           </header>
@@ -137,14 +148,14 @@ export function GalleryView() {
             <Row>
               {BUTTON_VARIANTS.map((variant) => (
                 <Button key={variant} variant={variant}>
-                  {variant}
+                  {sentenceCase(variant)}
                 </Button>
               ))}
             </Row>
             <Row>
               {BUTTON_VARIANTS.map((variant) => (
                 <Button key={variant} variant={variant} size="sm">
-                  {variant}
+                  {sentenceCase(variant)}
                 </Button>
               ))}
             </Row>
@@ -208,7 +219,7 @@ export function GalleryView() {
             </div>
           </Section>
 
-          <Section title="Switch · Checkbox · Badge · Kbd">
+          <Section title="Switch, checkbox, badge and kbd">
             <Row>
               <Switch defaultChecked aria-label="Auto-approve edits" />
               <Switch aria-label="Telemetry" />
@@ -222,7 +233,7 @@ export function GalleryView() {
             <Row>
               {BADGE_TONES.map((tone) => (
                 <Badge key={tone} tone={tone}>
-                  {tone}
+                  {sentenceCase(tone)}
                 </Badge>
               ))}
             </Row>
@@ -237,7 +248,7 @@ export function GalleryView() {
             </Row>
           </Section>
 
-          <Section title="Tabs · Segmented control">
+          <Section title="Tabs and segmented control">
             <Tabs defaultValue="transcript">
               <Tabs.List aria-label="Inspector">
                 <Tabs.Tab value="transcript">Transcript</Tabs.Tab>
@@ -264,14 +275,17 @@ export function GalleryView() {
             />
           </Section>
 
-          <Section title="Popover · Tooltip">
+          <Section title="Popover and tooltip">
             <Row>
               <Popover>
                 <Popover.Trigger className={TRIGGER_BUTTON_CLASSES}>Open popover</Popover.Trigger>
                 <Popover.Content side="bottom" align="start" className="w-64">
-                  <p className="text-sm text-fg-muted">
-                    Origin-aware menu-in motion — the panel grows from its anchor corner.
-                  </p>
+                  {/* The panel's own padding is sized for menu rows; prose brings its own. */}
+                  <div className="px-2.5 py-2">
+                    <p className="text-[13px] leading-5 text-fg-muted">
+                      Origin-aware menu-in motion — the panel grows from its anchor corner.
+                    </p>
+                  </div>
                 </Popover.Content>
               </Popover>
               <Tooltip content="Create a new session" side="top">
@@ -283,7 +297,7 @@ export function GalleryView() {
             </Row>
           </Section>
 
-          <Section title="Dialog · Sheet">
+          <Section title="Dialog and sheet">
             <Row>
               <Dialog>
                 <Dialog.Trigger className={TRIGGER_BUTTON_CLASSES}>Open dialog</Dialog.Trigger>
@@ -294,11 +308,7 @@ export function GalleryView() {
                   </Dialog.Description>
                   <div className="mt-4 flex justify-end gap-2">
                     <Dialog.Close className={TRIGGER_BUTTON_CLASSES}>Cancel</Dialog.Close>
-                    <Dialog.Close
-                      className="inline-flex h-9 items-center justify-center rounded-md bg-danger px-3.5 text-sm font-medium text-fg-on-accent transition-colors duration-150 hover:bg-danger-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                    >
-                      Delete
-                    </Dialog.Close>
+                    <Dialog.Close className={DANGER_BUTTON_CLASSES}>Delete</Dialog.Close>
                   </div>
                 </Dialog.Content>
               </Dialog>
@@ -318,7 +328,7 @@ export function GalleryView() {
           </Section>
 
           <Section title="Scroll area">
-            <ScrollArea className="h-40 rounded-md border border-border bg-surface-1 p-3">
+            <ScrollArea className="h-40 rounded-md border border-border bg-surface-0 p-3">
               <div className="flex flex-col gap-2">
                 {Array.from({ length: 16 }, (_, i) => (
                   <p key={i} className="text-sm text-fg-muted">
@@ -343,8 +353,8 @@ export function GalleryView() {
           <Section title="Spinners">
             <Row>
               <Spinner size="sm" />
-              <Spinner size="md" className="text-accent" />
-              <Spinner size="lg" className="text-fg-muted" />
+              <Spinner size="md" className="text-fg-muted" />
+              <Spinner size="lg" className="text-fg-subtle" />
             </Row>
           </Section>
 

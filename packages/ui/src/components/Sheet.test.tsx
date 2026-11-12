@@ -34,13 +34,13 @@ describe('Sheet', () => {
       const panel = screen.getByRole('dialog')
       expect(panel).toHaveAttribute('aria-modal', 'true')
       if (side === 'right') {
-        expect(panel).toHaveClass('top-0', 'right-0', 'h-full', 'rounded-l-lg')
+        expect(panel).toHaveClass('top-0', 'right-0', 'h-full', 'rounded-l-xl')
         expect(panel.className).toContain('w-[min(420px,85vw)]')
       } else if (side === 'left') {
-        expect(panel).toHaveClass('top-0', 'left-0', 'h-full', 'rounded-r-lg')
+        expect(panel).toHaveClass('top-0', 'left-0', 'h-full', 'rounded-r-xl')
         expect(panel.className).toContain('w-[min(420px,85vw)]')
       } else {
-        expect(panel).toHaveClass('bottom-0', 'left-0', 'w-full', 'rounded-t-lg')
+        expect(panel).toHaveClass('bottom-0', 'left-0', 'w-full', 'rounded-t-xl')
         expect(panel.className).toContain('h-[min(420px,85vh)]')
       }
     },

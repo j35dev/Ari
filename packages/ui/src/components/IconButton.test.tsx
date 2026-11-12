@@ -11,7 +11,7 @@ describe('IconButton', () => {
 
   it('is square at md size by default', () => {
     render(<IconButton icon="+" aria-label="Add" />)
-    expect(screen.getByRole('button')).toHaveClass('h-9', 'w-9')
+    expect(screen.getByRole('button')).toHaveClass('h-8', 'w-8')
   })
 
   it('supports sm size and variants', () => {

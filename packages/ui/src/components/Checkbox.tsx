@@ -25,11 +25,12 @@ export function Checkbox({ indeterminate = false, className, children, ...rest }
       <input ref={inputRef} type="checkbox" className="peer sr-only" {...rest} />
       <span
         className={[
-          'flex h-4 w-4 items-center justify-center rounded-sm border border-border-strong bg-surface-1 transition-colors',
+          'flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border-strong transition-colors',
           indeterminate
-            ? 'peer-indeterminate:border-accent peer-indeterminate:bg-accent peer-indeterminate:[&>svg]:opacity-100'
-            : 'peer-checked:border-accent peer-checked:bg-accent peer-checked:[&>svg]:opacity-100',
-          'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
+            ? 'peer-indeterminate:border-fg peer-indeterminate:bg-fg peer-indeterminate:[&>svg]:opacity-100'
+            : 'peer-checked:border-fg peer-checked:bg-fg peer-checked:[&>svg]:opacity-100',
+          'peer-focus-visible:ring-2 peer-focus-visible:ring-accent-ring',
+          'peer-disabled:opacity-50',
         ].join(' ')}
       >
         {indeterminate ? (
@@ -37,16 +38,22 @@ export function Checkbox({ indeterminate = false, className, children, ...rest }
             data-testid="checkbox-dash"
             viewBox="0 0 12 12"
             aria-hidden="true"
-            className="h-3 w-3 text-fg-on-accent opacity-0"
+            className="h-3 w-3 text-bg opacity-0"
           >
-            <path d="M2.5 6h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <path
+              d="M2.5 6h7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
         ) : (
           <svg
             data-testid="checkbox-check"
             viewBox="0 0 12 12"
             aria-hidden="true"
-            className="h-3 w-3 text-fg-on-accent opacity-0"
+            className="h-3 w-3 text-bg opacity-0"
           >
             <path
               d="M2.5 6.5 5 9l4.5-5.5"
@@ -59,7 +66,7 @@ export function Checkbox({ indeterminate = false, className, children, ...rest }
           </svg>
         )}
       </span>
-      {children != null && <span className="text-sm text-fg">{children}</span>}
+      {children != null && <span className="text-[13px] text-fg">{children}</span>}
     </label>
   )
 }

@@ -7,6 +7,8 @@ const { invoke } = vi.hoisted(() => ({
   invoke: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(),
 }))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
+// The frame's scene art reads the theme and paints a canvas; neither is under test here.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 vi.mock('./OnboardingAgents', () => ({
   OnboardingAgents: ({
     onSelect,

@@ -1,6 +1,7 @@
-import { useId, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { useId, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { ResultPackage } from '@ari/contracts/orchestration'
+import { outlineButton, primaryButton, quietButton } from '../../lib/recipes'
 import type { DelegatedChild } from './types'
 import { MarkdownBlock } from './MarkdownBlock'
 import { DelegatedResultDiff } from './DelegatedResultDiff'
@@ -15,24 +16,60 @@ const LABEL: Record<ResultPackage['reviewState'], string> = {
   integrated: 'Integrated',
 }
 
+/** What the row's action says once a result has been looked at; short, so rows line up. */
+const ACTION_LABEL: Record<ResultPackage['reviewState'], string> = {
+  available: 'View result',
+  reviewing: 'Reviewing',
+  changes_requested: 'Changes asked',
+  accepted: 'Accepted',
+  integrated: 'Integrated',
+}
+
+/**
+ * The width every row's trailing slot shares, so the column before it lines
+ * up whether a row ends in a result action, a running time, or nothing.
+ */
+export const RESULT_SLOT = 'min-w-[6.75rem] justify-end'
+
+/** A line of guidance under the result summary. */
+const NOTE = 'mt-2 text-[13px] text-fg-muted'
+/** The same line when it should not be skimmed past: ink, not a status colour. */
+const CAUTION = 'mt-2 text-[13px] text-fg'
+const FIELD =
+  'rounded-md border border-border-strong bg-surface-1 text-[13px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+const SUMMARY =
+  'cursor-pointer rounded-sm transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
 /** A quiet entry point beside a settled child, with no permanent management panel. */
 export function DelegatedResult({
   sessionId,
   child,
+  placeholder,
 }: {
   sessionId: string
   child: DelegatedChild
+  /** Shown in the action's place while the child has no result to open. */
+  placeholder?: ReactNode
 }) {
   return (
     <ScopedDelegatedResult
       key={`${sessionId}:${child.sessionId}`}
       sessionId={sessionId}
       child={child}
+      placeholder={placeholder}
     />
   )
 }
 
-function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child: DelegatedChild }) {
+function ScopedDelegatedResult({
+  sessionId,
+  child,
+  placeholder,
+}: {
+  sessionId: string
+  child: DelegatedChild
+  placeholder?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -41,29 +78,43 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
   const review = useDelegatedResult(sessionId, child.sessionId, open)
   const { result, target, current, busy, loading } = review
   const settled = ['done', 'failed', 'stopped', 'idle', 'removed'].includes(child.state)
-  if (!settled && !open && !review.task) return null
+  if (!settled && !open && !review.task) return placeholder ?? null
   const disabled = busy || loading || !!review.loadError || !settled
   return (
-    <div className="mb-1 pl-[18px]">
+    // `contents`: in a delegation row the action sits at the end of the agent's
+    // line and the result opens as a well on the line below it.
+    <div className="contents">
       <button
         type="button"
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
         aria-label={`${open ? 'Hide' : 'Inspect'} result for ${child.title}`}
-        className={`${resultButton} gap-1 px-1 py-1 text-2xs`}
+        // A text action, not a boxed button: a list of agents would otherwise
+        // end every line in the same outlined button.
+        className={`${quietButton} ${RESULT_SLOT} h-7 shrink-0 gap-1 px-2 font-normal text-fg-subtle ${
+          open ? 'bg-fg/6 text-fg' : ''
+        }`}
       >
-        <ChevronRight aria-hidden size={11} className={open ? 'rotate-90' : ''} />
-        {open ? 'Hide result' : result ? `Result · ${LABEL[result.reviewState]}` : 'Inspect result'}
+        {open ? 'Hide result' : result ? ACTION_LABEL[result.reviewState] : 'View result'}
+        <ChevronDown
+          size={13}
+          aria-hidden="true"
+          className={`transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+        />
       </button>
-      <div id={id} hidden={!open} className="mt-1 rounded-md border border-border/60 px-3 py-2.5">
+      <div
+        id={id}
+        hidden={!open}
+        className="mb-2 mt-1 w-full rounded-lg border border-border bg-surface-0 px-3.5 py-3"
+      >
         {loading ? (
-          <p role="status" className="text-xs text-fg-subtle">
+          <p role="status" className="text-[13px] text-fg-subtle">
             Loading result…
           </p>
         ) : null}
         {review.loadError ? (
-          <div className="text-xs">
+          <div>
             <ResultError message={review.loadError} />
             <button
               type="button"
@@ -71,22 +122,22 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               onClick={() => {
                 void review.refresh()
               }}
-              className={resultButton}
+              className={`${resultButton} mt-1`}
             >
               Retry result
             </button>
           </div>
         ) : null}
         {!loading && !review.loadError && !result ? (
-          <p className="text-xs text-fg-muted">
+          <p className="text-[13px] text-fg-muted">
             {target
               ? 'The selected result changed or is unavailable. Choose a version to inspect.'
               : 'No versioned result is available. The worker report above is not an accepted code snapshot.'}
           </p>
         ) : null}
         {review.task?.results.length ? (
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <label htmlFor={`${id}-version`} className="text-2xs text-fg-muted">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <label htmlFor={`${id}-version`} className="text-xs text-fg-subtle">
               Result version
             </label>
             <select
@@ -97,7 +148,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                 review.select(event.target.value)
                 setDiffOpen(false)
               }}
-              className="min-w-0 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              className={`h-7 min-w-0 px-2 ${FIELD}`}
             >
               {!target ? <option value="">Choose version</option> : null}
               {target &&
@@ -114,7 +165,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               ))}
             </select>
             {result ? (
-              <span className="text-2xs text-fg-muted">{LABEL[result.reviewState]}</span>
+              <span className="text-xs text-fg-muted">{LABEL[result.reviewState]}</span>
             ) : null}
             {review.currentResult && !current ? (
               <button
@@ -133,26 +184,26 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
         ) : null}
         {result ? (
           <>
-            <div className="max-h-52 overflow-auto break-words text-xs">
+            <div className="ari-scroll max-h-52 overflow-auto break-words">
               <MarkdownBlock text={result.summary} />
             </div>
             {result.terminalStatus !== 'completed' ? (
-              <p className="mt-2 text-xs text-warning">
+              <p className={CAUTION}>
                 Attempt {result.terminalStatus}. Review unfinished work before accepting.
               </p>
             ) : null}
             {result.snapshotUnavailable ? (
-              <p className="mt-2 text-xs text-warning">
+              <p className={CAUTION}>
                 Snapshot unavailable. Restore the workspace or retry in a new session before
                 accepting.
               </p>
             ) : !result.snapshotCommit ? (
-              <p className="mt-2 text-xs text-fg-muted">
+              <p className={NOTE}>
                 Report only. Acceptance records the report; no code can be integrated.
               </p>
             ) : null}
             {!current ? (
-              <p className="mt-2 text-xs text-fg-subtle">
+              <p className="mt-2 text-[13px] text-fg-subtle">
                 Historical version.{' '}
                 {review.currentResult
                   ? `Version ${review.currentResult.version} is current.`
@@ -160,12 +211,13 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                 Choose the current version to accept or integrate.
               </p>
             ) : null}
-            <div className="mt-2 flex flex-wrap gap-1">
+            {/* Accepting or integrating is the one filled action; review is beside it. */}
+            <div className="mt-3 flex flex-wrap gap-1.5">
               {result.snapshotCommit && !result.snapshotUnavailable ? (
                 <button
                   type="button"
                   disabled={disabled}
-                  className={resultButton}
+                  className={outlineButton}
                   onClick={() => {
                     setDiffOpen(true)
                   }}
@@ -177,7 +229,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                 <button
                   type="button"
                   disabled={disabled || result.snapshotUnavailable}
-                  className={resultButton}
+                  className={primaryButton}
                   onClick={review.accept}
                 >
                   {result.snapshotCommit || result.snapshotUnavailable
@@ -192,7 +244,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                 <button
                   type="button"
                   disabled={disabled}
-                  className={resultButton}
+                  className={primaryButton}
                   onClick={review.integrate}
                 >
                   Integrate accepted result
@@ -222,7 +274,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                   })
                 }}
               >
-                <label htmlFor={`${id}-feedback`} className="mb-1 block text-2xs text-fg-muted">
+                <label htmlFor={`${id}-feedback`} className="mb-1 block text-xs text-fg-subtle">
                   Correction feedback
                 </label>
                 <textarea
@@ -233,7 +285,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                   disabled={busy}
                   onChange={(event) => setFeedback(event.target.value)}
                   placeholder="What needs to change?"
-                  className="w-full rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className={`block w-full px-2.5 py-1.5 placeholder:text-fg-subtle ${FIELD}`}
                 />
                 <button
                   type="submit"
@@ -244,14 +296,14 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
                     result.snapshotUnavailable ||
                     result.reviewState === 'integrated'
                   }
-                  className={resultButton}
+                  className={`${outlineButton} mt-1.5`}
                 >
                   Send correction
                 </button>
               </form>
             ) : null}
-            <details className="mt-2 text-2xs text-fg-subtle">
-              <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
+            <details className="mt-3 text-xs leading-relaxed text-fg-subtle">
+              <summary className={SUMMARY}>
                 Checks and provenance · {result.workerReportedChecks.length} worker reported ·{' '}
                 {result.verifiedChecks.length} independent
               </summary>
@@ -304,9 +356,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               ) : null}
               {result.files.length ? (
                 <details className="mt-2">
-                  <summary className="cursor-pointer">
-                    Changed files ({result.files.length})
-                  </summary>
+                  <summary className={SUMMARY}>Changed files ({result.files.length})</summary>
                   <ul className="break-all font-mono">
                     {result.files.map((path) => (
                       <li key={path}>{path}</li>
@@ -316,7 +366,7 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               ) : null}
               {result.reviewHistory.length ? (
                 <details className="mt-2">
-                  <summary className="cursor-pointer">Review history</summary>
+                  <summary className={SUMMARY}>Review history</summary>
                   <ul>
                     {result.reviewHistory.map((entry, index) => (
                       <li key={index} className="break-words">
@@ -329,11 +379,11 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               ) : null}
             </details>
             {result.unresolvedIssues.length ? (
-              <details className="mt-2 text-xs text-warning">
-                <summary className="cursor-pointer">
+              <details className="mt-2 text-[13px] leading-relaxed text-fg">
+                <summary className={SUMMARY}>
                   Unresolved issues ({result.unresolvedIssues.length})
                 </summary>
-                <ul className="list-disc break-words pl-4">
+                <ul className="mt-1 list-disc break-words pl-5 text-fg-muted">
                   {result.unresolvedIssues.map((issue, index) => (
                     <li key={index}>{issue}</li>
                   ))}
@@ -341,20 +391,20 @@ function ScopedDelegatedResult({ sessionId, child }: { sessionId: string; child:
               </details>
             ) : null}
             {result.nextAction ? (
-              <details className="mt-2 text-2xs text-fg-muted">
-                <summary className="cursor-pointer">Worker’s suggested next action</summary>
-                <p className="break-words">{result.nextAction}</p>
+              <details className="mt-2 text-xs leading-relaxed text-fg-subtle">
+                <summary className={SUMMARY}>Worker’s suggested next action</summary>
+                <p className="mt-1 break-words text-fg-muted">{result.nextAction}</p>
               </details>
             ) : null}
           </>
         ) : null}
         {busy ? (
-          <p role="status" className="mt-2 text-xs text-fg-muted">
+          <p role="status" className={NOTE}>
             Working on this result…
           </p>
         ) : null}
         {review.notice ? (
-          <p role="status" className="mt-2 text-xs text-fg-muted">
+          <p role="status" className={NOTE}>
             {review.notice}
           </p>
         ) : null}

@@ -57,7 +57,9 @@ describe('ActivityStep', () => {
     render(<ActivityStep call={edit} result={undefined} />)
 
     expect(screen.getByRole('button', { name: 'Editing src/a.ts' })).toBeInTheDocument()
-    expect(screen.getByText('+1 −1')).toBeInTheDocument()
+    // Additions and deletions are separate counts, each in its diff colour.
+    expect(screen.getByText('+1')).toHaveClass('text-success')
+    expect(screen.getByText('−1')).toHaveClass('text-danger')
   })
 
   it('labels plan steps as done/total progress', () => {

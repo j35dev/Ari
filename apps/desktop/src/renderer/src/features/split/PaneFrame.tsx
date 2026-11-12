@@ -74,23 +74,26 @@ export function PaneFrame({
       onFocusCapture={() => onFocus(paneId)}
       {...menu.menuProps}
       {...drop.dropProps}
-      className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col border ${
-        focused ? 'border-accent/40' : 'border-border/60'
-      }`}
+      data-focused={focused}
+      className="group/pane flex h-full min-h-0 w-full min-w-0 flex-1 flex-col"
     >
       <header
         // The header is the pane's grip: dragging it onto another pane trades
         // the two. Only the header, so the pane's own content keeps its drags.
         draggable
         onDragStart={(event) => setDragPane(event, paneId, label)}
-        className={`flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2 active:cursor-grabbing ${
-          focused ? 'border-accent/25 bg-accent/10' : 'border-border/60'
+        className={`flex h-8 shrink-0 cursor-grab items-center gap-1.5 border-b border-border px-2.5 active:cursor-grabbing ${
+          focused ? 'bg-fg/4' : ''
         }`}
       >
-        <GripVertical size={10} aria-hidden className="shrink-0 text-fg-subtle/60" />
+        <GripVertical
+          size={12}
+          aria-hidden
+          className="-ml-1 shrink-0 text-fg-subtle opacity-0 transition-opacity group-hover/pane:opacity-60"
+        />
         <span
           title={label}
-          className={`min-w-0 flex-1 truncate text-2xs ${
+          className={`min-w-0 flex-1 truncate text-[12.5px] ${
             focused ? 'font-medium text-fg' : 'text-fg-subtle'
           }`}
         >
@@ -101,9 +104,9 @@ export function PaneFrame({
           aria-label={`Close ${label}`}
           title="Close pane"
           onClick={() => onClose(paneId)}
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-[opacity,color,background-color] hover:bg-fg/9 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover/pane:opacity-100"
         >
-          <X size={10} aria-hidden />
+          <X size={12} aria-hidden />
         </button>
       </header>
       {/* Deliberately not `overflow-hidden`: the composer's model picker, file
@@ -133,8 +136,8 @@ export function BlankPane({
 } = {}) {
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-4 text-center">
-      <p className="text-xs text-fg-subtle">Empty pane</p>
-      <p className="max-w-56 text-2xs text-fg-subtle/70">
+      <p className="text-sm font-medium text-fg">Empty pane</p>
+      <p className="max-w-60 text-[13px] text-fg-subtle">
         Drag a session in from the sidebar, or open a terminal here.
       </p>
       {onOpenTerminal !== undefined ? (

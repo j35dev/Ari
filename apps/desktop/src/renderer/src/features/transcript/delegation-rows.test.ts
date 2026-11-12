@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Message } from '@ari/contracts/message'
 import { groupBlocks } from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
-import { insertDelegationRows, summarizeDelegation } from './delegation-rows'
+import { splitDelegation, insertDelegationRows, summarizeDelegation } from './delegation-rows'
 import type { DelegatedChild } from './types'
 
 const messages: Message[] = [
@@ -79,6 +79,65 @@ describe('insertDelegationRows', () => {
     expect(
       insertDelegationRows([], [child('only', { messageId: null, partIndex: 0 })]),
     ).toHaveLength(1)
+  })
+})
+
+describe('splitDelegation', () => {
+  const at = { messageId: 'a1', partIndex: 1 }
+  const HOUR = 60 * 60 * 1000
+  const NOW = 100 * HOUR
+  const settled = (id: string, settledAt: number, state: DelegatedChild['state'] = 'done') => ({
+    ...child(id, at, state),
+    settledAt,
+  })
+  const ids = (list: DelegatedChild[]) => list.map((entry) => entry.sessionId)
+
+  it('keeps running agents and recent results, and sets old and removed ones aside', () => {
+    const { current, earlier } = splitDelegation(
+      [
+        settled('lead', NOW - 72 * HOUR, 'stopped'),
+        child('gone-1', at, 'removed'),
+        child('gone-2', at, 'removed'),
+        settled('garden', NOW - HOUR / 4),
+        child('arcade', at, 'working'),
+      ],
+      NOW,
+    )
+    expect(ids(current)).toEqual(['garden', 'arcade'])
+    expect(ids(earlier)).toEqual(['lead', 'gone-1', 'gone-2'])
+  })
+
+  it('measures recency against the group, so an old turn still shows its own agents', () => {
+    const { current, earlier } = splitDelegation(
+      [settled('a', NOW - 72 * HOUR), settled('b', NOW - 71 * HOUR, 'failed')],
+      NOW,
+    )
+    expect(ids(current)).toEqual(['a', 'b'])
+    expect(earlier).toEqual([])
+  })
+
+  it('treats anything still waiting on someone as current, however long ago it started', () => {
+    const waiting = { ...child('asks', at, 'needs-you'), spawnedAt: NOW - 72 * HOUR }
+    expect(ids(splitDelegation([waiting, child('new', at, 'working')], NOW).current)).toEqual([
+      'asks',
+      'new',
+    ])
+  })
+
+  it('keeps a finished agent whose times are unknown in view', () => {
+    const { current } = splitDelegation([child('idle', at, 'idle'), child('w', at)], NOW)
+    expect(ids(current)).toEqual(['idle', 'w'])
+  })
+
+  it('falls back to the spawn time when an agent never settled a turn', () => {
+    const stale = { ...child('stale', at, 'idle'), spawnedAt: NOW - 30 * HOUR }
+    const { earlier } = splitDelegation([stale, child('w', at)], NOW)
+    expect(ids(earlier)).toEqual(['stale'])
+  })
+
+  it('shows the whole group when nothing in it is current', () => {
+    const gone = [child('x', at, 'removed'), child('y', at, 'removed')]
+    expect(splitDelegation(gone, NOW)).toEqual({ current: gone, earlier: [] })
   })
 })
 

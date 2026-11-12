@@ -74,7 +74,8 @@ describe('EndpointsManager', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('refuses to save an endpoint with no models', async () => {    mockList([])
+  it('refuses to save an endpoint with no models', async () => {
+    mockList([])
     const user = userEvent.setup()
     render(<EndpointsManager />)
 
@@ -154,7 +155,7 @@ describe('EndpointsManager', () => {
     await waitFor(() => {
       expect(status.textContent).toContain('42ms')
     })
-    expect(status.querySelector('.bg-success')).not.toBeNull()
+    expect(status.querySelector('.ari-status[data-status="done"]')).not.toBeNull()
     // The saved endpoint's id goes along so the engine can use its stored key.
     expect(invoke).toHaveBeenCalledWith('endpoints.test', {
       id: 'ep-1',
@@ -182,7 +183,7 @@ describe('EndpointsManager', () => {
     await waitFor(() => {
       expect(status.textContent).toContain('timed out')
     })
-    expect(status.querySelector('.bg-danger')).not.toBeNull()
+    expect(status.querySelector('.ari-status[data-status="error"]')).not.toBeNull()
   })
 
   it('fetches models into the add form without saving them', async () => {
@@ -345,7 +346,8 @@ describe('EndpointsManager', () => {
     ).not.toBe(0)
   })
 
-  it('removing the default model hands the role to the next one', async () => {    mockList([
+  it('removing the default model hands the role to the next one', async () => {
+    mockList([
       {
         ...SEED_STORED,
         models: [

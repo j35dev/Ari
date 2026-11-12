@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Check, Monitor } from 'lucide-react'
+import { Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
@@ -11,51 +11,45 @@ import { codeFonts, interfaceFonts } from '../../lib/appearance'
 import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SettingsCard, SettingsSection } from './SettingsSection'
+import {
+  SETTINGS_FIELD_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+  SettingsSection,
+} from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
 
 /**
- * Miniature window painted from the registry palette: a sidebar with one
- * active row, a transcript with an accent reply. Shows how the theme actually
- * reads instead of four abstract dots.
+ * A theme in three chips from the registry palette: the page, a raised
+ * surface, and the accent. Enough to tell the palettes apart at a glance.
  */
-function ThemePreview({ theme }: { theme: Theme }) {
+function ThemeChips({ theme }: { theme: Theme }) {
   const { colors } = theme
-  const line = (width: string, color: string) => (
-    <span className="block h-1 rounded-full" style={{ width, background: color }} />
+  const chip = (color: string) => (
+    <span
+      className="size-[18px] rounded-sm"
+      style={{ background: color, boxShadow: `inset 0 0 0 1px ${colors.border}` }}
+    />
   )
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-[76px] w-full overflow-hidden rounded-md"
-      style={{ background: colors.bg, color: colors.fg }}
-    >
-      <span
-        className="flex w-[30%] shrink-0 flex-col gap-1.5 p-2"
-        style={{ background: colors['surface-0'], borderRight: `1px solid ${colors.border}` }}
-      >
-        {line('55%', colors['fg-subtle'])}
-        <span className="mt-0.5 h-2.5 rounded-sm" style={{ background: colors['surface-2'] }} />
-        {line('80%', colors['surface-3'])}
-        {line('65%', colors['surface-3'])}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
-        {line('70%', colors['fg-muted'])}
-        {line('45%', colors['fg-subtle'])}
-        <span
-          className="mt-auto h-4 w-4/5 self-end rounded"
-          style={{ background: colors['surface-1'], border: `1px solid ${colors.border}` }}
-        />
-        <span className="h-1 w-2/5 rounded-full" style={{ background: colors.accent }} />
-      </span>
+    <span aria-hidden="true" className="flex gap-1">
+      {chip(colors.bg)}
+      {chip(colors['surface-2'])}
+      {chip(colors.accent)}
     </span>
   )
 }
 
-/** Selectable tile: visual preview on top, name and one line of copy below. */
-function PreviewTile({
+/** Grids of swatches: as many 140px columns as the card has room for. */
+const SWATCH_GRID_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5'
+
+/**
+ * Selectable swatch: a preview above its name. Selection is an ink border and
+ * ink text, never an accent fill.
+ */
+function SwatchTile({
   label,
   description,
   selected,
@@ -73,30 +67,16 @@ function PreviewTile({
       type="button"
       role="radio"
       aria-checked={selected}
+      title={description}
       onClick={onSelect}
-      className={`group flex w-full flex-col gap-2.5 rounded-xl border bg-surface-1/70 p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`flex w-full min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         selected
-          ? 'border-accent/70 ring-1 ring-accent/40'
-          : 'border-border hover:border-border-strong hover:bg-surface-2/60'
+          ? 'border-fg text-fg'
+          : 'border-border text-fg-muted hover:border-border-strong hover:text-fg'
       }`}
     >
-      <span className="relative block">
-        {preview}
-        {selected ? (
-          <span
-            aria-hidden="true"
-            className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-accent text-fg-on-accent shadow-sm"
-          >
-            <Check size={12} strokeWidth={2.5} />
-          </span>
-        ) : null}
-      </span>
-      <span className="block px-1 pb-1">
-        <span className="block text-sm font-medium text-fg">{label}</span>
-        <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-fg-muted">
-          {description}
-        </span>
-      </span>
+      {preview}
+      <span className="block truncate">{label}</span>
     </button>
   )
 }
@@ -113,16 +93,16 @@ function ThemeGroup({
   onSelect: (id: ThemeId) => void
 }) {
   return (
-    <section aria-label={title}>
-      <h3 className="mb-2.5 px-1 text-xs font-medium text-fg-muted">{title}</h3>
-      <div role="radiogroup" aria-label={title} className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+    <section aria-label={title} className="p-3.5">
+      <h3 className="mb-2.5 px-0.5 text-[13px] text-fg-subtle">{title}</h3>
+      <div role="radiogroup" aria-label={title} className={SWATCH_GRID_CLASS}>
         {themes.map((theme) => (
-          <PreviewTile
+          <SwatchTile
             key={theme.id}
             label={theme.label}
             description={theme.description}
             selected={selectedMode === theme.id}
-            preview={<ThemePreview theme={theme} />}
+            preview={<ThemeChips theme={theme} />}
             onSelect={() => onSelect(theme.id)}
           />
         ))}
@@ -139,14 +119,14 @@ function WallpaperThumb({ wallpaper, theme }: { wallpaper: Wallpaper | null; the
         src={wallpaper.src}
         alt=""
         aria-hidden="true"
-        className="block aspect-video w-full rounded-md object-cover"
+        className="block aspect-video w-full rounded-sm object-cover"
       />
     )
   }
   return (
     <span
       aria-hidden="true"
-      className="block aspect-video w-full rounded-md"
+      className="block aspect-video w-full rounded-sm"
       style={{
         background: theme.colors.bg,
         boxShadow: `inset 0 0 0 1px ${theme.colors.border}`,
@@ -170,8 +150,7 @@ export function AppearanceSettings() {
       log.warn('failed to persist appearance', { error })
     })
   }
-  const selectClass =
-    'max-w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+  const selectClass = SETTINGS_FIELD_CLASS
 
   const handleReducedMotionChange = (checked: boolean) => {
     void update({ appearance: { reducedMotion: checked } }).catch((error: unknown) => {
@@ -292,70 +271,62 @@ export function AppearanceSettings() {
             <option value="terminal">Terminal</option>
           </select>
         </SettingsRow>
-        <div
-          className="ari-appearance-preview mt-4 rounded-xl bg-surface-1 px-5 py-4"
-          aria-label="Typography preview"
-        >
-          <p className="mb-2 text-xs text-fg-muted">Preview</p>
+        <div className="ari-appearance-preview px-4 py-3.5" aria-label="Typography preview">
+          <p className="mb-2 text-[13px] text-fg-subtle">Preview</p>
           <p className="ari-chat-copy text-fg">A little more room to think.</p>
           <p className="mt-2 text-sm leading-relaxed text-fg-muted">
             Explore your project, follow the work, and shape what comes next.
           </p>
-          <code className="mt-3 block font-mono text-xs text-accent">{'> ari / workspace'}</code>
+          <code className="mt-3 block font-mono text-[12.5px] text-fg-muted">
+            {'> ari / workspace'}
+          </code>
         </div>
       </SettingsSection>
       <SettingsSection
         title="Theme"
         description="Pick a palette, or follow the system light/dark preference."
-        action={<span className="text-xs text-fg-muted">{theme.label}</span>}
-        bare
+        action={<span className="text-[13px] text-fg-subtle">{theme.label}</span>}
       >
-        <div className="space-y-6">
-          <SettingsCard>
-            <div role="radiogroup" aria-label="Follow system">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={followingSystem}
-                onClick={() => setMode('system')}
-                className="flex min-h-14 w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <Monitor size={16} className="shrink-0 text-fg-muted" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-fg">Follow system</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-fg-muted">
-                    Matches your OS light and dark preference automatically.
-                  </span>
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                    followingSystem ? 'border-accent bg-accent' : 'border-border-strong'
-                  }`}
-                >
-                  {followingSystem ? (
-                    <span className="size-1.5 rounded-full bg-fg-on-accent" />
-                  ) : null}
-                </span>
-              </button>
-            </div>
-          </SettingsCard>
-          <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
-          <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
+        <div role="radiogroup" aria-label="Follow system">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={followingSystem}
+            onClick={() => setMode('system')}
+            className="flex w-full items-center gap-3 rounded-t-xl px-4 py-3.5 text-left transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <Monitor
+              size={16}
+              strokeWidth={1.7}
+              className="shrink-0 text-fg-subtle"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+              <span className={`block ${SETTINGS_LABEL_CLASS}`}>Follow system</span>
+              <span className={`mt-0.5 block ${SETTINGS_HINT_CLASS}`}>
+                Matches your OS light and dark preference automatically.
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                followingSystem ? 'border-fg bg-fg' : 'border-border-strong'
+              }`}
+            >
+              {followingSystem ? <span className="size-1.5 rounded-full bg-bg" /> : null}
+            </span>
+          </button>
         </div>
+        <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
+        <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
       </SettingsSection>
 
       <SettingsSection
         title="Wallpaper"
         description="A scene behind every palette, softly scrimmed so text stays readable."
-        bare
       >
-        <div
-          role="radiogroup"
-          aria-label="Wallpaper"
-          className="grid grid-cols-2 gap-3 lg:grid-cols-3"
-        >
-          <PreviewTile
+        <div role="radiogroup" aria-label="Wallpaper" className={`${SWATCH_GRID_CLASS} p-3.5`}>
+          <SwatchTile
             label="None"
             description="Solid theme background."
             selected={wallpaper === 'none'}
@@ -363,7 +334,7 @@ export function AppearanceSettings() {
             onSelect={() => setWallpaper('none')}
           />
           {wallpapers.map((entry) => (
-            <PreviewTile
+            <SwatchTile
               key={entry.id}
               label={entry.label}
               description={entry.description}

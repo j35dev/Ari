@@ -40,6 +40,9 @@ it('opens Aria, shows selected styling and prioritizes attention over running co
   expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveAttribute('aria-current', 'page')
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'attention')
   expect(screen.getByTitle('1 items need you')).toHaveTextContent('1')
+  // Needing the user is the one filled accent badge in the chrome.
+  expect(screen.getByTitle('1 items need you')).toHaveClass('bg-accent', 'rounded-full')
+  expect(screen.getByRole('button', { name: 'Open Aria' })).toHaveClass('bg-fg/9')
   expect(screen.queryByTitle('1 sessions working')).toBeNull()
   await userEvent.click(screen.getByRole('button', { name: 'Open Aria' }))
   expect(onOpen).toHaveBeenCalledOnce()
@@ -63,6 +66,9 @@ it('derives idle, own thinking and started-session working states from live acti
   rerender(<AriaRow selected={false} activity={working} onOpen={() => {}} {...chatActions} />)
   expect(container.querySelector('svg')).toHaveAttribute('data-aria-state', 'working')
   expect(screen.getByTitle('1 sessions working')).toHaveTextContent('1')
+  // Sessions running is information, not a request: same badge, neutral ink.
+  expect(screen.getByTitle('1 sessions working')).toHaveClass('rounded-full')
+  expect(screen.getByTitle('1 sessions working')).not.toHaveClass('bg-accent')
   const thinking = ariaActivity(sessions, (id) =>
     id === 'aria' || id === 'worker' ? { phase: 'working', startedAt: 1 } : undefined,
   )

@@ -2,6 +2,14 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { FolderPlus, Plus, RotateCcw, X } from 'lucide-react'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import {
+  cx,
+  iconButton,
+  outlineButton,
+  rowAction,
+  tab as tabClass,
+  tabSelected,
+} from '../../lib/recipes'
 import { ContextMenu, type MenuAnchor } from '../../shell/ContextMenu'
 import { TerminalA11y } from './TerminalA11y'
 import { TerminalPane } from './TerminalPane'
@@ -48,17 +56,21 @@ const PRESETS: TabPreset[] = [
  * and the rail says so rather than opening a shell the main process refuses.
  *
  * Tabs live in the module-level dock store, so closing the rail parks the
- * shells instead of killing them; only the tab's × does that.
+ * shells instead of killing them; only the tab's × does that. The rail has no
+ * close button of its own: the panel's tab row, drawn by the host, closes it.
  */
 export function TerminalDock({
   cwd,
   onAddProject,
-  onClose,
   paneTerminalIds,
 }: {
   cwd: string | null
   /** Opens the folder picker, so a railless project can still be added. */
   onAddProject?: () => void
+  /**
+   * Accepted for the host's sake and never drawn: the docked panel's tab row
+   * owns the close button, so the rail does not repeat it.
+   */
   onClose?: () => void
   /** Tabs already shown in a split pane — the rail hides them so a pty is never mounted twice. */
   paneTerminalIds?: ReadonlySet<string>
@@ -151,28 +163,24 @@ export function TerminalDock({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5">
+      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border px-2">
         <div
           role="group"
           aria-label="Terminals"
-          className="ari-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          className="ari-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
         >
           {tabs.map((tab) => {
             const active = tab.id === activeId
             return (
               <span
                 key={tab.id}
-                className={`group flex h-6 shrink-0 items-center gap-1 rounded-md pl-2 pr-1 transition-colors duration-150 ${
-                  active
-                    ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm font-medium'
-                    : 'text-fg-subtle hover:bg-surface-2/70 border border-transparent hover:text-fg'
-                }`}
+                className={cx('group shrink-0 pr-1', tabClass, active && tabSelected)}
               >
                 <button
                   type="button"
                   aria-pressed={active}
                   onClick={() => activateTerminalTab(tab.id)}
-                  className="max-w-32 truncate font-mono text-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className="max-w-32 truncate rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
                   {tab.title}
                 </button>
@@ -180,9 +188,13 @@ export function TerminalDock({
                   type="button"
                   aria-label={`Close ${tab.title}`}
                   onClick={() => closeTab(tab.id)}
-                  className="flex h-4 w-4 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className={cx(
+                    rowAction,
+                    // Quiet tabs show their × on hover or focus; the current one keeps it.
+                    !active && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100',
+                  )}
                 >
-                  <X size={9} />
+                  <X size={12} aria-hidden />
                 </button>
               </span>
             )
@@ -199,11 +211,6 @@ export function TerminalDock({
             }}
           >
             <Plus size={14} aria-hidden />
-          </RailButton>
-        ) : null}
-        {onClose ? (
-          <RailButton label="Close terminal panel" onClick={onClose}>
-            <X size={13} aria-hidden />
           </RailButton>
         ) : null}
       </div>
@@ -227,17 +234,13 @@ export function TerminalDock({
       {activeError !== null && activeId !== null ? (
         <div
           role="alert"
-          className="flex shrink-0 items-center gap-2 border-b border-danger-subtle bg-danger-subtle px-3 py-1.5 text-xs text-danger"
+          className="flex shrink-0 items-center gap-2 border-b border-border py-1 pl-4 pr-2 text-[13px] text-danger"
         >
           <span className="min-w-0 flex-1 truncate" title={activeError}>
             Terminal failed to start: {activeError}
           </span>
-          <button
-            type="button"
-            onClick={() => retryTab(activeId)}
-            className="flex shrink-0 items-center gap-1 rounded-md border border-danger px-2 py-0.5 text-2xs transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <RotateCcw size={10} aria-hidden /> Retry
+          <button type="button" onClick={() => retryTab(activeId)} className={outlineButton}>
+            <RotateCcw size={14} aria-hidden /> Retry
           </button>
         </div>
       ) : null}
@@ -271,7 +274,7 @@ export function TerminalDock({
             {onAddProject ? (
               <RailAction
                 label="Add project"
-                icon={<FolderPlus size={12} />}
+                icon={<FolderPlus size={14} aria-hidden />}
                 onClick={onAddProject}
               />
             ) : null}
@@ -280,7 +283,7 @@ export function TerminalDock({
           <EmptyRail message="No terminal open.">
             <RailAction
               label="Open a terminal"
-              icon={<Plus size={12} />}
+              icon={<Plus size={14} aria-hidden />}
               onClick={() => spawnPreset(SHELL_PRESET)}
             />
           </EmptyRail>
@@ -300,13 +303,7 @@ function RailButton({
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-    >
+    <button type="button" aria-label={label} title={label} onClick={onClick} className={iconButton}>
       {children}
     </button>
   )
@@ -315,7 +312,7 @@ function RailButton({
 function EmptyRail({ message, children }: { message: string; children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
-      <p className="text-center text-xs text-fg-subtle">{message}</p>
+      <p className="max-w-64 text-center text-[13px] text-fg-subtle">{message}</p>
       {children}
     </div>
   )
@@ -331,11 +328,7 @@ function RailAction({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-    >
+    <button type="button" onClick={onClick} className={outlineButton}>
       {icon} {label}
     </button>
   )

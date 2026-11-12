@@ -1,83 +1,35 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Titlebar } from './Titlebar'
+import { describe, expect, it, vi } from 'vitest'
+import { SidebarFooter } from './SidebarFooter'
 
-const ORIGINAL_UA = navigator.userAgent
+vi.mock('../features/focus', () => ({
+  FocusPill: () => <span>focus</span>,
+}))
 
-function stubUserAgent(value: string): void {
-  Object.defineProperty(navigator, 'userAgent', { configurable: true, value })
-}
-
-afterEach(() => {
-  stubUserAgent(ORIGINAL_UA)
-})
-
-describe('Titlebar workspace tools', () => {
-  it('places workspace tools in the titlebar, not the session sidebar', () => {
-    render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
-    expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
-    for (const label of ['Review changes', 'Files', 'Usage', 'Terminal', 'Settings']) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
-    }
-    // Git actions and pull requests live in the one Git control, not as extra tools.
-    expect(screen.queryByRole('button', { name: 'Source control' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'PRs & issues' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
-  })
-
-  it('badges Review changes with the working-tree file count', () => {
-    render(<Titlebar activeTool="changes" changeCount={3} onSelectTool={() => undefined} />)
-    expect(screen.getByRole('button', { name: 'Review changes, 3 files changed' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    expect(screen.getByText('3')).toBeInTheDocument()
-  })
-
-  it('renders the Git control it is given beside the tools', () => {
-    render(
-      <Titlebar
-        onSelectTool={() => undefined}
-        git={<button type="button">Commit &amp; push</button>}
-      />,
-    )
-    expect(screen.getByRole('button', { name: 'Commit & push' })).toBeInTheDocument()
-  })
-
-  it('reports the chosen tool', async () => {
+describe('SidebarFooter', () => {
+  it('holds the app destinations: usage and settings', async () => {
     const onSelect = vi.fn()
     const user = userEvent.setup()
-    render(<Titlebar onSelectTool={onSelect} />)
+    render(<SidebarFooter onSelectTool={onSelect} />)
+
+    await user.click(screen.getByRole('button', { name: 'Usage' }))
     await user.click(screen.getByRole('button', { name: 'Settings' }))
-    expect(onSelect).toHaveBeenCalledWith('settings')
+    expect(onSelect.mock.calls).toEqual([['usage'], ['settings']])
   })
 
-  it('omits the ARI wordmark and keeps the leading edge empty', () => {
-    render(<Titlebar />)
-    expect(screen.queryByText('ARI')).not.toBeInTheDocument()
-    // The workspace name and branch moved out of the titlebar (the branch
-    // lives inside the session space); no project label may creep back.
-    expect(screen.queryByText('demo')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+  it('marks the destination that is open', () => {
+    render(<SidebarFooter activeTool="usage" onSelectTool={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Usage' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 
-  it('insets the leading cluster under macOS traffic lights', () => {
-    stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15')
-    const { container } = render(<Titlebar />)
-    expect(container.querySelector('.pl-\\[76px\\]')).not.toBeNull()
-  })
-
-  it('offers expand-sidebar only when the rail is collapsed', async () => {
-    const onExpand = vi.fn()
-    const user = userEvent.setup()
-    const { rerender } = render(<Titlebar />)
-    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
-
-    rerender(<Titlebar onExpandSidebar={onExpand} />)
-    await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
-    expect(onExpand).toHaveBeenCalledOnce()
+  it('carries the focus tools, and leaves live provider usage to the titlebar', () => {
+    render(<SidebarFooter onSelectTool={() => undefined} />)
+    expect(screen.getByText('focus')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /usage:/ })).not.toBeInTheDocument()
   })
 })

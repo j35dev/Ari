@@ -12,17 +12,18 @@ import { ChildSessionActivity } from './ChildSessionActivity'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
+import { EffortGlyph, effortLevels } from './effort-level'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
 import type { DelegatedChild, TurnDiffValue } from '../transcript/types'
 import type { ChildTask } from '@ari/contracts/agent-control'
-import { Check, ChevronDown, X } from 'lucide-react'
+import { Check, ChevronDown, Hand, PencilLine, X, Zap, type LucideIcon } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import { hasProviderContext } from '@ari/contracts/session'
-import { canSwitchProvider } from '@ari/contracts/helm'
+import { canSwitchProvider, isHelmSession } from '@ari/contracts/helm'
 import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
@@ -31,6 +32,10 @@ import { resolveOfferedModel } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
+import { AriaMark } from '@ari/ui/aria-mark'
+import { chip, cx, outlineButton, textButton } from '../../lib/recipes'
+import type { ariaActivity } from '../aria/aria-activity'
+import { DitherScene } from '../scene/DitherScene'
 import { TranscriptView } from '../transcript'
 import {
   Composer,
@@ -58,7 +63,7 @@ import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../momen
 import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
-import { ParentSessionLink } from './ParentSessionLink'
+import { ParentSessionLink, paneOriginLink } from './ParentSessionLink'
 import { ComposerDock } from './ComposerDock'
 import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { historyJournal, type HistoryJournal } from './history-journal'
@@ -201,6 +206,8 @@ const EMPTY_PROVIDER_CONTEXT = {
 }
 /** How long the rail keeps saying the agent reports back after its last output. */
 const REPORTING_LINGER_MS = 4000
+/** A load that failed, as one row in the chat column: red dot, message, retry. */
+const NOTICE_ROW = 'ari-chat-column mb-2 flex shrink-0 items-center gap-2.5 px-3 text-[13.5px]'
 
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
@@ -255,6 +262,7 @@ export function SessionView({
   parentSession = null,
   startedByAria = false,
   onOpenAria,
+  ariaStatus,
   hidden = false,
   onComposerReady,
 }: {
@@ -272,6 +280,11 @@ export function SessionView({
   parentSession?: { id: string; title: string } | null
   startedByAria?: boolean
   onOpenAria?: () => void
+  /**
+   * What Aria's sessions are doing, for the header of her own chat. Without
+   * it the header shows her name alone.
+   */
+  ariaStatus?: ReturnType<typeof ariaActivity>
   /**
    * Kept mounted behind the pane's current session. The journal subscription
    * stays live so the view is current when it returns, but its subtree's
@@ -299,6 +312,8 @@ export function SessionView({
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
   const [providerSwitchable, setProviderSwitchable] = useState(false)
+  // Aria's own chat (the helm project): it wears her identity, not a session's.
+  const [helm, setHelm] = useState(false)
   const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
   const [providerContext, setProviderContext] = useState(EMPTY_PROVIDER_CONTEXT)
   const providerLocked = !providerSwitchable && hasProviderContext(providerContext)
@@ -438,6 +453,7 @@ export function SessionView({
     setMetadataRetrying(false)
     setRunning(false)
     setProviderSwitchable(false)
+    setHelm(false)
     setProviderSwitches([])
     setProviderContext(EMPTY_PROVIDER_CONTEXT)
     modelPicksRef.current = {
@@ -681,6 +697,7 @@ export function SessionView({
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
           setMetadataFailureSession(null)
           setProviderSwitchable(canSwitchProvider(m.session))
+          setHelm(isHelmSession(m.session))
           setProviderContext((previous) => ({
             hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
             hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
@@ -723,6 +740,7 @@ export function SessionView({
     switch (event.type) {
       case 'session.created':
         setProviderSwitchable(canSwitchProvider(event.session))
+        setHelm(isHelmSession(event.session))
         break
       case 'session.provider.switched':
         setProviderSwitches((prev) => [...prev, event])
@@ -746,6 +764,7 @@ export function SessionView({
           modelId: event.modelId,
           anchor: { messageId: anchor?.messageId ?? null, partIndex: (anchor?.parts ?? 1) - 1 },
           destroyed: false,
+          spawnedAt: event.at,
         }
         setSpawns((prev) =>
           prev.some((spawn) => spawn.sessionId === record.sessionId) ? prev : [...prev, record],
@@ -1770,7 +1789,7 @@ export function SessionView({
                     onCancel={cancelQuestion}
                   />
                   {approvals.length > 0 || childSessions.length > 0 ? (
-                    <div className="mx-3 border-t border-border/60" />
+                    <div className="border-t border-border" />
                   ) : null}
                 </>
               ) : null}
@@ -1803,7 +1822,7 @@ export function SessionView({
               {backgroundShown ? (
                 <>
                   {composerAttentionRequired || childSessions.length > 0 ? (
-                    <div className="mx-3 border-t border-border/60" />
+                    <div className="border-t border-border" />
                   ) : null}
                   <BackgroundWork
                     providerLabel={defaults.driverKind === 'claude' ? 'Claude' : undefined}
@@ -1898,18 +1917,19 @@ export function SessionView({
         ref={canvasRef}
         className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
       >
-        <div
-          className="ari-session-scene pointer-events-none absolute inset-0 -z-10"
-          data-visible={centered || undefined}
-          aria-hidden
-        />
+        {/* The scene belongs to the empty stage: it is mounted only while it
+            shows, so a conversation never paints or holds the art. It comes
+            first and unraised, so everything after it draws on top. */}
+        {centered ? (
+          <DitherScene kind={helm ? 'aria' : 'session'} className="ari-session-scene" />
+        ) : null}
+        {helm && !centered ? <AriaHeader status={ariaStatus} /> : null}
         <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
         {startedByAria ? (
-          <button
-            type="button"
-            onClick={onOpenAria}
-            className="shrink-0 px-4 py-1 text-left text-xs text-fg-subtle hover:text-fg"
-          >
+          <button type="button" onClick={onOpenAria} className={paneOriginLink}>
+            <span aria-hidden="true" className="flex shrink-0">
+              <AriaMark size={14} />
+            </span>
             Started by Aria
           </button>
         ) : null}
@@ -1940,32 +1960,30 @@ export function SessionView({
           />
         </div>
         {historyFailureSession === sessionId ? (
-          <div
-            role="status"
-            className="mx-4 mb-2 flex items-center justify-between gap-3 text-xs text-fg-muted"
-          >
-            <span>History is incomplete. Some saved messages could not be loaded.</span>
+          <div role="status" className={NOTICE_ROW}>
+            <span aria-hidden="true" className="ari-status" data-status="error" />
+            <span className="min-w-0 flex-1 text-fg">
+              History is incomplete. Some saved messages could not be loaded.
+            </span>
             <button
               type="button"
               disabled={historyRetrying}
               onClick={() => retryHistoryRef.current()}
-              className="shrink-0 rounded px-2 py-1 text-fg hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+              className={cx(outlineButton, 'shrink-0')}
             >
               {historyRetrying ? 'Retrying history…' : 'Retry history'}
             </button>
           </div>
         ) : null}
         {metadataFailureSession === sessionId ? (
-          <div
-            role="status"
-            className="mx-4 mb-2 flex items-center justify-between gap-3 text-xs text-fg-muted"
-          >
-            <span>Session details could not be loaded.</span>
+          <div role="status" className={NOTICE_ROW}>
+            <span aria-hidden="true" className="ari-status" data-status="error" />
+            <span className="min-w-0 flex-1 text-fg">Session details could not be loaded.</span>
             <button
               type="button"
               disabled={metadataRetrying}
               onClick={() => retryMetadataRef.current()}
-              className="shrink-0 rounded px-2 py-1 text-fg hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
+              className={cx(outlineButton, 'shrink-0')}
             >
               {metadataRetrying ? 'Retrying session details…' : 'Retry session details'}
             </button>
@@ -1987,19 +2005,19 @@ export function SessionView({
         <ElementChips picks={elementPicks} sessionId={sessionId} />
         {reviewNotes.length > 0 ? (
           <div
-            className="mx-4 mb-1 flex flex-wrap items-center gap-1"
+            className="ari-chat-column mb-2 flex shrink-0 flex-wrap items-center gap-1.5 px-3"
             aria-label="Review notes attached to next message"
           >
-            <span className="text-2xs text-fg-subtle">
+            <span className="text-[12.5px] text-fg-subtle">
               {reviewNotes.length} note{reviewNotes.length > 1 ? 's' : ''} with your next message:
             </span>
             {reviewNotes.map((note) => (
               <span
                 key={note.id}
-                className="flex max-w-64 items-center gap-1 rounded-full border border-accent-subtle bg-accent-subtle px-2 py-0.5 text-2xs text-fg-muted"
+                className={cx(chip, 'max-w-64 pe-1')}
                 title={note.context ?? note.text}
               >
-                <span className="min-w-0 truncate font-mono">{reviewDraftChipLabel(note)}</span>
+                <span className="min-w-0 truncate">{reviewDraftChipLabel(note)}</span>
                 <button
                   type="button"
                   aria-label={`Remove note ${note.text}`}
@@ -2009,16 +2027,26 @@ export function SessionView({
                       reviewNotes.filter((item) => item.id !== note.id),
                     )
                   }
-                  className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-fg/9 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
-                  <X size={10} />
+                  <X size={12} />
                 </button>
               </span>
             ))}
           </div>
         ) : null}
-        {/* Last thing above the plate: the capsule reads as the composer's own
-            shoulder, so nothing may sit between the two. */}
+        <ComposerDock
+          centered={centered}
+          canvasRef={canvasRef}
+          reducedMotion={engineSettings?.appearance.reducedMotion ?? false}
+          onStart={startFromStarter}
+          aria={helm}
+          ariaState={ariaStatus?.state}
+        >
+          {composer}
+        </ComposerDock>
+        {/* The last thing in the column: a quiet line under the composer, on
+            the composer's own measure. */}
         <SessionStatusCapsule
           turnCount={telemetry.turnCount}
           lastDurationMs={telemetry.lastDurationMs}
@@ -2029,14 +2057,6 @@ export function SessionView({
           contextWindow={contextWindow}
           hidden={centered}
         />
-        <ComposerDock
-          centered={centered}
-          canvasRef={canvasRef}
-          reducedMotion={engineSettings?.appearance.reducedMotion ?? false}
-          onStart={startFromStarter}
-        >
-          {composer}
-        </ComposerDock>
       </div>
       {pendingPlan !== null ? (
         <PlanReviewRail
@@ -2050,6 +2070,101 @@ export function SessionView({
   // Hidden views keep their DOM and state; React defers their renders and
   // pauses the effects inside, so a background stream costs no layout.
   return <Activity mode={hidden ? 'hidden' : 'visible'}>{view}</Activity>
+}
+
+/**
+ * Aria's header inside her stage: her mark, her name in pixel type, and one
+ * sentence about the sessions she started, with what needs the user in the
+ * accent. Without a status it is her name alone.
+ */
+function AriaHeader({ status }: { status?: ReturnType<typeof ariaActivity> }) {
+  return (
+    <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-5">
+      {/* Her name is right beside it, so the mark itself stays unannounced. */}
+      <span aria-hidden="true" className="flex shrink-0">
+        <AriaMark size={22} state={status?.state} />
+      </span>
+      <h2 className="ari-pixel shrink-0 text-[19px] leading-none text-fg">Aria</h2>
+      {status ? (
+        <p className="min-w-0 truncate text-sm text-fg-muted">
+          {status.working === 0 && status.attention === 0 ? (
+            'Nothing running.'
+          ) : (
+            <>
+              {status.working > 0
+                ? `${status.working} session${status.working === 1 ? '' : 's'} working`
+                : null}
+              {status.working > 0 && status.attention > 0 ? ', ' : null}
+              {status.attention > 0 ? (
+                <span className="text-accent">
+                  {status.attention} need{status.attention === 1 ? 's' : ''} you
+                </span>
+              ) : null}
+              .
+            </>
+          )}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** The composer's pickers read as text until hovered: no border, no tile. */
+const PICKER = cx(textButton, 'shrink-0 whitespace-nowrap')
+
+/**
+ * One choice in a picker's menu. With a hint it is two lines: the value, then
+ * what choosing it means, in full, so nothing is cut off mid-sentence. A mark
+ * says at a glance what kind of choice it is; a check marks the current one.
+ */
+function PickerOption({
+  label,
+  hint,
+  mark,
+  selected,
+  onSelect,
+}: {
+  label: string
+  hint?: string
+  /** A 15px glyph drawn in the row's ink: an icon, or the effort bars. */
+  mark?: React.ReactNode
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={onSelect}
+      className={cx(
+        'flex w-full min-w-0 gap-2.5 rounded-md px-2.5 text-left text-[13px] transition-colors hover:bg-fg/6 focus-visible:bg-fg/6 focus-visible:outline-none',
+        hint ? 'items-start py-2' : 'h-8 items-center',
+      )}
+    >
+      {mark !== undefined ? (
+        <span
+          className={cx('flex shrink-0', hint && 'mt-px', selected ? 'text-fg' : 'text-fg-subtle')}
+        >
+          {mark}
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1">
+        <span className={cx('block truncate text-fg', selected && 'font-medium')}>{label}</span>
+        {hint ? (
+          <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-fg-subtle">
+            {hint}
+          </span>
+        ) : null}
+      </span>
+      {/* Always laid out, so the text column is the same width on every row. */}
+      <Check
+        size={14}
+        aria-hidden
+        className={cx('shrink-0 text-fg', hint && 'mt-0.5', !selected && 'invisible')}
+      />
+    </button>
+  )
 }
 
 interface EffortOption {
@@ -2184,51 +2299,48 @@ export function EffortChip({
     options[0]?.id
   const current = options.find((o) => o.id === selectedId) ?? options[0]
   if (current === undefined) return null
+  const levels = effortLevels(options)
+  const described = options.some((option) => option.description)
 
   return (
     <div ref={setAnchor} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={current.description ?? `Effort: ${current.label}`}
-        aria-label={`Effort: ${current.label}`}
+        title={current.description ?? `Effort: ${sentenceCase(current.label)}`}
+        aria-label={`Effort: ${sentenceCase(current.label)}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className={PICKER}
       >
-        <span>{current.label}</span>
+        <span>{sentenceCase(current.label)}</span>
         <ChevronDown
-          size={11}
+          size={12}
           aria-hidden
-          className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ${open ? 'rotate-180' : ''}`}
+          className={`-ms-0.5 shrink-0 text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ${open ? 'rotate-180' : ''}`}
         />
       </button>
       <Popover open={open} onOpenChange={setOpen} anchor={anchor}>
         <Popover.Content
           side="top"
           align="start"
-          bare
           role="listbox"
           aria-label="Effort"
-          className="w-52 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+          // Bare levels need only a narrow menu; described ones get room to read.
+          className={`${described ? 'w-72' : 'w-44'} overflow-hidden`}
         >
-          {options.map((option) => (
-            <button
+          {options.map((option, index) => (
+            <PickerOption
               key={option.id}
-              type="button"
-              role="option"
-              aria-selected={option.id === selectedId}
-              onClick={() => {
+              label={sentenceCase(option.label)}
+              hint={option.description}
+              mark={<EffortGlyph {...(levels[index] ?? { filled: 1, bars: 2 })} />}
+              selected={option.id === selectedId}
+              onSelect={() => {
                 onChange(option.id)
                 setOpen(false)
               }}
-              className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2"
-            >
-              <span className="text-fg">{option.label}</span>
-              {option.description ? (
-                <span className="text-2xs text-fg-subtle">{option.description}</span>
-              ) : null}
-            </button>
+            />
           ))}
         </Popover.Content>
       </Popover>
@@ -2243,6 +2355,26 @@ const PERMISSION_MODES: { value: PermissionMode; label: string; hint: string }[]
 ]
 
 const DEFAULT_MODE = PERMISSION_MODES[0] as (typeof PERMISSION_MODES)[number]
+
+/**
+ * What each level lets the agent do without asking, as a mark. An agent's own
+ * mode names vary ("plan", "build", "yolo"); the mark is always Ari's meaning.
+ */
+const MODE_ICON: Record<PermissionMode, LucideIcon> = {
+  ask: Hand,
+  'allow-edits': PencilLine,
+  full: Zap,
+}
+
+function ModeMark({ mode }: { mode: PermissionMode }) {
+  const Icon = MODE_ICON[mode]
+  return <Icon size={15} strokeWidth={1.7} aria-hidden />
+}
+
+/** Agents name their modes and levels in lowercase ("plan"); a menu reads them as sentences. */
+function sentenceCase(label: string): string {
+  return label === label.toLowerCase() ? label.charAt(0).toUpperCase() + label.slice(1) : label
+}
 
 /** A permission mode the harness advertised over ACP, mapped to Ari's enum. */
 interface DiscoveredModeOption {
@@ -2282,7 +2414,7 @@ function modeEntries(discovered: DiscoveredModeOption[]): ModeEntry[] {
     for (const option of native) {
       entries.push({
         value: fallback.value,
-        label: option.label,
+        label: sentenceCase(option.label),
         hint: option.description ?? fallback.hint,
         nativeId: option.id,
         nativeCurrent: option.current === true,
@@ -2372,53 +2504,31 @@ export function PermissionModeChip({
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className={PICKER}
       >
-        <span
-          aria-hidden
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            mode === 'full' ? 'bg-warning' : mode === 'allow-edits' ? 'bg-info' : 'bg-fg-subtle'
-          }`}
-        />
         <span>{current.label}</span>
         <ChevronDown
-          size={11}
+          size={12}
           aria-hidden
-          className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ease-[var(--ari-ease-out-expo)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+          className={`-ms-0.5 shrink-0 text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ease-[var(--ari-ease-out-expo)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
         />
       </button>
       <Popover open={open} onOpenChange={setOpen} anchor={anchor}>
-        <Popover.Content
-          side="top"
-          align="start"
-          bare
-          className="w-56 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
-        >
+        <Popover.Content side="top" align="start" className="w-72 overflow-hidden">
           <div ref={menuRef} role="listbox" aria-label="Permission mode" onKeyDown={onMenuKeyDown}>
-            {entries.map((m) => {
-              const selected = m === current
-              return (
-                <button
-                  key={m.nativeId ?? m.value}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => {
-                    onChange(m.value)
-                    setOpen(false)
-                  }}
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium text-fg">{m.label}</span>
-                    <span className="block text-2xs text-fg-subtle">{m.hint}</span>
-                  </span>
-                  {selected ? (
-                    <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
-                  ) : null}
-                </button>
-              )
-            })}
+            {entries.map((m) => (
+              <PickerOption
+                key={m.nativeId ?? m.value}
+                label={m.label}
+                hint={m.hint}
+                mark={<ModeMark mode={m.value} />}
+                selected={m === current}
+                onSelect={() => {
+                  onChange(m.value)
+                  setOpen(false)
+                }}
+              />
+            ))}
           </div>
         </Popover.Content>
       </Popover>

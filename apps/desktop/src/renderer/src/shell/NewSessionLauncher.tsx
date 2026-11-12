@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Folder, FolderPlus, Search } from 'lucide-react'
+import { FolderPlus, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
 import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 import type { Project } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { visibleProjects } from '../features/aria/visibility'
+import { cx, menu, outlineButton, primaryButton } from '../lib/recipes'
+import { ContextMark } from './ContextMark'
 
 /**
  * Compact relative age for "last opened" labels — member of the same family
@@ -179,11 +181,15 @@ export function NewSessionLauncher({
             aria-label="New session"
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.preventDefault()}
-            className="mt-[12vh] h-fit w-[min(440px,90vw)] overflow-hidden rounded-lg border border-border bg-surface-2"
-            style={{ boxShadow: 'var(--ari-shadow-3)' }}
+            className={cx(menu, 'mt-[12vh] h-fit w-[min(440px,90vw)] overflow-hidden')}
           >
-            <div className="flex h-12 items-center gap-2.5 border-b border-border px-4">
-              <Search size={15} aria-hidden className="shrink-0 text-fg-subtle" />
+            <div className="flex h-9 items-center gap-2.5 px-2.5">
+              <Search
+                size={14}
+                strokeWidth={1.75}
+                aria-hidden
+                className="shrink-0 text-fg-subtle"
+              />
               <input
                 ref={inputRef}
                 type="text"
@@ -192,24 +198,19 @@ export function NewSessionLauncher({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Jump to a project…"
                 spellCheck={false}
-                className="h-full min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
+                className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle"
               />
-              <kbd className="shrink-0 rounded border border-border px-1.5 font-mono text-2xs text-fg-subtle/70">
-                esc
-              </kbd>
+              <kbd className="shrink-0 font-ui text-xs text-fg-subtle">esc</kbd>
             </div>
+            <div aria-hidden className="mx-1.5 my-1 h-px bg-border" />
 
             {visible.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
-                <p className="text-sm text-fg-subtle">
+              <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+                <p className="text-[13px] text-fg-subtle">
                   {query === '' ? 'No projects yet.' : `No project matches “${query.trim()}”`}
                 </p>
-                <button
-                  type="button"
-                  onClick={onAddProject}
-                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <FolderPlus size={13} aria-hidden />
+                <button type="button" onClick={onAddProject} className={primaryButton}>
+                  <FolderPlus size={14} strokeWidth={1.75} aria-hidden />
                   {query === '' ? 'Pick a folder…' : 'Pick a folder anyway'}
                 </button>
               </div>
@@ -218,7 +219,7 @@ export function NewSessionLauncher({
                 ref={listRef}
                 role="listbox"
                 aria-label="Projects"
-                className="ari-scroll overflow-y-auto p-1"
+                className="ari-scroll flex flex-col gap-px overflow-y-auto"
                 style={{ maxHeight: LIST_MAX_HEIGHT }}
               >
                 {visible.map((project, index) => {
@@ -249,16 +250,15 @@ export function NewSessionLauncher({
                         onClose()
                         onCreate(project.id, lead)
                       }}
-                      className={`group flex cursor-default select-none items-center gap-3 rounded-md border border-transparent px-2.5 transition-colors ${
-                        index === activeIndex ? 'border-border bg-surface-3/60' : ''
-                      }`}
+                      className={cx(
+                        'group flex shrink-0 cursor-default select-none items-center gap-2.5 rounded-md px-2.5 transition-colors',
+                        index === activeIndex && 'bg-fg/6',
+                      )}
                       style={{ height: ITEM_HEIGHT }}
                     >
-                      <Folder
-                        size={14}
-                        aria-hidden
-                        className={`shrink-0 ${missing ? 'text-fg-subtle/70' : 'text-fg-muted'}`}
-                      />
+                      <span className={missing ? 'opacity-60' : undefined}>
+                        <ContextMark variant="project" />
+                      </span>
                       <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
                         <span
                           className={`truncate text-sm font-medium ${missing ? 'text-fg-subtle' : 'text-fg'}`}
@@ -268,13 +268,15 @@ export function NewSessionLauncher({
                         </span>
                         {/* Reversed text with left ellipsis keeps the tail —
                             the distinguishing part of a path — visible. */}
-                        <span className="truncate text-left font-mono text-2xs text-fg-subtle/70 [direction:rtl]">
+                        <span className="truncate text-left font-mono text-xs text-fg-subtle [direction:rtl]">
                           {project.path}
                         </span>
                       </span>
-                      <span className="shrink-0 text-2xs text-fg-subtle/70">
+                      <span className="shrink-0 text-xs text-fg-subtle">
                         {project.id === preferredProjectId ? 'current' : meta}
                       </span>
+                      {/* The lead alternative stays quiet text until its row is
+                          the one under the pointer or the arrow keys. */}
                       <button
                         type="button"
                         aria-label={`Lead session in ${project.name}`}
@@ -284,7 +286,7 @@ export function NewSessionLauncher({
                           onClose()
                           onCreate(project.id, true)
                         }}
-                        className="shrink-0 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs font-medium text-accent opacity-0 transition-opacity hover:border-accent-ring focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100 group-aria-selected:opacity-100"
+                        className="inline-flex h-6 shrink-0 items-center rounded-sm px-1.5 text-xs text-fg-muted opacity-0 transition-[color,background-color,opacity] hover:bg-fg/9 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100 group-aria-selected:opacity-100"
                       >
                         Lead ↵
                       </button>
@@ -294,19 +296,22 @@ export function NewSessionLauncher({
               </div>
             )}
 
-            <div className="flex items-center gap-3 border-t border-border px-4 text-2xs text-fg-subtle/70">
-              <span className="flex h-10 items-center truncate">
-                <kbd className="rounded border border-border px-1 font-mono">↑↓</kbd> pick{' '}
-                <kbd className="ml-1.5 rounded border border-border px-1 font-mono">↵</kbd> open{' '}
-                <kbd className="ml-1.5 rounded border border-border px-1 font-mono">alt ↵</kbd> lead
+            <div aria-hidden className="mx-1.5 my-1 h-px bg-border" />
+            <div className="flex h-9 items-center gap-3 pl-2.5 pr-1 text-xs text-fg-subtle">
+              <span className="flex min-w-0 items-center gap-3 truncate">
+                <span>
+                  <kbd className="font-ui text-fg-muted">↑↓</kbd> pick
+                </span>
+                <span>
+                  <kbd className="font-ui text-fg-muted">↵</kbd> open
+                </span>
+                <span>
+                  <kbd className="font-ui text-fg-muted">alt ↵</kbd> lead
+                </span>
               </span>
               <span className="flex-1" />
-              <button
-                type="button"
-                onClick={onAddProject}
-                className="-mr-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <FolderPlus size={12} aria-hidden />
+              <button type="button" onClick={onAddProject} className={outlineButton}>
+                <FolderPlus size={14} strokeWidth={1.75} aria-hidden />
                 Add project…
               </button>
             </div>

@@ -21,7 +21,9 @@ describe('MessageRail', () => {
     render(<MessageRail entries={entries} activeKey="4" onJump={() => undefined} />)
 
     for (const entry of entries) {
-      expect(screen.getByLabelText(new RegExp(`Jump to message: ${entry.text}`))).toBeInTheDocument()
+      expect(
+        screen.getByLabelText(new RegExp(`Jump to message: ${entry.text}`)),
+      ).toBeInTheDocument()
     }
     expect(screen.getByLabelText(/second prompt/)).toHaveAttribute('aria-current', 'true')
     expect(screen.getByLabelText(/first prompt/)).not.toHaveAttribute('aria-current')
@@ -40,11 +42,17 @@ describe('MessageRail', () => {
     for (const slot of slots) expect(slot).toHaveClass('shrink', 'min-h-0')
   })
 
-  it('keeps the active dot full size however tightly the rest are packed', () => {
+  it('inks and widens the active tick, and never lets a tick shrink', () => {
     render(<MessageRail entries={entries} activeKey="4" onJump={() => undefined} />)
 
-    expect(screen.getByLabelText(/second prompt/).firstElementChild).toHaveClass('h-1.5')
-    expect(screen.getByLabelText(/first prompt/).firstElementChild).not.toHaveClass('h-1.5')
+    const active = screen.getByLabelText(/second prompt/).firstElementChild
+    const idle = screen.getByLabelText(/first prompt/).firstElementChild
+    expect(active).toHaveClass('w-3', 'bg-fg/70')
+    expect(idle).toHaveClass('w-2', 'bg-fg/15')
+    expect(idle).not.toHaveClass('w-3')
+    expect(idle).not.toHaveClass('bg-fg/70')
+    // Slots give up height; the tick itself keeps its 2px.
+    for (const tick of [active, idle]) expect(tick).toHaveClass('h-0.5', 'shrink-0')
   })
 
   it('jumps on click and previews the prompt on hover', async () => {

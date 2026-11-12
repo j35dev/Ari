@@ -4,6 +4,9 @@ import type { OnboardingChoice } from './onboarding-completion'
 import { OnboardingFrame } from './OnboardingFrame'
 import { OnboardingReady } from './OnboardingReady'
 
+// The frame's scene art reads the theme and paints a canvas; neither is under test here.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
+
 const choice: OnboardingChoice = {
   projects: [{ path: '/work/Ari', name: 'Ari', sources: ['claude'], lastUsedAt: null }],
   driverKind: 'claude',

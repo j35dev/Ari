@@ -190,7 +190,7 @@ export function TerminalPane({
 
   return (
     <div className="h-full min-h-0 w-full overflow-hidden">
-      <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden px-3 py-2" />
+      <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden p-2.5" />
     </div>
   )
 }

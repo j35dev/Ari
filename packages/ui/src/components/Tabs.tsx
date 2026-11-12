@@ -1,10 +1,5 @@
 import { createContext, useContext, useId, useState } from 'react'
-import type {
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  KeyboardEvent,
-  ReactNode,
-} from 'react'
+import type { ButtonHTMLAttributes, HTMLAttributes, KeyboardEvent, ReactNode } from 'react'
 import { motion } from 'motion/react'
 
 interface TabsContextValue {
@@ -21,8 +16,10 @@ function useTabs(component: string): TabsContextValue {
   return ctx
 }
 
-export interface TabsProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, 'defaultValue' | 'onChange'> {
+export interface TabsProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  'defaultValue' | 'onChange'
+> {
   /** Controlled selected tab value; provide together with onValueChange. */
   value?: string
   /** Initially selected tab value for uncontrolled usage. */
@@ -31,14 +28,7 @@ export interface TabsProps
   onValueChange?: (value: string) => void
 }
 
-function TabsRoot({
-  value,
-  defaultValue,
-  onValueChange,
-  className,
-  children,
-  ...rest
-}: TabsProps) {
+function TabsRoot({ value, defaultValue, onValueChange, className, children, ...rest }: TabsProps) {
   const [internal, setInternal] = useState(defaultValue ?? '')
   const isControlled = value !== undefined
   const current = isControlled ? value : internal
@@ -70,9 +60,7 @@ function TabsList({ className, children, ...rest }: TabsListProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const tab = (event.target as HTMLElement).closest<HTMLElement>('[role="tab"]')
     if (!tab || !event.currentTarget.contains(tab)) return
-    const tabs = Array.from(
-      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
-    )
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'))
     const index = tabs.indexOf(tab)
     if (index === -1) return
     let next: number
@@ -103,9 +91,7 @@ function TabsList({ className, children, ...rest }: TabsListProps) {
     <div
       role="tablist"
       onKeyDown={handleKeyDown}
-      className={['inline-flex items-center gap-1', className]
-        .filter(Boolean)
-        .join(' ')}
+      className={['inline-flex items-center gap-1', className].filter(Boolean).join(' ')}
       {...rest}
     >
       {children}
@@ -135,25 +121,25 @@ function TabsTab({ value, className, children, type, ...rest }: TabProps) {
       tabIndex={selected ? 0 : -1}
       onClick={() => ctx.setValue(value)}
       className={[
-        'relative inline-flex h-8 shrink-0 items-center rounded-md px-3 text-sm transition-colors',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-        selected ? 'text-fg' : 'text-fg-muted hover:bg-surface-2',
+        'relative inline-flex h-7 shrink-0 items-center rounded-md px-2.5 text-[13px] transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
+        selected ? 'text-fg' : 'text-fg-subtle hover:bg-fg/6 hover:text-fg',
         className,
       ]
         .filter(Boolean)
         .join(' ')}
       {...rest}
     >
-      {children}
       {selected && (
         <motion.span
           layoutId={`${ctx.baseId}-tab-indicator`}
           data-indicator=""
           aria-hidden
-          className="absolute inset-x-0 bottom-0 h-0.5 bg-accent"
+          className="absolute inset-0 rounded-md bg-fg/9"
           transition={{ duration: 0.2, ease: 'easeOut' }}
         />
       )}
+      <span className="relative inline-flex items-center gap-1.5">{children}</span>
     </button>
   )
 }
@@ -177,7 +163,7 @@ function TabsPanel({ value, className, children, ...rest }: TabPanelProps) {
       hidden={!selected}
       tabIndex={0}
       className={[
-        'pt-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        'rounded-md pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
         className,
       ]
         .filter(Boolean)
@@ -193,7 +179,7 @@ function TabsPanel({ value, className, children, ...rest }: TabPanelProps) {
  * Compound tabs component following the WAI-ARIA tabs pattern:
  * `<Tabs><Tabs.List><Tabs.Tab/></Tabs.List><Tabs.Panel/></Tabs>`.
  * ArrowLeft/ArrowRight/Home/End move focus with automatic activation; the
- * active underline slides between tabs via a shared motion layoutId.
+ * active fill slides between tabs via a shared motion layoutId.
  */
 export const Tabs = Object.assign(TabsRoot, {
   List: TabsList,

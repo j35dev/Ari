@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en" data-ari-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ari UI revamp, direction 2</title>
+    <link rel="stylesheet" href="../../packages/ui/src/tokens.css" />
+    <link rel="stylesheet" href="./v2.css" />
+    <script src="./icons.js"></script>
+  </head>
+  <body data-show="home">
+    <div class="app" id="app">
+      <header class="top">
+        <div class="brand">
+          <span>Ari<b>.</b></span>
+          <span class="grow"></span>
+          <button class="ib"><i data-i="Search"></i></button>
+          <button class="ib"><i data-i="PanelLeft"></i></button>
+        </div>
+        <div class="crumbs">
+          <span data-only="session work dictate">test</span>
+          <span data-only="session work dictate" class="sep">/</span>
+          <span data-only="session dictate" class="here">test lead</span>
+          <span data-only="work" class="here">Dictation formatting</span>
+          <span data-only="home" class="here">New session</span>
+          <span data-only="aria ariahome" class="here">Aria</span>
+          <span data-only="settings" class="here">Settings</span>
+        </div>
+        <div class="right">
+          <button class="gitbtn" data-only="session work dictate"><i data-i="GitBranch"></i>master<span class="n add">+42</span><span class="n del">−11</span></button>
+          <button class="ib" data-only="session work dictate aria"><i data-i="SquareTerminal"></i></button>
+          <button class="ib" data-only="session work dictate aria" id="panel-toggle"><i data-i="PanelRight"></i></button>
+        </div>
+        <div class="wc">
+          <span><i data-i="Minus"></i></span><span><i data-i="Square" style="--s: 11px"></i></span><span><i data-i="X"></i></span>
+        </div>
+      </header>
+
+      <aside class="side">
+        <button class="nav" id="nav-new"><i data-i="SquarePen"></i>New session</button>
+        <button class="nav" id="nav-aria"><span data-aria="16"></span>Aria<span class="grow"></span><span class="badge">1</span></button>
+        <button class="nav"><i data-i="GitPullRequest"></i>Pull requests</button>
+
+        <div class="side-h">Projects<span class="grow"></span><button class="ib"><i data-i="Plus"></i></button></div>
+        <div class="proj"><span class="av">A</span>Ari</div>
+        <div class="sess"><span class="t">Parallel project worktrees</span><span class="st run"></span></div>
+        <div class="sess" id="row-dict"><span class="t">Dictation formatting</span><span class="when">2h</span></div>
+        <div class="sess"><span class="t">ACP idle watchdog</span><span class="when">5h</span></div>
+        <div class="sess"><span class="t">Release 0.3.13</span><span class="when">1d</span></div>
+        <div class="proj" style="margin-top: 8px"><span class="av">T</span>test</div>
+        <div class="sess" id="row-lead"><span class="t">test lead</span><span class="st run"></span></div>
+        <div class="sess child"><span class="t">GLM site</span><span class="st run"></span></div>
+        <div class="sess child"><span class="t">DeepSeek site</span><span class="st done"></span></div>
+        <div class="sess child last"><span class="t">Random HTML site</span><span class="st need"></span></div>
+
+        <div class="side-foot">
+          <button class="usage"><span class="ring" style="--p: 12"></span>Codex 12%</button>
+          <span class="grow"></span>
+          <button class="ib"><i data-i="Music"></i></button>
+          <button class="ib" id="nav-settings"><i data-i="Settings"></i></button>
+        </div>
+      </aside>
+
+      <!-- ───────── home ───────── -->
+      <main class="stage" data-screen="home">
+        <div class="scene"><canvas data-scene="anime-city"></canvas></div>
+        <div class="hero">
+          <div class="col">
+            <h1>Make room for your next idea.</h1>
+            <div class="where">
+              <button class="pick"><i data-i="Folder" style="--s: 14px"></i><b>Ari</b><i class="caret" data-i="ChevronDown"></i></button>
+              <button class="pick"><i data-i="GitBranch" style="--s: 14px"></i>New worktree<i class="caret" data-i="ChevronDown"></i></button>
+            </div>
+            <div class="composer">
+              <div class="input">Ask anything, @ for files, / for commands</div>
+              <div class="bar">
+                <button class="ib"><i data-i="Plus"></i></button>
+                <button class="pick"><svg class="logo" data-logo="claude"></svg><b>Opus 5.5</b><i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">High<i class="caret" data-i="ChevronDown"></i></button>
+                <span class="grow"></span>
+                <button class="ib"><i data-i="Mic"></i></button>
+                <button class="send"><i data-i="ArrowUp"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ───────── Aria, empty ───────── -->
+      <main class="stage" data-screen="ariahome">
+        <div class="scene"><canvas data-scene="moon-landscape-2"></canvas></div>
+        <div class="hero">
+          <div class="col">
+            <div class="aria-hello"><span data-aria="64" data-lit></span><h1 class="pixel">Aria</h1></div>
+            <div class="composer">
+              <div class="input">Tell Aria what you need. She starts the sessions and keeps track of them.</div>
+              <div class="bar">
+                <button class="ib"><i data-i="Plus"></i></button>
+                <button class="pick"><svg class="logo" data-logo="claude"></svg><b>Opus 5.5</b><i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">High<i class="caret" data-i="ChevronDown"></i></button>
+                <span class="grow"></span>
+                <span class="hint">Hold Ctrl Space to talk</span>
+                <button class="ib"><i data-i="Mic"></i></button>
+                <button class="send"><i data-i="ArrowUp"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ───────── session (calm) + dictation ───────── -->
+      <main class="stage" data-screen="session dictate">
+        <div class="scroll">
+          <div class="col thread">
+            <div class="you">Build one random HTML website in this folder. Try it on three models so I can compare.</div>
+            <div class="prose">
+              <p>I'll run the same brief on three models in separate worktrees, then compare the results and integrate the best one into <code>sites/</code>.</p>
+            </div>
+            <button class="worked">Worked for 48s<i data-i="ChevronRight"></i></button>
+            <div class="agents">
+              <span class="stack"><span>G</span><span>D</span><span><svg class="logo" data-logo="codex"></svg></span></span>
+              <span><b>3 agents</b></span>
+              <span>1 working, 1 done, <span class="hot">1 needs you</span></span>
+              <span class="time">2m 22s</span>
+              <i data-i="ChevronRight" style="color: var(--ari-fg-subtle)"></i>
+            </div>
+            <div class="live"><span class="st run"></span>Waiting on GLM site and Random HTML site<span class="time">2m 22s</span></div>
+          </div>
+          <div class="col dock">
+            <div class="composer" data-only="session">
+              <div class="input">Ask anything, @ for files, / for commands</div>
+              <div class="bar">
+                <button class="ib"><i data-i="Plus"></i></button>
+                <button class="pick"><svg class="logo" data-logo="codex"></svg><b>GPT-6.1-Sol</b><i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">High<i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">Full auto<i class="caret" data-i="ChevronDown"></i></button>
+                <span class="grow"></span>
+                <button class="ib"><i data-i="Mic"></i></button>
+                <button class="send"><i data-i="ArrowUp"></i></button>
+              </div>
+            </div>
+            <div class="composer rec" data-only="dictate">
+              <div class="input has">Keep the synth audio but start it muted, and put a visible toggle in the corner <span>so people can</span></div>
+              <div class="bar">
+                <span class="rec-label">Listening</span>
+                <span class="levels" id="levels"></span>
+                <span class="rec-time">0:07</span>
+                <span class="grow"></span>
+                <span class="hint">Esc to discard</span>
+                <button class="send ready"><i data-i="Check"></i></button>
+              </div>
+            </div>
+            <div class="under"><span><i data-i="GitBranch"></i>master</span><span><i data-i="Folder"></i>D:\Projects\test</span><span class="grow"></span><span><span class="ring" style="--p: 14"></span>14% context</span></div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ───────── work expanded + changes panel ───────── -->
+      <main class="stage" data-screen="work">
+        <div class="scroll">
+          <div class="col thread">
+            <div class="you">Format finalized dictation locally, and don't lose the draft text while it runs.</div>
+            <div class="prose"><p>The formatter should run after the final transcript arrives, so I'll move it into the speech target and leave the draft untouched until it succeeds.</p></div>
+            <button class="worked">Worked for 1m 13s<i data-i="ChevronDown"></i></button>
+            <div class="steps">
+              <div class="step"><i data-i="Brain"></i>Thought for 4s</div>
+              <div class="step"><i data-i="FileText"></i>Read<span class="obj">useSpeech.ts, target.ts</span></div>
+              <div class="step"><i data-i="Pencil"></i>Edited<span class="obj">features/speech/target.ts</span><span class="meta"><span class="add">+4</span><span class="del">−2</span></span></div>
+              <div class="block"><span class="ln">export async function finalize(target, heard) {</span><span class="ln d">  target.replaceDraft(heard)</span><span class="ln d">  return format(heard)</span><span class="ln a">  const text = await format(heard).catch(() =&gt; heard)</span><span class="ln a">  target.replaceDraft(text)</span><span class="ln a">  return text</span><span class="ln">}</span></div>
+              <div class="step"><i data-i="SquareTerminal"></i>Ran<span class="obj">pnpm vitest run features/speech</span><span class="meta">4.1s</span></div>
+            </div>
+            <div class="prose"><p>Done. Formatting now happens before the draft is replaced, so a failed format leaves your words exactly as dictated. All 31 speech tests pass.</p></div>
+            <div class="foot"><span>1m 13s</span><i data-i="Copy"></i><span class="filechip">target.ts <span class="add">+4</span> <span class="del">−2</span></span><span class="filechip">target.test.ts <span class="add">+38</span> <span class="del">−9</span></span></div>
+          </div>
+          <div class="col dock">
+            <div class="attach">
+              <span class="st need"></span><span>Run <code>git push origin fix/dictation-formatting</code>?</span><span class="grow"></span>
+              <button class="btn">Deny</button><button class="btn line">Always allow</button><button class="btn pri">Allow once</button>
+            </div>
+            <div class="composer">
+              <div class="input">Ask anything, @ for files, / for commands</div>
+              <div class="bar">
+                <button class="ib"><i data-i="Plus"></i></button>
+                <button class="pick"><svg class="logo" data-logo="claude"></svg><b>Opus 5.5</b><i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">High<i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">Ask first<i class="caret" data-i="ChevronDown"></i></button>
+                <span class="grow"></span>
+                <button class="ib"><i data-i="Mic"></i></button>
+                <button class="send"><i data-i="ArrowUp"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+      <aside class="panel" data-screen="work">
+        <div class="tabs">
+          <span class="tab on">Changes<span class="n">3</span></span><span class="tab">Files</span><span class="tab">Terminal</span><span class="tab">Browser</span>
+          <span class="grow"></span><button class="btn pri">Commit</button>
+        </div>
+        <div class="group">fix/dictation-formatting, 3 files</div>
+        <div class="file"><i data-i="FileCode"></i>target.ts<span class="p">features/speech</span><span class="n"><span class="add">+4</span><span class="del">−2</span></span></div>
+        <div class="file"><i data-i="FileCode"></i>target.test.ts<span class="p">features/speech</span><span class="n"><span class="add">+38</span><span class="del">−9</span></span></div>
+        <div class="file"><i data-i="FileCode"></i>useSpeech.ts<span class="p">features/speech</span><span class="n"><span class="add">+0</span><span class="del">−0</span></span></div>
+      </aside>
+
+      <!-- ───────── Aria in conversation + overview ───────── -->
+      <main class="stage" data-screen="aria">
+        <div class="desk"><span data-aria="22"></span><span class="name pixel">Aria</span><span>Leading 2 projects. 2 sessions working, <em>1 needs you</em>.</span></div>
+        <div class="scroll">
+          <div class="col thread" style="--col: 640px; width: 640px">
+            <div class="you">Have the test lead pick the best of the three sites and clean up the other two.</div>
+            <div class="prose">
+              <p>Sent to <strong>test lead</strong>. It can't compare yet: <strong>Random HTML site</strong> stopped to ask whether to keep the synth audio. Answer that and the lead will finish the comparison and remove the two it doesn't pick.</p>
+            </div>
+            <button class="worked">Worked for 6s<i data-i="ChevronRight"></i></button>
+          </div>
+          <div class="col dock" style="width: 640px">
+            <div class="composer">
+              <div class="input">Tell Aria what you need</div>
+              <div class="bar">
+                <button class="ib"><i data-i="Plus"></i></button>
+                <button class="pick"><svg class="logo" data-logo="claude"></svg><b>Opus 5.5</b><i class="caret" data-i="ChevronDown"></i></button>
+                <button class="pick">High<i class="caret" data-i="ChevronDown"></i></button>
+                <span class="grow"></span>
+                <button class="ib"><i data-i="Mic"></i></button>
+                <button class="send"><i data-i="ArrowUp"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+      <aside class="panel" data-screen="aria">
+        <div class="tabs"><span class="tab on">Overview</span><span class="tab">Terminal</span><span class="tab">Browser</span></div>
+        <div class="group">Needs you</div>
+        <div class="item">
+          <span class="st need"></span><span class="title">Random HTML site</span><span class="when">test</span>
+          <span class="sub hot">Keep the synth audio, or ship it silent?</span>
+          <span class="acts"><button class="btn pri">Answer</button><button class="btn line">Open</button></span>
+        </div>
+        <div class="group">Working</div>
+        <div class="item"><span class="st run"></span><span class="title">test lead</span><span class="when">2m</span><span class="sub">Waiting on 2 agents</span></div>
+        <div class="item"><span class="st run"></span><span class="title">Parallel project worktrees</span><span class="when">8m</span><span class="sub">Running the engine tests</span></div>
+        <div class="group">Done</div>
+        <div class="item"><span class="st done"></span><span class="title">DeepSeek site</span><span class="when">4m</span><span class="sub">Tide pool explorer, one file, +412</span></div>
+      </aside>
+
+      <!-- ───────── settings ───────── -->
+      <main class="stage" data-screen="settings">
+        <div class="settings">
+          <div class="col" style="width: 680px">
+            <h1>Appearance</h1>
+            <p class="lead">How Ari looks on this device.</p>
+            <h2>Theme</h2>
+            <div class="card">
+              <div class="themes">
+                <div class="swatch on"><div class="chips"><span style="background: oklch(0.145 0.004 270)"></span><span style="background: oklch(0.255 0.005 270)"></span><span style="background: oklch(0.8 0.13 45)"></span></div>Obsidian</div>
+                <div class="swatch"><div class="chips"><span style="background: oklch(0.17 0.014 65)"></span><span style="background: oklch(0.295 0.014 65)"></span><span style="background: oklch(0.82 0.17 77)"></span></div>Graphite</div>
+                <div class="swatch"><div class="chips"><span style="background: oklch(0.16 0.042 260)"></span><span style="background: oklch(0.285 0.042 260)"></span><span style="background: oklch(0.83 0.13 185)"></span></div>Nocturne</div>
+                <div class="swatch"><div class="chips"><span style="background: oklch(0.955 0.003 90)"></span><span style="background: oklch(0.895 0.005 90)"></span><span style="background: oklch(0.56 0.16 40)"></span></div>Porcelain</div>
+              </div>
+            </div>
+            <h2>Scene</h2>
+            <div class="card">
+              <div class="srow"><div class="l"><div>Show scene art on new sessions</div><p>Your wallpaper, dithered into the page behind the composer.</p></div><span class="switch"></span></div>
+              <div class="srow"><div class="l"><div>Chat width</div><p>How wide the conversation column runs.</p></div><span class="seg"><span>Narrow</span><span class="on">Default</span><span>Wide</span></span></div>
+              <div class="srow"><div class="l"><div>Interface font</div><p>Used everywhere except code.</p></div><button class="btn line">Geist</button></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const q = new URLSearchParams(location.search)
+      document.documentElement.dataset.ariTheme = q.get('theme') ?? 'obsidian'
+      const show = q.get('screen') ?? 'home'
+      document.body.dataset.show = show
+      if (show === 'work' || show === 'aria') document.getElementById('app').classList.add('with-panel')
+
+      for (const el of document.querySelectorAll('i[data-i]')) el.innerHTML = window.ICONS[el.dataset.i] ?? ''
+
+      const LOGOS = {
+        claude: 'M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z',
+        codex: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z',
+      }
+      for (const el of document.querySelectorAll('svg[data-logo]')) {
+        el.setAttribute('viewBox', '0 0 24 24')
+        el.innerHTML = `<path fill="currentColor" d="${LOGOS[el.dataset.logo]}"/>`
+      }
+
+      for (const el of document.querySelectorAll('[data-aria]')) {
+        const s = el.dataset.aria
+        const cls = 'lit' in el.dataset ? 'lit' : 'hot' in el.dataset ? 'hot' : ''
+        el.innerHTML = `<svg class="aria-mark ${cls}" width="${s}" height="${s}" viewBox="0 0 16 16" shape-rendering="crispEdges" style="display:block">
+          <g class="aria-mark-frame"><rect x="10" y="1" width="2" height="3"/><rect x="4" y="2" width="5" height="2"/><rect x="2" y="4" width="12" height="7"/><rect x="1" y="5" width="1" height="3"/><rect x="14" y="6" width="1" height="3"/><rect x="3" y="11" width="10" height="2"/><rect x="5" y="13" width="6" height="1"/></g>
+          <rect class="aria-mark-face" x="3" y="5" width="10" height="5"/>
+          <g class="aria-mark-ink"><rect x="5" y="6" width="2" height="2"/><rect x="9" y="6" width="2" height="2"/></g></svg>`
+      }
+
+      const levels = document.getElementById('levels')
+      const heights = [2, 3, 5, 4, 2, 1, 2, 4, 5, 5, 3, 2, 3, 4, 2, 1, 1, 2, 3, 5, 4, 3, 2, 1, 2, 3, 4, 3, 2, 1, 1, 2]
+      levels.innerHTML = heights.map((h) => `<i style="height:${h * 4 - 1}px"></i>`).join('')
+
+      const sel = { home: 'nav-new', ariahome: 'nav-aria', aria: 'nav-aria', session: 'row-lead', dictate: 'row-lead', work: 'row-dict' }[show]
+      if (sel) document.getElementById(sel).classList.add('sel')
+
+      // ── scene: the wallpaper drawn sharp, then dissolved into the stage with an ordered dither ──
+      const BAYER = [0, 48, 12, 60, 3, 51, 15, 63, 32, 16, 44, 28, 35, 19, 47, 31, 8, 56, 4, 52, 11, 59, 7, 55, 40, 24, 36, 20, 43, 27, 39, 23, 2, 50, 14, 62, 1, 49, 13, 61, 34, 18, 46, 30, 33, 17, 45, 29, 10, 58, 6, 54, 9, 57, 5, 53, 42, 26, 38, 22, 41, 25, 37, 21]
+      function paintScene(canvas, img) {
+        const dpr = Math.max(1, window.devicePixelRatio || 1)
+        const W = Math.round(canvas.clientWidth * dpr)
+        const H = Math.round(canvas.clientHeight * dpr)
+        canvas.width = W
+        canvas.height = H
+        const ctx = canvas.getContext('2d')
+        const artH = H * 0.82
+        const s = Math.max(W / img.width, artH / img.height)
+        const focus = Number(canvas.dataset.focus ?? 0.5)
+        ctx.drawImage(img, (W - img.width * s) / 2, (artH - img.height * s) * focus, img.width * s, img.height * s)
+        const cell = Math.max(2, Math.round(Number(q.get('cell') ?? 2.4) * dpr))
+        const px = ctx.getImageData(0, 0, W, H)
+        const d = px.data
+        // the stage colour, so the art sinks into the page before it breaks up
+        const probe = document.createElement('canvas').getContext('2d')
+        probe.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ari-bg')
+        probe.fillRect(0, 0, 1, 1)
+        const [br, bg, bb] = probe.getImageData(0, 0, 1, 1).data
+        const smooth = (a, b, x) => {
+          const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
+          return t * t * (3 - 2 * t)
+        }
+        for (let cy = 0; cy * cell < H; cy++) {
+          const v = (cy * cell) / H
+          const base = 1 - smooth(0.16, 0.8, v)
+          const sink = smooth(0.1, 0.72, v) * 0.62
+          for (let cx = 0; cx * cell < W; cx++) {
+            const i0 = (cy * cell * W + cx * cell) * 4
+            const lum = (0.2126 * d[i0] + 0.7152 * d[i0 + 1] + 0.0722 * d[i0 + 2]) / 255
+            // bright parts of the picture survive longer, so the dissolve follows the art
+            const cover = Math.min(1, base + (lum - 0.42) * 0.9 * (1 - base) * base * 2.2)
+            const keep = cover > (BAYER[(cy & 7) * 8 + (cx & 7)] + 0.5) / 64
+            for (let y = cy * cell; y < Math.min(H, (cy + 1) * cell); y++) {
+              for (let x = cx * cell; x < Math.min(W, (cx + 1) * cell); x++) {
+                const i = (y * W + x) * 4
+                if (!keep) {
+                  d[i + 3] = 0
+                } else {
+                  d[i] += (br - d[i]) * sink
+                  d[i + 1] += (bg - d[i + 1]) * sink
+                  d[i + 2] += (bb - d[i + 2]) * sink
+                }
+              }
+            }
+          }
+        }
+        ctx.putImageData(px, 0, 0)
+      }
+      for (const canvas of document.querySelectorAll('canvas[data-scene]')) {
+        if (!canvas.clientWidth) continue
+        const img = new Image()
+        img.onload = () => paintScene(canvas, img)
+        img.src = `../../packages/ui/src/assets/wallpapers/${q.get('art') ?? canvas.dataset.scene}.jpg`
+      }
+    </script>
+  </body>
+</html>

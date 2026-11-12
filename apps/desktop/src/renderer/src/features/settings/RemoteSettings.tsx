@@ -147,33 +147,34 @@ export function RemoteSettings() {
     >
       <section
         aria-label="Connection status"
-        className="flex items-center gap-4 rounded-xl border border-border bg-surface-1/70 p-4"
+        className="flex items-center gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5"
       >
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-fg-muted">
-          <Monitor size={21} aria-hidden="true" />
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-fg-muted">
+          <Monitor size={16} strokeWidth={1.7} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{status}</p>
-          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          <p className="text-sm font-medium text-fg">{status}</p>
+          <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
             Agents and projects stay on this computer. You decide which phones can access them.
           </p>
         </div>
-        {reachable ? <Check size={19} className="shrink-0 text-accent" aria-hidden="true" /> : null}
+        {reachable ? <span className="ari-status" data-status="done" aria-hidden="true" /> : null}
       </section>
 
       {error !== null || remote?.error != null ? (
-        <div className="rounded-lg border border-danger/30 p-4">
-          <p role="alert" className="text-sm text-danger">
-            {error ?? remote?.error}
+        <div className="rounded-xl border border-border bg-surface-1 px-4 py-3.5">
+          <p role="alert" className="flex items-start gap-2.5 text-[13px] leading-5 text-danger">
+            <span className="ari-status mt-[3px]" data-status="error" aria-hidden="true" />
+            <span className="min-w-0">{error ?? remote?.error}</span>
           </p>
-          <Button variant="ghost" onClick={refresh} disabled={disabled} className="mt-2 min-h-11">
+          <Button variant="ghost" size="sm" onClick={refresh} disabled={disabled} className="mt-2">
             Retry checks
           </Button>
         </div>
       ) : null}
 
       <SettingsSection title="Connection method" headingId="remote-method-heading" bare>
-        <div role="group" aria-label="Connection method" className="grid gap-3 sm:grid-cols-2">
+        <div role="group" aria-label="Connection method" className="grid gap-2.5 sm:grid-cols-2">
           {(
             [
               {
@@ -196,16 +197,21 @@ export function RemoteSettings() {
               aria-pressed={method === option.id}
               onClick={() => setMethod(option.id)}
               disabled={disabled}
-              className={`flex items-start gap-3 rounded-xl border bg-surface-1/70 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60 ${method === option.id ? 'border-accent/70 ring-1 ring-accent/40' : 'border-border hover:border-border-strong hover:bg-surface-2/60'}`}
+              className={`flex items-start gap-3 rounded-xl border bg-surface-1 px-4 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60 ${method === option.id ? 'border-fg' : 'border-border hover:border-border-strong'}`}
             >
               <option.icon
-                size={19}
+                size={16}
+                strokeWidth={1.7}
                 aria-hidden="true"
-                className={method === option.id ? 'mt-0.5 text-accent' : 'mt-0.5 text-fg-muted'}
+                className={
+                  method === option.id
+                    ? 'mt-0.5 shrink-0 text-fg'
+                    : 'mt-0.5 shrink-0 text-fg-subtle'
+                }
               />
               <span>
-                <span className="block text-sm font-medium">{option.title}</span>
-                <span className="mt-1 block text-xs leading-relaxed text-fg-muted">
+                <span className="block text-sm font-medium text-fg">{option.title}</span>
+                <span className="mt-0.5 block text-[13px] leading-5 text-fg-subtle">
                   {option.hint}
                 </span>
               </span>
@@ -215,7 +221,7 @@ export function RemoteSettings() {
       </SettingsSection>
 
       <section aria-label="Mobile connection setup" className={SETTINGS_CARD_CLASS}>
-        <section aria-labelledby="remote-access-heading" className="pt-4">
+        <section aria-labelledby="remote-access-heading" className="pt-3.5">
           <div className="px-4">
             <Step
               number="1"
@@ -239,7 +245,7 @@ export function RemoteSettings() {
 
         {method === 'connect' ? (
           connect === null ? (
-            <p role="status" className="p-4 text-sm text-fg-muted">
+            <p role="status" className="px-4 py-3.5 text-[13px] text-fg-subtle">
               Checking Ari Connect…
             </p>
           ) : (
@@ -286,7 +292,7 @@ export function RemoteSettings() {
             />
           )
         ) : (
-          <section aria-labelledby="remote-tailscale-heading" className="space-y-3 p-4">
+          <section aria-labelledby="remote-tailscale-heading" className="space-y-3 px-4 py-3.5">
             <Step
               number="2"
               title="Connect your private network"
@@ -297,15 +303,15 @@ export function RemoteSettings() {
               {tailscale?.error ?? tailscaleSummary(tailscale)}
             </p>
             {tailscale?.installed === false ? (
-              <p className="text-xs leading-relaxed text-fg-muted">
+              <p className="text-[13px] leading-5 text-fg-subtle">
                 Install Tailscale on this computer and phone, then sign both into the same network.
               </p>
             ) : tailscale?.origin === null ? (
-              <p className="text-xs leading-relaxed text-fg-muted">
+              <p className="text-[13px] leading-5 text-fg-subtle">
                 Open Tailscale on this computer and sign in, then check again.
               </p>
             ) : (
-              <p className="text-xs leading-relaxed text-fg-muted">
+              <p className="text-[13px] leading-5 text-fg-subtle">
                 Your phone must be connected to the same Tailscale network. Serve exposes only
                 Ari&apos;s gateway.
               </p>
@@ -319,7 +325,6 @@ export function RemoteSettings() {
                       setTailscale(await rpc.invoke('remote.tailscale.disable')),
                     )
                   }
-                  className="min-h-11"
                 >
                   Stop serving Ari
                 </Button>
@@ -333,19 +338,18 @@ export function RemoteSettings() {
                       setTailscale(state.tailscale)
                     })
                   }
-                  className="min-h-11"
                 >
                   Serve Ari over Tailscale
                 </Button>
               )}
-              <Button variant="ghost" disabled={disabled} onClick={refresh} className="min-h-11">
+              <Button variant="ghost" disabled={disabled} onClick={refresh}>
                 Check connection
               </Button>
             </div>
           </section>
         )}
 
-        <section aria-labelledby="remote-pairing-heading" className="space-y-3 p-4">
+        <section aria-labelledby="remote-pairing-heading" className="space-y-3 px-4 py-3.5">
           <Step
             number="3"
             title="Pair your phone"
@@ -372,13 +376,12 @@ export function RemoteSettings() {
                 onClick={() =>
                   mutate('Create pairing invitation', () => rpc.invoke('remote.invite', { method }))
                 }
-                className="min-h-11"
               >
                 Show pairing code
               </Button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-start gap-5 rounded-lg bg-surface-2/50 p-4">
+            <div className="flex flex-wrap items-start gap-5 border-t border-border pt-3.5">
               {qr === null ? (
                 <p role={qrError ? 'alert' : 'status'} className="text-sm text-fg-muted">
                   {qrError
@@ -395,32 +398,36 @@ export function RemoteSettings() {
                 />
               )}
               <div className="min-w-0 flex-1 space-y-2">
-                <p className="text-sm font-medium">Scan with your phone&apos;s camera</p>
-                <p className="text-xs leading-relaxed text-fg-muted">
+                <p className="text-sm font-medium text-fg">Scan with your phone&apos;s camera</p>
+                <p className="text-[13px] leading-5 text-fg-subtle">
                   {managedPairing
                     ? 'This invitation uses Ari Connect.'
                     : 'Keep Tailscale connected.'}{' '}
                   Approve access here after the phone shows a matching code.
                 </p>
                 {invitation.code === null ? (
-                  <p role="status" className="text-xs leading-relaxed text-warning">
+                  <p role="status" className="text-[13px] leading-5 text-fg-muted">
                     Too many wrong codes were entered. The QR still works; cancel and show a new
                     pairing code to type one again.
                   </p>
                 ) : invitation.code !== undefined ? (
                   <div>
-                    <p className="font-mono text-xl font-medium tracking-[0.14em]">
+                    <p className="font-mono text-xl font-medium text-fg">
                       {invitation.code.slice(0, 4)}-{invitation.code.slice(4)}
                     </p>
-                    <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    <p className="mt-1 text-[13px] leading-5 text-fg-subtle">
                       On an installed app, enter this code instead of scanning.
                     </p>
                   </div>
                 ) : null}
-                <p className="text-xs text-fg-muted">Expires {formatTime(invitation.expiresAt)}.</p>
-                <details className="text-xs text-fg-muted">
-                  <summary className="cursor-pointer py-2">Invitation address</summary>
-                  <code className="block break-all font-mono text-xs">{invitation.url}</code>
+                <p className="text-[13px] text-fg-subtle">
+                  Expires {formatTime(invitation.expiresAt)}.
+                </p>
+                <details className="text-[13px] text-fg-subtle">
+                  <summary className="cursor-pointer py-1.5">Invitation address</summary>
+                  <code className="block break-all font-mono text-[13px] text-fg-subtle">
+                    {invitation.url}
+                  </code>
                 </details>
                 <Button
                   variant="ghost"
@@ -428,7 +435,6 @@ export function RemoteSettings() {
                   onClick={() =>
                     mutate('Cancel invitation', () => rpc.invoke('remote.cancelInvite'))
                   }
-                  className="min-h-11"
                 >
                   Cancel
                 </Button>
@@ -472,9 +478,14 @@ export function RemoteSettings() {
         bare
       >
         {(remote?.devices.length ?? 0) === 0 ? (
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-1/70 px-4 py-4">
-            <Smartphone size={18} className="text-fg-subtle" aria-hidden="true" />
-            <p className="text-sm text-fg-muted">No phones are paired yet.</p>
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5">
+            <Smartphone
+              size={16}
+              strokeWidth={1.7}
+              className="shrink-0 text-fg-subtle"
+              aria-hidden="true"
+            />
+            <p className="text-[13px] text-fg-subtle">No phones are paired yet.</p>
           </div>
         ) : (
           <ul className={SETTINGS_CARD_CLASS}>
@@ -483,23 +494,23 @@ export function RemoteSettings() {
                 key={device.deviceId}
                 className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5"
               >
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm font-medium">{device.displayName}</p>
-                  <p className="text-xs text-fg-muted">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-sm font-medium text-fg">{device.displayName}</p>
+                  <p className="text-[13px] text-fg-subtle">
                     {device.lastSeenAt === null
                       ? 'Never connected'
                       : `Last seen ${formatTime(device.lastSeenAt)}`}
                   </p>
-                  <p className="text-xs text-fg-muted">
+                  <p className="text-[13px] text-fg-subtle">
                     Projects: {grantedProjects(device.projectIds, projects)}
                   </p>
-                  <p className="text-xs text-fg-muted">
+                  <p className="text-[13px] text-fg-subtle">
                     Terminal: {device.allowTerminal === true ? 'enabled' : 'not granted'}
                   </p>
                 </div>
                 {editing?.deviceId === device.deviceId ? (
                   <div className="w-full space-y-3 border-t border-border pt-3">
-                    <p className="text-sm font-medium">Access for {device.displayName}</p>
+                    <p className="text-sm font-medium text-fg">Access for {device.displayName}</p>
                     <DeviceAccessPicker
                       projects={projects}
                       projectIds={editing.projectIds}
@@ -509,7 +520,7 @@ export function RemoteSettings() {
                         setEditing({ deviceId: device.deviceId, projectIds, allowTerminal })
                       }
                     />
-                    <p className="text-xs leading-relaxed text-fg-muted">
+                    <p className="text-[13px] leading-5 text-fg-subtle">
                       Changes apply the next time this phone connects. It does not need to pair
                       again.
                     </p>
@@ -521,7 +532,6 @@ export function RemoteSettings() {
                           saveGrants(device.deviceId, editing.projectIds, editing.allowTerminal)
                         }
                         aria-label={`Save access for ${device.displayName}`}
-                        className="min-h-11"
                       >
                         Save access
                       </Button>
@@ -530,7 +540,6 @@ export function RemoteSettings() {
                         disabled={disabled}
                         onClick={() => setEditing(null)}
                         aria-label={`Cancel access for ${device.displayName}`}
-                        className="min-h-11"
                       >
                         Cancel
                       </Button>
@@ -538,7 +547,9 @@ export function RemoteSettings() {
                   </div>
                 ) : confirmingRevoke === device.deviceId ? (
                   <div className="space-y-2">
-                    <p className="text-xs text-fg-muted">This phone will need to pair again.</p>
+                    <p className="text-[13px] text-fg-subtle">
+                      This phone will need to pair again.
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         variant="danger"
@@ -554,7 +565,6 @@ export function RemoteSettings() {
                           })
                         }
                         aria-label={`Confirm revoke ${device.displayName}`}
-                        className="min-h-11"
                       >
                         Confirm revoke
                       </Button>
@@ -563,7 +573,6 @@ export function RemoteSettings() {
                         disabled={disabled}
                         onClick={() => setConfirmingRevoke(null)}
                         aria-label={`Keep ${device.displayName}`}
-                        className="min-h-11"
                       >
                         Keep access
                       </Button>
@@ -583,7 +592,6 @@ export function RemoteSettings() {
                         })
                       }}
                       aria-label={`Edit access for ${device.displayName}`}
-                      className="min-h-11"
                     >
                       Edit access
                     </Button>
@@ -592,7 +600,6 @@ export function RemoteSettings() {
                       disabled={disabled}
                       onClick={() => setConfirmingRevoke(device.deviceId)}
                       aria-label={`Revoke ${device.displayName}`}
-                      className="min-h-11 text-danger"
                     >
                       Revoke
                     </Button>
@@ -603,25 +610,32 @@ export function RemoteSettings() {
           </ul>
         )}
       </SettingsSection>
-      <details className="rounded-xl border border-border bg-surface-1/70 px-4 text-xs text-fg-muted">
-        <summary className="min-h-11 cursor-pointer rounded-xl py-3 text-sm font-medium text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
+      <details className="rounded-xl border border-border bg-surface-1 px-4 text-[13px] text-fg-subtle">
+        <summary className="cursor-pointer rounded-xl py-3.5 text-sm font-medium text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
           Connection diagnostics
         </summary>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 pb-4">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 pb-3.5">
           <dt>Gateway</dt>
-          <dd className="break-all font-mono">{remote?.origin ?? 'Not running'}</dd>
+          <dd className="break-all font-mono text-[12.5px] text-fg-muted">
+            {remote?.origin ?? 'Not running'}
+          </dd>
           <dt>Phone address</dt>
-          <dd className="break-all font-mono">{clientUrl ?? 'Not available'}</dd>
+          <dd className="break-all font-mono text-[12.5px] text-fg-muted">
+            {clientUrl ?? 'Not available'}
+          </dd>
           <dt>Tailscale host</dt>
-          <dd className="break-all font-mono">{tailscale?.dnsName ?? 'Not detected'}</dd>
+          <dd className="break-all font-mono text-[12.5px] text-fg-muted">
+            {tailscale?.dnsName ?? 'Not detected'}
+          </dd>
         </dl>
-        <p className="pb-4 leading-relaxed">
+        <p className="pb-3.5 leading-5">
           A reachable address is not authorization. Each phone needs its own approved pairing. This
           computer must stay awake for mobile access.
         </p>
       </details>
       {busy !== null ? (
-        <p role="status" className="text-xs text-fg-muted">
+        <p role="status" className="flex items-center gap-2 text-[13px] text-fg-subtle">
+          <span className="ari-status" data-status="working" aria-hidden="true" />
           {busy}…
         </p>
       ) : null}
@@ -641,12 +655,12 @@ function Step({
   done: boolean
 }) {
   return (
-    <h2 id={id} className="flex items-center gap-3 text-sm font-semibold">
+    <h2 id={id} className="flex items-center gap-2.5 text-sm font-medium text-fg">
       <span
         aria-hidden="true"
-        className={`flex size-6 items-center justify-center rounded-md text-xs font-medium tabular-nums ${done ? 'bg-accent/10 text-accent' : 'bg-surface-2 text-fg-muted'}`}
+        className="flex size-5 items-center justify-center rounded-sm bg-surface-2 text-xs font-medium tabular-nums text-fg-muted"
       >
-        {done ? <Check size={14} aria-hidden="true" /> : number}
+        {done ? <Check size={12} strokeWidth={2} aria-hidden="true" /> : number}
       </span>
       {title}
     </h2>

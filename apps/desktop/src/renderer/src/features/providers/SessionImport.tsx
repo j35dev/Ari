@@ -5,6 +5,11 @@ import { Button } from '@ari/ui/button'
 import { Spinner } from '@ari/ui/spinner'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
+import {
+  SETTINGS_CAPTION_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+} from '../settings/SettingsSection'
 
 const log = createLogger('ui:session-import')
 
@@ -86,7 +91,7 @@ export function SessionImportList({
 
   if (loading) {
     return (
-      <div role="status" className="flex items-center gap-2 text-sm text-fg-muted">
+      <div role="status" className={`flex items-center gap-2 ${SETTINGS_HINT_CLASS}`}>
         <Spinner size="sm" />
         <span>Finding pi sessions…</span>
       </div>
@@ -94,29 +99,27 @@ export function SessionImportList({
   }
 
   if (sessions.length === 0) {
-    return <p className="text-sm text-fg-muted">{emptyMessage}</p>
+    return <p className={SETTINGS_HINT_CLASS}>{emptyMessage}</p>
   }
 
   return (
     <div className="space-y-3">
-      <ul className="flex flex-col" aria-label="Pi sessions">
+      {/* Hairline rows without an outer box. */}
+      <ul className="flex flex-col divide-y divide-border" aria-label="Pi sessions">
         {sessions.map((session) => {
           const error = errorsByPath[session.candidateId]
           return (
-            <li
-              key={session.candidateId}
-              className="flex flex-col gap-1 border-b border-border/60 py-3 last:border-b-0"
-            >
-              <div className="flex items-center gap-3">
+            <li key={session.candidateId} className="flex flex-col gap-1 py-3">
+              <div className="flex items-center gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm text-fg">{session.title}</span>
-                    {session.imported ? <Badge tone="success">in Ari</Badge> : null}
-                    {error !== undefined ? <Badge tone="danger">error</Badge> : null}
+                    <span className={`truncate ${SETTINGS_LABEL_CLASS}`}>{session.title}</span>
+                    {session.imported ? <Badge tone="neutral">In Ari</Badge> : null}
+                    {error !== undefined ? <Badge tone="danger">Error</Badge> : null}
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-fg-muted">
+                  <p className={`mt-0.5 truncate ${SETTINGS_HINT_CLASS}`}>
                     {session.messageCount} messages · {formatWhen(session.updatedAt)} ·{' '}
-                    <span className="font-mono">{session.cwd}</span>
+                    <span className="font-mono text-[12.5px]">{session.cwd}</span>
                   </p>
                 </div>
                 <Button
@@ -143,7 +146,7 @@ export function SessionImportList({
                 </Button>
               </div>
               {error !== undefined ? (
-                <p role="alert" className="break-words text-xs text-danger">
+                <p role="alert" className="break-words text-[13px] leading-5 text-danger">
                   {error}
                 </p>
               ) : null}
@@ -153,11 +156,11 @@ export function SessionImportList({
       </ul>
 
       {busySession !== null ? (
-        <p role="status" aria-live="polite" className="text-sm text-fg-muted">
+        <p role="status" aria-live="polite" className={SETTINGS_HINT_CLASS}>
           Importing “{busySession.title}”…
         </p>
       ) : null}
-      {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+      {notice !== null ? <p className={SETTINGS_HINT_CLASS}>{notice}</p> : null}
     </div>
   )
 }
@@ -170,11 +173,11 @@ export interface SessionImportProps {
 /** Settings surface for every Pi session found on this machine. */
 export function SessionImport({ onImported }: SessionImportProps) {
   return (
-    <section aria-labelledby="agents-import-heading" className="space-y-3">
-      <h2 id="agents-import-heading" className="px-1 text-sm font-semibold text-fg">
+    <section aria-labelledby="agents-import-heading">
+      <h2 id="agents-import-heading" className={SETTINGS_CAPTION_CLASS}>
         Import pi sessions
       </h2>
-      <p className="px-1 text-xs leading-relaxed text-fg-muted">
+      <p className={`mb-2.5 mt-0.5 ${SETTINGS_HINT_CLASS}`}>
         Replays a session you already had in pi into Ari, with its transcript and usage. pi&apos;s
         own file is only read — the session stays resumable in pi.
       </p>

@@ -75,6 +75,8 @@ describe('ActivityBurst collapsed', () => {
     expect(screen.queryByText('git status --short')).not.toBeInTheDocument()
     expect(screen.queryByText('weighing the options')).not.toBeInTheDocument()
     expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
+    // Settled work is history: no working glyph.
+    expect(toggle.querySelector('.ari-status')).toBeNull()
   })
 
   it('opens the live timeline and names the newest call while the turn is on this row', () => {
@@ -84,7 +86,7 @@ describe('ActivityBurst collapsed', () => {
       expanded: true,
       name: /^Working: Editing desktop\/main\.ts/,
     })
-    expect(toggle.querySelector('.ari-pulse')).not.toBeNull()
+    expect(toggle.querySelector('.ari-status[data-status="working"]')).not.toBeNull()
     expect(toggle).toHaveTextContent('Editing')
     expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()

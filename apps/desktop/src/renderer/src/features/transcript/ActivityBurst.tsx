@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { describeActivity, formatToolSummary, type ActivityLedgerEntry } from './groupBlocks'
-import { ActivityStep, KIND_ICON, StepBody } from './ActivityStep'
+import { describeActivity, formatToolSummary } from './groupBlocks'
+import { ActivityStep, StepBody } from './ActivityStep'
 import { ImageGenerationActivity } from './ImageGenerationActivity'
 import { ThinkingBlock } from './ThinkingBlock'
 import { isImageGenerationCall } from './toolLabels'
@@ -9,6 +9,9 @@ import type { ToolGroupRow, TranscriptBlock } from './types'
 
 /** How long a row that just went quiet stays open before it folds away. */
 const CLOSE_HOLD_MS = 300
+
+/** The single hairline an opened burst's steps hang on. */
+const STEP_RAIL = 'ml-1.5 mt-0.5 border-l border-border-strong pl-4'
 
 /**
  * Holds `live` for a beat after the turn stops running. A settled turn that
@@ -33,42 +36,14 @@ function useHeldLive(live: boolean): boolean {
 }
 
 /**
- * Buckets the headline left unsaid, as glyph+count pairs — `⌨2 ⌕1` reads in one
- * glance where "Ran 2 commands · Searched 1 time" has to be read word by word.
- * The counts stay right-aligned so they form a column down a long session, and
- * they are mirrored into the header's accessible name rather than announced
- * twice.
- */
-function ActivityLedger({ entries }: { entries: ActivityLedgerEntry[] }) {
-  if (entries.length === 0) return null
-  return (
-    <span
-      aria-hidden="true"
-      className="flex shrink-0 items-center gap-2 text-fg-subtle transition-colors group-hover:text-fg-muted"
-    >
-      {entries.map(({ kind, count }) => {
-        const Icon = KIND_ICON[kind]
-        return (
-          <span key={kind} className="flex items-center gap-1 font-mono text-2xs tabular-nums">
-            <Icon size={11} />
-            {count}
-          </span>
-        )
-      })}
-    </span>
-  )
-}
-
-/**
- * One stretch of work between two utterances, rendered as a hairline rail with
- * a single headline: what the assistant is doing now, or what it did. The
- * headline names the *subjects* it touched (`Edited groupBlocks.ts, types.ts
- * +1`) with the tally demoted to the glyph ledger on the right, so fifteen
- * bursts in a session no longer read as fifteen interchangeable sentences of
- * counted nouns. The rail carries the state — travelling light for as long as
- * the turn is on this row, a near-invisible hairline once settled — which keeps
- * color out of history and reserves it for what is happening now. Tool-result
- * errors stay folded inside their step; the burst headline never counts them.
+ * One stretch of work between two utterances, as one quiet line: what the
+ * assistant is doing now, or what it did. The line names the *subjects* it
+ * touched (`Edited groupBlocks.ts, types.ts +1`); the full tally stays in the
+ * accessible name and the hover title rather than on screen, so fifteen bursts
+ * in a session read as fifteen grey lines, not fifteen rows of counts. Colour
+ * is kept out of history: a settled burst is subtle text and a chevron, and
+ * the working ring marks the one the turn is on. Tool-result errors stay
+ * folded inside their step; the burst headline never counts them.
  *
  * `active` marks the row a running turn is currently on. Liveness is scoped to
  * the turn rather than to whether some call happens to be unanswered: a burst
@@ -76,10 +51,10 @@ function ActivityLedger({ entries }: { entries: ActivityLedgerEntry[] }) {
  * flight, so per-call liveness had the row opening and shutting on every gap.
  * Turn-scoped, the row opens once and folds once, and calls append into it.
  *
- * Expanding reveals the timeline: one aligned row per step in wire order,
- * reasoning as dim italic previews, each step opening to its own arguments and
- * result. A settled burst holding a single call skips the intermediate list and
- * opens straight to that call's body.
+ * Expanding reveals the timeline: one line per step in wire order on a single
+ * hairline, each step opening to its own arguments and result. A settled burst
+ * holding a single call skips the intermediate list and opens straight to that
+ * call's body.
  */
 export function ActivityBurst({
   row,
@@ -93,7 +68,7 @@ export function ActivityBurst({
   const [openOverride, setOpenOverride] = useState<boolean | null>(null)
   const live = useHeldLive(active)
   const activity = useMemo(() => describeActivity(row, live), [row, live])
-  const { verb, subject, more, label, summary, ledger, stat } = activity
+  const { verb, subject, more, label, summary } = activity
   const open = openOverride ?? (terminal || live)
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   // The lone-call shortcut trades the step list for the call's own body. Held
@@ -115,49 +90,43 @@ export function ActivityBurst({
   if (tally.length > 0 && tally !== label) named.push(tally)
 
   return (
-    <div className="ari-burst my-1 pl-3" data-activity={live ? 'working' : 'settled'}>
+    <div className="ari-burst my-1" data-activity={live ? 'working' : 'settled'}>
       <button
         type="button"
         onClick={() => setOpenOverride((prev) => !(prev ?? (terminal || live)))}
         aria-expanded={open}
         aria-label={named.join(' · ')}
-        className="group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors hover:bg-surface-1/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+        title={tally.length > 0 ? tally : undefined}
+        className={`group flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md text-left text-sm transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          live ? 'text-fg-muted' : 'text-fg-subtle'
+        }`}
       >
         {live ? (
-          <span className="ari-pulse size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+          <span className="ari-status mr-1" data-status="working" aria-hidden="true" />
         ) : null}
-        <span className="min-w-0 flex-1 truncate">
-          <span className={`text-[13px] ${live ? 'text-fg' : 'text-fg-muted'}`}>{verb}</span>
+        <span className="min-w-0 truncate">
+          {verb}
           {subject.length > 0 ? (
-            <span className={`ml-1.5 font-mono text-xs ${live ? 'text-fg' : 'text-fg-muted'}`}>
-              {subject}
-            </span>
+            <span className="ml-1.5 font-mono text-[12.5px]">{subject}</span>
           ) : null}
-          {more > 0 ? <span className="ml-1 text-xs text-fg-subtle">+{more}</span> : null}
-        </span>
-        <span className="flex shrink-0 items-center gap-3">
-          {stat !== null && (stat.added > 0 || stat.removed > 0) ? (
-            <span aria-hidden="true" className="flex gap-1 text-xs tabular-nums">
-              {stat.added > 0 ? <span className="text-success/90">+{stat.added}</span> : null}
-              {stat.removed > 0 ? <span className="text-danger/90">−{stat.removed}</span> : null}
-            </span>
-          ) : null}
-          <ActivityLedger entries={ledger} />
+          {more > 0 ? <span className="ml-1.5 text-xs">+{more}</span> : null}
         </span>
         <ChevronRight
-          size={12}
+          size={14}
           aria-hidden="true"
-          className={`shrink-0 text-fg-subtle opacity-40 transition-transform duration-150 group-hover:opacity-100 motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
+          className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
         />
       </button>
       {open ? (
         lone !== undefined ? (
-          <StepBody
-            call={lone}
-            result={lone.callId ? row.resultsByCallId.get(lone.callId) : undefined}
-          />
+          <div className={STEP_RAIL}>
+            <StepBody
+              call={lone}
+              result={lone.callId ? row.resultsByCallId.get(lone.callId) : undefined}
+            />
+          </div>
         ) : (
-          <div className="ari-burst-steps pb-1 pl-0.5">
+          <div className={`ari-burst-steps ${STEP_RAIL}`}>
             {steps.map((step) => (
               <BurstStep
                 key={step.key}

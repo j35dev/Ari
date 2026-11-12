@@ -68,7 +68,7 @@ colors are rejected.
 
 All names and labels are strings. `tone` is `accent`, `info`, `success`,
 `warning`, or `danger`. Timeline events and metric cards default to `accent`.
-An omitted graph-node tone uses the series palette. Never provide CSS colors,
+A graph node without a tone is drawn neutral. Never provide CSS colors,
 HTML, JavaScript, URLs for assets, or extra keys; visuals are declarative data.
 Each series needs one value per label. Radar charts need 3–12 nonnegative
 axes. Pie, donut, funnel and treemap values must be nonnegative and have a

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import type { ReactNode, RefObject } from 'react'
+import type { ComponentProps, ReactNode, RefObject } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
+import { AriaMark } from '@ari/ui/aria-mark'
 import { transitions } from '@ari/ui/motion'
 
 const starters = [
@@ -16,18 +17,26 @@ const starters = [
  * Moves the existing editor between the welcome canvas and its conversation
  * dock. Memoized: its `layout` animation measures the dock on every render,
  * so it renders only when its own props change.
+ *
+ * Centred, the dock carries the one thing the empty stage says: the heading
+ * for a session, or Aria's mark and name for her chat.
  */
 export const ComposerDock = memo(function ComposerDock({
   centered,
   canvasRef,
   reducedMotion,
   onStart,
+  aria = false,
+  ariaState = 'idle',
   children,
 }: {
   centered: boolean
   canvasRef: RefObject<HTMLDivElement | null>
   reducedMotion: boolean
   onStart: (prompt: string) => void
+  /** This is Aria's chat: her mark and name stand in for the heading. */
+  aria?: boolean
+  ariaState?: ComponentProps<typeof AriaMark>['state']
   children: ReactNode
 }) {
   const dockRef = useRef<HTMLDivElement>(null)
@@ -68,23 +77,27 @@ export const ComposerDock = memo(function ComposerDock({
       transition={instant || !measured ? { duration: 0 } : transitions.composerDock}
     >
       <motion.div
-        className="ari-session-intro pointer-events-none absolute inset-x-0 bottom-full pb-6 text-left"
+        className={`ari-session-intro pointer-events-none absolute inset-x-0 bottom-full text-left ${aria ? 'pb-3' : 'pb-2.5'}`}
         aria-hidden={!centered}
         initial={false}
         animate={{ opacity: centered ? 1 : 0, y: centered ? 0 : -8 }}
         transition={instant ? { duration: 0 } : transitions.fadeUp}
       >
-        <p className="mb-3 text-sm font-medium text-accent">
-          Ari <span className="font-normal text-fg-muted">/ New session</span>
-        </p>
-        <h2 className="ari-session-heading font-medium text-fg">Make room for your next idea.</h2>
-        <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-          Ask a question, explore your code, or put your agent to work.
-        </p>
+        {aria ? (
+          <div className="flex items-end gap-4">
+            {/* Her name is right beside it, so the mark itself stays unannounced. */}
+            <span aria-hidden="true" className="flex shrink-0">
+              <AriaMark size={64} state={ariaState} />
+            </span>
+            <h2 className="ari-pixel text-[40px] leading-[0.95] text-fg">Aria</h2>
+          </div>
+        ) : (
+          <h2 className="ari-session-heading text-fg">Make room for your next idea.</h2>
+        )}
       </motion.div>
       {children}
       <motion.div
-        className="ari-session-starters absolute inset-x-0 top-full flex flex-wrap justify-start gap-x-4 gap-y-2 pt-2"
+        className="ari-session-starters absolute inset-x-0 top-full flex flex-wrap justify-start gap-x-1 gap-y-0.5 px-1 pt-2"
         aria-hidden={!centered}
         inert={!centered}
         initial={false}
@@ -96,7 +109,7 @@ export const ComposerDock = memo(function ComposerDock({
             key={starter.label}
             type="button"
             onClick={() => onStart(starter.prompt)}
-            className="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="inline-flex h-7 items-center whitespace-nowrap rounded-md px-2 text-[13.5px] text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             {starter.label}
           </button>

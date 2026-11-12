@@ -29,7 +29,7 @@ export function KeybindingsSettings() {
             return (
               <li
                 key={shortcut.id}
-                className="flex min-h-11 items-center justify-between gap-4 px-4 py-2"
+                className="flex min-h-11 items-center justify-between gap-4 px-4 py-2.5"
               >
                 <span className="text-sm text-fg">{shortcut.label}</span>
                 <span

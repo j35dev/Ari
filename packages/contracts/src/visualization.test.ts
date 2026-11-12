@@ -333,9 +333,13 @@ describe('visualization contract', () => {
       expect(html.error).not.toContain(script)
       expect(html.error).not.toContain('Invalid input')
     }
+    // Ari owns colour, so a colour hint is dropped rather than failing the chart.
     const colors = parseVisualization(JSON.stringify({ ...bar, colors: ['red'] }))
-    expect(colors.ok).toBe(false)
-    if (!colors.ok) expect(colors.error).toBe('Bar charts cannot include "colors".')
+    expect(colors.ok).toBe(true)
+    if (colors.ok) expect(colors.value).not.toHaveProperty('colors')
+    expect(rejected(JSON.stringify({ ...bar, onClick: 'run()' }))).toBe(
+      'Bar charts cannot include "onClick".',
+    )
     expect(
       parseVisualization(
         JSON.stringify({
@@ -346,8 +350,12 @@ describe('visualization contract', () => {
         }),
       ).ok,
     ).toBe(false)
-    expect(rejected(JSON.stringify({ version: 1, type: 'bar', title: 'T', data: ['nope'] }))).toBe(
+    expect(rejected(JSON.stringify({ version: 1, type: 'bar', title: 'T', data: 'nope' }))).toBe(
       'The data field must be one object of chart fields.',
+    )
+    // A data list is the chart's rows; one that holds no rows still fails, by field.
+    expect(rejected(JSON.stringify({ version: 1, type: 'bar', title: 'T', data: ['nope'] }))).toBe(
+      'Bar charts need labels.',
     )
     expect(
       parseVisualization(

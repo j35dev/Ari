@@ -57,12 +57,8 @@ describe('Tabs', () => {
     const panel = screen.getByRole('tabpanel', { name: 'One' })
     expect(one).toHaveAttribute('aria-controls', panel.id)
     expect(panel).toHaveAttribute('aria-labelledby', one.id)
-    const threeControls = screen
-      .getByRole('tab', { name: 'Three' })
-      .getAttribute('aria-controls')
-    const threePanel = threeControls
-      ? document.getElementById(threeControls)
-      : null
+    const threeControls = screen.getByRole('tab', { name: 'Three' }).getAttribute('aria-controls')
+    const threePanel = threeControls ? document.getElementById(threeControls) : null
     expect(threePanel).not.toBeNull()
     expect(threePanel).not.toBeVisible()
   })
@@ -73,10 +69,7 @@ describe('Tabs', () => {
     renderDemo({ onValueChange })
     await user.click(screen.getByRole('tab', { name: 'Two' }))
     expect(onValueChange).toHaveBeenCalledWith('two')
-    expect(screen.getByRole('tab', { name: 'Two' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    expect(screen.getByRole('tab', { name: 'Two' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('renders the animated indicator only on the active tab', () => {
@@ -102,10 +95,7 @@ describe('Tabs', () => {
     )
     await user.click(screen.getByRole('tab', { name: 'Two' }))
     expect(onValueChange).toHaveBeenCalledWith('two')
-    expect(screen.getByRole('tab', { name: 'One' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    expect(screen.getByRole('tab', { name: 'One' })).toHaveAttribute('aria-selected', 'true')
     rerender(
       <Tabs value="two" onValueChange={onValueChange}>
         <Tabs.List aria-label="Demo">
@@ -116,9 +106,6 @@ describe('Tabs', () => {
         <Tabs.Panel value="two">Content two</Tabs.Panel>
       </Tabs>,
     )
-    expect(screen.getByRole('tab', { name: 'Two' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    expect(screen.getByRole('tab', { name: 'Two' })).toHaveAttribute('aria-selected', 'true')
   })
 })

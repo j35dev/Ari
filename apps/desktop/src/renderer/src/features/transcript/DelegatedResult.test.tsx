@@ -75,6 +75,56 @@ const open = async () => {
 }
 const mount = () => render(<DelegatedResult sessionId="parent" child={child} />)
 
+describe('delegated result while other agents work', () => {
+  it('refreshes quietly: no loading flash and the version picker stays usable', async () => {
+    mount()
+    await open()
+    const picker = screen.getByLabelText('Result version')
+    expect(picker).toBeEnabled()
+
+    // A sibling at work makes the parent's orchestration change over and over.
+    let release: (() => void) | undefined
+    const view = viewFixture(task)
+    mocks.invoke.mockImplementation(
+      (method: string) =>
+        new Promise((resolve) => {
+          if (method !== 'orchestration.view') throw new Error(`Unexpected ${method}`)
+          release = () => resolve(view)
+        }),
+    )
+    act(() => changed())
+    // Mid-refresh: nothing on screen says so, and nothing is disabled.
+    expect(screen.queryByText('Loading result…')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Result version')).toBe(picker)
+    expect(picker).toBeEnabled()
+    await act(async () => {
+      release?.()
+    })
+    expect(screen.getByText('Search implemented.')).toBeInTheDocument()
+    expect(picker).toBeEnabled()
+  })
+
+  it('still shows a newer version when a refresh brings one', async () => {
+    mount()
+    await open()
+    task = {
+      ...task!,
+      results: [
+        ...task!.results,
+        { ...task!.results[0]!, resultId: 'result-next', version: task!.results[0]!.version + 1 },
+      ],
+    }
+    await act(async () => {
+      changed()
+    })
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText('Result version')).getAllByRole('option').length,
+      ).toBeGreaterThan(1),
+    )
+  })
+})
+
 describe('delegated result continuity', () => {
   it('loads nothing per row in a long transcript and threads the parent session into review', async () => {
     Element.prototype.scrollTo = () => {}

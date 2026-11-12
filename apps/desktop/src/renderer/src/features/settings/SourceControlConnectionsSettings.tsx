@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { Check, ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
+import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { SourceControlEnvironment, SourceControlProvider } from '@ari/contracts/rpc'
 import { sourceControlProviders } from '@ari/contracts/source-control-providers'
 import { Button } from '@ari/ui/button'
+import { outlineButton, quietButton, rowAction } from '../../lib/recipes'
 import { rpc } from '../../lib/rpc'
 import { SourceControlMark } from '../changes/SourceControlMark'
+import { SETTINGS_FIELD_CLASS, SETTINGS_HINT_CLASS, SETTINGS_LABEL_CLASS } from './SettingsSection'
 
-const inputClass =
-  'h-9 w-full rounded-md border border-border bg-bg px-3 text-xs text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+const inputClass = `${SETTINGS_FIELD_CLASS} w-full`
 
 export function SourceControlConnectionsSettings({
   environment,
@@ -65,7 +66,7 @@ export function SourceControlConnectionsSettings({
     }
   }
   return (
-    <div className="divide-y divide-border/60">
+    <div className="divide-y divide-border">
       {sourceControlProviders.map((provider) => {
         const connections =
           environment?.connections?.filter((entry) => entry.provider === provider.id) ?? []
@@ -80,53 +81,59 @@ export function SourceControlConnectionsSettings({
           <div key={provider.id} className="first:[&>button]:rounded-t-xl">
             <button
               type="button"
-              className="grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring disabled:opacity-50 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto_auto]"
+              className="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3.5 text-left transition-colors hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring disabled:opacity-50 sm:grid-cols-[2rem_minmax(0,1fr)_auto_auto]"
               aria-expanded={active === provider.id}
               aria-controls={`source-control-connection-${provider.id}`}
               aria-label={`Configure ${provider.label}`}
               disabled={busy}
               onClick={() => select(provider)}
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-fg-muted">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-fg-muted">
                 <SourceControlMark provider={provider.id} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-fg">{provider.label}</span>
-                <span className="mt-0.5 block text-xs leading-relaxed text-fg-subtle">
+                <span className={`block ${SETTINGS_LABEL_CLASS}`}>{provider.label}</span>
+                <span className={`mt-0.5 block ${SETTINGS_HINT_CLASS}`}>
                   {provider.description}
                 </span>
               </span>
               {connected ? (
-                <span className="col-start-2 row-start-2 flex w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-success-subtle px-2 py-1 text-xs text-success sm:col-start-3 sm:row-start-1">
-                  <Check size={12} aria-hidden />
+                <span className="col-start-2 row-start-2 flex w-fit shrink-0 items-center gap-1.5 whitespace-nowrap text-[13px] text-fg-subtle sm:col-start-3 sm:row-start-1">
+                  <span className="ari-status" data-status="done" aria-hidden />
                   {connections.length ? `${connections.length} connected` : 'CLI connected'}
                 </span>
               ) : (
-                <span className="col-start-2 row-start-2 w-fit shrink-0 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-muted sm:col-start-3 sm:row-start-1">
+                <span
+                  className={`col-start-2 row-start-2 w-fit sm:col-start-3 sm:row-start-1 ${outlineButton}`}
+                >
                   Connect
                 </span>
               )}
               <ChevronDown
-                size={13}
+                size={14}
+                strokeWidth={1.7}
                 className={`col-start-3 row-start-1 shrink-0 text-fg-subtle transition-transform sm:col-start-4 ${active === provider.id ? 'rotate-180' : ''}`}
                 aria-hidden
               />
             </button>
             {active === provider.id ? (
-              <div id={`source-control-connection-${provider.id}`} className="px-4 pb-4 sm:pl-16">
+              <div
+                id={`source-control-connection-${provider.id}`}
+                className="px-4 pb-4 sm:pl-[60px]"
+              >
                 {connections.map((connection) => (
                   <div
                     key={connection.id}
-                    className="mb-3 flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs"
+                    className="flex items-center gap-2.5 border-b border-border py-2.5 text-[13px]"
                   >
-                    <Check size={12} className="shrink-0 text-success" aria-hidden />
+                    <span className="ari-status" data-status="done" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-fg" title={connection.instance}>
                         {connection.instance.replace('https://', '')}
                       </p>
-                      <p className="mt-0.5 text-2xs text-fg-muted">
-                        {connection.account ?? 'Access token'} ·{' '}
-                        {connection.hasToken ? 'Token saved' : 'CLI authentication'}
+                      <p className="mt-0.5 text-xs text-fg-subtle">
+                        {connection.account ?? 'Access token'},{' '}
+                        {connection.hasToken ? 'token saved' : 'CLI authentication'}
                       </p>
                     </div>
                     <button
@@ -135,9 +142,9 @@ export function SourceControlConnectionsSettings({
                       aria-label={`Disconnect ${connection.instance}`}
                       title="Disconnect this instance"
                       onClick={() => void remove(connection.id)}
-                      className="rounded p-1 text-fg-subtle hover:bg-danger-subtle hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                      className={rowAction}
                     >
-                      <X size={13} />
+                      <X size={14} strokeWidth={1.7} />
                     </button>
                   </div>
                 ))}
@@ -147,17 +154,14 @@ export function SourceControlConnectionsSettings({
                     void connect()
                   }}
                 >
-                  <fieldset
-                    disabled={busy}
-                    className="space-y-3 rounded-lg border border-border/60 bg-bg/40 p-4"
-                  >
+                  <fieldset disabled={busy} className="space-y-3 pt-3">
                     {connections.length ? (
-                      <p className="flex items-center gap-1.5 text-xs font-medium text-fg">
-                        <Plus size={12} />
+                      <p className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
+                        <Plus size={14} strokeWidth={1.7} />
                         Connect another instance
                       </p>
                     ) : null}
-                    <label className="block text-xs text-fg-muted">
+                    <label className="block text-[13px] text-fg-subtle">
                       Instance URL
                       <input
                         type="url"
@@ -174,12 +178,12 @@ export function SourceControlConnectionsSettings({
                       />
                     </label>
                     {provider.id === 'azure-devops' ? (
-                      <p className="text-2xs text-fg-subtle">
+                      <p className="text-xs text-fg-subtle">
                         Include your organization, or your server's collection URL.
                       </p>
                     ) : null}
                     {provider.id === 'bitbucket' ? (
-                      <label className="block text-xs text-fg-muted">
+                      <label className="block text-[13px] text-fg-subtle">
                         Atlassian email (for an API token)
                         <input
                           aria-label="Atlassian email"
@@ -190,7 +194,7 @@ export function SourceControlConnectionsSettings({
                         />
                       </label>
                     ) : null}
-                    <label className="block text-xs text-fg-muted">
+                    <label className="block text-[13px] text-fg-subtle">
                       Access token{provider.cli ? ' (optional with CLI login)' : ''}
                       <input
                         type="password"
@@ -208,18 +212,18 @@ export function SourceControlConnectionsSettings({
                         }
                       />
                     </label>
-                    <p className="text-xs leading-relaxed text-fg-subtle">
+                    <p className={SETTINGS_HINT_CLASS}>
                       {provider.tokenHint} Tokens are encrypted on this device.
                     </p>
                     {error ? (
-                      <p role="alert" className="text-xs text-danger">
+                      <p role="alert" className="text-[13px] text-danger">
                         {error}
                       </p>
                     ) : null}
                     <div className="flex items-center justify-between gap-3">
                       <button
                         type="button"
-                        className="flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                        className={`-ml-2.5 ${quietButton}`}
                         onClick={() =>
                           void rpc
                             .invoke('shell.openUrl', { url: provider.tokenUrl })
@@ -227,7 +231,7 @@ export function SourceControlConnectionsSettings({
                         }
                       >
                         Get a token
-                        <ExternalLink size={11} aria-hidden />
+                        <ExternalLink size={12} strokeWidth={1.7} aria-hidden />
                       </button>
                       <Button type="submit" size="sm" variant="primary">
                         {busy ? 'Connecting…' : 'Connect'}
@@ -241,7 +245,7 @@ export function SourceControlConnectionsSettings({
         )
       })}
       {error && !active ? (
-        <p role="alert" className="px-4 py-3 text-xs text-danger">
+        <p role="alert" className="px-4 py-3.5 text-[13px] text-danger">
           {error}
         </p>
       ) : null}

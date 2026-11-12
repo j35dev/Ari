@@ -4,6 +4,11 @@ import { Badge } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { Spinner } from '@ari/ui/spinner'
+import {
+  SETTINGS_CAPTION_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+} from '../settings/SettingsSection'
 import { accountIdentityLine } from './account-identity-line'
 import { useProviderAccounts } from './use-provider-accounts'
 
@@ -40,11 +45,10 @@ export function ProviderAccounts({ kind, name, onOpenTerminal }: ProviderAccount
   }
 
   return (
-    <section aria-label="Accounts" className="border-t border-border/60 px-5 py-4">
-      <h3 className="mb-3 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-        Accounts
-      </h3>
-      <ul className="flex flex-col gap-1.5">
+    <section aria-label="Accounts" className="border-t border-border px-5 py-4">
+      <h3 className={`mb-1 ${SETTINGS_CAPTION_CLASS}`}>Accounts</h3>
+      {/* Hairline rows. The account in use is named in words, not tinted. */}
+      <ul className="flex flex-col divide-y divide-border">
         {accounts.accounts.map((account) => {
           const working = accounts.busy === account.id
           const signedIn = account.identity?.signedIn === true
@@ -52,22 +56,20 @@ export function ProviderAccounts({ kind, name, onOpenTerminal }: ProviderAccount
             <li
               key={account.id}
               aria-label={`${account.label} account`}
-              className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border px-3 py-2 ${
-                account.active ? 'border-accent/50 bg-accent-subtle' : 'border-border/60 bg-surface-0'
-              }`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5"
             >
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-sm font-medium text-fg">
+                <p className={`flex items-center gap-2 ${SETTINGS_LABEL_CLASS}`}>
                   <span className="truncate">{account.label}</span>
-                  {account.active && <Badge tone="accent">In use</Badge>}
+                  {account.active && <Badge tone="neutral">In use</Badge>}
                 </p>
-                <p className="mt-0.5 truncate text-xs text-fg-muted">
+                <p className={`mt-0.5 truncate ${SETTINGS_HINT_CLASS}`}>
                   {accountIdentityLine(account, accounts.signingIn === account.id)}
                 </p>
               </div>
               {removing === account.id ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-fg-muted">Delete this sign-in?</span>
+                  <span className="text-[13px] text-fg-subtle">Delete this sign-in?</span>
                   <Button
                     size="sm"
                     variant="danger"
@@ -137,7 +139,7 @@ export function ProviderAccounts({ kind, name, onOpenTerminal }: ProviderAccount
       </ul>
 
       {accounts.error !== null && (
-        <p role="alert" className="mt-2 text-xs text-danger">
+        <p role="alert" className="mt-2 text-[13px] leading-5 text-danger">
           {accounts.error}
         </p>
       )}
@@ -179,7 +181,7 @@ export function ProviderAccounts({ kind, name, onOpenTerminal }: ProviderAccount
         </Button>
       )}
 
-      <p className="mt-3 text-xs leading-relaxed text-fg-subtle">
+      <p className={`mt-3 ${SETTINGS_HINT_CLASS}`}>
         New turns run as the account in use. Each account keeps its own {name} sign-in;
         conversations, skills and settings are shared, so a session carries on after you switch.
       </p>

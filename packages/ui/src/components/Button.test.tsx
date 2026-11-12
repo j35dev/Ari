@@ -10,12 +10,19 @@ describe('Button', () => {
 
   it('applies the requested variant classes', () => {
     render(<Button variant="primary">Go</Button>)
-    expect(screen.getByRole('button')).toHaveClass('bg-accent', 'text-fg-on-accent')
+    // Ink is the primary action, not the accent.
+    expect(screen.getByRole('button')).toHaveClass('bg-fg', 'text-bg')
+    expect(screen.getByRole('button')).not.toHaveClass('bg-accent')
   })
 
   it('defaults to secondary variant and md size', () => {
     render(<Button>Go</Button>)
-    expect(screen.getByRole('button')).toHaveClass('bg-surface-2', 'h-9')
+    expect(screen.getByRole('button')).toHaveClass(
+      'border',
+      'border-border-strong',
+      'bg-transparent',
+      'h-8',
+    )
   })
 
   it('renders the shortcut chip', () => {

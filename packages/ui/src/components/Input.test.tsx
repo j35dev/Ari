@@ -5,10 +5,7 @@ import { Input } from './Input'
 describe('Input', () => {
   it('renders the native input and forwards placeholder', () => {
     render(<Input placeholder="Session name" />)
-    expect(screen.getByRole('textbox')).toHaveAttribute(
-      'placeholder',
-      'Session name',
-    )
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Session name')
   })
 
   it('renders the leading slot inside the wrapper', () => {
