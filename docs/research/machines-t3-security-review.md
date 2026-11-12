@@ -349,3 +349,72 @@ gap therefore remains.
 T1/T2/T3 are independently closed at the named merged source. A parent-designated
 final integrated SHA must still be compared for merge changes before final
 disposition; hardware and combined-route proof gates are not waived.
+
+## Parent-supplied source checkpoint 5: `7b11fd89`
+
+Parent supplied current integration `7b11fd8913e12ac04ff123f2afe89c3eeedf2bf5`,
+explicitly withholding final certification until the combined loopback proof and
+designated final runtime SHA. The independently executed T1/T2/T3 source blobs
+are unchanged from `dbbe9f6d`: MachinesService
+`f12b34a18848743326aa77b3bf14cd7251c611f1`, MachinesRegistry
+`093f6a3d56bfb87e2ea28c54f414fc487b275b37`, SessionClient
+`548933015c1804e8b35eac68d6c87fc7a4860f07`. There is no reason to repeat these
+same focused executions solely for a different merge SHA; the final comparison
+will verify whether their source/dependencies changed.
+
+Independently audited the host rename delta `c2b1266e` / integrated `1652cd6b`
+and fixture isolation `c8a817c0` / `289af47d`. Final-at-this-checkpoint RemoteHost
+blob is `e11780109b24d47410b6b944a78464b5d404d04a`. SCM status now requires
+safeSnapshotPath for both the current path and an optional oldPath. Previously
+a renamed sensitive source could leave its private name in the status DTO even
+when the new path was ordinary; the change brings status in line with the
+review/turn-diff filters. The authored regression uses a real Git .env->safe.txt
+rename and SourceControlHost, proves local status contains oldPath, then checks
+the authenticated remote DTO has no files, .env name or host root. The isolated
+repository change avoids journal artifacts affecting its assertion. This is
+source-reviewed closure of the host owner's hardening, not an independently
+executed rename regression claim.
+
+Shell `4881bc8c` adds remote owner/status chrome from the existing immutable
+SessionScope registry ID and shows missing remote inventory as remote/offline.
+It changes display and fixture capture, never reconstructs a local session ID
+or changes authorization. Sidebar host-label layout and capture-script changes
+do not change dispatch. The isolated dev launcher and run-heavy D-cache temp
+override are coordination-only; no runtime service/update feature was introduced.
+The override validates a resolved absolute descendant of D:/Projects/.ari-cache
+and leaves heavy resource floors/priority intact. Reviewer does not run the dev
+launcher. F managed-workspace/orchestration/physical ownership implementations,
+Tailscale, RemoteTerminals and mobile remain byte-identical to `3f55df73`.
+
+The host owner is authoring the combined actual-two-engine, signed-two-listener,
+MachinesService->IPC bridge->normal SessionClient regression. Its final source,
+exact executed result and final runtime designation have not arrived yet.
+
+### Remaining limits and hardware gates
+
+- Machine identity publication remains the prior `loadMachineIdentity` temp
+  write/rename implementation, blob `d04337ebe83d142b610e57af22edca25c70b58ed` at
+  this source. It has no fsync/create-if-absent retained recovery winner. Desktop
+  single-instance ownership and sealed host-signing mismatch failure contain the
+  security boundary; abrupt power loss/concurrent profile ownership recovery is
+  an outstanding identity-parity limitation. No shipped headless runtime is claimed.
+- Durable issuedAt ordering denies rollback of learned routes; a backwards host
+  clock can delay accepting new reports. Recovery must preserve the saved pin,
+  original credential slot and route high-water rather than silently resetting them.
+- Two real desktops on one tailnet: actual HTTPS/DNS/TCP destinations, independent
+  approvals in both directions, fallback/move-back/cooldown, grant withdrawal,
+  sleep/wake/network/ACL changes and retained host identities.
+- iPhone Safari/installed PWA: non-443 HTTPS, pairing/reconnect/storage, sleep and
+  network/ACL changes; mobile behavior remains unchanged at the source level.
+- Windows DPAPI/Electron safeStorage, macOS Keychain and Linux Secret Service:
+  real restart/unavailable-keyring behavior and platform filesystem durability.
+- Real PTY/provider descendant cleanup: device/terminal withdrawal, signed lease
+  expiry, host shutdown, sleep/wake, and F branch/worktree containment.
+- Private Connect broker/tunnel registration and renewal/revocation with signed
+  project scope/expiry. Fixture/public-loopback tests cannot verify private services.
+- Headless OS services, management-pipe/socket permissions, cross-runtime profile
+  locking and launcher updater trial/rollback require separate runtime review if
+  implemented. All remain deferred design at this checkpoint.
+
+No final integrated certification is issued. Review-only documents/evidence are
+committed; original and new untracked .review-temp evidence is retained.
