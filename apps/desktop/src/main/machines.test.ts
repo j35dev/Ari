@@ -350,7 +350,7 @@ describe('persistent Machines safety', () => {
     const registry = new RpcRegistry({ send: vi.fn() })
     registry.register('session.list', () => [])
     registerMachinesRpc(registry, machines)
-    await expect(registry.invoke('session.list', {})).resolves.toEqual([])
+    await expect(registry.invoke('session.list', undefined)).resolves.toEqual([])
     await expect(registry.invoke('machines.list', undefined)).rejects.toThrow(
       /Saved computers could not be loaded/,
     )
@@ -379,7 +379,7 @@ describe('persistent Machines safety', () => {
     expect(registry.subscriberCount()).toBe(0)
     expect(transport).not.toHaveBeenCalled()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
-    await expect(registry.invoke('session.list', {})).resolves.toEqual([])
+    await expect(registry.invoke('session.list', undefined)).resolves.toEqual([])
   })
   it.each(['seal', 'write'] as const)(
     'does not activate an unsaved key or device identity after a failed %s',
