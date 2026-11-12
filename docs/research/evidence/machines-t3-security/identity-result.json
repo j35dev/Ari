@@ -1,0 +1,35 @@
+{
+  "source": "c537a8e2a492f1c2dc92894cd009ff6b07e79598",
+  "identityBlob": "aad1ba55d89e1835b5e843d025902dd1942eada6",
+  "signingIdentityBlob": "5dacb26cd96e2d6bfee3e35c1513774b7478e60f",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-identity-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-identity-proof.mjs c537a8e2a492f1c2dc92894cd009ff6b07e79598",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 7716503552,
+    "cFreeBytes": 22023540736,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "source": "c537a8e2a492f1c2dc92894cd009ff6b07e79598",
+    "stableWinner": true,
+    "separateRecovery": true,
+    "missingAndEmptyRecovery": true,
+    "legacyIDAndSealedKeyContinuity": true,
+    "noSigningKeyReset": true,
+    "invalidFilesPreserved": true,
+    "concurrentCases": ["fresh", "legacy", "missing-primary", "empty-primary"],
+    "realIndependentProcesses": true,
+    "fixtureSealedStorage": true,
+    "success": true
+  },
+  "limits": [
+    "Actual immutable Git machine-ID and signing implementations, real Windows files and two independent Node processes in each concurrent case.",
+    "Fixture AES-GCM replaces OS sealed storage; no OS keyring/restart or process-crash/power-loss durability claim.",
+    "Fsync and no-replace hardlink properties are source-audited; Windows directory fsync is explicitly unavailable.",
+    "Integrated b9fac0c2 identity blob 1bb2d4ef675f35550d1ea7ff68b5bb0f40e05594 is source-reviewed formatting-equivalent to this executed authored blob.",
+    "Parent final source designation remains pending."
+  ]
+}
