@@ -25,7 +25,11 @@ const checks = [
     `${name}-tests`,
     ['--filter', `@ari/${name}`, 'test', '--maxWorkers=1', '--no-file-parallelism'],
   ]),
-  ['desktop-build', ['--filter', '@ari/desktop', 'build']],
+  // Keep the live dev watcher's out/main/preload untouched by production output.
+  [
+    'desktop-build',
+    ['--filter', '@ari/desktop', 'build', '--outDir', join(outputDir, 'desktop-production')],
+  ],
   ['mobile-build', ['--filter', '@ari/mobile', 'build']],
 ]
 const results = []

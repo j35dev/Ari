@@ -18,20 +18,23 @@ Launch from the integration worktree in PowerShell:
 $env:ARI_DEV_INSTANCE = 'machines'
 $env:ARI_DEV_USER_DATA = 'D:/Projects/.ari-cache/machines-dev-profile'
 $env:ARI_DEV_RENDERER_PORT = '5197'
-node scripts/coordination/run-heavy.mjs machines-dev D:/Projects/Ari-machines -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs dev --watch
+./scripts/coordination/launch-machines-dev.ps1
 ```
 
 The background helper runs below normal priority and holds one resource lease
 for its lifetime. Main/preload changes restart Electron; renderer changes reload
 through Vite. Only one other heavy step may run. Logs are
-`D:/Projects/.ari-cache/machines-dev.log` and `machines-dev.err.log`.
+`D:/Projects/.ari-cache/machines-dev-reload.log` and `machines-dev-reload.err.log`.
 
 The visible window loads the home composer, Appearance, Machines and Mobile
 access. Mobile access correctly identifies the existing 443 mapping to the
 non-listening loopback service on port 3773. These checks only read Serve status.
-The preview has no paired devices or registered project checkout. The normal
-desktop machine selector, unified repository sidebar and route parity remain
-under implementation; this initial preview does not demonstrate them.
+The normal desktop project draft, machine selector, unified repository sidebar,
+scoped session/tools, routes and permissions are now integrated. A project draft
+uses This PC initially; add an eligible paired host to exercise remote selection.
+There is no second interactive preview host. Disposable HTTP loopback is confined
+to automated tests; production rejects it. Final parity checks and the independent
+review are recorded separately from these initial screen checks.
 
 Use the **Ari Dev Machines** tray menu's Quit to stop it. Closing its window hides
 it in the tray. Do not use Serve enable/replacement/removal controls during this

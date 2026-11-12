@@ -164,7 +164,12 @@ const cacheRoot = resolve('D:/Projects/.ari-cache')
 const tempOverride = process.env.ARI_HEAVY_TEMP
 if (tempOverride) {
   const cacheRelative = relative(cacheRoot, resolve(tempOverride))
-  if (!isAbsolute(tempOverride) || !cacheRelative || cacheRelative.startsWith('..') || isAbsolute(cacheRelative))
+  if (
+    !isAbsolute(tempOverride) ||
+    !cacheRelative ||
+    cacheRelative.startsWith('..') ||
+    isAbsolute(cacheRelative)
+  )
     throw new Error('ARI_HEAVY_TEMP must name a directory inside the D: task cache')
 }
 process.env.TEMP = tempOverride ?? 'D:/Projects/.ari-cache/tmp'
