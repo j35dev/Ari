@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -199,6 +199,9 @@ describe('client-local preferences and signing identity', () => {
     expect(readFileSync(path, 'utf8')).not.toContain('PRIVATE KEY')
     expect(() => loadHostSigningIdentity(dir, 'other', () => box)).toThrow(/another host/)
     expect(() => loadHostSigningIdentity(dir, 'host', () => null)).toThrow(/unavailable/)
+    unlinkSync(path)
+    expect(() => loadHostSigningIdentity(dir, 'host', () => box)).toThrow(/missing/)
+    writeFileSync(path, readFileSync(join(dir, 'host-signing-anchor.json'), 'utf8'))
     writeFileSync(path, '{corrupt')
     expect(() => loadHostSigningIdentity(dir, 'host', () => box)).toThrow()
     expect(readFileSync(path, 'utf8')).toBe('{corrupt')

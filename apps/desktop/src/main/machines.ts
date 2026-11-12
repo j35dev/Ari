@@ -31,6 +31,7 @@ import {
 } from './machines-network'
 
 interface Connection {
+  machineId: string
   client: GatewayClient
   route: MachineRoute
   pin: PinnedRouteIdentity | null
@@ -66,6 +67,7 @@ export class MachinesService {
   readonly #storedRegistry: MachinesRegistry | null
   readonly #network: MachineNetwork
   readonly #connections = new Map<string, Connection>()
+  readonly #pendingConnections = new Set<Connection>()
   readonly #views = new Map<string, Pick<MachineView, 'status' | 'error' | 'allowTerminal'>>()
   readonly #pairing = new Map<string, MachinePairingView>()
   readonly #invitations = new Map<string, string>()
@@ -192,6 +194,12 @@ export class MachinesService {
     code?: string
   }): Promise<MachinePairingView> {
     this.#assertOpen()
+    const pairingRow = this.#registry.get(params.machineId)
+    if (pairingRow.hostKey === null && pairingRow.identity?.machineId !== undefined &&
+      this.#registry.list().some((saved) => saved.id !== pairingRow.id &&
+        saved.hostKey?.hostId === pairingRow.identity?.machineId &&
+        !saved.routes.some((route) => route.origin === pairingRow.credentialOrigin)))
+      throw new Error('This address belongs to a saved pinned computer. Use Add route on that computer instead of pairing again.')
     const connection = await this.#connection(params.machineId)
     if (connection.pairing !== undefined) return this.pairStatus(params.machineId)
     // Probe and verify identity/version before code resolution or request/redeem.
@@ -307,6 +315,7 @@ export class MachinesService {
         this.#assertOpen()
         this.#registry.get(machineId)
         this.#connections.set(machineId, connection)
+        this.#pendingConnections.delete(connection)
         this.#set(machineId, machineStatus(state), null, connection.session.allowTerminal)
         if (state === 'connected') {
           this.#lastSwitch.set(machineId, this.#now())
@@ -369,6 +378,9 @@ export class MachinesService {
     if (route.source === 'learned') throw new Error('Learned routes are removed when the host stops reporting them.')
     if (origin === row.credentialOrigin) throw new Error('The independently paired route holds this computer credential. Remove the computer to remove it.')
     const connection = this.#connections.get(machineId)
+    for (const pending of this.#pendingConnections) if (pending.machineId === machineId && pending.route.origin === origin) {
+      pending.controller.abort(); pending.session.disconnect(); this.#pendingConnections.delete(pending)
+    }
     if (connection?.route.origin === origin) this.#drop(machineId, connection)
     const result = this.#registry.update(machineId, {routes: row.routes.filter((item) => item.origin !== origin)})
     this.#changed()
@@ -406,6 +418,7 @@ export class MachinesService {
           !this.#registry.get(machineId).routes.some((item) => item.origin === route.origin)) throw new Error('Stale route precheck.')
         this.#drop(machineId, active)
         this.#connections.set(machineId, candidate)
+        this.#pendingConnections.delete(candidate)
         this.#lastSwitch.set(machineId, this.#now())
         this.#set(machineId, 'connected', null, candidate.session.allowTerminal)
         await this.#refreshManifest(machineId, candidate)
@@ -413,12 +426,14 @@ export class MachinesService {
       } catch {
         candidate?.controller.abort()
         candidate?.session.disconnect()
+        if (candidate !== undefined) this.#pendingConnections.delete(candidate)
       }
     }
     return this.#view(this.#registry.get(machineId))
   }
   #now(): number { return (this.#deps.now ?? Date.now)() }
   #drop(machineId: string, connection: Connection): void {
+    this.#pendingConnections.delete(connection)
     if (this.#connections.get(machineId) === connection) this.#connections.delete(machineId)
     this.#closeSubscriptions(machineId)
     connection.controller.abort()
@@ -462,6 +477,9 @@ export class MachinesService {
     if (!this.#registry.list().some((row) => row.id === machineId)) return { removed: false }
     const record = this.#registry.get(machineId)
     const connection = this.#connections.get(machineId)
+    for (const pending of this.#pendingConnections) if (pending.machineId === machineId) {
+      pending.controller.abort(); pending.session.disconnect(); this.#pendingConnections.delete(pending)
+    }
     this.#closeSubscriptions(machineId)
     // Only revoke this client's device; never invoke a local/host approve or list operation.
     let revocation: Promise<unknown> | undefined
@@ -618,6 +636,11 @@ export class MachinesService {
       connection.controller.abort()
       connection.session.disconnect()
     }
+    for (const connection of this.#pendingConnections) {
+      connection.controller.abort()
+      connection.session.disconnect()
+    }
+    this.#pendingConnections.clear()
     this.#connections.clear()
   }
 
@@ -630,8 +653,11 @@ export class MachinesService {
     this.#assertOpen()
     this.#registry.get(machineId)
     const winner = this.#connections.get(machineId)
-    if (winner !== undefined) { connection.controller.abort(); connection.session.disconnect(); return winner }
+    if (winner !== undefined) {
+      connection.controller.abort(); connection.session.disconnect(); this.#pendingConnections.delete(connection); return winner
+    }
     this.#connections.set(machineId, connection)
+    this.#pendingConnections.delete(connection)
     return connection
   }
   async #createConnection(machineId: string, route: MachineRoute): Promise<Connection> {
@@ -675,7 +701,8 @@ export class MachinesService {
         }
       },
     })
-    const connection: Connection = { client, credential, session, controller, route, pin: this.#pin(row) }
+    const connection: Connection = { machineId, client, credential, session, controller, route, pin: this.#pin(row) }
+    this.#pendingConnections.add(connection)
     try {
       // Failed unlocks must never install an incomplete credential. A later
       // keyring recovery reloads the original sealed key and device id.
@@ -685,6 +712,7 @@ export class MachinesService {
     } catch (error) {
       controller.abort()
       session.disconnect()
+      this.#pendingConnections.delete(connection)
       throw error
     }
     return connection

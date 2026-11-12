@@ -157,6 +157,9 @@ export class MachinesRegistry {
       row.routes.some((route) => route.credentialOrigin !== undefined && route.credentialOrigin !== row.credentialOrigin) ||
       (row.hostKey !== null && row.identity?.machineId !== undefined && row.hostKey.hostId !== row.identity.machineId))
       throw new Error('The saved computer routes have invalid credential bindings.')
+    if (row.manifest !== null && (row.hostKey === null || row.hostKey.hostId !== row.manifest.payload.hostId ||
+      row.hostKey.publicKey.x !== row.manifest.payload.publicKey.x || row.hostKey.publicKey.y !== row.manifest.payload.publicKey.y))
+      throw new Error('The saved computer route manifest does not match its pinned identity.')
   }
   #save(records: MachineRecord[], preferences = this.#preferences): void {
     const data = registrySchema.parse({ version: 2, machines: records, preferences })
