@@ -9,9 +9,9 @@ import {
   Check,
   ChevronRight,
   FolderOpen,
-  FolderPlus,
   GitBranch,
   Import as ImportIcon,
+  Monitor,
   MoreHorizontal,
   PanelBottom,
   PanelLeftClose,
@@ -25,7 +25,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { Kbd } from '@ari/ui/kbd'
 import { AriaMark } from '@ari/ui/aria-mark'
 import { visibleProjects, visibleSessions } from '../features/aria/visibility'
 import { transitions } from '@ari/ui/motion'
@@ -41,6 +40,7 @@ import { driverLabel } from '../features/composer/agent-mark'
 import { ProviderLogo } from '../features/composer/provider-logo'
 import { setDragSession } from '../features/split/drag-split'
 import type { PaneEdge } from '../features/split/split-layout'
+import { cx, iconButton, rowAction, rowSelected, sectionLabel } from '../lib/recipes'
 import { ContextMark } from './ContextMark'
 import {
   inboxSplit,
@@ -79,73 +79,104 @@ const LIST_LAYOUT = { layout: 'position' as const, transition: transitions.resor
 /** Pointer travel (px) beyond which a header press is a drag, not a click. */
 const DRAG_CLICK_SLOP_PX = 4
 
-/** One indent column; children sit clearly under the parent orchestrator. */
-const TREE_COL_PX = 16
+/**
+ * Row geometry, in px from a row's left edge. A session title starts where
+ * its project's name does (past the letter tile); each level of delegation
+ * steps one column further in, on a tree line just inside the parent's title.
+ */
+const ROW_INSET_PX = 10
+const ROW_INDENT_PX = 38
+const TREE_COL_PX = 18
+const TREE_LINE_PX = 44
+/** Width the select-mode checkbox takes ahead of a row. */
+const SELECT_COL_PX = 24
 
-/** Vertical rail + elbow for nested child sessions, in the border tone. */
-function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] }) {
+const NO_DEPTH: readonly boolean[] = []
+
+/**
+ * Tree line for nested child sessions: one hairline per open level, running
+ * down the group and stopping at the middle of its last child. It reaches a
+ * pixel up to bridge the gap between rows. No elbows, no boxes.
+ */
+function SessionTreeGuides({
+  lastAtDepth,
+  offset = 0,
+}: {
+  lastAtDepth: readonly boolean[]
+  offset?: number
+}) {
   if (lastAtDepth.length === 0) return null
-  const stroke = 'var(--ari-border-strong)'
   return (
-    <span
-      aria-hidden
-      data-tree-guides=""
-      className="pointer-events-none relative shrink-0 self-stretch"
-      style={{ width: lastAtDepth.length * TREE_COL_PX }}
-    >
+    <span aria-hidden data-tree-guides="" className="pointer-events-none absolute inset-y-0 left-0">
       {lastAtDepth.map((isLast, i) => {
         const current = i === lastAtDepth.length - 1
+        if (!current && isLast) return null
         return (
-          <span key={i} className="absolute inset-y-0" style={{ left: i * TREE_COL_PX + 7 }}>
-            {current || !isLast ? (
-              <span
-                className="absolute left-0 w-px"
-                style={{
-                  background: stroke,
-                  top: -2,
-                  height: current && isLast ? 'calc(50% + 2px)' : 'calc(100% + 4px)',
-                }}
-              />
-            ) : null}
-            {current ? (
-              <span className="absolute left-0 top-1/2 h-px w-2.5" style={{ background: stroke }} />
-            ) : null}
-          </span>
+          <span
+            key={i}
+            className="absolute -top-px w-px bg-border-strong"
+            style={{
+              left: offset + TREE_LINE_PX + i * TREE_COL_PX,
+              bottom: current && isLast ? '50%' : 0,
+            }}
+          />
         )
       })}
     </span>
   )
 }
 
-const ICON_BTN =
-  'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
-/** Small trailing affordance (session / project menu) revealed on row hover. */
-const ROW_ACTION_BTN =
-  'flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+/** 34px top-level row: New session, and Aria above it. */
+const NAV_ROW = `group/nav flex h-[34px] w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg ${FOCUS_RING}`
 
-/** Hover cluster that takes over the timestamp slot. */
+/**
+ * 34px bucket header: a project, Unfiled, the Archived shelf. The wash hangs
+ * off the header row (`group/head`) so it holds while the pointer is over the
+ * row's hover actions, which are siblings of this button.
+ */
+const BUCKET_ROW = `flex h-[34px] min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors group-hover/head:bg-fg/5 ${FOCUS_RING}`
+
+/** 32px session row; its left padding carries the indent. */
+const COMPACT_ROW = `flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md pr-2.5 text-left text-[13.5px] transition-colors ${FOCUS_RING}`
+
+/** Cards read as two lines: where the session lives and when, then its title. */
+const CARD_ROW = `flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-lg px-2.5 py-2 text-left transition-colors ${FOCUS_RING}`
+
+/** Ink for a row that is neither selected nor current; the wash follows the whole row. */
+const ROW_IDLE = 'text-fg-muted group-hover/row:bg-fg/5 group-hover/row:text-fg'
+
+/** Hover cluster that takes over the age / status slot. */
 const ROW_ACTION_CLUSTER =
-  'absolute right-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
+  'absolute right-1.5 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100'
 
-/** Quiet section caption shared by the view switch, recency buckets and shelves. */
-const SECTION_LABEL = 'text-2xs font-medium tracking-[0.01em] text-fg-subtle'
+/** The destructive step of an inline confirmation. */
+const DANGER_BUTTON = `inline-flex h-6 shrink-0 items-center rounded-sm bg-danger px-2 text-xs font-medium text-fg-on-accent transition-colors hover:bg-danger-hover ${FOCUS_RING}`
+
+/** A text-only action inside a banner or the selection bar. */
+const INLINE_BUTTON = `inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-40 ${FOCUS_RING}`
+
+const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
 function SelectMark({ checked }: { checked: boolean }) {
   return (
     <span
-      className={`flex size-3.5 items-center justify-center rounded-sm border ${
-        checked
-          ? 'border-accent bg-accent text-fg-on-accent'
-          : 'border-border-strong bg-transparent'
+      className={`flex size-3.5 items-center justify-center rounded-[4px] border ${
+        checked ? 'border-fg bg-fg text-bg' : 'border-border-strong bg-transparent'
       }`}
     >
-      {checked ? <Check size={10} aria-hidden /> : null}
+      {checked ? <Check size={10} strokeWidth={2.5} aria-hidden /> : null}
     </span>
   )
 }
 
-/** Compact product wordmark; search and collapse sit as icon actions. */
+/**
+ * The titlebar's leading zone: the wordmark, then search and collapse. The
+ * zone is a window drag region, so only the buttons opt out of dragging. A
+ * plain `div`: it sits inside the titlebar's `<header>`, which may not hold
+ * another one.
+ */
 export function SidebarHeader({
   onSearch,
   onCollapse,
@@ -154,8 +185,8 @@ export function SidebarHeader({
   onCollapse?: () => void
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center px-3">
-      <div className="flex min-w-0 flex-1 items-baseline gap-2">
+    <div className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center px-3">
+      <div className="flex min-w-0 flex-1 items-baseline pl-2">
         <span aria-label="Ari" className="text-[15px] font-semibold tracking-[-0.03em] text-fg">
           Ari
           <span aria-hidden="true" className="text-accent">
@@ -171,9 +202,10 @@ export function SidebarHeader({
             aria-label="Search sessions"
             title="Search sessions"
             onClick={onSearch}
-            className={ICON_BTN}
+            className={iconButton}
+            style={NO_DRAG}
           >
-            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+            <Search size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         ) : null}
         {onCollapse !== undefined ? (
@@ -182,13 +214,14 @@ export function SidebarHeader({
             aria-label="Collapse sidebar"
             title="Collapse sidebar (Ctrl+B)"
             onClick={onCollapse}
-            className={ICON_BTN}
+            className={iconButton}
+            style={NO_DRAG}
           >
-            <PanelLeftClose size={14} strokeWidth={1.8} aria-hidden="true" />
+            <PanelLeftClose size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         ) : null}
       </div>
-    </header>
+    </div>
   )
 }
 
@@ -205,27 +238,23 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
   return new Date(timestamp).toLocaleDateString()
 }
 
-/** The card's right-hand status: phase → one word, tone, and the full hint. */
-function activityStatus(activity: SessionActivity): {
-  label: string
-  hint: string
-  tone: string
-} {
+/** The card's right-hand status: phase → one quiet word and the full hint. */
+function activityStatus(activity: SessionActivity): { label: string; hint: string } {
   switch (activity.phase) {
     case 'queued':
-      return { label: 'Queued', hint: 'Queued', tone: 'text-fg-subtle' }
+      return { label: 'Queued', hint: 'Queued' }
     case 'working':
-      return { label: 'Working', hint: 'Working', tone: 'text-busy' }
+      return { label: 'Working', hint: 'Working' }
     case 'paused':
       return activity.pauseReason === 'approval'
-        ? { label: 'Approval', hint: 'Waiting for your approval', tone: 'text-warning' }
+        ? { label: 'Approval', hint: 'Waiting for your approval' }
         : activity.pauseReason === 'input'
-          ? { label: 'Input', hint: 'Waiting for your input', tone: 'text-warning' }
-          : { label: 'Waiting', hint: 'Waiting for you', tone: 'text-warning' }
+          ? { label: 'Input', hint: 'Waiting for your input' }
+          : { label: 'Waiting', hint: 'Waiting for you' }
     case 'done':
-      return { label: 'Done', hint: 'Turn complete', tone: 'text-success' }
+      return { label: 'Done', hint: 'Turn complete' }
     case 'error':
-      return { label: 'Failed', hint: 'Turn failed', tone: 'text-danger' }
+      return { label: 'Failed', hint: 'Turn failed' }
   }
 }
 
@@ -242,52 +271,35 @@ function ElapsedSince({ startedAt }: { startedAt: number }) {
   )
 }
 
+/**
+ * The words beside a card's status glyph, in the caption ink: how long a
+ * thread has been running, or why it stopped (the glyph alone cannot tell an
+ * approval from a question). Colour stays with the glyph.
+ */
 function ActivityStatus({ activity }: { activity: SessionActivity }) {
   const status = activityStatus(activity)
-  const startedAt =
-    activity.startedAt !== null && (activity.phase === 'working' || activity.phase === 'paused')
-      ? activity.startedAt
-      : null
   // The forging mark already says a thread is running. A "Working" word beside
   // it just competes with the card.
   if (activity.phase === 'working') {
-    if (startedAt === null) return null
+    if (activity.startedAt === null) return null
     return (
-      <span className={`font-normal ${status.tone}`} title={status.hint}>
-        <ElapsedSince startedAt={startedAt} />
+      <span title={status.hint}>
+        <ElapsedSince startedAt={activity.startedAt} />
       </span>
     )
   }
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1 text-2xs font-medium ${status.tone}`}
-      title={status.hint}
-    >
-      {status.label}
-      {startedAt !== null ? (
-        <>
-          <span aria-hidden className="text-fg-subtle/60">
-            ·
-          </span>
-          <span className="font-normal text-fg-subtle">
-            <ElapsedSince startedAt={startedAt} />
-          </span>
-        </>
-      ) : null}
-    </span>
-  )
+  return <span title={status.hint}>{status.label}</span>
 }
-
-/** Cards read as quiet lines: project, title, then branch when there is one. */
-const CARD_ROW =
-  'flex min-h-[3rem] min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
 function SessionRow({
   session,
   hasChildren = false,
   childCount = 0,
-  nested = false,
+  lastAtDepth = NO_DEPTH,
+  childToggle,
+  childrenShown = false,
   projectName,
+  host,
   isActive,
   activity,
   startedByAria = false,
@@ -305,9 +317,15 @@ function SessionRow({
   session: SessionSummary
   hasChildren?: boolean
   childCount?: number
-  nested?: boolean
+  /** One entry per level of nesting; drives the indent and the tree line. */
+  lastAtDepth?: readonly boolean[]
+  /** Present where the row's children can be folded away (the project tree). */
+  childToggle?: { expanded: boolean; onToggle: () => void }
+  /** True while the children are listed right under the row. */
+  childrenShown?: boolean
   /** Origin project, surfaced as a tooltip in flat lists (search, archived, sessions view). */
   projectName: string | null
+  host?: { name: string; status: string; readOnly: boolean; administrationReason?: string }
   isActive: boolean
   activity?: SessionActivity
   startedByAria?: boolean
@@ -328,10 +346,20 @@ function SessionRow({
   const [draft, setDraft] = useState(session.title)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const menu = useContextMenu()
+  const compact = variant !== 'card'
+  const depth = lastAtDepth.length
+  // Where the title starts: under the project name, one column in per level.
+  const indent = compact ? ROW_INDENT_PX + depth * TREE_COL_PX : ROW_INSET_PX
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1 rounded-md px-2 py-1.5">
+      // The field's own inset (border + padding) is taken off the indent so
+      // the text being edited stays exactly where the title was.
+      <div
+        className="relative flex h-8 items-center gap-1 pr-1.5"
+        style={{ paddingLeft: indent - 7 }}
+      >
+        <SessionTreeGuides lastAtDepth={lastAtDepth} />
         <input
           autoFocus
           value={draft}
@@ -346,7 +374,7 @@ function SessionRow({
               setEditing(false)
             }
           }}
-          className="min-w-0 flex-1 rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="h-6 min-w-0 flex-1 rounded-sm border border-border-strong bg-surface-1 px-1.5 text-[13.5px] text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <button
           type="button"
@@ -355,9 +383,9 @@ function SessionRow({
             if (draft.trim()) onRename(session.id, draft.trim())
             setEditing(false)
           }}
-          className="shrink-0 text-success"
+          className={rowAction}
         >
-          <Check size={13} />
+          <Check size={13} aria-hidden />
         </button>
         <button
           type="button"
@@ -366,9 +394,9 @@ function SessionRow({
             setDraft(session.title)
             setEditing(false)
           }}
-          className="shrink-0 text-fg-subtle hover:text-fg"
+          className={rowAction}
         >
-          <X size={13} />
+          <X size={13} aria-hidden />
         </button>
       </div>
     )
@@ -376,15 +404,19 @@ function SessionRow({
 
   if (confirmDelete) {
     return (
-      <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-2xs text-danger">
+      <div
+        className="relative flex h-8 items-center gap-2 rounded-md bg-danger-subtle pr-1.5"
+        style={{ paddingLeft: indent }}
+      >
+        <SessionTreeGuides lastAtDepth={lastAtDepth} />
+        <span className="min-w-0 flex-1 truncate text-xs text-danger">
           {hasChildren ? 'Delete this session and its children?' : 'Delete session?'}
         </span>
         <button
           type="button"
           aria-label="Confirm delete"
           onClick={() => onDelete(session.id)}
-          className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+          className={DANGER_BUTTON}
         >
           Delete
         </button>
@@ -392,49 +424,84 @@ function SessionRow({
           type="button"
           aria-label="Cancel delete"
           onClick={() => setConfirmDelete(false)}
-          className="shrink-0 text-fg-subtle hover:text-fg"
+          className={rowAction}
         >
-          <X size={13} />
+          <X size={13} aria-hidden />
         </button>
       </div>
     )
   }
 
-  const mark = startedByAria ? (
-    <AriaMark
-      size={12}
-      state={
-        activity?.phase === 'paused'
-          ? 'attention'
-          : activity?.phase === 'working'
-            ? 'working'
-            : 'idle'
-      }
-      className="text-accent"
-      title="Started by Aria"
-    />
-  ) : activity !== undefined ? (
-    <SessionActivityMark activity={activity} />
-  ) : variant !== 'card' && hasChildren ? (
-    <GitBranch size={11} aria-hidden className={isActive ? 'text-accent' : 'text-fg-muted'} />
-  ) : session.pinned ? (
-    <Pin size={10} aria-hidden className="text-accent" />
-  ) : (
-    <span
-      data-session-mark="idle"
-      className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
-      style={{
-        background: 'var(--ari-fg-subtle)',
-        opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
-      }}
-    />
+  // The select-mode checkbox sits ahead of the row and pushes it right; the
+  // tree line and the fold control follow it.
+  const shift = selecting ? SELECT_COL_PX : 0
+  const current = selected || isActive
+
+  // Quiet marks after the title: who started it, and whether it is pinned.
+  // The age / status slot at the right is the only thing that changes state.
+  const titleMarks = (
+    <>
+      {startedByAria ? <AriaMark size={12} className="shrink-0" title="Started by Aria" /> : null}
+      {session.pinned ? <Pin size={11} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
+      {/* A session on another machine says which, in the same quiet ink as a pin. */}
+      {host ? (
+        <span
+          className={cx('flex shrink-0', host.readOnly ? 'text-warning' : 'text-fg-subtle')}
+          title={`${host.name} · ${host.status}`}
+        >
+          <Monitor size={11} aria-hidden />
+          <span className="sr-only">
+            On {host.name}
+            {host.status === 'connected' ? '' : `, ${host.status}`}
+          </span>
+        </span>
+      ) : null}
+    </>
   )
 
   return (
     <div
-      className="group relative flex items-center"
+      className="group/row relative flex items-center"
       data-session-role={hasChildren ? 'parent' : session.parentSessionId ? 'child' : undefined}
     >
+      <SessionTreeGuides lastAtDepth={lastAtDepth} offset={shift} />
+      {/* In the gutter where a project keeps its tile. Quiet until the row is
+          hovered, and held visible while folded so hidden children are not
+          forgotten. A sibling of the row button, so it never selects. */}
+      {childToggle ? (
+        <button
+          type="button"
+          aria-label={
+            childToggle.expanded
+              ? `Collapse children of ${session.title}`
+              : `Expand children of ${session.title}`
+          }
+          aria-expanded={childToggle.expanded}
+          className={cx(
+            'absolute top-1/2 flex size-[18px] -translate-y-1/2 items-center justify-center rounded-sm text-fg-subtle transition-[color,opacity] hover:text-fg',
+            FOCUS_RING,
+            childToggle.expanded &&
+              'opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100',
+          )}
+          style={{ left: shift + ROW_INSET_PX + depth * TREE_COL_PX }}
+          onClick={childToggle.onToggle}
+          onKeyDown={(event) => {
+            if (
+              (event.key === 'ArrowLeft' && childToggle.expanded) ||
+              (event.key === 'ArrowRight' && !childToggle.expanded)
+            ) {
+              event.preventDefault()
+              childToggle.onToggle()
+            }
+          }}
+        >
+          <ChevronRight
+            size={12}
+            aria-hidden
+            className={`transition-transform duration-150 ${childToggle.expanded ? 'rotate-90' : ''}`}
+          />
+        </button>
+      ) : null}
       {selecting ? (
         <button
           type="button"
@@ -442,7 +509,7 @@ function SessionRow({
           aria-checked={selected}
           aria-label={`Select ${session.title}`}
           onClick={(e) => onToggleSelect?.(session.id, e.shiftKey)}
-          className="flex size-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={`flex size-6 shrink-0 items-center justify-center rounded-sm ${FOCUS_RING}`}
         >
           <SelectMark checked={selected} />
         </button>
@@ -463,36 +530,72 @@ function SessionRow({
         }}
         onContextMenu={(e) => menu.open(session.id, e)}
         title={projectName ?? undefined}
-        className={`${
-          variant === 'card'
-            ? CARD_ROW
-            : 'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1'
-        } text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-          selected
-            ? 'bg-accent/15 text-fg'
-            : isActive
-              ? 'bg-accent/15 text-fg font-medium'
-              : variant === 'card'
-                ? 'text-fg hover:bg-surface-2/70'
-                : activity !== undefined
-                  ? 'text-fg hover:bg-surface-2'
-                  : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
-        }`}
+        className={cx(compact ? COMPACT_ROW : CARD_ROW, current ? rowSelected : ROW_IDLE)}
+        style={compact ? { paddingLeft: indent } : undefined}
       >
-        {variant === 'card' ? (
+        {compact ? (
           <>
-            <span className="flex w-full min-w-0 items-center gap-1.5">
-              <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
-              <span className="min-w-0 truncate text-2xs font-medium text-fg-subtle">
-                {projectName ?? 'Unfiled'}
-              </span>
-              {session.driverKind ? (
-                <span className="shrink-0" title={driverLabel(session.driverKind)}>
-                  <ProviderLogo kind={session.driverKind} />
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="min-w-0 truncate">{session.title}</span>
+              {titleMarks}
+              {/* A folded parent says how many it is holding; once the children
+                  are listed underneath, the number is for screen readers only. */}
+              {hasChildren && childCount > 0 ? (
+                <span
+                  className={
+                    childrenShown ? 'sr-only' : 'shrink-0 text-xs tabular-nums text-fg-subtle'
+                  }
+                >
+                  {childCount}
                 </span>
               ) : null}
-              <span className="min-w-0 flex-1" />
-              <span className="shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+            </span>
+            {/* Age, or the status glyph while the session has something to
+                say. min-w-11 matches the two-icon hover cluster so a long title
+                truncates before the overlay instead of running under it. */}
+            <span className="flex min-w-11 shrink-0 items-center justify-end text-xs tabular-nums text-fg-subtle transition-opacity group-hover/row:opacity-0">
+              {activity !== undefined ? (
+                <SessionActivityMark activity={activity} />
+              ) : (
+                formatRelativeTime(session.updatedAt)
+              )}
+            </span>
+          </>
+        ) : (
+          <>
+            {/* Where and who first, quietly: the state or Aria's mark, the
+                project, the agent, then the age. The title gets its own line. */}
+            <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-fg-subtle">
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
+                {activity !== undefined ? (
+                  <SessionActivityMark activity={activity} />
+                ) : startedByAria ? (
+                  <AriaMark size={12} title="Started by Aria" />
+                ) : (
+                  <span aria-hidden className="ari-status" data-status="idle" />
+                )}
+              </span>
+              {host ? <span className="max-w-20 shrink-0 truncate">{host.name} /</span> : null}
+              <span className="min-w-0 shrink truncate">{projectName ?? 'Unfiled'}</span>
+              {session.driverKind ? (
+                <span
+                  className="flex shrink-0 opacity-70 [&>span]:bg-transparent"
+                  title={driverLabel(session.driverKind)}
+                >
+                  <ProviderLogo kind={session.driverKind} size={12} />
+                </span>
+              ) : null}
+              {session.branch ? (
+                <span
+                  className="flex min-w-0 shrink-[2] items-center gap-1"
+                  title={session.workspacePath ?? session.branch}
+                >
+                  <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
+                  <span className="min-w-0 truncate">{session.branch}</span>
+                </span>
+              ) : null}
+              <span className="min-w-1 flex-1" />
+              <span className="flex shrink-0 items-center gap-1.5 tabular-nums transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
                 {activity !== undefined ? (
                   <ActivityStatus activity={activity} />
                 ) : (
@@ -500,35 +603,17 @@ function SessionRow({
                 )}
               </span>
             </span>
-            <span className="flex w-full min-w-0 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{session.title}</span>
-            </span>
-            {session.branch ? (
-              <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-fg-subtle">
-                <GitBranch size={10} aria-hidden className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate" title={session.branch}>
-                  {session.branch}
+            <span className="flex w-full min-w-0 items-center gap-1.5 text-[13.5px] font-medium text-fg">
+              <span className="min-w-0 truncate">{session.title}</span>
+              {session.pinned ? (
+                <Pin size={11} aria-hidden className="shrink-0 text-fg-subtle" />
+              ) : null}
+              {host ? (
+                <span className="sr-only">
+                  On {host.name}
+                  {host.status === 'connected' ? '' : `, ${host.status}`}
                 </span>
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
-            <span
-              className={`min-w-0 flex-1 truncate text-[13px] ${
-                hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
-              }`}
-            >
-              {session.title}
-            </span>
-            {hasChildren && childCount > 0 ? (
-              <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>
-            ) : null}
-            {/* min-w-11 matches the two-icon hover cluster so a long title
-                truncates before the overlay instead of running under it. */}
-            <span className="ml-auto min-w-11 shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
-              {formatRelativeTime(session.updatedAt)}
+              ) : null}
             </span>
           </>
         )}
@@ -538,31 +623,26 @@ function SessionRow({
           same menu; this is just the discoverable affordance. It takes over the
           timestamp slot while the row is hovered. Archive is a one-press
           sibling so parking a chat does not take a trip through the menu. */}
-      <div
-        className={
-          variant === 'card'
-            ? 'absolute right-2 top-1.5 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
-            : ROW_ACTION_CLUSTER
-        }
-      >
+      <div className={cx(ROW_ACTION_CLUSTER, !compact && 'top-[7px]')}>
         {!session.archived && !selecting ? (
           <button
             type="button"
             aria-label={`Archive ${session.title}`}
             title="Archive"
+            disabled={Boolean(host?.administrationReason || host?.readOnly)}
             onClick={() => onToggleArchive(session.id, true)}
-            className={ROW_ACTION_BTN}
+            className={rowAction}
           >
-            <Archive size={13} aria-hidden />
+            <Archive size={14} aria-hidden />
           </button>
         ) : null}
         <button
           type="button"
           aria-label={`Session actions for ${session.title}`}
           onClick={(e) => menu.open(session.id, e)}
-          className={ROW_ACTION_BTN}
+          className={rowAction}
         >
-          <MoreHorizontal size={13} aria-hidden />
+          <MoreHorizontal size={14} aria-hidden />
         </button>
       </div>
       {menu.openFor === session.id ? (
@@ -592,12 +672,20 @@ function SessionRow({
               id: 'pin',
               label: session.pinned ? 'Unpin' : 'Pin to top',
               icon: session.pinned ? PinOff : Pin,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly
+                ? 'Reconnect the owning machine to change this session.'
+                : undefined,
               onSelect: () => onTogglePin(session.id, !session.pinned),
             },
             {
               id: 'rename',
               label: 'Rename',
               icon: Pencil,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly
+                ? 'Reconnect the owning machine to rename this session.'
+                : undefined,
               onSelect: () => {
                 setDraft(session.title)
                 setEditing(true)
@@ -613,6 +701,10 @@ function SessionRow({
                   ? 'Unarchive'
                   : 'Archive',
               icon: session.archived ? ArchiveRestore : Archive,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason:
+                host?.administrationReason ??
+                (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => onToggleArchive(session.id, !session.archived),
             },
             {
@@ -620,6 +712,10 @@ function SessionRow({
               label: hasChildren ? 'Delete session and children' : 'Delete session',
               icon: Trash2,
               danger: true,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason:
+                host?.administrationReason ??
+                (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => setConfirmDelete(true),
             },
           ]}
@@ -642,6 +738,10 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
+  hostOf?: (
+    sessionId: string,
+  ) =>
+    { name: string; status: string; readOnly: boolean; administrationReason?: string } | undefined
   selecting?: boolean
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string, shiftKey: boolean) => void
@@ -694,67 +794,40 @@ function SessionList({
     : sessionTree(sessions, searching ? new Set() : collapsed)
   const order = rows.map((row) => row.session.id).join(' ')
   return (
-    <ul className={`flex flex-col ${variant === 'card' ? 'gap-1' : 'gap-0.5'}`}>
+    <ul className={`flex flex-col ${variant === 'card' ? 'gap-0.5' : 'gap-px'}`}>
       {rows.map(({ session: s, childCount, lastAtDepth }) => {
         const expanded = !collapsed.has(s.id)
         const rowVariant =
           variant === 'card' && (flat || lastAtDepth.length === 0) ? 'card' : 'compact'
+        const foldable = childCount > 0 && !searching && !flat
         return (
           <motion.li key={s.id} {...LIST_LAYOUT} layoutDependency={order}>
-            <div className="flex items-center">
-              <SessionTreeGuides lastAtDepth={lastAtDepth} />
-              {childCount > 0 && !searching && !flat ? (
-                <button
-                  type="button"
-                  aria-label={
-                    expanded ? `Collapse children of ${s.title}` : `Expand children of ${s.title}`
-                  }
-                  aria-expanded={expanded}
-                  className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                  onClick={() => toggle(s.id)}
-                  onKeyDown={(event) => {
-                    if (
-                      (event.key === 'ArrowLeft' && expanded) ||
-                      (event.key === 'ArrowRight' && !expanded)
-                    ) {
-                      event.preventDefault()
-                      toggle(s.id)
-                    }
-                  }}
-                >
-                  <ChevronRight
-                    size={10}
-                    aria-hidden
-                    className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-                  />
-                </button>
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <SessionRow
-                  session={s}
-                  startedByAria={handlers.startedByAria?.(s.id)}
-                  hasChildren={childCount > 0}
-                  childCount={childCount}
-                  nested={!flat && lastAtDepth.length > 0}
-                  variant={rowVariant}
-                  projectName={projectNameOf?.(s.projectId) ?? null}
-                  isActive={s.id === handlers.activeSessionId}
-                  activity={treeActivity(
-                    handlers.activityOf?.(s.id),
-                    descendantIds(scope, s.id).map((id) => handlers.activityOf?.(id)),
-                  )}
-                  onSelect={handlers.onSelect}
-                  onRename={handlers.onRename}
-                  onDelete={handlers.onDelete}
-                  onTogglePin={handlers.onTogglePin}
-                  onToggleArchive={handlers.onToggleArchive}
-                  onOpenInSplit={handlers.onOpenInSplit}
-                  selecting={handlers.selecting}
-                  selected={handlers.selectedIds?.has(s.id) ?? false}
-                  onToggleSelect={handlers.onToggleSelect}
-                />
-              </div>
-            </div>
+            <SessionRow
+              session={s}
+              startedByAria={handlers.startedByAria?.(s.id)}
+              hasChildren={childCount > 0}
+              childCount={childCount}
+              lastAtDepth={lastAtDepth}
+              childToggle={foldable ? { expanded, onToggle: () => toggle(s.id) } : undefined}
+              childrenShown={!flat && (searching || expanded)}
+              variant={rowVariant}
+              projectName={projectNameOf?.(s.projectId) ?? null}
+              host={handlers.hostOf?.(s.id)}
+              isActive={s.id === handlers.activeSessionId}
+              activity={treeActivity(
+                handlers.activityOf?.(s.id),
+                descendantIds(scope, s.id).map((id) => handlers.activityOf?.(id)),
+              )}
+              onSelect={handlers.onSelect}
+              onRename={handlers.onRename}
+              onDelete={handlers.onDelete}
+              onTogglePin={handlers.onTogglePin}
+              onToggleArchive={handlers.onToggleArchive}
+              onOpenInSplit={handlers.onOpenInSplit}
+              selecting={handlers.selecting}
+              selected={handlers.selectedIds?.has(s.id) ?? false}
+              onToggleSelect={handlers.onToggleSelect}
+            />
           </motion.li>
         )
       })}
@@ -800,36 +873,30 @@ function CollapsibleSessions({
     handlers.activeSessionId != null && sessions.some((s) => s.id === handlers.activeSessionId)
 
   return (
-    <div className="group/archive">
-      <div className="relative flex items-center">
+    <div>
+      <div className="group/head relative flex items-center">
         <button
           type="button"
           aria-label={label}
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
           onContextMenu={(e) => menu.open('archived', e)}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={`${BUCKET_ROW} text-fg-muted group-hover/head:text-fg`}
         >
           <ContextMark variant="archived" active={shelfActive} />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/archive:opacity-0">
-            {sessions.length}
+          <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+          {/* Like a project, the shelf counts what it holds only while shut. */}
+          <span className="flex min-w-6 shrink-0 justify-end text-xs tabular-nums text-fg-subtle transition-opacity group-hover/head:opacity-0">
+            {open ? null : sessions.length}
           </span>
-          <ChevronRight
-            size={12}
-            aria-hidden
-            className={`shrink-0 text-fg-subtle transition-all duration-150 group-hover/archive:opacity-0 ${
-              open ? 'rotate-90' : ''
-            }`}
-          />
         </button>
         <button
           type="button"
           aria-label="Archived session actions"
           onClick={(e) => menu.open('archived', e)}
-          className={`${ROW_ACTION_BTN} absolute right-1.5 opacity-0 group-hover/archive:opacity-100 focus-visible:opacity-100`}
+          className={`${rowAction} absolute right-1.5 opacity-0 group-hover/head:opacity-100 focus-visible:opacity-100`}
         >
-          <MoreHorizontal size={13} aria-hidden />
+          <MoreHorizontal size={14} aria-hidden />
         </button>
       </div>
       {menu.openFor === 'archived' ? (
@@ -866,7 +933,7 @@ function CollapsibleSessions({
               setConfirmEmpty(false)
               onEmptyArchive?.()
             }}
-            className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+            className={DANGER_BUTTON}
           >
             Delete
           </button>
@@ -874,16 +941,16 @@ function CollapsibleSessions({
             type="button"
             aria-label="Keep archived sessions"
             onClick={() => setConfirmEmpty(false)}
-            className="shrink-0 text-fg-subtle hover:text-fg"
+            className={rowAction}
           >
-            <X size={13} />
+            <X size={13} aria-hidden />
           </button>
         </ProjectNotice>
       ) : null}
       {/* Closing is instant: an exit fade would hold the space open and keep
           everything below from moving up until it finished. */}
       {open ? (
-        <div ref={contentRef} className="ari-enter-fade pt-0.5">
+        <div ref={contentRef} className="ari-enter-fade pt-px">
           <SessionList sessions={sessions} projectNameOf={projectNameOf} handlers={handlers} />
         </div>
       ) : null}
@@ -897,6 +964,9 @@ export interface SidebarProject {
   name: string
   path?: string
   status?: ProjectStatus
+  hostLabel?: string
+  localProjectId?: string
+  localActions?: boolean
 }
 
 /** Per-project commands surfaced on group hover / in the degraded state. */
@@ -945,6 +1015,7 @@ function ProjectGroupSection({
   canMoveUp?: boolean
   canMoveDown?: boolean
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -965,13 +1036,20 @@ function ProjectGroupSection({
   // started on it: only a press that did not travel toggles the group.
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
+  const localActions = project?.localActions !== false
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
   const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
+  // An open group shows each session's own glyph, so the header stays bare
+  // unless something inside needs the user. Folded, it speaks for its rows:
+  // their peak status and how many there are. Both stay in the tree for
+  // screen readers either way.
+  const showActivity = !expanded || groupActivity?.phase === 'paused'
+  const showCount = !expanded || bulk?.selecting === true
 
   return (
-    <section className="group/project" aria-label={name}>
+    <section aria-label={name}>
       <div data-active-group={isActiveGroup ? '' : undefined}>
-        <div className="relative flex items-center">
+        <div className="group/head relative flex items-center">
           {bulk?.selecting ? (
             <button
               type="button"
@@ -979,7 +1057,7 @@ function ProjectGroupSection({
               aria-checked={allSelected}
               aria-label={`Select all sessions in ${name}`}
               onClick={bulk.onToggleSelectAll}
-              className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              className={`flex size-6 shrink-0 items-center justify-center rounded-sm ${FOCUS_RING}`}
             >
               <SelectMark checked={allSelected} />
             </button>
@@ -1005,33 +1083,64 @@ function ProjectGroupSection({
               drag.controls.start(e)
             }}
             onContextMenu={(e) => menu.open(menuId, e)}
-            className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-              missing ? 'opacity-60' : ''
-            } ${isActiveGroup ? 'text-fg' : 'text-fg-muted hover:text-fg'}`}
+            className={cx(BUCKET_ROW, missing && 'opacity-60')}
           >
-            <ContextMark variant={project ? 'project' : 'unfiled'} active={isActiveGroup} />
+            <ContextMark
+              variant={project ? 'project' : 'unfiled'}
+              open={expanded}
+              active={isActiveGroup}
+            />
             <span
-              className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
-                missing ? 'text-fg-subtle line-through' : ''
+              className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                missing ? 'text-fg-subtle line-through' : 'text-fg'
               }`}
             >
               {name}
             </span>
-            {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
-            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/project:opacity-0">
-              {bulk?.selecting
-                ? `${String(bulk.selectedCount)}/${String(sessions.length)}`
-                : sessions.length}
+            {/* min-w-11 keeps a long name clear of the hover actions. */}
+            <span className="flex min-w-11 shrink-0 items-center justify-end gap-1.5 transition-opacity group-hover/head:opacity-0">
+              {project?.hostLabel ? (
+                <span
+                  className="flex max-w-24 items-center gap-1 text-xs text-fg-subtle"
+                  title={project.hostLabel}
+                >
+                  <Monitor size={11} aria-hidden className="shrink-0" />
+                  <span className="truncate">{project.hostLabel}</span>
+                </span>
+              ) : null}
+              {groupActivity !== undefined ? (
+                <span className={showActivity ? 'flex' : 'sr-only'}>
+                  <SessionActivityMark activity={groupActivity} />
+                </span>
+              ) : null}
+              <span className={showCount ? 'text-xs tabular-nums text-fg-subtle' : 'sr-only'}>
+                {bulk?.selecting
+                  ? `${String(bulk.selectedCount)}/${String(sessions.length)}`
+                  : sessions.length}
+              </span>
             </span>
           </button>
-          <button
-            type="button"
-            aria-label={project ? `Project actions for ${name}` : 'Unfiled session actions'}
-            onClick={(e) => menu.open(menuId, e)}
-            className={`${ROW_ACTION_BTN} absolute right-1.5 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100`}
-          >
-            <MoreHorizontal size={13} aria-hidden />
-          </button>
+          <div className="absolute right-1.5 flex items-center opacity-0 transition-opacity group-hover/head:opacity-100 focus-within:opacity-100">
+            {project ? (
+              <button
+                type="button"
+                aria-label={`New session in ${name}`}
+                title="New session here"
+                onClick={() => actions.onNewSessionInProject?.(project.id)}
+                className={rowAction}
+              >
+                <Plus size={14} aria-hidden />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              aria-label={project ? `Project actions for ${name}` : 'Unfiled session actions'}
+              onClick={(e) => menu.open(menuId, e)}
+              className={rowAction}
+            >
+              <MoreHorizontal size={14} aria-hidden />
+            </button>
+          </div>
         </div>
         {menu.openFor === menuId ? (
           <ContextMenu
@@ -1051,7 +1160,7 @@ function ProjectGroupSection({
                       id: 'import',
                       label: 'Import',
                       icon: ImportIcon,
-                      disabled: missing,
+                      disabled: missing || !localActions,
                       disabledReason: missing
                         ? 'Locate this project before importing sessions'
                         : undefined,
@@ -1061,13 +1170,14 @@ function ProjectGroupSection({
                       id: 'reveal',
                       label: 'Reveal in file manager',
                       icon: FolderOpen,
+                      disabled: !localActions,
                       onSelect: () => actions.onRevealProject?.(project.id),
                     },
                     {
                       id: 'move-up',
                       label: 'Move up',
                       icon: ArrowUp,
-                      disabled: !canMoveUp,
+                      disabled: !canMoveUp || !localActions,
                       disabledReason: canMoveUp ? undefined : 'Already the top project',
                       onSelect: () => actions.onMoveProject?.(project.id, -1),
                     },
@@ -1075,7 +1185,7 @@ function ProjectGroupSection({
                       id: 'move-down',
                       label: 'Move down',
                       icon: ArrowDown,
-                      disabled: !canMoveDown,
+                      disabled: !canMoveDown || !localActions,
                       disabledReason: canMoveDown ? undefined : 'Already the last project',
                       onSelect: () => actions.onMoveProject?.(project.id, 1),
                     },
@@ -1083,6 +1193,7 @@ function ProjectGroupSection({
                       id: 'close',
                       label: 'Close project',
                       icon: X,
+                      disabled: !localActions,
                       onSelect: () => actions.onCloseProject?.(project.id),
                     },
                     {
@@ -1090,6 +1201,7 @@ function ProjectGroupSection({
                       label: 'Remove project',
                       icon: Trash2,
                       danger: true,
+                      disabled: !localActions,
                       onSelect: () => setConfirmRemove(true),
                     },
                   ] as ContextMenuItem[])
@@ -1106,8 +1218,9 @@ function ProjectGroupSection({
                 id: 'archive-all',
                 label: `Archive all in ${scope}`,
                 icon: Archive,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason:
+                  bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => bulk?.onArchiveAll(),
               },
               {
@@ -1115,8 +1228,9 @@ function ProjectGroupSection({
                 label: `Delete all in ${scope}`,
                 icon: Trash2,
                 danger: true,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason:
+                  bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => setConfirmDeleteAll(true),
               },
             ]}
@@ -1134,7 +1248,7 @@ function ProjectGroupSection({
                 setConfirmDeleteAll(false)
                 bulk?.onDeleteAll()
               }}
-              className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+              className={DANGER_BUTTON}
             >
               Delete
             </button>
@@ -1142,9 +1256,9 @@ function ProjectGroupSection({
               type="button"
               aria-label={`Keep sessions in ${name}`}
               onClick={() => setConfirmDeleteAll(false)}
-              className="shrink-0 text-fg-subtle hover:text-fg"
+              className={rowAction}
             >
-              <X size={13} />
+              <X size={13} aria-hidden />
             </button>
           </ProjectNotice>
         ) : null}
@@ -1157,7 +1271,7 @@ function ProjectGroupSection({
                 setConfirmRemove(false)
                 actions.onRemoveProject?.(project.id)
               }}
-              className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+              className={DANGER_BUTTON}
             >
               Remove
             </button>
@@ -1165,9 +1279,9 @@ function ProjectGroupSection({
               type="button"
               aria-label={`Keep ${name}`}
               onClick={() => setConfirmRemove(false)}
-              className="shrink-0 text-fg-subtle hover:text-fg"
+              className={rowAction}
             >
-              <X size={13} />
+              <X size={13} aria-hidden />
             </button>
           </ProjectNotice>
         ) : null}
@@ -1176,26 +1290,33 @@ function ProjectGroupSection({
             <button
               type="button"
               onClick={() => actions.onLocateProject?.(project.id)}
-              className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+              className={`${INLINE_BUTTON} text-fg hover:bg-fg/9`}
             >
               Locate
             </button>
             <button
               type="button"
               onClick={() => actions.onCloseProject?.(project.id)}
-              className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+              className={`${INLINE_BUTTON} text-fg-muted hover:bg-fg/9 hover:text-fg`}
             >
               Close
             </button>
           </ProjectNotice>
         ) : null}
+        {/* The gap under an open group is what separates it from the next
+            project; there is no rule between them. */}
         {expanded ? (
           sessions.length > 0 ? (
-            <div className="pb-1 pl-5">
+            <div className="pb-2 pt-px">
               <SessionList sessions={sessions} handlers={handlers} />
             </div>
           ) : (
-            <p className="py-1 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
+            <p
+              className="mb-2 flex h-8 items-center text-xs text-fg-subtle"
+              style={{ paddingLeft: ROW_INDENT_PX }}
+            >
+              No sessions yet.
+            </p>
           )
         ) : null}
       </div>
@@ -1220,12 +1341,12 @@ function ProjectNotice({
 }) {
   return (
     <div
-      className={`mx-2 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 ${
-        tone === 'danger' ? 'bg-danger-subtle' : 'bg-surface-2'
+      className={`mx-2 mb-1 flex h-8 items-center gap-1 rounded-md pl-2.5 pr-1 ${
+        tone === 'danger' ? 'bg-danger-subtle' : 'bg-fg/5'
       }`}
     >
       <span
-        className={`min-w-0 flex-1 truncate text-2xs ${
+        className={`min-w-0 flex-1 truncate text-xs ${
           tone === 'danger' ? 'text-danger' : 'text-fg-muted'
         }`}
       >
@@ -1266,6 +1387,7 @@ function DraggableProjectGroup({
   canMoveDown: boolean
   onPressStart: () => void
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -1345,6 +1467,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onDeleteMany,
   onOpenInSplit,
   activityOf,
+  hostOf,
   startedByAria,
   onOpenProject,
   onNewSession,
@@ -1368,6 +1491,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false)
 
   const archiveOne = (id: string, archived: boolean): void => {
+    if (hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) return
     if (!archived) {
       onToggleArchive(id, false)
       return
@@ -1387,6 +1511,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     onToggleArchive: archiveOne,
     onOpenInSplit,
     activityOf,
+    hostOf,
   }
 
   const projectNameOf = useMemo(() => {
@@ -1468,6 +1593,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const archiveIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const expanded = new Set<string>()
     for (const id of ids) for (const target of archiveTargetIds(sessions, id)) expanded.add(target)
     const list = [...expanded]
@@ -1477,6 +1603,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const deleteIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const roots = selectionRoots(sessions, new Set(ids))
     if (onDeleteMany) onDeleteMany(roots)
     else for (const id of roots) onDelete(id)
@@ -1488,6 +1615,11 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     const selecting = selectingGroupId === groupId
     return {
       selecting,
+      administrationReason: visible.some(
+        (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+      )
+        ? 'Session administration is unavailable for one or more owning hosts.'
+        : undefined,
       selectedCount: selecting ? visible.filter((id) => selectedIds.has(id)).length : 0,
       allSelected: selecting && visible.length > 0 && visible.every((id) => selectedIds.has(id)),
       onEnterSelect: () => enterSelect(groupId),
@@ -1564,7 +1696,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   const body =
     trimmed !== '' ? (
       matches.length === 0 ? (
-        <p className="px-2 py-6 text-center text-xs text-fg-subtle">
+        <p className="px-2.5 py-6 text-center text-xs text-fg-subtle">
           No sessions match “{query.trim()}”.
         </p>
       ) : (
@@ -1579,7 +1711,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
         />
       )
     ) : groups.length === 0 && archived.length === 0 ? (
-      <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
+      <p className="px-2.5 py-8 text-center text-xs leading-relaxed text-fg-subtle">
         No sessions yet.
         <br />
         Open a project or start a session.
@@ -1587,16 +1719,16 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     ) : view === 'sessions' ? (
       <>
         {inbox === null || (inbox.pinned.length === 0 && inbox.active.length === 0) ? (
-          <p className="px-2 py-6 text-center text-xs text-fg-subtle">No sessions yet.</p>
+          <p className="px-2.5 py-6 text-center text-xs text-fg-subtle">No sessions yet.</p>
         ) : (
           <>
             {inbox.pinned.length > 0 ? (
-              <section aria-label="Pinned" className="mb-1.5">
+              <section aria-label="Pinned" className="mb-2">
                 <h3
-                  className={`${SECTION_LABEL} flex h-7 items-center justify-between px-2 leading-7`}
+                  className={`${sectionLabel} flex h-7 items-center justify-between px-2.5 font-normal`}
                 >
                   <span>Pinned</span>
-                  <span className="tabular-nums text-fg-subtle/70">{inbox.pinned.length}</span>
+                  <span className="tabular-nums">{inbox.pinned.length}</span>
                 </h3>
                 <SessionList
                   sessions={inbox.pinned}
@@ -1631,7 +1763,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           values={projectGroups.map((g) => g.id)}
           onReorder={reorderFromDrag}
           layout="position"
-          className="flex flex-col gap-0.5"
+          className="flex flex-col gap-px"
         >
           {projectGroups.map((group, index) => (
             <DraggableProjectGroup
@@ -1651,7 +1783,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           ))}
         </Reorder.Group>
         {unfiled ? (
-          <div className="mt-0.5">
+          <div className="mt-px">
             <ProjectGroupSection
               name={unfiled.name}
               project={null}
@@ -1670,51 +1802,58 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
 
   return (
     <>
-      <div className="flex flex-col gap-1 px-2 pt-1">
+      <div className="shrink-0 px-2.5">
         <button
           type="button"
           data-new-session-trigger
           aria-label="New session"
           title="New session (Mod+N)"
           onClick={(e) => onNewSession?.(anchorBelow(e.currentTarget))}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={NAV_ROW}
         >
-          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
-          <span className="min-w-0 flex-1 truncate text-left">New session</span>
-          <Kbd className="ml-auto h-4 shrink-0 border-border/60 px-1 text-[10px] text-fg-subtle">
+          <SquarePen size={16} strokeWidth={1.75} aria-hidden className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate">New session</span>
+          {/* The shortcut is a hint, not a control: quiet text, shown on reach. */}
+          <span className="shrink-0 text-xs text-fg-subtle opacity-0 transition-opacity group-hover/nav:opacity-100 group-focus-visible/nav:opacity-100">
             Mod+N
-          </Kbd>
+          </span>
         </button>
-        {/* Adding a project is how a session gets somewhere to run, so it sits
-            beside New session rather than tucked away as a sidebar icon. */}
+      </div>
+      <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
+      {/* The list's caption row: which view it is, and the one way to grow it.
+          The view switch steps aside while a search flattens the list. */}
+      <div className="flex shrink-0 items-center pb-1.5 pl-5 pr-4 pt-4">
+        {trimmed === '' ? <SidebarViewSwitch view={view} onChange={setView} /> : null}
+        <span className="flex-1" />
         <button
           type="button"
           aria-label="Add project"
           title="Add a folder as a project"
           onClick={() => onOpenProject?.()}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className={`inline-flex size-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg ${FOCUS_RING}`}
         >
-          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
-          <span className="min-w-0 truncate">Add project</span>
+          <Plus size={14} strokeWidth={1.75} aria-hidden />
         </button>
       </div>
-      <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
-      {trimmed === '' ? <SidebarViewSwitch view={view} onChange={setView} /> : null}
-      <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
+      <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Sessions">
         {body}
       </nav>
       {selectingGroupId !== null ? (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-2">
+        <div
+          className={`mx-2.5 mb-1 flex h-9 shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1.5 ${
+            confirmDeleteSelected ? 'bg-danger-subtle' : 'bg-fg/5'
+          }`}
+        >
           {confirmDeleteSelected ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-2xs text-danger">
+              <span className="min-w-0 flex-1 truncate text-xs text-danger">
                 {`Delete ${String(selectedIds.size)} session${selectedIds.size === 1 ? '' : 's'}?`}
               </span>
               <button
                 type="button"
                 aria-label="Confirm delete selected sessions"
                 onClick={() => deleteIds([...selectedIds])}
-                className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+                className={DANGER_BUTTON}
               >
                 Delete
               </button>
@@ -1722,29 +1861,39 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
                 type="button"
                 aria-label="Cancel delete selected sessions"
                 onClick={() => setConfirmDeleteSelected(false)}
-                className="shrink-0 text-fg-subtle hover:text-fg"
+                className={rowAction}
               >
-                <X size={13} />
+                <X size={13} aria-hidden />
               </button>
             </>
           ) : (
             <>
-              <span className="min-w-0 flex-1 truncate text-2xs tabular-nums text-fg-subtle">
+              <span className="min-w-0 flex-1 truncate text-xs tabular-nums text-fg-muted">
                 {`${String(selectedIds.size)} selected`}
               </span>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={
+                  selectedIds.size === 0 ||
+                  [...selectedIds].some(
+                    (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+                  )
+                }
                 onClick={() => archiveIds([...selectedIds])}
-                className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+                className={`${INLINE_BUTTON} text-fg-muted hover:bg-fg/9 hover:text-fg`}
               >
                 Archive
               </button>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={
+                  selectedIds.size === 0 ||
+                  [...selectedIds].some(
+                    (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+                  )
+                }
                 onClick={() => setConfirmDeleteSelected(true)}
-                className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-danger transition-colors hover:text-danger disabled:opacity-40"
+                className={`${INLINE_BUTTON} text-danger hover:bg-danger-subtle`}
               >
                 Delete
               </button>
@@ -1752,9 +1901,9 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
                 type="button"
                 aria-label="Cancel session selection"
                 onClick={clearSelect}
-                className="shrink-0 text-fg-subtle hover:text-fg"
+                className={rowAction}
               >
-                <X size={13} />
+                <X size={13} aria-hidden />
               </button>
             </>
           )}
@@ -1765,8 +1914,8 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
 })
 
 /**
- * Section caption doubling as the Projects / Sessions view switch. Sits between
- * the compose row and the list so the list itself carries no chrome.
+ * The list's caption doubling as the Projects / Sessions view switch: two
+ * words, the current one in full ink. No pills, no track.
  */
 function SidebarViewSwitch({
   view,
@@ -1783,7 +1932,7 @@ function SidebarViewSwitch({
         type="button"
         aria-pressed={selected}
         onClick={() => onChange(id)}
-        className={`rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`rounded-sm text-[12.5px] leading-6 transition-colors ${FOCUS_RING} ${
           selected ? 'text-fg' : 'text-fg-subtle hover:text-fg-muted'
         }`}
       >
@@ -1792,14 +1941,9 @@ function SidebarViewSwitch({
     )
   }
   return (
-    <div className="flex h-8 items-center gap-1 px-3">
-      <div role="group" aria-label="Sidebar view" className="flex items-center gap-1">
-        {tab('projects', 'Projects')}
-        <span aria-hidden className="text-2xs text-fg-subtle/60">
-          ·
-        </span>
-        {tab('sessions', 'Sessions')}
-      </div>
+    <div role="group" aria-label="Sidebar view" className="flex items-center gap-3">
+      {tab('projects', 'Projects')}
+      {tab('sessions', 'Sessions')}
     </div>
   )
 }
@@ -1820,10 +1964,11 @@ export function SidebarSearch({
   const visible = !collapsed || focused || query.length > 0
 
   return (
-    <div className={visible ? 'px-3 pb-1 pt-1' : 'sr-only'}>
+    <div className={visible ? 'shrink-0 px-2.5 pt-1.5' : 'sr-only'}>
       <div className="relative">
         <Search
-          size={12}
+          size={14}
+          strokeWidth={1.75}
           aria-hidden
           className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
         />
@@ -1842,7 +1987,7 @@ export function SidebarSearch({
           }}
           placeholder="Search…"
           aria-label="Search sessions"
-          className="h-7 w-full rounded-lg border border-border bg-surface-1 pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+          className="h-8 w-full rounded-md border border-border-strong bg-transparent pl-[34px] pr-2.5 text-[13px] text-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
       </div>
     </div>

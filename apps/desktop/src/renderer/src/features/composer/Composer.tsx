@@ -9,23 +9,25 @@ import {
   useState,
 } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Bookmark, Clock, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, Bookmark, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { MessageOrigin } from '@ari/contracts/message'
 import { transitions } from '@ari/ui/motion'
 import { Popover } from '@ari/ui/popover'
+import { countBadge, cx, iconButton, iconButtonActive, rowAction } from '../../lib/recipes'
 import { activeTokenAt } from './active-token'
 import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
-import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
+import { FILE_MIME, FILE_SCOPE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { promptHistory, stepPromptHistory } from './prompt-history'
 import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
-import { SpeechButton } from './SpeechButton'
+import { SpeechButton, type SpeechState } from './SpeechButton'
+import { roundButton } from './round-button'
 import { captureTextTarget } from '../speech/target'
 import {
   useSessionDraftIntent,
@@ -33,7 +35,8 @@ import {
   type DraftImage,
   type DraftDelivery,
 } from './draft-recovery-store'
-import { rpc } from '../../lib/rpc'
+import './composer.css'
+import { parseSessionViewKey, useSessionClient } from '../session/session-client'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -112,6 +115,12 @@ export interface ComposerProps {
    * the draft so the next turn's agent is visible without leaving the box.
    */
   leading?: React.ReactNode
+  /** Project draft controls outside the plate; existing sessions leave this empty. */
+  belowControls?: React.ReactNode
+  /** Drafts retain large pasted text locally until the host session exists. */
+  draftOnly?: boolean
+  /** A remote or unresolved project draft cannot use this PC's input services. */
+  remoteInput?: boolean
   placeholder?: string
   disabled?: boolean
   /** Draft injection from outside (edit a transcript message); see {@link ComposerSeed}. */
@@ -121,49 +130,62 @@ export interface ComposerProps {
    * the text; omitted keeps the field in memory only.
    */
   sessionId?: string
-  /** Sits on the plate's top edge (child-session rail). */
+  /**
+   * Rows attached to the composer's top edge as a tab: approvals, a question,
+   * the agents row. Each entry brings its own padding; the tab is the frame.
+   */
   above?: React.ReactNode
   /**
-   * Something docked above the plate needs an answer (question panel,
+   * Something docked above the composer needs an answer (question panel,
    * approval cards). Attention outranks the {@link Composer} resting state:
-   * a shrunk plate under "needs your answer" hides the thing to act on.
-   * A child-session rail alone does not pin — it is a thin peek strip that
-   * asks nothing of the user.
+   * the composer never folds to its compact bar under a card that is waiting
+   * on the user.
    */
   attentionRequired?: boolean
-  /** Keeps the welcome composer open without replacing its editor. */
+  /** The welcome composer: a taller field over the scene. */
   centered?: boolean
   /** Prompts already sent in this session, oldest first; ArrowUp in an empty field recalls them. */
   history?: readonly string[]
 }
 
-const MIN_HEIGHT = 52
+/** About two lines of draft: the field's floor in a session. */
+const MIN_HEIGHT = 62
+/** The welcome composer's floor. */
+const CENTERED_MIN_HEIGHT = 88
 const MAX_HEIGHT = 260
 
 /**
  * The running-turn placeholder. A send during a live turn is journalled to the
  * queue rather than dispatched, so the field says so instead of promising a
- * send it will not perform. Matches the queued banner's "after the current
- * turn" wording; the compact resting bar has no room for the long prompt.
+ * send it will not perform. Matches the queued tab's "after the current turn"
+ * wording.
  */
 const RUNNING_PLACEHOLDER = 'Message will queue…'
 
+/** A tab on the composer's top edge: queued messages, approvals, questions. */
+const TOP_TAB = 'mx-3.5 border border-b-0 border-border-strong bg-bg'
+
 /**
- * Message composer: one elevated surface. Draft on top; agent + permission on
- * the left of the foot, stash + send on the right. Enter sends, Shift+Enter
- * breaks the line. The @file popover sits above the field. Pasted or
- * dropped images land in an attachment strip inside the plate and are handed
- * to `onSend` alongside the text — the session view stages them in the main
+ * Message composer: one object on the stage. Open, the draft sits on top and
+ * one row of controls sits under it: the pickers handed in through `leading`
+ * on the left, then stash, microphone and the round send button on the right.
+ * Enter sends, Shift+Enter breaks the line. The @file menu opens above the
+ * field. Pasted or dropped images become chips inside the box and are handed
+ * to `onSend` alongside the text; the session view stages them in the main
  * process before dispatching the turn.
  *
- * The plate rests whenever the field is empty and unfocused — during a live
- * turn and after it — folding the foot row into the field's own row and handing
- * the reclaimed height back to the transcript. Clicking or focusing anywhere on
- * it brings the full composer back, and it stays back only for as long as the
- * user is actually in it. Resting is refused whenever it would hide something
- * the user owns — a draft, attached images, or docked attention UI. The
- * textarea is never unmounted, so tab order, focus, and the caret survive every
- * transition.
+ * The composer rests whenever the field is empty and unfocused — during a live
+ * turn and after it — folding to one compact row (placeholder, microphone,
+ * send) and handing the reclaimed height back to the transcript. Clicking or
+ * focusing anywhere on it opens it again, and it stays open only for as long
+ * as the user is actually in it. Resting is refused whenever it would hide
+ * something the user owns: a draft, attached images, or docked attention UI.
+ * The textarea is never unmounted, so tab order, focus and the caret survive
+ * every transition.
+ *
+ * While a dictation runs the control row belongs to it: "Listening", the
+ * level meter and the timer replace the pickers, and the round button finishes
+ * the recording. The pickers stay mounted so an open choice survives it.
  */
 export function Composer({
   onSend,
@@ -175,6 +197,9 @@ export function Composer({
   onEditQueued,
   suggestions,
   leading,
+  belowControls,
+  draftOnly = false,
+  remoteInput = false,
   placeholder = 'Ask anything, @ for files, / for commands…',
   disabled = false,
   seed,
@@ -188,6 +213,13 @@ export function Composer({
   recoveries = NO_RECOVERIES,
   onRecover,
 }: ComposerProps) {
+  const client = useSessionClient()
+  const inputScope = sessionId ? parseSessionViewKey(sessionId) : null
+  const remote = remoteInput || client.scope.kind === 'remote' || inputScope?.kind === 'remote'
+  const scopedRemote = client.scope.kind === 'remote' &&
+    (sessionId === client.viewKey || sessionId === client.scope.sessionId)
+  const [inputIssue, setInputIssue] = useState<string | null>(null)
+  useEffect(() => setInputIssue(null), [sessionId, remote])
   const {
     draft: text,
     setDraft: setText,
@@ -212,21 +244,28 @@ export function Composer({
     draftIntent.reattachRequired ||
     intents.some((image) => !image.file && !image.ref) ||
     draftIntent.picks.some((pick) => pick.imageIntent && !pick.image && !pick.imageIntent.ref)
+  /** The dictation's state, reported by the microphone; it reshapes the control row. */
+  const [dictation, setDictation] = useState<SpeechState>('idle')
+  /** The left of the control row, lent to the microphone for its status strip. */
+  const [dictationSlot, setDictationSlot] = useState<HTMLSpanElement | null>(null)
+  const dictating = dictation === 'recording' || dictation === 'transcribing'
   const [focused, setFocused] = useState(false)
 
   /**
-   * Resting is the compact one-row plate: it happens over any empty, unfocused
+   * Resting is the compact one-row bar: it happens over any empty, unfocused
    * field, whether or not a turn is live. It deliberately outlives the turn —
-   * a plate that springs back open the moment the agent finishes is the
+   * a composer that springs back open the moment the agent finishes is the
    * jumpiness this state exists to remove, and the user is usually reading the
    * result, not typing. A draft or a pending image is enough to refuse:
    * collapsing would hide text the user wrote, which reads as data loss even
-   * though the state is intact.
+   * though the state is intact. A dictation holds the control row, so it
+   * refuses too.
    */
   const resting =
     !centered &&
     !disabled &&
     !focused &&
+    !dictating &&
     !attentionRequired &&
     text.trim().length === 0 &&
     intents.length === 0 &&
@@ -237,7 +276,7 @@ export function Composer({
     !textStorageIssue &&
     !sendPending
 
-  /** Puts the caret back in the field and lets focus expand the plate. */
+  /** Puts the caret back in the field and lets focus open the composer. */
   const focusField = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -247,10 +286,10 @@ export function Composer({
   }, [])
 
   /**
-   * Focus leaving the plate is the collapse trigger. Blur on the textarea
-   * alone would be wrong: the model, effort, and permission chips are real
-   * buttons inside the plate, so picking a model would otherwise fold the
-   * composer out from under the popover being used.
+   * Focus leaving the composer is the collapse trigger. Blur on the textarea
+   * alone would be wrong: the model, effort and permission pickers are real
+   * buttons inside it, so picking a model would otherwise fold the composer
+   * out from under the menu being used.
    */
   const handleShellBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
     const next = e.relatedTarget as Node | null
@@ -259,8 +298,8 @@ export function Composer({
   }, [])
 
   /**
-   * A click anywhere on the resting plate (its padding, not just the textarea)
-   * reopens the composer. Buttons are exempt so Stop does not also expand it.
+   * A click anywhere on the resting bar (its padding, not just the textarea)
+   * reopens the composer. Buttons are exempt so Stop does not also open it.
    */
   const handleShellMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -349,10 +388,10 @@ export function Composer({
   const resize = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
-    // Resting drops the floor: the foot row is gone, so one line plus the
-    // resting padding is the whole plate. `resting` is a dependency so the
+    // Resting drops the floor: the control row is gone, so one line plus the
+    // resting padding is the whole bar. `resting` is a dependency so the
     // field re-measures against the padding it now carries.
-    const floor = resting ? 0 : centered ? 88 : MIN_HEIGHT
+    const floor = resting ? 0 : centered ? CENTERED_MIN_HEIGHT : MIN_HEIGHT
     const length = el.value.length
     const lines = el.value.split('\n').length
     const last = measuredRef.current
@@ -544,18 +583,20 @@ export function Composer({
     () => () => {
       pasteGenerationRef.current += 1
     },
-    [sessionId],
+    [sessionId, client.viewKey],
   )
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (e.clipboardData.files.length > 0) {
+        e.preventDefault()
         const files = Array.from(e.clipboardData.files)
         const images = files.filter((file) => file.type.startsWith('image/'))
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
-        if (others.length > 0) {
+        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
         }
@@ -584,7 +625,7 @@ export function Composer({
       if (decision.action === 'inline') return
       e.preventDefault()
       // No session means no workspace to write into, so the text stays inline.
-      if (sessionId === undefined) {
+      if (sessionId === undefined || draftOnly || inputScope === null || (remote && !scopedRemote)) {
         insertRange(start, end, pasted)
         return
       }
@@ -593,15 +634,18 @@ export function Composer({
       const inlineDraft = text.slice(0, start) + pasted + text.slice(end)
       insertRange(start, end, pasted)
       const generation = pasteGenerationRef.current
-      const mention = `@${decision.path} `
-      void rpc
+      void client
         .invoke('fs.writeTextFile', {
-          sessionId,
+          sessionId: scopedRemote ? client.scope.sessionId : sessionId,
           path: decision.path,
           content: decision.content,
         })
         .then(
-          () => {
+          (result) => {
+            // Remote paste paths are issued by the owning host, never chosen locally.
+            const hostPath = (result as { path?: string } | undefined)?.path
+            if (remote && !hostPath) return
+            const mention = `@${hostPath ?? decision.path} `
             // Only compact an untouched draft. A captured selection no longer
             // names the same text after an edit, send, or replacement seed.
             if (pasteGenerationRef.current !== generation) return
@@ -624,7 +668,7 @@ export function Composer({
           },
         )
     },
-    [addFiles, caret, insertAtCaret, insertRange, sessionId, setText, text],
+    [addFiles, caret, client, draftOnly, inputScope, insertAtCaret, insertRange, remote, scopedRemote, sessionId, setText, text],
   )
 
   const handleDrop = useCallback(
@@ -633,6 +677,11 @@ export function Composer({
       const path = readDragFilePath(e)
       if (path !== null) {
         e.preventDefault()
+        const owner = e.dataTransfer.getData(FILE_SCOPE_MIME)
+        if (remote ? !scopedRemote || owner !== client.viewKey : owner.length > 0 && owner !== client.viewKey) {
+          setInputIssue('This file reference belongs to another workspace. Choose a file on the owning machine.')
+          return
+        }
         const insert = `@${path} `
         const nextCaret = caret + insert.length
         setText((prev) => prev.slice(0, caret) + insert + prev.slice(caret))
@@ -647,13 +696,14 @@ export function Composer({
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file drops outside the image path land as prompt paths.
-        if (others.length > 0) {
+        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
         }
       }
     },
-    [addFiles, caret, insertAtCaret],
+    [addFiles, caret, client, insertAtCaret, remote, scopedRemote],
   )
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
@@ -741,29 +791,29 @@ export function Composer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={transitions.fadeUp}
-            className="mb-2 rounded-md border border-border bg-surface-1 py-1.5 text-xs text-fg-muted"
+            className={cx(TOP_TAB, 'rounded-t-[14px] px-2 pb-1.5 pt-2')}
           >
-            <div className="flex items-center gap-2 px-3">
-              <Clock size={12} className="shrink-0 text-fg-subtle" />
+            <div className="flex items-center gap-2 px-1.5 text-xs text-fg-subtle">
+              <span aria-hidden className="ari-status" data-status="queued" />
               <span>
                 {queued.length} queued message{queued.length > 1 ? 's' : ''} ·{' '}
                 {running ? 'waiting for the current turn' : 'waiting to start'}
               </span>
             </div>
-            <ul className="mt-1 space-y-px px-1.5" aria-label="Queued messages">
+            <ul className="mt-1" aria-label="Queued messages">
               {queued.map((message, index) => (
                 <li
                   key={`${index}:${message.text}`}
-                  className="group flex items-center gap-1 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-2"
+                  className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[13px] text-fg-muted transition-colors hover:bg-fg/5"
                 >
-                  <span className="min-w-0 flex-1 truncate text-fg" title={message.text}>
+                  <span className="min-w-0 flex-1 truncate" title={message.text}>
                     {message.senderLabel ? (
-                      <span className="mr-2 text-2xs text-fg-subtle">{message.senderLabel}</span>
+                      <span className="mr-2 text-xs text-fg-subtle">{message.senderLabel}</span>
                     ) : null}
                     {message.text}
                   </span>
                   {message.attachments.length > 0 ? (
-                    <span className="shrink-0 text-2xs text-fg-subtle">
+                    <span className="shrink-0 px-1 text-xs text-fg-subtle">
                       {message.attachments.length} image
                       {message.attachments.length > 1 ? 's' : ''}
                     </span>
@@ -778,9 +828,9 @@ export function Composer({
                       aria-label={`Steer queued message ${index + 1} into the current turn`}
                       title="Steer into the current turn"
                       onClick={() => onSteerQueued(message)}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                      className={rowAction}
                     >
-                      <CornerUpRight size={11} />
+                      <CornerUpRight size={14} strokeWidth={1.75} aria-hidden />
                     </button>
                   ) : null}
                   {onEditQueued &&
@@ -791,9 +841,9 @@ export function Composer({
                       aria-label={`Edit queued message ${index + 1}`}
                       title="Edit in composer"
                       onClick={() => onEditQueued(message)}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                      className={rowAction}
                     >
-                      <Pencil size={11} />
+                      <Pencil size={14} strokeWidth={1.75} aria-hidden />
                     </button>
                   ) : null}
                   {onRemoveQueued && (!message.origin || message.origin.kind === 'human') ? (
@@ -802,9 +852,9 @@ export function Composer({
                       aria-label={`Remove queued message ${index + 1}`}
                       title="Remove from queue"
                       onClick={() => onRemoveQueued(message)}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                      className={rowAction}
                     >
-                      <X size={11} />
+                      <X size={14} strokeWidth={1.75} aria-hidden />
                     </button>
                   ) : null}
                 </li>
@@ -815,8 +865,10 @@ export function Composer({
       </AnimatePresence>
 
       {above ? (
-        <div className="relative z-0 -mb-3 rounded-t-2xl border border-b-0 border-border bg-surface-2/70 pt-0.5">
-          <div className="pb-5">{above}</div>
+        // Under the queued tab this one drops its own round corners and takes
+        // a hairline, so the two read as one tab with two sections.
+        <div className={cx(TOP_TAB, queued.length > 0 ? 'border-t-border' : 'rounded-t-[14px]')}>
+          {above}
         </div>
       ) : null}
       <div
@@ -824,10 +876,11 @@ export function Composer({
         onBlur={handleShellBlur}
         onMouseDown={handleShellMouseDown}
         data-resting={resting || undefined}
-        className="ari-composer-shell relative z-10 rounded-2xl"
+        data-dictation={dictating ? dictation : undefined}
+        className="ari-composer-shell relative rounded-2xl"
       >
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
+          <div className="absolute bottom-full left-0 right-0 z-popover mb-1.5">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
           </div>
         )}
@@ -836,10 +889,10 @@ export function Composer({
           draftIntent.delivery ||
           draftIntent.storageIssue ||
           textStorageIssue) && (
-          <div className="px-3 pt-2">
+          <div className="flex flex-col gap-1.5 px-[18px] pt-3.5">
             <AttachmentStrip images={images} onRemove={removeAt} />
             {draftIntent.reattachRequired ? (
-              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+              <p role="status" className="text-xs text-fg-subtle">
                 Saved attachment context is unreadable. Reattach expected images before sending.{' '}
                 <button
                   type="button"
@@ -850,7 +903,7 @@ export function Composer({
                       reattachRequired: false,
                     }))
                   }
-                  className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className="rounded-sm text-fg-muted underline underline-offset-2 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
                   Clear unreadable attachment intent
                 </button>
@@ -861,9 +914,9 @@ export function Composer({
                 <div
                   key={`${image.metadata.name}:${index}`}
                   role="status"
-                  className="flex items-center gap-2 px-4 py-1 text-xs text-fg-muted"
+                  className="flex min-h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2/50 py-0.5 pl-2 pr-1 text-xs text-fg-muted"
                 >
-                  <span>
+                  <span className="min-w-0">
                     {image.ref
                       ? `Attached: ${image.metadata.name}`
                       : `Reattach ${image.metadata.name} (${image.metadata.size} bytes) — paste or drop the image`}
@@ -872,20 +925,20 @@ export function Composer({
                     type="button"
                     aria-label={`Remove ${image.metadata.name}`}
                     onClick={() => removeIntentAt(index)}
-                    className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    className={rowAction}
                   >
-                    <X size={12} />
+                    <X size={12} strokeWidth={1.75} aria-hidden />
                   </button>
                 </div>
               ) : null,
             )}
             {draftIntent.delivery === 'uncertain' ? (
-              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+              <p role="status" className="text-xs text-fg-subtle">
                 Delivery unknown — check the conversation before sending again.
               </p>
             ) : null}
             {draftIntent.storageIssue || textStorageIssue ? (
-              <p role="status" className="px-4 py-1 text-xs text-fg-muted">
+              <p role="status" className="text-xs text-fg-subtle">
                 Draft is kept in memory. Local storage is unavailable or full; keep this window
                 open.
               </p>
@@ -893,7 +946,7 @@ export function Composer({
           </div>
         )}
         <div className="relative">
-          <MentionOverlay ref={overlayRef} text={text} resting={resting} />
+          <MentionOverlay ref={overlayRef} text={text} />
           <textarea
             data-dictation-session={sessionId ?? ''}
             ref={textareaRef}
@@ -912,29 +965,38 @@ export function Composer({
             disabled={disabled}
             rows={1}
             aria-label="Message"
-            className={`block max-h-[260px] w-full resize-none bg-transparent text-sm leading-relaxed text-fg placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable] ${
+            className={`ari-composer-field block max-h-[260px] w-full resize-none bg-transparent leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable] ${
               resting
-                ? // Symmetric padding centres the single line, and the right
-                  // inset keeps the placeholder clear of the overlaid send.
-                  'pb-3 pl-4 pr-20 pt-3.5'
-                : 'px-4 pt-3.5 pb-2'
+                ? // Even padding centres the single line, and the right inset
+                  // keeps the placeholder clear of the controls laid over it.
+                  'py-3 pl-[18px] pr-24'
+                : 'px-[18px] pb-1.5 pt-4'
             }`}
           />
         </div>
         <div
           className={
             resting
-              ? // The foot becomes an overlay on the field's own row, so the
-                // SendStopButton sits beside the placeholder instead of below.
+              ? // The control row becomes an overlay on the field's own row,
+                // so the microphone and send sit beside the placeholder.
                 'absolute inset-y-0 right-2 flex items-center'
-              : 'flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1'
+              : 'flex items-center gap-0.5 px-2.5 pb-2.5'
           }
         >
-          {/* `contents` keeps the chips as direct flex children, so expanding
-              and resting lay out identically without remounting the pickers. */}
-          <div className={resting ? 'hidden' : 'contents'}>{leading}</div>
+          {/* Hidden, not unmounted, while resting or while a dictation owns
+              the row: a picker keeps its state and its place in the tab order
+              comes back. */}
+          <div
+            className={
+              resting || dictating ? 'hidden' : 'flex min-w-0 flex-1 flex-wrap items-center gap-0.5'
+            }
+          >
+            {leading}
+          </div>
+          {/* The microphone draws "Listening", the meter and the timer here. */}
+          <span ref={setDictationSlot} className="contents" />
           {sendPending ? (
-            <span role="status" className="px-1 text-2xs text-fg-subtle">
+            <span role="status" className="shrink-0 px-2 text-xs text-fg-subtle">
               Sending message…
             </span>
           ) : null}
@@ -955,19 +1017,12 @@ export function Composer({
           </button>
           <div
             className={
-              resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
+              resting
+                ? 'flex shrink-0 items-center gap-0.5'
+                : 'ms-auto flex shrink-0 items-center gap-0.5 self-end'
             }
           >
-            <SpeechButton
-              key={sessionId ?? ''}
-              captureTarget={() => {
-                const input = textareaRef.current
-                input?.focus()
-                return captureTextTarget(input)
-              }}
-              disabled={disabled}
-            />
-            <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
+            <div ref={setStashAnchor} className={resting || dictating ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
@@ -982,11 +1037,11 @@ export function Composer({
                 onClick={() => setStashOpen((o) => !o)}
                 animate={stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined}
                 transition={{ duration: 0.35, ease: 'easeOut' }}
-                className="relative flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                className={cx(iconButton, 'relative', stashOpen && iconButtonActive)}
               >
-                <Bookmark size={13} />
+                <Bookmark size={16} strokeWidth={1.75} aria-hidden />
                 {recoveries.length > 0 ? (
-                  <span className="absolute -right-1 -top-1 rounded-full bg-accent px-1 text-2xs text-fg-on-accent">
+                  <span className={cx(countBadge, 'absolute -right-1.5 -top-1.5')}>
                     {recoveries.length}
                   </span>
                 ) : null}
@@ -998,18 +1053,18 @@ export function Composer({
                   bare
                   role="menu"
                   aria-label="Stashed prompts"
-                  className="max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+                  className="ari-scroll max-h-72 w-80 overflow-y-auto rounded-xl border border-border-strong bg-surface-1 p-1 shadow-3"
                 >
                   {recoveries.length > 0 ? (
                     <>
-                      <p className="px-2 py-1 text-2xs text-fg-subtle">
+                      <p className="px-2.5 py-1.5 text-xs text-fg-subtle">
                         Saved messages · restoring keeps your current draft here
                       </p>
                       {recoveries.map((message, index) => (
                         <div
                           key={message.id}
                           role="none"
-                          className="group flex items-start gap-1 rounded-sm"
+                          className="group flex items-start gap-1 rounded-md"
                         >
                           <button
                             type="button"
@@ -1026,18 +1081,18 @@ export function Composer({
                               )
                                 setStashOpen(false)
                             }}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                            className="block w-full min-w-0 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-fg/6 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                           >
                             <span className="line-clamp-2 block whitespace-pre-wrap break-words text-fg">
                               {message.text || 'Saved context'}
                             </span>
                             {message.delivery === 'uncertain' ? (
-                              <span className="block text-2xs text-fg-muted">
+                              <span className="mt-0.5 block text-xs text-fg-muted">
                                 Delivery unknown · check the conversation before sending again
                               </span>
                             ) : null}
                             {(message.images?.length ?? message.files.length) > 0 ? (
-                              <span className="text-2xs text-fg-subtle">
+                              <span className="mt-0.5 block text-xs text-fg-subtle">
                                 {message.images?.length ?? message.files.length} image
                                 {(message.images?.length ?? message.files.length) === 1 ? '' : 's'}
                               </span>
@@ -1056,16 +1111,19 @@ export function Composer({
                                 ),
                               }))
                             }
-                            className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                            className={cx(
+                              rowAction,
+                              'me-1 mt-1.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100',
+                            )}
                           >
-                            <Trash2 size={11} />
+                            <Trash2 size={13} strokeWidth={1.75} aria-hidden />
                           </button>
                         </div>
                       ))}
                     </>
                   ) : null}
                   {stash.length === 0 && recoveries.length === 0 ? (
-                    <p className="px-3 py-4 text-center text-xs text-fg-subtle">
+                    <p className="px-3 py-5 text-center text-xs leading-relaxed text-fg-subtle">
                       Nothing stashed yet.
                       <br />
                       Press Mod+S to save the current draft.
@@ -1074,19 +1132,19 @@ export function Composer({
                     stash.map((entry) => (
                       <div
                         key={entry.savedAt}
-                        className="group flex items-start gap-1 rounded-sm"
+                        className="group flex items-start gap-1 rounded-md"
                         role="none"
                       >
                         <button
                           type="button"
                           role="menuitem"
                           onClick={() => restoreFromStash(entry)}
-                          className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                          className="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-fg/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                         >
-                          <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
+                          <span className="line-clamp-2 block whitespace-pre-wrap break-words text-[13px] leading-snug text-fg">
                             {entry.text}
                           </span>
-                          <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
+                          <span className="mt-0.5 block text-xs tabular-nums text-fg-subtle">
                             {new Date(entry.savedAt).toLocaleString()}
                           </span>
                         </button>
@@ -1094,9 +1152,12 @@ export function Composer({
                           type="button"
                           aria-label="Remove from stash"
                           onClick={() => removeFromStash(entry)}
-                          className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                          className={cx(
+                            rowAction,
+                            'me-1 mt-1.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100',
+                          )}
                         >
-                          <Trash2 size={11} />
+                          <Trash2 size={13} strokeWidth={1.75} aria-hidden />
                         </button>
                       </div>
                     ))
@@ -1104,16 +1165,35 @@ export function Composer({
                 </Popover.Content>
               </Popover>
             </div>
+            {/* Dictation uses this PC's microphone, which a remote session cannot reach. */}
+            {!remote ? (
+              <SpeechButton
+                key={sessionId ?? ''}
+                captureTarget={() => {
+                  const input = textareaRef.current
+                  input?.focus()
+                  return captureTextTarget(input)
+                }}
+                disabled={disabled}
+                statusSlot={dictationSlot}
+                onStateChange={setDictation}
+              />
+            ) : null}
             <SendStopButton
               running={running}
               onSend={send}
               onStop={onStop}
               canSend={!missingImages && (text.trim().length > 0 || intents.length > 0)}
               pending={sendPending}
+              // The round button is finishing the dictation; only a live
+              // turn's Stop stays beside it.
+              stopOnly={dictating}
             />
           </div>
         </div>
       </div>
+      {belowControls && <div className="pt-2">{belowControls}</div>}
+      {inputIssue && <p role="status" className="pt-2 text-xs text-fg-subtle">{inputIssue}</p>}
     </div>
   )
 }
@@ -1129,64 +1209,66 @@ export function Composer({
  * MAX_HEIGHT — and reserves the same scrollbar gutter so wrapping matches
  * while the textarea scrolls.
  */
-const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boolean }>(
-  function MentionOverlay({ text, resting }, ref) {
-    const ranges = mentionRanges(text)
-    if (ranges.length === 0) return null
-    const parts: React.ReactNode[] = []
-    let cursor = 0
-    for (const range of ranges) {
-      if (range.start > cursor) {
-        parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
-      }
-      parts.push(
-        <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
-          {text.slice(range.start, range.end)}
-        </mark>,
-      )
-      cursor = range.end
+const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function MentionOverlay(
+  { text },
+  ref,
+) {
+  const ranges = mentionRanges(text)
+  if (ranges.length === 0) return null
+  const parts: React.ReactNode[] = []
+  let cursor = 0
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
     }
-    if (cursor < text.length) {
-      parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
-    }
-    return (
-      <div
-        ref={ref}
-        aria-hidden="true"
-        className={`ari-composer-mention-overlay pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
-          resting ? 'pl-4 pr-12' : 'px-4'
-        }`}
-      >
-        {parts}
-      </div>
+    parts.push(
+      <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
+        {text.slice(range.start, range.end)}
+      </mark>,
     )
-  },
-)
+    cursor = range.end
+  }
+  if (cursor < text.length) {
+    parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
+  }
+  return (
+    <div
+      ref={ref}
+      aria-hidden="true"
+      className="ari-composer-mention-overlay pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-[18px] pt-4 leading-relaxed text-fg [scrollbar-gutter:stable]"
+    >
+      {parts}
+    </div>
+  )
+})
 
+/**
+ * The round button at the end of the control row. Idle it sends; while a turn
+ * runs it stops, and a second circle appears beside it to queue the draft.
+ * Only one of them is ink: the queue button when there is a draft to queue,
+ * otherwise Stop.
+ */
 function SendStopButton({
   running,
   onSend,
   onStop,
   canSend,
   pending,
+  stopOnly,
 }: {
   running: boolean
   onSend: () => void
   onStop?: () => void
   canSend: boolean
   pending: boolean
+  /** A dictation holds the row: offer no way to send, only to stop a live turn. */
+  stopOnly: boolean
 }) {
-  const buttonClass = (busy: boolean, enabled: boolean): string =>
-    `relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
-      busy
-        ? 'bg-busy text-fg-on-accent hover:brightness-110 shadow-busy/20'
-        : enabled
-          ? 'bg-accent text-fg-on-accent hover:bg-accent-hover hover:scale-105 active:scale-95 shadow-accent/25'
-          : 'bg-surface-3/50 text-fg-subtle opacity-60'
-    }`
+  if (stopOnly && !running) return null
+  const queueable = running && canSend && !stopOnly
   return (
-    <>
-      {running && canSend ? (
+    <span className="ms-1.5 flex shrink-0 items-center gap-1.5">
+      {queueable ? (
         <motion.button
           type="button"
           aria-label="Queue message"
@@ -1196,9 +1278,9 @@ function SendStopButton({
           aria-busy={pending || undefined}
           whileTap={{ scale: 0.96 }}
           transition={transitions.morph}
-          className={buttonClass(false, true)}
+          className={roundButton('ink')}
         >
-          <ArrowUp size={15} strokeWidth={2.4} />
+          <ArrowUp size={17} strokeWidth={2} aria-hidden />
         </motion.button>
       ) : null}
       <motion.button
@@ -1210,7 +1292,7 @@ function SendStopButton({
         aria-busy={!running && pending ? true : undefined}
         whileTap={{ scale: 0.96 }}
         transition={transitions.morph}
-        className={buttonClass(running, canSend)}
+        className={roundButton(running ? (queueable ? 'wash' : 'ink') : canSend ? 'ink' : 'idle')}
       >
         <AnimatePresence initial={false}>
           {running ? (
@@ -1222,7 +1304,7 @@ function SendStopButton({
               transition={transitions.micro}
               className="absolute inset-0 flex items-center justify-center"
             >
-              <Square size={12} fill="currentColor" />
+              <Square size={11} fill="currentColor" aria-hidden />
             </motion.span>
           ) : (
             <motion.span
@@ -1233,11 +1315,11 @@ function SendStopButton({
               transition={transitions.micro}
               className="absolute inset-0 flex items-center justify-center"
             >
-              <ArrowUp size={15} strokeWidth={2.4} />
+              <ArrowUp size={17} strokeWidth={2} aria-hidden />
             </motion.span>
           )}
         </AnimatePresence>
       </motion.button>
-    </>
+    </span>
   )
 }

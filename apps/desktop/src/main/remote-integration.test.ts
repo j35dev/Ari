@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { SessionStore } from '@ari/engine/session-store'
@@ -63,6 +63,7 @@ beforeEach(async () => {
   )
 })
 afterEach(async () => {
+  vi.restoreAllMocks()
   await store.closeJournal('root')
   await store.closeJournal('child')
   await rm(dir, { recursive: true, force: true, maxRetries: 3 })
@@ -98,6 +99,21 @@ it('integrates reviewed files with the real Git backend while preserving parent 
       preview.expectedParentSnapshot,
     ),
   ).toMatchObject({ status: 'already_integrated' })
+}, 30000)
+
+it('can apply reviewed files before a journal failure, so a thrown error does not prove nonexecution', async () => {
+  await writeFile(join(childPath, 'file.txt'), 'child applied\n')
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const preview = await integration.preview(caller, 'child')
+  vi.spyOn(integration.engine, 'record').mockRejectedValueOnce(new Error('journal write failed'))
+  await expect(
+    integration.integrate(caller, 'child', preview.snapshotCommit, preview.expectedParentSnapshot),
+  ).rejects.toThrow('journal write failed')
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('child applied\n')
+  expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+  expect((await store.load(parent.id)).childEvents).not.toEqual(
+    expect.arrayContaining([expect.objectContaining({ type: 'child.session.integrated' })]),
+  )
 }, 30000)
 
 it('refuses changed parent and child snapshots without applying files', async () => {

@@ -3,6 +3,7 @@ import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Search } from 'lucide-react'
 import { Input } from '@ari/ui/input'
 import { Kbd } from '@ari/ui/kbd'
+import { row } from '../../lib/recipes'
 
 export interface SettingsIndexEntry {
   /** Element id of the wrapping section this entry scrolls to. */
@@ -21,10 +22,15 @@ export interface SettingsIndexEntry {
  */
 export const SETTINGS_SEARCH_INDEX = [
   {
+    section: 'settings-experimental',
+    label: 'Experimental Aria',
+    keywords: 'aria coordinator experimental enable disable projects chat',
+  },
+  {
     section: 'settings-speech',
     label: 'Speech to text',
     keywords:
-      'speech microphone dictate dictation aria general external handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
+      'speech microphone dictate dictation general external handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
   },
   {
     section: 'settings-appearance',
@@ -108,6 +114,12 @@ export const SETTINGS_SEARCH_INDEX = [
     section: 'settings-notifications',
     label: 'Discord status',
     keywords: 'discord rich presence playing activity profile status friends',
+  },
+  {
+    section: 'settings-machines',
+    label: 'Machines',
+    keywords:
+      'computer computers remote host tailnet tailscale pairing code discover reconnect offline terminal workstation',
   },
   {
     section: 'settings-remote',
@@ -240,7 +252,7 @@ export function SettingsSearch({
   const searching = query.trim().length > 0
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <Input
         ref={inputRef}
         type="search"
@@ -250,28 +262,28 @@ export function SettingsSearch({
         value={query}
         onChange={handleQueryChange}
         onKeyDown={handleKeyDown}
-        className="h-8 text-sm"
-        leading={<Search size={14} strokeWidth={1.8} aria-hidden />}
+        className="h-8"
+        leading={<Search size={14} strokeWidth={1.7} aria-hidden />}
         trailing={searching ? undefined : <Kbd aria-hidden>/</Kbd>}
       />
       {searching ? (
-        <ul className="overflow-hidden rounded-lg border border-border bg-surface-1">
+        <ul className="flex flex-col gap-0.5">
           {results.map((entry) => (
             <li key={`${entry.section}:${entry.label}`}>
               <button
                 type="button"
                 onClick={() => jumpToSection(entry.section)}
-                className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+                className={`${row} justify-between`}
               >
-                <span className="text-xs text-fg">{entry.label}</span>
-                <span className="shrink-0 text-2xs text-fg-subtle">
-                  {groupLabel(entry.section)}
-                </span>
+                <span className="min-w-0 truncate">{entry.label}</span>
+                <span className="shrink-0 text-xs text-fg-subtle">{groupLabel(entry.section)}</span>
               </button>
             </li>
           ))}
           {results.length === 0 ? (
-            <li className="px-2.5 py-1.5 text-xs text-fg-subtle">No matching settings</li>
+            <li className="flex h-8 items-center px-2.5 text-[13px] text-fg-subtle">
+              No matching settings
+            </li>
           ) : null}
         </ul>
       ) : null}

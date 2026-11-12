@@ -29,7 +29,15 @@ describe('Badge', () => {
         <Badge size="md">md</Badge>
       </>,
     )
-    expect(screen.getByText('sm')).toHaveClass('px-1', 'py-px', 'uppercase', 'tracking-wide', 'text-2xs')
+    expect(screen.getByText('sm')).toHaveClass(
+      'px-1',
+      'py-px',
+      'rounded-md',
+      'text-xs',
+      'font-medium',
+    )
+    // Sentence case: the label is rendered as written.
+    expect(screen.getByText('sm')).not.toHaveClass('uppercase', 'tracking-wide')
     expect(screen.getByText('md')).toHaveClass('px-1.5', 'py-0.5')
   })
 })

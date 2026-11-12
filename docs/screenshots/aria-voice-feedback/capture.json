@@ -1,0 +1,24 @@
+{
+  "fixture": "isolated actual VoiceNotice and Settings components; no live Ari RPC or audio",
+  "captures": [
+    {
+      "filename": "voice-notice-light.png",
+      "overflow": false,
+      "text": "Voice needs attentionKokoro’s English voice cannot read this language. Choose Groq in speech output settings.",
+      "dismiss": true,
+      "display": "flex",
+      "padding": 16
+    },
+    {
+      "filename": "voice-notice-dark.png",
+      "overflow": false,
+      "text": "Voice needs attentionKokoro’s English voice cannot read this language. Choose Groq in speech output settings.",
+      "dismiss": true,
+      "display": "flex",
+      "padding": 16
+    }
+  ],
+  "errors": [],
+  "source": "276a2365e80ee2d6ac799e174dbf0d5f40a76b19",
+  "visualInspection": "Light and dark images inspected; padded notice and aligned dismiss control contained in settings card."
+}

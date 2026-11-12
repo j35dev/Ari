@@ -9,6 +9,8 @@ describe('Kbd', () => {
     render(<Kbd>⌘K</Kbd>)
     const el = screen.getByText('⌘K')
     expect(el.tagName).toBe('KBD')
-    expect(el).toHaveClass('font-mono', 'text-2xs', 'bg-surface-2', 'border-border')
+    expect(el).toHaveClass('font-mono', 'text-[11px]', 'border', 'border-border', 'text-fg-subtle')
+    // An outline only: the chip has no fill.
+    expect(el).not.toHaveClass('bg-surface-2')
   })
 })

@@ -115,12 +115,12 @@ describe('SplitView', () => {
     expect(screen.getByTestId('session-sB')).toHaveAttribute('data-pane', 'pane2')
   })
 
-  it('gives the accent treatment to the focused pane alone', () => {
+  it('marks the focused pane alone', () => {
     renderSplit(filled())
 
     // `filled()` leaves focus on the right-hand pane.
-    expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
-    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-border/60')
+    expect(screen.getByRole('region', { name: 'Beta' })).toHaveAttribute('data-focused', 'true')
+    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveAttribute('data-focused', 'false')
   })
 
   it('takes focus from a pointer press or a keyboard landing inside a pane', () => {

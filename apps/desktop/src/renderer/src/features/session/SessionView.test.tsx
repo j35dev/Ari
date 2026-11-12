@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import { useState } from 'react'
+import { useState, type ComponentProps } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
 import { commandSchema } from '@ari/contracts/commands'
 import { journalEventSchema } from '@ari/contracts/events'
@@ -47,6 +47,11 @@ const rpcMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+// The scene paints wallpaper art on a canvas and reads the theme; here it only
+// has to say that it is mounted, and for which view.
+vi.mock('../scene/DitherScene', () => ({
+  DitherScene: ({ kind }: { kind: string }) => <div data-testid="scene" data-kind={kind} />,
+}))
 
 const settleSoundMocks = vi.hoisted(() => ({ playSettleSound: vi.fn() }))
 
@@ -190,10 +195,12 @@ describe('SessionView question panel', () => {
     expect(
       screen.queryByRole('heading', { name: 'Make room for your next idea.' }),
     ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('scene')).not.toBeInTheDocument()
     emitReplayDone()
     expect(
       await screen.findByRole('heading', { name: 'Make room for your next idea.' }),
     ).toBeVisible()
+    expect(screen.getByTestId('scene')).toHaveAttribute('data-kind', 'session')
     fireEvent.click(screen.getByRole('button', { name: 'Explore this project' }))
     expect(editor).toHaveValue('Explore this project and explain its architecture.')
     expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
@@ -222,6 +229,88 @@ describe('SessionView question panel', () => {
     expect((editor as HTMLTextAreaElement).selectionStart).toBe(4)
     expect((editor as HTMLTextAreaElement).selectionEnd).toBe(8)
     expect(screen.queryByRole('button', { name: 'Explore this project' })).not.toBeInTheDocument()
+    // The scene belongs to the empty stage; a conversation does not keep it.
+    expect(screen.queryByTestId('scene')).not.toBeInTheDocument()
+  })
+
+  it("wears Aria's identity in her chat: her name over her scene, then a header", async () => {
+    const implementation = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.load'
+        ? { session: { ...SESSION, projectId: 'helm', title: 'Aria' }, activeTurnId: null }
+        : implementation(method, params),
+    )
+    const view = (ariaStatus?: ComponentProps<typeof SessionView>['ariaStatus']) => (
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          ariaStatus={ariaStatus}
+        />
+      </ToastProvider>
+    )
+    const { rerender } = render(view({ state: 'attention', working: 2, attention: 1 }))
+    await screen.findByLabelText('Message')
+    emitReplayDone()
+
+    expect(await screen.findByRole('heading', { name: 'Aria' })).toBeVisible()
+    expect(screen.getByTestId('scene')).toHaveAttribute('data-kind', 'aria')
+    expect(
+      screen.queryByRole('heading', { name: 'Make room for your next idea.' }),
+    ).not.toBeInTheDocument()
+    // Her empty chat has no header: the sentence waits for a conversation.
+    expect(screen.queryByText(/sessions working/)).not.toBeInTheDocument()
+
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'aria-message',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Ship the release.' }],
+        createdAt: 1,
+      },
+    })
+    expect(screen.queryByTestId('scene')).not.toBeInTheDocument()
+    const sentence = screen.getByText(/2 sessions working/)
+    expect(sentence).toHaveTextContent('2 sessions working, 1 needs you.')
+    expect(screen.getByText('1 needs you')).toHaveClass('text-accent')
+    expect(screen.getAllByRole('heading', { name: 'Aria' })).toHaveLength(1)
+
+    rerender(view({ state: 'idle', working: 0, attention: 0 }))
+    expect(screen.getByText('Nothing running.')).toBeInTheDocument()
+
+    // Without a status the header is her name alone.
+    rerender(view())
+    expect(screen.getByRole('heading', { name: 'Aria' })).toBeInTheDocument()
+    expect(screen.queryByText('Nothing running.')).not.toBeInTheDocument()
+  })
+
+  it('gives an ordinary session no header', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    emitReplayDone()
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Hello' }],
+        createdAt: 1,
+      },
+    })
+    expect(await screen.findByText('Hello')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Aria' })).not.toBeInTheDocument()
   })
 
   it('keeps the welcome plate open and docks it when approval requires attention', async () => {
@@ -1304,7 +1393,9 @@ describe('SessionView context meter', () => {
     emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
     emitContext(2, 33_587, 200_000)
 
-    expect(await screen.findByText('33.6K / 200K')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Context used: 33.6K of 200K')).toHaveTextContent(
+      '17% context',
+    )
     expect(screen.getByText('1 turn')).toBeInTheDocument()
     expect(screen.queryByText(/↑|↓/)).not.toBeInTheDocument()
   })
@@ -1328,7 +1419,10 @@ describe('SessionView context meter', () => {
     emitContext(4, 33_587, null)
 
     expect(await screen.findByTitle('Context: 33.6K tokens')).toBeInTheDocument()
+    // No window, so no share of one: the reading stands alone.
+    expect(screen.getByLabelText('Context used: 33.6K')).toHaveTextContent('33.6K context')
     expect(screen.queryByText(/\d[KM]?\s*\/\s*\d/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument()
   })
 
   it('keeps the window the provider reported across readings that omit it', async () => {
@@ -1338,7 +1432,9 @@ describe('SessionView context meter', () => {
     emitContext(1, 33_587, 200_000)
     emitContext(2, 41_000, null)
 
-    expect(await screen.findByText('41K / 200K')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Context used: 41K of 200K')).toHaveTextContent(
+      '21% context',
+    )
   })
 
   it('shows used / window when the session model carries a context hint', async () => {
@@ -1380,7 +1476,9 @@ describe('SessionView context meter', () => {
 
     emitContext(1, 105_000, null)
 
-    expect(await screen.findByText('105K / 200K')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Context used: 105K of 200K')).toHaveTextContent(
+      '53% context',
+    )
   })
 })
 
@@ -1410,11 +1508,13 @@ describe('context meter helpers', () => {
     expect(formatTurnDuration(125_400)).toBe('2m 05s')
   })
 
-  it('renders a numeric-only chip without a window and a full chip with one', () => {
+  it('renders a numeric-only reading without a window and a ring with one', () => {
     const { container: bare } = render(<ContextMeter used={42} contextWindow={null} />)
-    expect(bare.textContent).toBe('context42')
+    expect(bare.textContent).toBe('42 context')
+    expect(bare.querySelector('[aria-hidden]')).toBeNull()
     const { container } = render(<ContextMeter used={50_000} contextWindow={200_000} />)
-    expect(container.textContent).toContain('50K / 200K')
+    expect(container.textContent).toBe('25% context')
+    expect(container.querySelector('[aria-label="Context used: 50K of 200K"]')).not.toBeNull()
     expect(container.querySelector('[aria-hidden]')).not.toBeNull()
   })
 })
@@ -3026,6 +3126,40 @@ describe('PermissionModeChip', () => {
     expect(onChange).toHaveBeenCalledWith('full')
   })
 
+  it("reads an agent's lowercase mode names as sentences and shows what each does in full", async () => {
+    const user = userEvent.setup()
+    const long =
+      'The default agent. Executes tools based on configured permissions, asking when unsure.'
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'opencode',
+        source: 'live',
+        models: [],
+        efforts: [],
+        modes: [
+          { id: 'plan', label: 'plan', description: 'Disallows all edit tools.', ariMode: 'ask' },
+          { id: 'build', label: 'build', description: long, ariMode: 'allow-edits' },
+        ],
+      },
+    ])
+    render(<PermissionModeChip driverKind="opencode" mode="full" onChange={vi.fn()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Permission mode: Full auto' }))
+    const options = screen.getAllByRole('option')
+    expect(options.map((option) => option.querySelector('span > span')?.textContent)).toEqual([
+      'Plan',
+      'Build',
+      'Full auto',
+    ])
+    // The description is on the row itself, not a tooltip over a cut-off line.
+    const build = screen.getByRole('option', { name: /Build/ })
+    expect(build).toHaveTextContent(long)
+    expect(build).not.toHaveAttribute('title')
+    // Each row carries a mark for what the level allows, and only one is current.
+    for (const option of options) expect(option.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Full auto')
+  })
+
   it("falls back to Ari's own vocabulary while the catalog is empty", async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
@@ -3150,7 +3284,7 @@ describe('EffortChip', () => {
   it('hides when the harness advertised no thought levels', async () => {
     invokeMock.mockResolvedValue([{ kind: 'grok', source: 'live', models: [], efforts: [] }])
     render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models', undefined))
     expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
   })
 
@@ -3350,7 +3484,7 @@ describe('EffortChip', () => {
     const onChange = vi.fn()
     invokeMock.mockResolvedValue([{ kind: 'claude', source: 'cache', models: [], efforts: [] }])
     render(<EffortChip driverKind="claude" effort="xhigh" onChange={onChange} />)
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models', undefined))
     await act(async () => undefined)
     expect(onChange).not.toHaveBeenCalled()
   })

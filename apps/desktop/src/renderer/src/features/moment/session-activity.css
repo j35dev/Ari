@@ -1,23 +1,14 @@
-/* Compact forging-matrix + pause hold for sidebar session rows.
+/* The forging matrix: a 3x3 grid of square pixels whose ring cells take turns
+   lighting. Shared by the sidebar mark and the transcript's working glyph.
    Paint-only; tokens only. Reduced-motion freezes the chase. */
 
 @keyframes ari-forge-cell {
   0%,
   100% {
-    opacity: 0.18;
+    opacity: 0.2;
   }
   50% {
-    opacity: 1;
-  }
-}
-
-@keyframes ari-pause-hold {
-  0%,
-  100% {
-    opacity: 0.42;
-  }
-  50% {
-    opacity: 1;
+    opacity: 0.9;
   }
 }
 
@@ -25,17 +16,13 @@
   animation: ari-forge-cell 1.2s linear infinite;
 }
 
-.ari-pause-hold {
-  animation: ari-pause-hold 1.8s var(--ari-ease-out-expo) infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ari-forge-cell {
     animation: none;
-    opacity: 0.85;
+    opacity: 0.7;
   }
-  .ari-pause-hold {
-    animation: none;
-    opacity: 0.9;
-  }
+}
+[data-ari-reduced-motion] .ari-forge-cell {
+  animation: none;
+  opacity: 0.7;
 }

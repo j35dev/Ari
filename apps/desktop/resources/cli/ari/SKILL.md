@@ -68,7 +68,7 @@ colors are rejected.
 
 All names and labels are strings. `tone` is `accent`, `info`, `success`,
 `warning`, or `danger`. Timeline events and metric cards default to `accent`.
-An omitted graph-node tone uses the series palette. Never provide CSS colors,
+A graph node without a tone is drawn neutral. Never provide CSS colors,
 HTML, JavaScript, URLs for assets, or extra keys; visuals are declarative data.
 Each series needs one value per label. Radar charts need 3–12 nonnegative
 axes. Pie, donut, funnel and treemap values must be nonnegative and have a
@@ -311,9 +311,16 @@ with `ari session prompt`. Sessions report back to Aria, which reports outcomes
 to the user.
 
 Only one session may work in a project folder at a time, including human sessions
-running there and Aria's running workers. A new spawn or restart of a different
-session is refused: prompt the working session or wait for it to finish.
-Research happens inside that session or after it. Only turns the host is actually
+running there and Aria's running workers. New top-level sessions automatically acquire a separate managed Git worktree
+when the folder is busy. Use `session spawn --project ID --workspace isolated`
+to request isolation explicitly; `--workspace shared` requires the project folder
+and refuses when occupied. Separate worktrees can run concurrently, including
+human sessions and descendant workers. The receipt includes `workspace.kind`,
+`workspace.path` and the branch; tell the user where the session runs. A busy
+non-Git folder (or repository without a commit) refuses clearly: prompt the
+working session or wait. Restarting an existing session preserves its workspace
+and refuses if another live session occupies that effective folder. Research
+happens inside that session or its separate worktree. Only turns the host is actually
 running count; stale journal turns, queued messages and pending reports do not.
 A turn waiting on human approval or a question for three minutes stops blocking
 new work, even if its provider remains connected.
@@ -642,3 +649,13 @@ ari session delivery RECIPIENT MESSAGE_ID --json
 Inbox acceptance and acknowledgements survive restart. An uncertain live delivery
 remains retrievable and is never resent automatically. Reusing a message key
 recovers the accepted inbox identity after a lost sender receipt.
+
+## Aria spoken replies
+
+In every final reply as Aria, put a separate spoken line first:
+
+```text
+<!-- aria:speak {"text":"The changes are ready. Codex needs your review."} -->
+```
+
+Use valid single-line JSON. Give a natural spoken answer with the main explanation, outcome, anything needing the user, and any direct question. Usually use three to six sentences, up to about 1200 characters; simple answers can be shorter. When the user asks to hear all details, include the meaningful details in the spoken version, up to 6000 characters. Turn useful bullet points into conversational prose. Round numbers and use names as people say them; omit raw file paths, IDs, links, code and tables. Put the full written reply after the comment. Progress updates never include a spoken version. Automatic speech is only for the current hold-to-talk request; Read aloud reads the written reply’s useful prose and bullet details on demand. Esc or holding the shortcut again stops speech.

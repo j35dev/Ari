@@ -1,0 +1,40 @@
+{"resourceGate":{"commitHeadroomBytes":9541357568,"cFreeBytes":21404729344}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-types","pid":26804,"startedAt":"2026-11-12T17:18:39.418Z","id":"db7cf0b6-8ca6-4c28-8ab5-d277ec9e9731"}
+Scope: 9 of 10 workspace projects
+
+> @ari/contracts@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\contracts
+> tsc --noEmit
+
+
+> @ari/shared@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\shared
+> tsc --noEmit
+
+
+> @ari/engine@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\engine
+> tsc --noEmit
+
+
+> @ari/providers@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\providers
+> tsc --noEmit
+
+
+> @ari/remote-gateway@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\remote-gateway
+> tsc --noEmit
+
+
+> @ari/ui@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\ui
+> tsc --noEmit
+
+
+> @ari/mobile@0.1.0 typecheck D:\Projects\Ari-aria-voice\apps\mobile
+> tsc --noEmit
+
+
+> @ari/ari-core@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\ari-core
+> tsc --noEmit
+
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-aria-voice\apps\desktop
+> tsc --noEmit
+
+{"heavyResult":{"worker":"voice-feedback-types","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","-r","--workspace-concurrency=1","typecheck"],"exitCode":0,"signal":null}}

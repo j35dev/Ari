@@ -1,10 +1,5 @@
 import { createContext, useCallback, useContext, useId, useRef, useState } from 'react'
-import type {
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  ReactNode,
-  RefObject,
-} from 'react'
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { menuInVariants } from '../motion'
@@ -13,7 +8,12 @@ import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
 /** Scrim must blend over any theme, so it is a raw color-mix rather than a token. */
-const SCRIM_STYLE = { background: 'color-mix(in oklab, black 55%, transparent)' } as const
+const SCRIM_STYLE = {
+  background: 'color-mix(in oklab, black 58%, transparent)',
+  // What is behind stays recognisable but no longer readable.
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+} as const
 
 interface DialogContextValue {
   open: boolean
@@ -99,7 +99,8 @@ export type DialogContentProps = Omit<
 
 const SIZE_CLASS: Record<DialogSize, string> = {
   md: 'w-[min(480px,90vw)] p-5',
-  lg: 'flex h-[min(680px,86vh)] w-[min(920px,92vw)] flex-col p-0',
+  // No padding, so content reaches the edge: clip it to the panel's corners.
+  lg: 'flex h-[min(680px,86vh)] w-[min(920px,92vw)] flex-col overflow-hidden p-0',
 }
 
 /** Centered modal panel portaled to the layer root; traps focus while open. */
@@ -146,7 +147,7 @@ export function DialogContent({
             variants={menuInVariants}
             style={style}
             className={[
-              'bg-surface-2 border border-border rounded-lg shadow-2 outline-none',
+              'rounded-2xl border border-border-strong bg-surface-1 shadow-3 outline-none',
               SIZE_CLASS[size],
               className,
             ]
@@ -171,7 +172,7 @@ export function DialogTitle({ className, ...rest }: DialogTitleProps) {
   return (
     <h2
       id={ctx.titleId}
-      className={['text-base font-semibold text-fg', className].filter(Boolean).join(' ')}
+      className={['text-[15px] font-semibold text-fg', className].filter(Boolean).join(' ')}
       {...rest}
     />
   )
@@ -185,7 +186,7 @@ export function DialogDescription({ className, ...rest }: DialogDescriptionProps
   return (
     <p
       id={ctx.descriptionId}
-      className={['text-sm text-fg-muted', className].filter(Boolean).join(' ')}
+      className={['text-[13px] text-fg-muted', className].filter(Boolean).join(' ')}
       {...rest}
     />
   )

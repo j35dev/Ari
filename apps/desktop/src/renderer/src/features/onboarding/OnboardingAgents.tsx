@@ -4,6 +4,7 @@ import { driverKindSchema, type DriverKind } from '@ari/contracts/common'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { Button } from '@ari/ui/button'
 import { createLogger } from '@ari/shared/logger'
+import { card, sectionLabel } from '../../lib/recipes'
 import { rpc } from '../../lib/rpc'
 import { ProviderLogo } from '../composer/provider-logo'
 import { driverLabel } from '../composer/agent-mark'
@@ -140,32 +141,43 @@ export function OnboardingAgents({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 text-xs text-fg-muted">
-        <span className="flex items-center gap-2">
-          <ShieldCheck size={14} className="text-accent" /> Existing sign-ins stay with your agents.
+      <div className="flex items-center justify-between gap-3 text-sm text-fg-muted">
+        <span className="flex min-w-0 items-center gap-2">
+          <ShieldCheck
+            size={16}
+            strokeWidth={1.7}
+            className="shrink-0 text-fg-subtle"
+            aria-hidden="true"
+          />
+          Existing sign-ins stay with your agents.
         </span>
         <Button
           size="sm"
           variant="ghost"
+          className="shrink-0"
           disabled={scanning || busy}
           onClick={() => void scan(true)}
         >
           <RefreshCw
-            size={13}
+            size={14}
+            strokeWidth={1.7}
+            aria-hidden="true"
             className={scanning ? 'animate-spin motion-reduce:animate-none' : ''}
           />{' '}
           Check again
         </Button>
       </div>
       {error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-danger/30 bg-danger-subtle p-3 text-xs text-danger"
-        >
-          {error}
+        <p role="alert" className="flex items-start gap-2.5 text-[13px] leading-5 text-fg">
+          <span className="ari-status mt-[3px]" data-status="error" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{error}</span>
         </p>
       )}
-      <div role="group" aria-label="Choose your first agent" className="space-y-3">
+      <div
+        role="group"
+        aria-label="Choose your first agent"
+        className="divide-y divide-border border-y border-border"
+      >
         {PRIMARY.map((kind) => {
           const detection = detections?.find((d) => d.kind === kind)
           const enabled = detection?.enabled !== false
@@ -183,27 +195,23 @@ export function OnboardingAgents({
           const healthy = status.tone === 'ok' || status.tone === 'update'
           const verified = healthy && auth[kind]?.result.status === 'ready'
           return (
-            <section
-              key={kind}
-              aria-label={nameOf(kind)}
-              className={`overflow-hidden rounded-xl border transition-colors ${isSelected ? 'border-accent/60 bg-accent-subtle/40' : 'border-border bg-surface-1'}`}
-            >
-              <div className="flex items-center gap-4 p-4">
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-2 [&>svg]:size-6">
+            <section key={kind} aria-label={nameOf(kind)} className="py-3.5">
+              <div className="flex items-center gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 [&>svg]:size-[18px]">
                   <ProviderLogo kind={kind} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold text-fg">{nameOf(kind)}</h3>
-                  <p className="mt-1 text-xs text-fg-muted">
+                  <h3 className="text-sm font-medium text-fg">{nameOf(kind)}</h3>
+                  <p className="mt-0.5 text-[13px] text-fg-subtle">
                     {kind === 'claude'
                       ? 'Your Claude account, in Ari.'
                       : 'Your ChatGPT account, in Ari.'}
                   </p>
                 </div>
-                <span
-                  className={`flex items-center gap-1.5 text-xs ${verified ? 'text-success' : 'text-fg-muted'}`}
-                >
-                  {verified && <Check size={13} />}
+                <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-fg-muted">
+                  {verified && (
+                    <span className="ari-status" data-status="done" aria-hidden="true" />
+                  )}
                   {verified
                     ? 'Connected'
                     : healthy && detection?.authStatus === 'authenticated'
@@ -211,8 +219,8 @@ export function OnboardingAgents({
                       : status.headline}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-3">
-                <span className="mr-auto font-mono text-2xs text-fg-subtle">
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-11">
+                <span className="mr-auto text-xs text-fg-subtle">
                   {usable
                     ? `CLI ${shortVersion(detection.version) ?? 'installed'}`
                     : 'Local coding agent'}
@@ -242,7 +250,7 @@ export function OnboardingAgents({
                     disabled={busy || detections === null}
                     onClick={() => offerInstall(kind)}
                   >
-                    <Download size={13} /> Install
+                    <Download size={14} strokeWidth={1.7} aria-hidden="true" /> Install
                   </Button>
                 ) : (
                   <>
@@ -267,7 +275,7 @@ export function OnboardingAgents({
                     >
                       {isSelected ? (
                         <>
-                          <Check size={13} /> Selected
+                          <Check size={14} strokeWidth={1.7} aria-hidden="true" /> Selected
                         </>
                       ) : (
                         'Use this agent'
@@ -277,11 +285,11 @@ export function OnboardingAgents({
                 )}
               </div>
               {usable && detection.authStatus === 'unknown' && (
-                <div className="px-4 pb-3 text-xs text-fg-muted">
+                <div className="mt-2 pl-11 text-[13px] text-fg-subtle">
                   Sign-in not verified.{' '}
                   <button
                     type="button"
-                    className="text-accent underline focus-visible:outline-accent"
+                    className="rounded-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
                     disabled={busy}
                     onClick={() => login(kind)}
                   >
@@ -290,27 +298,24 @@ export function OnboardingAgents({
                 </div>
               )}
               {failed && !failed.ok && (
-                <p role="alert" className="px-4 pb-3 text-xs text-danger">
+                <p role="alert" className="mt-2 pl-11 text-[13px] text-danger">
                   {failed.reason} You can retry Install.
                 </p>
               )}
               {auth[kind]?.result.status === 'unknown' && (
-                <p className="px-4 pb-3 text-xs text-fg-muted">{auth[kind]?.result.reason}</p>
+                <p className="mt-2 pl-11 text-[13px] text-fg-subtle">{auth[kind]?.result.reason}</p>
               )}
             </section>
           )
         })}
       </div>
       {plan && (
-        <section
-          aria-label="Confirm agent installation"
-          className="rounded-xl border border-border bg-surface-2 p-4"
-        >
-          <h3 className="text-sm font-medium">Install {nameOf(plan.kind)}?</h3>
-          <p className="mt-1 text-xs text-fg-muted">
+        <section aria-label="Confirm agent installation" className={`${card} p-4`}>
+          <h3 className="text-sm font-medium text-fg">Install {nameOf(plan.kind)}?</h3>
+          <p className="mt-0.5 text-[13px] text-fg-subtle">
             This downloads the agent onto your computer. Ari will run:
           </p>
-          <code className="my-3 block break-all rounded-md bg-bg p-2 font-mono text-xs">
+          <code className="my-3 block break-all rounded-md bg-surface-0 px-2.5 py-2 font-mono text-[12.5px] text-fg-muted">
             {plan.command}
           </code>
           <div className="flex justify-end gap-2">
@@ -336,10 +341,16 @@ export function OnboardingAgents({
       {terminal && (
         <section
           aria-label="Agent sign-in terminal"
-          className="overflow-hidden rounded-xl border border-border bg-bg"
+          className="overflow-hidden rounded-xl border border-border bg-surface-0"
         >
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
-            <TerminalSquare size={14} /> {nameOf(terminal.kind)} sign-in{' '}
+          <div className="flex items-center gap-2 border-b border-border py-1.5 pl-3 pr-1.5 text-[13px] text-fg">
+            <TerminalSquare
+              size={16}
+              strokeWidth={1.7}
+              className="shrink-0 text-fg-subtle"
+              aria-hidden="true"
+            />{' '}
+            {nameOf(terminal.kind)} sign-in{' '}
             <Button
               size="sm"
               variant="ghost"
@@ -358,10 +369,10 @@ export function OnboardingAgents({
               aria-label="Close sign-in terminal"
               onClick={() => setTerminal(null)}
             >
-              <X size={13} />
+              <X size={14} strokeWidth={1.7} aria-hidden="true" />
             </Button>
           </div>
-          <p className="px-3 pt-2 text-xs text-fg-muted">
+          <p className="px-3 pt-2 text-[13px] text-fg-subtle">
             Follow the agent’s instructions below. Your browser may open to finish sign-in.
           </p>
           <div className="h-52">
@@ -374,7 +385,7 @@ export function OnboardingAgents({
           d.installed && d.enabled !== false && !['claude', 'codex', 'ari-core'].includes(d.kind),
       ) && (
         <div>
-          <p className="mb-2 text-xs text-fg-muted">Also found on this computer</p>
+          <p className={`mb-2 ${sectionLabel}`}>Also found on this computer</p>
           <div className="flex flex-wrap gap-2">
             {detections
               .filter(
@@ -400,7 +411,7 @@ export function OnboardingAgents({
           </div>
         </div>
       )}
-      <p className="text-xs leading-relaxed text-fg-subtle">
+      <p className="text-[13px] leading-5 text-fg-subtle">
         No agent yet? You can continue and connect one later, or add a custom API in Settings →
         Endpoints. Nothing runs until you send a message.
       </p>

@@ -69,10 +69,10 @@ export function AccountSwitch({ kind, name, onSwitched }: AccountSwitchProps) {
             onClick={() => {
               if (!account.active) void use(account.id)
             }}
-            className={`max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60 ${
+            className={`h-6 max-w-full truncate rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60 ${
               account.active
-                ? 'border-accent/50 bg-accent-subtle font-medium text-fg'
-                : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                ? 'bg-fg/9 font-medium text-fg'
+                : 'text-fg-subtle hover:bg-fg/6 hover:text-fg'
             }`}
           >
             {account.label}
@@ -80,7 +80,7 @@ export function AccountSwitch({ kind, name, onSwitched }: AccountSwitchProps) {
         ))}
       </div>
       {failed && (
-        <p role="status" className="mt-1 text-[11px] text-fg-muted">
+        <p role="status" className="mt-1 text-xs text-fg-subtle">
           Could not switch account.
         </p>
       )}

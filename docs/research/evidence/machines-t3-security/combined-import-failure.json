@@ -1,0 +1,16 @@
+{
+  "source": "1c2398a4177bdc97741bbbe0d8304f6640176d04",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-combined-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-combined-proof.mjs 1c2398a4177bdc97741bbbe0d8304f6640176d04",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 7523532800,
+    "cFreeBytes": 22051995648,
+    "exitCode": 1,
+    "signal": null
+  },
+  "failure": "MODULE_NOT_FOUND: chokidar; standalone loader lacked importing-package dependency directory.",
+  "testAssertionsExecuted": false,
+  "disposition": "Evidence wrapper correction required; not a product failure or test pass."
+}

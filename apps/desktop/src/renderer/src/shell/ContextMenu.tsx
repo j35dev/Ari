@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
 import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
+import { cx, menu, menuItem } from '../lib/recipes'
 
 export interface ContextMenuItem {
   id: string
@@ -31,9 +32,13 @@ export function anchorBelow(element: HTMLElement): MenuAnchor {
   return { x: rect.left, y: rect.bottom + 4 }
 }
 
-const MENU_WIDTH = 184
-const ITEM_HEIGHT = 28
+const MENU_WIDTH = 216
+const ITEM_HEIGHT = 32
 const PADDING = 8
+
+/** {@link menuItem}'s geometry without its ink, for danger and disabled items. */
+const ITEM_FRAME =
+  'flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] transition-colors focus-visible:outline-none'
 
 /**
  * Right-click menu for sidebar rows. Replaces per-row hover icon clusters:
@@ -98,7 +103,14 @@ export function ContextMenu({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-context" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
+      <div
+        className="fixed inset-0 z-context"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
       <div
         ref={(node) => {
           ref.current = node
@@ -107,39 +119,49 @@ export function ContextMenu({
         role="menu"
         aria-label={label}
         style={{ left: position.x, top: position.y, width: MENU_WIDTH }}
-        className="ari-enter-pop ari-enter-pop-down fixed z-context origin-top-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+        className={cx(
+          menu,
+          'ari-enter-pop ari-enter-pop-down fixed z-context origin-top-left overflow-hidden',
+        )}
       >
         {items.map((item, index) => {
           const Icon = item.icon
           const separated = item.danger && index > 0 && items[index - 1]?.danger !== true
           return (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              aria-disabled={item.disabled === true}
-              title={item.disabled === true ? item.disabledReason : undefined}
-              onClick={() => {
-                if (item.disabled === true) return
-                onClose()
-                item.onSelect()
-              }}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none ${
-                separated ? 'mt-1 border-t border-border pt-2' : ''
-              } ${
-                item.disabled === true
-                  ? 'cursor-not-allowed text-fg-subtle opacity-50'
-                  : item.danger
-                    ? 'text-danger hover:bg-danger-subtle focus-visible:bg-danger-subtle'
-                    : 'text-fg-muted hover:bg-surface-2 hover:text-fg focus-visible:bg-surface-2 focus-visible:text-fg'
-              }`}
-            >
-              {Icon ? <Icon size={12} aria-hidden className="shrink-0" /> : null}
-              <span className="truncate">{item.label}</span>
-              {item.disabled === true && item.disabledReason !== undefined ? (
-                <span className="sr-only">: {item.disabledReason}</span>
-              ) : null}
-            </button>
+            <Fragment key={item.id}>
+              {separated ? <div aria-hidden className="mx-1.5 my-1 h-px bg-border" /> : null}
+              <button
+                type="button"
+                role="menuitem"
+                aria-disabled={item.disabled === true}
+                title={item.disabled === true ? item.disabledReason : undefined}
+                onClick={() => {
+                  if (item.disabled === true) return
+                  onClose()
+                  item.onSelect()
+                }}
+                className={
+                  item.disabled === true
+                    ? cx(ITEM_FRAME, 'cursor-not-allowed text-fg-subtle opacity-50')
+                    : item.danger
+                      ? cx(
+                          ITEM_FRAME,
+                          'text-danger hover:bg-danger-subtle focus-visible:bg-danger-subtle',
+                        )
+                      : // Arrow keys move real focus, so the focused item also
+                        // takes the hover wash.
+                        cx(menuItem, 'focus-visible:bg-fg/6 focus-visible:text-fg')
+                }
+              >
+                {Icon ? (
+                  <Icon size={14} strokeWidth={1.75} aria-hidden className="shrink-0" />
+                ) : null}
+                <span className="truncate">{item.label}</span>
+                {item.disabled === true && item.disabledReason !== undefined ? (
+                  <span className="sr-only">: {item.disabledReason}</span>
+                ) : null}
+              </button>
+            </Fragment>
           )
         })}
       </div>
@@ -155,7 +177,10 @@ export function ContextMenu({
 export function useContextMenu(): {
   openFor: string | null
   anchor: MenuAnchor
-  open: (id: string, event: { clientX: number; clientY: number; preventDefault: () => void }) => void
+  open: (
+    id: string,
+    event: { clientX: number; clientY: number; preventDefault: () => void },
+  ) => void
   close: () => void
 } {
   const [openFor, setOpenFor] = useState<string | null>(null)

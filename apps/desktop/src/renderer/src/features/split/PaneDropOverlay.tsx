@@ -21,7 +21,7 @@ export function PaneDropOverlay({ target }: { target: PaneDropTarget | null }) {
     <div
       aria-hidden
       data-drop-target={target}
-      className={`pointer-events-none absolute rounded-sm border border-accent/40 bg-accent/15 ${PLACEMENT[target]}`}
+      className={`pointer-events-none absolute rounded-md border border-fg/25 bg-fg/8 ${PLACEMENT[target]}`}
     />
   )
 }

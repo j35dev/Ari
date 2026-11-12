@@ -5,9 +5,17 @@ import { FileText, LoaderCircle, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
 import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
-import { Kbd } from '@ari/ui/kbd'
 import type { GitScope, RpcResults } from '@ari/contracts/rpc'
+import { cx } from '../../lib/recipes'
 import { rpc } from '../../lib/rpc'
+import {
+  PALETTE_EMPTY_CLASS,
+  PALETTE_INPUT_CLASS,
+  PALETTE_INPUT_ROW_CLASS,
+  PALETTE_ROW_ACTIVE_CLASS,
+  PALETTE_SHORTCUT_CLASS,
+  PALETTE_SURFACE_CLASS,
+} from '../palette/CommandPalette'
 
 export interface ContentSearchOverlayProps {
   /** Whether the overlay is currently shown. */
@@ -181,30 +189,46 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
             aria-modal="true"
             aria-label="Project content search"
             onClick={(event) => event.stopPropagation()}
-            className="mt-[12vh] flex h-fit w-[min(640px,92vw)] flex-col overflow-hidden rounded-lg border border-border bg-surface-2"
-            style={{ boxShadow: 'var(--ari-shadow-3)' }}
+            className={PALETTE_SURFACE_CLASS}
           >
-            <div className="flex h-12 items-center gap-2 border-b border-border px-4">
-              <Search size={16} strokeWidth={1.8} className="shrink-0 text-fg-subtle" />
+            <div className={PALETTE_INPUT_ROW_CLASS}>
+              <Search
+                size={16}
+                strokeWidth={1.7}
+                className="shrink-0 text-fg-subtle"
+                aria-hidden="true"
+              />
               <input
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={
-                  root === null || scope === null ? 'Add a project first' : `Search in ${basename(root)}…`
+                  root === null || scope === null
+                    ? 'Add a project first'
+                    : `Search in ${basename(root)}…`
                 }
                 aria-label="Search project files"
                 spellCheck={false}
                 disabled={root === null || scope === null}
-                className="h-full min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
+                className={PALETTE_INPUT_CLASS}
               />
               {searching ? (
-                <LoaderCircle size={14} className="shrink-0 animate-spin text-fg-subtle" aria-label="Searching" />
+                <LoaderCircle
+                  size={14}
+                  strokeWidth={1.7}
+                  className="shrink-0 animate-spin text-fg-subtle"
+                  aria-label="Searching"
+                />
               ) : null}
             </div>
-            <ul ref={listRef} role="listbox" aria-label="Search results" className="ari-scroll max-h-80 overflow-auto p-1">
+            <ul
+              ref={listRef}
+              role="listbox"
+              aria-label="Search results"
+              className="ari-scroll max-h-[360px] overflow-auto p-1.5"
+            >
               {error !== null ? (
-                <li role="alert" className="px-2 py-1.5 font-mono text-xs text-danger">
+                <li role="alert" className="px-2.5 py-2 font-mono text-[12.5px] text-danger">
                   {error}
                 </li>
               ) : null}
@@ -219,43 +243,47 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
                     onMouseMove={() => setActiveIndex(index)}
                     onClick={() => copyActive()}
                     title={`Copy ${toAbsolutePath(root ?? '', hit.path)}:${hit.line}`}
-                    className={[
-                      'cursor-pointer select-none rounded-md px-2 py-1.5',
-                      'focus-visible:outline-none',
-                      active ? 'bg-surface-2' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                    className={cx(
+                      'cursor-pointer select-none rounded-md px-2.5 py-2 transition-colors hover:bg-fg/6 focus-visible:outline-none',
+                      active && PALETTE_ROW_ACTIVE_CLASS,
+                    )}
                   >
                     <div className="flex items-center gap-2">
-                      <FileText size={13} strokeWidth={1.8} className="shrink-0 text-fg-subtle" aria-hidden="true" />
-                      <span className="min-w-0 truncate font-mono text-xs text-fg-muted">{hit.path}</span>
-                      <span className="ml-auto shrink-0 tabular-nums text-2xs text-fg-subtle">:{hit.line}</span>
+                      <FileText
+                        size={14}
+                        strokeWidth={1.7}
+                        className="shrink-0 text-fg-subtle"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate text-xs text-fg-subtle">{hit.path}</span>
+                      <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                        :{hit.line}
+                      </span>
                     </div>
-                    <div className="truncate pl-[21px] text-xs text-fg">{hit.text}</div>
+                    <div className="mt-0.5 truncate pl-[22px] font-mono text-[12.5px] text-fg">
+                      {hit.text}
+                    </div>
                   </li>
                 )
               })}
               {query.trim().length > 0 && !searching && results.length === 0 && error === null ? (
-                <li className="flex h-9 items-center px-2 text-sm text-fg-subtle">No matches</li>
+                <li className={PALETTE_EMPTY_CLASS}>No matches</li>
               ) : null}
               {query.trim().length === 0 && root !== null ? (
-                <li className="flex h-9 items-center px-2 text-sm text-fg-subtle">
-                  Type to search across {basename(root)}
-                </li>
+                <li className={PALETTE_EMPTY_CLASS}>Type to search across {basename(root)}</li>
               ) : null}
             </ul>
-            <div className="flex h-8 items-center gap-3 border-t border-border px-4 text-2xs text-fg-subtle">
+            <div className="flex h-9 shrink-0 items-center gap-4 border-t border-border px-4 text-xs text-fg-subtle">
               {results.length > 0 ? <span>{results.length} hits</span> : <span />}
               <div className="flex-1" />
-              <span className="flex items-center gap-1">
-                <Kbd>↑↓</Kbd> navigate
+              <span className="flex items-center gap-1.5">
+                <kbd className={PALETTE_SHORTCUT_CLASS}>↑↓</kbd> navigate
               </span>
-              <span className="flex items-center gap-1">
-                <Kbd>↵</Kbd> copy path:line
+              <span className="flex items-center gap-1.5">
+                <kbd className={PALETTE_SHORTCUT_CLASS}>↵</kbd> copy path:line
               </span>
-              <span className="flex items-center gap-1">
-                <Kbd>esc</Kbd> close
+              <span className="flex items-center gap-1.5">
+                <kbd className={PALETTE_SHORTCUT_CLASS}>esc</kbd> close
               </span>
             </div>
           </motion.div>

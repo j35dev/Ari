@@ -1,0 +1,53 @@
+{"resourceGate":{"commitHeadroomBytes":8986783744,"cFreeBytes":21442138112}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-mobile-recovery-screenshots","pid":15420,"startedAt":"2026-11-12T16:10:24.656Z","id":"66952269-1ecc-40fe-b8de-0c4cca565d50"}
+Review server http://127.0.0.1:5173
+Opening 360-light-session-uncertain
+Captured recovery/360-light-session-uncertain.png
+Opening 360-light-new-uncertain
+Captured recovery/360-light-new-uncertain.png
+Opening 360-light-fork-uncertain
+Captured recovery/360-light-fork-uncertain.png
+Opening 360-light-integration-uncertain
+Captured recovery/360-light-integration-uncertain.png
+Opening 360-light-terminal-uncertain
+Captured recovery/360-light-terminal-uncertain.png
+Opening 360-light-new-empty
+Captured recovery/360-light-new-empty.png
+Opening 360-dark-session-uncertain
+Captured recovery/360-dark-session-uncertain.png
+Opening 360-dark-new-uncertain
+Captured recovery/360-dark-new-uncertain.png
+Opening 360-dark-fork-uncertain
+Captured recovery/360-dark-fork-uncertain.png
+Opening 360-dark-integration-uncertain
+Captured recovery/360-dark-integration-uncertain.png
+Opening 360-dark-terminal-uncertain
+Captured recovery/360-dark-terminal-uncertain.png
+Opening 360-dark-new-empty
+Captured recovery/360-dark-new-empty.png
+Opening 390-light-session-uncertain
+Captured recovery/390-light-session-uncertain.png
+Opening 390-light-new-uncertain
+Captured recovery/390-light-new-uncertain.png
+Opening 390-light-fork-uncertain
+Captured recovery/390-light-fork-uncertain.png
+Opening 390-light-integration-uncertain
+Captured recovery/390-light-integration-uncertain.png
+Opening 390-light-terminal-uncertain
+Captured recovery/390-light-terminal-uncertain.png
+Opening 390-light-new-empty
+Captured recovery/390-light-new-empty.png
+Opening 390-dark-session-uncertain
+Captured recovery/390-dark-session-uncertain.png
+Opening 390-dark-new-uncertain
+Captured recovery/390-dark-new-uncertain.png
+Opening 390-dark-fork-uncertain
+Captured recovery/390-dark-fork-uncertain.png
+Opening 390-dark-integration-uncertain
+Captured recovery/390-dark-integration-uncertain.png
+Opening 390-dark-terminal-uncertain
+Captured recovery/390-dark-terminal-uncertain.png
+Opening 390-dark-new-empty
+Captured recovery/390-dark-new-empty.png
+12:10:56 AM [vite] (client) hmr update /src/styles/index.css
+{"heavyResult":{"worker":"publication-packaging-mobile-recovery-screenshots","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","exec","node","apps/mobile/scripts/capture-layout.mjs","recovery"],"exitCode":0,"signal":null}}

@@ -1,0 +1,146 @@
+/*
+ * The frame. The window is quiet chrome (surface-0) holding one stage: a
+ * rounded panel on the theme background where the work happens. A docked
+ * panel is a second stage beside it. Structure comes from that one edge, so
+ * nothing inside a stage needs a border to say where it is.
+ *
+ * See docs/design/ari-design-language.md.
+ */
+
+:root {
+  --ari-stage-radius: calc(var(--ari-radius-lg) + 2px);
+  /* Hover and selection are a wash of the text colour, never a surface step:
+     it reads the same on chrome and on the stage, in every theme. */
+  --ari-wash-hover: color-mix(in oklab, var(--ari-fg) 6%, transparent);
+  --ari-wash-selected: color-mix(in oklab, var(--ari-fg) 9%, transparent);
+}
+
+.ari-frame {
+  background: var(--ari-surface-0);
+}
+
+.ari-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-stage-radius);
+  background: var(--ari-bg);
+}
+
+/* With a wallpaper the window is one tinted plate; the stage is a slightly
+   denser pane of the same plate rather than an opaque card. */
+[data-ari-wallpaper] .ari-stage {
+  background: color-mix(in oklab, var(--ari-bg) 46%, transparent);
+}
+
+/* Aria's name is the only pixel type in the app. */
+.ari-pixel {
+  font-family: var(--ari-font-pixel);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* The scene: wallpaper art drawn sharp, then dissolved into the stage. */
+.ari-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--ari-dur-slow) var(--ari-ease-glide);
+}
+.ari-scene[data-ready] {
+  opacity: 1;
+}
+.ari-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Status glyphs: one vocabulary for the sidebar, lanes, and Aria's overview. */
+.ari-status {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.ari-status[data-status='working']::before {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--ari-fg) 18%, transparent);
+  border-top-color: var(--ari-fg-muted);
+  animation: ari-status-spin 0.9s linear infinite;
+}
+.ari-status[data-status='queued']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--ari-fg-subtle);
+}
+.ari-status[data-status='attention']::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ari-accent);
+  box-shadow: 0 0 0 3px var(--ari-accent-subtle);
+}
+.ari-status[data-status='done']::before {
+  content: '';
+  width: 9px;
+  height: 5px;
+  margin-top: -3px;
+  border-left: 1.5px solid var(--ari-fg-subtle);
+  border-bottom: 1.5px solid var(--ari-fg-subtle);
+  transform: rotate(-45deg);
+}
+.ari-status[data-status='error']::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ari-danger);
+}
+/* Interrupted: the stop square. */
+.ari-status[data-status='stopped']::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--ari-fg-subtle);
+}
+/* Nothing happening, or nothing left: a faint point that holds the column. */
+.ari-status[data-status='idle']::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ari-fg-subtle);
+  opacity: 0.6;
+}
+
+@keyframes ari-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-status[data-status='working']::before {
+    animation: none;
+    transform: rotate(40deg);
+  }
+  .ari-scene {
+    transition: none;
+  }
+}
+[data-ari-reduced-motion] .ari-status[data-status='working']::before {
+  animation: none;
+  transform: rotate(40deg);
+}

@@ -4,6 +4,9 @@ import type { OnboardingChoice } from './onboarding-completion'
 import { OnboardingFrame } from './OnboardingFrame'
 import { OnboardingReady } from './OnboardingReady'
 
+// The frame's scene art reads the theme and paints a canvas; neither is under test here.
+vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
+
 const choice: OnboardingChoice = {
   projects: [{ path: '/work/Ari', name: 'Ari', sources: ['claude'], lastUsedAt: null }],
   driverKind: 'claude',
@@ -17,7 +20,7 @@ describe('onboarding review surface', () => {
     render(<OnboardingReady choice={choice} disabled={false} onCreateSessionChange={onChange} />)
     expect(screen.getByText('Claude Code')).toBeInTheDocument()
     expect(screen.getByText('/work/Ari')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Open an empty session in Ari' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Open a new chat in Ari' }))
     expect(onChange).toHaveBeenCalledWith(false)
   })
   it('explains a skipped agent and project without offering a session that cannot be created', () => {

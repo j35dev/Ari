@@ -31,9 +31,7 @@ describe('autoGrowHeight', () => {
   })
 
   it('clamps to the max row band', () => {
-    expect(autoGrowHeight(10_000, LINE_HEIGHT, PAD_Y)).toBe(
-      LINE_HEIGHT * 10 + PAD_Y,
-    )
+    expect(autoGrowHeight(10_000, LINE_HEIGHT, PAD_Y)).toBe(LINE_HEIGHT * 10 + PAD_Y)
   })
 
   it('keeps in-band content heights', () => {
@@ -68,10 +66,7 @@ describe('Textarea', () => {
   it('sizes once on mount for controlled values', () => {
     stubLayout()
     const content = LINE_HEIGHT * 6 + PAD_Y
-    const inherited = Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      'scrollHeight',
-    )
+    const inherited = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'scrollHeight')
     Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
       configurable: true,
       get: () => content,

@@ -1,0 +1,786 @@
+{"resourceGate":{"commitHeadroomBytes":10110533632,"cFreeBytes":21702860800}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-app-final-correction","pid":26780,"startedAt":"2026-11-12T14:51:46.321Z","id":"a21b6b1e-7652-472d-8ab3-f0efd6bcaeb2"}
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+node : Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+At line:3 char:1
++ node scripts/coordination/run-heavy.mjs integrated-app-final-correcti ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+stderr | src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host catalog
+before freezing the merged setup draft
+[ari:ui:source-control] Source-control read failed { error: 'Error: Unexpected RPC: scm.summary' }
+
+ ❯ |dom| src/renderer/src/App.onboarding.test.tsx (13 tests | 1 failed) 8103ms
+     × waits for the complete host catalog before freezing the merged setup draft 1197ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host
+catalog before freezing the merged setup draft
+TestingLibraryElementError: Unable to find an accessible element with the role "option" and name `/Studio computer/`
+
+Here are the accessible roles:
+
+  banner:
+
+  Name "":
+  <header
+    class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
+bg-surface-0"
+  />
+
+  Name "":
+  <header
+    class="flex h-12 shrink-0 items-center px-3"
+  />
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Workspace":
+  <nav
+    aria-label="Workspace"
+    class="flex items-center gap-1 pr-2"
+  />
+
+  Name "Sessions":
+  <nav
+    aria-label="Sessions"
+    class="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "Review changes":
+  <button
+    aria-label="Review changes"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Review changes"
+    type="button"
+  />
+
+  Name "Files":
+  <button
+    aria-label="Files"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Files"
+    type="button"
+  />
+
+  Name "Usage":
+  <button
+    aria-label="Usage"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Usage"
+    type="button"
+  />
+
+  Name "Terminal":
+  <button
+    aria-label="Terminal"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Terminal"
+    type="button"
+  />
+
+  Name "Browser":
+  <button
+    aria-label="Browser"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Browser"
+    type="button"
+  />
+
+  Name "Settings":
+  <button
+    aria-label="Settings"
+    aria-pressed="false"
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
+hover:text-fg border border-transparent"
+    title="Settings"
+    type="button"
+  />
+
+  Name "Search sessions":
+  <button
+    aria-label="Search sessions"
+    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2
+focus-visible:ring-accent-ring"
+    title="Search sessions"
+    type="button"
+  />
+
+  Name "Collapse sidebar":
+  <button
+    aria-label="Collapse sidebar"
+    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2
+focus-visible:ring-accent-ring"
+    title="Collapse sidebar (Ctrl+B)"
+    type="button"
+  />
+
+  Name "Open Aria":
+  <button
+    aria-label="Open Aria"
+    class="flex h-7 w-full min-w-0 items-center gap-2 rounded-md pl-2 pr-1 text-left text-[13px]
+transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-muted
+hover:bg-surface-2 hover:text-fg"
+    title="Open Aria (Mod+0)"
+    type="button"
+  />
+
+  Name "Aria actions":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Aria actions"
+    class="absolute right-3.5 top-1 flex size-5 items-center justify-center rounded-sm text-fg-subtle
+opacity-0 hover:bg-surface-2 hover:text-fg group-hover/aria:opacity-100 focus-visible:opacity-100
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    type="button"
+  />
+
+  Name "New session":
+  <button
+    aria-label="New session"
+    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5
+text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    data-new-session-trigger="true"
+    title="New session (Mod+N)"
+    type="button"
+  />
+
+  Name "Add project":
+  <button
+    aria-label="Add project"
+    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5
+text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    title="Add a folder as a project"
+    type="button"
+  />
+
+  Name "Projects":
+  <button
+    aria-pressed="true"
+    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none
+focus-visible:ring-2 focus-visible:ring-accent-ring text-fg"
+    type="button"
+  />
+
+  Name "Sessions":
+  <button
+    aria-pressed="false"
+    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none
+focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:text-fg-muted"
+    type="button"
+  />
+
+  Name "Ari0":
+  <button
+    aria-expanded="true"
+    class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors
+hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring  text-fg-muted
+hover:text-fg"
+    type="button"
+  />
+
+  Name "Project actions for Ari":
+  <button
+    aria-label="Project actions for Ari"
+    class="flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-surface-2
+hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring absolute right-1.5
+opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
+    type="button"
+  />
+
+  Name "New space":
+  <button
+    aria-label="New space"
+    class="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring
+disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+    title="New space (Ctrl+Alt+T)"
+    type="button"
+  />
+
+  Name "Close draft":
+  <button
+    class="rounded px-2 py-1 hover:bg-surface-2"
+    type="button"
+  />
+
+  Name "Model: Claude · Claude":
+  <button
+    aria-expanded="false"
+    aria-haspopup="listbox"
+    aria-label="Model: Claude · Claude"
+    class="flex h-7 w-full max-w-52 items-center gap-1.5 rounded-lg border border-border/80
+bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong
+hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    type="button"
+  />
+
+  Name "Send message":
+  <button
+    aria-label="Send message"
+    class="sr-only"
+    disabled=""
+    tabindex="-1"
+    type="button"
+  />
+
+  Name "Dictate a message":
+  <button
+    aria-label="Dictate a message"
+    aria-pressed="false"
+    class="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md
+transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring
+disabled:opacity-40 text-fg-subtle hover:text-fg"
+    disabled=""
+    type="button"
+  />
+
+  Name "Prompt stash (0)":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Prompt stash (0)"
+    class="relative flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle
+transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2
+focus-visible:ring-accent-ring"
+    title="Stash this prompt (Mod+S) or reuse a stashed one"
+    type="button"
+  />
+
+  Name "Send":
+  <button
+    aria-label="Send"
+    class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl
+transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm bg-surface-3/50
+text-fg-subtle opacity-60"
+    disabled=""
+    tabindex="0"
+    title="Send"
+    type="button"
+  />
+
+  Name "Execution machine":
+  <button
+    aria-expanded="true"
+    aria-haspopup="menu"
+    aria-label="Execution machine"
+    class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-fg-muted hover:bg-surface-2
+hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60"
+    title="This PC runs this draft."
+    type="button"
+  />
+
+  Name "Explore this project":
+  <button
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
+hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    type="button"
+  />
+
+  Name "Build something":
+  <button
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
+hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    type="button"
+  />
+
+  Name "Find improvements":
+  <button
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
+hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+    type="button"
+  />
+
+  --------------------------------------------------
+  complementary:
+
+  Name "":
+  <aside
+    class="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden
+bg-surface-0"
+    style="--ari-sidebar-motion-width: 280px; width: 280px; opacity: 1;"
+  />
+
+  --------------------------------------------------
+  img:
+
+  Name "Aria":
+  <svg
+    aria-description="Ready"
+    aria-label="Aria"
+    class="ari-aria-mark shrink-0 text-accent"
+    data-state="idle"
+    focusable="false"
+    height="16"
+    role="img"
+    shape-rendering="crispEdges"
+    viewBox="0 0 16 16"
+    width="16"
+  />
+
+  Name "Ari is starting":
+  <div
+    aria-label="Ari is starting"
+    class="ari-awaken"
+    data-outro="off"
+    data-ready="on"
+    data-testid="awaken-splash"
+    role="img"
+  />
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "Search sessions":
+  <input
+    aria-label="Search sessions"
+    class="h-7 w-full rounded-lg border border-border bg-surface-1 pl-7 pr-2 text-xs text-fg
+placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+    placeholder="Search…"
+    type="search"
+    value=""
+  />
+
+  --------------------------------------------------
+  group:
+
+  Name "Sidebar view":
+  <div
+    aria-label="Sidebar view"
+    class="flex items-center gap-1"
+    role="group"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  <ul
+    class="flex flex-col gap-0.5"
+    style="overflow-anchor: none;"
+  />
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  <li
+    style="z-index: unset; transform: none;"
+  />
+
+  --------------------------------------------------
+  region:
+
+  Name "Ari":
+  <section
+    aria-label="Ari"
+    class="group/project"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="py-1 pl-9 text-2xs text-fg-subtle"
+  />
+
+  Name "":
+  <p
+    class="mb-3 text-sm font-medium text-accent"
+  />
+
+  Name "":
+  <p
+    class="mt-3 text-sm leading-relaxed text-fg-muted"
+  />
+
+  --------------------------------------------------
+  separator:
+
+  Name "Resize sidebar":
+  <div
+    aria-label="Resize sidebar"
+    aria-orientation="vertical"
+    aria-valuemax="520"
+    aria-valuemin="200"
+    aria-valuenow="280"
+    class="ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors
+focus-visible:outline-none focus-visible:bg-accent bg-transparent hover:bg-accent-subtle"
+    role="separator"
+    tabindex="0"
+    title="Drag to resize · double-click to reset"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  <main
+    class="flex min-w-0 flex-1 flex-col bg-bg"
+  />
+
+  --------------------------------------------------
+  tablist:
+
+  Name "Spaces":
+  <div
+    aria-label="Spaces"
+    class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5 [scrollbar-width:none]
+[&::-webkit-scrollbar]:hidden"
+    role="tablist"
+  />
+
+  --------------------------------------------------
+  tab:
+
+  Name "Space 1":
+  <div
+    aria-controls="space-panel"
+    aria-label="Space 1"
+    aria-selected="true"
+    class="group relative isolate flex h-7 max-w-44 min-w-24 items-center gap-1.5 rounded-md px-2
+text-xs outline-none transition-colors text-fg focus-visible:ring-2 focus-visible:ring-accent-ring "
+    draggable="true"
+    id="space-tab-space-q5vcps8b"
+    role="tab"
+    tabindex="0"
+    title="Space 1"
+  />
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "Space 1":
+  <div
+    aria-labelledby="space-tab-space-q5vcps8b"
+    class="relative min-h-0 min-w-0 flex-1"
+    id="space-panel"
+    role="tabpanel"
+  />
+
+  --------------------------------------------------
+  heading:
+
+  Name "Make room for your next idea.":
+  <h2
+    class="ari-session-heading font-medium text-fg"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message":
+  <textarea
+    aria-label="Message"
+    class="block max-h-[260px] w-full resize-none bg-transparent text-sm leading-relaxed text-fg
+placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable] px-4 pt-3.5 pb-2"
+    data-dictation-session="project-draft:0fa007cb-69aa-486c-a292-ac59eac51d5e"
+    placeholder="Describe what you want to do in this project…"
+    rows="1"
+    style="height: 88px; overflow-y: hidden;"
+  />
+
+  --------------------------------------------------
+  combobox:
+
+  Name "Reasoning effort":
+  <select
+    aria-label="Reasoning effort"
+    class="bg-transparent text-xs text-fg-muted"
+  />
+
+  Name "Permission mode":
+  <select
+    aria-label="Permission mode"
+    class="bg-transparent text-xs text-fg-muted"
+  />
+
+  Name "Project workspace":
+  <select
+    aria-label="Project workspace"
+    class="rounded border border-border bg-surface-1 px-2 py-1"
+  />
+
+  --------------------------------------------------
+  option:
+
+  Name "Agent default":
+  <option
+    value=""
+  />
+
+  Name "ask":
+  <option
+    value="ask"
+  />
+
+  Name "allow-edits":
+  <option
+    value="allow-edits"
+  />
+
+  Name "full":
+  <option
+    value="full"
+  />
+
+  Name "Automatic workspace isolation":
+  <option
+    value=""
+  />
+
+  Name "New isolated worktree":
+  <option
+    value="isolated"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  <span
+    class="text-fg-subtle"
+    role="status"
+  />
+
+  --------------------------------------------------menu:
+
+  Name "Execution machines":
+  <div
+    aria-label="Execution machines"
+    class="z-popover bg-surface-2 border border-border rounded-lg shadow-2 p-3 w-80 p-1"
+    role="menu"
+    style="position: absolute; left: 0px; top: 0px; opacity: 0; transform: scale(0.96);"
+  />
+
+  --------------------------------------------------
+  menuitem:
+
+  Name "AutoChoose once using fresh machine resources":
+  <button
+    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2"
+    role="menuitem"
+    type="button"
+  />
+
+  Name "This PC":
+  <button
+    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2
+disabled:opacity-45"
+    role="menuitem"
+    title="This PC"
+    type="button"
+  />
+
+  Name "Studio computer":
+  <button
+    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2
+disabled:opacity-45"
+    role="menuitem"
+    title="Studio computer"
+    type="button"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
+bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4
+0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
+3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ Object.getElementError
+../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/renderer/src/App.onboarding.test.tsx:244:19
+    242|     await act(async () => release())
+    243|     fireEvent.click(await screen.findByRole('button', { name: 'Executi…
+    244|     expect(screen.getByRole('option', { name: /Studio computer/ })).to…
+       |                   ^
+    245|     expect(readProjectDrafts()[0]?.group.checkouts.map((entry) => entr…
+    246|     expect(invoke.mock.calls.some(([method]) => method === 'session.cr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 35 passed (36)
+   Start at  22:51:50
+   Duration  53.42s (transform 3.92s, setup 5.23s, import 13.01s, tests 25.03s, environment 8.79s)
+
+undefined
+D:\Projects\Ari-machines\apps\desktop:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/renderer/src/App.navigation.test.tsx src/renderer/src/App.onboarding.test.tsx src/renderer/src/App.first-session.test.tsx src/renderer/src/features/machines/MachineNavigation.test.tsx --maxWorkers=1 --no-file-parallelism
+{"heavyResult":{"worker":"integrated-app-final-correction","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vitest","run","src/renderer/src/App.navigation.test.tsx","src/renderer/src/App.onboarding.test.tsx","src/renderer/src/App.first-session.test.tsx","src/renderer/src/features/machines/MachineNavigation.test.tsx","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

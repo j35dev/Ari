@@ -33,7 +33,7 @@ function Segmented<T>({
     <div
       role="group"
       aria-label={label}
-      className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-1 p-0.5"
+      className="inline-flex items-center rounded-lg bg-surface-2 p-[3px]"
     >
       {options.map((option) => {
         const active = option.value === value
@@ -43,8 +43,8 @@ function Segmented<T>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(option.value)}
-            className={`rounded-sm px-2 py-0.5 text-2xs transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-              active ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:text-fg'
+            className={`inline-flex h-6 items-center justify-center whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors duration-[var(--ari-dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none ${
+              active ? 'bg-bg text-fg shadow-1' : 'text-fg-subtle hover:text-fg'
             }`}
           >
             {option.label}
@@ -100,45 +100,50 @@ export function UsagePage() {
     rangeDays === null ? null : isoDate(new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000))
 
   return (
-    <div className="ari-scroll flex h-full flex-col gap-8 overflow-y-auto p-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-base font-semibold text-fg">Usage</h1>
-          <p className="text-xs text-fg-subtle">
-            Tokens and costs parsed from your local agent transcripts (ccusage).
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            label="Granularity"
-            options={GRANULARITIES}
-            value={granularity}
-            onChange={setGranularity}
-          />
-          <Segmented
-            label="Time window"
-            options={RANGES}
-            value={rangeDays}
-            onChange={setRangeDays}
-          />
-        </div>
-      </header>
+    <div className="ari-scroll h-full overflow-y-auto">
+      {/* The settings column: 680px of content, 44px from the top of the stage. */}
+      <div className="mx-auto flex w-full max-w-[744px] flex-col px-8 pb-16 pt-11">
+        <header className="mb-[30px] flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h1 className="text-[24px] font-semibold leading-8 tracking-[-0.02em] text-fg">
+              Usage
+            </h1>
+            <p className="mt-1 text-sm text-fg-subtle">
+              Tokens and costs parsed from your local agent transcripts (ccusage).
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <Segmented
+              label="Granularity"
+              options={GRANULARITIES}
+              value={granularity}
+              onChange={setGranularity}
+            />
+            <Segmented
+              label="Time window"
+              options={RANGES}
+              value={rangeDays}
+              onChange={setRangeDays}
+            />
+          </div>
+        </header>
 
-      <section aria-label="ccusage report" className="flex flex-col gap-3">
-        {running && (
-          <p role="status" className="text-xs text-fg-muted">
-            Loading usage…
-          </p>
-        )}
-        {error !== null && (
-          <p role="alert" className="text-xs text-danger">
-            {error}
-          </p>
-        )}
-        {report !== null && !running ? (
-          <CcusageDashboard report={report} granularity={granularity} since={since} />
-        ) : null}
-      </section>
+        <section aria-label="ccusage report" className="flex flex-col gap-3">
+          {running && (
+            <p role="status" className="text-[13px] text-fg-subtle">
+              Loading usage…
+            </p>
+          )}
+          {error !== null && (
+            <p role="alert" className="text-[13px] text-danger">
+              {error}
+            </p>
+          )}
+          {report !== null && !running ? (
+            <CcusageDashboard report={report} granularity={granularity} since={since} />
+          ) : null}
+        </section>
+      </div>
     </div>
   )
 }

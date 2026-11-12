@@ -1,6 +1,7 @@
 export { AdvancedSettings } from './AdvancedSettings'
 export { AppearanceSettings } from './AppearanceSettings'
 export { SettingsWorkspace, SETTINGS_SECTIONS } from './SettingsWorkspace'
+export { SettingsDialog } from './SettingsDialog'
 export type { SettingsWorkspaceProps, SettingsSectionId } from './SettingsWorkspace'
 export { SettingsRow } from './SettingsRow'
 export { KeyboardCheatSheet } from './KeyboardCheatSheet'

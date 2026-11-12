@@ -1,0 +1,28 @@
+Machines normal desktop component evidence, 2026-11-12
+
+Source: machines/shell-rework, renderer/runtime source through 4881bc8c;
+test narrowing fc516e9a; capture script through 40be6ab9.
+Owned renderer source matches coordinator 7b11fd89 (git diff empty).
+Configuration: codex/gpt-6.1-sol, xhigh, full permissions. No delegation.
+
+Focused UI: 168 passed, 0 failed; shell-final-ui-tests.json in desktop/out.
+Files: Composer, ProjectDraft, MachineNavigation, machine-policy, Sidebar,
+App.first-session. Single test worker, no file parallelism.
+Coordinator type verification: all 10 package typechecks passed on 7b11fd89.
+
+Final fixture Vite build: exit 0, 12.69 sec. Module workers match desktop config.
+Final Electron capture: exit 0, 16 PNGs; capture.json has 14 full-view records
+plus separate light/dark sidebar crops. Picker menu visible in both themes;
+expected themes, no horizontal overflow, no machines.command call, no console errors.
+Visual inspection: both open pickers, normal host session and permissions tabs;
+remote owner label, readable session titles, no local badge, sanitized turn diff.
+
+All heavy steps used run-heavy.mjs below normal priority with D: caches.
+Capture used a hidden window, temporary D: profile and refused external requests.
+Electron runtime downloaded under the leased D: node_modules/cache.
+No installed Ari/profile, real host, Tailscale/Serve, protected branch or UI-dev
+worktree mutation; no push or PR.
+
+These are normal renderer component fixtures with fake RPC. They do not certify
+real pairing, route cryptography, terminal revocation, two-host execution or the
+running development app. Those integrated/release proofs remain coordinator-owned.

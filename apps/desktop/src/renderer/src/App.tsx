@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X } from 'lucide-react'
+import { useVoicePlayback } from './features/aria/use-voice-playback'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
@@ -24,9 +24,30 @@ import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
-import { Titlebar } from './shell/Titlebar'
+import type { TitlebarPlace } from './shell/Titlebar'
+import { SidebarFooter } from './shell/SidebarFooter'
+import { PanelTabs, type PanelTab } from './shell/PanelTabs'
+import { outlineButton } from './lib/recipes'
+import { ScopedTitlebar } from './shell/ScopedTitlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import {
+  createSessionClient,
+  parseSessionViewKey,
+  sessionViewKey,
+  SessionClientProvider,
+  type SessionScope,
+} from './features/session/session-client'
+import { useMachineProjects } from './features/machines/use-machine-projects'
+import { ProjectDraftPane } from './features/machines/ProjectDraftPane'
+import { DraftHandoff } from './features/machines/DraftHandoff'
+import {
+  readProjectDrafts,
+  writeProjectDrafts,
+  type ProjectDraftEntry,
+} from './features/machines/project-draft-registry'
+import type { ComposerSeed } from './features/composer/Composer'
+import { groupRepositories, type RepositoryGroup } from './features/machines/repository-groups'
 import { SessionKeepAlive } from './features/session/SessionKeepAlive'
 import { loadLastPick, nextLastPick, saveLastPick } from './features/composer/last-pick'
 import type { LastPick } from './features/composer/last-pick'
@@ -50,16 +71,15 @@ import {
   subscribeTerminalDock,
   terminalDockState,
 } from './features/terminal/terminal-dock'
-import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
+import { SettingsDialog, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { openCheckedOutWorktree } from './features/changes/open-request-worktree'
 import { rememberReviewRange } from './features/changes/review-drafts'
-import { useSourceControl } from './features/changes/use-source-control'
-import { GitControl } from './features/changes/GitControl'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
+import { ProviderUsagePill } from './features/usage/ProviderUsagePill'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
@@ -87,6 +107,8 @@ import { focusNeighbour } from './features/split/split-geometry'
 import {
   MAX_PANES,
   activePaneOf,
+  assignSession,
+  assignTerminal,
   activeSessionOf,
   isBlankLeaf,
   leaves,
@@ -99,6 +121,7 @@ import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell
 import { visibleProjects } from './features/aria/visibility'
 import { isHelmSession } from '@ari/contracts/helm'
 import { AriaRow } from './features/aria/AriaRow'
+import { AriaOverview } from './features/aria/AriaOverview'
 import { ariaActivity, startedByAria } from './features/aria/aria-activity'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
@@ -106,6 +129,7 @@ import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { useSessionStart } from './shell/use-session-start'
 import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { MachinesProvider, useMachines } from './features/machines/use-machines'
 import {
   applyPatches,
   dropSettled,
@@ -124,7 +148,8 @@ import { WelcomePanel } from './features/welcome'
 import { OnboardingGate, type OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'>
+type InspectorId =
+  Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'> | 'overview'
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -133,7 +158,24 @@ const INSPECTOR_TITLES: Record<InspectorId, string> = {
   changes: 'Changes',
   files: 'Files',
   usage: 'Usage',
+  overview: 'Overview',
 }
+
+/** Aria's own tab: the sessions she is leading. Offered only beside her chat. */
+const OVERVIEW_TAB: PanelTab<InspectorId> = { id: 'overview', label: 'Overview' }
+
+/** The overview is a list, not a terminal: it never needs the dock's full width. */
+const OVERVIEW_MAX_WIDTH = 400
+/** Below this the overview would squeeze the chat, so it waits to be asked for. */
+const OVERVIEW_MIN_WINDOW_WIDTH = 1180
+
+/** What a docked panel can show, in tab order. */
+const PANEL_TABS: readonly PanelTab<InspectorId>[] = [
+  { id: 'changes', label: 'Changes' },
+  { id: 'files', label: 'Files' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'browser', label: 'Browser' },
+]
 
 /** Where `Mod+Shift+<arrow>` sends focus, keyed by `KeyboardEvent.key`. */
 const ARROW_EDGES: Record<string, PaneEdge> = {
@@ -153,10 +195,16 @@ export interface SessionDefaults {
   effort: string | null
   /** Creates the session as a lead; ordinary sessions leave this off. */
   lead?: boolean
+  workspaceMode?: 'auto' | 'isolated' | 'shared'
 }
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
+  const { machines, local, inventoryReady, refreshInventory } = useMachines()
   const reducedMotion = useReducedMotionConfig()
+  const engineSettings = useEngineSettings()
+  const ariaEnabled = engineSettings.settings?.experimental.ariaEnabled === true
+  const ariaEnabledRef = useRef(ariaEnabled)
+  ariaEnabledRef.current = ariaEnabled
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
   // are tools, so they dock to the trailing rail beside the transcript.
@@ -173,8 +221,41 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // Sidebar changes show the moment they are clicked; the list catches up.
   const [patches, setPatches] = useState<readonly PendingPatch[]>([])
   const patchTokenRef = useRef(0)
-  const sessions = useMemo(() => applyPatches(listedSessions, patches), [listedSessions, patches])
+  const sessions = useMemo(
+    () =>
+      applyPatches(listedSessions, patches).filter(
+        (session) => ariaEnabled || !isHelmSession(session),
+      ),
+    [listedSessions, patches, ariaEnabled],
+  )
   const [projects, setProjects] = useState<ProjectRow[]>([])
+  const navigation = useMachineProjects(projects, sessions)
+  const [draftRegistry] = useState(() => {
+    try {
+      return { entries: readProjectDrafts(), error: null }
+    } catch {
+      return {
+        entries: [],
+        error: 'Project drafts could not be read. Inspect saved drafts before starting another.',
+      }
+    }
+  })
+  const [projectDrafts, setProjectDrafts] = useState<ProjectDraftEntry[]>(draftRegistry.entries)
+  const projectDraftsRef = useRef(projectDrafts)
+  projectDraftsRef.current = projectDrafts
+  const [onboardingDraft, setOnboardingDraft] = useState<{
+    projectId: string
+    generation: number
+    spaceId: string
+    paneId: string
+    sessionId: string | null
+  } | null>(null)
+  const [draftHandoff, setDraftHandoff] = useState<{
+    entry: ProjectDraftEntry
+    scope: SessionScope
+    seed: ComposerSeed
+  } | null>(null)
+  const [createdSessionKeys, setCreatedSessionKeys] = useState<ReadonlySet<string>>(new Set())
   // Which session is active is now a property of the panes: it is whatever the
   // focused pane is showing, so every single-session view in the shell — the
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
@@ -182,17 +263,23 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const layout = useSplitLayout()
   const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
+  const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
+  const remoteActive = activeSessionScope?.kind === 'remote'
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
-  const { activityOf, attentionCountOf, acknowledge, forget } =
-    useSessionActivity(visibleSessionIds)
+  const { activityOf, attentionCountOf, acknowledge, forget } = useSessionActivity(
+    visibleSessionIds,
+    navigation.sessions.map((session) => session.id),
+  )
   // Every list refresh is a new array; the lookup changes identity only when
   // a title does, or each refresh would re-render every memoized transcript row.
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
-  const titlesKey = sessions.map((session) => `${session.id}:${session.title}`).join('\n')
+  const titlesKey = navigation.sessions
+    .map((session) => `${session.id}:${session.title}`)
+    .join('\n')
   const sessionTitle = useCallback(
-    (id: string) => sessionsRef.current.find((session) => session.id === id)?.title,
-    [titlesKey],
+    (id: string) => navigation.sessions.find((session) => session.id === id)?.title,
+    [titlesKey, navigation.sessions],
   )
   const attachReviewRange = useCallback(
     (
@@ -216,6 +303,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
     overrides?: Partial<SessionDefaults>
+    preferredHostId?: string
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   // Where the pane area is the view on screen: settings, the gallery and the
@@ -273,7 +361,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const mountedSpaces = spaceStore.spaces
     .filter((space) => nextRecentSpaceIds.includes(space.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-  const workspaceToolOpen = settingsOpen || hubOpen
+  // Settings is a dialog over the workspace; only the hub takes its place.
+  const workspaceToolOpen = hubOpen
   // Where the keyboard was in the workspace, so leaving Settings or the hub
   // hands it back instead of dropping it on the page.
   const lastWorkspaceFocusRef = useRef<HTMLElement | null>(null)
@@ -289,14 +378,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   } | null>(null)
   useEffect(() => {
     let cancelled = false
-    if (activeSessionId) {
+    if (activeSessionId && parseSessionViewKey(activeSessionId)?.kind === 'local') {
       void rpc
         .invoke('session.workspace', { sessionId: activeSessionId })
         .then(({ path }) => {
           if (!cancelled) setSessionWorkspace({ id: activeSessionId, path })
         })
         .catch((error: unknown) => log.warn('workspace resolution failed', error))
-    }
+    } else setSessionWorkspace(null)
     return () => {
       cancelled = true
     }
@@ -394,6 +483,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const navigationGeneration = useRef(0)
   const selectSession = useCallback(
     (id: string) => {
+      if (
+        !ariaEnabled &&
+        listedSessions.some((session) => session.id === id && isHelmSession(session))
+      )
+        return
       navigationGeneration.current++
       // A session already open is shown where it is, in whichever space holds
       // it; anything else replaces what the focused pane was showing, which is
@@ -405,7 +499,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       setChangesContext(null)
     },
-    [layout, clearTransientInspector, leaveWorkspaceTool],
+    [layout, clearTransientInspector, leaveWorkspaceTool, ariaEnabled, listedSessions],
   )
 
   // Clicking an OS notification asks to see the session it was about.
@@ -520,12 +614,17 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * take over from it.
    */
   const confirmPatch = useCallback(
-    (token: number, sessionId: string, patch: SessionPatch): Promise<void> =>
-      rpc
-        .invoke('command.dispatch', { command: { type: 'session.update', sessionId, ...patch } })
+    (token: number, sessionId: string, patch: SessionPatch): Promise<void> => {
+      const scope = parseSessionViewKey(sessionId)
+      if (!scope) return Promise.reject(new Error('Unknown session scope.'))
+      return createSessionClient(scope)
+        .invoke('command.dispatch', {
+          command: { type: 'session.update', sessionId: scope.sessionId, ...patch },
+        })
         .then((result) => {
           if (!result.accepted) throw new Error(result.reason ?? 'The change was refused.')
           refreshSessions()
+          void refreshInventory()
           const generation = listsRef.current
           setPatches((prev) =>
             prev.map((p) => (p.token === token ? { ...p, settledAt: generation } : p)),
@@ -539,8 +638,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             title: 'Couldn’t update the session',
             description: error instanceof Error ? error.message : String(error),
           })
-        }),
-    [refreshSessions, toast],
+        })
+    },
+    [refreshSessions, refreshInventory, toast],
+  )
+  const destroyScopedSession = useCallback(
+    async (key: string) => {
+      const scope = parseSessionViewKey(key)
+      if (!scope) throw new Error('Unknown session scope.')
+      await createSessionClient(scope).invoke('session.destroy', { sessionId: scope.sessionId })
+      setCreatedSessionKeys((old) => new Set([...old].filter((entry) => entry !== key)))
+      void refreshInventory()
+    },
+    [refreshInventory],
   )
 
   /** Shows `patch` on each session at once and confirms them one by one. */
@@ -560,10 +670,36 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // shell pointed at something that no longer exists.
   useEffect(() => {
     if (!sessionsLoadedRef.current) return
-    const known = new Set(sessions.map((session) => session.id))
+    const known = new Set(navigation.sessions.map((session) => session.id))
+    for (const key of createdSessionKeys) {
+      const scope = parseSessionViewKey(key)
+      if (
+        scope?.kind === 'local' ||
+        (scope?.kind === 'remote' &&
+          machines.some(
+            (machine) => machine.id === scope.machineId && machine.status !== 'revoked',
+          ))
+      )
+        known.add(key)
+    }
+    // Offline hosts keep their scoped pane refs until explicit removal/revocation.
+    for (const space of spaceStore.spaces)
+      for (const id of sessionsOnScreen(space.layout)) {
+        const scope = parseSessionViewKey(id)
+        if (
+          scope?.kind === 'remote' &&
+          machines.some(
+            (machine) =>
+              machine.id === scope.machineId &&
+              machine.status !== 'revoked' &&
+              machine.status !== 'unpaired',
+          )
+        )
+          known.add(id)
+      }
     splitLayoutActions.prune(known)
     keepAliveActions.keepOnly(known)
-  }, [sessions])
+  }, [navigation.sessions, machines, spaceStore.spaces, createdSessionKeys])
 
   // Late-bound so the global key handler (registered before the session
   // starters exist) can still open the new-session rail.
@@ -615,7 +751,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   // New sessions start in the mode Settings → Permissions names; without this
   // the seed above never left `ask`, whatever the setting said.
-  const engineSettings = useEngineSettings()
   const openSourceControl = useCallback(
     (
       tab: 'changes' | 'requests' = 'changes',
@@ -642,11 +777,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [sessions, activityOf, attentionCountOf],
   )
   const ariaStartedIds = useMemo(
-    () => new Set(sessions.filter(startedByAria).map((session) => session.id)),
-    [sessions],
+    () => new Set(ariaEnabled ? sessions.filter(startedByAria).map((session) => session.id) : []),
+    [sessions, ariaEnabled],
   )
   const openAria = useCallback(
     (newChat = false): void => {
+      if (!ariaEnabled) return
       // The pinned row is navigation, just like any other known session.
       // Discovery scans every saved journal and must not hold up switching
       // back to the Aria chat the shell has already listed.
@@ -663,6 +799,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       const request = newChat ? rpc.invoke('aria.newChat') : rpc.invoke('aria.open', defaults)
       void request
         .then(async ({ sessionId }) => {
+          if (!ariaEnabledRef.current) return
           if (newChat)
             for (const session of sessions)
               if (isHelmSession(session) && !session.archived) forget(session.id)
@@ -677,6 +814,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           selectSessionRef.current(sessionId)
         })
         .catch((error: unknown) => {
+          if (!ariaEnabledRef.current) return
           log.warn('Aria could not open', error)
           toast({
             tone: 'danger',
@@ -685,7 +823,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           })
         })
     },
-    [defaults, reloadSessions, toast, sessions, forget],
+    [defaults, reloadSessions, toast, sessions, forget, ariaEnabled],
   )
   const openAriaRef = useRef(openAria)
   openAriaRef.current = openAria
@@ -699,7 +837,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       engineSettings.settings === null
     )
       return
-    if (onboardingOutcome?.sessionId != null) {
+    if (onboardingOutcome?.sessionId != null || onboardingOutcome?.projectId != null) {
       landed.current = true
       return
     }
@@ -715,6 +853,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     providersReady,
     engineSettings.settings,
     onboardingOutcome?.sessionId,
+    onboardingOutcome?.projectId,
   ])
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
@@ -751,10 +890,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   }, [])
 
   const commands = useCommands({
-    onOpenAria: () => {
-      openAria()
-      setPaletteOpen(false)
-    },
+    onOpenAria: ariaEnabled
+      ? () => {
+          openAria()
+          setPaletteOpen(false)
+        }
+      : undefined,
     onNavigate: (view) => {
       if (view === 'settings') {
         setHubOpen(false)
@@ -790,6 +931,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
+      if (remoteActive) {
+        toast({ tone: 'info', title: 'Content search is unavailable on this host.' })
+        return
+      }
       leaveWorkspaceTool()
       setSearchOpen(true)
       setPaletteOpen(false)
@@ -824,9 +969,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const navOrder = useMemo(
     () =>
       sidebarView === 'sessions'
-        ? sessionsViewOrder(sessions)
-        : sidebarOrder(sessions, openProjects),
-    [sessions, openProjects, sidebarView, collapsedChildren],
+        ? sessionsViewOrder(navigation.sessions)
+        : sidebarOrder(navigation.sessions, navigation.sidebarProjects),
+    [navigation.sessions, navigation.sidebarProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -843,7 +988,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     let cancelled = false
     if (onboardingOutcome.driverKind !== null)
       rememberPick({ driverKind: onboardingOutcome.driverKind, modelId: null, effort: null })
+    if (onboardingOutcome.projectId !== null) {
+      const owner = splitLayoutSnapshot()
+      setOnboardingDraft({
+        projectId: onboardingOutcome.projectId,
+        generation: navigationGeneration.current,
+        spaceId: spaceStoreSnapshot().activeSpaceId,
+        paneId: activePaneOf(owner),
+        sessionId: activeSessionOf(owner),
+      })
+    } else setOnboardingDraft(null)
     refreshProjects()
+    void refreshInventory()
     void reloadSessions()
       .then(() => {
         if (!cancelled && onboardingOutcome.sessionId !== null)
@@ -860,7 +1016,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => {
       cancelled = true
     }
-  }, [onboardingOutcome, reloadSessions, refreshProjects, rememberPick, toast])
+  }, [onboardingOutcome, reloadSessions, refreshProjects, refreshInventory, rememberPick, toast])
 
   // Sidebar order is the stored registry order: slot the project before
   // `beforeId` (null = last). Applied optimistically so the spring tracks the
@@ -899,7 +1055,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         e.preventDefault()
         setPaletteOpen((o) => !o)
       }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
+      if (ariaEnabled && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '0') {
         e.preventDefault()
         openAriaRef.current()
         return
@@ -1018,6 +1174,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => window.removeEventListener('keydown', onKey)
   }, [
     setupCovered,
+    ariaEnabled,
     paletteOpen,
     settingsOpen,
     hubOpen,
@@ -1055,7 +1212,97 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       } else intent.dispose()
     },
   })
-  const createSession = sessionStart.create
+  const openProjectDraft = useCallback(
+    (group: RepositoryGroup, lead = false, initialHostId?: string) => {
+      if (draftRegistry.error) {
+        toast({ tone: 'warning', title: draftRegistry.error })
+        return
+      }
+      const currentSpace = spaceStoreSnapshot().activeSpaceId
+      const paneId = activePaneOf(splitLayoutSnapshot())
+      const existing = projectDrafts.find(
+        (entry) =>
+          entry.groupId === group.id &&
+          entry.spaceId === currentSpace &&
+          localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) !== null,
+      )
+      const entry: ProjectDraftEntry = existing
+        ? { ...existing, paneId }
+        : {
+            id: crypto.randomUUID(),
+            groupId: group.id,
+            group,
+            spaceId: currentSpace,
+            paneId,
+            initialHostId,
+            lead,
+          }
+      const next = [...projectDrafts.filter((draft) => draft.id !== entry.id), entry]
+      try {
+        writeProjectDrafts(next)
+      } catch {
+        toast({
+          tone: 'warning',
+          title: 'Save project drafts before starting. Free browser storage and try again.',
+        })
+        return
+      }
+      setProjectDrafts(next)
+      splitLayoutActions.clear(paneId)
+      setNewSessionRequest(null)
+      leaveWorkspaceTool()
+      setFullPage(null)
+      setInspector(null)
+    },
+    [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool],
+  )
+  useEffect(() => {
+    if (onboardingDraft === null) return
+    if (
+      onboardingDraft.generation !== navigationGeneration.current ||
+      onboardingDraft.spaceId !== spaceStore.activeSpaceId ||
+      onboardingDraft.paneId !== activePaneOf(layout) ||
+      onboardingDraft.sessionId !== activeSessionOf(layout)
+    ) {
+      setOnboardingDraft(null)
+      return
+    }
+    // project.list can win the parallel refresh before repository identity.
+    // Freeze the draft group only after the selected local checkout is catalogued.
+    if (
+      !inventoryReady ||
+      !local?.catalog.projects.some((project) => project.id === onboardingDraft.projectId)
+    )
+      return
+    const group = navigation.groups.find((entry) =>
+      entry.checkouts.some(
+        (checkout) => checkout.local && checkout.projectId === onboardingDraft.projectId,
+      ),
+    )
+    if (!group) return
+    setOnboardingDraft(null)
+    openProjectDraft(group, false, 'local')
+  }, [
+    onboardingDraft,
+    navigation.groups,
+    openProjectDraft,
+    spaceStore.activeSpaceId,
+    layout,
+    inventoryReady,
+    local,
+  ])
+  const createSession = useCallback(
+    (projectId: string, overrides?: Partial<SessionDefaults>) => {
+      const group = navigation.groups.find(
+        (entry) =>
+          entry.id === projectId ||
+          entry.checkouts.some((checkout) => checkout.local && checkout.projectId === projectId),
+      )
+      if (group) openProjectDraft(group, overrides?.lead, newSessionRequest?.preferredHostId)
+      else toast({ tone: 'warning', title: 'Refresh projects before opening this draft.' })
+    },
+    [navigation.groups, openProjectDraft, newSessionRequest?.preferredHostId, toast],
+  )
 
   /**
    * Single door for every "new session" affordance. A session always belongs
@@ -1075,14 +1322,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
-      if (projects.length === 0) {
-        sessionStart.pickProject(overrides, intent)
-        return
-      }
       intent?.dispose() // The chooser owns the next explicit pick and its focus.
       setNewSessionRequest({ anchor, overrides })
     },
-    [projects.length, sessionStart.canStart, sessionStart.pickProject],
+    [sessionStart.canStart],
   )
 
   /**
@@ -1101,13 +1344,41 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const addProjectAndStart = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
       setNewSessionRequest(null)
-      sessionStart.pickProject(overrides)
+      void openProjectViaPicker()
+        .then((project) => {
+          if (!project) return
+          refreshProjects()
+          void refreshInventory()
+          const group = groupRepositories([
+            {
+              hostId: 'local',
+              hostName: 'This PC',
+              projectId: project.id,
+              name: project.name,
+              checkoutLabel: project.path,
+              local: true,
+              repository: null,
+            },
+          ])[0]!
+          openProjectDraft(group, overrides?.lead, 'local')
+        })
+        .catch((error) =>
+          toast({
+            tone: 'danger',
+            title: 'Could not open the project',
+            description: String(error),
+          }),
+        )
     },
-    [sessionStart.pickProject],
+    [refreshProjects, refreshInventory, openProjectDraft, toast],
   )
 
   const selectWorkspaceTool = useCallback(
-    (id: SidebarNavId): void => {
+    (id: SidebarNavId | 'overview'): void => {
+      if (remoteActive && (id === 'browser' || id === 'usage' || id === 'github')) {
+        toast({ tone: 'info', title: 'This tool is unavailable for the selected machine.' })
+        return
+      }
       if (id === 'settings') {
         setSettingsOpen(true)
         setHubOpen(false)
@@ -1141,18 +1412,32 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       setInspector((prev) => (prev === id ? null : id))
     },
-    [openSourceControl],
+    [openSourceControl, remoteActive, toast],
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const ariaActive = activeSession !== undefined && isHelmSession(activeSession)
+  // Aria's overview is part of her page: it opens beside her chat when there
+  // is room and nothing else is docked, and leaves with her. Once the user
+  // closes it, it stays closed until they ask for it again.
+  const overviewDismissedRef = useRef(false)
+  useEffect(() => {
+    if (!ariaActive) {
+      setInspector((current) => (current === 'overview' ? null : current))
+      return
+    }
+    if (overviewDismissedRef.current || window.innerWidth < OVERVIEW_MIN_WINDOW_WIDTH) return
+    setInspector((current) => current ?? 'overview')
+  }, [ariaActive])
   // The usage chip names the driver of whichever session is active, which in a
   // split is the focused pane's — not the shell's seed for new sessions.
   const activeDriverKind =
     activeSessionId === null ? defaults.driverKind : defaultsFor(activeSessionId).driverKind
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
-  const activeProjectPath =
-    activeSessionId !== null
+  const activeProjectPath = remoteActive
+    ? '.'
+    : activeSessionId !== null
       ? sessionWorkspace?.id === activeSessionId
         ? sessionWorkspace.path
         : null
@@ -1161,27 +1446,45 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // resolves by session id, a project folder by project id. The explorer
   // sends this scope plus relative paths only — absolute paths never cross
   // IPC for fs.* calls.
+  // Memoized on its ids: the explorer and content search reload whenever the
+  // scope changes identity, so a fresh object per render would reset them on
+  // every shell update (the file tree kept re-listing and closed open files).
   const activeScopeProjectId = activeSession?.projectId ?? projects[0]?.id
-  const activeScope =
-    activeSessionId !== null
-      ? sessionWorkspace?.id === activeSessionId
-        ? { sessionId: activeSessionId }
-        : null
-      : activeScopeProjectId !== undefined
-        ? { projectId: activeScopeProjectId }
-        : null
+  const activeWorkspaceReady = activeSessionId !== null && sessionWorkspace?.id === activeSessionId
+  // Keyed on ids, so the file explorer does not reload on every render.
+  const remoteSessionId = remoteActive ? activeSessionScope?.sessionId : undefined
+  const activeScope = useMemo(
+    () =>
+      remoteSessionId !== undefined
+        ? { sessionId: remoteSessionId }
+        : activeSessionId !== null
+          ? activeWorkspaceReady
+            ? { sessionId: activeSessionId }
+            : null
+          : activeScopeProjectId !== undefined
+            ? { projectId: activeScopeProjectId }
+            : null,
+    [remoteSessionId, activeSessionId, activeWorkspaceReady, activeScopeProjectId],
+  )
   const changesSessionId = changesContext ? (changesContext.sessionId ?? null) : activeSessionId
+  const changesClientScope = changesContext
+    ? changesContext.sessionId
+      ? parseSessionViewKey(changesContext.sessionId)
+      : null
+    : activeSessionScope
+  const changesWireSessionId = changesClientScope?.sessionId ?? changesSessionId
   const changesProjectId = changesContext?.projectId ?? activeSession?.projectId ?? null
   const changesScope = changesContext
     ? changesContext.sessionId
-      ? { sessionId: changesContext.sessionId }
+      ? changesClientScope
+        ? { sessionId: changesClientScope.sessionId }
+        : null
       : { projectId: changesContext.projectId }
     : activeScope
   const sourceControlScope =
     inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
       ? changesScope
       : activeScope
-  const changeSummary = useSourceControl(sourceControlScope, 'summary')
   useAppNavigation({
     userIntent: () => {
       navigationGeneration.current++
@@ -1206,6 +1509,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         const session = next.find((session) => session.id === target.sessionId && !session.archived)
         if (
           !session ||
+          (!ariaEnabled && isHelmSession(session)) ||
           (target.view === 'aria' && !isHelmSession(session)) ||
           (target.view === 'changes' && session.projectId !== target.projectId)
         )
@@ -1251,85 +1555,255 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
   const shellRoot = useMemo(
-    () => shellRootFor(activeSession, activeProjectPath, projects),
-    [activeSession, activeProjectPath, projects],
+    () => (remoteActive ? null : shellRootFor(activeSession, activeProjectPath, projects)),
+    [remoteActive, activeSession, activeProjectPath, projects],
   )
+  const localProjectIdFor = (groupId: string): string | null => {
+    const group = navigation.groups.find((entry) => entry.id === groupId)
+    if (!group) return projects.some((project) => project.id === groupId) ? groupId : null
+    const local = group.checkouts.filter((checkout) => checkout.local)
+    return local.length === 1 ? local[0]!.projectId : null
+  }
   const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const finishProjectDraft = (entry: ProjectDraftEntry, scope: SessionScope) => {
+    const key = sessionViewKey(scope)
+    setCreatedSessionKeys((old) => new Set(old).add(key))
+    const owner = projectDraftsRef.current.find((draft) => draft.id === entry.id)
+    const stillOwnsPane =
+      owner?.paneId === entry.paneId &&
+      owner.spaceId === entry.spaceId &&
+      !projectDraftsRef.current.some(
+        (draft) =>
+          draft.id !== entry.id && draft.spaceId === entry.spaceId && draft.paneId === entry.paneId,
+      )
+    spaceActions.update((store) => ({
+      ...store,
+      spaces: store.spaces.map((space) =>
+        stillOwnsPane &&
+        space.id === entry.spaceId &&
+        leaves(space.layout.root).find((pane) => pane.paneId === entry.paneId)?.sessionId === null
+          ? { ...space, layout: assignSession(space.layout, entry.paneId, key) }
+          : space,
+      ),
+    }))
+    const next = projectDraftsRef.current.filter((draft) => draft.id !== entry.id)
+    try {
+      writeProjectDrafts(next)
+      setProjectDrafts(next)
+    } catch {
+      /* Retain the original draft metadata if storage refused. */
+    }
+    deleteSessionDraftText(`project-draft:${entry.id}`)
+    deleteSessionDraftIntent(`project-draft:${entry.id}`)
+    refreshSessions()
+    void refreshInventory()
+  }
+  const renderProjectDraft = (spaceId: string, paneId: string) => {
+    const entry = [...projectDrafts]
+      .reverse()
+      .find((draft) => draft.spaceId === spaceId && draft.paneId === paneId)
+    if (!entry) return undefined
+    return (
+      <ProjectDraftPane
+        key={entry.id}
+        entry={entry}
+        projects={projects}
+        defaults={defaults}
+        createLocal={sessionStart.createDraft}
+        onCreated={(scope, seed) => {
+          if (seed) setDraftHandoff({ entry, scope, seed })
+          else finishProjectDraft(entry, scope)
+        }}
+        onClose={() => {
+          const next = projectDrafts.map((draft) =>
+            draft.id === entry.id ? { ...draft, paneId: `parked:${draft.id}` } : draft,
+          )
+          try {
+            writeProjectDrafts(next)
+            setProjectDrafts(next)
+          } catch {
+            toast({
+              tone: 'warning',
+              title: 'The draft could not be parked. Its content remains here.',
+            })
+          }
+        }}
+      />
+    )
+  }
   // Every space's panes, not only the one on screen: a terminal hosted in
   // another space must not also appear as a rail tab that can close it.
   const paneTerminalIds = useMemo(
     () => new Set(spaceStore.spaces.flatMap((space) => terminalIdsInPanes(space.layout))),
     [spaceStore.spaces],
   )
+  const canOpenTerminalInPane = (paneId: string): boolean => {
+    const pane = spaceStore.spaces
+      .flatMap((space) => leaves(space.layout.root))
+      .find((leaf) => leaf.paneId === paneId)
+    if (!pane?.sessionId) return false
+    const scope = parseSessionViewKey(pane.sessionId)
+    return (
+      scope !== null &&
+      (scope.kind === 'local' ||
+        machines.find((machine) => machine.id === scope.machineId)?.allowTerminal === true) &&
+      createSessionClient(scope).capabilityReason('terminal.create') === null
+    )
+  }
   const openTerminalInPane = useCallback(
     (paneId: string) => {
-      if (shellRoot === null) return
-      const id = openTerminalTab({ title: 'Ari Terminal', cwd: shellRoot })
-      splitLayoutActions.assignTerminal(paneId, id)
+      const origin = spaceStoreSnapshot().spaces.find((space) =>
+        leaves(space.layout.root).some((pane) => pane.paneId === paneId),
+      )
+      const key =
+        origin && leaves(origin.layout.root).find((pane) => pane.paneId === paneId)?.sessionId
+      const scope = key ? parseSessionViewKey(key) : null
+      if (!origin || !scope) return
+      const client = createSessionClient(scope)
+      const reason = client.capabilityReason('terminal.create')
+      if (reason) {
+        toast({ tone: 'info', title: reason })
+        return
+      }
+      void (async () => {
+        try {
+          const cwd =
+            scope.kind === 'remote'
+              ? '.'
+              : (await client.invoke('session.workspace', { sessionId: scope.sessionId })).path
+          if (!cwd || client.capabilityReason('terminal.create')) return
+          // A late workspace result cannot replace a different pane or follow focus to another host.
+          const current = spaceStoreSnapshot().spaces.find((space) => space.id === origin.id)
+          if (
+            !current ||
+            leaves(current.layout.root).find((pane) => pane.paneId === paneId)?.sessionId !== key
+          )
+            return
+          const id = openTerminalTab({
+            title: 'Ari Terminal',
+            cwd,
+            ...(scope.kind === 'remote' ? { owner: scope } : {}),
+          })
+          spaceActions.update((store) => ({
+            ...store,
+            spaces: store.spaces.map((space) =>
+              space.id === origin.id
+                ? { ...space, layout: assignTerminal(space.layout, paneId, id) }
+                : space,
+            ),
+          }))
+        } catch (error) {
+          toast({
+            tone: 'danger',
+            title: 'Could not open the terminal',
+            description: String(error),
+          })
+        }
+      })()
     },
-    [shellRoot],
+    [toast],
   )
 
   if (galleryOpen) {
     return (
-      <div className="ari-wallpaper-pane flex h-full flex-col bg-bg">
-        <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-3">
-          <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
-          <span className="text-fg-subtle text-xs">/</span>
-          <span className="text-fg-muted text-xs">Component gallery</span>
+      <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
+        <header
+          className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-4 text-sm"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        >
+          <span className="text-fg-subtle">Ari</span>
+          <span className="text-fg-subtle opacity-50">/</span>
+          <span className="font-medium text-fg">Component gallery</span>
           <div className="flex-1" />
           <button
             type="button"
             onClick={() => setGalleryOpen(false)}
-            className="mr-3 flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={`${outlineButton} mr-[150px]`}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
-            ← Back to workspace
+            Back to workspace
           </button>
         </header>
-        <div className="min-h-0 flex-1">
+        <div className="ari-stage mx-[var(--ari-frame-gap)] mb-[var(--ari-frame-gap)] min-h-0 flex-1">
           <GalleryView />
         </div>
       </div>
     )
   }
 
+  const activeTool = settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)
+  const activeProjectName =
+    activeSession === undefined || activeSession.projectId === UNFILED_GROUP_ID
+      ? null
+      : (projects.find((project) => project.id === activeSession.projectId)?.name ?? null)
+  const titlebarPlace: TitlebarPlace | null = hubOpen
+    ? { context: null, title: 'Pull requests and issues' }
+    : fullPage === 'usage'
+      ? { context: null, title: 'Usage' }
+      : fullPage !== null
+        ? { context: activeProjectName, title: 'Changes' }
+        : activeSession === undefined
+          ? null
+          : isHelmSession(activeSession)
+            ? { context: null, title: 'Aria' }
+            : { context: activeProjectName, title: activeSession.title || 'New session' }
+
   return (
-    <div className="ari-wallpaper-pane flex h-full flex-col">
-      <Titlebar
-        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
+    <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
+      <ScopedTitlebar
+        scope={
+          inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
+            ? changesClientScope
+            : activeSessionScope
+        }
+        gitScope={sourceControlScope}
+        hideGit={workspaceToolOpen}
+        onReview={() => openSourceControl('changes')}
+        onRequests={() => openSourceControl('requests')}
+        activeTool={activeTool}
         onSelectTool={selectWorkspaceTool}
-        changeCount={changeSummary.summary?.changedFiles ?? null}
-        git={
-          sourceControlScope && changeSummary.summary ? (
-            <GitControl
-              scope={sourceControlScope}
-              summary={changeSummary.summary}
-              refresh={changeSummary.refresh}
-              onReview={() => openSourceControl('changes')}
-              onPullRequests={() => openSourceControl('requests')}
+        leading={
+          sidebarOpen && !workspaceToolOpen ? (
+            <SidebarHeader
+              onSearch={() => sidebarSearchRef.current?.focus()}
+              onCollapse={toggleSidebar}
             />
           ) : undefined
         }
-        usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
+        leadingWidth={sidebar.width}
+        place={titlebarPlace}
+        overview={ariaActive}
+        usage={
+          remoteActive ? undefined : (
+            <ProviderUsagePill sessionId={activeSessionId} kind={activeDriverKind} />
+          )
+        }
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
-      {/* Settings and the hub cover the workspace rather than replace it: the
-          sidebar, sessions and terminals stay mounted underneath, so going
-          back is instant and nothing replays. */}
-      {settingsOpen ? (
-        <SettingsWorkspace
-          section={settingsSection}
-          onSectionChange={setSettingsSection}
-          onBack={() => setSettingsOpen(false)}
-          onOpenSetup={onOpenSetup}
-          workspacePath={sessionWorkspace?.path ?? null}
-          onOpenTerminal={() => {
-            setSettingsOpen(false)
-            setFullPage(null)
-            setInspector('terminal')
-          }}
-        />
-      ) : hubOpen ? (
+      {/* Settings opens as a dialog over the workspace, which stays visible
+          and mounted underneath. */}
+      <SettingsDialog
+        // Setup covers the whole window; settings waits underneath until it is done.
+        open={settingsOpen && !setupCovered}
+        onOpenChange={setSettingsOpen}
+        section={settingsSection}
+        onSectionChange={setSettingsSection}
+        onOpenMachine={(machineId) => {
+          setSettingsOpen(false)
+          setHubOpen(false)
+          setNewSessionRequest({ anchor: { x: 24, y: 88 }, preferredHostId: machineId })
+        }}
+        onOpenSetup={onOpenSetup}
+        workspacePath={sessionWorkspace?.path ?? null}
+        onOpenTerminal={() => {
+          setSettingsOpen(false)
+          setFullPage(null)
+          setInspector('terminal')
+        }}
+      />
+      {/* The hub covers the workspace rather than replacing it: the sidebar,
+          sessions and terminals stay mounted underneath. */}
+      {hubOpen ? (
         <HubWorkspace
           projects={projects}
           initialProjectId={activeSession?.projectId ?? projects[0]?.id ?? null}
@@ -1352,51 +1826,64 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               animate={{ width: sidebar.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={sidebar.dragging || reducedMotion ? { duration: 0 } : transitions.sidebar}
-              className="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden bg-surface-0"
+              className="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden pt-1"
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
-              <SidebarHeader
-                onSearch={() => sidebarSearchRef.current?.focus()}
-                onCollapse={toggleSidebar}
-              />
-              <AriaRow
-                selected={isHelmSession(activeSession)}
-                activity={ariaStatus}
-                onOpen={() => openAria()}
-                onNewChat={() => openAria(true)}
-              />
+              {ariaEnabled && (
+                <AriaRow
+                  selected={isHelmSession(activeSession)}
+                  activity={ariaStatus}
+                  onOpen={() => openAria()}
+                  onNewChat={() => openAria(true)}
+                />
+              )}
               <SessionsUnderProjects
-                sessions={sessions}
-                projects={openProjects}
-                knownProjectNames={projects}
+                sessions={navigation.sessions}
+                projects={navigation.sidebarProjects}
+                knownProjectNames={navigation.sidebarProjects}
                 searchInputRef={sidebarSearchRef}
                 searchQuery={sidebarQuery}
                 onSearchQueryChange={setSidebarQuery}
                 onNewSession={beginNewSession}
                 onOpenProject={openProjectViaDialog}
                 onNewSessionInProject={(projectId) => createSession(projectId)}
-                onImportSessions={setImportProjectId}
-                onRevealProject={(projectId) => {
+                onImportSessions={(groupId) => {
+                  const id = localProjectIdFor(groupId)
+                  if (id) setImportProjectId(id)
+                }}
+                onRevealProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const path = projects.find((p) => p.id === projectId)?.path
                   if (path === undefined) return
                   void rpc
                     .invoke('shell.revealPath', { path })
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onCloseProject={(projectId) => {
+                onCloseProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.close', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onRemoveProject={(projectId) => {
+                onRemoveProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.remove', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onReorderProject={moveProject}
-                onMoveProject={(projectId, delta) => {
+                onReorderProject={(groupId, beforeGroupId) => {
+                  const id = localProjectIdFor(groupId)
+                  const before = beforeGroupId ? localProjectIdFor(beforeGroupId) : null
+                  if (id) moveProject(id, before)
+                }}
+                onMoveProject={(groupId, delta) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const move = projectMoveForDelta(
                     openProjects.map((p) => p.id),
                     projectId,
@@ -1404,18 +1891,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   )
                   if (move) moveProject(move.id, move.beforeId)
                 }}
-                onLocateProject={openProjectViaDialog}
+                onLocateProject={(groupId) => {
+                  const id = localProjectIdFor(groupId)
+                  if (id) openProjectViaDialog(id)
+                }}
                 activeSessionId={activeSessionId}
                 startedByAria={(id) => ariaStartedIds.has(id)}
                 activityOf={activityOf}
+                hostOf={(id) => navigation.hosts.get(id)}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
                 onRename={(id, title) => patchSessions([id], { title })}
                 onDelete={(id) => {
-                  const dropped = new Set([id, ...descendantIds(sessions, id)])
+                  const dropped = new Set([id, ...descendantIds(navigation.sessions, id)])
                   for (const gone of dropped) forget(gone)
-                  void rpc
-                    .invoke('session.destroy', { sessionId: id })
+                  void destroyScopedSession(id)
                     // The refreshed list blanks the panes those sessions were in.
                     .then(() => {
                       for (const gone of dropped) {
@@ -1434,14 +1924,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   const dropped = new Set<string>()
                   for (const id of ids) {
                     dropped.add(id)
-                    for (const child of descendantIds(sessions, id)) dropped.add(child)
+                    for (const child of descendantIds(navigation.sessions, id)) dropped.add(child)
                   }
                   for (const gone of dropped) forget(gone)
                   void (async () => {
                     for (const id of ids) {
                       try {
-                        await rpc.invoke('session.destroy', { sessionId: id })
-                        for (const gone of [id, ...descendantIds(sessions, id)]) {
+                        await destroyScopedSession(id)
+                        for (const gone of [id, ...descendantIds(navigation.sessions, id)]) {
                           deleteSessionDraftIntent(gone)
                           deleteSessionDraftText(gone)
                           writeReviewDrafts(gone, [])
@@ -1454,6 +1944,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   })()
                 }}
               />
+              <SidebarFooter activeTool={activeTool} onSelectTool={selectWorkspaceTool} />
             </motion.aside>
           ) : null}
         </AnimatePresence>
@@ -1469,13 +1960,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             tabIndex={0}
             title="Drag to resize · double-click to reset"
             {...sidebar.handleProps}
-            className={`ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-              sidebar.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-            }`}
+            data-dragging={sidebar.dragging ? '' : undefined}
+            className="ari-sidebar-resize -mx-1 w-2 shrink-0 cursor-col-resize focus-visible:outline-none"
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+        <main
+          className={`flex min-w-0 flex-1 flex-col pb-[var(--ari-frame-gap)] pr-[var(--ari-frame-gap)] ${
+            sidebarOpen ? '' : 'pl-[var(--ari-frame-gap)]'
+          }`}
+        >
           <SpaceTabs
             spaces={spaceStore.spaces}
             activeSpaceId={spaceStore.activeSpaceId}
@@ -1493,7 +1987,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               id="space-panel"
               role="tabpanel"
               aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-              className="ari-enter-rise min-h-0 flex-1"
+              className="ari-stage ari-enter-rise min-h-0 flex-1"
             >
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
@@ -1501,32 +1995,36 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 </ErrorBoundary>
               ) : fullPage === 'changes' || fullPage === 'source-control' ? (
                 <ErrorBoundary label="Changes">
-                  <ChangesView
-                    initialTab={sourceControlTab}
-                    onTabChange={setSourceControlTab}
-                    onDock={() => {
-                      setFullPage(null)
-                      setInspector('changes')
-                    }}
-                    onClose={() => setFullPage(null)}
-                    sessionId={changesSessionId}
-                    projectId={changesProjectId}
-                    onRange={
-                      activeSessionId && changesSessionId === activeSessionId
-                        ? attachReviewRange
-                        : undefined
-                    }
-                    onCheckedOut={(path) =>
-                      openCheckedOutWorktree(path, {
-                        open: (folder) => rpc.invoke('project.open', { path: folder }),
-                        refreshProjects,
-                        startSession: (projectId) => {
-                          setFullPage(null)
-                          createSession(projectId)
-                        },
-                      })
-                    }
-                  />
+                  <SessionClientProvider
+                    scope={changesClientScope ?? { kind: 'local', sessionId: '' }}
+                  >
+                    <ChangesView
+                      initialTab={sourceControlTab}
+                      onTabChange={setSourceControlTab}
+                      onDock={() => {
+                        setFullPage(null)
+                        setInspector('changes')
+                      }}
+                      onClose={() => setFullPage(null)}
+                      sessionId={changesWireSessionId}
+                      projectId={changesClientScope?.kind === 'remote' ? null : changesProjectId}
+                      onRange={
+                        activeSessionId && changesSessionId === activeSessionId
+                          ? attachReviewRange
+                          : undefined
+                      }
+                      onCheckedOut={(path) =>
+                        openCheckedOutWorktree(path, {
+                          open: (folder) => rpc.invoke('project.open', { path: folder }),
+                          refreshProjects,
+                          startSession: (projectId) => {
+                            setFullPage(null)
+                            createSession(projectId)
+                          },
+                        })
+                      }
+                    />
+                  </SessionClientProvider>
                 </ErrorBoundary>
               ) : null}
             </div>
@@ -1540,7 +2038,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               id={fullPage === null ? 'space-panel' : undefined}
               role="tabpanel"
               aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-              className="relative min-h-0 min-w-0 flex-1"
+              className="ari-stage min-h-0 min-w-0 flex-1"
             >
               {/* The spaces visited last stay mounted, hidden: switching is a
                     same-frame swap, and every session and terminal in the
@@ -1558,6 +2056,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   >
                     {activeSessionId === null &&
                     paneCount(layout) === 1 &&
+                    !projectDrafts.some(
+                      (draft) =>
+                        draft.spaceId === space.id && draft.paneId === activePaneOf(layout),
+                    ) &&
                     (leaves(layout.root)[0] === undefined ||
                       isBlankLeaf(leaves(layout.root)[0]!)) ? (
                       // Nothing open at all: the welcome panel is still the view.
@@ -1586,13 +2088,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         <SplitView
                           layout={layout}
                           titleOf={(id) => {
-                            const session = sessions.find((s) => s.id === id)
+                            const session = navigation.sessions.find((s) => s.id === id)
                             if (session === undefined) return null
                             if (isHelmSession(session)) return 'Aria'
                             const projectName =
                               session.projectId === UNFILED_GROUP_ID
                                 ? null
-                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                                : (navigation.sidebarProjects.find(
+                                    (p) => p.id === session.projectId,
+                                  )?.name ?? null)
                             return formatPaneTitle(session.title, projectName)
                           }}
                           onFocus={splitLayoutActions.focus}
@@ -1603,7 +2107,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                           onDropSession={splitLayoutActions.dropSession}
                           onDropPane={splitLayoutActions.dropPane}
                           onOpenTerminal={openTerminalInPane}
-                          canOpenTerminal={shellRoot !== null}
+                          canOpenTerminal={canOpenTerminalInPane}
                           terminalTitleOf={(id) =>
                             terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
                           }
@@ -1612,58 +2116,122 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                             return (
                               <ErrorBoundary label="Terminal">
                                 <div className="h-full min-h-0 overflow-hidden">
-                                  <TerminalPane
-                                    key={`${paneId}:${terminalId}`}
-                                    terminalId={terminalId}
-                                    cwd={tab?.cwd ?? shellRoot}
-                                    initialCommand={tab?.command}
-                                    active={visible && paneId === activePaneOf(layout)}
-                                  />
+                                  <SessionClientProvider
+                                    scope={
+                                      tab?.owner?.kind === 'remote'
+                                        ? tab.owner
+                                        : { kind: 'local', sessionId: '' }
+                                    }
+                                  >
+                                    <TerminalPane
+                                      key={`${paneId}:${terminalId}`}
+                                      terminalId={terminalId}
+                                      cwd={tab?.cwd ?? shellRoot}
+                                      initialCommand={tab?.command}
+                                      active={visible && paneId === activePaneOf(layout)}
+                                    />
+                                  </SessionClientProvider>
                                 </div>
                               </ErrorBoundary>
                             )
                           }}
-                          renderSession={(current, paneId) => (
-                            // One view per session, never reused for another: composer
-                            // seeds and review notes belong to the session, not to the
-                            // position it sits in. Recent ones stay mounted, hidden.
-                            <SessionKeepAlive
-                              key={paneId}
-                              poolId={paneId}
-                              sessionId={current}
-                              hidden={!visible}
-                              render={(sessionId, hidden) => (
-                                <SessionView
-                                  sessionId={sessionId}
-                                  onOpenAria={() => openAria()}
-                                  startedByAria={ariaStartedIds.has(sessionId)}
-                                  hidden={hidden}
-                                  onComposerReady={
-                                    composerFocusRequest?.sessionId === sessionId &&
-                                    composerFocusRequest.intent.scope.spaceId === space.id &&
-                                    composerFocusRequest.intent.scope.paneId === paneId
-                                      ? composerFocusRequest.intent.ready
-                                      : undefined
-                                  }
-                                  defaults={defaultsFor(sessionId)}
-                                  onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                  onPick={rememberPick}
-                                  // A child session opens in the pane it was opened from,
-                                  // rather than yanking the whole shell to it.
-                                  onOpenSession={(childId) =>
-                                    splitLayoutActions.assign(paneId, childId)
-                                  }
-                                  activityOf={activityOf}
-                                  childSessions={sessions.filter(
-                                    (session) =>
-                                      session.parentSessionId === sessionId && !session.archived,
-                                  )}
-                                  sessionTitle={sessionTitle}
-                                  parentSession={parentOf(sessions, sessionId)}
-                                />
-                              )}
-                            />
-                          )}
+                          renderSession={(current, paneId) =>
+                            // With Aria switched off her chat is not drawn at all.
+                            sessionsLoadedRef.current &&
+                            (ariaEnabled ||
+                              !listedSessions.some(
+                                (session) => session.id === current && isHelmSession(session),
+                              )) ? (
+                              // One view per session, never reused for another: composer
+                              // seeds and review notes belong to the session, not to the
+                              // position it sits in. Recent ones stay mounted, hidden.
+                              <SessionKeepAlive
+                                key={paneId}
+                                poolId={paneId}
+                                sessionId={current}
+                                canRender={(sessionId) =>
+                                  ariaEnabled ||
+                                  !listedSessions.some(
+                                    (session) => session.id === sessionId && isHelmSession(session),
+                                  )
+                                }
+                                hidden={!visible}
+                                render={(sessionId, hidden) => {
+                                  const scope = parseSessionViewKey(sessionId)
+                                  if (!scope)
+                                    return (
+                                      <div className="p-4 text-sm text-fg-muted" role="status">
+                                        This saved session scope is unavailable.
+                                      </div>
+                                    )
+                                  return (
+                                    <SessionView
+                                      sessionId={scope.sessionId}
+                                      scope={scope}
+                                      onOpenAria={ariaEnabled ? () => openAria() : undefined}
+                                      startedByAria={ariaStartedIds.has(sessionId)}
+                                      ariaStatus={ariaStatus}
+                                      hidden={hidden}
+                                      onComposerReady={
+                                        composerFocusRequest?.sessionId === sessionId &&
+                                        composerFocusRequest.intent.scope.spaceId === space.id &&
+                                        composerFocusRequest.intent.scope.paneId === paneId
+                                          ? composerFocusRequest.intent.ready
+                                          : undefined
+                                      }
+                                      defaults={defaultsFor(sessionId)}
+                                      onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                                      onPick={
+                                        parseSessionViewKey(sessionId)?.kind === 'local'
+                                          ? rememberPick
+                                          : undefined
+                                      }
+                                      // A child session opens in the pane it was opened from,
+                                      // rather than yanking the whole shell to it.
+                                      onOpenSession={(childId) =>
+                                        splitLayoutActions.assign(paneId, childId)
+                                      }
+                                      activityOf={activityOf}
+                                      childSessions={navigation.sessions
+                                        .filter(
+                                          (session) =>
+                                            session.parentSessionId === sessionId &&
+                                            !session.archived,
+                                        )
+                                        .map((session) => ({
+                                          ...session,
+                                          id:
+                                            parseSessionViewKey(session.id)?.sessionId ??
+                                            session.id,
+                                          parentSessionId: session.parentSessionId
+                                            ? (parseSessionViewKey(session.parentSessionId)
+                                                ?.sessionId ?? session.parentSessionId)
+                                            : null,
+                                        }))}
+                                      sessionTitle={sessionTitle}
+                                      parentSession={(() => {
+                                        const parent = parentOf(navigation.sessions, sessionId)
+                                        return parent
+                                          ? {
+                                              ...parent,
+                                              id:
+                                                parseSessionViewKey(parent.id)?.sessionId ??
+                                                parent.id,
+                                            }
+                                          : null
+                                      })()}
+                                    />
+                                  )
+                                }}
+                              />
+                            ) : null
+                          }
+                          renderBlank={(paneId) => renderProjectDraft(space.id, paneId)}
+                          blankTitleOf={(paneId) =>
+                            projectDrafts.find(
+                              (draft) => draft.spaceId === space.id && draft.paneId === paneId,
+                            )?.group.name ?? null
+                          }
                         />
                       </ErrorBoundary>
                     )}
@@ -1683,9 +2251,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   tabIndex={0}
                   title="Drag to resize · double-click to reset"
                   {...dock.handleProps}
-                  className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-                    dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-                  }`}
+                  data-dragging={dock.dragging ? '' : undefined}
+                  className="ari-sidebar-resize w-[var(--ari-frame-gap)] shrink-0 cursor-col-resize focus-visible:outline-none"
                 />
                 <motion.aside
                   initial={{ opacity: 0, x: 12 }}
@@ -1693,79 +2260,112 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
                   role="complementary"
                   aria-label={INSPECTOR_TITLES[inspector]}
-                  className="flex shrink-0 flex-col border-l border-border"
-                  style={{ width: dock.width, maxWidth: '60vw' }}
+                  className="ari-stage flex shrink-0 flex-col"
+                  style={{
+                    width:
+                      inspector === 'overview'
+                        ? Math.min(dock.width, OVERVIEW_MAX_WIDTH)
+                        : dock.width,
+                    maxWidth: '60vw',
+                  }}
                 >
-                  {inspector === 'terminal' ? (
+                  <PanelTabs
+                    tabs={ariaActive ? [OVERVIEW_TAB, ...PANEL_TABS] : PANEL_TABS}
+                    active={inspector}
+                    onSelect={(id) => {
+                      if (id === 'changes') setSourceControlTab('changes')
+                      setInspector(id)
+                    }}
+                    onClose={() => {
+                      // Closing her overview is a choice; it stays closed.
+                      if (inspector === 'overview') overviewDismissedRef.current = true
+                      setInspector(null)
+                    }}
+                  />
+                  {inspector === 'overview' ? (
+                    <div className="min-h-0 flex-1">
+                      <ErrorBoundary label="Overview">
+                        <AriaOverview
+                          sessions={sessions}
+                          activityOf={activityOf}
+                          attentionCountOf={attentionCountOf}
+                          projectNameOf={(projectId) =>
+                            projects.find((project) => project.id === projectId)?.name ?? null
+                          }
+                          onOpen={selectSession}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  ) : inspector === 'terminal' ? (
                     <div className="min-h-0 flex-1">
                       <ErrorBoundary label="Terminal">
-                        <TerminalDock
-                          cwd={shellRoot}
-                          paneTerminalIds={paneTerminalIds}
-                          onAddProject={() => openProjectViaDialog()}
-                          onClose={() => setInspector(null)}
-                        />
+                        <SessionClientProvider
+                          scope={activeSessionScope ?? { kind: 'local', sessionId: '' }}
+                        >
+                          <TerminalDock
+                            cwd={remoteActive ? '.' : shellRoot}
+                            paneTerminalIds={paneTerminalIds}
+                            onAddProject={() => openProjectViaDialog()}
+                            onClose={() => setInspector(null)}
+                          />
+                        </SessionClientProvider>
                       </ErrorBoundary>
                     </div>
                   ) : inspector === 'browser' ? (
                     <div className="min-h-0 flex-1">
                       <ErrorBoundary label="Browser">
                         <BrowserPanel
-                          sessionId={activeSessionId ?? undefined}
+                          sessionId={remoteActive ? undefined : (activeSessionId ?? undefined)}
                           onClose={() => setInspector(null)}
                         />
                       </ErrorBoundary>
                     </div>
                   ) : (
                     <>
-                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                        <span className="text-xs font-medium text-fg">
-                          {INSPECTOR_TITLES[inspector]}
-                        </span>
-                        <div className="flex-1" />
-                        <button
-                          type="button"
-                          aria-label="Close inspector"
-                          onClick={() => setInspector(null)}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
                       <div className="min-h-0 flex-1">
                         {inspector === 'changes' ? (
                           <ErrorBoundary label="Changes">
-                            <ChangesView
-                              initialTab={sourceControlTab}
-                              onTabChange={setSourceControlTab}
-                              onExpand={() => {
-                                setInspector(null)
-                                setFullPage('changes')
-                              }}
-                              sessionId={changesSessionId}
-                              projectId={changesProjectId}
-                              onRange={
-                                activeSessionId && changesSessionId === activeSessionId
-                                  ? attachReviewRange
-                                  : undefined
-                              }
-                              onCheckedOut={(path) =>
-                                openCheckedOutWorktree(path, {
-                                  open: (folder) => rpc.invoke('project.open', { path: folder }),
-                                  refreshProjects,
-                                  startSession: (projectId) => {
-                                    setInspector(null)
-                                    createSession(projectId)
-                                  },
-                                })
-                              }
-                            />
+                            <SessionClientProvider
+                              scope={changesClientScope ?? { kind: 'local', sessionId: '' }}
+                            >
+                              <ChangesView
+                                initialTab={sourceControlTab}
+                                onTabChange={setSourceControlTab}
+                                onExpand={() => {
+                                  setInspector(null)
+                                  setFullPage('changes')
+                                }}
+                                sessionId={changesWireSessionId}
+                                projectId={
+                                  changesClientScope?.kind === 'remote' ? null : changesProjectId
+                                }
+                                onRange={
+                                  activeSessionId && changesSessionId === activeSessionId
+                                    ? attachReviewRange
+                                    : undefined
+                                }
+                                onCheckedOut={(path) =>
+                                  openCheckedOutWorktree(path, {
+                                    open: (folder) => rpc.invoke('project.open', { path: folder }),
+                                    refreshProjects,
+                                    startSession: (projectId) => {
+                                      setInspector(null)
+                                      createSession(projectId)
+                                    },
+                                  })
+                                }
+                              />
+                            </SessionClientProvider>
                           </ErrorBoundary>
                         ) : activeProjectPath && activeScope ? (
-                          <FileExplorer root={activeProjectPath} scope={activeScope} />
+                          <SessionClientProvider
+                            scope={activeSessionScope ?? { kind: 'local', sessionId: '' }}
+                          >
+                            <FileExplorer root={activeProjectPath} scope={activeScope} />
+                          </SessionClientProvider>
                         ) : (
                           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                            Open a project first — the explorer browses its folder.
+                            Open a project to browse its files here.
                           </div>
                         )}
                       </div>
@@ -1800,16 +2400,34 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         commands={commands}
       />
       <ContentSearchOverlay
-        open={searchOpen}
+        open={searchOpen && !remoteActive}
         onClose={() => setSearchOpen(false)}
-        root={activeProjectPath}
-        scope={activeScope}
+        root={remoteActive ? null : activeProjectPath}
+        scope={remoteActive ? null : activeScope}
       />
       {setupCovered ? null : <KeyboardCheatSheet />}
       <NewSessionLauncher
         open={newSessionRequest !== null}
-        projects={projects}
-        sessions={sessions}
+        projects={navigation.sidebarProjects
+          .filter(
+            (project) =>
+              !newSessionRequest?.preferredHostId ||
+              navigation.groups
+                .find((group) => group.id === project.id)
+                ?.checkouts.some(
+                  (checkout) => checkout.hostId === newSessionRequest.preferredHostId,
+                ),
+          )
+          .map((project) => ({
+            ...project,
+            path:
+              project.path ??
+              navigation.groups.find((group) => group.id === project.id)?.label ??
+              'Host checkout',
+            lastOpenedAt: 0,
+            createdAt: 0,
+          }))}
+        sessions={navigation.sessions}
         preferredProjectId={activeSession?.projectId ?? null}
         onCreate={(projectId, lead) => {
           const overrides = newSessionRequest?.overrides
@@ -1818,6 +2436,17 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         onAddProject={() => addProjectAndStart(newSessionRequest?.overrides)}
         onClose={closeNewSessionMenu}
       />
+      {draftHandoff && (
+        <DraftHandoff
+          key={sessionViewKey(draftHandoff.scope)}
+          viewKey={sessionViewKey(draftHandoff.scope)}
+          seed={draftHandoff.seed}
+          onApplied={() => {
+            finishProjectDraft(draftHandoff.entry, draftHandoff.scope)
+            setDraftHandoff(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1828,8 +2457,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <ThemeProvider persistence={themePersistence}>
       <RendererMotion>
         <ToastProvider>
-          <UpdateToastWatcher />
-          {children}
+          <MachinesProvider>
+            <UpdateToastWatcher />
+            {children}
+          </MachinesProvider>
         </ToastProvider>
       </RendererMotion>
     </ThemeProvider>
@@ -1853,6 +2484,7 @@ function RendererMotion({ children }: { children: React.ReactNode }) {
 
 /** Headless: announces provider updates once the toast context exists. */
 function UpdateToastWatcher() {
+  useVoicePlayback()
   useUpdateToasts()
   useAppUpdateToast()
   return null

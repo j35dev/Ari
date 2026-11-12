@@ -33,3 +33,7 @@ export const APP_SHORTCUTS: readonly AppShortcut[] = [
   { id: 'CloseSpace', label: 'Close space', chord: 'Mod+Alt+W' },
   { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
 ]
+
+export function appShortcuts(ariaEnabled = false): readonly AppShortcut[] {
+  return APP_SHORTCUTS.filter((shortcut) => ariaEnabled || shortcut.id !== 'OpenAria')
+}

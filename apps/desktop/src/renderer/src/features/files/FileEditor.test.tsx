@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -47,7 +47,7 @@ describe('FileEditor', () => {
     await waitFor(() => expect(buffer).toHaveValue('hello'))
 
     await user.type(buffer, '!')
-    expect(screen.getByText('unsaved changes')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() =>
@@ -59,10 +59,81 @@ describe('FileEditor', () => {
     )
     expect(onSaved).toHaveBeenCalledOnce()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled())
-    expect(screen.queryByText('unsaved changes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
   })
 
-  it('cancel closes without writing, discarding edits', async () => {
+  it('closes straight away when there is nothing to lose', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockResolvedValue({ content: 'clean', truncated: false })
+    const onClose = vi.fn()
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={onClose} />)
+    await screen.findByRole('textbox', { name: 'File contents' })
+
+    await user.click(screen.getByRole('button', { name: 'Close file' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('asks before discarding unsaved edits, and can go back to editing', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockResolvedValue({ content: 'draft', truncated: false })
+    const onClose = vi.fn()
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={onClose} />)
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('draft'))
+    await user.type(buffer, '!')
+
+    await user.click(screen.getByRole('button', { name: 'Close file' }))
+    expect(onClose).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument()
+    expect(buffer).toHaveValue('draft!')
+  })
+
+  it('saves with Ctrl+S', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method: string) => {
+      if (method === 'fs.readTextFile') return { content: 'a', truncated: false }
+      return { bytesWritten: 2 }
+    })
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('a'))
+
+    await user.type(buffer, 'b{Control>}s{/Control}')
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('fs.writeTextFile', {
+        ...SCOPE,
+        path: PATH,
+        content: 'ab',
+      }),
+    )
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('keeps Windows line endings when it saves', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method: string) => {
+      if (method === 'fs.readTextFile') return { content: 'one\r\ntwo', truncated: false }
+      return { bytesWritten: 9 }
+    })
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('one\ntwo'))
+    expect(screen.getByText('CRLF')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    await user.type(buffer, '!')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('fs.writeTextFile', {
+        ...SCOPE,
+        path: PATH,
+        content: 'one\r\ntwo!',
+      }),
+    )
+  })
+
+  it('discards edits without writing once the user confirms', async () => {
     const user = userEvent.setup()
     invokeMock.mockResolvedValue({ content: 'saved version', truncated: false })
     const onClose = vi.fn()
@@ -71,13 +142,11 @@ describe('FileEditor', () => {
     await waitFor(() => expect(buffer).toHaveValue('saved version'))
 
     await user.type(buffer, ' discarded')
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Close file' }))
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }))
 
     expect(onClose).toHaveBeenCalledOnce()
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      'fs.writeTextFile',
-      expect.anything(),
-    )
+    expect(invokeMock).not.toHaveBeenCalledWith('fs.writeTextFile', expect.anything())
   })
 
   it('surfaces read failures (binary or over-cap files) as an alert', async () => {
@@ -92,7 +161,7 @@ describe('FileEditor', () => {
     invokeMock.mockResolvedValue({ content: 'only the head', truncated: true })
     render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('edit cap')
+    expect(await screen.findByRole('alert')).toHaveTextContent('edit limit')
     expect(screen.queryByRole('textbox', { name: 'File contents' })).not.toBeInTheDocument()
   })
 
@@ -113,5 +182,60 @@ describe('FileEditor', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'path escapes registered project folders',
     )
+  })
+
+  it('shows a host file in the normal preview and refuses edits or save', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockResolvedValue({ content: 'host content', truncated: false })
+    render(
+      <FileEditor
+        scope={{ sessionId: 'sess_host' }}
+        path={PATH}
+        onClose={() => undefined}
+        readOnlyReason="File editing is unavailable on this machine."
+      />,
+    )
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('host content'))
+    expect(buffer).toHaveAttribute('readonly')
+    await user.type(buffer, ' changed')
+    expect(buffer).toHaveValue('host content')
+    expect(screen.getByRole('status')).toHaveTextContent('File editing is unavailable')
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+    await user.click(save)
+    expect(invokeMock).not.toHaveBeenCalledWith('fs.writeTextFile', expect.anything())
+  })
+
+  it('does not apply an old save response to a newly selected host file', async () => {
+    const user = userEvent.setup()
+    let finishSave!: () => void
+    invokeMock.mockImplementation(async (method: string, params: unknown) => {
+      if (method === 'fs.readTextFile')
+        return { content: (params as { path: string }).path, truncated: false }
+      if (method === 'fs.writeTextFile')
+        return new Promise<void>((resolve) => {
+          finishSave = resolve
+        })
+      throw new Error('unexpected method')
+    })
+    const onSaved = vi.fn()
+    const view = render(
+      <FileEditor scope={SCOPE} path="first.ts" onClose={() => undefined} onSaved={onSaved} />,
+    )
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('first.ts'))
+    await user.type(buffer, '!')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    view.rerender(
+      <FileEditor scope={SCOPE} path="second.ts" onClose={() => undefined} onSaved={onSaved} />,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('second.ts'),
+    )
+    await act(async () => finishSave())
+    expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('second.ts')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(onSaved).not.toHaveBeenCalled()
   })
 })

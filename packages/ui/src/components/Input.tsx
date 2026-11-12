@@ -12,20 +12,13 @@ export interface InputProps extends ComponentProps<'input'> {
  * the wrapper via focus-within. `ref` and all native input props forward to
  * the underlying <input>; `className` styles the wrapper.
  */
-export function Input({
-  invalid = false,
-  leading,
-  trailing,
-  className,
-  ref,
-  ...rest
-}: InputProps) {
+export function Input({ invalid = false, leading, trailing, className, ref, ...rest }: InputProps) {
   const wrapperClass = [
-    'flex h-9 items-center gap-1.5 rounded-md border bg-surface-1 px-2.5',
-    'transition-shadow focus-within:ring-2',
+    'flex h-8 items-center gap-1.5 rounded-md border bg-surface-1 px-2.5 text-[13px]',
+    'transition-[border-color,box-shadow] focus-within:ring-2',
     invalid
-      ? 'border-danger focus-within:ring-danger'
-      : 'border-border focus-within:ring-accent-ring',
+      ? 'border-danger focus-within:ring-danger/40'
+      : 'border-border hover:border-border-strong focus-within:border-border-strong focus-within:ring-accent-ring',
     className,
   ]
     .filter((v): v is string => v != null)
@@ -40,7 +33,7 @@ export function Input({
         {...rest}
         ref={ref}
         aria-invalid={invalid || rest['aria-invalid'] || undefined}
-        className="h-full min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-subtle disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle disabled:cursor-not-allowed disabled:opacity-50"
       />
       {trailing != null && (
         <span className="flex shrink-0 items-center text-fg-subtle">{trailing}</span>

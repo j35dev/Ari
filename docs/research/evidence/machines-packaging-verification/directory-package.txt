@@ -1,0 +1,18 @@
+{"resourceGate":{"commitHeadroomBytes":10760101888,"cFreeBytes":21454270464}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-directory-package","pid":32328,"startedAt":"2026-11-12T16:06:53.741Z","id":"828c12f5-8ba2-438b-bf80-82c62933768b"}
+  • electron-builder  version=26.15.3 os=10.0.26200
+  • loaded configuration  file=D:\Projects\Ari-machines\apps\desktop\electron-builder.yml
+  • author is missed in the package.json  appPackageFile=D:\Projects\Ari-machines\apps\desktop\package.json
+  • skipped dependencies rebuild  reason=npmRebuild is set to false
+  • packaging       platform=win32 arch=x64 electron=43.4.1 appOutDir=D:\Projects\.ari-cache\machines-directory-package\win-unpacked
+  • downloaded      label=electron progress=100%
+  • downloaded electron zip extracted successfully  output=D:\Projects\.ari-cache\machines-directory-package\win-unpacked
+  • searching for node modules  pm=pnpm searchDir=D:\Projects\Ari-machines\apps\desktop
+  • platform-specific optional dependencies not bundled — add them to your project's optionalDependencies if your app requires them (pnpm 10+ does not auto-install transitive platform binaries)  dependencies=["@koromix/koffi-freebsd-arm64@3.0.2","@koromix/koffi-freebsd-ia32@3.0.2","@koromix/koffi-freebsd-x64@3.0.2","@koromix/koffi-linux-ia32@3.0.2","@koromix/koffi-linux-loong64@3.0.2","@koromix/koffi-linux-riscv64@3.0.2","@koromix/koffi-win32-ia32@3.0.2"]
+  • dependency not found on disk  dependencies=["@koromix/koffi-openbsd-ia32@3.0.2","@koromix/koffi-openbsd-x64@3.0.2"]
+  • duplicate dependency references  dependencies=["string-width@4.2.3"]
+  • updating asar integrity executable resource  executablePath=D:\Projects\.ari-cache\machines-directory-package\win-unpacked\ari.exe
+  • downloaded      label=icons-bundle.tar.gz progress=100%
+  • signing with signtool.exe  path=D:\Projects\.ari-cache\machines-directory-package\win-unpacked\ari.exe
+  • signing with signtool.exe  path=D:\Projects\.ari-cache\machines-directory-package\win-unpacked\resources\app.asar.unpacked\node_modules\@lydell\node-pty-win32-x64\prebuilds\win32-x64\conpty\OpenConsole.exe
+{"heavyResult":{"worker":"publication-packaging-directory-package","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","electron-builder","--dir","--win","--x64","--publish","never","--config.directories.output=D:/Projects/.ari-cache/machines-directory-package"],"exitCode":0,"signal":null}}

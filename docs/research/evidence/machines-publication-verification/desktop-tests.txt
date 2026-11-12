@@ -1,0 +1,55 @@
+{"resourceGate":{"commitHeadroomBytes":11248721920,"cFreeBytes":21527195648}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-desktop-tests","pid":33476,"startedAt":"2026-11-12T15:57:11.520Z","id":"b5710b49-397a-4186-8458-fe403e19c12e"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines\apps\desktop
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+(node:30012) Warning: Closing file descriptor 10 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30012) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:30012) Warning: Closing file descriptor 11 on garbage collection
+(node:30012) Warning: Closing file descriptor 12 on garbage collection
+(node:30012) Warning: Closing file descriptor 14 on garbage collection
+(node:30012) Warning: Closing file descriptor 15 on garbage collection
+(node:30012) Warning: Closing file descriptor 16 on garbage collection
+(node:30012) Warning: Closing file descriptor 17 on garbage collection
+(node:30012) Warning: Closing file descriptor 28 on garbage collection
+(node:30012) Warning: Closing file descriptor 27 on garbage collection
+(node:30012) Warning: Closing file descriptor 29 on garbage collection
+(node:30012) Warning: Closing file descriptor 30 on garbage collection
+(node:30012) Warning: Closing file descriptor 31 on garbage collection
+(node:30012) Warning: Closing file descriptor 32 on garbage collection
+(node:30012) Warning: Closing file descriptor 33 on garbage collection
+(node:30012) Warning: Closing file descriptor 35 on garbage collection
+(node:30012) Warning: Closing file descriptor 34 on garbage collection
+(node:30012) Warning: Closing file descriptor 36 on garbage collection
+(node:30012) Warning: Closing file descriptor 37 on garbage collection
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: navigation to another Document
+(node:25944) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:25944) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:25944) Warning: Closing file descriptor 4 on garbage collection
+(node:25944) Warning: Closing file descriptor 6 on garbage collection
+(node:25944) Warning: Closing file descriptor 7 on garbage collection
+(node:28544) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:28544) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:29752) Warning: Closing file descriptor 6 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29752) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:29752) Warning: Closing file descriptor 5 on garbage collection
+
+ Test Files  348 passed | 3 skipped (351)
+      Tests  3768 passed | 4 skipped (3772)
+   Start at  23:57:15
+   Duration  1650.88s (transform 14.41s, setup 294.18s, import 119.34s, tests 532.54s, environment 584.16s)
+
+{"heavyResult":{"worker":"publication-desktop-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":6042128384,"cFreeBytes":22025515008}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"machines-dev\",\"pid\":30132,\"startedAt\":\"2026-11-12T13:08:56.763Z\",\"id\":\"c9e2fb41-efa7-4c77-ab75-2c1d9a6c925c\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":6492037120,"cFreeBytes":22024933376}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"integrated-lint","pid":26332,"startedAt":"2026-11-12T13:36:22.994Z","id":"8088dfb2-b5bb-4d35-b124-373144a559e7"}
+
+> ari@ lint D:\Projects\Ari-machines
+> eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway packages/remote-client && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop/electron.vite.config.ts apps/desktop/vitest.config.ts apps/desktop/postcss.config.js apps/desktop/packaging apps/desktop/src/main apps/desktop/src/preload apps/desktop/src/shared apps/desktop/src/test-setup.dom.ts && eslint apps/desktop/src/renderer apps/desktop/src/assets.d.ts apps/desktop/src/test-env.dom.test.ts apps/desktop/src/test-env.node.test.ts
+
+
+D:\Projects\Ari-machines\apps\desktop\src\main\machine-identity.ts
+  97:63  error  Unsafe usage of ThrowStatement  no-unsafe-finally
+
+✖ 1 problem (1 error, 0 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.
+{"heavyResult":{"worker":"integrated-lint","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","lint"],"exitCode":1,"signal":null}}

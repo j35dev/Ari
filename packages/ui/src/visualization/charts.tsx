@@ -2,18 +2,17 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { VisualizationSpec } from '@ari/contracts/visualization'
 import { pointDetail, type PointDetail } from './interaction'
 
-export const seriesColors = [
-  'accent',
-  'info',
-  'success',
-  'warning',
-  'busy',
-  'danger',
-  'fg-muted',
-  'accent-hover',
-] as const
+/**
+ * Eight categorical hues, defined per colour scheme in visualization.css. A
+ * series keeps its slot whatever else is hidden, and a status token is never
+ * borrowed to stand for a series.
+ */
+export const SERIES_SLOTS = 8
 export const color = (index: number): string =>
-  `var(--ari-${seriesColors[index % seriesColors.length] ?? 'accent'})`
+  `var(--ari-viz-${String((index % SERIES_SLOTS) + 1)})`
+/** Parts past the palette share one neutral, rather than repeating a hue as if it were new. */
+export const partColor = (index: number): string =>
+  index < SERIES_SLOTS ? color(index) : 'var(--ari-viz-other)'
 export const formatNumber = (value: number): string =>
   new Intl.NumberFormat(undefined, {
     maximumSignificantDigits: 4,
@@ -43,10 +42,10 @@ const available = (width: number | null | undefined, fallback: number): number =
   Math.max(MIN_CHART_WIDTH, Math.floor(width ?? fallback))
 /** Cell width fills the space for few columns and stays wide enough to scroll many. */
 export const heatCellWidth = (columnCount: number, room = 500): number =>
-  clamp(room / columnCount, 52, 140)
+  clamp(room / columnCount, 40, 140)
 /**
- * Zero is a neutral full-opacity cell. Other cells share one theme color, so
- * opacity has to cover most of the 0–1 range or a large value looks like a small one.
+ * Zero is a neutral full-opacity cell. Other cells share one hue, so opacity
+ * has to cover most of the 0–1 range or a large value looks like a small one.
  */
 export function heatFillOpacity(value: number, peak: number): number {
   if (value === 0) return 1
@@ -57,16 +56,51 @@ export function heatFillOpacity(value: number, peak: number): number {
 export function heatShowsValue(printed: string, cellWidth: number): boolean {
   return printed.length * 7 <= cellWidth - 8
 }
+
+/** A bar is never thicker than this; the rest of its slot is air. */
+export const MAX_BAR = 24
+/** Marks that touch are parted by this much surface, never by a drawn border. */
+export const GAP = 2
 const W = 640,
-  H = 320,
-  L = 68,
-  R = 24,
-  T = 28,
-  B = 54
-const PH = H - T - B
+  H = 300,
+  L = 52,
+  R = 16,
+  T = 28
+/** The band under the plot: category labels, and the axis title when there is one. */
+const bottom = (xLabel: string | undefined): number => (xLabel ? 52 : 32)
+
+/**
+ * A bar from `base` to `tip` along one axis, rounded at the data end and
+ * square where it meets the baseline.
+ */
+export function barPath(
+  across: number,
+  base: number,
+  tip: number,
+  thickness: number,
+  vertical: boolean,
+): string {
+  const length = Math.abs(tip - base)
+  const r = Math.min(4, thickness / 2, length)
+  const dir = tip >= base ? 1 : -1
+  const a = across,
+    b = across + thickness
+  // Drawn along the value axis, then mapped to x/y for the orientation.
+  const p = (along: number, side: number): string =>
+    vertical ? `${String(side)},${String(along)}` : `${String(along)},${String(side)}`
+  return [
+    `M${p(base, a)}`,
+    `L${p(tip - dir * r, a)}`,
+    `Q${p(tip, a)} ${p(tip, a + r)}`,
+    `L${p(tip, b - r)}`,
+    `Q${p(tip, b)} ${p(tip - dir * r, b)}`,
+    `L${p(base, b)}`,
+    'Z',
+  ].join(' ')
+}
 
 export type Inspect = (text: string) => void
-function Mark({
+export function Mark({
   label,
   inspect,
   children,
@@ -133,33 +167,41 @@ function Axes({
   xLabel,
   yLabel,
   width = W,
+  plotHeight,
 }: {
   yDomain: [number, number]
   ticks: number[]
   xLabel?: string
   yLabel?: string
   width?: number
+  plotHeight: number
 }) {
   return (
     <g className="ari-viz-axis">
       {ticks.map((value, i) => {
-        const y = T + PH - scale(value, yDomain, PH)
+        const y = T + plotHeight - scale(value, yDomain, plotHeight)
         return (
           <g key={i}>
-            <line x1={L} x2={width - R} y1={y} y2={y} />
-            <text x={L - 12} y={y + 4} textAnchor="end">
+            <line
+              className={value === 0 ? 'ari-viz-baseline' : undefined}
+              x1={L}
+              x2={width - R}
+              y1={y}
+              y2={y}
+            />
+            <text x={L - 10} y={y + 4} textAnchor="end">
               {formatNumber(value)}
             </text>
           </g>
         )
       })}
       {xLabel && (
-        <text x={L + (width - L - R) / 2} y={H - 5} textAnchor="middle">
+        <text x={L + (width - L - R) / 2} y={H - 8} textAnchor="middle">
           {short(fitLabel(xLabel, width - L - R), 60)}
         </text>
       )}
       {yLabel && (
-        <text x={L} y={15}>
+        <text x={L} y={13}>
           {short(fitLabel(yLabel, width - L - R), 60)}
         </text>
       )}
@@ -189,8 +231,11 @@ export function CartesianChart({
   const yd = ya.extent
   const count = spec.labels.length
   const bar = spec.type === 'bar'
-  // Many categories scroll sideways rather than squeezing labels into each other.
-  const minStep = bar ? Math.max(48, visible.length * 18 + 16) : 64
+  const B = bottom(spec.xLabel),
+    PH = H - T - B
+  // Many bars scroll sideways rather than thinning to slivers. A line is one shape
+  // however many points it has, so it always fits and its labels thin out instead.
+  const minStep = bar ? Math.max(44, visible.length * 14 + 16) : 0
   const chartWidth = Math.max(available(width, W), L + R + count * minStep)
   const plotWidth = chartWidth - L - R
   const y = (value: number): number => T + PH - scale(value, yd, PH)
@@ -198,8 +243,23 @@ export function CartesianChart({
   const x = (i: number): number =>
     bar ? L + step * (i + 0.5) : L + (count === 1 ? plotWidth / 2 : step * i)
   const baseline = y(0)
-  const group = Math.min(step * 0.72, visible.length * 56)
-  const barWidth = group / Math.max(1, visible.length)
+  const barWidth = Math.min(MAX_BAR, (step * 0.7) / Math.max(1, visible.length) - GAP)
+  const group = (barWidth + GAP) * visible.length - GAP
+  // One series in few columns can afford its numbers on the caps; more would be noise.
+  const capped = bar && visible.length === 1 && count <= 12
+  // Dots on every point crowd a long line; they appear with the pointer instead.
+  const dotted = count <= 16
+  // On a dense line only every nth label is printed; the tooltip names the rest.
+  const stride = bar ? 1 : Math.max(1, Math.ceil(56 / Math.max(step, 1)))
+  const unit = spec.unit ? ` ${spec.unit}` : ''
+  const detail = (i: number, fallback: string): PointDetail => ({
+    title: spec.labels[i] ?? fallback,
+    rows: visible.map((series) => ({
+      label: series.name,
+      value: `${series.values[i] ?? ''}${unit}`,
+      color: color(series.index),
+    })),
+  })
   return (
     <svg
       className="ari-viz-svg"
@@ -212,13 +272,15 @@ export function CartesianChart({
         yDomain={yd}
         ticks={ya.ticks}
         width={chartWidth}
+        plotHeight={PH}
         xLabel={spec.xLabel}
         yLabel={spec.yLabel ?? spec.unit}
       />
       {spec.labels.map((label, i) => {
+        if (i % stride !== 0) return null
         // A line's end labels sit on the plot edge, so they get half a step plus the margin.
         const edge = !bar && count > 1 && (i === 0 || i === count - 1)
-        const room = edge ? step / 2 + (i === 0 ? L : R) - 8 : step - 10
+        const room = edge ? (step * stride) / 2 + (i === 0 ? L : R) - 8 : step * stride - 10
         const text = fitLabel(label, Math.min(room, 200))
         const half = textWidth(text) / 2
         return (
@@ -226,7 +288,7 @@ export function CartesianChart({
             className="ari-viz-axis-label"
             key={i}
             x={clamp(x(i), half + 2, chartWidth - half - 2)}
-            y={H - B + 22}
+            y={H - B + 20}
             textAnchor="middle"
           >
             <title>{label}</title>
@@ -242,66 +304,99 @@ export function CartesianChart({
               <polygon
                 points={`${x(0)},${baseline} ${points} ${x(s.values.length - 1)},${baseline}`}
                 fill="var(--viz-color)"
-                opacity="0.12"
+                opacity="0.1"
               />
             )}
-            {spec.type !== 'bar' && (
+            {!bar && (
               <polyline
                 points={points}
                 fill="none"
                 stroke="var(--viz-color)"
-                strokeWidth="2.5"
+                strokeWidth="2"
                 strokeLinejoin="round"
+                strokeLinecap="round"
               />
             )}
-            {s.values.map((value, i) => (
-              <Mark
-                key={i}
-                label={`${s.name} · ${spec.labels[i] ?? ''}: ${formatNumber(value)}${spec.unit ? ` ${spec.unit}` : ''}`}
-                inspect={inspect}
-                detail={{
-                  title: spec.labels[i] ?? s.name,
-                  rows: visible.map((series) => ({
-                    label: series.name,
-                    value: `${series.values[i] ?? ''}${spec.unit ? ` ${spec.unit}` : ''}`,
-                    color: color(series.index),
-                  })),
-                }}
-              >
-                <line className="ari-viz-crosshair" x1={x(i)} x2={x(i)} y1={T} y2={H - B} />
-                {spec.type !== 'bar' && (
-                  <circle
-                    className="ari-viz-hit-target"
-                    cx={x(i)}
-                    cy={y(value)}
-                    r="13"
-                    fill="transparent"
-                  />
-                )}
-                {spec.type === 'bar' ? (
-                  <rect
-                    x={x(i) - group / 2 + si * barWidth + 1}
-                    y={Math.min(baseline, y(value))}
-                    width={Math.max(1, barWidth - 2)}
-                    height={Math.max(1, Math.abs(baseline - y(value)))}
-                    rx="3"
-                    fill="var(--viz-color)"
-                  />
-                ) : (
-                  <circle
-                    cx={x(i)}
-                    cy={y(value)}
-                    r="4.5"
-                    fill="var(--viz-color)"
-                    stroke="var(--ari-surface-0)"
-                    strokeWidth="2"
-                  />
-                )}
-              </Mark>
-            ))}
+            {bar &&
+              s.values.map((value, i) => {
+                const left = x(i) - group / 2 + si * (barWidth + GAP)
+                const printed = formatNumber(value)
+                return (
+                  <Mark
+                    key={i}
+                    label={`${s.name} · ${spec.labels[i] ?? ''}: ${printed}${unit}`}
+                    inspect={inspect}
+                    detail={detail(i, s.name)}
+                  >
+                    {/* The whole slot answers the pointer, not just the bar inside it. */}
+                    <rect
+                      className="ari-viz-hit-target"
+                      x={left - GAP / 2}
+                      y={T}
+                      width={barWidth + GAP}
+                      height={PH}
+                      fill="transparent"
+                    />
+                    <path
+                      className="ari-viz-shape"
+                      d={barPath(left, baseline, y(value), Math.max(1, barWidth), true)}
+                      fill="var(--viz-color)"
+                    />
+                    {capped && textWidth(printed, 11) <= step - 4 && (
+                      <text
+                        className="ari-viz-value-label"
+                        x={x(i)}
+                        y={value < 0 ? y(value) + 14 : y(value) - 6}
+                        textAnchor="middle"
+                      >
+                        {printed}
+                      </text>
+                    )}
+                  </Mark>
+                )
+              })}
           </g>
         )
       })}
+      {/* A line is read down a column: one pointer position shows every series at that label. */}
+      {!bar &&
+        spec.labels.map((label, i) => {
+          const reach = count > 1 ? step : plotWidth
+          return (
+            <g key={i} className="ari-viz-column" data-viz-detail={pointDetail(detail(i, label))}>
+              <rect
+                className="ari-viz-hit-target"
+                x={x(i) - reach / 2}
+                y={T}
+                width={reach}
+                height={PH}
+                fill="transparent"
+              />
+              <line className="ari-viz-crosshair" x1={x(i)} x2={x(i)} y1={T} y2={T + PH} />
+              {visible.map((s) => {
+                const value = s.values[i] ?? 0
+                return (
+                  <Mark
+                    key={s.index}
+                    label={`${s.name} · ${label}: ${formatNumber(value)}${unit}`}
+                    inspect={inspect}
+                    detail={detail(i, s.name)}
+                  >
+                    <circle
+                      className={dotted ? 'ari-viz-dot' : 'ari-viz-dot ari-viz-dot-quiet'}
+                      cx={x(i)}
+                      cy={y(value)}
+                      r="3.5"
+                      fill={color(s.index)}
+                      stroke="var(--ari-viz-surface)"
+                      strokeWidth="2"
+                    />
+                  </Mark>
+                )
+              })}
+            </g>
+          )
+        })}
     </svg>
   )
 }
@@ -326,6 +421,8 @@ export function ScatterChart({
     yd = ya.extent
   const chartWidth = available(width, W)
   const PW = chartWidth - L - R
+  const B = bottom(spec.xLabel),
+    PH = H - T - B
   return (
     <svg
       className="ari-viz-svg"
@@ -338,6 +435,7 @@ export function ScatterChart({
         yDomain={yd}
         ticks={ya.ticks}
         width={chartWidth}
+        plotHeight={PH}
         xLabel={spec.xLabel}
         yLabel={spec.yLabel}
       />
@@ -349,7 +447,7 @@ export function ScatterChart({
             className="ari-viz-axis-label"
             key={i}
             x={clamp(L + scale(value, xd, PW), half + 2, chartWidth - half - 2)}
-            y={H - B + 22}
+            y={H - B + 20}
             textAnchor="middle"
           >
             {text}
@@ -380,13 +478,13 @@ export function ScatterChart({
                 fill="transparent"
               />
               <circle
+                className="ari-viz-dot"
                 cx={L + scale(p.x, xd, PW)}
                 cy={T + PH - scale(p.y, yd, PH)}
-                r="6"
+                r="5"
                 fill={color(s.index)}
-                fillOpacity="0.8"
-                stroke="var(--ari-surface-0)"
-                strokeWidth="1.5"
+                stroke="var(--ari-viz-surface)"
+                strokeWidth="2"
               />
             </Mark>
           ))}
@@ -414,8 +512,8 @@ export function RadarChart({
   // The web keeps room for side labels; narrow replies shrink the web, never the text.
   const chartWidth = Math.min(640, available(width, 640))
   const radius = clamp((chartWidth / 2 - 96) / 1.22, 56, 110)
-  const center = [chartWidth / 2, radius * 1.22 + 32] as const
-  const chartHeight = center[1] + radius * 1.22 + 44
+  const center = [chartWidth / 2, radius * 1.22 + 28] as const
+  const chartHeight = center[1] + radius * 1.22 + 40
   const labelRoom = chartWidth / 2 - radius * 1.22 - 10
   const point = (i: number, fraction: number): [number, number] => {
     const angle = (i * Math.PI * 2) / spec.labels.length - Math.PI / 2
@@ -470,6 +568,7 @@ export function RadarChart({
             fillOpacity="0.1"
             stroke={color(s.index)}
             strokeWidth="2"
+            strokeLinejoin="round"
           />
           {s.values.map((v, i) => {
             const p = point(i, v / max)
@@ -494,13 +593,21 @@ export function RadarChart({
                   r="12"
                   fill="transparent"
                 />
-                <circle cx={p[0]} cy={p[1]} r="4" fill={color(s.index)} />
+                <circle
+                  className="ari-viz-dot"
+                  cx={p[0]}
+                  cy={p[1]}
+                  r="3.5"
+                  fill={color(s.index)}
+                  stroke="var(--ari-viz-surface)"
+                  strokeWidth="2"
+                />
               </Mark>
             )
           })}
         </g>
       ))}
-      <text className="ari-viz-axis-label" x={center[0]} y={chartHeight - 12} textAnchor="middle">
+      <text className="ari-viz-axis-label" x={center[0]} y={chartHeight - 10} textAnchor="middle">
         Scale 0–{formatNumber(max)}
         {spec.unit ? ` ${spec.unit}` : ''}
       </text>
@@ -509,59 +616,83 @@ export function RadarChart({
 }
 
 type Parts = Extract<VisualizationSpec, { items: { label: string; value: number }[] }>
+
+const CX = 100,
+  CY = 100,
+  OUTER = 92,
+  INNER = 66
+/** A slice from angle `a` to `b`: a wedge when `inner` is 0, a ring segment otherwise. */
+function slicePath(a: number, b: number, inner: number): string {
+  const at = (angle: number, radius: number): string =>
+    `${String(CX + Math.cos(angle) * radius)},${String(CY + Math.sin(angle) * radius)}`
+  const large = b - a > Math.PI ? 1 : 0
+  if (inner === 0)
+    return `M${String(CX)},${String(CY)} L${at(a, OUTER)} A${String(OUTER)},${String(OUTER)} 0 ${String(large)},1 ${at(b, OUTER)} Z`
+  return `M${at(a, OUTER)} A${String(OUTER)},${String(OUTER)} 0 ${String(large)},1 ${at(b, OUTER)} L${at(b, inner)} A${String(inner)},${String(inner)} 0 ${String(large)},0 ${at(a, inner)} Z`
+}
+
 export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect }) {
   const total = spec.items.reduce((sum, item) => sum + item.value, 0)
+  const donut = spec.type === 'donut'
+  const share = (value: number): string => `${formatNumber((value / total) * 100)}%`
   let offset = 0
   return (
     <div className="ari-viz-parts">
-      <svg className="ari-viz-svg" viewBox="0 0 320 280" role="img" aria-label={spec.title}>
+      <svg className="ari-viz-svg" viewBox="0 0 200 200" role="img" aria-label={spec.title}>
         {spec.items.map((item, i) => {
           const fraction = item.value / total,
             start = offset
           offset += fraction
           const a = start * Math.PI * 2 - Math.PI / 2,
             b = offset * Math.PI * 2 - Math.PI / 2
-          const path = `M160,140 L${160 + Math.cos(a) * 102},${140 + Math.sin(a) * 102} A102,102 0 ${fraction > 0.5 ? 1 : 0},1 ${160 + Math.cos(b) * 102},${140 + Math.sin(b) * 102} Z`
           return (
             <Mark
               key={i}
-              label={`${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''} (${formatNumber(fraction * 100)}%)`}
+              label={`${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''} (${share(item.value)})`}
               inspect={inspect}
               detail={{
                 title: item.label,
                 rows: [
-                  { label: spec.unit ?? 'Value', value: item.value, color: color(i) },
-                  { label: 'Share of total', value: `${formatNumber(fraction * 100)}%` },
+                  { label: spec.unit ?? 'Value', value: item.value, color: partColor(i) },
+                  { label: 'Share of total', value: share(item.value) },
                   { label: 'Total', value: total },
                 ],
               }}
             >
-              {spec.type === 'donut' ? (
-                <circle
-                  cx="160"
-                  cy="140"
-                  r="82"
-                  fill="none"
-                  stroke={color(i)}
-                  strokeWidth="40"
-                  strokeDasharray={`${fraction * 2 * Math.PI * 82} ${2 * Math.PI * 82}`}
-                  strokeDashoffset={-start * 2 * Math.PI * 82}
-                  transform="rotate(-90 160 140)"
-                />
-              ) : fraction === 1 ? (
-                <circle cx="160" cy="140" r="102" fill={color(i)} />
+              {fraction >= 0.9999 ? (
+                donut ? (
+                  <circle
+                    className="ari-viz-shape"
+                    cx={CX}
+                    cy={CY}
+                    r={(OUTER + INNER) / 2}
+                    fill="none"
+                    stroke={partColor(i)}
+                    strokeWidth={OUTER - INNER}
+                  />
+                ) : (
+                  <circle className="ari-viz-shape" cx={CX} cy={CY} r={OUTER} fill={partColor(i)} />
+                )
               ) : fraction > 0 ? (
-                <path d={path} fill={color(i)} stroke="var(--ari-surface-0)" strokeWidth="2" />
+                // The stroke is the surface showing through between slices, not an outline.
+                <path
+                  className="ari-viz-shape"
+                  d={slicePath(a, b, donut ? INNER : 0)}
+                  fill={partColor(i)}
+                  stroke="var(--ari-viz-surface)"
+                  strokeWidth={GAP}
+                  strokeLinejoin="round"
+                />
               ) : null}
             </Mark>
           )
         })}
-        {spec.type === 'donut' && (
+        {donut && (
           <g>
-            <text className="ari-viz-total" x="160" y="140" textAnchor="middle">
+            <text className="ari-viz-total" x={CX} y={CY + 4} textAnchor="middle">
               {formatNumber(total)}
             </text>
-            <text className="ari-viz-axis-label" x="160" y="161" textAnchor="middle">
+            <text className="ari-viz-axis-label" x={CX} y={CY + 23} textAnchor="middle">
               <title>{spec.unit ?? 'Total'}</title>
               {short(spec.unit ?? 'Total', 16)}
             </text>
@@ -577,15 +708,16 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
             data-viz-detail={pointDetail({
               title: item.label,
               rows: [
-                { label: spec.unit ?? 'Value', value: item.value, color: color(i) },
-                { label: 'Share of total', value: `${formatNumber((item.value / total) * 100)}%` },
+                { label: spec.unit ?? 'Value', value: item.value, color: partColor(i) },
+                { label: 'Share of total', value: share(item.value) },
               ],
             })}
             onFocus={() => inspect(`${item.label}: ${item.value}`)}
           >
-            <span className="ari-viz-swatch" style={{ background: color(i) }} />
+            <span className="ari-viz-swatch" style={{ background: partColor(i) }} />
             <span className="ari-viz-legend-label">{item.label}</span>
             <strong>{formatNumber(item.value)}</strong>
+            <span className="ari-viz-legend-share">{share(item.value)}</span>
           </button>
         ))}
       </div>
@@ -595,47 +727,55 @@ export function PartsChart({ spec, inspect }: { spec: Parts; inspect: Inspect })
 
 export function FunnelChart({ spec, inspect }: { spec: Parts; inspect: Inspect }) {
   const max = Math.max(...spec.items.map((item) => item.value))
+  const first = spec.items[0]?.value ?? 0
+  const steps = spec.items.length
   return (
     <div className="ari-viz-funnel">
-      {spec.items.map((item, i) => (
-        <div className="ari-viz-funnel-row" key={i}>
-          <span className="ari-viz-funnel-label">{item.label}</span>
-          <div className="ari-viz-funnel-track">
-            <button
-              type="button"
-              className="ari-viz-mark"
-              data-viz-detail={pointDetail({
-                title: item.label,
-                rows: [
-                  { label: spec.unit ?? 'Value', value: item.value, color: color(i) },
-                  { label: 'Of largest step', value: `${formatNumber((item.value / max) * 100)}%` },
-                  ...(i > 0 && (spec.items[i - 1]?.value ?? 0) > 0
-                    ? [
-                        {
-                          label: 'Change from previous',
-                          value: `${formatNumber((item.value / (spec.items[i - 1]?.value ?? 1) - 1) * 100)}%`,
-                        },
-                      ]
-                    : []),
-                ],
-              })}
-              aria-label={`${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''}`}
-              onFocus={() =>
-                inspect(
-                  `${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''}`,
-                )
-              }
-              onMouseEnter={() =>
-                inspect(
-                  `${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''}`,
-                )
-              }
-              style={{ width: `${Math.max(1, (item.value / max) * 100)}%`, background: color(i) }}
-            />
+      {spec.items.map((item, i) => {
+        const label = `${item.label}: ${formatNumber(item.value)}${spec.unit ? ` ${spec.unit}` : ''}`
+        return (
+          <div className="ari-viz-funnel-row" key={i}>
+            <span className="ari-viz-funnel-label">{item.label}</span>
+            <div className="ari-viz-funnel-track">
+              <button
+                type="button"
+                className="ari-viz-mark"
+                data-viz-detail={pointDetail({
+                  title: item.label,
+                  rows: [
+                    { label: spec.unit ?? 'Value', value: item.value, color: color(0) },
+                    {
+                      label: 'Of largest step',
+                      value: `${formatNumber((item.value / max) * 100)}%`,
+                    },
+                    ...(i > 0 && (spec.items[i - 1]?.value ?? 0) > 0
+                      ? [
+                          {
+                            label: 'Change from previous',
+                            value: `${formatNumber((item.value / (spec.items[i - 1]?.value ?? 1) - 1) * 100)}%`,
+                          },
+                        ]
+                      : []),
+                  ],
+                })}
+                aria-label={label}
+                onFocus={() => inspect(label)}
+                onMouseEnter={() => inspect(label)}
+                style={{
+                  width: `${Math.max(1, (item.value / max) * 100)}%`,
+                  background: color(0),
+                  // Stages are ordered, so they step down one hue instead of changing it.
+                  opacity: steps > 1 ? 1 - (i / (steps - 1)) * 0.5 : 1,
+                }}
+              />
+            </div>
+            <strong>{formatNumber(item.value)}</strong>
+            <span className="ari-viz-funnel-rate">
+              {i > 0 && first > 0 ? `${formatNumber((item.value / first) * 100)}%` : ''}
+            </span>
           </div>
-          <strong>{formatNumber(item.value)}</strong>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -651,11 +791,12 @@ export function TreemapChart({
   width?: number | null
 }) {
   const mapWidth = available(width, 600),
-    mapHeight = 280
+    mapHeight = 260
   const items = spec.items
     .map((item, i) => ({ ...item, index: i }))
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value)
+  const whole = spec.items.reduce((sum, part) => sum + part.value, 0)
   const boxes: { x: number; y: number; w: number; h: number; item: (typeof items)[number] }[] = []
   const divide = (list: typeof items, x: number, y: number, w: number, h: number): void => {
     const first = list[0]
@@ -681,6 +822,7 @@ export function TreemapChart({
     }
   }
   divide(items, 0, 0, mapWidth, mapHeight)
+  const largest = items[0]?.value ?? 1
   return (
     <svg
       className="ari-viz-svg"
@@ -697,24 +839,21 @@ export function TreemapChart({
           detail={{
             title: item.label,
             rows: [
-              { label: spec.unit ?? 'Value', value: item.value, color: color(item.index) },
-              {
-                label: 'Share of total',
-                value: `${formatNumber((item.value / spec.items.reduce((sum, part) => sum + part.value, 0)) * 100)}%`,
-              },
+              { label: spec.unit ?? 'Value', value: item.value, color: color(0) },
+              { label: 'Share of total', value: `${formatNumber((item.value / whole) * 100)}%` },
             ],
           }}
         >
+          {/* One hue, deeper where the part is larger; the gap between tiles is surface. */}
           <rect
-            x={x + 1}
-            y={y + 1}
-            width={Math.max(0, w - 2)}
-            height={Math.max(0, h - 2)}
-            rx="3"
-            fill={color(item.index)}
-            fillOpacity="0.16"
-            stroke={color(item.index)}
-            strokeOpacity="0.5"
+            className="ari-viz-shape"
+            x={x + GAP / 2}
+            y={y + GAP / 2}
+            width={Math.max(0, w - GAP)}
+            height={Math.max(0, h - GAP)}
+            rx="4"
+            fill={color(0)}
+            fillOpacity={0.22 + (item.value / largest) * 0.5}
           />
           {w > 56 && h > 34 && (
             <text className="ari-viz-treemap-label" x={x + 10} y={y + 22}>
@@ -722,7 +861,7 @@ export function TreemapChart({
             </text>
           )}
           {w > 56 && h > 54 && (
-            <text className="ari-viz-axis-label" x={x + 10} y={y + 42}>
+            <text className="ari-viz-treemap-value" x={x + 10} y={y + 40}>
               {formatNumber(item.value)}
             </text>
           )}
@@ -746,29 +885,17 @@ export function HeatmapChart({
     max = Math.max(...values),
     peak = Math.max(...values.map(Math.abs))
   const room = available(width, 632)
-  const left = room < 480 ? 96 : 120,
-    cw = heatCellWidth(spec.xLabels.length, room - left - 12),
-    ch = 42,
-    top = 38
-  const mapWidth = left + cw * spec.xLabels.length + 12,
-    mapHeight = top + ch * spec.yLabels.length + 12
+  const left = room < 480 ? 88 : 108,
+    cw = heatCellWidth(spec.xLabels.length, room - left - 4),
+    ch = 36,
+    top = 28
+  const mapWidth = left + cw * spec.xLabels.length + 4,
+    mapHeight = top + ch * spec.yLabels.length + 4
+  // Above and below zero are opposites, so they take opposite hues around a neutral.
+  const positive = 'var(--ari-viz-1)',
+    negative = 'var(--ari-viz-8)'
   return (
     <div>
-      <div className="ari-viz-heatmap-key">
-        <span>Low {formatNumber(min)}</span>
-        <i
-          style={{
-            background:
-              min < 0
-                ? 'linear-gradient(90deg, var(--ari-info), var(--ari-surface-2), var(--ari-accent))'
-                : 'linear-gradient(90deg, var(--ari-surface-2), var(--ari-accent))',
-          }}
-        />
-        <span>
-          High {formatNumber(max)}
-          {spec.unit ? ` ${spec.unit}` : ''}
-        </span>
-      </div>
       <svg
         className="ari-viz-svg"
         viewBox={`0 0 ${mapWidth} ${mapHeight}`}
@@ -781,7 +908,7 @@ export function HeatmapChart({
             key={i}
             className="ari-viz-axis-label"
             x={left + cw * (i + 0.5)}
-            y="24"
+            y="16"
             textAnchor="middle"
           >
             <title>{label}</title>
@@ -810,18 +937,13 @@ export function HeatmapChart({
                 }}
               >
                 <rect
-                  x={left + cw * x + 2}
-                  y={top + ch * y + 2}
-                  width={cw - 4}
-                  height={ch - 4}
+                  className="ari-viz-shape"
+                  x={left + cw * x + GAP / 2}
+                  y={top + ch * y + GAP / 2}
+                  width={cw - GAP}
+                  height={ch - GAP}
                   rx="4"
-                  fill={
-                    value === 0
-                      ? 'var(--ari-surface-2)'
-                      : value < 0
-                        ? 'var(--ari-info)'
-                        : 'var(--ari-accent)'
-                  }
+                  fill={value === 0 ? 'var(--ari-surface-2)' : value < 0 ? negative : positive}
                   fillOpacity={heatFillOpacity(value, peak)}
                 />
                 {heatShowsValue(formatNumber(value), cw) && (
@@ -839,6 +961,21 @@ export function HeatmapChart({
           </g>
         ))}
       </svg>
+      <div className="ari-viz-heatmap-key">
+        <span>{formatNumber(min)}</span>
+        <i
+          style={{
+            background:
+              min < 0
+                ? `linear-gradient(90deg, ${negative}, var(--ari-surface-2), ${positive})`
+                : `linear-gradient(90deg, var(--ari-surface-2), ${positive})`,
+          }}
+        />
+        <span>
+          {formatNumber(max)}
+          {spec.unit ? ` ${spec.unit}` : ''}
+        </span>
+      </div>
     </div>
   )
 }

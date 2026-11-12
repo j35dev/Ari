@@ -1,0 +1,19 @@
+{"resourceGate":{"commitHeadroomBytes":8882921472,"cFreeBytes":21677920256}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-onboarding-races-final","pid":32540,"startedAt":"2026-11-12T14:54:25.079Z","id":"936792aa-261f-4f69-a5df-488f27b19d67"}
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+node : Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+At line:3 char:1
++ node scripts/coordination/run-heavy.mjs integrated-onboarding-races-f ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  22:54:30
+   Duration  16.18s (transform 2.98s, setup 1.50s, import 5.06s, tests 6.71s, environment 2.51s)
+
+{"heavyResult":{"worker":"integrated-onboarding-races-final","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vitest","run","src/renderer/src/App.onboarding.test.tsx","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

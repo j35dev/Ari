@@ -6,6 +6,7 @@ import { Spinner } from '@ari/ui/spinner'
 import { Switch } from '@ari/ui/switch'
 import { driverLabel } from '../composer/agent-mark'
 import { ProviderLogo } from '../composer/provider-logo'
+import { SETTINGS_CAPTION_CLASS, SETTINGS_HINT_CLASS } from '../settings/SettingsSection'
 import { BinaryPathField } from './BinaryPathField'
 import { ProviderAccounts } from './ProviderAccounts'
 import { ProviderSignIn } from './ProviderSignIn'
@@ -39,8 +40,8 @@ export interface ProviderEditorProps {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="border-t border-border/60 px-5 py-4">
-      <h3 className="mb-3 text-xs font-semibold text-fg-muted">{title}</h3>
+    <section aria-label={title} className="border-t border-border px-5 py-4">
+      <h3 className={`mb-2.5 ${SETTINGS_CAPTION_CLASS}`}>{title}</h3>
       {children}
     </section>
   )
@@ -49,8 +50,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-6 py-1.5">
-      <span className="shrink-0 text-sm text-fg-muted">{label}</span>
-      <span className="min-w-0 break-words text-right text-sm text-fg [overflow-wrap:anywhere]">
+      <span className="shrink-0 text-[13px] leading-5 text-fg-subtle">{label}</span>
+      <span className="min-w-0 break-words text-right text-[13px] leading-5 text-fg [overflow-wrap:anywhere]">
         {children}
       </span>
     </div>
@@ -87,7 +88,7 @@ export function ProviderEditor({
   return (
     <div aria-label={`${name} settings`} role="group" className="flex min-w-0 flex-col">
       <header className="flex items-start gap-3 px-5 py-4">
-        <span className="mt-0.5">
+        <span className="flex h-6 shrink-0 items-center">
           <ProviderLogo kind={kind} />
         </span>
         <div className="min-w-0 flex-1">
@@ -95,14 +96,14 @@ export function ProviderEditor({
             <h2 className="truncate text-base font-semibold text-fg">{name}</h2>
             {installed && version !== null && (
               <code
-                className="shrink-0 font-mono text-xs text-fg-subtle"
+                className="shrink-0 font-mono text-[12.5px] text-fg-subtle"
                 title={detection?.version ?? undefined}
               >
                 v{version}
               </code>
             )}
           </div>
-          <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-fg-muted">
+          <p className={`mt-0.5 flex items-start gap-1.5 ${SETTINGS_HINT_CLASS}`}>
             <StatusDot tone={status.tone} />
             <span>
               <span className="font-medium text-fg">{status.headline}</span>
@@ -122,7 +123,7 @@ export function ProviderEditor({
 
       {connection === null ? (
         <Section title="Endpoints">
-          <p className="text-sm leading-relaxed text-fg-muted">
+          <p className={SETTINGS_HINT_CLASS}>
             Ari Core is Ari&apos;s own agent. It needs no CLI and talks to any OpenAI-compatible
             endpoint you add.
           </p>
@@ -145,12 +146,10 @@ export function ProviderEditor({
               onCommit={onBinaryPathChange}
             />
             {installed && detection?.transport != null && (
-              <div className="mt-4 border-t border-border/60 pt-3">
-                <Fact label="How Ari connects">
-                  <span className="text-xs text-fg-muted">{detection.transport.label}</span>
-                </Fact>
+              <div className="mt-4 border-t border-border pt-3">
+                <Fact label="How Ari connects">{detection.transport.label}</Fact>
                 {detection.transport.note != null && (
-                  <p className="mt-1 text-xs leading-relaxed text-warning">
+                  <p className="mt-1 text-[13px] leading-5 text-warning">
                     {detection.transport.note}
                   </p>
                 )}
@@ -160,7 +159,7 @@ export function ProviderEditor({
 
           {!on ? (
             <Section title="Status">
-              <p className="text-sm leading-relaxed text-fg-muted">
+              <p className={SETTINGS_HINT_CLASS}>
                 {name} is off. Ari does not launch it, check its sign-in, or list its models.
                 Sessions that already use it keep their history and cannot run a new turn until it
                 is back on.
@@ -179,7 +178,9 @@ export function ProviderEditor({
                       {install?.operation === 'install' ? 'Installing…' : 'Updating…'}
                     </span>
                   ) : installed ? (
-                    <span className="font-mono text-xs">{detection?.version ?? 'unknown'}</span>
+                    <span className="font-mono text-[12.5px] text-fg-muted">
+                      {detection?.version ?? 'unknown'}
+                    </span>
                   ) : (
                     <span className="text-fg-muted">
                       {checking
@@ -192,19 +193,21 @@ export function ProviderEditor({
                 </Fact>
                 {installed && detection?.updateAvailable === true && !running && (
                   <Fact label="Latest">
-                    <span className="font-mono text-xs">{detection.latestVersion ?? 'newer'}</span>
+                    <span className="font-mono text-[12.5px] text-fg-muted">
+                      {detection.latestVersion ?? 'newer'}
+                    </span>
                   </Fact>
                 )}
                 {installed && detection?.updateAvailable === false && !running && (
-                  <p className="text-xs text-fg-subtle">Up to date.</p>
+                  <p className={SETTINGS_HINT_CLASS}>Up to date.</p>
                 )}
                 {install?.outcome != null && !install.outcome.ok && (
-                  <p role="alert" className="mt-1 text-xs text-danger">
+                  <p role="alert" className="mt-1 text-[13px] leading-5 text-danger">
                     {install.outcome.reason}
                   </p>
                 )}
                 {install?.outcome?.ok === true && (
-                  <p className="mt-1 text-xs text-success">
+                  <p className={`mt-1 ${SETTINGS_HINT_CLASS}`}>
                     {install.operation === 'install' ? 'Installed.' : 'Updated.'}
                   </p>
                 )}
@@ -235,7 +238,7 @@ export function ProviderEditor({
                       onDone={onAuthResolved}
                     />
                   ) : (
-                    <p className="text-xs leading-relaxed text-fg-muted">
+                    <p className={SETTINGS_HINT_CLASS}>
                       {detection?.authStatus === 'authenticated'
                         ? 'A saved sign-in was found. The CLI keeps its own credentials; Ari never reads them.'
                         : (detection?.authReason ??

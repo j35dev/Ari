@@ -4,9 +4,7 @@ import { Field } from './Field'
 
 describe('Field', () => {
   it('associates the label with the control id', () => {
-    render(
-      <Field label="API key">{(p) => <input data-testid="ctl" {...p} />}</Field>,
-    )
+    render(<Field label="API key">{(p) => <input data-testid="ctl" {...p} />}</Field>)
     const ctl = screen.getByTestId('ctl')
     expect(screen.getByLabelText('API key')).toBe(ctl)
     expect(ctl.id).not.toBe('')
@@ -17,9 +15,7 @@ describe('Field', () => {
       <Field label="Name">{(p) => <input data-testid="ctl" {...p} />}</Field>,
     )
     const before = screen.getByTestId('ctl').id
-    rerender(
-      <Field label="Name">{(p) => <input data-testid="ctl" {...p} />}</Field>,
-    )
+    rerender(<Field label="Name">{(p) => <input data-testid="ctl" {...p} />}</Field>)
     expect(screen.getByTestId('ctl').id).toBe(before)
   })
 
@@ -48,9 +44,7 @@ describe('Field', () => {
   })
 
   it('omits aria-describedby when there is no hint or error', () => {
-    render(
-      <Field label="Name">{(p) => <input data-testid="ctl" {...p} />}</Field>,
-    )
+    render(<Field label="Name">{(p) => <input data-testid="ctl" {...p} />}</Field>)
     expect(screen.getByTestId('ctl').getAttribute('aria-describedby')).toBeNull()
     expect(screen.getByTestId('ctl').getAttribute('aria-invalid')).toBeNull()
   })

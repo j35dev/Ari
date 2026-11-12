@@ -19,6 +19,7 @@ let app: AppValue
 beforeEach(() => {
   history.replaceState(null, '', '/')
   app = {
+    computers: [], activeComputer: null, addComputer: vi.fn(), switchComputer: vi.fn(), renameComputer: vi.fn(),
     origin: location.origin,
     booted: true,
     connection: 'revoked',

@@ -58,11 +58,11 @@ describe('oklchToHex', () => {
 describe('measured palette contrast', () => {
   // Regression guard on the exact ratios shipped with the six palettes.
   const expected: Record<string, [number, number, number]> = {
-    obsidian: [16.98, 9.46, 7.86],
+    obsidian: [17.62, 9.22, 8.88],
     graphite: [16.52, 9.21, 9.06],
     nocturne: [16.8, 9.38, 10.43],
     verdant: [16.75, 9.38, 11.07],
-    porcelain: [15.4, 7.16, 5.93],
+    porcelain: [17.32, 8.27, 6.4],
     sandstone: [15.06, 7, 5.7],
   }
 

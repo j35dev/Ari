@@ -36,7 +36,9 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  experimental?: Partial<Settings['experimental']>
   speech?: Partial<Settings['speech']>
+  ariaVoice?: Partial<Settings['ariaVoice']>
   onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
@@ -119,6 +121,7 @@ export class SettingsStore {
       return this.#current
     }
     let migrateDelegationApproval: boolean
+    let migrateFullAuto: boolean
     try {
       const parsed: unknown = JSON.parse(raw)
       this.#current = settingsSchema.parse(parsed)
@@ -130,6 +133,14 @@ export class SettingsStore {
         this.#current = {
           ...this.#current,
           delegation: { ...this.#current.delegation, approvalMode: 'never' },
+        }
+      // Full auto became the default for everyone, once. The same kind of
+      // disk-only marker lets a user choose Ask again afterwards and keep it.
+      migrateFullAuto = (parsed as { fullAutoMigrated?: unknown }).fullAutoMigrated !== true
+      if (migrateFullAuto && this.#current.sessions.defaultPermissionMode !== 'full')
+        this.#current = {
+          ...this.#current,
+          sessions: { ...this.#current.sessions, defaultPermissionMode: 'full' },
         }
     } catch (error) {
       log.warn('settings invalid; preserving file', { error: String(error) })
@@ -150,7 +161,8 @@ export class SettingsStore {
         ...this.#current,
         speech: { ...this.#current.speech, shortcut, dictationShortcut },
       }
-    if (migrateDelegationApproval || migrateShortcut) await this.save(this.#current)
+    if (migrateDelegationApproval || migrateFullAuto || migrateShortcut)
+      await this.save(this.#current)
     this.#loaded = true
     return this.#current
   }
@@ -177,6 +189,8 @@ export class SettingsStore {
       if (error) throw new Error(error)
     }
     const next: Settings = {
+      experimental: { ...this.#current.experimental, ...patch.experimental },
+      ariaVoice: { ...this.#current.ariaVoice, ...patch.ariaVoice },
       speech: { ...this.#current.speech, ...patch.speech },
       onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },
@@ -201,7 +215,11 @@ export class SettingsStore {
     const tmp = `${this.#path}.tmp`
     await writeFile(
       tmp,
-      JSON.stringify({ ...settings, delegationApprovalMigrated: true }, null, 2),
+      JSON.stringify(
+        { ...settings, delegationApprovalMigrated: true, fullAutoMigrated: true },
+        null,
+        2,
+      ),
       'utf8',
     )
     // Atomic on same-volume rename; readers never see a torn file.

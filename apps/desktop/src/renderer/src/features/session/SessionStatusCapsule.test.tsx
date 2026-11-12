@@ -34,7 +34,9 @@ describe('SessionStatusCapsule', () => {
       screen.getByTitle('Input tokens this session: 37,900 (21,000 read from cache)'),
     ).toHaveTextContent('↑ 37.9K')
     expect(screen.getByTitle('Output tokens this session: 12,400')).toHaveTextContent('↓ 12.4K')
-    expect(screen.getByText('37.9K / 200K')).toBeInTheDocument()
+    // The line reads the share; the counts behind it stay in the accessible name.
+    expect(screen.getByLabelText('Context used: 37.9K of 200K')).toHaveTextContent('19% context')
+    expect(screen.getByTitle('Context: 37.9K of 200K tokens (19%)')).toBeInTheDocument()
   })
 
   it('names one turn in the singular', () => {
@@ -52,7 +54,7 @@ describe('SessionStatusCapsule', () => {
       context: null,
       contextWindow: null,
     })
-    // The band stays in the document so the composer below it never moves; it
+    // The line stays in the document so the composer above it never moves; it
     // is faded out and hidden from assistive tech until it has something to say.
     const band = container.firstElementChild as HTMLElement
     expect(band).toHaveAttribute('aria-hidden', 'true')
@@ -74,7 +76,7 @@ describe('SessionStatusCapsule', () => {
       outputTokens: 0,
       context: { usedTokens: 33_587, windowTokens: 200_000 },
     })
-    expect(screen.getByText('33.6K / 200K')).toBeInTheDocument()
+    expect(screen.getByLabelText('Context used: 33.6K of 200K')).toHaveTextContent('17% context')
     expect(screen.queryByText(/↑|↓/)).not.toBeInTheDocument()
   })
 
@@ -101,19 +103,30 @@ describe('context meter tone', () => {
 
   it('fills by proportion and clamps an over-full window', () => {
     const { container } = render(<ContextMeter used={50_000} contextWindow={200_000} />)
-    expect(container.querySelector<HTMLElement>('.ari-status-capsule-fill')?.style.transform).toBe(
-      'scaleX(0.25)',
-    )
+    const fillOf = (root: HTMLElement) =>
+      root
+        .querySelector<HTMLElement>('.ari-status-capsule-fill')
+        ?.style.getPropertyValue('--ari-context-fill')
+    expect(fillOf(container)).toBe('25')
+    expect(container.textContent).toBe('25% context')
     const { container: over } = render(<ContextMeter used={400_000} contextWindow={200_000} />)
-    expect(over.querySelector<HTMLElement>('.ari-status-capsule-fill')?.style.transform).toBe(
-      'scaleX(1)',
-    )
+    expect(fillOf(over)).toBe('100')
   })
 
-  it('draws no bar without a window to fill', () => {
+  it('tones the ring only once the window is nearly full', () => {
+    const toneOf = (used: number) =>
+      render(<ContextMeter used={used} contextWindow={100} />)
+        .container.querySelector('.ari-status-capsule-fill')
+        ?.getAttribute('data-tone')
+    expect(toneOf(74)).toBeNull()
+    expect(toneOf(75)).toBe('warning')
+    expect(toneOf(90)).toBe('danger')
+  })
+
+  it('draws no ring without a window to fill', () => {
     const { container } = render(<ContextMeter used={42} contextWindow={null} />)
     expect(container.querySelector('.ari-status-capsule-fill')).toBeNull()
-    expect(container.textContent).toBe('context42')
+    expect(container.textContent).toBe('42 context')
   })
 })
 

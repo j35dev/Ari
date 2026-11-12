@@ -6,7 +6,7 @@ import { Skeleton } from '@ari/ui/skeleton'
 import { rpc } from '../../lib/rpc'
 import { saveLastPick } from '../composer/last-pick'
 import { visibleProjects, visibleSessions } from '../aria/visibility'
-import { OnboardingFrame } from './OnboardingFrame'
+import { ONBOARDING_TITLE_CLASS, OnboardingFrame } from './OnboardingFrame'
 import { OnboardingWizard } from './OnboardingWizard'
 import type { OnboardingOutcome } from './onboarding-completion'
 
@@ -92,7 +92,7 @@ export function OnboardingGate({
       generation.current++
     }
   }, [load])
-  const leave = useCallback((result: OnboardingOutcome = { sessionId: null, driverKind: null }) => {
+  const leave = useCallback((result: OnboardingOutcome = { sessionId: null, projectId: null, driverKind: null }) => {
     generation.current++
     if (result.driverKind !== null)
       saveLastPick({ driverKind: result.driverKind, modelId: null, effort: null })
@@ -104,6 +104,7 @@ export function OnboardingGate({
     if (
       state.status === 'closed' &&
       outcome?.sessionId == null &&
+      outcome?.projectId == null &&
       previousFocus.current?.isConnected
     )
       previousFocus.current.focus({ preventScroll: true })
@@ -135,27 +136,29 @@ export function OnboardingGate({
             onDismiss={() => leave()}
             dismissLabel={mounted ? 'Back to workspace' : 'Open workspace for now'}
           >
-            <h2 className="text-2xl font-semibold tracking-tight text-fg">
+            <h2 className={ONBOARDING_TITLE_CLASS}>
               {state.status === 'error'
                 ? 'Couldn’t check your workspace.'
                 : 'Getting your workspace ready.'}
             </h2>
             <p
               role={state.status === 'error' ? 'alert' : 'status'}
-              className="mt-4 text-sm leading-relaxed text-fg-muted"
+              className="mt-2 text-sm leading-relaxed text-fg-muted"
             >
               {state.status === 'error'
                 ? 'Ari could not read or save your setup state. Retry, or open the workspace without marking setup complete.'
                 : 'Checking saved settings, projects and sessions. Nothing is being imported.'}
             </p>
             {state.status === 'error' ? (
-              <Button className="mt-6" variant="primary" onClick={() => void load(mounted)}>
-                Retry
-              </Button>
+              <div className="mt-8 flex justify-end">
+                <Button variant="primary" onClick={() => void load(mounted)}>
+                  Retry
+                </Button>
+              </div>
             ) : (
-              <div aria-hidden className="mt-6 space-y-3">
-                <Skeleton h={72} />
-                <Skeleton h={72} />
+              <div aria-hidden className="mt-6 space-y-2">
+                <Skeleton h={52} />
+                <Skeleton h={52} />
               </div>
             )}
           </OnboardingFrame>

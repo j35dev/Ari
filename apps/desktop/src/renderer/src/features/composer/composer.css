@@ -1,0 +1,17 @@
+/* Composer-specific styles. The shell's own surface (radius, edge, shadow,
+   focus) lives with the other elevated surfaces in @ari/ui/surface-effects.css. */
+
+/* The field and the mention mirror behind it must share one set of type
+   metrics, or the highlight drifts off the words it marks. */
+.ari-composer-shell .ari-composer-field,
+.ari-composer-shell .ari-composer-mention-overlay {
+  font-size: var(--ari-composer-text);
+  line-height: 1.625;
+}
+
+/* Dictation: while the microphone is live the edge takes the accent at half
+   strength. It outranks the focus edge, since the field is focused throughout. */
+.ari-composer-shell[data-dictation='recording'],
+.ari-composer-shell[data-dictation='recording']:focus-within {
+  border-color: color-mix(in oklab, var(--ari-accent) 50%, transparent);
+}

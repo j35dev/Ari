@@ -7,7 +7,12 @@ import { Select } from '@ari/ui/select'
 import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
-import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
+import {
+  SETTINGS_CARD_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+  SettingsSection,
+} from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
@@ -123,21 +128,19 @@ export function PermissionsSettings() {
                 tabIndex={selected || (!knownMode && index === 0) ? 0 : -1}
                 onClick={() => selectMode(m.value)}
                 onKeyDown={(event) => onModeKeyDown(event, index)}
-                className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-fg/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
               >
                 <span
                   aria-hidden="true"
                   className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                    selected ? 'border-accent bg-accent' : 'border-border-strong'
+                    selected ? 'border-fg bg-fg' : 'border-border-strong'
                   }`}
                 >
-                  {selected ? <span className="size-1.5 rounded-full bg-fg-on-accent" /> : null}
+                  {selected ? <span className="size-1.5 rounded-full bg-bg" /> : null}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-fg">{m.label}</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-fg-muted">
-                    {m.hint}
-                  </span>
+                  <span className={`block ${SETTINGS_LABEL_CLASS}`}>{m.label}</span>
+                  <span className={`mt-0.5 block ${SETTINGS_HINT_CLASS}`}>{m.hint}</span>
                 </span>
               </button>
             )
@@ -333,7 +336,7 @@ export function PermissionsSettings() {
         headingId="permissions-allowlist-heading"
         description="Exact commands listed here run without confirmation. Engine enforcement lands later."
       >
-        <div className="flex gap-2 p-3">
+        <div className="flex gap-2 px-4 py-3.5">
           <Input
             aria-label="Command to always allow"
             placeholder="e.g. git status"
@@ -349,18 +352,19 @@ export function PermissionsSettings() {
           </Button>
         </div>
         {entries.length === 0 ? (
-          <p className="px-4 py-3.5 text-sm text-fg-subtle">Nothing is always-allowed yet.</p>
+          <p className={`px-4 py-3.5 ${SETTINGS_HINT_CLASS}`}>Nothing is always-allowed yet.</p>
         ) : (
-          <ul className="divide-y divide-border/70">
+          <ul className="divide-y divide-border">
             {entries.map((entry, index) => (
               <li key={entry} className="flex items-center justify-between gap-2 px-4 py-2.5">
-                <code className="font-mono text-xs text-fg">{entry}</code>
+                <code className="min-w-0 break-all font-mono text-[12.5px] text-fg-muted">
+                  {entry}
+                </code>
                 <Button
                   variant="ghost"
                   size="sm"
                   aria-label={`Remove ${entry}`}
                   onClick={() => removeEntry(index)}
-                  className="text-danger"
                 >
                   Remove
                 </Button>

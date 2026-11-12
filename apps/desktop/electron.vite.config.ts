@@ -12,14 +12,19 @@ export default defineConfig({
         external: [
           /^node:/,
           'electron',
+          // Keep ws's guarded optional native peer loading at runtime. Vite's
+          // development placeholder otherwise throws before Ari can start.
+          'ws',
           '@lydell/node-pty',
           'electron-updater',
           'koffi',
           'transcribe-cpp',
+          'sherpa-onnx-node',
           'uiohook-napi',
         ],
         input: {
           index: 'src/main/index.ts',
+          'voice-worker': 'src/main/speech/voice-worker.ts',
           'speech-worker': 'src/main/speech/worker.ts',
           'dictation-worker': 'src/main/speech/dictation-worker.ts',
           'audio-ducking-worker': 'src/main/speech/audio-ducking-worker.ts',
@@ -43,6 +48,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    server: process.env.ARI_DEV_RENDERER_PORT
+      ? { port: Number(process.env.ARI_DEV_RENDERER_PORT), strictPort: true }
+      : undefined,
     plugins: [react()],
     worker: { format: 'es' },
     build: {

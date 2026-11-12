@@ -16,7 +16,7 @@ describe('mobile reply visuals', () => {
     expect(screen.getByRole('figure', { name: 'Progress' })).toBeInTheDocument()
     expect(container.firstElementChild?.firstElementChild).toHaveTextContent('Before')
     expect(container.firstElementChild?.lastElementChild).toHaveTextContent('After')
-    fireEvent.click(screen.getByRole('button', { name: 'Data' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show data table' }))
     expect(screen.getByRole('table')).toHaveTextContent('Done4')
   })
   it('shows incomplete visuals as pending only while the turn is running', () => {

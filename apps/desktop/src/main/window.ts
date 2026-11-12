@@ -68,7 +68,7 @@ export function applyThemeToWindow(win: BrowserWindow, theme: Theme): void {
   const chrome = themeWindowChrome(theme)
   nativeTheme.themeSource = theme.scheme
   if (process.platform === 'win32' && !win.isDestroyed()) {
-    win.setTitleBarOverlay({ color: '#00000000', symbolColor: chrome.symbolColor, height: 38 })
+    win.setTitleBarOverlay({ color: '#00000000', symbolColor: chrome.symbolColor, height: 44 })
   }
 }
 
@@ -90,7 +90,7 @@ export function createMainWindow(): BrowserWindow {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:
       process.platform === 'win32'
-        ? { color: '#00000000', symbolColor: chrome.symbolColor, height: 38 }
+        ? { color: '#00000000', symbolColor: chrome.symbolColor, height: 44 }
         : false,
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
@@ -100,6 +100,10 @@ export function createMainWindow(): BrowserWindow {
       spellcheck: false,
     },
   })
+  // Keep named dev instances distinguishable in the taskbar/window switcher.
+  if (!app.isPackaged && process.env.ARI_DEV_INSTANCE) {
+    win.on('page-title-updated', (event) => event.preventDefault())
+  }
 
   nativeTheme.themeSource = theme.scheme
 

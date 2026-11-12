@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Folder, FolderPlus, RefreshCw, Search } from 'lucide-react'
+import { FolderPlus, RefreshCw, Search } from 'lucide-react'
 import type { DiscoveredProject, ProjectDiscovery } from '@ari/contracts/project'
 import { Button } from '@ari/ui/button'
 import { Checkbox } from '@ari/ui/checkbox'
+import { Input } from '@ari/ui/input'
 import { Skeleton } from '@ari/ui/skeleton'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
+import { LetterTile } from './OnboardingReady'
 import { projectPathKey } from './project-path-key'
 
 const log = createLogger('onboarding:projects')
@@ -106,26 +108,25 @@ export function OnboardingProjects({
   }
   return (
     <div className="space-y-4">
-      <p className="text-xs leading-relaxed text-fg-muted">
+      <p className="text-sm leading-relaxed text-fg-muted">
         Recent folders from Claude Code and Codex. Choose what belongs in Ari; your files stay where
         they are.
       </p>
       <div className="flex flex-wrap gap-2">
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-surface-1 px-3 text-fg-muted focus-within:ring-2 focus-within:ring-accent-ring">
-          <Search size={14} aria-hidden />
-          <input
-            aria-label="Find a project"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a project…"
-            className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle"
-          />
-        </label>
+        <Input
+          aria-label="Find a project"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find a project…"
+          className="min-w-0 flex-1"
+          leading={<Search size={14} strokeWidth={1.7} aria-hidden />}
+        />
         <Button disabled={browsing} onClick={() => void browse()}>
-          <FolderPlus size={14} aria-hidden /> {browsing ? 'Opening…' : 'Choose folder'}
+          <FolderPlus size={14} strokeWidth={1.7} aria-hidden />{' '}
+          {browsing ? 'Opening…' : 'Choose folder'}
         </Button>
       </div>
-      <div className="flex items-center justify-between gap-2 text-xs text-fg-muted">
+      <div className="flex items-center justify-between gap-2 text-[13px] text-fg-subtle">
         <span role="status">
           {selected.length} selected
           {loading ? ' · Looking for projects…' : ` · ${projects.length} found`}
@@ -145,31 +146,32 @@ export function OnboardingProjects({
             disabled={loading}
             onClick={() => void scan()}
           >
-            <RefreshCw size={13} aria-hidden />
+            <RefreshCw size={14} strokeWidth={1.7} aria-hidden />
           </Button>
         </div>
       </div>
       {error && (
-        <p role="alert" className="text-xs text-danger">
-          {error}
+        <p role="alert" className="flex items-start gap-2.5 text-[13px] leading-5 text-fg">
+          <span className="ari-status mt-[3px]" data-status="error" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{error}</span>
         </p>
       )}
       {loading && projects.length === 0 ? (
-        <div aria-label="Looking for recent projects" className="space-y-3 py-2">
+        <div aria-label="Looking for recent projects" className="space-y-2 py-1">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} h={66} className="rounded-lg" />
+            <Skeleton key={i} h={48} className="rounded-md" />
           ))}
         </div>
       ) : visible.length > 0 ? (
         <ul
           aria-label="Recent projects"
-          className="ari-scroll max-h-72 overflow-y-auto rounded-xl border border-border bg-surface-1"
+          className="ari-scroll max-h-72 divide-y divide-border overflow-y-auto border-y border-border"
         >
           {visible.map((project) => {
             const key = projectPathKey(project.path)
             const checked = selectedKeys.has(key)
             return (
-              <li key={key} className="border-b border-border/60 last:border-b-0">
+              <li key={key}>
                 <Checkbox
                   aria-label={`Add ${project.name} (${project.path})`}
                   checked={checked}
@@ -180,26 +182,22 @@ export function OnboardingProjects({
                         : [...selected, project],
                     )
                   }
-                  className={`w-full gap-3 px-4 py-3 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1 ${checked ? 'bg-accent-subtle/50' : 'hover:bg-surface-2'}`}
+                  className="w-full gap-3 px-2 py-2.5 transition-colors hover:bg-fg/5 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1"
                 >
                   <span className="flex items-center gap-3">
-                    <Folder
-                      size={18}
-                      className={checked ? 'shrink-0 text-accent' : 'shrink-0 text-fg-subtle'}
-                      aria-hidden
-                    />
+                    <LetterTile name={project.name} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-fg">
                         {project.name}
                       </span>
                       <span
                         title={project.path}
-                        className="mt-1 block truncate font-mono text-2xs text-fg-muted"
+                        className="mt-0.5 block truncate font-mono text-xs text-fg-subtle"
                       >
                         {project.path}
                       </span>
                     </span>
-                    <span className="shrink-0 text-2xs text-fg-subtle">
+                    <span className="shrink-0 text-xs text-fg-subtle">
                       {project.sources.length === 0
                         ? 'Chosen by you'
                         : project.sources
@@ -213,12 +211,11 @@ export function OnboardingProjects({
           })}
         </ul>
       ) : (
-        <div className="rounded-xl border border-dashed border-border px-6 py-9 text-center">
-          <FolderPlus size={25} className="mx-auto mb-3 text-fg-subtle" aria-hidden />
-          <h3 className="text-sm font-medium">
+        <div className="border-y border-border px-2 py-6">
+          <h3 className="text-sm font-medium text-fg">
             {query ? 'No matching projects' : 'Start with a folder.'}
           </h3>
-          <p className="mt-2 text-xs text-fg-muted">
+          <p className="mt-0.5 text-[13px] text-fg-subtle">
             {query
               ? 'Try another name or path.'
               : 'Choose a folder above, or add your first project later.'}
@@ -226,16 +223,16 @@ export function OnboardingProjects({
         </div>
       )}
       {discovery?.truncated && (
-        <p role="status" className="text-xs text-warning">
+        <p role="status" className="text-[13px] leading-5 text-fg-muted">
           Showing a partial scan to keep setup fast. Choose any missing folder manually.
         </p>
       )}
       {discovery?.warnings.map((warning) => (
-        <p key={warning} className="text-xs text-warning">
+        <p key={warning} className="text-[13px] leading-5 text-fg-muted">
           {warning}
         </p>
       ))}
-      <p className="text-2xs leading-relaxed text-fg-subtle">
+      <p className="text-[13px] leading-5 text-fg-subtle">
         Only selected folders are added when you finish setup. Conversation history is not copied,
         and no agent is started.
       </p>

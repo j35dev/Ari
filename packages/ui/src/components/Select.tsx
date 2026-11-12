@@ -51,7 +51,7 @@ function nextEnabledIndex(options: SelectOption[], start: number, delta: 1 | -1)
 
 function ChevronDownIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 shrink-0 text-fg-subtle">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-fg-subtle">
       <path
         d="M4 6l4 4 4-4"
         fill="none"
@@ -69,13 +69,13 @@ function CheckIcon({ className }: { className?: string }) {
     <svg
       viewBox="0 0 12 12"
       aria-hidden="true"
-      className={['h-3 w-3 shrink-0 text-fg', className].filter(Boolean).join(' ')}
+      className={['h-3.5 w-3.5 shrink-0 text-fg', className].filter(Boolean).join(' ')}
     >
       <path
         d="M2.5 6.5 5 9l4.5-5.5"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -196,10 +196,11 @@ function SelectListbox({
               if (!option.disabled) onSelect(option)
             }}
             className={[
-              'flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-sm',
+              'flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-[13px]',
               'focus-visible:outline-none',
-              option.disabled ? 'opacity-50' : '',
-              active ? 'bg-surface-2' : '',
+              selected ? 'text-fg' : 'text-fg-muted',
+              option.disabled ? 'opacity-50' : 'hover:bg-fg/6',
+              active ? 'bg-fg/6' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -259,15 +260,17 @@ export function Select({
         disabled={disabled}
         aria-label={ariaLabel}
         className={[
-          'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface-1 px-3 text-sm',
-          'transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+          'flex h-8 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface-1 px-2.5 text-[13px]',
+          'transition-[border-color,box-shadow] hover:border-border-strong',
+          'focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
+          'aria-expanded:border-border-strong',
           'disabled:cursor-not-allowed disabled:opacity-50',
           className,
         ]
           .filter(Boolean)
           .join(' ')}
       >
-        <span className="min-w-0 truncate text-fg-subtle">
+        <span className={['min-w-0 truncate', selected ? 'text-fg' : 'text-fg-subtle'].join(' ')}>
           {selected ? selected.label : placeholder}
         </span>
         <ChevronDownIcon />

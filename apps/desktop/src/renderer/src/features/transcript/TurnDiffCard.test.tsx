@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { TurnDiffCard } from './TurnDiffCard'
@@ -36,8 +36,14 @@ describe('TurnDiffCard', () => {
     render(<TurnDiffCard turnId="t1" diffText={TWO_FILES} />)
 
     expect(screen.getByText('Edited 2 files')).toBeInTheDocument()
-    expect(screen.getByText('+5')).toBeInTheDocument()
-    expect(screen.getByText('−1')).toBeInTheDocument()
+    // Each changed file is a chip carrying its own counts.
+    const first = screen.getByTitle('src/a.ts')
+    expect(first).toHaveTextContent('a.ts')
+    expect(within(first).getByText('+3')).toHaveClass('text-success')
+    expect(within(first).getByText('−1')).toHaveClass('text-danger')
+    const second = screen.getByTitle('b.ts')
+    expect(within(second).getByText('+2')).toHaveClass('text-success')
+    expect(second).not.toHaveTextContent('−')
     const toggle = screen.getByRole('button', { name: 'Turn diff: 2 files changed' })
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')

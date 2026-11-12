@@ -35,6 +35,25 @@ const spawn = {
   idempotencyKey: 'one',
 }
 
+it('keeps ordinary worker control available while refusing Aria callers when the experiment is off', async () => {
+  host.ariaEnabled = () => false
+  await store.append('aria', {
+    type: 'session.created',
+    session: { ...root, id: 'aria', projectId: 'helm' },
+  })
+  expect(await service.invoke('aria', 'runtime.info', {})).toMatchObject({
+    ok: false,
+    error: { code: 'scope_denied' },
+  })
+  expect(await service.invoke(root.id, 'runtime.info', {})).toMatchObject({
+    ok: true,
+    result: { caller: { aria: false } },
+  })
+  const launched = await service.invoke(root.id, 'session.spawn', spawn)
+  expect(launched).toMatchObject({ ok: true, result: { child: { parentSessionId: root.id } } })
+  expect(await service.invoke(root.id, 'session.status', {})).toMatchObject({ ok: true })
+})
+
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-control-'))
   store = new SessionStore({ rootDir: dir })

@@ -14,12 +14,12 @@ export function ProviderSwitchDivider({
   const label =
     modelLabel ?? models.find((model) => model.id === id)?.label ?? change.modelId ?? 'Default'
   return (
-    <div role="separator" className="my-4 flex items-center gap-3 text-[11px] text-fg-subtle">
-      <span aria-hidden className="h-px flex-1 bg-border/60" />
+    <div role="separator" className="my-5 flex items-center gap-4 text-xs text-fg-subtle">
+      <span aria-hidden className="h-px flex-1 bg-border" />
       <span>
         Switched to {driverLabel(change.driverKind)} · {label}
       </span>
-      <span aria-hidden className="h-px flex-1 bg-border/60" />
+      <span aria-hidden className="h-px flex-1 bg-border" />
     </div>
   )
 }

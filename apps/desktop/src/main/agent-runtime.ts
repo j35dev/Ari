@@ -3,6 +3,7 @@ import { join, delimiter } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ControlFailure, type DelegationSettings } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import { isHelmSession } from '@ari/contracts/helm'
 import { AgentControlService, type ControlHost } from '@ari/engine/agent-control'
 import { AgentControlServer } from '@ari/engine/control-server'
 import { DelegationSupervisor } from '@ari/engine/delegation-supervisor'
@@ -65,6 +66,7 @@ const scopedKeys = [
 ]
 
 export interface AgentRuntimeOptions {
+  ariaEnabled?: () => boolean
   userData: string
   cliPath: string
   executable: string
@@ -189,6 +191,7 @@ async function startControlTransport(
     return treeSpend(await Promise.all(members.map((row) => store.load(row.id))))
   }
   const supervisor = new DelegationSupervisor({
+    ...(options.ariaEnabled === undefined ? {} : { ariaEnabled: options.ariaEnabled }),
     store,
     policy: () => options.policy(),
     dispatch: (command, origin) => engine.dispatch(command, origin),
@@ -202,6 +205,7 @@ async function startControlTransport(
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })
   const service = new AgentControlService({
+    ...(options.ariaEnabled === undefined ? {} : { ariaEnabled: options.ariaEnabled }),
     canDeliverCoordination: (id) => engine.liveCapabilities(id).steer,
     deliverCoordination: (message) => engine.deliverCoordination(message),
     orchestration: (caller, method, params, signal) =>
@@ -395,9 +399,24 @@ async function startControlTransport(
   return {
     orchestration,
     service,
+    prepareRootWorkspace: (session: Session, mode?: 'auto' | 'isolated' | 'shared', baseSnapshotCommit?: string) =>
+      service.prepareRootWorkspace(session, mode, baseSnapshotCommit),
     approvals,
     supervisor,
+    refreshAriaExperiment: async () => {
+      await engine.refreshAriaExperiment()
+      if (options.ariaEnabled?.() !== false)
+        for (const row of await store.listSessions())
+          if (isHelmSession(row) && !row.archived) {
+            supervisor.schedule(row.id)
+            await orchestration.schedule(row.id)
+          }
+    },
     authorizeTurn: async (session: Session): Promise<string | null> => {
+      const workspaceReason = await service.authorizeWorkspace(session)
+      if (workspaceReason) return workspaceReason
+      if (isHelmSession(session) && options.ariaEnabled?.() === false)
+        return 'Aria is off. Enable it in Settings → Experimental.'
       if (!session.parentSessionId) return null
       if (session.archived) return 'Restore the child session before starting a turn.'
       const policy = options.policy()

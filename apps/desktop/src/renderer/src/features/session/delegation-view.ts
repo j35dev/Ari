@@ -13,6 +13,8 @@ export interface SpawnRecord {
   /** The message and part on screen when the spawn happened. */
   anchor: { messageId: string | null; partIndex: number }
   destroyed: boolean
+  /** Epoch ms of the spawn event. */
+  spawnedAt?: number
 }
 
 /**
@@ -59,6 +61,8 @@ export function delegatedChildren(
       state,
       startedAt: state === 'working' ? (activity?.startedAt ?? null) : null,
       report: task?.report ?? null,
+      spawnedAt: spawn.spawnedAt ?? null,
+      settledAt: task?.latestTurn?.settledAt ?? null,
       anchor: spawn.anchor,
     }
   })

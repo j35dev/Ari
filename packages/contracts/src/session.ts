@@ -102,6 +102,21 @@ export const sessionHierarchySummarySchema = sessionSchema
   .extend({
     lead: z.boolean().optional(),
     workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
+    workspacePath: z.string().nullable().optional(),
     branch: z.string().nullable().optional(),
   })
 export type SessionHierarchySummary = z.infer<typeof sessionHierarchySummarySchema>
+
+/** Shared by local RPC summaries and complete remote session results. */
+export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
+  createdBy: sessionCreatorSchema.nullish(),
+  id: z.string(),
+  projectId: z.string(),
+  title: z.string(),
+  updatedAt: z.number(),
+  messageCount: z.number().int().nonnegative(),
+  lastMessagePreview: z.string().nullable().optional(),
+  archived: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+})
+export type SessionSummary = z.infer<typeof sessionSummarySchema>

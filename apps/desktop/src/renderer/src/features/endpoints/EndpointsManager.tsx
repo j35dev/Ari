@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { EndpointFlavor, EndpointModel } from '@ari/contracts/endpoint'
 import { Badge } from '@ari/ui/badge'
-import type { BadgeTone } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
 import { Field } from '@ari/ui/field'
 import { IconButton } from '@ari/ui/icon-button'
@@ -10,7 +9,14 @@ import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
 import type { SelectOption } from '@ari/ui/select'
 import { ChevronDown, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
+import { card } from '../../lib/recipes'
 import { rpc } from '../../lib/rpc'
+import {
+  SETTINGS_CAPTION_CLASS,
+  SETTINGS_CARD_CLASS,
+  SETTINGS_HINT_CLASS,
+  SETTINGS_LABEL_CLASS,
+} from '../settings/SettingsSection'
 import { ModelListEditor, type FetchState } from './ModelListEditor'
 
 export type { EndpointFlavor }
@@ -31,10 +37,11 @@ export interface StoredEndpoint {
   hasKey: boolean
 }
 
-const FLAVOR_BADGES: Record<EndpointFlavor, { label: string; tone: BadgeTone }> = {
-  'openai-chat': { label: 'OpenAI', tone: 'accent' },
-  'anthropic-messages': { label: 'Anthropic', tone: 'success' },
-  ollama: { label: 'Ollama', tone: 'neutral' },
+/** The flavor named beside an endpoint. Quiet: a flavor is a fact, not a state. */
+const FLAVOR_LABELS: Record<EndpointFlavor, string> = {
+  'openai-chat': 'OpenAI',
+  'anthropic-messages': 'Anthropic',
+  ollama: 'Ollama',
 }
 
 const FLAVOR_OPTIONS: SelectOption[] = [
@@ -172,23 +179,24 @@ function EndpointCard({
   onEdit,
   onDelete,
 }: EndpointCardProps) {
-  const badge = FLAVOR_BADGES[endpoint.flavor]
   return (
-    <li className="rounded-xl border border-border bg-surface-1/70 p-4">
-      <div className="flex items-start justify-between gap-2">
+    <li className="px-4 py-3.5">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-fg">{endpoint.name}</span>
-            <Badge tone={badge.tone}>{badge.label}</Badge>
+            <span className={`truncate ${SETTINGS_LABEL_CLASS}`}>{endpoint.name}</span>
+            <Badge tone="neutral">{FLAVOR_LABELS[endpoint.flavor]}</Badge>
           </div>
-          <p className="mt-0.5 truncate font-mono text-xs text-fg-muted">{endpoint.baseUrl}</p>
-          <p className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
+          <p className="mt-0.5 truncate font-mono text-[12.5px] leading-5 text-fg-muted">
+            {endpoint.baseUrl}
+          </p>
+          <p className={`truncate ${SETTINGS_HINT_CLASS}`}>
             {endpoint.models.length} model{endpoint.models.length === 1 ? '' : 's'} · default{' '}
             {endpoint.model}
             {endpoint.hasKey ? ' · key saved' : ''}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             size="sm"
             variant="ghost"
@@ -198,7 +206,8 @@ function EndpointCard({
           >
             Models
             <ChevronDown
-              className={`ms-1 h-3 w-3 transition-transform duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+              className={`h-3.5 w-3.5 transition-transform duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+              strokeWidth={1.7}
               aria-hidden
             />
           </Button>
@@ -213,34 +222,37 @@ function EndpointCard({
           <IconButton
             size="sm"
             variant="ghost"
-            icon={<Pencil className="h-3.5 w-3.5" />}
+            icon={<Pencil className="h-3.5 w-3.5" strokeWidth={1.7} />}
             aria-label={`Edit ${endpoint.name}`}
             onClick={() => onEdit(endpoint)}
           />
           <IconButton
             size="sm"
             variant="ghost"
-            icon={<Trash2 className="h-3.5 w-3.5" />}
+            icon={<Trash2 className="h-3.5 w-3.5" strokeWidth={1.7} />}
             aria-label={`Delete ${endpoint.name}`}
             onClick={() => onDelete(endpoint.id)}
           />
         </div>
       </div>
       {testState != null && (
-        <p role="status" className="mt-2 flex items-center gap-1.5 text-xs">
+        <p role="status" className="mt-2 flex items-center gap-1.5 text-[13px] leading-5">
           {testState.phase === 'testing' ? (
-            <span className="text-fg-muted">Testing…</span>
+            <>
+              <span aria-hidden="true" className="ari-status" data-status="working" />
+              <span className="text-fg-subtle">Testing…</span>
+            </>
           ) : testState.result.ok ? (
             <>
-              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
-              <span className="font-mono tabular-nums text-success">
+              <span aria-hidden="true" className="ari-status" data-status="done" />
+              <span className="font-mono text-[12.5px] tabular-nums text-fg-muted">
                 {testState.result.latencyMs}ms
               </span>
-              <span className="text-fg-muted">{testState.result.message}</span>
+              <span className="text-fg-subtle">{testState.result.message}</span>
             </>
           ) : (
             <>
-              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
+              <span aria-hidden="true" className="ari-status" data-status="error" />
               <span className="text-danger">
                 {testState.result.message} · {testState.result.latencyMs}ms
               </span>
@@ -249,7 +261,7 @@ function EndpointCard({
         </p>
       )}
       {expanded && (
-        <div className="mt-3 border-t border-border pt-3">
+        <div className="mt-3.5 border-t border-border pt-3.5">
           <ModelListEditor
             models={endpoint.models}
             defaultModel={endpoint.model}
@@ -503,159 +515,157 @@ export function EndpointsManager() {
   const formBaseUrl = normalizeBaseUrl(form.baseUrl)
 
   return (
-    <section aria-label="Model endpoints" className="flex flex-col gap-6">
-      <form
-        ref={formRef}
-        onSubmit={(e) => void handleSave(e)}
-        className="flex flex-col gap-3 rounded-xl border border-border bg-surface-1/70 p-4"
-      >
-        <h3 className="text-sm font-semibold text-fg">
+    <section aria-label="Model endpoints" className="flex flex-col gap-[26px]">
+      <form ref={formRef} onSubmit={(e) => void handleSave(e)} className="flex flex-col">
+        <h3 className={`mb-2.5 ${SETTINGS_CAPTION_CLASS}`}>
           {editingId != null ? 'Edit endpoint' : 'Add endpoint'}
         </h3>
-        <Field label="Name">
-          {(controlProps) => (
-            <Input
-              {...controlProps}
-              value={form.name}
-              onChange={(event) => updateField('name', event.target.value)}
-              placeholder="Local llama"
-              autoComplete="off"
-            />
-          )}
-        </Field>
-        <Field
-          label="Base URL"
-          hint="Root of the API — scheme optional, e.g. 192.168.1.10:8000 or http://localhost:8080/v1"
-        >
-          {(controlProps) => (
-            <Input
-              {...controlProps}
-              type="text"
-              inputMode="url"
-              value={form.baseUrl}
-              onChange={(event) => updateField('baseUrl', event.target.value)}
-              placeholder="https://api.openai.com/v1"
-              autoComplete="off"
-            />
-          )}
-        </Field>
-        <Field label="Flavor">
-          {() => (
-            <Select
-              value={form.flavor}
-              onValueChange={(value) => {
-                if (FLAVOR_SET.has(value)) updateField('flavor', value)
-              }}
-              options={FLAVOR_OPTIONS}
-            />
-          )}
-        </Field>
-        <Field
-          label="API key"
-          hint={
-            editingId != null
-              ? 'Leave blank to keep the saved key.'
-              : 'Stored encrypted on this machine only; never logged. Leave blank for local servers without auth.'
-          }
-        >
-          {(controlProps) => (
-            <Input
-              {...controlProps}
-              type={showApiKey ? 'text' : 'password'}
-              value={form.apiKey}
-              onChange={(event) => updateField('apiKey', event.target.value)}
-              placeholder="sk-…"
-              autoComplete="off"
-              trailing={
-                <button
-                  type="button"
-                  aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
-                  aria-pressed={showApiKey}
-                  onClick={() => setShowApiKey((visible) => !visible)}
-                  className="rounded-sm p-0.5 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  {showApiKey ? (
-                    <EyeOff className="h-3.5 w-3.5" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              }
-            />
-          )}
-        </Field>
-        {formError != null && (
-          <p role="alert" className="text-xs text-danger">
-            {formError}
-          </p>
-        )}
-        <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" size="sm">
-            {editingId != null ? 'Save changes' : 'Add endpoint'}
-          </Button>
-          {isHttpUrl(formBaseUrl) && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                void runTest({
-                  baseUrl: formBaseUrl,
-                  flavor: form.flavor,
-                  ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
-                })
-              }
-            >
-              Test connection
-            </Button>
-          )}
-          {editingId != null && (
-            <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
-              Cancel
-            </Button>
-          )}
-        </div>
-        <div className="border-t border-border pt-3">
-          <ModelListEditor
-            models={form.models}
-            defaultModel={form.defaultModel}
-            onChange={(next) =>
-              setForm((prev) => ({
-                ...prev,
-                models: next.models,
-                defaultModel: next.defaultModel,
-              }))
+        <div className={`${card} flex flex-col gap-3.5 p-4`}>
+          <Field label="Name">
+            {(controlProps) => (
+              <Input
+                {...controlProps}
+                value={form.name}
+                onChange={(event) => updateField('name', event.target.value)}
+                placeholder="Local llama"
+                autoComplete="off"
+              />
+            )}
+          </Field>
+          <Field
+            label="Base URL"
+            hint="Root of the API — scheme optional, e.g. 192.168.1.10:8000 or http://localhost:8080/v1"
+          >
+            {(controlProps) => (
+              <Input
+                {...controlProps}
+                type="text"
+                inputMode="url"
+                value={form.baseUrl}
+                onChange={(event) => updateField('baseUrl', event.target.value)}
+                placeholder="https://api.openai.com/v1"
+                autoComplete="off"
+              />
+            )}
+          </Field>
+          <Field label="Flavor">
+            {() => (
+              <Select
+                value={form.flavor}
+                onValueChange={(value) => {
+                  if (FLAVOR_SET.has(value)) updateField('flavor', value)
+                }}
+                options={FLAVOR_OPTIONS}
+              />
+            )}
+          </Field>
+          <Field
+            label="API key"
+            hint={
+              editingId != null
+                ? 'Leave blank to keep the saved key.'
+                : 'Stored encrypted on this machine only; never logged. Leave blank for local servers without auth.'
             }
-            onFetch={
-              isHttpUrl(formBaseUrl)
-                ? () =>
-                    void fetchModels({
-                      stateKey: 'form',
-                      baseUrl: formBaseUrl,
-                      flavor: form.flavor,
-                      // While editing, `id` lets the engine supply the stored
-                      // key; `persist: false` keeps the probe out of the store
-                      // until the form is actually submitted.
-                      ...(editingId != null ? { id: editingId } : {}),
-                      ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
-                      persist: false,
-                    })
-                : null
-            }
-            fetchState={fetchStates['form']}
-            scopeLabel={editingId != null ? 'this endpoint' : 'the new endpoint'}
-          />
+          >
+            {(controlProps) => (
+              <Input
+                {...controlProps}
+                type={showApiKey ? 'text' : 'password'}
+                value={form.apiKey}
+                onChange={(event) => updateField('apiKey', event.target.value)}
+                placeholder="sk-…"
+                autoComplete="off"
+                trailing={
+                  <button
+                    type="button"
+                    aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                    aria-pressed={showApiKey}
+                    onClick={() => setShowApiKey((visible) => !visible)}
+                    className="rounded-sm p-0.5 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  >
+                    {showApiKey ? (
+                      <EyeOff className="h-3.5 w-3.5" strokeWidth={1.7} />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" strokeWidth={1.7} />
+                    )}
+                  </button>
+                }
+              />
+            )}
+          </Field>
+          {formError != null && (
+            <p role="alert" className="text-[13px] leading-5 text-danger">
+              {formError}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Button type="submit" variant="primary" size="sm">
+              {editingId != null ? 'Save changes' : 'Add endpoint'}
+            </Button>
+            {isHttpUrl(formBaseUrl) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  void runTest({
+                    baseUrl: formBaseUrl,
+                    flavor: form.flavor,
+                    ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
+                  })
+                }
+              >
+                Test connection
+              </Button>
+            )}
+            {editingId != null && (
+              <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
+                Cancel
+              </Button>
+            )}
+          </div>
+          <div className="border-t border-border pt-3.5">
+            <ModelListEditor
+              models={form.models}
+              defaultModel={form.defaultModel}
+              onChange={(next) =>
+                setForm((prev) => ({
+                  ...prev,
+                  models: next.models,
+                  defaultModel: next.defaultModel,
+                }))
+              }
+              onFetch={
+                isHttpUrl(formBaseUrl)
+                  ? () =>
+                      void fetchModels({
+                        stateKey: 'form',
+                        baseUrl: formBaseUrl,
+                        flavor: form.flavor,
+                        // While editing, `id` lets the engine supply the stored
+                        // key; `persist: false` keeps the probe out of the store
+                        // until the form is actually submitted.
+                        ...(editingId != null ? { id: editingId } : {}),
+                        ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
+                        persist: false,
+                      })
+                  : null
+              }
+              fetchState={fetchStates['form']}
+              scopeLabel={editingId != null ? 'this endpoint' : 'the new endpoint'}
+            />
+          </div>
         </div>
       </form>
-      <div className="flex flex-col gap-3">
-        <h2 className="px-1 text-sm font-semibold text-fg">Saved endpoints</h2>
+      <div className="flex flex-col">
+        <h2 className={`mb-2.5 ${SETTINGS_CAPTION_CLASS}`}>Saved endpoints</h2>
         {endpoints.length === 0 ? (
-          <p className="rounded-xl border border-border bg-surface-1/70 px-4 py-3.5 text-xs text-fg-muted">
+          <p className={`${card} px-4 py-3.5 ${SETTINGS_HINT_CLASS}`}>
             None yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint above to chat through
             Ari Core.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className={SETTINGS_CARD_CLASS}>
             {endpoints.map((endpoint) => (
               <EndpointCard
                 key={endpoint.id}

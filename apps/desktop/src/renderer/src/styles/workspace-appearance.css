@@ -1,9 +1,9 @@
 /* Preserve Ari's released app scale; size preferences affect chat content only. */
 :root {
   --ari-chat-scale: 1;
-  --ari-chat-text: calc(0.8125rem * var(--ari-chat-scale));
-  --ari-composer-text: calc(0.875rem * var(--ari-chat-scale));
-  --ari-chat-code-text: calc(0.75rem * var(--ari-chat-scale));
+  --ari-chat-text: calc(0.9375rem * var(--ari-chat-scale));
+  --ari-composer-text: calc(0.9375rem * var(--ari-chat-scale));
+  --ari-chat-code-text: calc(0.8125rem * var(--ari-chat-scale));
   /* Width is independent of the user's text scale. Columns still shrink to fit. */
   --ari-chat-width: 768px;
   --ari-chat-gutter: clamp(1rem, 1.25cqw, 1.5rem);
@@ -51,8 +51,9 @@
   text-wrap: balance;
 }
 
+/* The sidebar sits directly on the window chrome: no fill of its own. */
 .ari-workspace-sidebar {
-  background: color-mix(in oklab, var(--ari-bg) 70%, var(--ari-surface-0));
+  background: transparent;
 }
 
 .ari-sidebar-resize {
@@ -76,10 +77,12 @@
   font-family: var(--ari-font-mono);
 }
 
+/* Resize handles live in the gaps of the frame: invisible until reached for,
+   then a 2px line down the middle of the gap. */
 .ari-sidebar-resize::before {
   content: '';
   position: absolute;
-  inset: 10px 1px;
+  inset: 14px calc(50% - 1px);
   border-radius: 2px;
   background: var(--ari-border-strong);
   opacity: 0;
@@ -91,16 +94,9 @@
   opacity: 1;
 }
 
-.ari-composer-shell {
-  box-shadow:
-    inset 0 1px 0 var(--ari-inner-stroke),
-    var(--ari-shadow-1);
-}
-
-.ari-composer-shell:focus-within {
-  box-shadow:
-    inset 0 1px 0 var(--ari-inner-stroke),
-    0 0 0 1px var(--ari-accent-ring);
+.ari-sidebar-resize[data-dragging]::before {
+  opacity: 1;
+  background: var(--ari-fg-subtle);
 }
 
 /* Wallpaper stays on the shared window plate, without another rectangular

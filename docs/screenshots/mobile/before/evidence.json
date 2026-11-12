@@ -1,0 +1,287 @@
+{
+  "stage": "before",
+  "profile": "D:/Projects/.ari-cache/tmp/mobile-review-pqViSV",
+  "source": "local read-only component fixtures",
+  "results": [
+    {
+      "filename": "360-light-home.png",
+      "width": 360,
+      "theme": "light",
+      "view": "home",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-session.png",
+      "width": 360,
+      "theme": "light",
+      "view": "session",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-approval.png",
+      "width": 360,
+      "theme": "light",
+      "view": "approval",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-error.png",
+      "width": 360,
+      "theme": "light",
+      "view": "error",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-empty.png",
+      "width": 360,
+      "theme": "light",
+      "view": "empty",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-settings.png",
+      "width": 360,
+      "theme": "light",
+      "view": "settings",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-files.png",
+      "width": 360,
+      "theme": "light",
+      "view": "files",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-changes.png",
+      "width": 360,
+      "theme": "light",
+      "view": "changes",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-pair.png",
+      "width": 360,
+      "theme": "light",
+      "view": "pair",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-light-offline.png",
+      "width": 360,
+      "theme": "light",
+      "view": "offline",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-home.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "home",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-session.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "session",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-approval.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "approval",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-error.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "error",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-empty.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "empty",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-settings.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "settings",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-files.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "files",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-changes.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "changes",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-pair.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "pair",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "360-dark-offline.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "offline",
+      "scrollWidth": 360
+    },
+    {
+      "filename": "390-light-home.png",
+      "width": 390,
+      "theme": "light",
+      "view": "home",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-session.png",
+      "width": 390,
+      "theme": "light",
+      "view": "session",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-approval.png",
+      "width": 390,
+      "theme": "light",
+      "view": "approval",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-error.png",
+      "width": 390,
+      "theme": "light",
+      "view": "error",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-empty.png",
+      "width": 390,
+      "theme": "light",
+      "view": "empty",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-settings.png",
+      "width": 390,
+      "theme": "light",
+      "view": "settings",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-files.png",
+      "width": 390,
+      "theme": "light",
+      "view": "files",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-changes.png",
+      "width": 390,
+      "theme": "light",
+      "view": "changes",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-pair.png",
+      "width": 390,
+      "theme": "light",
+      "view": "pair",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-light-offline.png",
+      "width": 390,
+      "theme": "light",
+      "view": "offline",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-home.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "home",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-session.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "session",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-approval.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "approval",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-error.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "error",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-empty.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "empty",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-settings.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "settings",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-files.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "files",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-changes.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "changes",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-pair.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "pair",
+      "scrollWidth": 390
+    },
+    {
+      "filename": "390-dark-offline.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "offline",
+      "scrollWidth": 390
+    }
+  ]
+}

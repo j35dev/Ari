@@ -47,12 +47,13 @@ export function Button({
       {loading && (
         <span
           aria-hidden="true"
-          className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+          className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent"
         />
       )}
       {children}
       {shortcut && (
-        <kbd className="ml-auto rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 font-mono text-xs font-normal text-fg-muted">
+        // Drawn in the button's own text colour so it reads on every variant.
+        <kbd className="ml-auto inline-flex h-5 items-center rounded-[5px] border border-current/25 px-1.5 font-mono text-[11px] font-normal opacity-70">
           {shortcut}
         </kbd>
       )}

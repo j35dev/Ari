@@ -662,3 +662,37 @@ describe('project agent resolution', () => {
     ).toBeNull()
   })
 })
+
+it('moves saved project agents to full auto once, then keeps a later choice', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-projects-fullauto-'))
+  try {
+    const folder = join(dir, 'repo')
+    await mkdir(folder)
+    const path = join(dir, 'projects.json')
+    const agent = { driverKind: 'codex', modelId: 'm', effort: null, permissionMode: 'ask' }
+    await writeFile(
+      path,
+      JSON.stringify({
+        projects: [{ id: 'proj_a', name: 'A', path: folder, createdAt: 1, defaultAgent: agent }],
+        removed: [],
+      }),
+    )
+    const store = new ProjectStore({ dir })
+    await store.load()
+    expect(store.get('proj_a')?.defaultAgent?.permissionMode).toBe('full')
+    const disk = JSON.parse(await readFile(path, 'utf8')) as {
+      fullAutoMigrated?: boolean
+      projects: { defaultAgent: { permissionMode: string } }[]
+    }
+    expect(disk.fullAutoMigrated).toBe(true)
+
+    // Put Ask back by hand: with the marker present it is left alone.
+    disk.projects[0]!.defaultAgent.permissionMode = 'ask'
+    await writeFile(path, JSON.stringify(disk))
+    const restarted = new ProjectStore({ dir })
+    await restarted.load()
+    expect(restarted.get('proj_a')?.defaultAgent?.permissionMode).toBe('ask')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

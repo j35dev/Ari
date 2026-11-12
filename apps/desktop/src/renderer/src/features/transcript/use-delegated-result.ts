@@ -6,7 +6,7 @@ import type {
   OrchestrationTask,
   ResultPackage,
 } from '@ari/contracts/orchestration'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from '../session/session-client'
 
 type Target = Pick<ResultPackage, 'resultId' | 'attemptId' | 'snapshotCommit' | 'version'>
 const targetOf = ({ resultId, attemptId, snapshotCommit, version }: ResultPackage): Target => ({
@@ -25,6 +25,8 @@ class ResultActionFailure extends Error {}
 
 /** Nothing is fetched/subscribed until opened. Selection and receipts survive collapse. */
 export function useDelegatedResult(sessionId: string, childSessionId: string, open: boolean) {
+  const rpc = useSessionClient()
+  const unsupported = rpc.scope.kind === 'remote' ? 'Versioned result review, integration, checks and correction are unavailable on this host. The worker report remains readable.' : null
   const [task, setTask] = useState<OrchestrationTask | null>(null)
   const [target, setTarget] = useState<Target | null>(null)
   const [loading, setLoading] = useState(false)
@@ -37,6 +39,8 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   const lock = useRef(false)
   const alive = useRef(true)
   const request = useRef(0)
+  /** The last view applied, serialized, so an unchanged refresh re-renders nothing. */
+  const applied = useRef<string | null>(null)
   useEffect(() => {
     alive.current = true
     return () => {
@@ -46,8 +50,13 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   }, [])
 
   const refresh = useCallback(async () => {
+    if (unsupported) { setLoadError(unsupported); return }
     const sequence = ++request.current
-    setLoading(true)
+    // Only the first load (or a retry after a failure) shows as loading. Every
+    // orchestration change in the parent session triggers a refresh, and a
+    // sibling at work emits them constantly: flagging each one disabled the
+    // version picker and flashed "Loading result" for as long as it ran.
+    if (applied.current === null) setLoading(true)
     setLoadError(null)
     try {
       const view = await rpc.invoke('orchestration.view', { sessionId })
@@ -56,7 +65,11 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
         view.tasks.find((entry) =>
           entry.attempts.some((attempt) => attempt.sessionId === childSessionId),
         ) ?? null
-      setTask(next)
+      const serialized = JSON.stringify(next)
+      if (serialized !== applied.current) {
+        applied.current = serialized
+        setTask(next)
+      }
       setTarget((previous) => {
         // Never follow a newer version implicitly, including after our own action.
         if (previous || !next) return previous
@@ -69,14 +82,16 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
         return initial ? targetOf(initial) : null
       })
     } catch (cause) {
-      if (alive.current && sequence === request.current)
+      if (alive.current && sequence === request.current) {
+        applied.current = null
         setLoadError(cause instanceof Error ? cause.message : 'Could not load this result.')
+      }
     } finally {
       if (alive.current && sequence === request.current) setLoading(false)
     }
-  }, [sessionId, childSessionId])
+  }, [sessionId, childSessionId, rpc, unsupported])
   useEffect(() => {
-    if (!open) return
+    if (!open || unsupported) return
     void refresh()
     return rpc.subscribe('orchestration.changed', { sessionId }, () => {
       void refresh()
@@ -94,6 +109,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     method: M,
     params: OrchestrationParams<M>,
   ): Promise<OrchestrationResults[M]> => {
+    if (unsupported) return Promise.reject(new Error(unsupported))
     return rpc.invoke(method, params).catch(async (cause: unknown) => {
       if (!alive.current || !('idempotencyKey' in params)) throw cause
       // Electron does not preserve custom Error fields. Only a durable completed
@@ -130,6 +146,8 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   }
   const update = (updated: ResultPackage) => {
     if (!alive.current) return
+    // A local edit: the next refresh must apply whatever the engine reports.
+    applied.current = ''
     setTask((previous) =>
       previous
         ? {
@@ -277,6 +295,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     currentResult,
     loading,
     loadError,
+    unsupported,
     busy,
     error,
     notice,

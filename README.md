@@ -1,5 +1,9 @@
 # Ari
 
+Aria, the shared coordinator chat, is an optional experiment. Enable it in
+**Settings → Experimental → Aria**. It is off by default; chat history and saved
+choices are preserved. General dictation works independently of this setting.
+
 [![Stars](https://img.shields.io/github/stars/j35dev/Ari?style=social)](https://github.com/j35dev/Ari/stargazers) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 **Ari** — an open, local-first **agent development environment (ADE)** for Windows, macOS and Linux.

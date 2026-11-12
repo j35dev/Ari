@@ -22,7 +22,8 @@ import { Dialog } from '@ari/ui/dialog'
 import { Popover } from '@ari/ui/popover'
 import { useToast } from '@ari/ui/toast'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
+import { rpc as localRpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { menuActions, pushesToDefault, quickAction, type MenuAction } from './git-quick-action'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { branchLabel } from '../session/branch-label'
@@ -53,23 +54,25 @@ function doneTitle(outcome: GitShipOutcome): string {
 }
 
 const openUrl = (url: string): void => {
-  void rpc.invoke('shell.openUrl', { url }).catch((error: unknown) => {
+  void localRpc.invoke('shell.openUrl', { url }).catch((error: unknown) => {
     log.warn('could not open link', { error: String(error) })
   })
 }
 
 /** The open PR for the current branch, re-read when the branch or revision moves. */
 function usePullRequest(scope: GitScope, branch: string | null, revision: number) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
   const [pr, setPr] = useState<PullRequest | null>(null)
   const key = JSON.stringify(scope)
   useEffect(() => {
     let live = true
-    if (!branch) {
+    if (!branch || rpc.scope.kind === 'remote' || rpc.readOnly) {
       setPr(null)
       return
     }
     void rpc
-      .invoke('scm.pullRequest', { ...scope, ...(revision > 0 ? { refresh: true } : {}) })
+      .invoke('scm.pullRequest', { ...wireScope, ...(revision > 0 ? { refresh: true } : {}) })
       .then((result) => {
         if (live) setPr(result.ok ? result.value : null)
       })
@@ -79,7 +82,7 @@ function usePullRequest(scope: GitScope, branch: string | null, revision: number
     return () => {
       live = false
     }
-  }, [key, branch, revision])
+  }, [key, branch, revision, rpc, rpc.authorizationEpoch, rpc.availability])
   return pr
 }
 
@@ -101,6 +104,11 @@ export function GitControl({
   onReview: () => void
   onPullRequests: () => void
 }) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
+  const unavailableReason = rpc.scope.kind === 'remote'
+    ? 'Git actions must be performed on the owning machine.'
+    : rpc.readOnly ? 'Reconnect to the owning machine to use Git actions.' : null
   const { toast, update } = useToast()
   const [revision, setRevision] = useState(0)
   const pr = usePullRequest(scope, summary.branch, revision)
@@ -121,26 +129,26 @@ export function GitControl({
 
   // Background fetch keeps ahead/behind current so Pull shows up when someone else pushed.
   useEffect(() => {
-    if (fetchSeconds <= 0 || !summary.hasRemote) return
+    if (unavailableReason || fetchSeconds <= 0 || !summary.hasRemote) return
     const timer = setInterval(() => {
       if (document.hidden) return
       void rpc
-        .invoke('scm.ship', { ...scope, action: 'fetch' })
+        .invoke('scm.ship', { ...wireScope, action: 'fetch' })
         .then((result) => {
           if (result.ok) refresh()
         })
         .catch((error: unknown) => log.debug('background fetch failed', { error: String(error) }))
     }, fetchSeconds * 1000)
     return () => clearInterval(timer)
-  }, [scopeKey, fetchSeconds, summary.hasRemote])
+  }, [scopeKey, fetchSeconds, summary.hasRemote, unavailableReason, rpc])
 
   const run = async (action: GitShipAction, message?: string, paths?: string[]): Promise<void> => {
-    if (busy) return
+    if (unavailableReason || busy) return
     setBusy(true)
     const id = toast({ title: PROGRESS[action], tone: 'info', durationMs: 0 })
     try {
       const result = await rpc.invoke('scm.ship', {
-        ...scope,
+        ...wireScope,
         action,
         ...(message ? { message } : {}),
         ...(paths ? { paths } : {}),
@@ -179,12 +187,14 @@ export function GitControl({
 
   /** Commits go through the dialog; pushes to a default branch ask first. */
   const start = (action: GitShipAction, message?: string, paths?: string[]): void => {
+    if (unavailableReason) return
     if (confirmDefault && pushesToDefault(summary, action))
       setConfirm({ action, ...(message ? { message } : {}), ...(paths ? { paths } : {}) })
     else void run(action, message, paths)
   }
 
   const onPrimary = (): void => {
+    if (unavailableReason) return
     if (primary.kind === 'view-pr') openUrl(primary.url)
     else if (primary.kind === 'ship') {
       if (primary.commits) setCommit(primary.action)
@@ -193,6 +203,7 @@ export function GitControl({
   }
 
   const onItem = (item: MenuAction): void => {
+    if (unavailableReason) return
     setMenuOpen(false)
     if (item.id === 'commit') setCommit('commit')
     else if (item.id === 'push') start('push')
@@ -211,38 +222,36 @@ export function GitControl({
             ? GitPullRequestArrow
             : ArrowUp
           : GitCommitHorizontal
-  const disabled = primary.kind === 'disabled' || busy
+  const disabled = unavailableReason !== null || primary.kind === 'disabled' || busy
 
   return (
     <div className="flex items-center" style={noDrag}>
       <div
-        className="flex h-7 items-stretch overflow-hidden rounded-lg border border-border/70 bg-surface-1/70 text-xs text-fg shadow-sm"
-        title={primary.kind === 'disabled' ? primary.reason : undefined}
+        className="flex h-7 items-center gap-0.5 text-[13px] text-fg"
+        title={unavailableReason ?? (primary.kind === 'disabled' ? primary.reason : undefined)}
       >
         {/* The branch the workspace is on; it used to take a row of its own
             above the transcript. */}
         <span
-          className="flex max-w-40 items-center gap-1.5 pl-2.5 pr-2 text-fg-muted"
+          className="flex max-w-44 items-center gap-1.5 px-2 text-fg-subtle"
           title={summary.branch ?? 'Detached HEAD'}
           data-testid="git-branch"
         >
-          <GitBranch size={12} aria-hidden className="shrink-0" />
+          <GitBranch size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
           <span className="truncate">
             {summary.branch ? branchLabel(summary.branch) : 'detached'}
           </span>
         </span>
-        <span aria-hidden className="w-px bg-border/70" />
         <button
           type="button"
           onClick={onPrimary}
           disabled={disabled}
           aria-label={primary.label}
-          className="flex items-center gap-1.5 px-2.5 font-medium transition-colors hover:bg-surface-2 disabled:pointer-events-none disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+          className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium transition-colors hover:bg-fg/6 disabled:pointer-events-none disabled:font-normal disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <Icon size={13} aria-hidden className={disabled ? '' : 'text-accent'} />
+          <Icon size={14} strokeWidth={1.7} aria-hidden className="text-fg-subtle" />
           <span className="whitespace-nowrap">{busy ? 'Working…' : primary.label}</span>
         </button>
-        <span aria-hidden className="w-px bg-border/70" />
         <Popover
           open={menuOpen}
           onOpenChange={(open) => {
@@ -256,16 +265,16 @@ export function GitControl({
           <Popover.Trigger
             aria-label="Git actions"
             aria-haspopup="menu"
-            className="flex w-6 items-center justify-center text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+            className="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-fg/6 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <ChevronDown size={12} aria-hidden />
           </Popover.Trigger>
           <Popover.Content side="bottom" align="end" sideOffset={6} bare>
             <div
               role="menu"
-              className="w-64 rounded-xl border border-border bg-surface-1 p-1 text-xs shadow-lg"
+              className="w-64 rounded-xl border border-border-strong bg-surface-1 p-1 text-[13px] shadow-3"
             >
-              <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-1 text-2xs text-fg-subtle">
+              <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-1.5 text-xs text-fg-subtle">
                 <GitBranch size={11} aria-hidden />
                 <span className="truncate font-mono">{summary.branch ?? 'detached HEAD'}</span>
                 <span className="ml-auto font-mono tabular-nums">
@@ -278,18 +287,18 @@ export function GitControl({
                   key={item.id}
                   type="button"
                   role="menuitem"
-                  disabled={item.reason !== null || busy}
-                  title={item.reason ?? undefined}
+                  disabled={unavailableReason !== null || item.reason !== null || busy}
+                  title={unavailableReason ?? item.reason ?? undefined}
                   onClick={() => onItem(item)}
-                  className="flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 disabled:pointer-events-none"
+                  className="flex w-full flex-col items-start rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-fg/6 disabled:pointer-events-none"
                 >
                   <span className={item.reason ? 'text-fg-subtle' : 'text-fg'}>{item.label}</span>
                   {item.reason ? (
-                    <span className="text-2xs text-fg-subtle/80">{item.reason}</span>
+                    <span className="text-xs text-fg-subtle">{item.reason}</span>
                   ) : null}
                 </button>
               ))}
-              <div className="my-1 h-px bg-border/60" />
+              <div className="mx-1 my-1 h-px bg-border" />
               <button
                 type="button"
                 role="menuitem"
@@ -297,12 +306,12 @@ export function GitControl({
                   setMenuOpen(false)
                   onReview()
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
+                className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-fg transition-colors hover:bg-fg/6"
               >
-                <FileDiff size={12} aria-hidden className="text-fg-subtle" />
+                <FileDiff size={14} aria-hidden className="text-fg-subtle" />
                 Review changes
                 {summary.changedFiles > 0 ? (
-                  <span className="ml-auto font-mono text-2xs text-fg-subtle">
+                  <span className="ml-auto text-xs tabular-nums text-fg-subtle">
                     {summary.changedFiles}
                   </span>
                 ) : null}
@@ -310,13 +319,15 @@ export function GitControl({
               <button
                 type="button"
                 role="menuitem"
+                disabled={unavailableReason !== null}
+                title={unavailableReason ?? undefined}
                 onClick={() => {
                   setMenuOpen(false)
                   onPullRequests()
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
+                className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-fg transition-colors hover:bg-fg/6"
               >
-                <GitPullRequest size={12} aria-hidden className="text-fg-subtle" />
+                <GitPullRequest size={14} aria-hidden className="text-fg-subtle" />
                 Pull requests
               </button>
             </div>
@@ -383,6 +394,8 @@ function CommitDialog({
   onClose: () => void
   onCommit: (message: string | undefined, paths: string[] | undefined) => void
 }) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
   const [files, setFiles] = useState<GitReviewFile[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
@@ -390,7 +403,7 @@ function CommitDialog({
   useEffect(() => {
     let live = true
     void rpc
-      .invoke('scm.review', { ...scope, comparison: { kind: 'working-tree' } })
+      .invoke('scm.review', { ...wireScope, comparison: { kind: 'working-tree' } })
       .then((result) => {
         if (!live) return
         if (result.ok) setFiles(result.value.files)
@@ -400,7 +413,7 @@ function CommitDialog({
     return () => {
       live = false
     }
-  }, [JSON.stringify(scope)])
+  }, [JSON.stringify(scope), rpc])
   const included = useMemo(
     () => (files ?? []).filter((file) => !excluded.has(file.path)),
     [files, excluded],
@@ -417,7 +430,7 @@ function CommitDialog({
       return next
     })
   const submit = (): void => {
-    if (included.length === 0) return
+    if (rpc.scope.kind === 'remote' || rpc.readOnly || included.length === 0) return
     onCommit(
       message.trim() || undefined,
       excluded.size > 0 ? included.map((file) => file.path) : undefined,
@@ -431,7 +444,7 @@ function CommitDialog({
           On <span className="font-mono text-fg">{summary.branch ?? 'detached HEAD'}</span>. Leave
           the message blank to describe the files.
         </Dialog.Description>
-        <div className="mt-3 overflow-hidden rounded-xl border border-border/70 bg-surface-1/60">
+        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface-0">
           <div className="ari-scroll max-h-52 overflow-auto py-1">
             {files === null && !error ? (
               <p className="px-3 py-2 text-xs text-fg-subtle">Reading changes…</p>
@@ -445,7 +458,7 @@ function CommitDialog({
                 return (
                   <label
                     key={file.path}
-                    className="flex cursor-pointer items-center gap-2 px-3 py-1 font-mono text-xs hover:bg-surface-2/60"
+                    className="flex cursor-pointer items-center gap-2 px-3 py-1 font-mono text-xs hover:bg-fg/5"
                   >
                     <input
                       type="checkbox"
@@ -466,7 +479,7 @@ function CommitDialog({
               })
             )}
           </div>
-          <div className="flex items-center justify-between border-t border-border/60 px-3 py-1.5 text-2xs text-fg-subtle">
+          <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-xs text-fg-subtle">
             <span>
               {included.length} of {files?.length ?? 0} files
             </span>
@@ -486,7 +499,7 @@ function CommitDialog({
           rows={3}
           maxLength={8000}
           placeholder="Commit message (optional)"
-          className="mt-3 w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+          className="mt-3 w-full resize-none rounded-md border border-border bg-surface-0 px-3 py-2 text-[13px] text-fg placeholder:text-fg-subtle hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <div className="mt-4 flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>

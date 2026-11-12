@@ -31,7 +31,7 @@ export function Field({ label, hint, error, children }: FieldProps) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-fg" htmlFor={id}>
+      <label className="text-[13px] font-medium text-fg" htmlFor={id}>
         {label}
       </label>
       {children({
@@ -40,7 +40,7 @@ export function Field({ label, hint, error, children }: FieldProps) {
         'aria-invalid': error != null ? true : undefined,
       })}
       {hint != null && (
-        <p className="text-xs text-fg-muted" id={hintId}>
+        <p className="text-xs text-fg-subtle" id={hintId}>
           {hint}
         </p>
       )}

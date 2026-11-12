@@ -1,0 +1,16 @@
+/* The dictation level meter: 3px bars built from stacked square pixels in the
+   accent. Heights are whole cells (3px lit, 1px gap), set inline per bar, so
+   the meter snaps from cell to cell and never eases. */
+.ari-levels {
+  display: inline-flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 22px;
+}
+
+.ari-levels i {
+  display: block;
+  width: 3px;
+  background: repeating-linear-gradient(to top, var(--ari-accent) 0 3px, transparent 3px 4px);
+}

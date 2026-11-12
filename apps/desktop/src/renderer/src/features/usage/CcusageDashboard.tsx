@@ -1,3 +1,4 @@
+import { card, cx } from '../../lib/recipes'
 import {
   bucketDays,
   daysSince,
@@ -8,6 +9,9 @@ import {
   type CcusageReport,
   type Granularity,
 } from './parse-ccusage'
+
+/** The caption above a group, as on the settings pages. */
+const caption = 'mb-2.5 text-[13px] font-medium text-fg-subtle'
 
 /**
  * Parsed ccusage report rendered for one time window: hero cost, a per-period
@@ -42,11 +46,11 @@ export function CcusageDashboard({
   const range = formatRange(days)
 
   return (
-    <section aria-label="ccusage" className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-6">
+    <section aria-label="ccusage" className="flex flex-col gap-[26px]">
+      <div className={cx(card, 'flex flex-wrap items-end justify-between gap-x-8 gap-y-5 p-5')}>
         <div>
-          <p className="text-2xs text-fg-subtle">{range || 'No recorded usage'}</p>
-          <p className="mt-1 font-mono text-4xl tabular-nums tracking-tight text-fg">
+          <p className="text-xs text-fg-subtle">{range || 'No recorded usage'}</p>
+          <p className="mt-1 text-[32px] font-semibold leading-10 tracking-[-0.02em] tabular-nums text-fg">
             {formatUsd(totalCost)}
           </p>
           <p className="mt-1 text-xs text-fg-subtle">
@@ -54,7 +58,7 @@ export function CcusageDashboard({
           </p>
         </div>
         <div className="min-w-[220px] flex-1">
-          <p className="mb-1 text-2xs font-medium capitalize text-fg-subtle">{granularity} cost</p>
+          <p className="mb-2 text-xs capitalize text-fg-subtle">{granularity} cost</p>
           {buckets.length > 0 ? (
             <>
               <div
@@ -68,19 +72,19 @@ export function CcusageDashboard({
                     <div
                       key={bucket.key}
                       title={`${bucket.label} · ${formatUsd(cost)}`}
-                      className="min-w-1 flex-1 rounded-t-sm bg-accent/60 transition-colors duration-[var(--ari-dur-fast)] hover:bg-accent motion-reduce:transition-none"
+                      className="min-w-1 flex-1 rounded-t-[2px] bg-fg-muted/60 transition-colors duration-[var(--ari-dur-fast)] hover:bg-fg motion-reduce:transition-none"
                       style={{ height: `${Math.max((cost / maxCost) * 100, 2)}%` }}
                     />
                   )
                 })}
               </div>
-              <div className="mt-1 flex justify-between font-mono text-2xs text-fg-subtle">
+              <div className="mt-1.5 flex justify-between text-xs tabular-nums text-fg-subtle">
                 <span>{buckets[0]?.label}</span>
                 <span>{buckets[buckets.length - 1]?.label}</span>
               </div>
             </>
           ) : (
-            <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-border text-2xs text-fg-subtle">
+            <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-border text-xs text-fg-subtle">
               No usage in this window
             </div>
           )}
@@ -88,10 +92,8 @@ export function CcusageDashboard({
       </div>
 
       <div>
-        <h3 className="mb-2 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-          Totals
-        </h3>
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <h3 className={caption}>Totals</h3>
+        <dl className={cx(card, 'grid grid-cols-2 gap-y-4 px-5 py-4 sm:grid-cols-5')}>
           <Stat label="Processed tokens" value={formatTokens(processed)} />
           <Stat label="Cached input" value={formatTokens(cacheRead)} />
           <Stat label="Uncached input" value={formatTokens(inputTokens)} />
@@ -102,44 +104,49 @@ export function CcusageDashboard({
 
       {shares.length > 0 ? (
         <div>
-          <h3 className="mb-2 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-            Breakdown
-          </h3>
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="text-2xs uppercase tracking-[0.12em] text-fg-subtle">
-                <th className="pb-2 font-medium">Model</th>
-                <th className="pb-2 text-right font-medium">Cost</th>
-                <th className="pb-2 text-right font-medium">Share</th>
-                <th className="pb-2 text-right font-medium">Tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shares.map((row) => (
-                <tr key={row.modelName} className="border-t border-border">
-                  <td className="max-w-[14rem] truncate py-2 font-mono text-fg">{row.modelName}</td>
-                  <td className="py-2 text-right font-mono tabular-nums text-fg">{formatUsd(row.cost)}</td>
-                  <td className="py-2 text-right font-mono tabular-nums text-fg-muted">
-                    {(row.share * 100).toFixed(1)}%
-                  </td>
-                  <td className="py-2 text-right font-mono tabular-nums text-fg-muted">
-                    {formatTokens(row.tokens)}
-                  </td>
+          <h3 className={caption}>Breakdown</h3>
+          <div className={cx(card, 'overflow-hidden')}>
+            <table className="w-full text-left text-[13px]">
+              <thead>
+                <tr className="text-xs text-fg-subtle">
+                  <th className="py-2.5 pl-4 pr-3 font-normal">Model</th>
+                  <th className="px-3 py-2.5 text-right font-normal">Cost</th>
+                  <th className="px-3 py-2.5 text-right font-normal">Share</th>
+                  <th className="py-2.5 pl-3 pr-4 text-right font-normal">Tokens</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {shares.map((row) => (
+                  <tr key={row.modelName} className="border-t border-border">
+                    <td className="max-w-[14rem] truncate py-3 pl-4 pr-3 font-mono text-[12.5px] text-fg">
+                      {row.modelName}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-fg">
+                      {formatUsd(row.cost)}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-fg-muted">
+                      {(row.share * 100).toFixed(1)}%
+                    </td>
+                    <td className="py-3 pl-3 pr-4 text-right tabular-nums text-fg-muted">
+                      {formatTokens(row.tokens)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
     </section>
   )
 }
 
+/** A number with its caption beneath it; the caption stays first for assistive tech. */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="text-2xs text-fg-subtle">{label}</dt>
-      <dd className="mt-0.5 font-mono text-sm tabular-nums text-fg">{value}</dd>
+    <div className="flex flex-col-reverse">
+      <dt className="mt-0.5 text-xs text-fg-subtle">{label}</dt>
+      <dd className="text-[15px] font-medium tabular-nums text-fg">{value}</dd>
     </div>
   )
 }

@@ -1,0 +1,64 @@
+{"resourceGate":{"commitHeadroomBytes":4591443968,"cFreeBytes":22013808640}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5135052800,"cFreeBytes":22010732544}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":663937024,"cFreeBytes":22004776960}}
+{"resourceGate":"waiting-thirty-seconds"}
+{"resourceGate":{"commitHeadroomBytes":3105165312,"cFreeBytes":22003277824}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4524081152,"cFreeBytes":22002757632}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":2576601088,"cFreeBytes":21999288320}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":5146472448,"cFreeBytes":22004989952}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4072312832,"cFreeBytes":22005481472}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":1211904000,"cFreeBytes":21997977600}}
+{"resourceGate":"waiting-thirty-seconds"}
+{"resourceGate":{"commitHeadroomBytes":2748104704,"cFreeBytes":21984493568}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4715220992,"cFreeBytes":21973172224}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3598135296,"cFreeBytes":21993410560}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4421943296,"cFreeBytes":21979095040}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":3687297024,"cFreeBytes":21964959744}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4338483200,"cFreeBytes":21973221376}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4084252672,"cFreeBytes":21977952256}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4943224832,"cFreeBytes":21959782400}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4069638144,"cFreeBytes":21957353472}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":4440469504,"cFreeBytes":21947219968}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-engine-tests\",\"pid\":26188,\"startedAt\":\"2026-11-12T13:39:20.255Z\",\"id\":\"2d4535ad-6e1b-45ec-8616-76352c848aa0\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":6718844928,"cFreeBytes":21945618432}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"final-lint-correction","pid":24848,"startedAt":"2026-11-12T13:41:15.434Z","id":"018a3e32-2750-40a2-a97d-4c24e00c0490"}
+
+> ari@ lint D:\Projects\Ari-machines
+> eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway packages/remote-client && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop/electron.vite.config.ts apps/desktop/vitest.config.ts apps/desktop/postcss.config.js apps/desktop/packaging apps/desktop/src/main apps/desktop/src/preload apps/desktop/src/shared apps/desktop/src/test-setup.dom.ts && eslint apps/desktop/src/renderer apps/desktop/src/assets.d.ts apps/desktop/src/test-env.dom.test.ts apps/desktop/src/test-env.node.test.ts
+
+
+D:\Projects\Ari-machines\apps\desktop\src\renderer\src\App.tsx
+  27:10  error  'Titlebar' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\Projects\Ari-machines\apps\desktop\src\renderer\src\features\machines\MachinePicker.tsx
+  16:31  error  "auto" is overridden by string in this union type  @typescript-eslint/no-redundant-type-constituents
+
+D:\Projects\Ari-machines\apps\desktop\src\renderer\src\features\machines\project-draft-adapter.ts
+  13:14  error  A method that is not declared with `this: void` may cause unintentional scoping of `this` when separated from its object.
+Consider using an arrow function or explicitly `.bind()`ing the method to avoid calling the method with an unintended `this` value.
+If a function does not access `this`, it can be annotated with `this: void`  @typescript-eslint/unbound-method
+  13:42  error  A method that is not declared with `this: void` may cause unintentional scoping of `this` when separated from its object.
+Consider using an arrow function or explicitly `.bind()`ing the method to avoid calling the method with an unintended `this` value.
+If a function does not access `this`, it can be annotated with `this: void`  @typescript-eslint/unbound-method
+  32:5   error  Async method 'workspaces' has no 'await' expression                                                                                                                                                                                                                                                                                         @typescript-eslint/require-await
+
+✖ 5 problems (5 errors, 0 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.
+{"heavyResult":{"worker":"final-lint-correction","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","lint"],"exitCode":1,"signal":null}}

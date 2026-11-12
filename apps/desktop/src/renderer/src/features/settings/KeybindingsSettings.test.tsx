@@ -1,7 +1,15 @@
 import { render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KeybindingsSettings } from './KeybindingsSettings'
-import { APP_SHORTCUTS } from './shortcuts'
+import { appShortcuts } from './shortcuts'
+
+const mocks = vi.hoisted(() => ({ ariaEnabled: false }))
+vi.mock('./useEngineSettings', () => ({
+  useEngineSettings: () => ({ settings: { experimental: { ariaEnabled: mocks.ariaEnabled } } }),
+}))
+beforeEach(() => {
+  mocks.ariaEnabled = false
+})
 
 function stubPlatform(value: string): void {
   Object.defineProperty(window.navigator, 'platform', { value, configurable: true })
@@ -28,7 +36,14 @@ describe('KeybindingsSettings', () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
-    expect(screen.getAllByRole('listitem')).toHaveLength(APP_SHORTCUTS.length)
+    expect(screen.getAllByRole('listitem')).toHaveLength(appShortcuts().length)
+    expect(screen.queryByText('Open Aria')).not.toBeInTheDocument()
+  })
+
+  it('restores the Aria shortcut help when its experiment is enabled', () => {
+    mocks.ariaEnabled = true
+    render(<KeybindingsSettings />)
+    expect(screen.getByText('Open Aria')).toBeInTheDocument()
   })
 
   it('shows Cmd chords on Apple platforms', () => {
@@ -64,8 +79,6 @@ describe('KeybindingsSettings', () => {
 
   it('notes that remapping ships with the keybindings layer', () => {
     render(<KeybindingsSettings />)
-    expect(
-      screen.getByText(/remapping lands with the keybindings layer/),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/remapping lands with the keybindings layer/)).toBeInTheDocument()
   })
 })

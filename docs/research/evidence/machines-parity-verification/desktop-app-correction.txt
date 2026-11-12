@@ -1,0 +1,343 @@
+{"resourceGate":{"commitHeadroomBytes":10446454784,"cFreeBytes":21675323392}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-app-fixtures-correction","pid":32548,"startedAt":"2026-11-12T14:47:11.951Z","id":"79bd8c80-cc55-4ef8-9099-44d3a5b3eddf"}
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+node : Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+At line:3 char:1
++ node scripts/coordination/run-heavy.mjs integrated-app-fixtures-corre ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+ ❯ |dom| src/renderer/src/App.navigation.test.tsx (8 tests | 1 failed) 3414ms
+   × routes normal remote session actions and file reads to their host without local dispatch 1394ms
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > routes normal remote session actions and file reads to their
+host without local dispatch
+TestingLibraryElementError: Unable to find role="button" and name "Remote task"
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
+bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0
+0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
+3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
+bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0
+0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+   Start at  22:47:16
+   Duration  41.21s (transform 4.09s, setup 4.96s, import 10.19s, tests 17.37s, environment 7.55s)
+
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
+3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
+hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper
+../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.navigation.test.tsx:260:32
+    258|     target: { value: 'Local unsent draft' },
+    259|   })
+    260|   fireEvent.click(await screen.findByRole('button', { name: 'Remote ta…
+       |                                ^
+    261|   expect(await screen.findByTestId(`chat-${remoteKey}`)).toBeVisible()
+    262|   expect(activeSessionOf(splitLayoutSnapshot())).toBe(remoteKey)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+undefined
+D:\Projects\Ari-machines\apps\desktop:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/renderer/src/App.navigation.test.tsx src/renderer/src/App.onboarding.test.tsx src/renderer/src/App.first-session.test.tsx src/renderer/src/features/machines/use-machines.test.tsx --maxWorkers=1 --no-file-parallelism
+{"heavyResult":{"worker":"integrated-app-fixtures-correction","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vitest","run","src/renderer/src/App.navigation.test.tsx","src/renderer/src/App.onboarding.test.tsx","src/renderer/src/App.first-session.test.tsx","src/renderer/src/features/machines/use-machines.test.tsx","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

@@ -1,36 +1,78 @@
 /*
- * Scrollbar chrome for `.ari-scroll` (see components/ScrollArea.tsx) plus the
- * shared skeleton pulse keyframes. Native scrolling is preserved — only the
- * scrollbar painting is themed. Colors reference tokens.css exclusively.
+ * Scrollbar chrome for every scroller, plus the shared skeleton pulse
+ * keyframes. Native scrolling is preserved — only the painting is themed.
+ *
+ * One look everywhere: no track, no stepper arrows, a hairline thumb in the
+ * text colour that lifts when its scroller is hovered and thickens when the
+ * thumb itself is. It applies to all elements rather than a class, so a
+ * scroller cannot be left on the platform default.
+ *
+ * Do not set `scrollbar-width` or `scrollbar-color` on a scroller: Chromium
+ * then ignores these rules and draws its own bar, arrows included.
  */
 
-.ari-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ari-surface-3) transparent;
+:root {
+  --ari-scrollbar-size: 10px;
+  --ari-scrollbar-thumb: color-mix(in oklab, var(--ari-fg) 13%, transparent);
+  --ari-scrollbar-thumb-near: color-mix(in oklab, var(--ari-fg) 22%, transparent);
+  --ari-scrollbar-thumb-hover: color-mix(in oklab, var(--ari-fg) 36%, transparent);
+  --ari-scrollbar-thumb-active: color-mix(in oklab, var(--ari-fg) 48%, transparent);
 }
 
-.ari-scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* Pointer devices only: touch keeps the platform's overlay scrollbars. */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: var(--ari-scrollbar-size);
+    height: var(--ari-scrollbar-size);
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* The transparent border insets the thumb, leaving a 4px hairline. */
+  ::-webkit-scrollbar-thumb {
+    min-height: 36px;
+    min-width: 36px;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--ari-scrollbar-thumb);
+    background-clip: padding-box;
+  }
+
+  :hover::-webkit-scrollbar-thumb {
+    background-color: var(--ari-scrollbar-thumb-near);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background-color: var(--ari-scrollbar-thumb-hover);
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    border-width: 2px;
+    background-color: var(--ari-scrollbar-thumb-active);
+  }
+
+  /* No stepper arrows: the thumb is the whole control. */
+  ::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
-.ari-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ari-scroll::-webkit-scrollbar-thumb {
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-color: var(--ari-surface-3);
-  background-clip: padding-box;
-}
-
-.ari-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: var(--ari-border-strong);
-}
-
-.ari-scroll::-webkit-scrollbar-corner {
-  background: transparent;
+/* Engines without the pseudo-elements get the nearest standard equivalent. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ari-scrollbar-thumb-near) transparent;
+  }
 }
 
 @keyframes ari-pulse {

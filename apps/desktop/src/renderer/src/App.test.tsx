@@ -19,6 +19,7 @@ import {
   RECOVERY_STORAGE_KEY,
 } from './features/composer/draft-recovery-store'
 import { dropDraftTextMemory, DRAFTS_STORAGE_KEY } from './features/composer/use-drafts'
+import { localSnapshotFixture } from './features/machines/fixtures.test-support'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -89,7 +90,28 @@ const rpcMocks = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => undefined),
 }))
 
-vi.mock('./lib/rpc', () => ({ rpc: rpcMocks }))
+vi.mock('./lib/rpc', () => ({ rpc: { ...rpcMocks, invoke: (...args: [string, unknown?]) => {
+  const [method] = args
+  if (method === 'machines.list') return Promise.resolve([])
+  if (method === 'machines.preferences') return Promise.resolve({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
+  if (method === 'machines.localSnapshot') return Promise.resolve(appSnapshot())
+  return rpcMocks.invoke(...args)
+} } }))
+function appSnapshot() {
+  const snapshot = localSnapshotFixture()
+  snapshot.models.providers = (['ari-core', 'claude', 'codex'] as const).map((driverKind) => ({ driverKind,
+    available: true, models: ['default', 'opus', 'kept-model', 'gpt-6.1-sol'].map((id) => ({ id, label: id,
+      efforts: ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id, label: id })) })),
+    modes: (['ask', 'allow-edits', 'full'] as const).map((ariMode) => ({ id: ariMode, label: ariMode, ariMode })),
+  }))
+  return snapshot
+}
+async function sendProjectDraft() {
+  await screen.findByRole('button', { name: 'Execution machine' })
+  await vi.waitFor(() => expect(screen.queryByText('This agent is unavailable on the selected machine.')).toBeNull())
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Test draft first prompt' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+}
 // These suites exercise the established workspace. Real startup/setup is covered in App.onboarding.
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
@@ -137,14 +159,14 @@ describe('Shell session navigation keys', () => {
         case 'session.list':
           return [
             {
-              id: 'sess-alpha',
+              id: 'sess_alpha',
               projectId: 'adhoc',
               title: 'Alpha',
               updatedAt: NOW - 60_000,
               messageCount: 1,
             },
             {
-              id: 'sess-beta',
+              id: 'sess_beta',
               projectId: 'adhoc',
               title: 'Beta',
               updatedAt: NOW - 120_000,
@@ -198,7 +220,7 @@ describe('Shell session navigation keys', () => {
 
   it('cleans durable draft entries only after confirmed session deletion', async () => {
     const user = userEvent.setup()
-    const first = render(<Composer sessionId="sess-alpha" onSend={vi.fn()} />)
+    const first = render(<Composer sessionId="sess_alpha" onSend={vi.fn()} />)
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
       target: { value: 'delete my draft' },
     })
@@ -206,7 +228,7 @@ describe('Shell session navigation keys', () => {
       clipboardData: { files: [new File(['image'], 'delete.png', { type: 'image/png' })] },
     })
     first.unmount()
-    const second = render(<Composer sessionId="sess-beta" onSend={vi.fn()} />)
+    const second = render(<Composer sessionId="sess_beta" onSend={vi.fn()} />)
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
       target: { value: 'keep the other draft' },
     })
@@ -223,19 +245,19 @@ describe('Shell session navigation keys', () => {
     await user.click(await screen.findByRole('button', { name: 'Session actions for Alpha' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Delete session' }))
     await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
-    expect(readSessionDraftIntent('sess-alpha').images).toHaveLength(1)
+    expect(readSessionDraftIntent('sess_alpha').images).toHaveLength(1)
     await act(async () => finish())
-    await vi.waitFor(() => expect(readSessionDraftIntent('sess-alpha').images).toHaveLength(0))
+    await vi.waitFor(() => expect(readSessionDraftIntent('sess_alpha').images).toHaveLength(0))
     expect(JSON.parse(localStorage.getItem(DRAFTS_STORAGE_KEY) ?? '{}')).toEqual({
-      'sess-beta': 'keep the other draft',
+      'sess_beta': 'keep the other draft',
     })
     expect(
-      JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) ?? '{}').sessions['sess-alpha'],
+      JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) ?? '{}').sessions['sess_alpha'],
     ).toBeUndefined()
     cleanup()
     dropDraftIntentMemory()
     dropDraftTextMemory()
-    render(<Composer sessionId="sess-alpha" onSend={vi.fn()} />)
+    render(<Composer sessionId="sess_alpha" onSend={vi.fn()} />)
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
     expect(screen.queryByRole('img', { name: 'delete.png' })).not.toBeInTheDocument()
   })
@@ -248,7 +270,7 @@ describe('Shell session navigation keys', () => {
 
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
       },
       { timeout: 10_000 },
     )
@@ -270,19 +292,19 @@ describe('Shell session navigation keys', () => {
       ).length
 
     fireEvent.keyDown(window, { key: '1', ctrlKey: true })
-    await vi.waitFor(() => expect(loadsOf('sess-alpha')).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(loadsOf('sess_alpha')).toBe(1), { timeout: 10_000 })
     fireEvent.keyDown(window, { key: '2', ctrlKey: true })
-    await vi.waitFor(() => expect(loadsOf('sess-beta')).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(loadsOf('sess_beta')).toBe(1), { timeout: 10_000 })
     fireEvent.keyDown(window, { key: '1', ctrlKey: true })
 
     await vi.waitFor(() =>
       expect(screen.getByRole('log', { name: 'Conversation transcript' })).toHaveAttribute(
         'data-session',
-        'sess-alpha',
+        'sess_alpha',
       ),
     )
-    expect(loadsOf('sess-alpha')).toBe(1)
-    expect(subscriptionsOf('sess-alpha')).toBe(1)
+    expect(loadsOf('sess_alpha')).toBe(1)
+    expect(subscriptionsOf('sess_alpha')).toBe(1)
   })
 
   it('Ctrl+Tab cycles forward through sessions and wraps', async () => {
@@ -292,7 +314,7 @@ describe('Shell session navigation keys', () => {
     fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' })
       },
       { timeout: 10_000 },
     )
@@ -300,7 +322,7 @@ describe('Shell session navigation keys', () => {
     fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
       },
       { timeout: 10_000 },
     )
@@ -314,7 +336,7 @@ describe('Shell session navigation keys', () => {
     // Wraps from "nothing active" to the last row.
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
       },
       { timeout: 10_000 },
     )
@@ -336,6 +358,7 @@ describe('Shell session navigation keys', () => {
       },
     )
     fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
+    await sendProjectDraft()
 
     await vi.waitFor(
       () => {
@@ -355,9 +378,9 @@ describe('Shell split panes', () => {
   /** Alpha on the left, Beta on the right — the split focuses the new pane. */
   const openTwoPanes = (): void => {
     const first = splitLayoutSnapshot().focusedPaneId
-    splitLayoutActions.assign(first, 'sess-alpha')
+    splitLayoutActions.assign(first, 'sess_alpha')
     splitLayoutActions.split(first, 'right')
-    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess-beta')
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess_beta')
   }
 
   /** Parks overlapping `session.list` calls so tests can resolve them out of order. */
@@ -388,14 +411,14 @@ describe('Shell split panes', () => {
       lists,
       feeds,
       alpha: {
-        id: 'sess-alpha',
+        id: 'sess_alpha',
         projectId: 'adhoc',
         title: 'Alpha',
         updatedAt: NOW - 60_000,
         messageCount: 1,
       },
       beta: {
-        id: 'sess-beta',
+        id: 'sess_beta',
         projectId: 'adhoc',
         title: 'Beta',
         updatedAt: NOW - 120_000,
@@ -423,14 +446,14 @@ describe('Shell split panes', () => {
         case 'session.list':
           return [
             {
-              id: 'sess-alpha',
+              id: 'sess_alpha',
               projectId: 'adhoc',
               title: 'Alpha',
               updatedAt: NOW - 60_000,
               messageCount: 1,
             },
             {
-              id: 'sess-beta',
+              id: 'sess_beta',
               projectId: 'adhoc',
               title: 'Beta',
               updatedAt: NOW - 120_000,
@@ -461,15 +484,15 @@ describe('Shell split panes', () => {
 
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
       },
       { timeout: 10_000 },
     )
     const alpha = await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
     expect(alpha).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Beta' })).toHaveAttribute('data-focused', 'true')
   })
 
   it("prefixes each pane header with the session's project title", async () => {
@@ -482,14 +505,14 @@ describe('Shell split panes', () => {
         case 'session.list':
           return [
             {
-              id: 'sess-alpha',
+              id: 'sess_alpha',
               projectId: 'proj-ari',
               title: 'New session',
               updatedAt: NOW - 60_000,
               messageCount: 1,
             },
             {
-              id: 'sess-beta',
+              id: 'sess_beta',
               projectId: 'proj-docs',
               title: 'Draft notes',
               updatedAt: NOW - 120_000,
@@ -593,18 +616,18 @@ describe('Shell split panes', () => {
     render(<App />)
 
     const beta = await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
-    expect(beta).toHaveClass('border-accent/40')
-    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-border/60')
-    expect(row('Beta')).toHaveClass('bg-accent/15')
-    expect(row('Alpha')).not.toHaveClass('bg-accent/15')
+    expect(beta).toHaveAttribute('data-focused', 'true')
+    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveAttribute('data-focused', 'false')
+    expect(row('Beta')).toHaveClass('bg-fg/9')
+    expect(row('Alpha')).not.toHaveClass('bg-fg/9')
 
     fireEvent.pointerDown(screen.getByRole('region', { name: 'Alpha' }))
 
     await vi.waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-accent/40')
+      expect(screen.getByRole('region', { name: 'Alpha' })).toHaveAttribute('data-focused', 'true')
     })
-    expect(row('Alpha')).toHaveClass('bg-accent/15')
-    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+    expect(row('Alpha')).toHaveClass('bg-fg/9')
+    expect(row('Beta')).not.toHaveClass('bg-fg/9')
   })
 
   it('keeps the one-pane view chrome-free, as it was before the split existed', async () => {
@@ -614,7 +637,7 @@ describe('Shell split panes', () => {
     fireEvent.keyDown(window, { key: '2', ctrlKey: true })
     await vi.waitFor(
       () => {
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
       },
       { timeout: 10_000 },
     )
@@ -652,7 +675,10 @@ describe('Shell split panes', () => {
     // Three panes now: the new one has the focus and is waiting for a session.
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(1)
-    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveAttribute(
+      'data-focused',
+      'true',
+    )
   })
 
   it('splits from a right-click on the one-pane view, which has no frame', async () => {
@@ -664,7 +690,7 @@ describe('Shell split panes', () => {
       { name: 'Conversation transcript' },
       { timeout: 10_000 },
     )
-    expect(pane).toHaveAttribute('data-session', 'sess-beta')
+    expect(pane).toHaveAttribute('data-session', 'sess_beta')
 
     fireEvent.contextMenu(pane, { clientX: 60, clientY: 60 })
     expect(screen.getByRole('menu')).toHaveAccessibleName('Beta pane')
@@ -690,7 +716,10 @@ describe('Shell split panes', () => {
 
     // The focused pane splits; its new neighbour is blank until something is
     // dropped in it, and it is the vertical divider that separates them.
-    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveAttribute(
+      'data-focused',
+      'true',
+    )
     expect(screen.getByRole('separator', { name: 'Resize Beta and Empty pane' })).toHaveAttribute(
       'aria-orientation',
       'vertical',
@@ -715,12 +744,12 @@ describe('Shell split panes', () => {
     openTwoPanes()
     render(<App />)
     await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
-    expect(row('Beta')).toHaveClass('bg-accent/15')
+    expect(row('Beta')).toHaveClass('bg-fg/9')
 
     fireEvent.keyDown(window, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true })
 
-    expect(row('Alpha')).toHaveClass('bg-accent/15')
-    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+    expect(row('Alpha')).toHaveClass('bg-fg/9')
+    expect(row('Beta')).not.toHaveClass('bg-fg/9')
   })
 
   it('says why a chord did nothing when the layout is already full', async () => {
@@ -753,7 +782,7 @@ describe('Shell split panes', () => {
     // on the way back.
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     fireEvent.click(await screen.findByRole('option', { name: /Go to Settings/ }))
-    const back = await screen.findByRole('button', { name: 'Back' }, { timeout: 10_000 })
+    const back = await screen.findByRole('button', { name: 'Close settings' }, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: '\\', ctrlKey: true })
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
@@ -763,7 +792,7 @@ describe('Shell split panes', () => {
 
     fireEvent.click(back)
     await vi.waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Close settings' })).not.toBeInTheDocument()
     })
     expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
   })
@@ -786,7 +815,7 @@ describe('Shell split panes', () => {
       },
       { timeout: 10_000 },
     )
-    expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+    expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' })
   })
 
   it('keeps the workspace mounted under the GitHub hub, so leaving it replays nothing', async () => {
@@ -832,7 +861,7 @@ describe('Shell optimistic sidebar changes', () => {
         case 'session.list':
           return [
             {
-              id: 'sess-alpha',
+              id: 'sess_alpha',
               projectId: 'proj-ari',
               title: 'Alpha',
               updatedAt: 0,
@@ -886,9 +915,9 @@ describe('Shell spaces', () => {
 
   const openTwoPanes = (): void => {
     const first = splitLayoutSnapshot().focusedPaneId
-    splitLayoutActions.assign(first, 'sess-alpha')
+    splitLayoutActions.assign(first, 'sess_alpha')
     splitLayoutActions.split(first, 'right')
-    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess-beta')
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess_beta')
   }
 
   beforeEach(() => {
@@ -903,14 +932,14 @@ describe('Shell spaces', () => {
         case 'session.list':
           return [
             {
-              id: 'sess-alpha',
+              id: 'sess_alpha',
               projectId: 'adhoc',
               title: 'Alpha',
               updatedAt: NOW - 60_000,
               messageCount: 1,
             },
             {
-              id: 'sess-beta',
+              id: 'sess_beta',
               projectId: 'adhoc',
               title: 'Beta',
               updatedAt: NOW - 120_000,
@@ -1046,6 +1075,7 @@ describe('Starting a session with no project yet', () => {
     rpcMocks.subscribe.mockReset()
     rpcMocks.subscribe.mockImplementation(() => () => undefined)
     localStorage.clear()
+    let opened = false
     invokeMock.mockImplementation(async (method) => {
       switch (method) {
         case 'ping':
@@ -1055,13 +1085,14 @@ describe('Starting a session with no project yet', () => {
         case 'session.list':
           return []
         case 'project.list':
-          return []
+          return opened ? [{ id: 'proj-new', name: 'Ari', path: 'C:\\work\\ari', open: true, status: 'ok' }] : []
         case 'dialog.pickFolder':
           return { path: 'C:\\work\\ari' }
         case 'project.open':
+          opened = true
           return { id: 'proj-new', name: 'Ari', path: 'C:\\work\\ari' }
         case 'session.create':
-          return { sessionId: 'sess-new' }
+          return { sessionId: 'sess_new' }
         case 'providers.detect':
         case 'providers.models':
         case 'endpoints.list':
@@ -1085,6 +1116,9 @@ describe('Starting a session with no project yet', () => {
     await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
 
     fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+    const chooser = await screen.findByRole('dialog', { name: 'New session' })
+    fireEvent.click(within(chooser).getByRole('button', { name: /Add project/ }))
+    await sendProjectDraft()
 
     // No projects means no menu to pick from — the folder dialog *is* the
     // choice, so the button is never a dead end. The session lands in the
@@ -1135,6 +1169,8 @@ describe('Starting a session with no project yet', () => {
     await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
 
     fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+    const chooser = await screen.findByRole('dialog', { name: 'New session' })
+    fireEvent.click(within(chooser).getByRole('button', { name: /Add project/ }))
 
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: undefined })
@@ -1200,7 +1236,7 @@ describe('Project session import flow', () => {
             },
           ]
         case 'sessions.import':
-          return { ok: true, sessionId: 'sess-imported', title: 'Imported chat', messageCount: 1 }
+          return { ok: true, sessionId: 'sess_imported', title: 'Imported chat', messageCount: 1 }
         case 'session.load':
           return { session: null, activeTurnId: null }
         default:
@@ -1220,7 +1256,7 @@ describe('Project session import flow', () => {
     await user.click(await screen.findByRole('button', { name: 'Import Imported chat' }))
 
     await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-imported' })
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_imported' })
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -1257,7 +1293,7 @@ describe('Shell live sidebar feed', () => {
           return listCalls === 1
             ? [
                 {
-                  id: 'sess-alpha',
+                  id: 'sess_alpha',
                   projectId: 'proj-ari',
                   title: 'New session',
                   updatedAt: NOW - 60_000,
@@ -1266,7 +1302,7 @@ describe('Shell live sidebar feed', () => {
               ]
             : [
                 {
-                  id: 'sess-alpha',
+                  id: 'sess_alpha',
                   projectId: 'proj-ari',
                   title: 'Fixed the build',
                   updatedAt: NOW - 1_000,
@@ -1274,7 +1310,9 @@ describe('Shell live sidebar feed', () => {
                 },
               ]
         case 'session.create':
-          return { sessionId: 'sess-new' }
+          return { sessionId: 'sess_new' }
+        case 'command.dispatch':
+          return { accepted: true }
         case 'project.list':
           return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
         case 'providers.detect':
@@ -1303,11 +1341,11 @@ describe('Shell live sidebar feed', () => {
 
     for (const onEvent of sessionFeedHandlers()) {
       onEvent({
-        sessionId: 'sess-alpha',
+        sessionId: 'sess_alpha',
         event: {
           seq: 3,
           at: Date.now(),
-          sessionId: 'sess-alpha',
+          sessionId: 'sess_alpha',
           type: 'session.updated',
           title: 'Fixed the build',
         },
@@ -1327,11 +1365,11 @@ describe('Shell live sidebar feed', () => {
 
     for (const onEvent of sessionFeedHandlers()) {
       onEvent({
-        sessionId: 'sess-alpha',
+        sessionId: 'sess_alpha',
         event: {
           seq: 2,
           at: Date.now(),
-          sessionId: 'sess-alpha',
+          sessionId: 'sess_alpha',
           type: 'user.message.added',
           message: { id: 'msg_1' },
         },
@@ -1349,6 +1387,7 @@ describe('Shell live sidebar feed', () => {
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
     const menu = await screen.findByRole('dialog', { name: 'New session' })
     fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
+    await sendProjectDraft()
 
     await vi.waitFor(
       () => {
@@ -1372,7 +1411,7 @@ describe('Shell live sidebar feed', () => {
       if (method === 'session.list' && created)
         return [
           ...(result as unknown[]),
-          { id: 'sess-new', projectId: 'proj-ari', title: 'New session', messageCount: 0 },
+          { id: 'sess_new', projectId: 'proj-ari', title: 'New session', messageCount: 0 },
         ]
       return result
     })
@@ -1385,14 +1424,15 @@ describe('Shell live sidebar feed', () => {
     // A real pointer sends mousedown and moves focus before click. fireEvent.click
     // skips that sequence and used to hide the launcher's cancelled start.
     await user.click(within(chooser).getByRole('option', { name: 'Ari' }))
+    await sendProjectDraft()
 
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith(
         'session.create',
         expect.objectContaining({ projectId: 'proj-ari' }),
       )
-      expect(splitLayoutSnapshot().root).toMatchObject({ sessionId: 'sess-new' })
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-new' })
+      expect(splitLayoutSnapshot().root).toMatchObject({ sessionId: 'sess_new' })
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_new' })
     })
   })
 
@@ -1408,6 +1448,7 @@ describe('Shell live sidebar feed', () => {
       fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
       const menu = await screen.findByRole('dialog', { name: 'New session' })
       fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
+      await sendProjectDraft()
       await vi.waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith(
           'session.create',
@@ -1438,6 +1479,7 @@ describe('Shell live sidebar feed', () => {
         name: 'Lead session in Ari',
       }),
     )
+    await sendProjectDraft()
 
     await vi.waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith(
@@ -1445,7 +1487,8 @@ describe('Shell live sidebar feed', () => {
         expect.objectContaining({ projectId: 'proj-ari', lead: true }),
       ),
     )
-    expect(invokeMock).not.toHaveBeenCalledWith('command.dispatch', expect.anything())
+    expect(invokeMock.mock.calls.some(([method, params]) => method === 'command.dispatch' &&
+      (params as { command?: { type?: string } })?.command?.type === 'session.update')).toBe(false)
   })
 
   describe('with fresh default permissions', () => {
@@ -1454,6 +1497,7 @@ describe('Shell live sidebar feed', () => {
       invokeMock.mockImplementation(async (method, params) => {
         if (method === 'settings.get') return settingsSchema.parse({ version: 1 })
         if (method === 'command.dispatch') return { accepted: true }
+        if (method === 'session.workspace') return { path: '/projects/ari', busyReason: null }
         return base?.(method, params)
       })
     })
@@ -1472,6 +1516,7 @@ describe('Shell live sidebar feed', () => {
       fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
       const menu = await screen.findByRole('dialog', { name: 'New session' })
       fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
+      await sendProjectDraft()
     }
 
     it('creates new sessions in that mode', async () => {
@@ -1501,15 +1546,20 @@ describe('Shell live sidebar feed', () => {
         const dispatched = invokeMock.mock.calls.find(([method]) => method === 'command.dispatch')
         // The rest of the new-session start (agent, model, level) rides along.
         expect(dispatched?.[1]).toMatchObject({
-          command: { type: 'session.update', sessionId: 'sess-alpha', permissionMode: 'full' },
+          command: { type: 'session.update', sessionId: 'sess_alpha', permissionMode: 'full' },
         })
       })
       expect(invokeMock).not.toHaveBeenCalledWith('session.create', expect.anything())
       // The update leaves before the pane asks for the session.
       await vi.waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' }),
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' }),
       )
       const order = invokeMock.mock.calls.map(([method]) => method)
+      expect(invokeMock).toHaveBeenCalledWith('session.workspace', {
+        sessionId: 'sess_alpha',
+        checkOccupancy: true,
+      })
+      expect(order.indexOf('session.workspace')).toBeLessThan(order.indexOf('command.dispatch'))
       expect(order.indexOf('command.dispatch')).toBeLessThan(order.indexOf('session.load'))
     })
   })
@@ -1521,11 +1571,11 @@ describe('Shell live sidebar feed', () => {
 
     for (const onEvent of sessionFeedHandlers()) {
       onEvent({
-        sessionId: 'sess-alpha',
+        sessionId: 'sess_alpha',
         event: {
           seq: 4,
           at: Date.now(),
-          sessionId: 'sess-alpha',
+          sessionId: 'sess_alpha',
           type: 'assistant.parts.appended',
           parts: [],
         },

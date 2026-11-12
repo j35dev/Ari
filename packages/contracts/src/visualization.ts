@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { repairVisualization } from './visualization-repair'
 
 /** A reply can describe a visual, never execute code or choose app colors. */
 const label = z.string().trim().min(1).max(120)
@@ -250,14 +251,17 @@ function visualizationError(issues: ReadonlyArray<ParseIssue>, input: unknown): 
     issue.code === 'invalid_type' &&
     issue.path.length === 1 &&
     issue.message.includes('received undefined')
+  const article = field.endsWith('s') ? 'valid' : 'a valid'
   return boundError(
-    missing ? `${named} charts need ${field}.` : `${named} charts need a valid ${field}.`,
+    missing ? `${named} charts need ${field}.` : `${named} charts need ${article} ${field}.`,
   )
 }
 
 /**
  * One top-level `data` object is the older envelope. Copy its fields once.
  * Overlapping keys, reserved keys, and a second nested `data` object fail closed.
+ * A `data` list is not an envelope: it is the chart's rows under another name,
+ * which the repair step renames.
  */
 function prepareVisualization(
   input: unknown,
@@ -270,6 +274,7 @@ function prepareVisualization(
     return { ok: false, error: 'Visualization objects cannot use reserved keys.' }
   if (!Object.hasOwn(input, 'data')) return { ok: true, value: input }
   const data = input.data
+  if (Array.isArray(data)) return { ok: true, value: input }
   if (!isPlainRecord(data))
     return { ok: false, error: 'The data field must be one object of chart fields.' }
   if (hasReservedKey(data))
@@ -307,8 +312,9 @@ export function parseVisualization(
   }
   const prepared = prepareVisualization(input)
   if (!prepared.ok) return prepared
-  const result = visualizationSchema.safeParse(prepared.value)
+  const repaired = repairVisualization(prepared.value)
+  const result = visualizationSchema.safeParse(repaired)
   return result.success
     ? { ok: true, value: result.data }
-    : { ok: false, error: visualizationError(result.error.issues, prepared.value) }
+    : { ok: false, error: visualizationError(result.error.issues, repaired) }
 }

@@ -1,37 +1,39 @@
 import { useState, type ReactNode } from 'react'
-import {
-  FileDiff,
-  Folder,
-  Gauge,
-  Globe,
-  PanelLeftOpen,
-  Settings,
-  TerminalSquare,
-} from 'lucide-react'
+import { FileDiff, Folder, Globe, ListTree, Monitor, PanelLeftOpen, TerminalSquare } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { rpc } from '../lib/rpc'
+import { cx, iconButton, iconButtonActive } from '../lib/recipes'
 import type { SidebarNavId } from './Sidebar'
-import type { DriverKind } from '@ari/contracts/common'
-import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
-import { FocusPill } from '../features/focus'
 
-const TITLEBAR_TOOLS: {
-  id: Exclude<SidebarNavId, 'session'>
+/**
+ * The panels a session can dock beside itself. Usage and settings are app
+ * destinations, not panels, and live in the sidebar footer.
+ */
+/** A tool the titlebar can toggle: a workspace panel, or Aria's overview. */
+export type TitlebarToolId = SidebarNavId | 'overview'
+
+interface TitlebarTool {
+  id: Exclude<TitlebarToolId, 'session'>
   label: string
   icon: LucideIcon
-}[] = [
+}
+
+/** Offered only beside Aria's chat: the sessions she is leading. */
+const OVERVIEW_TOOL: TitlebarTool = { id: 'overview', label: 'Overview', icon: ListTree }
+
+const TITLEBAR_TOOLS: TitlebarTool[] = [
   { id: 'changes', label: 'Review changes', icon: FileDiff },
   { id: 'files', label: 'Files', icon: Folder },
-  { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
   { id: 'browser', label: 'Browser', icon: Globe },
-  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 type TitlebarPlatform = 'win32' | 'darwin' | 'linux' | 'other'
 
 /** hiddenInset traffic lights occupy ~70px on the leading edge (PLAN §8). */
 const MACOS_TRAFFIC_LIGHT_PAD = 'pl-[76px]'
+
+const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
 function detectPlatform(): TitlebarPlatform {
   const ua = navigator.userAgent.toLowerCase()
@@ -41,69 +43,142 @@ function detectPlatform(): TitlebarPlatform {
   return 'other'
 }
 
+/** Where the user is: the project, then the thing open in it. */
+export interface TitlebarPlace {
+  /** The project or section the title belongs to; null when there is none. */
+  context: string | null
+  title: string
+}
+
 /**
- * Custom titlebar: drag strip plus compact workspace tools. Tools live here
- * so the session sidebar stays a session list, not a second nav. The leading
- * edge stays empty (macOS hiddenInset traffic lights occupy this corner on
- * darwin); the session's branch lives inside the session space instead.
+ * The window's top edge: a drag strip on the chrome, with no fill or border of
+ * its own. The leading zone is the sidebar's header (wordmark, search,
+ * collapse) and is exactly as wide as the sidebar; after it comes the place,
+ * and at the trailing edge the provider's usage, the Git control and the
+ * panel toggles.
  */
 export function Titlebar({
   activeTool,
   onSelectTool,
-  usage,
   changeCount = null,
   onExpandSidebar,
   minimal = false,
   git,
+  usage,
+  leading,
+  leadingWidth,
+  place = null,
+  overview = false,
+  machineLabel,
 }: {
-  activeTool?: SidebarNavId | null
-  onSelectTool?: (id: SidebarNavId) => void
-  usage?: { sessionId: string | null; kind: DriverKind }
+  activeTool?: TitlebarToolId | null
+  onSelectTool?: (id: TitlebarToolId) => void
   /** Working-tree file count for the Review changes tool. Null hides the badge. */
   changeCount?: number | null
   onExpandSidebar?: () => void
-  /** Setup keeps only the native window controls, without starting focus-tool subscriptions. */
+  /** Setup keeps only the native window controls. */
   minimal?: boolean
   /** The Git control for the active workspace; absent outside a repository. */
   git?: ReactNode
+  /** The provider allowance for the active session: a ring, the provider, how much is used. */
+  usage?: ReactNode
+  /** The sidebar's header, shown while the sidebar is open. */
+  leading?: ReactNode
+  /** Width of the leading zone in pixels; follows the sidebar as it resizes. */
+  leadingWidth?: number
+  place?: TitlebarPlace | null
+  /** Offer Aria's overview panel beside the workspace panels. */
+  overview?: boolean
+  /** The immutable remote owner of the session/tools currently shown. */
+  machineLabel?: string
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
 
   return (
     <header
-      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
-      <div
-        className={`flex items-center gap-2 ${platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_PAD : 'pl-3'}`}
-      >
-        {onExpandSidebar !== undefined ? (
-          <button
-            type="button"
-            aria-label="Expand sidebar"
-            title="Expand sidebar (Ctrl+B)"
-            onClick={onExpandSidebar}
-            className="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            <PanelLeftOpen size={15} aria-hidden />
-          </button>
-        ) : null}
-      </div>
+      {leading !== undefined && !minimal ? (
+        <div
+          className={cx('min-w-0 shrink-0', platform === 'darwin' && MACOS_TRAFFIC_LIGHT_PAD)}
+          style={{ width: leadingWidth }}
+        >
+          {leading}
+        </div>
+      ) : (
+        <div
+          className={`flex items-center gap-2 ${platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_PAD : 'pl-3'}`}
+        >
+          {onExpandSidebar !== undefined ? (
+            <button
+              type="button"
+              aria-label="Expand sidebar"
+              title="Expand sidebar (Ctrl+B)"
+              onClick={onExpandSidebar}
+              className={iconButton}
+              style={NO_DRAG}
+            >
+              <PanelLeftOpen size={16} strokeWidth={1.7} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      )}
 
-      <div className="flex-1" />
-      {minimal ? null : <FocusPill />}
-      {usage ? <ProviderUsagePill {...usage} /> : null}
-      {git ? <div className="ml-2">{git}</div> : null}
+      {(place !== null || machineLabel) && !minimal ? (
+        <div className="flex min-w-0 items-center gap-2 pl-3 text-sm text-fg-subtle">
+          {/* A remote session names the machine it runs on before anything else. */}
+          {machineLabel ? (
+            <>
+              <span
+                aria-label="Session machine"
+                title={machineLabel}
+                className="flex max-w-56 items-center gap-1.5"
+              >
+                <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
+                <span className="truncate">{machineLabel}</span>
+              </span>
+              {place !== null ? (
+                <span aria-hidden className="opacity-50">
+                  /
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          {place?.context != null ? (
+            <>
+              <span className="max-w-48 truncate">{place.context}</span>
+              <span aria-hidden className="opacity-50">
+                /
+              </span>
+            </>
+          ) : null}
+          {place !== null ? (
+            <span className="min-w-0 truncate font-medium text-fg">{place.title}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="min-w-4 flex-1" />
+      {usage && !minimal ? (
+        <div className="mr-1 min-w-0 shrink" style={NO_DRAG}>
+          {usage}
+        </div>
+      ) : null}
+      {git ? (
+        <div className="mr-1 shrink-0" style={NO_DRAG}>
+          {git}
+        </div>
+      ) : null}
 
       {onSelectTool ? (
         <nav
           aria-label="Workspace"
-          className="flex items-center gap-1 pr-2"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="flex shrink-0 items-center gap-0.5 pr-2"
+          style={NO_DRAG}
         >
-          {TITLEBAR_TOOLS.map((item) => {
+          {(overview ? [OVERVIEW_TOOL, ...TITLEBAR_TOOLS] : TITLEBAR_TOOLS).map((item) => {
             const Icon = item.icon
             const selected = item.id === activeTool
             const count =
@@ -117,15 +192,15 @@ export function Titlebar({
                 aria-pressed={selected}
                 title={label}
                 onClick={() => onSelectTool(item.id)}
-                className={`relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-                  selected
-                    ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm'
-                    : 'text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent'
-                }`}
+                className={cx(
+                  iconButton,
+                  count !== null && 'w-auto gap-1.5 px-2',
+                  selected && iconButtonActive,
+                )}
               >
-                <Icon size={14} strokeWidth={selected ? 2 : 1.7} aria-hidden />
+                <Icon size={16} strokeWidth={1.7} aria-hidden />
                 {count !== null ? (
-                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-4 text-fg-on-accent">
+                  <span className="text-xs tabular-nums text-fg-muted">
                     {count > 99 ? '99+' : count}
                   </span>
                 ) : null}
@@ -136,10 +211,7 @@ export function Titlebar({
       ) : null}
 
       {platform === 'linux' ? (
-        <div
-          className="flex h-full items-stretch"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
+        <div className="flex h-full items-stretch" style={NO_DRAG}>
           <WindowButton label="Minimize" onClick={() => void rpc.invoke('window.minimize')}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
               <path d="M1 5h8" stroke="currentColor" strokeWidth="1.2" />
@@ -173,7 +245,7 @@ export function Titlebar({
       platform === 'win32' ? (
         <div style={{ width: 138 }} />
       ) : (
-        <div className="w-16" />
+        <div className="w-2" />
       )}
     </header>
   )
@@ -196,7 +268,7 @@ function WindowButton({
       aria-label={label}
       onClick={onClick}
       className={`flex w-11 items-center justify-center text-fg-muted transition-colors ${
-        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-surface-2 hover:text-fg'
+        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-fg/6 hover:text-fg'
       }`}
     >
       {children}
