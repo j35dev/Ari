@@ -46,3 +46,17 @@ it('stops an active source when new speech replaces it', async () => {
   await player.observe({ generation: 2, stop: true })
   expect(source.stop).toHaveBeenCalledTimes(1)
 })
+it('drops a pending decode immediately when Esc stops playback locally', async () => {
+  let decode!: (value: AudioBuffer) => void
+  const context = {
+    decodeAudioData: vi.fn(() => new Promise<AudioBuffer>(resolve => { decode = resolve })),
+    resume: vi.fn(async () => undefined),
+    createBufferSource: vi.fn(),
+  }
+  const player = new VoicePlayback(vi.fn(), () => context as unknown as AudioContext)
+  const pending = player.observe({ generation: 1, id: 1, audio: new Uint8Array([1]) })
+  player.stop()
+  decode({} as AudioBuffer)
+  await pending
+  expect(context.createBufferSource).not.toHaveBeenCalled()
+})

@@ -150,7 +150,7 @@ export function AriaVoiceSettings() {
       {voice?.hardware && (
         <SettingsRow
           label="This computer"
-          hint={`${voice.hardware.logicalCores} logical cores · ${voice.hardware.ramGB} GB RAM · ${voice.hardware.threads} synthesis threads · CPU · ${voice.hardware.rtf.toFixed(2)}× real time. ${voice.hardware.slow ? 'Too slow for smooth Kokoro speech. Choose Groq.' : 'Kokoro keeps up with speech.'}`}
+          hint={`${voice.hardware.logicalCores} logical cores · ${voice.hardware.ramGB} GB RAM · ${voice.hardware.threads} synthesis threads · ${voice.hardware.provider === 'dml' ? 'DirectML' : voice.hardware.provider === 'coreml' ? 'CoreML' : 'CPU'} · ${voice.hardware.rtf.toFixed(2)}× real time. ${voice.hardware.slow ? 'Too slow for smooth Kokoro speech. Choose Groq.' : 'Kokoro keeps up with speech.'}`}
         />
       )}
       <SettingsRow

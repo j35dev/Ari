@@ -4,7 +4,7 @@ import { spokenLine } from '@ari/contracts/aria-voice'
 /** Only a current, idle, human voice request may trigger automatic speech. */
 export class VoiceTurn {
   private armed: { sessionId: string; text: string; at: number } | null = null
-  private current: { sessionId: string; turnId: string; text: string; spoke: boolean } | null = null
+  private current: { sessionId: string; turnId: string; messageId?: string; text: string; spoke: boolean } | null = null
   constructor(
     private readonly speak: (text: string) => void,
     private readonly enabled: () => boolean,
@@ -46,6 +46,11 @@ export class VoiceTurn {
     const current = this.current
     if (!current || current.sessionId !== event.sessionId) return
     if (event.type === 'assistant.parts.appended') {
+      // A final reply is a separate message from routine commentary.
+      if (event.messageId !== current.messageId) {
+        current.messageId = event.messageId
+        current.text = ''
+      }
       for (const part of event.parts) {
         if (part.type === 'text') current.text += part.text
         else if (part.type === 'tool-call' || part.type === 'tool-result') current.text = ''

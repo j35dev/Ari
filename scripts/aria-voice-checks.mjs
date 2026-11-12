@@ -70,8 +70,12 @@ const steps = process.argv.includes('--format')
       ['desktop-build', process.execPath, [pnpm, '--filter', '@ari/desktop', 'build']],
     ]
 await mkdir('docs/research/aria-voice-checks', { recursive: true })
+const only = process.argv.indexOf('--only')
+const selected = only < 0 ? null : process.argv[only + 1].split(',')
+const results = []
 let failed = false
 for (const [name, executable, args] of steps) {
+  if (selected && !selected.includes(name)) continue
   let log = ''
   console.log(`Starting ${name}`)
   const code = await new Promise((resolve) => {
@@ -84,10 +88,17 @@ for (const [name, executable, args] of steps) {
       log += data
       process.stderr.write(data)
     })
+    child.once('error', error => { log += error.message; resolve(1) })
     child.once('exit', resolve)
   })
   await writeFile(`docs/research/aria-voice-checks/${name}.log`, log)
   if (code !== 0) failed = true
+  results.push({ name, executable, args, exitCode: code })
   console.log(JSON.stringify({ name, exitCode: code }))
 }
+await writeFile('docs/research/aria-voice-checks/latest.json', JSON.stringify({
+  at: new Date().toISOString(),
+  sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  results,
+}, null, 2))
 process.exitCode = failed ? 1 : 0
