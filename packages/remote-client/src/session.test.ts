@@ -320,7 +320,7 @@ describe('RemoteSession disposal boundary', () => {
 })
 
 describe('RemoteSession uncertain mutation receipts', () => {
-  it.each(['not_found', 'conflict', 'internal_error', 'unreachable'] as const)(
+  it.each(['not_found', 'conflict', 'internal_error', 'unreachable', 'access_revoked', 'unsupported_capability', 'authentication_expired', 'unsupported_version'] as const)(
     'never resends a mutation when receipt lookup returns %s',
     async (code) => {
       let mutations = 0
@@ -349,7 +349,7 @@ describe('RemoteSession uncertain mutation receipts', () => {
       await expect(
         session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt'),
       ).rejects.toMatchObject({
-        code: code === 'not_found' ? 'unreachable' : code,
+        code: 'unreachable',
         idempotencyKey: 'original_receipt',
         retryable: false,
         message: expect.stringMatching(/may have executed/),

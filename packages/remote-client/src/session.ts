@@ -541,14 +541,15 @@ export class RemoteSession {
       signal.throwIfAborted()
       // Receipt absence can mean lost, corrupt, expired or evicted history.
       // It cannot authorize another mutation, even under the original key.
-      if (error instanceof RemoteError)
-        throw new RemoteError(
-          error.code === 'not_found' ? 'unreachable' : error.code,
-          'The command may have executed, but its outcome cannot be confirmed. Inspect this computer before sending it again.',
-          error.status,
-          idempotencyKey,
-        )
-      throw error
+      // A lookup refusal describes access to history, not whether the mutation
+      // ran. Never let callers treat revocation or a missing capability here
+      // as a definitive rejection of the original command.
+      throw new RemoteError(
+        'unreachable',
+        'The command may have executed, but its outcome cannot be confirmed. Inspect this computer before sending it again.',
+        error instanceof RemoteError ? error.status : 0,
+        idempotencyKey,
+      )
     }
   }
 
