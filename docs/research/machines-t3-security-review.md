@@ -1,7 +1,8 @@
 # Machines T3 parity independent security review
 
-Status: source audit complete through `b9fac0c2`; independent identity proof and
-final runtime designation pending. No final integrated certification.
+Status: source audit complete through `4a962569`; independent route, replay,
+combined and identity proofs passed. Final runtime designation pending;
+no final integrated certification.
 Reviewer: fresh Ari review session, codex / gpt-6.1-sol, xhigh effort, full permissions.
 Date: 2026-11-12. Review worktree: `D:/Projects/Ari-machines-wt/security`, branch
 `machines/security-review`. Existing untracked `.review-temp/` is preserved.
@@ -33,8 +34,9 @@ runner using D: fixtures, one worker, C >= 5 GiB and headroom >= 1.5 GiB gates.
 T1/T2/T3 are independently reproduced and independently closed at the merged source
 named below. The combined signed-route normal-client proof independently passes at
 `1c2398a4`. The required identity publication/recovery change is source-reviewed at
-`c537a8e2`, with formatting-equivalent integrated source at `b9fac0c2`; independent
-identity execution and parent-designated final runtime source remain pending.
+`c537a8e2`, with formatting-equivalent integrated source at `b9fac0c2`, and
+independently passes the recovery/key-continuity proof. Parent-designated final
+runtime source remains pending.
 No new actionable source finding remains in the inspected scope. Source closure,
 authored/root execution, independent execution and hardware checks stay separate.
 The checkpoint ledger below preserves historical findings and intermediate limits;
@@ -521,3 +523,45 @@ inventory epochs and transcript/history are used. TLS/Tailscale, real providers,
 OS keyring/counters, React DOM, every spontaneous network failure and a real
 incompatible binary remain outside this proof. Final identity correction and
 source designation remain pending.
+
+## Independently executed identity proof
+
+Exact source `c537a8e2a492f1c2dc92894cd009ff6b07e79598` passed the stronger
+reviewer proof: `evidence/machines-t3-security/identity-result.json` records its
+command, source/signing blobs, runner admission and successful result. One
+below-normal worker acquired the shared capacity-2 lease with 7,716,503,552 bytes
+commit headroom and 22,023,540,736 bytes C: free. Each of four concurrent cases
+uses two independent Node processes on real disposable Windows files: fresh,
+legacy, missing-primary and empty-primary. All processes and a subsequent load
+observe the same complete winner. Restart, separate recovery inode behavior,
+missing/empty restoration and preserved empty evidence passed. Unanchored invalid
+data, malformed anchored primary, corrupt/empty/mismatched recovery preserve
+their bytes and fail closed. Actual host-signing persistence with fixture AES-GCM
+retains public key and sealed/anchor bytes through legacy anchoring and ID
+restoration; missing sealed key with retained signing anchor cannot regenerate.
+
+This independently closes the required identity-core source/test gap within the
+stated file/process scope. No abrupt-power-loss, OS keyring or arbitrary concurrent
+external file mutation claim is made. Parent reports the authored identity suite
+also passed all ten tests; that run is separate from this reviewer proof.
+
+Parent candidate `4a962569a10604efce60b2a0fc5a21d365f06fe1` contains only the
+formatting-equivalent `b9fac0c2ca78dcb12a8881e5ef6f7d760abaa958` identity change
+plus a test-only approved-pairing wait extension to 5s. The test's connected-state
+assertion is unchanged. Parent reports its earlier broader focused run had 72/73
+passing with this wait timing out under load; no broader reviewer-suite pass is
+claimed. Full root verification and the final source designation remain pending.
+
+The reviewer compared `dbbe9f6d` to `b9fac0c2`: MachinesService/registry/network,
+remote-client and remote-gateway packages and normal SessionClient/access/history/
+transcript implementation have no changed source. Host delta is the reviewed
+sensitive oldPath filter; shell deltas are owner/offline labels/layout and the
+shared grouping hook's refusal to display absent remote inventory as local.
+The remote-desktop schema difference is the nonbehavioral path-regex lint comment.
+F managed-workspaces/orchestration/workspace, RemoteTerminals, Tailscale and mobile
+have no changed source against the prior final security baseline `3f55df73`.
+
+All independently confirmed T1/T2/T3 findings are closed at their tested merged
+blobs and the combined/identity proofs now pass. No unresolved actionable source
+finding remains in the inspected candidate. Final bounded disposition waits the
+parent's exact source designation and inspection of its remaining narrow deltas.
