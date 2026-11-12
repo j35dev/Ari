@@ -65,3 +65,19 @@ signature and its own short-lived token; HTTPS never downgrades to HTTP.
 Interrupted source is preserved in `32cf239b`; host schemas are integrated in
 `227e3b61`. Implementation and focused tests follow this published seam. Final
 independent security review and hardware proof belong to the coordinator.
+
+## Main registration dependency (host owner)
+
+`RemoteServiceDeps.routeSigning?: {secretBox:()=>SecretBox|null,
+servedOrigins:()=>readonly string[]}` is the only added `remote.ts` dependency.
+The direct gateway gets `routeAuthority`; managed Connect never does. Register
+it using the same OS-backed `safeStorage` policy as Machines. Supply only
+`origins.state().serving && origins.state().owned === true` verified exposure(s)
+whose current mount targets this gateway. Persisted `allowedOrigins` entries
+never qualify. If there is more than one exposure and ingress cannot be identified
+from trusted listener configuration, the audience is null and reuse is disabled.
+Host owner owns the small `rpc.ts` registration hunk; no host replay hunks are
+changed here. `remote.ts` signer wiring is committed separately for cherry-pick.
+
+Renderer focus/online events should call `machines.precheck({})`; the service
+also prechecks every minute and gates move-back with a 60-second cooldown.

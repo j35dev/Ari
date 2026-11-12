@@ -20,6 +20,9 @@ import type { PtyFactory } from './terminal-service'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { RemoteIntegration } from './remote-integration'
 import { loadMachineIdentity, type HostIdentity } from './machine-identity'
+import { loadHostSigningIdentity } from './host-signing-identity'
+import type { HostRouteSigner } from '@ari/remote-gateway/route-auth'
+import type { SecretBox } from '@ari/ari-core/endpoints'
 
 const log = createLogger('desktop:remote')
 const IDENTITY_ERROR =
@@ -101,6 +104,8 @@ export interface RemoteServiceDeps {
   clientOrigin: () => string | null
   /** Exact extra origins to allow, beyond the gateway's own. */
   allowedOrigins: () => readonly string[]
+  /** Verified configured exposures only; neither clientOrigin nor allowedOrigins supplies authority. */
+  routeSigning?: { secretBox: () => SecretBox | null; servedOrigins: () => readonly string[] }
   /**
    * The built PWA the gateway serves, or undefined when it has not been built.
    * Under Tailscale this is what makes the app same-origin with the API it
@@ -120,6 +125,7 @@ export interface RemoteServiceDeps {
 export class RemoteService {
   readonly #deps: RemoteServiceDeps
   readonly #identity: HostIdentity | null
+  readonly #routeSigner: HostRouteSigner | null
   #gateway: RemoteGateway | null = null
   #managedGateway: RemoteGateway | null = null
   #managedClientUrl: string | null = null
@@ -144,10 +150,13 @@ export class RemoteService {
     this.#deps = deps
     try {
       this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
+      this.#routeSigner = deps.routeSigning === undefined ? null
+        : loadHostSigningIdentity(deps.dir, this.#identity.machineId, deps.routeSigning.secretBox)
     } catch {
       // Host identity is required for remote access, not for local RPC startup.
       // Never replace unreadable identity data or publish a temporary identity.
       this.#identity = null
+      this.#routeSigner = null
       this.#error = IDENTITY_ERROR
       log.warn('host machine identity unavailable; remote access disabled')
     }
@@ -224,6 +233,16 @@ export class RemoteService {
       const webRoot = this.#deps.webRoot?.()
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
         identity: this.#identity,
+        ...(this.#routeSigner === null || this.#deps.routeSigning === undefined ? {} : {
+          routeAuthority: {
+            signer: this.#routeSigner,
+            servedOrigins: this.#deps.routeSigning.servedOrigins,
+            audience: () => {
+              const exposures = this.#deps.routeSigning!.servedOrigins()
+              return exposures.length === 1 ? exposures[0]! : null
+            },
+          },
+        }),
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,

@@ -295,7 +295,9 @@ export class MachinesService {
         connection = await this.#createConnection(machineId, route)
         this.#assertOpen()
         this.#registry.get(machineId)
-        if (connection.credential.deviceId === null && route.origin !== row.credentialOrigin) continue
+        if (connection.credential.deviceId === null && route.origin !== row.credentialOrigin) {
+          connection.controller.abort(); connection.session.disconnect(); continue
+        }
         await this.#negotiate(machineId, connection, undefined, false)
         const state = await connection.session.connect(connection.controller.signal)
         if (state !== 'connected' && state !== 'unpaired') {
@@ -313,8 +315,7 @@ export class MachinesService {
         return this.#view(this.#registry.get(machineId))
       } catch (error) {
         lastFailure = error
-        connection?.controller.abort()
-        connection?.session.disconnect()
+        if (connection !== undefined) this.#drop(machineId, connection)
         if (this.#disposed || !this.#registry.list().some((record) => record.id === machineId)) throw error
         if (error instanceof RemoteError && error.code === 'unsupported_version') break
       }
@@ -703,7 +704,7 @@ export class MachinesService {
     }
     const identity = machineIdentitySchema.parse(await client.info())
     if (row.identity?.machineId !== undefined && identity.machineId !== row.identity.machineId)
-      throw new RemoteError('invalid_signature', 'This address now belongs to another computer. Verify its route on the original computer.')
+      throw new RemoteError(pin === null ? 'access_revoked' : 'invalid_signature', 'This address now belongs to another computer. Verify its route on the original computer.')
     if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
       throw new RemoteError(pin === null && route.origin === row.credentialOrigin ? 'unsupported_version' : 'invalid_signature', 'This computer uses an unsupported Ari protocol.')
     return options
@@ -738,7 +739,7 @@ export class MachinesService {
     const saved = this.#registry.get(machineId).identity
     if (saved?.machineId !== undefined && saved.machineId !== identity.machineId)
       throw new RemoteError(
-        'invalid_signature',
+        connection.pin === null ? 'access_revoked' : 'invalid_signature',
         'This address now belongs to a different computer. Verify its route on the original computer.',
       )
     this.#registry.update(machineId, { identity, lastSeenAt: Date.now() })
@@ -833,7 +834,7 @@ export class MachinesService {
     const status =
       error instanceof RemoteError && error.code === 'unsupported_version'
         ? 'incompatible'
-        : error instanceof RemoteError && error.code === 'access_revoked'
+        : error instanceof RemoteError && (error.code === 'access_revoked' || error.code === 'invalid_signature')
           ? 'revoked'
           : 'offline'
     this.#set(id, status, publicFailure(error))
