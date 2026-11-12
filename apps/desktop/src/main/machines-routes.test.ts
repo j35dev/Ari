@@ -8,6 +8,7 @@ import {
   GatewayClient,
   authorizeRoute,
   verifyRoute,
+  verifyHostManifest,
   type GatewayClientOptions,
   type PinnedRouteIdentity,
 } from '@ari/remote-client'
@@ -17,6 +18,7 @@ import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteHost } from '@ari/remote-gateway/host'
 import type { MachineRoute, MachineEventsFrame } from '@ari/contracts/machines'
 import { journalEventSchema } from '@ari/contracts/events'
+import type { SignedHostRouteManifest } from '@ari/contracts/route-auth'
 import { MachinesService } from './machines'
 import { DesktopMachineCredential, MachinesRegistry } from './machines-registry'
 import { MachineNetwork } from './machines-network'
@@ -24,6 +26,13 @@ import { loadHostSigningIdentity } from './host-signing-identity'
 import { aesGcmSecretBox } from './secret-box'
 
 const cleanups: (() => Promise<unknown> | unknown)[] = []
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
@@ -504,6 +513,233 @@ describe('verified ordered Machines routes', () => {
     expect((await f.machines.connect(f.saved.id)).effectiveRoute).toBe(f.b.origin)
     expect(f.pairing.devices()).toHaveLength(1)
   })
+})
+
+describe('route security corrections', () => {
+  function signedReport(
+    f: Awaited<ReturnType<typeof fixture>>,
+    issuedAt: number,
+    origins: string[],
+  ): SignedHostRouteManifest {
+    const payload = {
+      kind: 'ari.routes.v1' as const,
+      hostId: f.signer.hostId,
+      publicKey: f.signer.publicKey,
+      issuedAt,
+      expiresAt: issuedAt + 5 * 60_000,
+      routes: origins,
+    }
+    return { payload, signature: f.signer.sign(payload) }
+  }
+
+  it('rejects an older still-valid signed report against the durable latest report after restart', async () => {
+    const f = await fixture()
+    const path = join(f.dir, 'machines.json')
+    const registry = new MachinesRegistry(path)
+    const original = registry.get(f.saved.id)
+    const latestAt = original.manifest!.payload.issuedAt + 2
+    const latest = await verifyHostManifest(
+      signedReport(f, latestAt, [f.a.origin]),
+      f.a.origin,
+      f.pin.hostId,
+      f.pin,
+    )
+    registry.learn(f.saved.id, latest, [{ kind: 'loopback', origin: f.a.origin }])
+    const durable = readFileSync(path, 'utf8')
+    const replay = await verifyHostManifest(
+      signedReport(f, latestAt - 1, [f.a.origin, f.b.origin]),
+      f.a.origin,
+      f.pin.hostId,
+      f.pin,
+    )
+    const restarted = new MachinesRegistry(path)
+    const after = restarted.learn(f.saved.id, replay, [
+      { kind: 'loopback', origin: f.a.origin },
+      { kind: 'loopback', origin: f.b.origin },
+    ])
+    expect(after.manifest?.payload.issuedAt).toBe(latestAt)
+    expect(after.routes.map((route) => route.origin)).toEqual([f.a.origin])
+    expect(after).toMatchObject({
+      id: original.id,
+      credentialOrigin: original.credentialOrigin,
+      credentialCipher: original.credentialCipher,
+      hostKey: original.hostKey,
+    })
+    expect(readFileSync(path, 'utf8')).toBe(durable)
+  })
+
+  it('intersects equal-time conflicting reports deterministically and never restores learned routes', async () => {
+    const f = await fixture()
+    const initial = readFileSync(join(f.dir, 'machines.json'), 'utf8')
+    const issuedAt =
+      new MachinesRegistry(join(f.dir, 'machines.json')).get(f.saved.id).manifest!.payload
+        .issuedAt + 1
+    const full = await verifyHostManifest(
+      signedReport(f, issuedAt, [f.a.origin, f.b.origin]),
+      f.a.origin,
+      f.pin.hostId,
+      f.pin,
+    )
+    const narrow = await verifyHostManifest(
+      signedReport(f, issuedAt, [f.a.origin]),
+      f.a.origin,
+      f.pin.hostId,
+      f.pin,
+    )
+    const routes: MachineRoute[] = [
+      { kind: 'loopback', origin: f.a.origin },
+      { kind: 'loopback', origin: f.b.origin },
+    ]
+    const outcomes: string[][] = []
+    for (const [index, reports] of [
+      [full, narrow, full],
+      [narrow, full, narrow],
+    ].entries()) {
+      const path = join(f.dir, `equal-time-${index}.json`)
+      writeFileSync(path, initial)
+      for (const report of reports) {
+        // Reload between reports to exercise the durable intersection, not just memory.
+        new MachinesRegistry(path).learn(f.saved.id, report, routes)
+      }
+      const result = new MachinesRegistry(path).get(f.saved.id)
+      expect(result.manifestOrigins).toEqual([f.a.origin])
+      outcomes.push(result.routes.map((route) => route.origin))
+    }
+    expect(outcomes).toEqual([[f.a.origin], [f.a.origin]])
+  })
+
+  it('keeps manual routes and the original pin/credential slot when a newer report removes learned routes', async () => {
+    const f = await fixture()
+    const c = await f.start()
+    await f.machines.addRoute(f.saved.id, c.origin)
+    const registry = new MachinesRegistry(join(f.dir, 'machines.json'))
+    const original = registry.get(f.saved.id)
+    const report = await verifyHostManifest(
+      signedReport(f, original.manifest!.payload.issuedAt + 1, [f.a.origin]),
+      f.a.origin,
+      f.pin.hostId,
+      f.pin,
+    )
+    const result = registry.learn(f.saved.id, report, [{ kind: 'loopback', origin: f.a.origin }])
+    expect(result.routes.map((route) => route.origin)).toEqual([f.a.origin, c.origin])
+    expect(result).toMatchObject({
+      id: original.id,
+      credentialOrigin: original.credentialOrigin,
+      credentialCipher: original.credentialCipher,
+      hostKey: original.hostKey,
+    })
+  })
+
+  it('does not publish or send device identity to a route removed while DNS is pending', async () => {
+    const f = await fixture()
+    const entered = deferred()
+    const release = deferred()
+    const original = f.network.clientOptions.bind(f.network)
+    let held = false
+    vi.spyOn(f.network, 'clientOptions').mockImplementation(async (route) => {
+      if (route.origin === f.a.origin && !held) {
+        held = true
+        entered.resolve()
+        await release.promise
+      }
+      return original(route)
+    })
+    f.network.calls.length = 0
+    const connecting = f.machines.connect(f.saved.id)
+    await entered.promise
+    try {
+      f.machines.removeRoute(f.saved.id, f.a.origin)
+      f.origins.splice(f.origins.indexOf(f.a.origin), 1)
+    } finally {
+      release.resolve()
+    }
+    expect(await connecting).toMatchObject({
+      id: f.saved.id,
+      status: 'connected',
+      effectiveRoute: f.b.origin,
+    })
+    expect(f.network.calls.some((call) => call.origin === f.a.origin)).toBe(false)
+    expect(
+      new MachinesRegistry(join(f.dir, 'machines.json')).get(f.saved.id).credentialOrigin,
+    ).toBe(f.a.origin)
+  })
+
+  it('rejects the old pending generation even when the same origin is removed and added again', async () => {
+    const f = await fixture()
+    const entered = deferred()
+    const release = deferred()
+    const original = f.network.clientOptions.bind(f.network)
+    let held = false
+    vi.spyOn(f.network, 'clientOptions').mockImplementation(async (route) => {
+      if (route.origin === f.a.origin && !held) {
+        held = true
+        entered.resolve()
+        await release.promise
+      }
+      return original(route)
+    })
+    f.network.calls.length = 0
+    const connecting = f.machines.connect(f.saved.id)
+    await entered.promise
+    try {
+      f.machines.removeRoute(f.saved.id, f.a.origin)
+      await f.machines.addRoute(f.saved.id, f.a.origin)
+      f.machines.reorderRoutes(f.saved.id, [f.a.origin, f.b.origin])
+    } finally {
+      release.resolve()
+    }
+    expect(await connecting).toMatchObject({ status: 'connected', effectiveRoute: f.b.origin })
+    // Only the explicit Add route operation may probe A; its old connection cannot authorize there.
+    expect(
+      f.network.calls.filter((call) => call.origin === f.a.origin).map((call) => call.path),
+    ).toEqual(['/routes/proof'])
+  })
+
+  it.each(['/routes/proof', '/routes/challenge'])(
+    'discards a valid signed %s response when the route was removed in flight',
+    async (path) => {
+      const f = await fixture()
+      const entered = deferred()
+      const release = deferred()
+      let held = false
+      f.network.responses.set(f.a.origin, async (input, init) => {
+        const response = await fetch(input, {
+          ...init,
+          headers: {
+            ...Object.fromEntries(new Headers(init?.headers).entries()),
+            origin: f.a.origin,
+          },
+        })
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        )
+        if (url.pathname === path && !held) {
+          expect(response.status).toBe(200)
+          held = true
+          entered.resolve()
+          await release.promise
+        }
+        return response
+      })
+      f.network.calls.length = 0
+      const connecting = f.machines.connect(f.saved.id)
+      await entered.promise
+      try {
+        f.machines.removeRoute(f.saved.id, f.a.origin)
+      } finally {
+        release.resolve()
+      }
+      expect(await connecting).toMatchObject({ status: 'connected', effectiveRoute: f.b.origin })
+      const sentToRemoved = f.network.calls.filter((call) => call.origin === f.a.origin)
+      expect(
+        sentToRemoved.some(
+          (call) => call.path === '/routes/authorize' || call.authorization !== null,
+        ),
+      ).toBe(false)
+      if (path === '/routes/proof') expect(sentToRemoved).toHaveLength(1)
+      expect(f.pairing.devices()).toHaveLength(1)
+    },
+  )
 })
 
 describe('client-local preferences and signing identity', () => {
