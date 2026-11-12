@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FsScope, RpcResults } from '@ari/contracts/rpc'
 import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
-import { rpc } from '../../lib/rpc'
+import { SessionClientProvider } from '../session/session-client'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { setDragFilePath } from '../composer/drag-file'
 import { FileEditor } from './FileEditor'
 
@@ -152,9 +153,17 @@ export type FsTreeScope = Omit<FsScope, 'path'>
  * listed on mount; directories are listed via the `fs.list` RPC the first
  * time they expand and cached until refresh.
  */
-export function FileExplorer({ root, scope, readOnlyReason }: {
-  root: string; scope: FsTreeScope; readOnlyReason?: string | null
+export function FileExplorer({
+  root,
+  scope,
+  readOnlyReason,
+}: {
+  root: string
+  scope: FsTreeScope
+  readOnlyReason?: string | null
 }) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
   const generation = useRef(0)
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
@@ -177,7 +186,7 @@ export function FileExplorer({ root, scope, readOnlyReason }: {
     setEditingPath(null)
     setError(null)
     void rpc
-      .invoke('fs.list', { ...scope, path: '.' })
+      .invoke('fs.list', { ...wireScope, path: '.' })
       .then((result) => {
         if (!cancelled) setEntries((prev) => ({ ...prev, [root]: result }))
       })
@@ -190,14 +199,14 @@ export function FileExplorer({ root, scope, readOnlyReason }: {
       cancelled = true
       if (generation.current === epoch) generation.current += 1
     }
-  }, [root, scope])
+  }, [root, wireScope, rpc, rpc.authorizationEpoch, rpc.availability])
 
   /** Lists a directory and caches it; surfaces failures in `error`. */
   const listDir = useCallback(
     (dir: string): void => {
       const epoch = generation.current
       void rpc
-        .invoke('fs.list', { ...scope, path: scopedDir(dir) })
+        .invoke('fs.list', { ...wireScope, path: scopedDir(dir) })
         .then((result) => {
           if (generation.current !== epoch) return
           setEntries((prev) => ({ ...prev, [dir]: result }))
@@ -208,7 +217,7 @@ export function FileExplorer({ root, scope, readOnlyReason }: {
           setError(cause instanceof Error ? cause.message : String(cause))
         })
     },
-    [scope, scopedDir],
+    [wireScope, scopedDir, rpc],
   )
 
   const toggleDir = useCallback(
@@ -293,13 +302,15 @@ export function FileExplorer({ root, scope, readOnlyReason }: {
         )}
       </div>
       {editingPath !== null && (
+        <SessionClientProvider client={rpc}>
         <FileEditor
-          scope={scope}
+          scope={wireScope}
           path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
           onClose={() => setEditingPath(null)}
           onSaved={refresh}
           readOnlyReason={readOnlyReason}
         />
+        </SessionClientProvider>
       )}
     </section>
   )

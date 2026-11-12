@@ -26,6 +26,8 @@ export interface TerminalTab {
   owner?: TerminalOwner
   /** Set once from the authenticated host's confirmed creation result. */
   hostTerminalId?: string
+  /** Persisted before dispatch so missing receipt history cannot recreate a shell. */
+  creationAttempted?: boolean
 }
 
 export interface TerminalDockState {
@@ -65,19 +67,21 @@ function load(): TerminalDockState {
     const tabs: TerminalTab[] = []
     for (const entry of raws) {
       if (typeof entry !== 'object' || entry === null) continue
-      const { id, title, cwd, owner: rawOwner, hostTerminalId } = entry as Record<string, unknown>
+      const { id, title, cwd, owner: rawOwner, hostTerminalId, creationAttempted } = entry as Record<string, unknown>
       if (typeof id !== 'string' || typeof title !== 'string' || typeof cwd !== 'string') continue
       const owner = parseOwner(rawOwner)
       // A damaged remote owner/binding must never become a local terminal.
       if (owner === null || (id.startsWith('rterm_') && owner.kind !== 'remote')) continue
       if (hostTerminalId !== undefined && (owner.kind !== 'remote' || !validId(hostTerminalId)))
         continue
+      if (creationAttempted !== undefined && typeof creationAttempted !== 'boolean') continue
       tabs.push({
         id,
         title,
         cwd,
         ...(owner.kind === 'remote' ? { owner } : {}),
         ...(typeof hostTerminalId === 'string' ? { hostTerminalId } : {}),
+        ...(owner.kind === 'remote' ? { creationAttempted: creationAttempted !== false } : {}),
       })
     }
     if (tabs.length === 0) return EMPTY
@@ -97,7 +101,7 @@ let state: TerminalDockState = load()
 const listeners = new Set<() => void>()
 let seq = 0
 
-function persist(next: TerminalDockState): void {
+function persist(next: TerminalDockState, required = false): void {
   try {
     localStorage.setItem(
       TERMINAL_DOCK_STORAGE_KEY,
@@ -108,18 +112,21 @@ function persist(next: TerminalDockState): void {
           cwd: tab.cwd,
           ...(tab.owner?.kind === 'remote' ? { owner: tab.owner } : {}),
           ...(tab.hostTerminalId !== undefined ? { hostTerminalId: tab.hostTerminalId } : {}),
+          ...(tab.owner?.kind === 'remote' ? { creationAttempted: tab.creationAttempted === true } : {}),
         })),
         activeId: next.activeId,
       }),
     )
-  } catch {
+  } catch (error) {
+    if (required) throw error
     // Best effort: the in-memory dock is already the truth for this run.
   }
 }
 
-function commit(next: TerminalDockState): void {
+function commit(next: TerminalDockState, required = false): void {
+  if (required) persist(next, true)
   state = next
-  persist(next)
+  if (!required) persist(next)
   for (const listener of listeners) listener()
 }
 
@@ -153,14 +160,14 @@ export function uniqueTabTitle(base: string, tabs: readonly TerminalTab[]): stri
  * reload — which restarts the sequence while main-process ptys survive — can
  * never adopt a stranger's shell through the idempotent `terminal.create`.
  */
-export function openTerminalTab(tab: Omit<TerminalTab, 'id' | 'hostTerminalId'>): string {
+export function openTerminalTab(tab: Omit<TerminalTab, 'id' | 'hostTerminalId' | 'creationAttempted'>): string {
   const owner = parseOwner(tab.owner)
   if (owner === null) throw new Error('The terminal owner is invalid.')
   const prefix = owner.kind === 'remote' ? 'rterm' : 'term'
   const id = `${prefix}_${++seq}_${Math.random().toString(36).slice(2, 8)}`
   const titled: TerminalTab = {
     ...tab,
-    ...(owner.kind === 'remote' ? { owner } : {}),
+    ...(owner.kind === 'remote' ? { owner, creationAttempted: false } : {}),
     id,
     title: uniqueTabTitle(tab.title, state.tabs),
   }
@@ -220,8 +227,23 @@ export function bindRemoteTerminalTab(
   if (tab.hostTerminalId === hostTerminalId) return
   commit({
     ...state,
-    tabs: state.tabs.map((entry) => (entry.id === id ? { ...entry, hostTerminalId } : entry)),
-  })
+    tabs: state.tabs.map((entry) => (entry.id === id ? { ...entry, hostTerminalId, creationAttempted: true } : entry)),
+  }, true)
+}
+
+export function findTerminalTab(id: string): TerminalTab | undefined {
+  return state.tabs.find((tab) => tab.id === id)
+}
+
+/** A durable dispatch latch; only an explicit new tab can request a new shell. */
+export function markRemoteTerminalCreation(id: string, owner: TerminalOwner): boolean {
+  const tab = findTerminalTab(id)
+  if (owner.kind !== 'remote' || tab?.owner?.kind !== 'remote' ||
+    terminalOwnerKey(owner) !== terminalOwnerKey(tab.owner))
+    throw new Error('The terminal does not belong to this session.')
+  if (tab.creationAttempted) return false
+  commit({ ...state, tabs: state.tabs.map((entry) => entry.id === id ? { ...entry, creationAttempted: true } : entry) }, true)
+  return true
 }
 
 /** Dispose presentation on revoke/removal; original submission receipts live separately. */

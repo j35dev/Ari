@@ -99,6 +99,7 @@ export async function sendRemote(
   machineId: string,
   scope: string,
   action: RemoteAction,
+  onConfirmed?: (result: unknown) => void,
 ): Promise<unknown> {
   assertScope(scope, action)
   if (readReceipt(machineId, scope) !== null)
@@ -117,10 +118,10 @@ export async function sendRemote(
       'The submission receipt could not be saved. Free browser storage before sending.',
     )
   }
-  return submitReceipt(receipt)
+  return submitReceipt(receipt, onConfirmed)
 }
 
-async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
+async function submitReceipt(receipt: RemoteReceipt, onConfirmed?: (result: unknown) => void): Promise<unknown> {
   try {
     const result = resultOf(
       machineOperationResultSchema.parse(
@@ -131,6 +132,8 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
       ),
     )
     validateCommandResult(receipt.command, result)
+    // Persist a host-created reference before discarding its original command key.
+    onConfirmed?.(result)
     clearReceipt(receipt.machineId, receipt.scope)
     return result
   } catch (error) {
@@ -148,12 +151,15 @@ async function submitReceipt(receipt: RemoteReceipt): Promise<unknown> {
 
 function assertScope(scope: string, action: RemoteAction): void {
   if ('sessionId' in action) {
+    const terminalTabScope = action.op.startsWith('terminal.') &&
+      scope.startsWith(`terminal:${action.sessionId}:`) &&
+      /^rterm_\d+_[a-z0-9]+$/.test(scope.slice(`terminal:${action.sessionId}:`.length))
     if (
       ![
         action.sessionId,
         `terminal:${action.sessionId}`,
         `terminal-close:${action.sessionId}`,
-      ].includes(scope)
+      ].includes(scope) && !terminalTabScope
     )
       throw new Error('The command belongs to another session.')
   } else if (
@@ -170,6 +176,7 @@ export async function resolveReceipt(
   scope: string,
   // Retain call compatibility for old controls without permitting resubmission.
   _retry = false,
+  onConfirmed?: (result: unknown) => void,
 ): Promise<unknown> {
   const receipt = readReceipt(machineId, scope)
   if (receipt === null) throw new Error('No unconfirmed submission exists.')
@@ -179,6 +186,7 @@ export async function resolveReceipt(
       idempotencyKey: receipt.command.idempotencyKey,
     })
     validateCommandResult(receipt.command, result)
+    onConfirmed?.(result)
     clearReceipt(machineId, scope)
     return result
   } catch (error) {
