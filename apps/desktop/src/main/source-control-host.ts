@@ -95,27 +95,27 @@ export class SourceControlHost {
 
   summary(scope: ParsedParams<'scm.summary'>): Promise<RpcResults['scm.summary']> {
     return this.#read(scope, scope.requestId, async (review, signal) => {
-        const summary = await review.summary(signal)
-        if (!summary.ok || !this.deps.hosting) return summary
-        const configured = await review.git.run(['config', '--get-regexp', '^remote\\..*\\.url$'], {
-          signal,
-        })
-        const remotes = configured.ok
-          ? configured.value
-              .trim()
-              .split('\n')
-              .flatMap((line) => {
-                const match = /^remote\.(.+)\.url\s+(.+)$/.exec(line)
-                return match?.[1] && match[2] ? [{ name: match[1], url: match[2] }] : []
-              })
-          : []
-        const host = this.deps.hosting.host(remotes)
-        return ok({
-          ...summary.value,
-          canCreateRequest: !!host,
-          requestKind: host?.provider === 'gitlab' ? 'merge' : 'pull',
-        })
+      const summary = await review.summary(signal)
+      if (!summary.ok || !this.deps.hosting) return summary
+      const configured = await review.git.run(['config', '--get-regexp', '^remote\\..*\\.url$'], {
+        signal,
       })
+      const remotes = configured.ok
+        ? configured.value
+            .trim()
+            .split('\n')
+            .flatMap((line) => {
+              const match = /^remote\.(.+)\.url\s+(.+)$/.exec(line)
+              return match?.[1] && match[2] ? [{ name: match[1], url: match[2] }] : []
+            })
+        : []
+      const host = this.deps.hosting.host(remotes)
+      return ok({
+        ...summary.value,
+        canCreateRequest: !!host,
+        requestKind: host?.provider === 'gitlab' ? 'merge' : 'pull',
+      })
+    })
   }
 
   #registerActions(): void {
@@ -195,52 +195,52 @@ export class SourceControlHost {
 
   status(scope: ParsedParams<'scm.status'>): Promise<RpcResults['scm.status']> {
     return this.#read(scope, scope.requestId, async (review, signal) => {
-        const status = await review.status(signal)
-        if (!status.ok) return status
-        const refs = await review.refs(signal)
-        if (!refs.ok) return refs
-        const history = await readGitHistory(review.git, status.value, signal)
-        if (!history.ok) return history
-        const model = scope.sessionId ? await this.deps.session(scope.sessionId) : null
-        return ok({
-          status: status.value,
-          workspace: { kind: model?.session?.workspace?.kind ?? 'project', path: review.git.cwd },
-          refs: refs.value,
-          ...history.value,
-          turns:
-            model?.checkpoints.map((checkpoint) => ({
-              turnId: checkpoint.turnId,
-              stable: !!checkpoint.endRef,
-              ...(checkpoint.endError ? { error: checkpoint.endError } : {}),
-            })) ?? [],
-        })
+      const status = await review.status(signal)
+      if (!status.ok) return status
+      const refs = await review.refs(signal)
+      if (!refs.ok) return refs
+      const history = await readGitHistory(review.git, status.value, signal)
+      if (!history.ok) return history
+      const model = scope.sessionId ? await this.deps.session(scope.sessionId) : null
+      return ok({
+        status: status.value,
+        workspace: { kind: model?.session?.workspace?.kind ?? 'project', path: review.git.cwd },
+        refs: refs.value,
+        ...history.value,
+        turns:
+          model?.checkpoints.map((checkpoint) => ({
+            turnId: checkpoint.turnId,
+            stable: !!checkpoint.endRef,
+            ...(checkpoint.endError ? { error: checkpoint.endError } : {}),
+          })) ?? [],
       })
+    })
   }
 
   review(params: ParsedParams<'scm.review'>): Promise<RpcResults['scm.review']> {
     return this.#read(params, params.requestId, async (review, signal) => {
-        const model = params.sessionId ? await this.deps.session(params.sessionId) : null
-        const comparison = params.comparison
-        const checkpoint =
-          comparison.kind === 'turn'
-            ? model?.checkpoints.find((entry) => entry.turnId === comparison.turnId)
-            : null
-        if (checkpoint?.endError) return err({ code: 'unavailable', message: checkpoint.endError })
-        const workspace = model?.session?.workspace
-        const base =
-          comparison.kind === 'session'
-            ? (model?.sessionBaselineRef ??
-              (workspace?.kind === 'managed-worktree' ? workspace.baseCommit : undefined) ??
-              model?.checkpoints[0]?.gitRef)
-            : checkpoint?.gitRef
-        return review.manifest(comparison, { base, head: checkpoint?.endRef }, signal)
-      })
+      const model = params.sessionId ? await this.deps.session(params.sessionId) : null
+      const comparison = params.comparison
+      const checkpoint =
+        comparison.kind === 'turn'
+          ? model?.checkpoints.find((entry) => entry.turnId === comparison.turnId)
+          : null
+      if (checkpoint?.endError) return err({ code: 'unavailable', message: checkpoint.endError })
+      const workspace = model?.session?.workspace
+      const base =
+        comparison.kind === 'session'
+          ? (model?.sessionBaselineRef ??
+            (workspace?.kind === 'managed-worktree' ? workspace.baseCommit : undefined) ??
+            model?.checkpoints[0]?.gitRef)
+          : checkpoint?.gitRef
+      return review.manifest(comparison, { base, head: checkpoint?.endRef }, signal)
+    })
   }
 
   diff(params: ParsedParams<'scm.diff'>): Promise<RpcResults['scm.diff']> {
     return this.#read(params, params.requestId, (review, signal) =>
-        review.diff(params.snapshotId, params.path, params.context, signal),
-      )
+      review.diff(params.snapshotId, params.path, params.context, signal),
+    )
   }
 
   /** Stops pending reads when the desktop window closes. */

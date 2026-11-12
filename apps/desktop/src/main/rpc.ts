@@ -1743,22 +1743,46 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         desktop: {
-          projects: async () => { await getProjectStore().load(); return getProjectStore().list() },
+          projects: async () => {
+            await getProjectStore().load()
+            return getProjectStore().list()
+          },
           createSession: (params, selection) => createSession(sessionDeps, params, selection),
-          version: () => ({ ariVersion: app.getVersion(), protocolVersion: 1, hostingMode: 'desktop',
-            update: { supported: false, reason: 'Remote update execution is unavailable.', availableVersion: null,
-              stagedVersion: null, guidance: 'Update Ari on this machine.' } }),
-          stopChildren: async (sessionId) => ({ stopped: await (await controlReady).supervisor.stopBelow(sessionId) }),
+          version: () => ({
+            ariVersion: app.getVersion(),
+            protocolVersion: 1,
+            hostingMode: 'desktop',
+            update: {
+              supported: false,
+              reason: 'Remote update execution is unavailable.',
+              availableVersion: null,
+              stagedVersion: null,
+              guidance: 'Update Ari on this machine.',
+            },
+          }),
+          stopChildren: async (sessionId) => ({
+            stopped: await (await controlReady).supervisor.stopBelow(sessionId),
+          }),
           resume: {
-            get: async (sessionId) => { await resumeReady; return { at: await resumeSchedule.get(sessionId) } },
-            schedule: async (sessionId, at) => { await resumeReady; return { at: (await resumeSchedule.schedule(sessionId, at)).at } },
-            cancel: async (sessionId) => { await resumeReady; return { cancelled: await resumeSchedule.cancel(sessionId) } },
+            get: async (sessionId) => {
+              await resumeReady
+              return { at: await resumeSchedule.get(sessionId) }
+            },
+            schedule: async (sessionId, at) => {
+              await resumeReady
+              return { at: (await resumeSchedule.schedule(sessionId, at)).at }
+            },
+            cancel: async (sessionId) => {
+              await resumeReady
+              return { cancelled: await resumeSchedule.cancel(sessionId) }
+            },
           },
           scm: {
             summary: (sessionId) => sourceControl.summary({ sessionId }),
             status: (sessionId) => sourceControl.status({ sessionId }),
             review: (sessionId, comparison) => sourceControl.review({ sessionId, comparison }),
-            diff: (sessionId, snapshotId, path, context) => sourceControl.diff({ sessionId, snapshotId, path, context }),
+            diff: (sessionId, snapshotId, path, context) =>
+              sourceControl.diff({ sessionId, snapshotId, path, context }),
           },
         },
         terminalFactory: ptyFactory,
@@ -1773,7 +1797,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         routeSigning: {
           secretBox: () => {
             if (!safeStorage.isEncryptionAvailable()) return null
-            if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return null
+            if (
+              process.platform === 'linux' &&
+              safeStorage.getSelectedStorageBackend() === 'basic_text'
+            )
+              return null
             return safeStorageBox(safeStorage)
           },
           servedOrigins: () => {

@@ -2,7 +2,11 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
-import { machinesLocalSnapshotSchema, type MachinesLocalSnapshot, type RemoteModelCatalog } from '@ari/contracts/remote'
+import {
+  machinesLocalSnapshotSchema,
+  type MachinesLocalSnapshot,
+  type RemoteModelCatalog,
+} from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
 import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
 import {
@@ -187,22 +191,42 @@ export class RemoteService {
   async localSnapshot(params?: { sampleResources?: boolean }): Promise<MachinesLocalSnapshot> {
     if (!this.#identity) throw new Error(IDENTITY_ERROR)
     const host = createRemoteHost({
-      engine: this.#deps.engine, store: this.#deps.store, driverKinds: this.#deps.driverKinds,
-      defaultPermissionMode: this.#deps.defaultPermissionMode, defaultDriverKind: this.#deps.defaultDriverKind,
-      hasProject: this.#deps.hasProject, listProjects: this.#deps.listProjects, listModels: this.#deps.listModels,
-      pairing: this.#pairing, mintSessionId: this.#deps.mintSessionId,
+      engine: this.#deps.engine,
+      store: this.#deps.store,
+      driverKinds: this.#deps.driverKinds,
+      defaultPermissionMode: this.#deps.defaultPermissionMode,
+      defaultDriverKind: this.#deps.defaultDriverKind,
+      hasProject: this.#deps.hasProject,
+      listProjects: this.#deps.listProjects,
+      listModels: this.#deps.listModels,
+      pairing: this.#pairing,
+      mintSessionId: this.#deps.mintSessionId,
       ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
     })
     const caller = { deviceId: 'local', projectIds: [], allProjects: true }
     const [catalog, resources, version, models] = await Promise.all([
-      host.query(caller, 'project.catalog', {}), params?.sampleResources === true
+      host.query(caller, 'project.catalog', {}),
+      params?.sampleResources === true
         ? host.query(caller, 'host.resources', {})
-        : { status: 'unavailable', sampledAt: null, cpuUtilization: null, cpuCount: null,
-            availableMemoryBytes: null, totalMemoryBytes: null, reason: 'Resource sampling was not requested.' },
-      host.query(caller, 'host.version', {}), host.query(caller, 'models.list', {}),
+        : {
+            status: 'unavailable',
+            sampledAt: null,
+            cpuUtilization: null,
+            cpuCount: null,
+            availableMemoryBytes: null,
+            totalMemoryBytes: null,
+            reason: 'Resource sampling was not requested.',
+          },
+      host.query(caller, 'host.version', {}),
+      host.query(caller, 'models.list', {}),
     ])
-    return machinesLocalSnapshotSchema.parse({ identity: { machineId: this.#identity.machineId, name: this.#identity.name },
-      catalog, resources, version, models })
+    return machinesLocalSnapshotSchema.parse({
+      identity: { machineId: this.#identity.machineId, name: this.#identity.name },
+      catalog,
+      resources,
+      version,
+      models,
+    })
   }
 
   /** Starts the gateway and records that remote access is on. */
