@@ -1,9 +1,11 @@
 # Machines security review
 
-Status: final integrated snapshot audit in progress; historical proofs preserved below.
+Status: final integrated source review complete; integrated execution and release gates pending.
 Reviewer: security worker, branch `machines/security-review`, 2026-11-12.
-Final review target: `a16e785ce8370fdaf45dd0ea27b4f28fdee06f6e`, based on
-`origin/main` `6f018a75`, including all A–F workstreams.
+Final reviewed snapshot: `3f55df73b1cdde0025789a3de9991e31aac2735e`, based on
+`origin/main` `6f018a756e1ee23158d37c14f438f0f1167e0b47`, including all A–F workstreams.
+S1–S9 are closed in reviewed source. Historical findings and independent proofs
+are preserved below; the final section supersedes their pending-status statements.
 
 Scope: `feat/machines`, `machines/core`, `machines/mobile-access`,
 `machines/desktop-ui`, and `machines/mobile-ui`. Worker code was read only.
@@ -485,3 +487,212 @@ source is retained for coordinator cleanup without an alternative deletion
 attempt. Only this report is committed. No dependency install, live service/account/profile change,
 push or PR occurred. The reviewer is now awaiting the parent's exact integrated
 commit before reviewing the final merged diff, including F.
+
+## Final integrated independent review, 2026-11-12
+
+Final source snapshot: `3f55df73b1cdde0025789a3de9991e31aac2735e`.
+Base: `6f018a756e1ee23158d37c14f438f0f1167e0b47` (`origin/main`). The primary
+integrated audit examined `a16e785ce8370fdaf45dd0ea27b4f28fdee06f6e` from immutable
+Git objects in the assigned security worktree. The coordinator then supplied:
+
+- `2e88b11dabcbd644264b0a29895d0f5041069ce5`: capture the readonly host identity
+  before its managed-start null guard for TypeScript narrowing inside the
+  serialized callback; import Node timer functions in the resource runner.
+  Both exact diffs were reviewed. Authorization/lifecycle behavior is unchanged.
+- `9b98cbb46e62eb3fafc92a1b6423ccc4046c4cd0`: correct the mobile integration
+  conflict-error receipt loss found in this final review, with the two new
+  regression boundaries described under S9 below.
+- `3f55df73b1cdde0025789a3de9991e31aac2735e`: formatting of the new mobile test
+  only. The exact diff was inspected; no runtime change follows the S9 correction.
+
+This is a source-security review with focused independent reproduction, not
+certification of the still-running integrated checks or hardware/private-service
+gates. No unresolved actionable source finding remains in the inspected scope
+at the final snapshot, subject to the explicit v1 and failed-save limits below.
+
+### Findings disposition
+
+| Finding | Final disposition and evidence |
+| --- | --- |
+| S1: anonymous identity/credential relay | Closed in source. New origins have distinct local IDs and null credentials; only the original origin can use its credential. Original independent P-256 relay proof is preserved. Integrated tests include copied-ID and two-real-host/distinct-key approvals. |
+| S2: desktop uncertain named failures | Closed in source. Receipts survive internal errors, in-flight conflicts, transport/IPC uncertainty and malformed success results. Legacy `resolveReceipt(retry=true)` only queries status and retains absence/refusal. Reviewed accepted-then-internal-error, conflict, malformed-result and old-host `not_found` regressions. The mobile variant is separately S9. |
+| S3: listener startup after stop | Closed in source. B's lifecycle queue, deduplicated starts, generations and cancellation cleanup coexist with C's identity guards. The managed terminal facade checks listener generation at the actual operation after asynchronous workspace resolution. Both lifecycle/persistence and identity test sets survive integration. |
+| S4: managed shell outlives lease | Closed in source. Verified lease expiry is retained on PTYs; cross-mode access and expired renewal/resurrection are refused. Managed stop awaits shell cleanup. Lease/grant watchdog latency is up to one second; real detached descendants remain a hardware gate. |
+| S5: swallowed security save failure | Closed in source. Flushed atomic record writes throw; failed saves suspend old tokens, new authorization and terminal watchdog access. Non-ENOENT reads/malformed records block hosting. Explicit retry/restart cases are retained. Failed saves are never certified durable. |
+| S6: missing history/in-flight eviction enables resend | Closed within the bounded v1 contract. Successful durable claim precedes dispatch, corrupt restore fails closed, unresolved claims are pinned, and full pinned stores refuse admission. Missing status remains unknown; shared lookup failures become keyed `unreachable`; saved desktop/mobile receipts only check status, including old-host `not_found`. Direct forgotten-key replay remains below. |
+| S7: fork wire shape/child stop scope | Closed in source. Fork validation/navigation uses `sessionId`; child interrupts and their receipts use the child's scope, with access to its affected view. Wire-shape reconciliation and parent-view child-stop tests were inspected. |
+| S8: timestamp-prefix branch deletion | Closed in integrated source and independently reproduced on the integrated object. Full exact-ID SHA-256 ownership matches standalone F; ambiguous short legacy names and foreign exact IDs survive, while exact own full-ID compatibility remains. |
+| S9: mobile integration applied-then-conflict receipt loss | Found during final review, immediately reported, source-closed at `9b98cbb4` and retained at final `3f55df73`. New test execution is pending coordinator evidence. |
+
+### S9 — High / P1: mobile loses an already-applied integration receipt
+
+Affected snapshot: `a16e785ce8370fdaf45dd0ea27b4f28fdee06f6e`, unchanged at
+`2e88b11dabcbd644264b0a29895d0f5041069ce5`. Locations:
+`apps/mobile/src/features/session/ReviewIntegration.tsx:112`,
+`apps/desktop/src/main/remote-host.ts:626`,
+`apps/desktop/src/main/remote-integration.ts:121`.
+
+The mobile catch cleared its saved key for every `RemoteError` except
+`unreachable`/`internal_error`, including `conflict`. The host maps all integration
+exceptions to `conflict`. Real workspace integration precedes `engine.record`;
+failure at that journal write therefore returns this error after files changed.
+Losing the receipt permits another reviewed submission with a new key without
+retaining evidence of the first execution. The earlier mobile test explicitly
+expected a thrown conflict to clear the receipt, conflating stale-parent refusal
+with a post-application failure.
+
+The finding was delivered immediately through `ari parent message`. Correction
+`9b98cbb4` retains reviewed snapshots and the exact key for every thrown error,
+marks uncertainty and explains parent-workspace inspection. Restored/uncertain
+actions use only `checkCommandReceipt`/`command.status`. Clearing still follows
+confirmed integrated/already-integrated results or a non-applied
+`result.status='conflict'`; ManagedWorkspaces returns that explicit merge-tree
+conflict before applying files. A thrown error no longer authorizes clearing.
+
+Added tests were inspected, not independently executed by this worker:
+
+- `remote-integration.test.ts` uses actual temporary Git, ManagedWorkspaces and
+  RemoteIntegration. An injected journal rejection follows successful file
+  application, leaving parent files changed, HEAD unchanged and no integration
+  event. This pins the host uncertainty boundary.
+- `mobile-commands.test.tsx` retains the original key after a thrown conflict,
+  remounts the component, and performs two read-only status checks with one
+  mutation total. A separate test clears a confirmed non-applied conflict and
+  requires a fresh preview.
+
+The exact three-file correction and subsequent test formatting were reviewed.
+Source closure does not assert the new tests passed yet.
+
+### Integrated code and trust-boundary checks
+
+Final `remote.ts` retains B's lifecycle, durable writer and managed-terminal
+facade, with C's identity loading failure containment and both start guards.
+The subsequent readonly-identity capture changes TypeScript narrowing only.
+`remote.test.ts` retains delayed projects/listener, duplicate start, shutdown,
+persistence failures, identity corruption/write failure and delayed managed
+terminal cases. Git comparisons were empty for:
+
+- C's latest `packages/remote-client`, Machines contracts and mobile client/
+  session compatibility adapters.
+- B's pairing/idempotency, RemoteTerminals, Connect registration and the legacy
+  `device-key.ts` policy.
+- F's workspace/admission/recovery/cleanup implementations against standalone
+  `54954bb8885d963b5db3c4d5d850b660bf88015e`.
+- A's `tailscale.ts` and `remote-origins.ts` against integrated `fab45d3f`.
+
+RPC inspection confirms A's profileDir, enable parameters, post-bind/boot resume,
+master-disable cleanup and explicit disable result. Serve continues to reject
+unknown/Funnel shapes, compare exact conflicting roots before replacement and
+preserve sibling mounts. F is integrated while its independent main-based branch
+remains available for separate shipping.
+
+Additional source tracing confirmed:
+
+- Approval is host-owned/in-process, with no remote approve route. Confirmation
+  binds the requested P-256 key; invitation/nonces retain expiry, single-use and
+  invitation/device binding. Revocation drops tokens; failed security saves
+  suspend existing-token and future device authorization at runtime.
+- Desktop private keys are sealed and bound to their registry record; key/device
+  publication follows successful save. Production rejects unavailable safeStorage
+  and Linux basic_text. Renderer views/identity/IPC contain no keys, tokens or
+  Connect leases. Bearers remain memory-only; the existing local bearer default
+  is 12 hours, separately from the enforced maximum 120-second Connect lease.
+  Mobile uses non-extractable per-origin keys and leaves unbound legacy keys
+  untouched. Disposal/ordered local clearing fence late forgotten pairing writes.
+- HTTP/WebSocket origins remain exact, including HTTPS ports. Anonymous identity
+  exposes only public identity/version/operation names and checks any supplied
+  origin. Desktop production routes reject unsafe URLs, public/mixed DNS answers
+  and redirects; verified tailnet DNS is pinned into TCP/TLS/WebSocket, with TLS
+  verification enabled. Discovery probes bounded explicit peers without pairing
+  or scanning. Private phone switching navigates to the destination PWA without
+  weakening CORS or transferring credentials through directory metadata.
+- Local all-project grants preserve host project/session existence checks and
+  separate explicit terminal grants. Managed callers clear allProjects and use
+  only signed project IDs for sessions, receipts and streams. ES256 signature,
+  issuer/audience/computer/device/key fingerprint and time bounds remain enforced.
+  Account policy belongs to the trusted broker; no private account audit is
+  claimed. Current project registration refreshes initially and on successful
+  heartbeat; new projects still require a freshly signed authorized lease.
+- File paths resolve from the authorized host session workspace. Relative-path,
+  credential-name, symlink/realpath containment and opened-handle checks remain.
+  Attachments bind device/session or derive from the authorized journal. Drafts,
+  receipts, subscriptions/events and previews retain machine/session scope. The
+  dedicated desktop workspace has no local execution/filesystem fallback.
+  Terminal cwd is not an OS sandbox; terminals run as the host user and strip
+  Ari control credentials from their environment.
+- F admission checks physical overlap (nested/junction/case aliases) and parked-
+  turn reauthorization. Root acquisition and uncertain session.spawn/projects.ask
+  recovery retain exact workspace identity and permission ceilings. Unconfirmed
+  cleanup requires the original caller's durable launch record and current
+  archive/permission checks. Resolved paths stay within the managed root; links
+  detach before recursive deletion. Registered unconfirmed human-created
+  worktrees stay inspectable because human creation lacks that durable receipt.
+
+### Independent execution and provenance
+
+WIP `d86e3477` was committed before the focused run. Exact command:
+
+```text
+node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-final-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/reproduce-takeover.mjs a16e785ce8370fdaf45dd0ea27b4f28fdee06f6e
+```
+
+Result: exit 0, signal null, `success:true`, 2026-11-12 08:32:38 UTC. The runner
+admitted slot 2 with 9,181,753,344 bytes commit headroom and 22,518,865,920 bytes
+free on C:. No install, broad suite/build/typecheck/lint/capture or live service
+operation was run by this reviewer. No resource-gate failure, killed/OOM step,
+provider mismatch or retry loop occurred.
+
+The script argument selects F's immutable source. Its legacy-key, pairing and
+history fixtures intentionally retain earlier vulnerable/corrected snapshot pairs.
+This run independently verifies final integrated F overlap/cleanup and rechecks
+those historical differential proofs; it does not execute final RemoteService,
+mobile React or two-engine suites. Final pairing/legacy-key sources are byte-
+identical to independently proven `21e6e091`; history differs from proven
+`63b602af` only in formatting. Final F branch/cleanup objects remain
+`662fa94ccfe7492fd989b0ddd2f71aaedfac5f19` and
+`071856452a2d94118128b91a37957fa13bc209c7`. Later reviewed commits leave these
+implementations unchanged.
+
+F reproduction preserves foreign/unrelated branches, ambiguous legacy names,
+foreign exact IDs, sibling folders and external junction targets; selects only
+the own branch and exact own legacy full-ID branch. Fixtures use a fake Git
+adapter for deletion and physical temporary folders, not real branch deletion.
+Temporary profiles stay within the security worktree. Existing untracked proof
+source is preserved; the earlier automatic-policy deletion rejection was
+respected without alternative cleanup. Only this report was edited/committed.
+Context: codex/gpt-6.1-sol, high effort, full permissions. No additional workers,
+live Ari/Tailscale/settings/devices changes, push or PR.
+
+### Remaining limitations and release gates
+
+1. Bounded v1 history cannot guarantee arbitrary-old exactly-once execution.
+   Durable history retains at most 1,000 records with a default 24-hour pruning
+   horizon; unresolved claims are pinned. Terminal receipts are separate,
+   memory-only and bounded to 10,000. An old cached client can directly send an
+   evicted/forgotten UUID before checking status. Once all evidence is gone the
+   server cannot distinguish that key from a new one. Hardened unknown status/
+   read-only clients stop automatic reconciliation resend, not direct replay.
+   Stronger guarantees need negotiated expiring reservations/epoch-bound keys.
+   Unknown terminal input must never be automatically replayed.
+2. Failed withdrawal persistence denies runtime access but cannot replace bytes
+   storage refused to save. Repair storage and successfully retry before
+   restart; previously saved approval can return after premature restart.
+   Retain the explicit recovery warning. Flush/atomic rename and injected
+   failures do not certify power-loss durability.
+3. Coordinator integrated suites/typecheck/lint/builds, both new S9 regressions
+   and final two-real-engine/two-gateway loopback verification remain pending
+   at report completion. Earlier worker handoffs are evidence for their
+   snapshots, not the final run. The mobile handoff records a prior full-suite
+   fork-shutdown warning; no independent reviewer baseline rerun was performed.
+4. Hardware gates remain: two desktops/iPhone on one tailnet; non-443 URL/PWA
+   install/pair/reconnect; sleep/wake/network changes and ACL denial; real open
+   PTY revocation/grant withdrawal and descendant-process cleanup; secure
+   desktop keys across restarts.
+5. Private Connect gates remain: broker account/device restrictions, changed
+   project registration/new signed leases, connector/tunnel reconnect,
+   membership withdrawal, key rotation and lease expiry. This repository/review
+   does not deploy or verify that service.
+
+Source review is complete and ready for parent integration. Authoring stops
+after the report commit. Coordinator owns accepted worker/worktree cleanup,
+preserving the existing untracked proof source for policy-compliant handling.
