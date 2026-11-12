@@ -450,3 +450,41 @@ matchers/spy helpers, preserving the authored source assertions and actual sourc
 path. The author/root test claim and reviewer execution will be reported separately.
 The next narrow source audit is the parent-authored identity publication/recovery
 change and its real-process regression, followed by final SHA comparison.
+
+## Identity publication/recovery source checkpoint
+
+Parent reopened final designation for the required identity-core correction.
+Reviewed `c537a8e2a492f1c2dc92894cd009ff6b07e79598`, machine-ID source blob
+`aad1ba55d89e1835b5e843d025902dd1942eada6` and authored test blob
+`cf203c0dce8e50aa74773f7fc0e0f47d9e0b2b2a`. This supersedes the old machine-ID
+limitation for source scope; execution and platform durability remain separate.
+
+The implementation writes a complete unique exclusive temporary file, fsyncs it,
+publishes with a no-replace hard link, then reads the retained winner. It publishes
+the recovery record before the primary and uses a second temporary inode for the
+primary, so primary truncation cannot also truncate recovery. Fresh competing
+initializers use the same recovery winner. A valid legacy primary anchors its
+existing parsed ID/name without modifying primary bytes. Missing primary uses
+the anchor; empty primary requires a validated anchor, retains `.empty` evidence
+and restores that same record. Invalid unanchored data, nonempty malformed primary,
+empty/malformed recovery and primary/recovery disagreement fail closed. Existing
+evidence is accepted only if it is empty. Ordinary concurrent empty-recovery
+initializers can only restore the same validated record; a process that sees a
+completed restore checks equality rather than minting another ID.
+
+`host-signing-identity.ts` and RemoteService startup are unchanged by this commit.
+Legacy machine ID remains the hostId supplied to the sealed signing loader, which
+still validates both the retained signing anchor and encrypted record hostId.
+Missing/corrupt sealed data or mismatched ID cannot trigger a key-reset fallback.
+The authored regression uses real independent Node processes for fresh competing
+publication. Reviewer `evidence/machines-t3-security/identity-proof.md` additionally
+prepares concurrent legacy, missing-primary and empty-primary cases and actual
+fixture-sealed key continuity; its execution is not claimed at this checkpoint.
+
+Windows directory fsync is explicitly unavailable through Node. File flushing and
+same-volume hard links are source guarantees, not proof of abrupt-power-loss
+survival on every supported filesystem. Concurrent arbitrary external rewrites,
+deletions of both primary and recovery, OS keyring and cross-runtime profile
+ownership remain outside the disposable-file proof. No headless runtime was added.
+The combined loopback reviewer execution is waiting for the shared resource lease;
+no certification is issued before that result, identity evidence and final SHA.
