@@ -458,6 +458,22 @@ describe('verified ordered Machines routes', () => {
     f.machines.removeRoute(f.saved.id, c.origin)
     expect(f.machines.list()[0]?.routes).toHaveLength(2)
   })
+
+  it('removes the original address while preserving the saved identity and original credential slot', async () => {
+    const f = await fixture()
+    expect(f.machines.removeRoute(f.saved.id, f.a.origin)).toMatchObject({
+      id: f.saved.id,
+      status: 'offline',
+      effectiveRoute: null,
+      permissionsReady: false,
+      versionReady: false,
+    })
+    expect(
+      new MachinesRegistry(join(f.dir, 'machines.json')).get(f.saved.id).credentialOrigin,
+    ).toBe(f.a.origin)
+    expect((await f.machines.connect(f.saved.id)).effectiveRoute).toBe(f.b.origin)
+    expect(f.pairing.devices()).toHaveLength(1)
+  })
 })
 
 describe('client-local preferences and signing identity', () => {

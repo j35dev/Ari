@@ -43,6 +43,7 @@ export function loadHostSigningIdentity(
     if (existsSync(anchor))
       throw new Error(
         'The existing host signing identity is missing. Restore its sealed data before hosting.',
+        { cause: error },
       )
     const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
     const cipher = box.encrypt(

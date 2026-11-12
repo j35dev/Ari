@@ -207,9 +207,10 @@ export class MachinesRegistry {
   #validateRoutes(row: MachineRecord): void {
     if (
       new Set(row.routes.map((route) => route.origin)).size !== row.routes.length ||
-      !row.routes.some(
-        (route) => route.origin === row.credentialOrigin && route.source !== 'learned',
-      ) ||
+      (row.hostKey === null &&
+        !row.routes.some(
+          (route) => route.origin === row.credentialOrigin && route.source !== 'learned',
+        )) ||
       row.routes.some(
         (route) =>
           route.credentialOrigin !== undefined && route.credentialOrigin !== row.credentialOrigin,
