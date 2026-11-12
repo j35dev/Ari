@@ -166,7 +166,7 @@ export class GatewayClient {
   async deviceAuthorize(
     deviceId: string,
     proof: { nonce: string; signature: string },
-  ): Promise<{ deviceId: string; token: string; projectIds: string[]; allowTerminal?: boolean }> {
+  ): Promise<DeviceAuthorization> {
     return this.#post('/device/authorize', { deviceId, ...proof })
   }
 

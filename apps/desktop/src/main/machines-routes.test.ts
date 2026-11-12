@@ -47,6 +47,7 @@ const host: RemoteHost = {
 }
 class ControlledNetwork extends MachineNetwork {
   readonly offline = new Set<string>()
+  readonly responses = new Map<string, typeof fetch>()
   readonly calls: { origin: string; path: string; authorization: string | null; body: unknown }[] =
     []
   constructor() {
@@ -67,6 +68,8 @@ class ControlledNetwork extends MachineNetwork {
           body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null,
         })
         if (this.offline.has(target.origin)) throw new Error('Fixture route is offline.')
+        const override = this.responses.get(target.origin)
+        if (override !== undefined) return override(input, init)
         return options.fetch!(input, init)
       },
     }
@@ -78,7 +81,8 @@ async function fixture() {
     'host_stable',
     generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey,
   )
-  const pairing = new PairingService()
+  const projects = ['project']
+  const pairing = new PairingService({ projectIds: () => projects })
   const origins: string[] = []
   const start = async (): Promise<RemoteGateway> => {
     let audience: string | null = null
@@ -142,6 +146,8 @@ async function fixture() {
     box,
     credential,
     pin,
+    signer,
+    projects,
     advance: () => {
       now += 60_001
     },
@@ -166,6 +172,10 @@ describe('verified ordered Machines routes', () => {
       (call) => call.origin === f.b.origin && call.authorization !== null,
     )
     expect(bAuth.length).toBeGreaterThan(0)
+    const originalBearer = f.network.calls.find(
+      (call) => call.origin === f.a.origin && call.path === '/routes/manifest',
+    )!.authorization
+    expect(bAuth.every((call) => call.authorization !== originalBearer)).toBe(true)
     expect(
       f.network.calls
         .filter((call) => call.origin === f.b.origin)
@@ -232,6 +242,7 @@ describe('verified ordered Machines routes', () => {
       await f.network.clientOptions({ kind: 'loopback', origin: f.b.origin }),
     )
     const authorization = await authorizeRoute(b, f.pin, f.credential, f.credential.deviceId!)
+    expect(authorization.allProjects).toBe(true)
     b.token = authorization.token
     await expect(b.query('project.list')).resolves.toMatchObject({ projects: [{ id: 'project' }] })
     const a = new GatewayClient(
@@ -244,6 +255,112 @@ describe('verified ordered Machines routes', () => {
     await expect(
       b.routeAuthorize(lastProof.deviceId, lastProof.nonce, lastProof.signature),
     ).rejects.toMatchObject({ code: 'invalid_signature' })
+  })
+
+  it('preserves all-project grants and refreshes their current IDs on a learned route', async () => {
+    const f = await fixture()
+    f.projects.push('new_project')
+    f.network.offline.add(f.a.origin)
+    expect(await f.machines.connect(f.saved.id)).toMatchObject({
+      effectiveRoute: f.b.origin,
+      allProjects: true,
+      projectIds: ['project', 'new_project'],
+      permissionsReady: true,
+    })
+  })
+
+  it.each(['nonce', 'audience', 'expired'] as const)(
+    'rejects a correctly signed %s mismatch before sending device identity or proof',
+    async (failure) => {
+      const f = await fixture()
+      const calls: unknown[] = []
+      const request: typeof fetch = async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { nonce: string; audience: string }
+        calls.push(body)
+        const payload = {
+          kind: 'ari.route-proof.v1' as const,
+          hostId: f.pin.hostId,
+          audience: failure === 'audience' ? f.a.origin : f.b.origin,
+          nonce:
+            failure === 'nonce' ? 'different-nonce-that-is-at-least-32-characters' : body.nonce,
+          issuedAt: failure === 'expired' ? Date.now() - 40_000 : Date.now(),
+          expiresAt: failure === 'expired' ? Date.now() - 10_000 : Date.now() + 30_000,
+          protocolVersion: 1,
+        }
+        return Response.json({ ok: true, result: { payload, signature: f.signer.sign(payload) } })
+      }
+      const sign = vi.spyOn(f.credential, 'sign')
+      await expect(
+        authorizeRoute(
+          new GatewayClient({ origin: f.b.origin, fetch: request }),
+          f.pin,
+          f.credential,
+          f.credential.deviceId!,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_signature' })
+      expect(sign).not.toHaveBeenCalled()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).not.toHaveProperty('deviceId')
+      expect(calls[0]).not.toHaveProperty('signature')
+    },
+  )
+
+  it('continues the route walk after an attacker copies the ID and claims an incompatible version', async () => {
+    const f = await fixture()
+    const attacker = createHostRouteSigner(
+      f.pin.hostId,
+      generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey,
+    )
+    f.network.responses.set(f.a.origin, async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { nonce: string }
+      const payload = {
+        kind: 'ari.route-proof.v1' as const,
+        hostId: f.pin.hostId,
+        audience: f.a.origin,
+        nonce: body.nonce,
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 30_000,
+        protocolVersion: 99,
+      }
+      return Response.json({ ok: true, result: { payload, signature: attacker.sign(payload) } })
+    })
+    f.network.calls.length = 0
+    expect((await f.machines.connect(f.saved.id)).effectiveRoute).toBe(f.b.origin)
+    expect(
+      f.network.calls
+        .filter((call) => call.origin === f.a.origin)
+        .every((call) => call.path === '/routes/proof' && call.authorization === null),
+    ).toBe(true)
+  })
+
+  it('keeps anonymous descriptor/proof content minimal and requires authentication for the manifest', async () => {
+    const f = await fixture()
+    const a = new GatewayClient(
+      await f.network.clientOptions({ kind: 'loopback', origin: f.a.origin }),
+    )
+    const info = await a.info()
+    expect(info).not.toHaveProperty('routes')
+    expect(info).not.toHaveProperty('resources')
+    expect(info).not.toHaveProperty('projects')
+    const proof = await a.routeProof(crypto.randomUUID() + crypto.randomUUID())
+    expect(Object.keys(proof.payload).sort()).toEqual([
+      'audience',
+      'expiresAt',
+      'hostId',
+      'issuedAt',
+      'kind',
+      'nonce',
+      'protocolVersion',
+    ])
+    await expect(a.routeManifest()).rejects.toMatchObject({ code: 'unauthenticated' })
+    const response = await (
+      await f.network.clientOptions({ kind: 'loopback', origin: f.a.origin })
+    ).fetch!(`${f.a.origin}/routes/manifest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(response.status).toBe(401)
   })
 
   it('learns only signed reported routes, preserves manual routes and enforces complete reorder', async () => {

@@ -75,6 +75,7 @@ export class RemoteSession {
   #token: string | null = null
   /** Resolved project ids the desktop reported at the last authorization. */
   #projectIds: string[] = []
+  #allProjects = false
   #allowTerminal = false
   #capabilities: readonly string[] = []
   #listeners = new Set<() => void>()
@@ -128,6 +129,9 @@ export class RemoteSession {
 
   get projectIds(): readonly string[] {
     return this.#projectIds
+  }
+  get allProjects(): boolean {
+    return this.#allProjects
   }
 
   /** Whether a request can be attempted at all. */
@@ -291,6 +295,7 @@ export class RemoteSession {
     this.#client.lease = null
     this.#allowTerminal = false
     this.#projectIds = []
+    this.#allProjects = false
     this.#capabilities = []
     this.#set('unpaired')
   }
@@ -477,6 +482,7 @@ export class RemoteSession {
       this.#client.lease = null
       this.#allowTerminal = false
       this.#projectIds = []
+      this.#allProjects = false
       this.#capabilities = []
     }
     if (this.#state !== state) {
@@ -500,6 +506,7 @@ export class RemoteSession {
     signal?.throwIfAborted()
     this.#useToken(authorized.token, signal)
     this.#projectIds = authorized.projectIds
+    this.#allProjects = this.#managed === null && authorized.allProjects === true
     this.#allowTerminal = authorized.allowTerminal === true
   }
 
