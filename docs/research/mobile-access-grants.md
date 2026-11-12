@@ -130,4 +130,49 @@ would be needed for that guarantee. Missing receipts require inspection, and
 unknown terminal input must not be automatically replayed. Core owns shared
 client reconciliation changes; this branch changes the gateway response.
 
-Final exact checks and screenshot evidence are appended after completion.
+## Final takeover evidence
+
+All final checks ran through the coordinator's two-slot `run-heavy.mjs` runner
+in this D: worktree, with one Vitest worker and no file parallelism. No install,
+live Ari launch, settings/device/Tailscale mutation, push or PR occurred. The
+assigned existing session used `codex/gpt-6.1-sol`, high effort and full
+permissions; no additional workers were launched.
+
+| Check | Result |
+| --- | --- |
+| Gateway `idempotency`, `pairing`, `gateway`, `connect-lease` | 163 tests passed |
+| Desktop `remote`, `remote-terminals`, `remote-connect`, `remote-host`, Settings/Tailscale/Connect components | 188 tests passed |
+| Mobile `device-key` | 9 tests passed |
+| Contracts `remote-grants`, `remote` | 28 tests passed |
+| Desktop, gateway and mobile typecheck | Passed |
+| Scoped ESLint: lifecycle/terminals/Connect/Settings/key-store/gateway/pairing/idempotency/capture script | Passed |
+| Prettier check on 14 changed source/test/document files | Passed |
+| Isolated real Settings renderer capture | Six images, no renderer exception; temporary Chrome profile removed |
+
+These are 388 focused tests. Earlier runs surfaced a stale 404 assertion,
+immutable native-ESM filesystem test spies, a pairing test helper that assumed
+a success response, and an assertion that expected only grant denial rather
+than complete authorization suspension. Those test issues were corrected;
+all final suites passed. No resource gate timed out and no step was killed/OOM.
+
+Capture ran again on 2026-11-12 using the existing component fixture. The images
+match the already tracked evidence introduced in `52f98b3a`; the recapture
+therefore adds no binary diff. `docs/screenshots/mobile-access/capture.json`
+names all six ready/repair/approval images in Obsidian and Porcelain. Ready and
+repair are 1080 × 1600; full-content approval is 1065 × 1635. Repair Obsidian
+and approval Porcelain were inspected visually. The saved-port repair/removal,
+sibling service preservation text, code confirmation, all-project scope and
+separate initially-off terminal checkbox are visible and readable.
+
+Takeover commits before final evidence: `63b602af`, `f2319167`, `21e6e091`,
+`4fe8355d`, `3cbbaaf8`, `2521b2c6`, `d63288ef`, `9c433b23`, `a63712b4`.
+The prior branch history and all four inherited WIP files were preserved.
+
+Coordinator integration must retain A's Tailscale fields and C's identity
+fields and merge the new managed terminal facade/lifecycle logic around those
+sections. C also owns conservative shared-client receipt reconciliation. The
+legacy `device-key.ts` correction here intentionally supersedes rebinding
+unscoped keys to `ari.remote.origin`; preserve that policy when combining the
+mobile branch. Wide integrated builds/tests and hardware/private-service
+release gates remain with the coordinator. The bounded v1 direct-replay limit
+and failed-save restart warning above remain explicit limitations.
