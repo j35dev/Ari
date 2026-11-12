@@ -249,14 +249,19 @@ describe('mobile command decisions', () => {
   })
   it('requires a fresh preview after a confirmed non-applied conflict result', async () => {
     app.session.query.mockResolvedValue({ preview, error: null })
-    app.session.send.mockResolvedValue({ ok: true, result: { status: 'conflict', files: ['src/main.ts'] } })
+    app.session.send.mockResolvedValue({
+      ok: true,
+      result: { status: 'conflict', files: ['src/main.ts'] },
+    })
     await act(async () =>
       root.render(<ReviewIntegration sessionId="child-1" onChanged={vi.fn()} />),
     )
     await click('Review integration')
     await click('Integrate reviewed changes')
     expect(document.body.textContent).toContain('No changes were applied')
-    expect(sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1')).toBeNull()
+    expect(
+      sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1'),
+    ).toBeNull()
     expect(
       Array.from(document.querySelectorAll('button')).some(
         (button) => button.textContent === 'Check integration receipt',
