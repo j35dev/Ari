@@ -1,0 +1,17 @@
+{"resourceGate":{"commitHeadroomBytes":7927685120,"cFreeBytes":21361295360}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-desktop","pid":32300,"startedAt":"2026-11-12T17:10:57.816Z","id":"5a4815ad-5022-41d9-a0bf-d4e25cd8156f"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-aria-voice\apps\desktop
+> vitest run "src/main/speech/pronunciation.test.ts" "src/main/speech/voice-service.test.ts" "src/main/speech/voice-turn.test.ts" "src/main/speech/voice-provider.test.ts" "src/renderer/src/features/aria/voice-playback.test.ts" "src/renderer/src/features/aria/VoiceNotice.test.tsx" "src/renderer/src/features/settings/SpeechSettings.test.tsx" "src/renderer/src/features/transcript/MessageFooter.test.tsx" "src/renderer/src/App.aria-runtime.test.tsx" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-aria-voice/apps/desktop
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ Test Files  9 passed (9)
+      Tests  55 passed (55)
+   Start at  01:11:03
+   Duration  58.38s (transform 6.36s, setup 8.93s, import 14.12s, tests 13.29s, environment 18.76s)
+
+{"heavyResult":{"worker":"voice-feedback-desktop","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","src/main/speech/pronunciation.test.ts","src/main/speech/voice-service.test.ts","src/main/speech/voice-turn.test.ts","src/main/speech/voice-provider.test.ts","src/renderer/src/features/aria/voice-playback.test.ts","src/renderer/src/features/aria/VoiceNotice.test.tsx","src/renderer/src/features/settings/SpeechSettings.test.tsx","src/renderer/src/features/transcript/MessageFooter.test.tsx","src/renderer/src/App.aria-runtime.test.tsx","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

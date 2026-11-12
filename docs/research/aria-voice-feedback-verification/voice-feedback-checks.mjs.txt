@@ -1,0 +1,66 @@
+import { spawn, execFileSync } from 'node:child_process'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { join } from 'node:path'
+const root = 'D:/Projects/Ari-aria-voice'
+const finalMode = process.argv.includes('--final')
+const deltaMode = process.argv.includes('--delta')
+const lettersMode = process.argv.includes('--letters')
+const output = lettersMode ? 'D:/Projects/.ari-cache/voice-feedback-verification-letters' : deltaMode ? 'D:/Projects/.ari-cache/voice-feedback-verification-delta' : finalMode ? 'D:/Projects/.ari-cache/voice-feedback-verification-final' : 'D:/Projects/.ari-cache/voice-feedback-verification'
+const pnpm = 'C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs'
+const heavy = 'D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs'
+const env = { ...process.env, ARI_HEAVY_TEMP: 'D:/Projects/.ari-cache/mvp' }
+delete env.ELECTRON_RUN_AS_NODE
+await mkdir(output, { recursive: true })
+const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+const files = execFileSync('git', ['diff', '--name-only', '65e85bb3', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim().split('\n').filter(p => /\.[cm]?[jt]sx?$/.test(p))
+const tests = [
+  'src/main/speech/pronunciation.test.ts', 'src/main/speech/voice-service.test.ts', 'src/main/speech/voice-turn.test.ts',
+  'src/main/speech/voice-provider.test.ts', 'src/renderer/src/features/aria/voice-playback.test.ts',
+  'src/renderer/src/features/aria/VoiceNotice.test.tsx', 'src/renderer/src/features/settings/SpeechSettings.test.tsx',
+  'src/renderer/src/features/transcript/MessageFooter.test.tsx', 'src/renderer/src/App.aria-runtime.test.tsx',
+]
+let checks = [
+  ['types', [process.execPath, pnpm, '-r', '--workspace-concurrency=1', 'typecheck']],
+  ['lint', [process.execPath, pnpm, 'exec', 'eslint', ...files]],
+  ['contracts', [process.execPath, pnpm, '--filter', '@ari/contracts', 'test', 'src/aria-voice.test.ts', '--maxWorkers=1', '--no-file-parallelism']],
+  ['engine-prompt', [process.execPath, pnpm, '--filter', '@ari/engine', 'test', 'src/control-preamble.test.ts', '--maxWorkers=1', '--no-file-parallelism']],
+  ['desktop', [process.execPath, pnpm, '--filter', '@ari/desktop', 'test', ...tests, '--maxWorkers=1', '--no-file-parallelism']],
+  ['desktop-build', [process.execPath, pnpm, '--filter', '@ari/desktop', 'build']],
+  ['native-utility', [join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'), join(root, 'scripts/aria-voice-utility-smoke.mjs')]],
+  ['ui-build', [process.execPath, 'D:/Projects/.ari-cache/voice-feedback-ui-build.mjs']],
+  ['ui-capture', [join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'), 'D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs']],
+]
+if (finalMode) {
+  checks = checks.filter(([name]) => ['types', 'lint', 'desktop', 'ui-capture'].includes(name))
+  checks.find(([name]) => name === 'desktop')[1] = [process.execPath, pnpm, '--filter', '@ari/desktop', 'test', 'src/main/speech/pronunciation.test.ts', 'src/main/speech/voice-service.test.ts', '--maxWorkers=1', '--no-file-parallelism']
+}
+if (deltaMode) {
+  checks = checks.filter(([name]) => ['types', 'lint', 'contracts', 'desktop', 'desktop-build', 'ui-build', 'ui-capture'].includes(name))
+  checks.find(([name]) => name === 'types')[1] = [process.execPath, pnpm, '--filter', '@ari/contracts', 'typecheck']
+  checks.find(([name]) => name === 'desktop')[1] = [process.execPath, pnpm, '--filter', '@ari/desktop', 'test', 'src/main/speech/pronunciation.test.ts', 'src/main/speech/voice-service.test.ts', '--maxWorkers=1', '--no-file-parallelism']
+}
+if (lettersMode) {
+  checks = checks.filter(([name]) => ['types', 'lint', 'desktop', 'desktop-build', 'native-utility', 'ui-build', 'ui-capture'].includes(name))
+  checks.find(([name]) => name === 'types')[1] = [process.execPath, pnpm, '--filter', '@ari/desktop', 'typecheck']
+  checks.find(([name]) => name === 'desktop')[1] = [process.execPath, pnpm, '--filter', '@ari/desktop', 'test', 'src/main/speech/pronunciation.test.ts', 'src/main/speech/voice-service.test.ts', '--maxWorkers=1', '--no-file-parallelism']
+}
+const results = []
+for (const [name, argv] of checks) {
+  const logPath = join(output, name + '.log')
+  const log = createWriteStream(logPath)
+  const command = [process.execPath, heavy, 'voice-feedback-' + name, root, '--', ...argv]
+  const startedAt = new Date().toISOString()
+  console.log(JSON.stringify({ name, startedAt, logPath }))
+  const result = await new Promise(resolve => {
+    const child = spawn(command[0], command.slice(1), { cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    child.stdout.pipe(log, { end: false }); child.stderr.pipe(log, { end: false })
+    child.once('error', error => resolve({ exitCode: null, error: error.message }))
+    child.once('close', (exitCode, signal) => resolve({ exitCode, signal }))
+  })
+  await new Promise(resolve => log.end(resolve))
+  results.push({ source, name, command, cwd: root, startedAt, finishedAt: new Date().toISOString(), logPath, ...result })
+  await writeFile(join(output, 'results.json'), JSON.stringify(results, null, 2) + '\n')
+  console.log(JSON.stringify({ name, ...result }))
+}
+process.exitCode = results.some(r => r.exitCode !== 0) ? 1 : 0

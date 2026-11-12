@@ -1,7 +1,7 @@
 {
   "ok": true,
-  "at": "2026-11-12T16:11:17.917Z",
-  "sourceSha": "86d1cc3e348548d8b7c72a1f32bccc04afb047ad",
+  "at": "2026-11-12T17:35:59.768Z",
+  "sourceSha": "276a2365e80ee2d6ac799e174dbf0d5f40a76b19",
   "electron": "43.4.1",
   "hardware": {
     "threads": 4,
@@ -12,33 +12,37 @@
     "firstAudioMs": 1360.0481999999993,
     "slow": false
   },
-  "preloadMs": 7924.5043000000005,
-  "firstAudioMs": 885.5297,
+  "preloadMs": 6666.1476,
+  "firstAudioMs": 842.6993999999995,
   "utilityMetrics": {
     "cpu": {
-      "cumulativeCPUUsage": 44.15625,
+      "cumulativeCPUUsage": 65.296875,
       "percentCPUUsage": 0,
       "idleWakeupsPerSecond": 0
     },
-    "pid": 30132,
+    "pid": 14760,
     "type": "Utility",
-    "creationTime": 1794499861605.289,
+    "creationTime": 1794504938893.386,
     "serviceName": "node.mojom.NodeService",
     "name": "Aria voice smoke",
     "memory": {
-      "workingSetSize": 758772,
-      "peakWorkingSetSize": 759740,
-      "privateBytes": 883716
+      "workingSetSize": 760112,
+      "peakWorkingSetSize": 760512,
+      "privateBytes": 882904
     },
     "integrityLevel": "medium",
     "sandboxed": false
   },
   "sampleRate": 24000,
-  "samples": 25669,
+  "samples": 25668,
   "cancellation": "passed",
   "inFlightCancellation": "passed",
   "nativeWords": "passed",
   "spelled": [
     "Quuxwidget"
-  ]
+  ],
+  "punctuation": "passed",
+  "punctuationAudioSeconds": 3.9715833333333332,
+  "ordinaryWords": "passed; no letter-by-letter fallback",
+  "ordinaryWordsAudioSeconds": 4.242083333333333
 }

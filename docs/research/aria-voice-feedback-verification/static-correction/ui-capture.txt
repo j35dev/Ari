@@ -1,0 +1,22 @@
+{"resourceGate":{"commitHeadroomBytes":9670381568,"cFreeBytes":21261750272}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-ui-capture","pid":8700,"startedAt":"2026-11-12T17:21:23.653Z","id":"6934d8c2-3c15-4669-9d16-b318cefb6e6b"}
+
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+Error: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+    at run (file:///D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs:29:28)
+{"heavyResult":{"worker":"voice-feedback-ui-capture","executable":"D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe","args":["D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs"],"exitCode":1,"signal":null}}

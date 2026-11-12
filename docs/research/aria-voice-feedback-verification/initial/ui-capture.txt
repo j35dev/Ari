@@ -1,0 +1,4 @@
+{"resourceGate":{"commitHeadroomBytes":6959087616,"cFreeBytes":21353791488}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-ui-capture","pid":21320,"startedAt":"2026-11-12T17:13:24.505Z","id":"51f0a41f-64d8-4a6a-a327-58aece78b4ca"}
+
+{"heavyResult":{"worker":"voice-feedback-ui-capture","executable":"D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe","args":["D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs"],"exitCode":1,"signal":null}}
