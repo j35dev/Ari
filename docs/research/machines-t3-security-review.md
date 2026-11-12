@@ -565,3 +565,22 @@ All independently confirmed T1/T2/T3 findings are closed at their tested merged
 blobs and the combined/identity proofs now pass. No unresolved actionable source
 finding remains in the inspected candidate. Final bounded disposition waits the
 parent's exact source designation and inspection of its remaining narrow deltas.
+
+## Final cleanup delta under independent verification
+
+Parent superseded `afa7f96c` with `8b2d0dcb14af5cc841f92fdf339388df4d026fbf`,
+machine-ID blob `b884aff7ef9aa420ab0a28e3362fc0382e62a68c`. Its only runtime
+delta makes removal of the unique public-ID temporary best-effort in `finally`.
+It cannot replace an original publication error or turn a complete retained
+winner into startup failure. Authoritative primary/recovery paths, schema,
+flush/no-replace publication, same-ID comparisons and sealed signing paths are
+unchanged. A leftover unique temporary contains public ID/name only and is never
+used as an authoritative input. Gateway test expectations now require omission
+of empty machinesExtensions, matching the unchanged gateway runtime since the
+earlier reviewed `41307f0` correction. No discovery/runtime allowance is widened.
+
+Reviewer identity-proof preparation now additionally injects filesystem cleanup
+and publication errors into actual immutable source. It will rerun all previous
+identity assertions on `8b2d0dcb` and verify a cleanup failure retains the winner
+while a simultaneous publication/cleanup failure exposes the original error.
+This new execution is pending; no final certification is issued at this WIP.
