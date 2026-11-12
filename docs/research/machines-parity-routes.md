@@ -189,3 +189,60 @@ security review and real Tailscale/hardware verification remain coordinator work
 
 No installed app, real profile/settings/Serve, C: launcher, user UI worktree,
 protected fix branch, push or PR was changed. Worktree and evidence are retained.
+
+## Security corrections for review 3b7a2ad7
+
+The latest `feat/machines` was merged first, fast-forwarding this branch to
+`11f3fa00`. That baseline includes the host production route-signing registration
+and later host fixes. The older handoff's missing production registration is
+therefore historical; no signer, RPC, gateway, renderer or host hunks were changed
+for these corrections.
+
+Correction commits, in dependency order:
+
+- `5fe6f67f`: `MachinesRegistry.learn` compares against the latest durable
+  accepted report at commit time. Older issuedAt reports return the current record
+  without a write, even when their signatures and wall-clock validity pass.
+  Newer complete reports replace the learned origin set. Equal-time conflicts
+  persist the intersection in `manifestOrigins`; either arrival order can narrow
+  learned routes but cannot restore them. Existing v2 records default this field
+  to null and use their saved signed report as the initial accepted set. The
+  actual signed manifest is retained and the accepted intersection must be its
+  subset. Manual routes, registry ID, host pin and the original sealed credential
+  slot remain intact. A host needs a strictly newer issuedAt to expand an origin
+  set after an equal-time conflict.
+- `253f219b`: route attempts register before DNS/proof starts and capture the
+  machine/origin generation. Membership changes invalidate affected generations,
+  abort early attempts and pending connections, and drop affected active ones.
+  Current membership and generation are re-read after async work and before
+  authorization, negotiation and connection publication. Removal followed by
+  adding the same origin cannot revive an old attempt. Reordering existing
+  membership leaves its generation intact. Disposal and machine removal also
+  abort early attempts. Ordered fallback can still use a current pinned route.
+- `439fd021`: seven focused regression cases cover older valid report replay
+  after restart with a byte-identical durable file; equal-time conflicts in both
+  orders with reloads; manual-route/pin/credential preservation; removal and
+  removal-plus-readdition while DNS waits; and valid proof/challenge responses
+  held until after removal, with no stale authorization or bearer delivery.
+
+Changed source/test files are `apps/desktop/src/main/machines-registry.ts`,
+`apps/desktop/src/main/machines.ts`, and
+`apps/desktop/src/main/machines-routes.test.ts`. This document is the only other
+authored file. S1-S9, one-way pairing, original bearer isolation and mutation
+receipt keys remain unchanged.
+
+Executed correction checks under the shared run-heavy gate, below-normal,
+D: caches, one test worker and no file parallelism:
+
+| Check | Result |
+| --- | --- |
+| `machines-routes.test.ts` | 24/24 pass, including all seven new cases; 5.15s |
+| `tsconfig.machines-routes.json` | Pass |
+| ESLint on the three changed source/test files, zero warnings | Pass |
+| `git diff --check` | Pass |
+
+The earlier 36 Machines / 224 contracts / 24 client / 182 gateway evidence
+remains attached to its original snapshot. Those broader suites were not rerun
+and are not claimed as correction validation. Fresh independent review of the
+final integrated correction SHA and real tailnet/hardware proof remain with the
+coordinator. No new agents, live app/settings/Serve changes, push or PR occurred.
