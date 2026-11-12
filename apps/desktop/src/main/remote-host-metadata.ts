@@ -15,6 +15,8 @@ import type {
 /** Repository correlation only: never grants access or chooses an execution host. */
 export function normalizeRepositoryRemote(raw: string): string | null {
   const value = raw.trim()
+  // Repository locators deliberately reject ASCII controls before URL parsing.
+  // eslint-disable-next-line no-control-regex
   if (!value || /[\u0000-\u0020\\]/.test(value) || /^(?:[a-z]:|file:|[./])/i.test(value))
     return null
   let host: string
