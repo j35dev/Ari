@@ -350,14 +350,14 @@ it('names an isolated branch after the child title and releases a collision too'
 it.each(['current', 'legacy-short'] as const)(
   'preserves another unregistered %s root branch with a colliding timestamp prefix during cleanup',
   async (format) => {
-    const one = 'sess_mwgl1234_aaaaaa'
-    const two = 'sess_mwgl1234_bbbbbb'
+    const one = 'sess_mabcd123a_aaaaaa'
+    const two = 'sess_mabcd123a_bbbbbb'
     const workspace = await manager.isolate(root, repo, one, 'Work')
     if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
     const otherPath = join(manager.rootDir, root.projectId, two)
     const otherBranch = format === 'current'
       ? `${orchestrationBranch('Work', two)}-2`
-      : 'ari/work-mwgl1234-2'
+      : 'ari/work-mabcd123-2'
     git(repo, 'worktree', 'add', '-b', otherBranch, otherPath)
     await writeFile(join(otherPath, 'other.txt'), 'Unintegrated other root work\n')
     git(otherPath, 'add', '.')
