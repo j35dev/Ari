@@ -27,10 +27,10 @@ it('recognises the titled branch, a collision suffix, and the old id branch', ()
 })
 
 it('does not share ownership between roots with the same timestamp prefix', () => {
-  const one = 'sess_mwgl1234_aaaaaa'
-  const two = 'sess_mwgl1234_bbbbbb'
+  const one = 'sess_mabcd123a_aaaaaa'
+  const two = 'sess_mabcd123a_bbbbbb'
   expect(branchKey(one)).not.toBe(branchKey(two))
   expect(branchBelongsToSession(orchestrationBranch('Work', two), one)).toBe(false)
   expect(branchBelongsToSession(`${orchestrationBranch('Work', two)}-2`, one)).toBe(false)
-  expect(branchBelongsToSession('ari/work-mwgl1234', one)).toBe(false)
+  expect(branchBelongsToSession('ari/work-mabcd123', one)).toBe(false)
 })
