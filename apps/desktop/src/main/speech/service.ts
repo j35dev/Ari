@@ -15,7 +15,7 @@ import {
 } from './engine'
 import { discoverVoiceModel, KOKORO_ID, KOKORO_FILES, KOKORO_MODEL } from './voice-model'
 import { verifyDownload } from './download'
-import { GroqSpeech, withLocalFallback } from './groq'
+import { withLocalFallback, type GroqSpeech } from './groq'
 import { WINDOWS_SPEECH_RUNTIME_HINT } from './runtime-hint'
 
 const WORKER_ACK_TIMEOUT_MS = 60_000

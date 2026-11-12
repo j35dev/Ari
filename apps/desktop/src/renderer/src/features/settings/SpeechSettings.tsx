@@ -189,7 +189,9 @@ export function SpeechSettings() {
     <SettingsPage
       id="settings-speech"
       title="Speech to text"
-      description="Dictate locally. Your recordings stay on this computer; models and the speech engine download only when you set them up."
+      description={ariaEnabled && settings?.speech.provider === 'groq'
+        ? 'Dictation uses Groq Whisper. Only your recording leaves this computer. Configure Groq and local fallback under Experimental ? Aria.'
+        : 'Dictate locally. Your recordings stay on this computer; models and the speech engine download only when you set them up.'}
     >
       {(error || status.error || errors.length > 0) && (
         <p role="alert" className="text-sm text-danger">

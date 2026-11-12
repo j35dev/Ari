@@ -1,3 +1,5 @@
+import { URL } from 'node:url'
+import { performance } from 'node:perf_hooks'
 // Run only through scripts/coordination/run-heavy.mjs on this shared PC.
 // Sources are imported directly so the audition exercises production text preparation.
 import { createRequire } from 'node:module'
