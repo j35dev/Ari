@@ -13,7 +13,7 @@ export function MachinePicker({ hosts, selection, locked, onSelect }: {
   hosts: SelectionHost[]
   selection: DraftMachineSelection
   locked: boolean
-  onSelect: (hostId: string | 'auto') => void
+  onSelect: (hostId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
