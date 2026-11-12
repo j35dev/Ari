@@ -1,0 +1,148 @@
+{
+  "at": "2026-11-12T15:43:16.773Z",
+  "sourceSha": "1d602e77dbafa978ad45667867ad5a746048a474",
+  "results": [
+    {
+      "name": "typecheck",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--workspace-concurrency=1",
+        "-r",
+        "typecheck"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "native-diagnostics-tests",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "--test",
+        "scripts/aria-voice-diagnostics.test.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "lint",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "node_modules/eslint/bin/eslint.js",
+        "apps/desktop/electron.vite.config.ts",
+        "apps/desktop/src/main/aria-widget/handoff.ts",
+        "apps/desktop/src/main/aria-widget/index.test.ts",
+        "apps/desktop/src/main/aria-widget/index.ts",
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/rpc.ts",
+        "apps/desktop/src/main/speech/groq-key.test.ts",
+        "apps/desktop/src/main/speech/groq-key.ts",
+        "apps/desktop/src/main/speech/groq.test.ts",
+        "apps/desktop/src/main/speech/groq.ts",
+        "apps/desktop/src/main/speech/pronunciation.test.ts",
+        "apps/desktop/src/main/speech/pronunciation.ts",
+        "apps/desktop/src/main/speech/service.test.ts",
+        "apps/desktop/src/main/speech/service.ts",
+        "apps/desktop/src/main/speech/settings-store.test.ts",
+        "apps/desktop/src/main/speech/voice-model.ts",
+        "apps/desktop/src/main/speech/voice-provider.test.ts",
+        "apps/desktop/src/main/speech/voice-provider.ts",
+        "apps/desktop/src/main/speech/voice-service.test.ts",
+        "apps/desktop/src/main/speech/voice-service.ts",
+        "apps/desktop/src/main/speech/voice-turn.test.ts",
+        "apps/desktop/src/main/speech/voice-turn.ts",
+        "apps/desktop/src/main/speech/voice-worker.ts",
+        "apps/desktop/src/preload/index.ts",
+        "apps/desktop/src/renderer/src/App.tsx",
+        "apps/desktop/src/renderer/src/features/aria/ReadAloud.tsx",
+        "apps/desktop/src/renderer/src/features/aria/use-voice-playback.ts",
+        "apps/desktop/src/renderer/src/features/aria/voice-playback.test.ts",
+        "apps/desktop/src/renderer/src/features/aria/voice-playback.ts",
+        "apps/desktop/src/renderer/src/features/session/SessionView.tsx",
+        "apps/desktop/src/renderer/src/features/settings/AdvancedSettings.test.tsx",
+        "apps/desktop/src/renderer/src/features/settings/AppearanceSettings.test.tsx",
+        "apps/desktop/src/renderer/src/features/settings/AriaVoiceSettings.tsx",
+        "apps/desktop/src/renderer/src/features/settings/ExperimentalSettings.tsx",
+        "apps/desktop/src/renderer/src/features/settings/NotificationsSettings.test.tsx",
+        "apps/desktop/src/renderer/src/features/settings/PermissionsSettings.test.tsx",
+        "apps/desktop/src/renderer/src/features/settings/SettingsWorkspace.test.tsx",
+        "apps/desktop/src/renderer/src/features/settings/SpeechSettings.tsx",
+        "apps/desktop/src/renderer/src/features/settings/useEngineSettings.test.ts",
+        "apps/desktop/src/renderer/src/features/transcript/MessageFooter.tsx",
+        "apps/desktop/src/renderer/src/features/transcript/TranscriptView.tsx",
+        "apps/desktop/src/renderer/src/lib/rpc.ts",
+        "packages/contracts/src/aria-voice.test.ts",
+        "packages/contracts/src/aria-voice.ts",
+        "packages/contracts/src/rpc.ts",
+        "packages/contracts/src/settings.ts",
+        "packages/engine/src/control-preamble.ts",
+        "packages/engine/src/settings.ts",
+        "scripts/aria-voice-bench.mjs",
+        "scripts/aria-voice-checks.mjs",
+        "scripts/aria-voice-diagnostics.mjs",
+        "scripts/aria-voice-diagnostics.test.mjs",
+        "scripts/aria-voice-measure.mjs",
+        "scripts/aria-voice-utility-smoke.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "contracts-tests",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/contracts",
+        "test",
+        "src/aria-voice.test.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "engine-tests",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/engine",
+        "test",
+        "src/settings.test.ts",
+        "src/control-preamble.test.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "desktop-tests",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "src/main/speech",
+        "src/main/aria-widget",
+        "src/renderer/src/features/aria",
+        "src/renderer/src/features/settings/SpeechSettings.test.tsx",
+        "src/renderer/src/features/settings/SettingsWorkspace.test.tsx",
+        "src/renderer/src/features/transcript/MessageFooter.test.tsx",
+        "src/renderer/src/App.aria-runtime.test.tsx",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "desktop-build",
+      "executable": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build"
+      ],
+      "exitCode": 0
+    }
+  ]
+}
