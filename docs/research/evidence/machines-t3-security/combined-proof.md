@@ -30,6 +30,9 @@ script = script.slice(0, start) + `const fixtures = new Map([['review-fixture-vi
 const resolvePoint = '    let path = null\n'
 assert.equal(script.split(resolvePoint).length, 2)
 script = script.replace(resolvePoint, resolvePoint + `    if (specifier === 'vitest') return { url: virtual + 'review-fixture-vitest.js', shortCircuit: true }\n`)
+const barePaths = 'paths: [dependencyRoot,\n        join(dependencyRoot, \'apps/desktop\')]'
+assert.equal(script.split(barePaths).length, 2)
+script = script.replace(barePaths, 'paths: [join(dependencyRoot, posix.dirname(context.parentURL.slice(virtual.length))), dependencyRoot,\n        join(dependencyRoot, \'apps/desktop\')]')
 const testStart = script.indexOf('globalThis.reviewEpoch = 0')
 assert.ok(testStart > 0)
 script = script.slice(0, testStart) + `
@@ -129,3 +132,9 @@ console.log(JSON.stringify({ source: sha, exactAuthoredTest: selectedTest.name,
 writeFileSync('.review-temp/t3-combined-proof.mjs', script, 'utf8')
 console.log('Prepared exact-source combined proof with standalone assertions.')
 ```
+
+The first execution at `1c2398a4` acquired the shared lease and exited 1 before
+test registration: the loader searched root/desktop dependency directories for
+`chokidar`, which is installed under `packages/engine/node_modules`. The builder
+now resolves bare dependencies from each importing package's actual directory
+first. It changes dependency lookup only; no product source or assertion is changed.
