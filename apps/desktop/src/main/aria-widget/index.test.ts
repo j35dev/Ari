@@ -21,9 +21,11 @@ const mock = vi.hoisted(() => ({
   load: vi.fn(async () => undefined),
   autoReady: true,
   ducking: vi.fn(),
+  recover: vi.fn(async () => undefined),
 }))
 
 vi.mock('../speech/audio-ducking', () => ({ getAudioDucking: () => ({ setActive: mock.ducking }) }))
+vi.mock('../speech/recovery', () => ({ recoverDictation: mock.recover }))
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -135,6 +137,7 @@ beforeEach(() => {
   mock.load.mockReset().mockResolvedValue(undefined)
   mock.autoReady = true
   mock.ducking.mockClear()
+  mock.recover.mockClear()
 })
 afterEach(() => {
   widget?.close()
@@ -746,6 +749,8 @@ it.each(['escape', 'disable', 'empty', 'unavailable'])(
     )
     expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
     expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
+    expect(mock.recover).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
+    if (reason === 'unavailable') expect(mock.recover).toHaveBeenCalledWith('draft')
   },
 )
 
@@ -774,6 +779,37 @@ it('reserves capture through transcription and blocks both shortcuts while a com
   mock.keys.get('keydown')!(key(57))
   mock.keys.get('keyup')!(key(57))
   expect(() => acquire({ sender: contents })).toThrow('Another dictation')
+})
+
+it('does not recover or retry a global insertion that was cancelled while pending', async () => {
+  let reject!: (reason: Error) => void
+  const insert = vi.fn(
+    () =>
+      new Promise<void>((_resolve, fail) => {
+        reject = fail
+      }),
+  )
+  const invoke = vi.fn(async (_method: string) => ({ ready: true }))
+  widget = new AriaWidget({
+    invoke,
+    openSettings: vi.fn(),
+    captureTarget: async () => ({ insert, cancel: vi.fn() }),
+  })
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(generalKey())
+  await vi.advanceTimersByTimeAsync(0)
+  mock.keys.get('keyup')!(generalKey())
+  const pending = mock.handlers.get('ari:ariaWidget.complete')!(
+    { sender: mock.windows[0]!.webContents },
+    { id: 1, text: 'Cancelled dictation' },
+  )
+  await vi.waitFor(() => expect(insert).toHaveBeenCalledOnce())
+  mock.keys.get('keydown')!(key(1))
+  reject(new Error('The dictation target changed.'))
+  await pending
+  expect(mock.recover).not.toHaveBeenCalled()
+  expect(insert).toHaveBeenCalledOnce()
+  expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
 })
 
 it.each(['subframe', 'same-document', 'abandoned-main-frame'] as const)(

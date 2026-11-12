@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, LoaderCircle, Mic } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
-import { iconButton } from '../../lib/recipes'
+import { iconButton, quietButton } from '../../lib/recipes'
 import { startRecording } from '../speech/recorder'
 import { useSpeech } from '../speech/useSpeech'
 import type { DictationTarget } from '../../../../shared/dictation'
@@ -31,6 +31,7 @@ const EMPTY_METER: Meter = { cells: [], seconds: 0 }
 function clock(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
+import { hasDictationText } from '../../../../shared/dictation-format'
 
 export function SpeechButton({
   disabled = false,
@@ -56,6 +57,7 @@ export function SpeechButton({
   const [state, setState] = useState<SpeechState>('idle')
   const [meter, setMeter] = useState<Meter>(EMPTY_METER)
   const [error, setError] = useState<string | null>(null)
+  const [uninserted, setUninserted] = useState<string[]>([])
   const target = useRef<DictationTarget | null>(null)
   const lease = useRef<string | null>(null)
   const busy = useRef(false)
@@ -124,18 +126,22 @@ export function SpeechButton({
     recording.current = null
     const attempt = generation.current
     setState('transcribing')
+    let transcript = ''
     try {
       const pcm = await active.stop()
       if (!mounted.current || generation.current !== attempt || !pcm.length) return
       const result = await rpc.invoke('speech.transcribe', { pcm })
-      if (mounted.current && generation.current === attempt && result.text.trim())
+      transcript = result.text
+      if (mounted.current && generation.current === attempt && hasDictationText(result.text))
         await target.current?.insert(
           result.text,
           () => mounted.current && generation.current === attempt,
         )
     } catch (reason) {
-      if (mounted.current && generation.current === attempt)
+      if (mounted.current && generation.current === attempt) {
         setError(reason instanceof Error ? reason.message : String(reason))
+        if (transcript.trim()) setUninserted((previous) => [...previous, transcript])
+      }
     } finally {
       if (generation.current === attempt) {
         release()
@@ -283,6 +289,28 @@ export function SpeechButton({
           <Mic size={16} strokeWidth={1.75} aria-hidden />
         )}
       </button>
+      {uninserted.length > 0 && (
+        <details className="absolute bottom-full right-0 z-10 mb-2 w-80 rounded-xl border border-border-strong bg-surface-1 p-3 text-[13px] text-fg shadow-2">
+          <summary className="cursor-pointer font-medium">Dictated text kept for review</summary>
+          <p className="my-2 text-fg-subtle">
+            Your draft changed, so this text was kept here. Select and copy it into the intended
+            field.
+          </p>
+          <textarea
+            aria-label="Uninserted dictated text"
+            readOnly
+            value={uninserted.join('\n\n')}
+            className="ari-scroll h-32 w-full resize-y rounded-md border border-border bg-bg p-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          />
+          <button
+            type="button"
+            className={`${quietButton} -ml-2.5 mt-1`}
+            onClick={() => setUninserted([])}
+          >
+            Dismiss kept text
+          </button>
+        </details>
+      )}
     </span>
   )
 }

@@ -19,6 +19,7 @@ interface Request {
   path?: string
   pcm?: Float32Array
   language?: string
+  formatText?: boolean
 }
 
 process.parentPort?.on('message', (event: { data: Request }) => {
@@ -41,12 +42,23 @@ process.parentPort?.on('message', (event: { data: Request }) => {
         }
         const result =
           request.kind === 'transcribe'
-            ? await model!.transcribe(
-                request.pcm!,
-                request.language ? { language: request.language } : {},
-              )
+            ? await model!.transcribe(request.pcm!, {
+                ...(request.language ? { language: request.language } : {}),
+                ...(request.formatText && model!.supports('pnc') ? { pnc: 'on' as const } : {}),
+              })
             : null
-        process.parentPort?.postMessage({ id: request.id, result: { text: result?.text ?? '' } })
+        process.parentPort?.postMessage({
+          id: request.id,
+          result: {
+            text: result?.text ?? '',
+            ...(result?.language ? { language: result.language } : {}),
+            ...(result?.words?.length
+              ? {
+                  words: result.words.map(({ text, t0Ms, t1Ms }) => ({ text, t0Ms, t1Ms })),
+                }
+              : {}),
+          },
+        })
         return
       }
       process.parentPort?.postMessage({ id: request.id, result: { text: '' } })

@@ -1,5 +1,6 @@
 import koffi from 'koffi'
 import type { DictationTarget } from '../../shared/dictation'
+import { hasDictationText } from '../../shared/dictation-format'
 
 // UI Automation verifies editability and pins the exact control and selection.
 // SendInput uses Unicode packets: no clipboard formats are read or replaced.
@@ -219,7 +220,7 @@ export function createWindowsDictation(): {
             }
           },
           async insert(value, current = () => true) {
-            if (!value.trim()) {
+            if (!hasDictationText(value)) {
               cancel()
               return
             }
