@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
+import { observeMachineInventory, machineInventoryRevision } from '../session/session-machine-access'
 import {
   createSessionClient,
   parseSessionViewKey,
@@ -13,14 +14,14 @@ function refuse(client: SessionClient, reason: string): SessionClient {
     availability: 'unavailable', readOnly: true,
     invoke: reject, subscribe: () => () => undefined,
     capabilityReason: () => reason,
-    receipt: () => null, checkReceipt: reject, stageImages: reject,
+    receipt: () => null, checkReceipt: reject, stageImages: reject, reconnect: reject,
   }
 }
 
 /** Tools retain their pane's owner even when the shell changes its selected chat. */
 export function useToolSessionClient(sessionId?: string): SessionClient {
   const inherited = useSessionClient()
-  return useMemo(() => {
+  const client = useMemo(() => {
     if (inherited.scope.kind === 'remote') {
       if (sessionId && sessionId !== inherited.scope.sessionId && sessionId !== inherited.viewKey)
         return refuse(inherited, 'This tool belongs to another machine or session.')
@@ -31,6 +32,9 @@ export function useToolSessionClient(sessionId?: string): SessionClient {
     if (scope?.kind !== 'remote') return refuse(inherited, 'The remote tool reference is invalid.')
     return createSessionClient(scope)
   }, [inherited, sessionId])
+  useSyncExternalStore(client.scope.kind === 'remote' ? observeMachineInventory : () => () => undefined,
+    machineInventoryRevision)
+  return client
 }
 
 /** UI tuple IDs never cross the wire as session IDs or become local project roots. */
