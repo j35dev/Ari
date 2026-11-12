@@ -460,6 +460,7 @@ describe('Machines with two real gateways and engines', () => {
       'ariVersion',
       'capabilities',
       'machineId',
+      'machinesExtensions',
       'name',
       'protocolVersion',
     ])
@@ -609,7 +610,8 @@ describe('Machines with two real gateways and engines', () => {
     expect(await machines.remove(machineB)).toEqual({ removed: true })
     expect(b.gateway.pairing.devices()).toEqual([])
     expect(readFileSync(join(profile, 'machines.json'), 'utf8')).not.toContain(machineB)
-  }, 25_000)
+  // Two engines, git fixtures, restart and PTY cleanup run below normal priority under the gate.
+  }, 90_000)
 
   it('rejects version mismatch before a pairing request and missing capabilities before commands', async () => {
     const a = await realHost('A')

@@ -251,7 +251,7 @@ export function FileExplorer({
   /** File rows drag as mention sources carrying the workspace-relative path. */
   const dragFile = useCallback(
     (event: React.DragEvent<HTMLButtonElement>, path: string): void => {
-      setDragFilePath(event, relativeToRoot(root, path))
+      setDragFilePath(event, relativeToRoot(root, path), rpc.viewKey)
     },
     [root],
   )
