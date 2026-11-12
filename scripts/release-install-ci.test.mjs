@@ -38,9 +38,9 @@ test('workflow retains actual randomly named install receipts on failure', async
 
 test('install orchestration selects pinned platform assets from the exact package receipt', () => {
   for (const [platform, name, suffix] of [
-    ['win32', 'Ari-Setup-0.3.13.exe', 'win-unpacked/ari.exe'],
-    ['darwin', 'Ari-0.3.13-universal.dmg', 'mac-universal/ari.app/Contents/MacOS/ari'],
-    ['linux', 'Ari-0.3.13.deb', 'linux-unpacked/ari'],
+    ['win32', 'Ari-Setup-0.3.14.exe', 'win-unpacked/ari.exe'],
+    ['darwin', 'Ari-0.3.14-universal.dmg', 'mac-universal/ari.app/Contents/MacOS/ari'],
+    ['linux', 'Ari-0.3.14.deb', 'linux-unpacked/ari'],
   ]) {
     const context = {
       sourceHead: 'a'.repeat(40),
@@ -52,7 +52,7 @@ test('install orchestration selects pinned platform assets from the exact packag
     const receipt = {
       sourceHead: context.sourceHead,
       platform,
-      version: '0.3.13',
+      version: '0.3.14',
       files: [{ name }],
     }
     const input = installInput(receipt, context)
@@ -60,11 +60,11 @@ test('install orchestration selects pinned platform assets from the exact packag
     assert.equal(input.candidateArtifact, join(context.dist, name))
     assert.equal(
       input.previousArtifact,
-      join(context.downloadRoot, name.replace('0.3.13', '0.3.12')),
+      join(context.downloadRoot, name.replace('0.3.14', '0.3.13')),
     )
     for (const edit of [
       { sourceHead: 'b'.repeat(40) },
-      { version: '0.3.12' },
+      { version: '0.3.13' },
       { nativeFailure: 'timeout' },
       { platform: 'other' },
       { files: [] },
