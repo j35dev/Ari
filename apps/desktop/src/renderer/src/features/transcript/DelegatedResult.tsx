@@ -6,6 +6,7 @@ import { MarkdownBlock } from './MarkdownBlock'
 import { DelegatedResultDiff } from './DelegatedResultDiff'
 import { ResultError, resultButton } from './result-controls'
 import { useDelegatedResult } from './use-delegated-result'
+import { useSessionClient } from '../session/session-client'
 
 const LABEL: Record<ResultPackage['reviewState'], string> = {
   available: 'Ready for review',
@@ -23,9 +24,16 @@ export function DelegatedResult({
   sessionId: string
   child: DelegatedChild
 }) {
+  const client = useSessionClient()
+  if (client.scope.kind === 'remote') return (
+    <div className="mb-1 pl-[18px] text-2xs text-fg-muted">
+      <button type="button" disabled title="Versioned result review is unavailable on this host." className={resultButton}>Inspect result</button>
+      <span className="ml-2">Review, integrate and retry controls are unavailable on this host.</span>
+    </div>
+  )
   return (
     <ScopedDelegatedResult
-      key={`${sessionId}:${child.sessionId}`}
+      key={JSON.stringify([client.viewKey, client.authorizationEpoch, sessionId, child.sessionId])}
       sessionId={sessionId}
       child={child}
     />

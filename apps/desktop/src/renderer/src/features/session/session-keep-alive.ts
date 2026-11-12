@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { TRANSCRIPT_CACHE_SIZE } from './transcript-store'
+import { parseSessionViewKey, registerSessionCacheInvalidator } from './session-scope'
 
 /**
  * How many recently shown sessions stay mounted, across every pane together.
@@ -65,10 +66,16 @@ export const keepAliveActions = {
   releasePool: (poolId: string): void => commit(prune(kept, (e) => e.poolId !== poolId)),
   /** Sessions that no longer exist must not stay mounted behind the pane. */
   keepOnly: (sessionIds: ReadonlySet<string>): void =>
-    commit(prune(kept, (e) => sessionIds.has(e.sessionId))),
+    commit(prune(kept, (e) => parseSessionViewKey(e.sessionId)?.kind === 'remote' || sessionIds.has(e.sessionId))),
   /** Test seam: forget everything. */
   reset: (): void => commit([]),
 }
+registerSessionCacheInvalidator((machineId) => {
+  commit(prune(kept, (entry) => {
+    const scope = parseSessionViewKey(entry.sessionId)
+    return scope?.kind !== 'remote' || scope.machineId !== machineId
+  }))
+})
 
 /** The sessions one pool keeps mounted, newest first. */
 export function useKeptSessions(poolId: string): readonly string[] {
