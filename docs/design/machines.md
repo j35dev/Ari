@@ -1,221 +1,294 @@
 # Machines and remote access
 
-Status: shared contracts frozen for the first implementation, 2026-11-11.
-Base: origin/main 6f018a75. Integration: feat/machines in D:/Projects/Ari-machines.
+Status: T3 parity matrix and design, 2026-11-12. Supersedes the earlier dedicated
+remote workspace, separate remote sidebar, no-load-balancing and
+independent-origin-only product direction. Those describe the baseline, not the
+target; their security guarantees remain mandatory.
 
-## Product and trust boundary
+Ari baseline: `14e43fe1fdfc2f83503ba3d9f43951564f57f652`.
+Authoring: `machines/parity-rework`, `D:/Projects/Ari-machines-wt/parity-rework`.
+This is the first design deliverable, with no code/contracts changed. Concrete
+freeze proposals and boundaries are in
+[machines-parity-contracts.md](../research/machines-parity-contracts.md).
 
-A machine is an Ari desktop hosting its existing loopback remote gateway. Every
-desktop can host and control other desktops. Execution, terminals, repositories,
-provider credentials and filesystem resolution always belong to the host. Remote
-projects and sessions are addressed by (machineId, hostId), never translated into
-local paths. Drafts, uncertain command receipts, subscriptions and attachments
-must be scoped to the same pair and cleared from view when switching machines.
+## Evidence and interpretation
 
-Tailscale is the production transport in this change; HTTP loopback is for tests.
-Routes are a list so a future relay does not change ownership or pairing. No
-Funnel, repository sync, local execution against remote files, load balancing,
-headless host, or machine-to-machine Ari Connect implementation is included.
-Each added origin is independently paired in this release. Anonymous identity
-metadata cannot authorize sharing a paired credential with another origin.
-Multi-route credential failover requires an authenticated host route binding
-in a future protocol; matching public machine IDs is insufficient.
+The controlling brief is the desktop Aria `machines-t3-parity.md`, with the
+parent's corrections: desktop uses normal Ari sessions/tools, one sidebar entry
+per repository, a stable draft choice and permanent session host; mobile is
+unchanged. Pairing approves only one direction, with no reverse/group/transitive
+grants. Auto uses authenticated CPU/memory and defaults off.
 
-Host-approved P-256 device pairing, confirmation codes, revocation, short-lived
-memory-only bearer tokens, strict origin checks and the remote operation allowlist
-remain the security boundary. A desktop client cannot approve its own invitation.
-Desktop private keys must be sealed with Electron safeStorage and never cross IPC;
-if sealing is unavailable, fail clearly rather than persisting plaintext keys.
-Phones keep their existing non-extractable IndexedDB keys. Terminal access is an
-explicit per-device grant and runs as the host user.
+T3 evidence is the clean, read-only upstream checkout
+`D:/Projects/t3code-source-control-reference`, origin
+`https://github.com/pingdotgg/t3code.git`, commit
+`6577c6b6185167c0e502fa01f9e8e8f2dee6ff25`. The separate `D:/Projects/t3code`
+checkout is a different fork/older snapshot and is not the matrix's anchor.
+References mean the pinned source, not later releases. Behavior is paraphrased;
+no source snippets are copied. T3 is MIT licensed, copyright 2026 T3 Tools Inc.;
+any subsequent source reuse must retain its MIT notice.
 
-## Frozen shared interfaces
+Evidence keys (T paths at the pinned T3 commit; A paths at Ari baseline):
 
-The existing remote wire protocol remains version 1. Gateway information gains
-optional machineId, name and ariVersion fields, with existing protocolVersion and
-capabilities. Add a small unauthenticated GET /api/identity with only these fields
-and capability names; it must not expose paths, project names, session data,
-provider inventories or device records. Unknown versions are rejected before
-pairing/commands. Missing capabilities produce a named unsupported_capability
-failure. Old info responses remain readable, with a clear legacy identity label.
-Machine identity is persisted in the host profile and survives a restart.
+- **T1**: `docs/user/remote-access.md`, `docs/internals/remote.md`,
+  `docs/internals/overview.md`, `docs/internals/glossary.md`.
+- **T2**: `docs/internals/connection-runtime.md` and
+  `packages/client-runtime/src/connection/{driver,supervisor,resolver,routes}.ts`.
+- **T3**: `apps/server/src/environment/ServerEnvironment.ts` and tests.
+- **T4**: `apps/server/src/project/RepositoryIdentityResolver.ts` and tests;
+  `packages/contracts/src/environment.ts`, `packages/shared/src/git.ts`,
+  `packages/source-control-core/src/shared/definition.ts`.
+- **T5**: `docs/user/{composer,thread-sidebar,project-settings,permission-modes}.md`;
+  `apps/web/src/hooks/useLoadBalancedEnvironment.ts`,
+  `apps/web/src/components/settings/LoadBalancingSettings.tsx`,
+  `packages/client-runtime/src/load-balancing.ts`.
+- **T6**: `docs/internals/{resource-telemetry,environment-auth}.md`,
+  `apps/server/src/resourceTelemetry/HostResources.ts`,
+  `apps/server/src/auth/RpcAuthorization.ts`.
+- **T7**: `docs/user/{updating,background-service}.md`,
+  `docs/internals/server-updates.md`.
+- **T8**: `docs/user/{portable-handoffs,voice-input}.md`,
+  `docs/internals/mobile-navigation.md`, `apps/server/src/peer/RemoteDelegation.ts`
+  and linked-machine context in `docs/user/composer.md`.
+- **A1**: `packages/contracts/src/{machines,remote}.ts`;
+  `apps/desktop/src/main/{machine-identity,machines-registry,machines,machines-network,machines-rpc}.ts`.
+- **A2**: `packages/remote-client/src/{session,gateway-client}.ts`;
+  `packages/remote-gateway/src/{gateway,pairing,idempotency}.ts`;
+  `apps/desktop/src/main/{remote,remote-host,remote-terminals,remote-integration}.ts`.
+- **A3**: `apps/desktop/src/renderer/src/App.tsx` and renderer
+  `features/machines/{RemoteWorkspace,RemoteSession,RemoteMachineGroups,RemoteConfiguration,RemoteTools,RemoteTerminal}.tsx`,
+  `features/machines/remote-client.ts`.
+- **A4**: [resume review](../research/machines-resume-review.md),
+  [S1-S9 security review](../research/machines-security-review.md),
+  [final integrated review](../research/machines-final-review-2026-11-12.md).
+  Their tests apply to their named snapshots. This design reruns none and does
+  not certify new parity behavior.
 
-@ari/remote-client extracts GatewayClient and the transport-independent session
-authorization/reconnect behavior from mobile. Preserve compatibility re-exports
-at the mobile import paths. Browser storage and Connect broker coordination stay
-adapters, not dependencies of the shared transport. Core owns package metadata
-and lockfile changes; other workers report dependency needs to the coordinator.
+## T3 parity matrix
 
-Core defines @ari/contracts/machines with:
+**In/core** means required items 1-8 desktop work and verification. **In/after
+core** means the next phase, reported explicitly if unfinished this run.
+**Preserve** retains existing behavior/guarantees. **Out** is intentionally
+excluded. Ari today always means the baseline above, not concurrent worker edits.
 
-- MachineRoute: { kind: 'tailscale' | 'loopback', origin: string }.
-- MachineView: { id, name, routes, status, identity, lastSeenAt, error, allowTerminal };
-  status is unpaired, pairing, connected, offline, revoked or incompatible.
-  identity contains only the gateway's public information. Credentials are absent.
-  allowTerminal comes from this authenticated device's grant, defaults false,
-  and is never inferred from the host's public terminal capability.
-- MachinePairingView: { machineId, status, confirmationCode, expiresAt, error }.
-- MachineDiscovery: { name, routes, identity }; bounded peer probes, no automatic
-  pairing, no scanning the public internet, no redirects to arbitrary hosts.
+| Behavior / evidence | T3 behavior | Ari today at `14e43fe1` | Ari plan | In/out and reason |
+| --- | --- | --- | --- | --- |
+| Execution ownership (T1; A2) | Environment owns providers, execution, files and durable state; transport reaches that server. | Gateway/engine execute on host through remote allowlist. | Preserve host execution behind shared local/remote normal-session facade. Never substitute client files, credentials or paths. | Preserve + In/core: foundation for all actions. |
+| Stable identity (T1/T3; A1) | Environment ID survives restart/address change; saved catalogs client-local. | Host `identity.json`; separate local registry ID scopes state. | Distinguish host ID, local machine ID, route, project and session IDs. Session owner never becomes an address. | In/core: reliable grouping and reconnect. |
+| Atomic ID/recovery (T3; A1/A4) | Complete no-overwrite publication; empty-ID recovery retains a winner for delayed initializers. | Unique temp + rename; corruption blocks remote host and preserves local RPC. No concurrent-winner recovery contract. | Exclusive profile ownership, no-replace/flushed publication and retained recovery winner. Empty repair only with consistent recovery evidence; no silent corrupt-ID/key reset. | In/core: running identity cannot change. |
+| Public descriptor (T1/T2; A1) | Fresh anonymous descriptor checks identity/reachability without credential. | `/api/identity` and `gateway.info`; public version/capabilities. | Minimal no-store descriptor; negotiated signed host proof for reuse. Public ID is only a hint. | In/core: descriptor alone cannot authorize reuse. |
+| Saved client registry/removal (T1/T2; A1) | Local profile saves connections; removal closes scope/credentials/client state. | Registry/sealed credential; remove closes streams, attempts self-revoke. | Atomic v2 migration preserves IDs/drafts/receipts/origin bindings. Remove source-dependent learned routes and all in-memory auth. | In/core: no cross-client catalog sync. |
+| Canonical repository identity (T4; A1) | Choose network fetch `upstream`, then `origin`, then deterministic other; ignore local/file remotes. | `project.list` has ID/name/count, no repo identity. | Host resolves authorized redacted canonical identity and chosen remote metadata; client never reads remote Git paths. | In/core: correlate real clones. |
+| Fork grouping/labels (T4; A1/A3) | Differing origin retained; grouping key and display label use origin, not upstream. | Separate machine groups, no clone/fork correlation. | Group by `origin.canonicalKey ?? canonicalKey`; prefer origin label. Fork never collapses into upstream or another fork. | In/core: replaces plain normalized-remote rule. |
+| Normalization/unknown repos (T4; A1) | SSH/HTTPS host-path keys, provider aliases; unknown remains environment-local. | No identity/grouping contract. | Normalize fetch URL spelling/.git/trailing slash/case/known provider aliases host-side; strip secrets. No grouping by basename/path/name; explicit host-local candidate for duplicate clones. | In/core: ambiguous checkouts cannot be selected by inference. |
+| Normal sidebar (T1/T5; A3) | Grouped repository with environment-local threads. | `RemoteMachineGroups` separate section and dedicated workspace. | One normal repository group, sessions labelled by machine and immutable scoped IDs. | In/core: explicit user direction. |
+| Normal session/tools (T1/T5; A2/A3) | Same client interfaces operate against environment RPC. | Dedicated view implements allowlist, not all normal controls. | Shared transcript/composer/Changes/files/terminal/splits/actions; narrow safe remote additions. Unsupported capability disabled with reason in normal UI. | In/core: no dedicated-view fallback. |
+| Normal-view operation gaps (T5; A2/A3) | Server-supported methods, explicit capability degradation. | Parent research identifies dequeue, attachment steer, provider/driver switch, tree stop, plan, turn diff, resume, file index/paste staging and replay conversion gaps. | Freeze exact typed reads/mutations and genuine journal/event sentinel conversion. Never expose raw `providers.detect`/`endpoints.list` or generic desktop RPC. | In/core: integration must not silently dispatch locally. |
+| Composer machine selector (T5; A3) | Environment accompanies new thread; catalogs/defaults from chosen host. | Separate remote host/project chooser; normal composer has no machine choice. | Selector under normal composer, only authorized hosts with repository; Auto when enabled. Host model/provider/effort/permissions/defaults follow choice. | In/core: desktop only. |
+| Draft stability (T5; A3) | Auto resolves once; reselect Auto resamples; host/branch/worktree locks choice. | Remote drafts scoped; normal flow not unified. | Persist draft ID/revision/resolved host. Telemetry/routes/rerenders never change it. Manual host switch explicit, blocked for uncertain create or unreconciled staged files. | In/core: selected branch/worktree fixes host. |
+| Session host permanent (T1/T5; A2) | Existing thread remains on creation environment. | Remote session machine-scoped. | Persist host/project/session identity forever; routes change transport only. Workers inherit parent host unless explicit peer grant. | Preserve + In/core: no active migration. |
+| Auto/preferences (T1/T5; A1) | Off by default, client-local Prefer/Normal/Less often/Manual only, initial Normal. | No Auto setting/preferences. | Desktop opt-in, weights 100/50/25/0; Manual only excludes Auto, not manual. Show preference section with multiple enabled machines. | In/core: supersedes no-load-balancing direction. |
+| Authenticated CPU/memory (T6; A1/A2) | Orchestration-read aggregate host sample, on demand, 5s cache; separate from full diagnostics. | No remote resource operation. | Authorized aggregate-only CPU/count/available/total bytes; local equivalent. Only unresolved Auto drafts sample; no anonymous/process/path inventory. | In/core: real host capacity required. |
+| Auto eligibility/scoring (T5/T6; A1) | Connected project/provider candidates, <=15s fresh; CPU <95%, memory available >5%; weighted CPU idle × memory fraction × count. | Manual only. | Same formula/freshness via client receipt time; finite validated ranges and stable tie order. Revalidate grant/project/provider at send. None eligible => manual choice. | In/core: no quota percentages or silent local fallback. |
+| Ordered multi-route machine (T1/T2; A1) | One ordered catalog with type-speed insertion and reorder. | Route array exists; registry creates one route, service uses original origin only. | Stable IDs/order/provenance; authenticated association only. Tailscale HTTPS now, kinds extensible. | In/core: addresses separate from host. |
+| Route walk (T2; A1) | Brief checks skip silent routes, first usable wins; late pass if all ordinary routes fail. | One origin + reconnect. | Bounded checks (T3 starting policy: 500ms shared head start, 2.5s descriptor deadline), ordered attempts, close failed scopes, late pass. | In/core: unavailable address cannot hide working route. |
+| Route failure/version stop (T2; A1/A2) | Route failure continues; incompatible same server stops walk. | Protocol mismatch/unsupported operation visible, no walk. | Continue unreachable/auth/TLS/ID/binding failure without credentials; only pinned/authenticated-host incompatible protocol stops whole walk. Missing operation disables only operation. | In/core: fake copied-ID version cannot poison route selection. |
+| Move-back preflight (T1/T2; A1) | Earlier routes checked on network/foreground/minute, authorized prepare before reconnect. | No earlier-route probing/move-back. | Keep current connection until earlier descriptor/host proof/auth/readiness works; fence route edits/removal/revocation. Resume reads/streams, never mutations. | In/core: same session owner. |
+| Cooldown/retry owner (T2; A2) | Better-route failure 5m cooldown, silent checks back off to 30m, jittered retry resets after stable connection. | Session reconnect/cancellation, no route supervisor. | One supervisor per saved machine; monotonic 5m failed-switch cooldown, 1s-to-5m jitter retry, 30s healthy reset. Network wake resets silent checks, not security denial. | In/core: no competing loops or bounce. |
+| Learned route source/lifetime (T1/T2; A1) | Authenticated config reports LAN/tailnet; credential derives from source route; disappears with source/report withdrawal. | Discovery hints only. | Revisioned signed host manifest and source credential provenance; complete empty report removes learned routes, absent field does not. Saved routes untouched. | In/core for Tailscale: public hints cannot promote trust. |
+| Route management (T1/T2; A3) | Routes view/reorder/remove; learned reorderable, not removable. | Rename/reconnect/remove machine only. | Routes panel In use/status/saved/learned/source. Source removal deletes dependents; final-route removal requires explicit forget-machine path. | In/core: provenance and cleanup visible. |
+| Credential reuse/binding (T2/T6; A1/A4) | Learned route resolves source credential; public descriptor checks ID. | S1 fix keeps key isolated to original origin; copied ID never inherits credential. | Pinned host key + authenticated exact-origin manifest/grant, fresh signed host proof, audience-bound device challenge, route-specific token. Never forward old bearer. Legacy origins stay independent. | In/core subject to security freeze: mechanism changes, S1 guarantee stays. |
+| HTTPS downgrade (T2; A1/A4) | T3 source exempts some HTTP tailnet routes; otherwise secure-paired token cannot be borrowed by insecure LAN/public route. | Production Tailscale HTTPS, loopback tests; DNS/TLS/origin pinned. | Stricter user rule: HTTPS-issued authority never goes to plain HTTP, even tailnet IP. Learn HTTPS FQDN only; loopback test-isolated. | Preserve + In/core: explicit no-downgrade adaptation. |
+| One-time host pairing (T1/T6; A2) | Fresh link/QR per device; existing session reconnects without original link. | Host-local approval + confirmation for P-256 key; sealed desktop key. | Retain Ari approval; bind host ID/key/device fingerprint to invitation/result. Fragment-only transient link secret, never log/screenshot it. | Preserve + In/core: T3 convenience with Ari approval boundary. |
+| One-way revocation (T1/T6; A2/A4) | Host owns its issued sessions/scopes. | Host device grant, no reciprocal approve route. | A approves B => B controls A only; reverse needs approval on B. No group/transitive grants. A revocation removes B source/derived route access on A only. | Preserve + In/core: supersedes earlier group proposal. |
+| Link from unsaved address (T1/T2; A1) | Existing-machine link at new address refused; Add route path, same-address re-pair allowed. | Same public ID at new origin creates separate independently paired record. | Refuse auto-merge/redemption; offer authenticated Add route on existing host. If offline/legacy, explicit separate pairing remains isolated pending verified migration. | In/core: link never authorizes reuse. |
+| Your permissions (T1/T6; A1/A2) | Current session scopes beside Routes, In use only; other routes not checked. | Authenticated `allowTerminal`, no consolidated view. | Route-labelled effective project scope, terminal, operation grants/caps/expiry. Offline is last-known; public capability never grants shell. | In/core: display authority without widening it. |
+| Host model/permission defaults (T5/T6; A2/A3) | Environment/project defaults and policy/provider caps; scopes cannot widen through exchange. | Catalog/efforts/modes/grant exposed to separate UI. | Host validates provider/driver/model/effort/mode/ceiling for create/follow-up; chosen host refreshes choices. Machine Auto distinct from permission mode Auto. | In/core: preserve Ari modes, no T3 provider-policy clone. |
+| Version/capability degradation (T1/T7; A1/A2) | Same protocol required, optional capabilities, named side needs update. | v1 operation capability checks and incompatible state. | Ari release != wire version; additive extensions negotiated. Incompatible machine/session stays visible; renewal rechecks. | In/core: no half-upgraded actions. |
+| Connected-host update status (T7; A1) | Offers update/server/app or copy exact install/relaunch guidance per installation. | No Machines updater; desktop updater separate. | Authorized installation/update status and named target/version/channel/manual instruction. No arbitrary shell update. | In/core: honest recovery path. |
+| Remote update transaction (T7; A2) | Launcher stages/preflights, durably tracks ID, trial/commit readiness, rollback; reconnect checks ID/version. | No headless launcher remote transaction. | Prepare/commit/status design; desktop adapter only if existing updater provides durable receipt/restart ownership. Otherwise manual host update this run, implement with launcher later. | In/after core conditional: reconnect is not update success; unknown commit never resent. |
+| Restart continuation (T7/T8; A2) | Host preference resumes supported runs; terminals can stop; handoff preserves context, not machine migration. | Host history/recovery exists; T3 policy parity not established. | Preserve Ari recovery and authoritative interruption/resume guidance. Route reconnect does not schedule automatic continuation. | Preserve; new continuation policy Out: separate lifecycle feature. |
+| Headless commands (T1/T7; A1/A2) | `t3 up/serve/pair/status`, flags/JSON/noninteractive, pair without host restart. | Electron host bootstrap; CLI targets engine, not full gateway host. | `ari host up/serve/pair/status` after core; same engine/gateway/identity/grants/routes, one profile owner, script-safe explicit flags. | In/after core: large bootstrap, report exact unfinished list. |
+| Background service (T7; A2) | Linux systemd user/macOS login launchd; Windows prints foreground command; uninstall retains data. | Desktop host lifecycle only. | User-owned opt-in launcher/services, Windows foreground instructions, no root/service/plaintext fallback. | In/after core: platform proof required separately. |
+| Agent peer access (T8; A2) | Linked beta reads/delegates through explicit peer link; UI connection not link. | Aria/CLI local engine; no Machines peer runtime. | Client pairing gives host agents no client registry/key. Aria/workers require explicit source-host -> target-host scoped grant and ceiling; ordinary children stay on parent host. | Denial Preserve/In/core; peer implementation Out: avoid implicit reach. |
+| Portable context/voice (T8; A2/A3) | Host history handoff; explicitly chosen transcription environment, no substitution. | Existing tools/voice separate flows. | Preserve tool identity; Auto/routes transfer no provider state, host files or microphone destination. Unsupported remote tools disabled with reason. | Preserve; expansion Out: separate capability/consent design. |
+| Tailscale/Serve (T1/T2; A1/A4) | Route uses environment auth; shared address range alone not Tailscale proof. | Tailnet HTTPS/DNS/TCP pinning, bounded peer discovery, safe non-443 Serve ownership. | Preserve network policy; signed learned FQDN from owned Serve/tailnet state, not inferred `100.64/10` trust. | Preserve + In/core: chosen transport. |
+| LAN (T1/T2; A1) | Learned when network access enabled. | No production LAN. | Model kind/provenance, setting off by default. No learn/probe/bind/use while off; HTTP cannot borrow HTTPS authority. | Model In/core; runtime Out/default off: user chose Tailscale. |
+| Relay/SSH/remote-only desktop (T1/T7; A1) | T3 Connect/SSH bootstrap/local-server-disable supported. | Existing Ari Connect phone route, no Machines relay/SSH lifecycle. | Preserve Connect signed leases and future route seam. No hosted relay, SSH bootstrap or local-server-disable redesign. | Out: explicit scope; Connect remains working. |
+| Mobile (T1/T5/T8; A4) | Manual selector, native navigation and remote settings. | Existing computer switcher and origin/receipt protections. | No UI/behavior change. Future new-chat selector needs authorized grouped catalogs, phone draft locks and touch-safe picker; no Auto. | Preserve; new mobile features Out: explicit instruction. |
+| Receipts/no local fallback (T2; A2/A4) | Transport reconnect does not replay mutations; operation owns idempotency. | S2/S6/S9 unknown receipts retained, read-only status; host-scoped files. | Exact host/session/key/fingerprint survives route/restart. Absence/conflict/internal error/IPC uncertainty/malformed success never resends or executes locally/on another host. | Preserve + In/core: release regression gate. |
 
-Desktop RPC (core owns registration and contracts):
+## Product and repository ownership
 
-- machines.list(undefined) -> MachineView[]
-- machines.discover(undefined) -> MachineDiscovery[]
-- machines.add({ address, name? }) -> MachineView; address may be a tailnet URL
-  or a pairing link, or loopback for tests. URL userinfo, unsafe protocols and
-  non-tailnet production destinations are rejected.
-- machines.pair({ machineId, displayName, invitationId?, code? }) -> MachinePairingView
-- machines.pairStatus({ machineId }) -> MachinePairingView
-- machines.connect({ machineId }) -> MachineView
-- machines.rename({ machineId, name }) -> MachineView
-- machines.remove({ machineId }) -> { removed: boolean }; close subscriptions,
-  clear the local sealed credential, attempt self-revocation when reachable.
-- machines.query({ machineId, query: RemoteQuery }) -> MachineOperationResult
-- machines.command({ machineId, command: RemoteCommand }) -> MachineOperationResult
-- stream machines.events with { machineId, sessionId, fromSeq? }; payload is
-  { machineId, message: RemoteServerMessage }. Subscription and cleanup remain tied
-  to their originating machine. Core may expose a narrow explicit subscription
-  RPC if the current host stream dispatcher requires it, coordinated with UI.
+A route means reachability; a repository group means correlation. Neither grants
+authority, synchronizes files or migrates sessions. Every normal-view action,
+stream, attachment, approval, diff, file preview, terminal and split-pane target
+carries immutable host scope. Unsupported methods stay disabled with a named
+reason; no generic desktop RPC tunnel or dedicated workspace is acceptable.
 
-Queries/commands are the existing validated remote allowlist. No generic local RPC
-tunnel. UI must parse results with the existing remote schemas where available.
-The renderer never receives device private keys, bearer tokens or Connect leases.
-MachineOperationResult is { ok: true, result: unknown } or
-{ ok: false, error: { code, message } }. Named remote failures retain their
-codes across Electron IPC. Generic IPC failures remain thrown and uncertain;
-clients preserve their original receipt and never automatically resubmit.
+Settings -> Machines manages hosts this PC can use. Mobile access retains devices
+that can use this PC, including computer approvals. Outbound preferences/catalogs
+are client-local; host grants/provider defaults/project settings stay host-local.
+Offline/incompatible sessions remain in normal sidebar and show last-known
+transcript read-only with reconnect/update guidance. Mobile remains unchanged.
 
-## Tailscale Serve contract (independent ship-first change)
+Auto resolves an opted-in new draft once. Selecting Auto again resamples; choosing
+host/branch/worktree fixes it. A failed creation retains its original host and
+receipt. Host-staged attachments require explicit discard/re-stage before a manual
+switch. Existing session host is permanent; route replacement is only transport.
 
-Workstream A owns the remote.tailscale RPC extensions and TailscaleState fields.
-enable accepts undefined or { httpsPort?, replace?: { origin, mountPath: '/',
-target, kind: 'proxy' | 'path' | 'text' } }, where replacement carries the exact
-observed conflicting mapping as a compare-and-swap confirmation. Replacement
-defaults to the port in its origin and rejects a changed root, kind or target.
-Default enable never overwrites a foreign mapping. Status exposes selected HTTPS
-port (httpsPort), target, targetListening (boolean or null), owned, conflicts
-({ origin, httpsPort, mountPath: string or null, target, kind: 'proxy' | 'path' |
-'text' | 'tcp', listening: boolean or null }[]), and suggestedHttpsPort (number
-or null). Additive status fields are optional for old fixtures, always emitted
-by the implementation. Prefer a wholly free 8443 when 443 is foreign. Save a
-separate ownership record with HTTPS port and
-last gateway target under Ari's profile. A saved Ari mapping may be repaired after
-the gateway port changes; target equality alone is insufficient to infer ownership.
-Unknown/unreadable Serve shapes fail closed. Recheck immediately before mutation.
+| Example host remotes | Canonical key | Grouping key / outcome |
+| --- | --- | --- |
+| `origin=https://github.com/acme/app.git` | `github.com/acme/app` | Same key; SSH clone joins same repository. |
+| `upstream=git@github.com:acme/app.git`, `origin=https://github.com/alice/app.git` | `github.com/acme/app` | `github.com/alice/app`; separate labelled fork. |
+| Same upstream, Bob origin | `github.com/acme/app` | Bob's origin key; separate from Alice/upstream. |
+| Local/file remote only, no usable network remote | unknown | `(machine, project)` scoped; path/name never joins. |
+| Two clones with same key on same host | same key | One repository group, explicit checkout candidates, never guess path. |
 
-Use a different HTTPS port by default when 443 belongs to another application.
-An explicit replacement names the existing address and target; preserve other
-mounts on that port. Disable removes only Ari's own root mount, at its recorded
-port, and never resets all Serve configuration. Pairing URLs, allowed origins and
-the PWA follow the selected origin including its port. Root mounts avoid the
-base-path complexities of installing and reconnecting a PWA under a subpath.
-Test fake runners only; do not mutate the user's real Serve mapping.
+Host normalization uses fetch URLs, deterministic precedence and known provider
+aliases; `.git`, case and trailing-slash conformance needs fixtures, including
+Azure SSH/HTTPS spelling. Strip userinfo/query/fragment from transmitted metadata.
+Unknown aliases stay separate. Identity enrichment is asynchronous; unavailable
+differs from confirmed removal. Regrouping never changes open draft/session owner.
 
-## All projects and Ari Connect
+## Route security and threat notes
 
-New and migrated paired devices have allProjects: true. Keep projectIds as a
-compatibility view where cheap, resolved against the host's current project list;
-new projects are reachable without editing grants. Approval/device editing no
-longer asks for project selection. Separate allowTerminal remains explicit.
+S1's origin isolation is the safe baseline mechanism. Multi-route parity may
+replace that mechanism only with cryptographic approval of exact route audiences;
+the independent reviewer must confirm the actual implementation:
 
-Connect leases stay signed, short-lived and project-bound. The local all-project
-device scope does not bypass the lease's projectIds or broker/account checks.
-Request current registered project IDs on lease refresh where this repository
-controls that request. A lease only authorizes its signed IDs, even for an
-all-project device; a newly added project requires a fresh lease. No unsigned
-wildcard, unbounded expiration or permissive migration of broker restrictions.
-Report any required private Connect-service change rather than pretending to
-verify/deploy that service here.
+1. Public ID/descriptor/discovery/link cannot merge grants, authorize reuse or pin
+   replacement keys. Pin host signing identity on already host-approved original
+   origin, then accept authenticated signed manifest. Legacy origins remain
+   independently paired until explicit verified upgrade/migration.
+2. Route grant binds host ID/key, exact normalized origin (scheme/host/port), source
+   route/device authority, revision, expiry and allowed transport. Host signs only
+   its owned configured exposure; never blindly signs client-supplied addresses.
+3. Before client credentials, verify fresh anonymous descriptor and signed nonce
+   host proof for pinned key/exact audience. Server derives audience from trusted
+   gateway/Serve configuration, never reflected Host/X-Forwarded/client fields.
+   Device challenge is single-use audience/device/grant-bound; resulting bearer
+   is route-specific. Original bearer never travels to another origin.
+4. Preserve valid TLS/hostname, tailnet DNS/TCP pinning, exact HTTP/WebSocket origin,
+   no redirects, renegotiation on renewal/replacement. HTTPS authority never
+   downgrades to HTTP. Loopback is disposable-test-only, never learned production.
+5. Host signing key/ID have exclusive profile ownership, flushed atomic publication
+   and consistent persistent recovery. Loss/corruption blocks host/reuse; no silent
+   key reset/plaintext fallback. Rotation needs authenticated continuity or explicit
+   host re-pairing, never public metadata matching.
+6. A approving B grants only B -> A control. Reverse requires B approval. No
+   group join, transitive link or self-approval. A revokes B source grant/all its
+   derived route tokens on A; separate A grant on B survives.
+7. Learned route lifetime follows complete authenticated manifest and source
+   grant, monotonic revision. Public probing cannot refresh/restore trust.
+   Missing versus empty report, source removal and late probes have distinct
+   semantics. User-saved routes persist but revoked reuse authority does not.
+8. Only pinned/authenticated-host incompatibility stops walk. Failed endpoint
+   receives no credential and changes no current grant/catalog/transcript/receipt.
 
-## UI design
+### S1-S9 guarantees retained
 
-Settings -> Machines supports manual add/link, discovered peers, host-approved
-pairing with matching code, name, status/version, reconnect and removal. Hosting
-uses the same Mobile access approval list, labelled for phones and computers.
-Remote sidebar groups are labelled by machine. Remote new-session flow chooses
-machine first, then that host's project, provider/model and permissions. Opening
-a remote session must route every action, event, diff, file preview and granted
-terminal to that host. Offline/incompatible states retain local drafts and avoid
-automatic mutation retries. If the whole desktop view cannot be safely adapted,
-deliver a clearly dedicated remote workspace with the full existing allowlist,
-then report its differences from the normal desktop view explicitly.
+| Finding | Parity invariant |
+| --- | --- |
+| S1 | No copied public ID credential reuse; exact authenticated route binding changes mechanism only. |
+| S2 | Unknown named error/conflict/invalid success retains exact receipt; controls query status only. |
+| S3 | Serialized starts/stops, generation fencing, no late listener/auth/stream publication after removal. |
+| S4 | Managed PTYs retain verified lease expiry; explicit grant, no cross-mode resurrection, shutdown cleanup. |
+| S5 | Sensitive writes throw and runtime denies on failure; corrupt auth/history blocks hosting; no false durable success. |
+| S6 | Durable claim before dispatch, unresolved claims pinned, corrupt restore denied, absent history unknown, never resend. |
+| S7 | Actual fork `sessionId` shape; child actions/receipts scoped to child through normal-view conversion. |
+| S8 | Exact full-ID branch ownership; preserve ambiguous legacy/foreign branches and external junction targets. |
+| S9 | Integration applied before journal conflict stays unknown; retain preview/key and inspect host, no re-integration. |
 
-Mobile audit covers navigation/home/session/composer/approvals/changes/files/
-settings/empty/error/offline states. Keep Ari's existing UI tokens, fonts and
-components, readable 360/390px layouts, safe areas and reachable composer. Add a
-computer switcher with per-computer credentials, state/drafts/receipts and careful
-cleanup. Same-origin Tailscale hosting is the default; cross-origin requests are
-allowed only by the destination host's explicit origin policy. A phone may need
-to navigate to the destination PWA origin rather than fetch another host from
-the current origin; do not weaken origin checks to implement a switcher.
-List every visible change and capture before/after light/dark screenshots at
-both widths with deterministic fixtures and temporary profiles.
+Bounded v1 cannot guarantee arbitrary-old exactly-once direct replay of evicted
+UUIDs; terminal receipts are memory-only. Neither limitation permits resend on
+route failover. Failed withdrawal needs a successful save before restart or last
+durable grant can return; retain explicit warning. Host path/sensitive-name/
+symlink/realpath/opened-handle containment and session/device attachment grants
+remain. No remote path/action falls back to local filesystem/engine.
 
-## Ownership and sequencing
+## Existing Serve, grants and Connect guarantees
 
-Design and contract freeze precede Machines fan-out. A and F use branches from
-origin/main. A owns tailscale.ts/tests, remote-origins behavior, Tailscale RPC
-registration/types and its persistence fields. B owns pairing/grant migration,
-gateway all-project authorization/Connect intersection, RemoteService grant
-calls, mobile README, RemoteSettings/use-remote-access and their tests. C owns
-remote-client, machines contracts/registry/discovery/desktop service + RPC,
-gateway identity, and loopback integration tests. A/B/C touch distinct sections
-of rpc.ts/settings.ts/remote.ts/gateway.ts; coordinator reviews and resolves
-section-level conflicts. D owns desktop renderer Machines UI/sidebar/remote
-workspace and settings navigation. E owns apps/mobile UI/state/tests, except the
-client/session compatibility extraction owned by C. F owns its separate root
-worktree/concurrency engine/CLI/desktop human path fix. The 2026-11-12 takeover
-requires F integrated into feat/machines as well as retained on its independent
-origin/main branch for separate shipping. Final security review is a separate
-report-only worker.
+Ship-first Serve recovery remains intact: default enable never overwrites foreign
+root, prefer free 8443 if 443 busy, replacement names exact observed
+origin/root/kind/target and rechecks before write, preserves sibling mounts. Status
+includes selected port/listening/ownership/conflicts/suggested port; URL/origin
+includes port. Profile ownership record, not target equality, permits gateway-port
+repair. Unknown/unreadable/Funnel mappings fail closed. Disable removes only Ari's
+recorded root, never resets Serve. External CLI mutation between inspect/write is
+not atomic; crash before ownership save leaves unclaimed mapping. Fake runners
+and disposable profiles only; never mutate user's real Serve.
 
-No worker installs or builds in the user's checkout or its managed C: worktree.
-Each uses the precreated D: worktree, D: pnpm store/cache/temp. The resumed work
-uses parallel authoring and up to two heavy workers/processes at a time, admitted
-atomically by scripts/coordination/run-heavy.mjs. The second slot is allowed only
-while commit headroom is at least 6GB; below that, new admission is limited to
-one slot. Existing work is allowed to finish. Before every install, test, typecheck,
-lint, build or browser capture, require at least 5GB free on C: and 1.5GB of
-commit headroom (commit limit minus committed bytes). Available physical memory
-is not a gate. Commit WIP before each long step, run tests with one worker and
-no file parallelism, and run heavy processes below normal priority. Stop/report
-a gate that remains failed for 15 minutes or a killed/OOM step without a retry
-loop; transient gate failures wait 30 seconds and recheck. Heartbeat active
-leases and reclaim locks stale for 30 minutes only when their owner is no longer
-alive. The coordinator may do
-read-only review, planning and git integration while the worker runs. Run wide
-checks once, alone, after integration. Prefer fresh workers after pauses where
-the implementation state is on disk, because old provider conversations have
-failed intermittently on this machine. Confirm the old writer is stopped
-before starting a replacement in its worktree.
+Direct devices retain all-project grant and separate explicit terminal access.
+Connect retains signed account/device/key/project scope and maximum 120s managed
+lease; no wildcard/permissive migration/unbounded expiry. Current registration
+refresh does not grant a new project without freshly signed lease. Existing Ari
+Connect must continue working. No private service deployment/verification claimed.
 
-## Verification and release gates
+## Versions, updates and headless after core
 
-Capture main baseline before changed suites. Typecheck, lint, contracts,
-gateway, engine, desktop and mobile tests with bounded concurrency, and desktop
-and mobile production builds. Two loopback gateways backed by real engines must
-pair/approve/list/create/prompt/stream/answer approval/stop/revoke, reconnect after
-host restart and reject version mismatch. Mock provider drivers are appropriate;
-mocking the engines or gateway transport is not this end-to-end proof.
+Items 1-8 precede headless. Ari release and protocol versions are distinct;
+additive capabilities permit degradation. Unsupported control names missing
+capability; incompatible named host stays visible. Do not hide/clear history,
+auto-downgrade, or update on reconnect.
 
-Required hardware checks: two computers on one tailnet; iPhone on the tailnet;
-non-443 phone URL/PWA install/pair/reconnect; host sleep/wake; network changes;
-tailnet ACL denial; revocation with an open terminal; secure desktop key storage
-across restarts; live managed Connect broker/tunnel lease refresh. Screenshots are
-review evidence, not substitutes for hardware.
+T3 offers connected-host updates. Ari first exposes installation/target/channel
+support and accurate manual instructions. Remote mutation requires staged install,
+preflight, durable update ID, prepared/committed handoff, migration/readiness gate,
+status/version correlation and launcher-owned rollback. Desktop adapter must use
+existing updater, not arbitrary shell execution. If it cannot meet transaction
+requirements this run, ship manual guidance and report remote execution unfinished.
+Unknown commit only reconciles; reconnect alone is not success. Show host-authorized
+interruption/resumable counts where available; do not add automatic continuation.
 
-## Out-of-scope feasibility and nearby branches
+Headless proposal uses `ari host` namespace to avoid existing CLI collisions:
+`up` selects explicit reachability/service choice, `serve` foreground engine+
+gateway, `pair` fresh link and host-local approval, `status --json` separates
+configured/listening/ready/reachable/auth/update state. Noninteractive flags never
+auto-approve devices or widen exposure. Linux user-systemd/macOS login-launchd
+optional; Windows prints foreground command. Same identity/grants/journal/routes,
+one desktop/headless owner per profile; uninstall preserves user data.
 
-Headless hosting is feasible by extracting gateway/engine bootstrap from
-Electron; safe key storage, lifecycle, updater and provider login need a separate
-design. Load balancing can select a host at creation; moving active sessions or
-drafts requires explicit ownership and no implicit path substitution. Aria can
-later coordinate through the machine registry and remote allowlist, but the CLI
-currently targets one local engine. Ari Connect routes can implement the route
-interface later with explicit broker/account device leases and origin checks.
+If unfinished, exact remaining headless work: Electron-independent bootstrap and
+lifecycle; OS secure key/provider-login adapters; launcher/profile lock; local
+approval control channel; foreground/JSON CLI; Linux/macOS service adapters;
+durable updater/rollback; packaging; restart/migration/revocation tests; fresh
+security review and disposable-platform proof. Detailed contracts are separate.
 
-feat/aria-experiment overlaps RemoteService host behavior in remote-host.ts and
-settings schema/navigation/store; preserve its off-by-default experiment gates.
-Compare f2591c40/d7399052 during review. Do not modify that worktree, paused
-wip/aria-passthrough, marketing work or revenue-lab. No push or PR creation.
+## Ownership, verification and release gates
+
+Design owns this document and separate contract proposal only. Core owns schema/
+package/lockfile, identity/registry/route crypto, telemetry/repository metadata,
+gateway/main RPC and real two-host proof. Normal-session research/renderer owns
+shared facade, genuine replay/event conversion, selector/sidebar/normal view and
+screenshots. Parent freezes interfaces and section/file overlaps before fan-out.
+Security independently confirms final route/Auto/pairing/update/headless boundary.
+Mobile stays unchanged; shared extensions preserve older consumers. Preserve
+standalone Serve/parallel-worktree fixes and off-by-default Aria experiment guards.
+
+No installs/builds in C: launcher or user's `D:/Projects/Ari`; no changes to other
+worktrees/live Ari/settings/Serve/private Connect, no push/PR. Heavy steps use
+existing `scripts/coordination/run-heavy.mjs`, below-normal priority, one worker,
+no file parallelism. Dev occupies one of two slots. Admission: C: >=5 GiB free,
+commit headroom >=1.5 GiB; second slot only >=6 GiB headroom. Physical RAM is not
+gate. Commit WIP first, heartbeat leases, reclaim stale lock only for dead owner,
+wait/recheck transient gate, report persistent 15-minute gate or killed/OOM step
+without retry storm. This design performs only lightweight reads/doc verification.
+
+Required new proof uses two actual engines/gateways with mock providers, not mock
+engines/transport: separate approvals both directions/no reverse/transitive grant;
+clone/fork grouping/permanent host; normal queue/steer/dequeue/stop/approval/input/
+files/Changes/terminal; ordered fallback/move-back/cooldown/learned lifetime;
+copied-ID/challenge relay/key change/wrong origin/no HTTP downgrade;
+authenticated Auto/freshness/preferences/draft locks; version/capability mismatch;
+unknown mutation never resend/local fallback. Add updater/headless proof only if
+implemented. Capture selector, one-repository/two-host sidebar, remote normal
+session and Machines Routes/Your permissions, light/dark, disposable profiles.
+Affected checks first, full integrated suites/builds once at end under lease.
+
+Remaining hardware/private-service gates: two desktops/iPhone same tailnet;
+non-443 PWA pair/reconnect; sleep/wake/network/ACL; real PTY grant/lease/descendant
+cleanup; sealed keys/host identity across restarts; real headless service/update
+rollback if shipped; private Connect registration/lease refresh. Prior A4 results
+are baseline evidence. No new screenshot, runtime/hardware or security
+certification is claimed by the first design deliverable.
