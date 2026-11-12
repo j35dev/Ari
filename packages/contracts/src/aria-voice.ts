@@ -32,8 +32,10 @@ function plain(text: string): string {
   return text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, 'the chat')
     .replace(/\[[^\]]*\]\([^)]*\)/g, 'the chat')
-    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (url, domain: string) =>
-      domain.replace(/[.,!?]+$/, '').replace(/\./g, ' dot ') + (url.match(/[.,!?]+$/)?.[0] ?? ''),
+    .replace(
+      /https?:\/\/([^/\s?#]+)[^\s]*/g,
+      (url, domain: string) =>
+        domain.replace(/[.,!?]+$/, '').replace(/\./g, ' dot ') + (url.match(/[.,!?]+$/)?.[0] ?? ''),
     )
     .replace(/\b[A-Za-z]:[\\/][^\s]+|\b(?:apps|packages|src|docs)\/[\w./-]+/g, 'the file')
     .replace(/\b(?:PR\s*)?#\d+\b/g, 'the change')
@@ -84,7 +86,11 @@ export function condenseReply(reply: string): string {
 }
 
 /** Start with a short clause; later requests remain sentence-sized and provider-bounded. */
-export function speechChunks(text: string, limit = 200, length = (value: string) => value.length): string[] {
+export function speechChunks(
+  text: string,
+  limit = 200,
+  length = (value: string) => value.length,
+): string[] {
   const result: string[] = []
   const append = (part: string) => {
     while (length(part) > limit) {

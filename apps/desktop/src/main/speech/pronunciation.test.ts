@@ -20,7 +20,9 @@ it('normalizes numbers without silently losing digits', () => {
     'About one hundred twenty three dollars, forty two percent and one thousand two hundred thirty four tests.',
   )
   expect(numberWords(-12)).toBe('minus twelve')
-  expect(normalizeSpeech('PR ACP CLI https://github.com/j35dev/Ari')).toBe('pr acp cli github dot com')
+  expect(normalizeSpeech('PR ACP CLI https://github.com/j35dev/Ari')).toBe(
+    'pr acp cli github dot com',
+  )
 })
 it('covers every source word including unknown words with a spell-out fallback', () => {
   const words = lexiconWords(
@@ -46,8 +48,11 @@ it('fails rather than passing unsupported words to dictionary-only synthesis', (
   expect(() => prepareKokoro('日本語', new Set())).toThrow('cannot pronounce')
 })
 
-
 it('rounds decimals usefully and says cloud initialisms and Ari names naturally', () => {
-  expect(normalizeSpeech('0.67 real time, $0.04 and 1.234 seconds.')).toBe('zero point six seven real time, four cents and one point two seconds.')
-  expect(normalizeCloudSpeech('Ari and Aria checked the PR and CLI.')).toBe('Ah ree and Ah ree uh checked the P R and C L I.')
+  expect(normalizeSpeech('0.67 real time, $0.04 and 1.234 seconds.')).toBe(
+    'zero point six seven real time, four cents and one point two seconds.',
+  )
+  expect(normalizeCloudSpeech('Ari and Aria checked the PR and CLI.')).toBe(
+    'Ah ree and Ah ree uh checked the P R and C L I.',
+  )
 })

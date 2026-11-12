@@ -1354,10 +1354,12 @@ it('returns an install receipt before queued inspection finishes and releases a 
   expect(installer).toHaveBeenCalledOnce()
 })
 
-
 it('uses the selected Groq Whisper model for both dictation callers without preloading local inference', async () => {
   const { store, service } = await setup(false)
-  await store.update({ experimental: { ariaEnabled: true }, speech: { enabled: true, provider: 'groq', groqModel: 'whisper-large-v3' } })
+  await store.update({
+    experimental: { ariaEnabled: true },
+    speech: { enabled: true, provider: 'groq', groqModel: 'whisper-large-v3' },
+  })
   const transcribe = vi.fn(async () => ({ text: 'Cloud dictation' }))
   service.groq = { transcribe } as unknown as GroqSpeech
   expect(await service.transcribe(new Float32Array(160), 'en')).toEqual({ text: 'Cloud dictation' })
@@ -1371,8 +1373,18 @@ it('falls back from Groq transcription to the selected local model with a visibl
   await writeFile(path, 'gguf')
   await selectReady(service, { path })
   await store.update({ experimental: { ariaEnabled: true }, speech: { provider: 'groq' } })
-  service.groq = { transcribe: vi.fn(async () => { throw new Error('Groq could not be reached. Using local speech.') }) } as unknown as GroqSpeech
+  service.groq = {
+    transcribe: vi.fn(async () => {
+      throw new Error('Groq could not be reached. Using local speech.')
+    }),
+  } as unknown as GroqSpeech
   const result = await service.transcribe(new Float32Array(160))
   expect(result).toHaveProperty('text')
-  expect(service.snapshot()).toContainEqual(expect.objectContaining({ id: 'groq', phase: 'error', error: 'Groq could not be reached. Using local speech.' }))
+  expect(service.snapshot()).toContainEqual(
+    expect.objectContaining({
+      id: 'groq',
+      phase: 'error',
+      error: 'Groq could not be reached. Using local speech.',
+    }),
+  )
 })

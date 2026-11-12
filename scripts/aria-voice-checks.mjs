@@ -13,6 +13,7 @@ const steps = process.argv.includes('--format')
   ? [['format', process.execPath, ['node_modules/prettier/bin/prettier.cjs', '--write', ...files]]]
   : [
       ['typecheck', process.execPath, [pnpm, '--workspace-concurrency=1', '-r', 'typecheck']],
+      ['native-diagnostics-tests', process.execPath, ['--test', 'scripts/aria-voice-diagnostics.test.mjs']],
       [
         'lint',
         process.execPath,
@@ -88,7 +89,10 @@ for (const [name, executable, args] of steps) {
       log += data
       process.stderr.write(data)
     })
-    child.once('error', error => { log += error.message; resolve(1) })
+    child.once('error', (error) => {
+      log += error.message
+      resolve(1)
+    })
     child.once('exit', resolve)
   })
   await writeFile(`docs/research/aria-voice-checks/${name}.log`, log)
@@ -96,9 +100,16 @@ for (const [name, executable, args] of steps) {
   results.push({ name, executable, args, exitCode: code })
   console.log(JSON.stringify({ name, exitCode: code }))
 }
-await writeFile('docs/research/aria-voice-checks/latest.json', JSON.stringify({
-  at: new Date().toISOString(),
-  sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  results,
-}, null, 2))
+await writeFile(
+  'docs/research/aria-voice-checks/latest.json',
+  JSON.stringify(
+    {
+      at: new Date().toISOString(),
+      sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      results,
+    },
+    null,
+    2,
+  ),
+)
 process.exitCode = failed ? 1 : 0

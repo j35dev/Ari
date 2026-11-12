@@ -94,7 +94,12 @@ const tts = await sherpa.OfflineTts.createAsync({
 result.loadMs = performance.now() - loadStart
 result.rssAfterLoadMB = process.memoryUsage().rss / 2 ** 20
 const warmStart = performance.now()
-await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
+await tts.generateAsync({
+  text: 'The voice is ready.',
+  sid: 3,
+  speed: 1,
+  enableExternalBuffer: false,
+})
 result.warmupMs = performance.now() - warmStart
 const replies = {
   ready:
@@ -120,7 +125,12 @@ for (const [name, written] of Object.entries(replies)) {
     for (const word of prepared.text.match(/[a-z]+(?:'[a-z]+)?/g) ?? [])
       if (!words.has(word)) throw new Error(`Dropped word: ${word}`)
     const genStart = performance.now()
-    const audio = await tts.generateAsync({ text: prepared.text, sid: 3, speed: 1, enableExternalBuffer: false })
+    const audio = await tts.generateAsync({
+      text: prepared.text,
+      sid: 3,
+      speed: 1,
+      enableExternalBuffer: false,
+    })
     if (!audio.samples.length || audio.samples.some((x) => !Number.isFinite(x)))
       throw new Error('Invalid PCM')
     firstMs ??= performance.now() - start

@@ -40,18 +40,25 @@ describe('Aria spoken replies', () => {
     expect(chunks.every((chunk) => chunk.length <= 60)).toBe(true)
   })
   it('keeps decimals and domains in an outcome instead of cutting them into fragments', () => {
-    const reply = 'The checks took 1.234 seconds at 0.67 real time. Should I open https://github.com/j35dev/Ari?'
-    expect(condenseReply(reply)).toBe('The checks took 1.234 seconds at 0.67 real time. Should I open github dot com?')
-    const authored = '<!-- aria:speak {"text":"The checks took 1.234 seconds. The cost was $0.04. Should I continue?"} -->'
-    expect(spokenLine(authored)).toBe('The checks took 1.234 seconds. The cost was $0.04. Should I continue?')
+    const reply =
+      'The checks took 1.234 seconds at 0.67 real time. Should I open https://github.com/j35dev/Ari?'
+    expect(condenseReply(reply)).toBe(
+      'The checks took 1.234 seconds at 0.67 real time. Should I open github dot com?',
+    )
+    const authored =
+      '<!-- aria:speak {"text":"The checks took 1.234 seconds. The cost was $0.04. Should I continue?"} -->'
+    expect(spokenLine(authored)).toBe(
+      'The checks took 1.234 seconds. The cost was $0.04. Should I continue?',
+    )
     expect(speechChunks(spokenLine(authored)!).join(' ')).toBe(spokenLine(authored))
   })
   it('bounds the final provider text while retaining every original word', () => {
     const text = 'The checks passed, and '.repeat(6) + 'the changes are ready.'
-    const length = (part: string) => part.replace(/checks/g, 'expanded pronunciation of checks').length
+    const length = (part: string) =>
+      part.replace(/checks/g, 'expanded pronunciation of checks').length
     const chunks = speechChunks(text, 80, length)
     expect(chunks.join(' ')).toBe(text)
-    expect(chunks.every(chunk => length(chunk) <= 80)).toBe(true)
+    expect(chunks.every((chunk) => length(chunk) <= 80)).toBe(true)
     expect(() => speechChunks('x'.repeat(201))).toThrow('too long')
   })
 })

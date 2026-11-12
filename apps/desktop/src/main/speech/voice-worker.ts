@@ -90,7 +90,12 @@ async function load(path: string): Promise<void> {
       maxNumSentences: 1,
     })
   tts = await create(provider)
-  await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
+  await tts.generateAsync({
+    text: 'The voice is ready.',
+    sid: 3,
+    speed: 1,
+    enableExternalBuffer: false,
+  })
   if (cached?.signature === signature && cached.hardware.provider === provider) {
     hardware = cached.hardware
     loadedPath = path
@@ -107,13 +112,18 @@ async function load(path: string): Promise<void> {
   if (accelerator && cached?.signature !== signature) {
     try {
       const candidate = await create(accelerator)
-      await candidate.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
+      await candidate.generateAsync({
+        text: 'The voice is ready.',
+        sid: 3,
+        speed: 1,
+        enableExternalBuffer: false,
+      })
       const trial = performance.now()
       const candidateAudio = await candidate.generateAsync({
         text: 'The changes are ready for you to review.',
         sid: 3,
         speed: 1,
-    enableExternalBuffer: false,
+        enableExternalBuffer: false,
       })
       const candidateMs = performance.now() - trial
       if (fasterVoiceProvider(measuredMs, candidateMs)) {
