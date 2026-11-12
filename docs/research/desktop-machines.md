@@ -76,3 +76,14 @@ The next changed-boundary run passed 4 suites / 20 tests, including the named
 internal-error/in-flight receipt regressions and local-shell shortcut isolation.
 Renderer-only typechecking passed before the final fork/child-link adjustments.
 Initial lint findings were corrected; final checks and captures follow below.
+
+## Fresh takeover, 2026-11-12
+
+Sole worker resumed the clean `machines/desktop-ui` worktree at `92d29b6b`.
+Reviewed the actual branch history, renderer, coordinator resume/handoff notes
+and the independent security report. The S2 named-failure receipt policy and S7
+fork/child-scope corrections are present; final execution evidence is pending.
+The assigned caller resolves to codex / gpt-6.1-sol, xhigh, full permissions.
+No additional workers, live profile changes, push or PR will be used.
+
+This WIP preserves the review checkpoint before coordinated heavy validation.
