@@ -347,3 +347,89 @@ paths from the validated session ID below the managed root, resolves containment
 and detaches links before recursive deletion. Focused adversarial reproductions
 and exact results will be appended after the required WIP commit. Final
 integrated SHA review and certification remain pending.
+
+### S8 — Medium / P2: root branch cleanup authorizes a foreign branch by a timestamp prefix
+
+Snapshot: F `89b22dbd10e22854e20c253629c291b148a2bfaa`.
+Locations: `packages/engine/src/git/orchestration-branch.ts:2`,
+`packages/engine/src/git/managed-workspaces.ts:450`, and
+`apps/desktop/src/main/session-create.ts:23`.
+
+Human root IDs use `sess_<timestamp in base36>_<random suffix>`. The branch
+ownership helper drops the random suffix and uses the first eight timestamp
+characters. Different roots can therefore share cleanup authority. Destroying
+one root scans every `ari/` branch and selects another root's matching branch;
+Git protects currently checked-out branches, but a retained unregistered branch
+can be deleted, losing the reference to unintegrated work.
+
+Independent reproduction used actual immutable `ManagedWorkspaces.release`,
+branch helpers and physical folder comparison, with a fake Git adapter and a
+temporary profile. `sess_mabcd123a_aaaaaa` and `sess_mabcd123a_bbbbbb` produce
+`ari/one-mabcd123` and `ari/two-mabcd123`. Releasing the first emits `branch -D`
+for both. An unrelated branch is not selected; the sibling directory and an
+external junction's target remain intact. This proves erroneous deletion
+authorization, without deleting real Git work or interacting with live Ari.
+
+The parent assigned correction immediately. F `77f9422de5840072351295fcd8042fdb5e807a80`
+uses `s_` plus the full SHA-256 of the exact ID. Ambiguous legacy short-key
+branches are retained; an older exact full-ID suffix still authorizes only its
+owner. Source and the authored real-Git unregistered-branch regression were
+reviewed. Independent corrected-snapshot reproduction and final integration
+remain pending.
+
+### Additional takeover corrections and remaining receipt review
+
+Grants `f2319167` / `21e6e091cb199cacd76216ef518593f554ea61be` now propagate
+record write failures, latch runtime denial, reject non-ENOENT read failures,
+and block listener publication over damaged device/history records. Pairing
+blocks old tokens and new authorization after a failed save. The terminal
+watchdog consults that denial, and managed shutdown awaits PTY cleanup.
+Authored injected-write/read/corrupt-restore, explicit-retry/restart and
+terminal-withdrawal tests were inspected. A failed withdrawal does not become
+durable merely because runtime access is blocked: the error explicitly warns
+that previously saved access may return after restart; storage must be repaired
+and the withdrawal successfully saved before restarting. Final execution
+evidence and integrated verification remain pending.
+
+The same grants snapshot removes legacy unbound-key migration. Core
+`a5600bf8` publishes generated keys and device IDs only after sealing and
+registry persistence succeed; `870022b0` renegotiates before token-refresh
+command retries and clears stale tokens/capabilities/terminal grants. F
+`a26861db` preserves the complete uncertain workspace identity for
+`projects.ask` as well as `session.spawn`. These are source-reviewed corrections.
+
+S6 remains open in desktop `be958760afdf38b642923efef05dcfdfcef1ec18` for
+legacy-host status absence: `resolveReceipt(retry=true)` directly resends after
+`not_found`, without explaining duplication uncertainty. The parent assigned
+removal of resend and read-only receipt controls. Mobile's component retries
+also require their corrected snapshot. Separately, shared receipt lookup must
+map nonauthoritative errors such as `access_revoked` and
+`unsupported_capability` to an uncertain keyed failure, so component refusal
+handling cannot clear an originally accepted receipt. The parent assigned that
+correction to core. None of these named lookup failures proves nonexecution.
+
+### Independent takeover verification
+
+After WIP `e27ccf9b65180143a91487f6be315cd55a2f7525`, run through the current
+coordinator runner:
+
+```text
+node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-takeover D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/reproduce-takeover.mjs
+```
+
+The successful run used Node 24's built-in TypeScript transform to load actual
+code from immutable Git objects; no dependencies were installed. Temporary
+filesystem fixtures stayed under the security worktree and were removed with
+resolved containment checks. The first attempt had a fixture-only method-name
+error (`expire` instead of `prune`); the corrected run exited 0 with
+`success:true`. No killed/OOM process or resource-gate failure occurred.
+
+| S6 store snapshot | Pending claim under capacity pressure | Pending claim past TTL | Corrupt restore |
+| --- | --- | --- | --- |
+| `52f98b3a` | evicted | removed | silently empty |
+| `63b602af` | retained; new admission refused | retained | rejected |
+
+Physical-folder fixtures additionally verified junction aliases, nested
+folders and Windows case identify overlapping workspaces; siblings do not.
+These focused reproductions are independent review evidence, not the final
+integrated suite, real-Git branch regression, hardware or managed-service proof.
