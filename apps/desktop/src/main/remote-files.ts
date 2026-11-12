@@ -27,6 +27,27 @@ function excluded(name: string): boolean {
   )
 }
 
+/** The same exclusions and resolved-name checks for Git snapshot/read projections. */
+export async function remotePathIsSafe(workspace: string, path: string): Promise<boolean> {
+  if (!remoteFilePathSchema.safeParse(path).success || !path || path.split('/').some(excluded)) return false
+  try {
+    const root = await realpath(workspace)
+    let target = root
+    for (const part of path.split('/')) {
+      target = join(target, part)
+      const info = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      if (info === null) return contained(root, target)
+      if (info.isSymbolicLink()) return false
+      const canonical = await realpath(target)
+      if (!contained(root, canonical) || relative(root, canonical).split(sep).some(excluded)) return false
+    }
+    return true
+  } catch { return false }
+}
+
 function contained(root: string, path: string): boolean {
   const child = relative(root, path)
   return child === '' || (!child.startsWith(`..${sep}`) && child !== '..' && !child.includes(':'))

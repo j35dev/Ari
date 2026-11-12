@@ -34,6 +34,8 @@ export interface WebSocketConnection {
   readonly open: boolean
   /** Sends one text frame. A no-op on a closed connection. */
   send(text: string): void
+  /** Desktop replay awaits transport drain instead of accumulating the full history. */
+  sendAsync(text: string, signal?: AbortSignal, admitted?: () => boolean): Promise<void>
   /** Begins the closing handshake. Safe to call more than once. */
   close(code?: number, reason?: string): void
   onMessage(handler: (text: string) => void): void
@@ -89,6 +91,27 @@ export function acceptUpgrade(
   let fragmentBytes = 0
   let messageHandler: ((text: string) => void) | null = null
   const closeHandlers: (() => void)[] = []
+  let pendingSend: Promise<void> = Promise.resolve()
+
+  const waitForDrain = (signal?: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
+    const finish = (error?: Error): void => {
+      clearTimeout(timer)
+      socket.off('drain', drained)
+      socket.off('close', closed)
+      socket.off('error', closed)
+      signal?.removeEventListener('abort', aborted)
+      if (error) reject(error); else resolve()
+    }
+    const drained = () => finish()
+    const closed = () => finish(new Error('event connection closed'))
+    const aborted = () => finish(new Error('event send cancelled'))
+    const timer = setTimeout(() => finish(new Error('event client is too slow')), 10_000)
+    socket.once('drain', drained)
+    socket.once('close', closed)
+    socket.once('error', closed)
+    signal?.addEventListener('abort', aborted, { once: true })
+    if (signal?.aborted) aborted()
+  })
 
   const finish = (): void => {
     if (!open) return
@@ -217,6 +240,23 @@ export function acceptUpgrade(
       return open
     },
     send: (text) => sendFrame(OP_TEXT, Buffer.from(text, 'utf8')),
+    sendAsync: (text, signal, admitted) => {
+      const payload = Buffer.from(text, 'utf8')
+      const task = pendingSend.catch(() => undefined).then(async () => {
+        signal?.throwIfAborted()
+        if (admitted && !admitted()) throw new Error('event authorization ended')
+        if (!open || socket.destroyed) throw new Error('event connection closed')
+        if (payload.length > 256 * 1024 + 4096) throw new Error('desktop event frame exceeds bound')
+        if (socket.writableLength > 256 * 1024) await waitForDrain(signal)
+        signal?.throwIfAborted()
+        if (admitted && !admitted()) throw new Error('event authorization ended')
+        if (!open || socket.destroyed) throw new Error('event connection closed')
+        sendFrame(OP_TEXT, payload)
+        if (socket.writableNeedDrain) await waitForDrain(signal)
+      })
+      pendingSend = task
+      return task
+    },
     close: (code = 1000, reason = '') => {
       if (!open) return
       sendFrame(OP_CLOSE, closePayload(code, reason))
