@@ -220,15 +220,21 @@ describe('remote host ownership and receipts', () => {
   })
   it('retains malformed mutation successes and confirms the real host terminal-close shape', async () => {
     invoke.mockResolvedValueOnce({ ok: true, result: {} })
-    await expect(sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' })).rejects.toThrow()
+    await expect(
+      sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' }),
+    ).rejects.toThrow()
     const saved = readReceipt('host-a', 'same')!
     invoke.mockResolvedValueOnce({ ok: true, result: {} })
     await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow()
     expect(readReceipt('host-a', 'same')).toEqual(saved)
     invoke.mockResolvedValueOnce({ ok: true, result: { killed: true } })
-    expect(await sendRemote('host-a', 'terminal:same', {
-      op: 'terminal.kill', sessionId: 'same', terminalId: 'host-terminal',
-    })).toEqual({ killed: true })
+    expect(
+      await sendRemote('host-a', 'terminal:same', {
+        op: 'terminal.kill',
+        sessionId: 'same',
+        terminalId: 'host-terminal',
+      }),
+    ).toEqual({ killed: true })
     expect(readReceipt('host-a', 'terminal:same')).toBeNull()
   })
 })
