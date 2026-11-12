@@ -79,7 +79,9 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   attemptRef.current = attempt
   const [selection, setSelection] = useState<DraftMachineSelection>(() => {
     if (restored.attempt) return { mode: 'manual', hostId: restored.attempt.hostId, reason: 'Original submission — check its status.' }
-    if (savedChoice) return savedChoice.selection
+    if (savedChoice) return savedChoice.selection.hostId !== null ? savedChoice.selection : {
+      ...savedChoice.selection, reason: 'Select Auto again for fresh resources, or choose a machine manually.',
+    }
     if (!initialHostId && autoEnabled) return { mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' }
     const remembered = hosts.find((host) => host.id === lastManualHostId && manualEligibility(host) === null)
     const hostId = initialHostId ?? remembered?.id ?? 'local'
@@ -125,7 +127,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     setSelection({ mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' })
     const candidates = hostsRef.current.filter((host) => host.preference !== 'manual-only' && manualEligibility(host) === null)
     void refreshHosts(candidates.map((host) => host.id)).then((fresh) => {
-      if (autoGeneration.current === generation) setSelection({ mode: 'auto', ...selectAutoHost(fresh) })
+      if (autoGeneration.current === generation) setSelection({ mode: 'auto',
+        ...selectAutoHost(fresh.filter((host) => candidates.some((candidate) => candidate.id === host.id))) })
     }).catch(() => {
       if (autoGeneration.current === generation) setSelection({ mode: 'auto', hostId: null,
         reason: 'Fresh CPU and memory data required — select a machine manually.' })
