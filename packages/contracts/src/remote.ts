@@ -9,6 +9,12 @@ import {
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { delegationRoleSchema, sessionSchema, sessionSummarySchema } from './session'
 import { messageSchema } from './message'
+import {
+  remoteDesktopCommandSchema, remoteDesktopQuerySchema, machinesExtensionsSchema,
+  remoteDesktopClientMessageSchema, remoteDesktopFrameSchema,
+  type MachinesExtensionOperation,
+} from './remote-desktop'
+export * from './remote-desktop'
 
 /**
  * The remote surface is an allowlist, not a filter.
@@ -98,7 +104,8 @@ export const remoteOperationSchema = z.enum([
   // Idempotency outcome lookup.
   'command.status',
 ])
-export type RemoteOperation = z.infer<typeof remoteOperationSchema>
+export type LegacyRemoteOperation = z.infer<typeof remoteOperationSchema>
+export type RemoteOperation = LegacyRemoteOperation | MachinesExtensionOperation
 
 export const REMOTE_OPERATIONS = remoteOperationSchema.options
 
@@ -238,6 +245,7 @@ const remoteEffortIdSchema = z.string().min(1).max(64)
 const remoteAccountIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/)
 
 export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
+  ...remoteDesktopCommandSchema.options,
   // A paired phone chooses effort and permission mode as the desktop composer
   // does; left out, the session takes the desktop's defaults.
   envelope({
@@ -350,6 +358,7 @@ export const remoteForkNativeResultSchema = z.object({ child: z.object({ id: ses
 
 /** Reads carry no idempotency key: they change nothing and may repeat freely. */
 export const remoteQuerySchema = z.discriminatedUnion('op', [
+  ...remoteDesktopQuerySchema.options,
   z.object({ op: z.literal('gateway.info') }),
   z.object({ op: z.literal('session.list') }),
   z.object({ op: z.literal('session.get'), sessionId: sessionIdSchema }),
@@ -582,6 +591,7 @@ export const gatewayInfoSchema = z.object({
   ariVersion: z.string().min(1).max(100).optional(),
   protocolVersion: z.number().int().positive(),
   capabilities: z.array(remoteOperationSchema),
+  machinesExtensions: machinesExtensionsSchema.optional(),
 })
 export type GatewayInfo = z.infer<typeof gatewayInfoSchema>
 
@@ -917,12 +927,24 @@ export const remoteSessionResultSchema = z.object({
 })
 export type RemoteSessionResult = z.infer<typeof remoteSessionResultSchema>
 
+/** Normal metadata without replaying transcript or exposing native provider identifiers. */
+export const remoteDesktopSessionResultSchema = remoteSessionResultSchema.omit({ messages: true }).extend({
+  seq: z.number().int().min(-1),
+  context: z.object({ hasMessages: z.boolean(), hasTurns: z.boolean(), hasProviderContext: z.boolean() }).strict(),
+  lastTurn: z.object({ turnId: sessionIdSchema, stopReason: z.enum(['completed', 'interrupted', 'error']),
+    settledAt: timestampSchema, errorMessage: z.string().max(8000).nullable().optional() }).strict().nullable(),
+  liveTurnId: sessionIdSchema.nullable(),
+  liveCapabilities: z.object({ approval: z.boolean(), question: z.boolean(), steer: z.boolean() }).strict(),
+}).strict()
+export type RemoteDesktopSessionResult = z.infer<typeof remoteDesktopSessionResultSchema>
+
 export const remoteJournalEventSchema = z.object({
   seq: z.number().int().nonnegative(),
   event: z.unknown(),
 })
 
 export const remoteServerMessageSchema = z.discriminatedUnion('type', [
+  remoteDesktopFrameSchema,
   z.object({
     type: z.literal('events.frame'),
     sessionId: sessionIdSchema,
@@ -936,6 +958,7 @@ export const remoteServerMessageSchema = z.discriminatedUnion('type', [
 export type RemoteServerMessage = z.infer<typeof remoteServerMessageSchema>
 
 export const remoteClientMessageSchema = z.discriminatedUnion('type', [
+  remoteDesktopClientMessageSchema,
   z.object({
     type: z.literal('events.subscribe'),
     sessionId: sessionIdSchema,
