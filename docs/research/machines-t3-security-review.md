@@ -1,6 +1,7 @@
 # Machines T3 parity independent security review
 
-Status: authored-source audit in progress; no integrated certification.
+Status: source audit complete through `b9fac0c2`; independent identity proof and
+final runtime designation pending. No final integrated certification.
 Reviewer: fresh Ari review session, codex / gpt-6.1-sol, xhigh effort, full permissions.
 Date: 2026-11-12. Review worktree: `D:/Projects/Ari-machines-wt/security`, branch
 `machines/security-review`. Existing untracked `.review-temp/` is preserved.
@@ -9,7 +10,7 @@ Date: 2026-11-12. Review worktree: `D:/Projects/Ari-machines-wt/security`, branc
 
 | Role | Immutable commit |
 | --- | --- |
-| Current integration | `2c75d8fb75300f3760243d5a9a29fa99236d55a2` |
+| Initial integration | `2c75d8fb75300f3760243d5a9a29fa99236d55a2` |
 | Routes author | `379ef67b3a3a14877cea2ac39cffc0633bebf6f1` |
 | Host author | `4f7125e45b2096c5b2c1647ed744ff06aa2d92f8` |
 | Session author | `869d3bc88a342844aa2fcf647a64ba859c6ffb67` |
@@ -29,11 +30,15 @@ runner using D: fixtures, one worker, C >= 5 GiB and headroom >= 1.5 GiB gates.
 
 ## Disposition
 
-Pending source audit of route authority/credentials, replay, grants, normal SessionClient
-ownership, Auto/drafts, host sanitization, backward compatibility and F invariants.
-The coordinator must supply the final integrated SHA before the final merged audit.
-Source closure, authored regression assertions, independent executed proof and
-real-hardware checks will be recorded separately.
+T1/T2/T3 are independently reproduced and independently closed at the merged source
+named below. The combined signed-route normal-client proof independently passes at
+`1c2398a4`. The required identity publication/recovery change is source-reviewed at
+`c537a8e2`, with formatting-equivalent integrated source at `b9fac0c2`; independent
+identity execution and parent-designated final runtime source remain pending.
+No new actionable source finding remains in the inspected scope. Source closure,
+authored/root execution, independent execution and hardware checks stay separate.
+The checkpoint ledger below preserves historical findings and intermediate limits;
+later disposition supersedes their earlier pending-status statements.
 
 ## Authored-source checkpoint 2
 
