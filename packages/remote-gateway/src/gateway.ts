@@ -597,6 +597,9 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
 
   function publicInfo(): GatewayInfo {
     const identity = options.identity
+    const operations = host.capabilities().flatMap((operation) => {
+      const parsed = machinesExtensionOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : []
+    })
     return {
       ...(identity === undefined
         ? {}
@@ -605,9 +608,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       protocolVersion: REMOTE_PROTOCOL_VERSION,
       capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...host.capabilities()])]
         .flatMap((operation) => { const parsed = remoteOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : [] }),
-      machinesExtensions: { version: 1, operations: host.capabilities().flatMap((operation) => {
-        const parsed = machinesExtensionOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : []
-      }) },
+      ...(operations.length ? { machinesExtensions: { version: 1 as const, operations } } : {}),
     }
   }
 
@@ -917,7 +918,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   async function outcomeVisible(caller: RemoteCaller, outcome: RecordedOutcome): Promise<boolean> {
     if (outcome.account === true) return true
     if (outcome.sessionId !== undefined)
-      return (await host.getSession(caller, outcome.sessionId)) !== undefined
+      return host.sessionVisible ? host.sessionVisible(caller, outcome.sessionId) :
+        (await host.getSession(caller, outcome.sessionId)) !== undefined
     return outcome.projectId !== undefined && hasProject(caller, outcome.projectId)
   }
 
