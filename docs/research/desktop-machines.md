@@ -118,9 +118,9 @@ New commits after the assigned `5a3a71e7` checkpoint:
   painted PNGs plus capture metadata before heavy work. This commit retains the
   original native-picker screenshots as the before evidence in Git history.
 - `fb68823b`: format the focused capture option and attachment-control assertions.
-- The following final evidence commit records the four refreshed PNGs, combined
-  check transcript and this completed handoff. Code validated is `fb68823b`;
-  subsequent changes are evidence/documentation only.
+- `c8f71c46`: record the four refreshed PNGs, combined check transcript and this
+  completed handoff. Code validated is `fb68823b`; subsequent changes are
+  evidence/documentation only.
 
 Every command below used the coordinator prefix:
 
@@ -128,14 +128,14 @@ Every command below used the coordinator prefix:
 node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs TITLE D:/Projects/Ari-machines-wt/desktop -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs
 ```
 
-| Title | pnpm arguments | Result |
-| --- | --- | --- |
-| `desktop-composer-format` | `exec prettier --write apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs docs/research/desktop-machines.md` | Passed; committed formatting before tests |
-| `desktop-composer-tests` | `--filter @ari/desktop exec vitest run src/renderer/src/features/machines/RemoteSession.test.tsx src/renderer/src/features/machines/remote-client.test.ts --maxWorkers=1 --no-file-parallelism` | 2 suites / 28 tests passed, 17.79 seconds |
-| `desktop-composer-types` | `--filter @ari/desktop exec tsc --noEmit -p tsconfig.machines.json` | Passed |
-| `desktop-composer-lint` | `exec eslint apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs` | Passed |
-| `desktop-composer-fixture-build` | `--filter @ari/desktop exec vite build --config machines-fixture.config.ts` | Passed, 14.70 seconds; Vite reported its large-chunk warning |
-| `desktop-composer-capture` | `--filter @ari/desktop exec electron packaging/capture-machines.mjs --composer-only` | Passed; four changed screenshots, no renderer console errors or horizontal overflow |
+| Title                            | pnpm arguments                                                                                                                                                                                  | Result                                                                              |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `desktop-composer-format`        | `exec prettier --write apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs docs/research/desktop-machines.md`                         | Passed; committed formatting before tests                                           |
+| `desktop-composer-tests`         | `--filter @ari/desktop exec vitest run src/renderer/src/features/machines/RemoteSession.test.tsx src/renderer/src/features/machines/remote-client.test.ts --maxWorkers=1 --no-file-parallelism` | 2 suites / 28 tests passed, 17.79 seconds                                           |
+| `desktop-composer-types`         | `--filter @ari/desktop exec tsc --noEmit -p tsconfig.machines.json`                                                                                                                             | Passed                                                                              |
+| `desktop-composer-lint`          | `exec eslint apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs`                                                                     | Passed                                                                              |
+| `desktop-composer-fixture-build` | `--filter @ari/desktop exec vite build --config machines-fixture.config.ts`                                                                                                                     | Passed, 14.70 seconds; Vite reported its large-chunk warning                        |
+| `desktop-composer-capture`       | `--filter @ari/desktop exec electron packaging/capture-machines.mjs --composer-only`                                                                                                            | Passed; four changed screenshots, no renderer console errors or horizontal overflow |
 
 The original fresh-check logs are in `out/desktop-composer-*.log`; their complete
 contents are preserved as `docs/research/evidence/desktop-machines/verification.txt`
@@ -143,6 +143,9 @@ for integration and eventual worktree removal. No install, wide test/lint/build,
 live Ari, device settings, Tailscale, other worktree, push or PR was used. Every
 runner admission passed the resource gate; no killed/OOM step, provider mismatch
 or retry loop occurred. The session runtime is codex / gpt-6.1-sol, high, full.
+Node is v24.13.0. Final handoff formatting also passed through the coordinator
+runner (`desktop-composer-final-format`, `exec prettier --write
+docs/research/desktop-machines.md`) and is included in the preserved transcript.
 
 Captures use real renderer components with fake RPC, a hidden offscreen Electron
 43.4.1 / Chromium 150.0.7871.224 window, a temporary D-worktree profile and a
