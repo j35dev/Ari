@@ -161,12 +161,11 @@ export function TerminalPane({
     if (!attachOnly)
       void rpc
         .invoke('terminal.create', { id: terminalId, cwd: cwd ?? '.' })
-        .then(() => {
+        .then(async () => {
           if (!remote && initialCommand !== undefined && initialCommand.length > 0) {
-            return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
+            await rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
           }
-          if (remote) return rpc.invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
-          return undefined
+          if (remote) await rpc.invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
