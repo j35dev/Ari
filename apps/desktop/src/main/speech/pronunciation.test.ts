@@ -59,7 +59,7 @@ it('reads the actual English reply with smart punctuation instead of treating it
   const reply = 'No projects yet — none in the workspace and none running. Want to create one?'
   const result = prepareKokoro(reply, words)
   expect(result.words).toBe(14)
-  expect(result.text).not.toMatch(/[^\x00-\x7f]/)
+  expect([...result.text].every((character) => character.codePointAt(0)! <= 127)).toBe(true)
   expect(result.spelled).toContain('projects')
   expect(normalizeSpeech('“It’s ready…” Use Ctrl–Alt–V; 3–5 minutes → done.')).toBe(
     '"It\'s ready..." Use Ctrl-Alt-V; three to five minutes to done.',
