@@ -2,9 +2,19 @@ import type { JournalEvent } from '@ari/contracts/events'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import type { MessageFold } from './message-fold'
 import type { TranscriptStore } from './transcript-store'
+import { parseSessionViewKey, registerSessionCacheInvalidator } from './session-scope'
 
 /** Cached with the transcript's bounded LRU, never inferred as live execution. */
 const journals = new WeakMap<TranscriptStore, HistoryJournal>()
+const active = new Set<WeakRef<HistoryJournal>>()
+registerSessionCacheInvalidator((machineId) => {
+  for (const reference of active) {
+    const history = reference.deref()
+    if (!history) { active.delete(reference); continue }
+    const scope = parseSessionViewKey(history.viewKey)
+    if (scope?.kind === 'remote' && scope.machineId === machineId) history.dispose()
+  }
+})
 
 /**
  * Retains journal events by sequence so a retry can recover an older
@@ -21,10 +31,22 @@ export class HistoryJournal {
   #turnId: string | null = null
   #partCounts = new Map<string, number>()
   lastPart: { messageId: string; parts: number } | null = null
+  #disposed = false
+  get viewKey(): string { return this.#store.sessionId }
+  dispose(): void {
+    this.#disposed = true
+    this.#events.clear()
+    this.#observed.clear()
+    this.#partCounts.clear()
+    this.#store.dispose()
+    journals.delete(this.#store)
+  }
 
   constructor(store: TranscriptStore) {
     this.#store = store
     this.#fold = store.begin()
+    for (const reference of active) if (!reference.deref()) active.delete(reference)
+    active.add(new WeakRef(this))
   }
 
   /** A remount starts a fresh authoritative read, keeping the cache visible. */
@@ -32,7 +54,8 @@ export class HistoryJournal {
     this.#observed.clear()
   }
 
-  finish(complete: boolean): void {
+  finish(complete: boolean, mode: 'full' | 'resume' = 'full'): void {
+    if (this.#disposed || mode === 'resume') return
     if (!complete) return
     for (const seq of this.#events.keys()) {
       if (!this.#observed.has(seq)) {
@@ -43,6 +66,7 @@ export class HistoryJournal {
   }
 
   add(event: JournalEvent): void {
+    if (this.#disposed) return
     this.#observed.add(event.seq)
     const previous = this.#events.get(event.seq)
     if (previous) {
