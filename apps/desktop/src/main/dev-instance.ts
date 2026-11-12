@@ -19,7 +19,10 @@ export interface AppIdentity {
   getPath(name: 'appData'): string
 }
 
-type DevEnvironment = Pick<NodeJS.ProcessEnv, 'ARI_DEV_INSTANCE' | 'ARI_DEV_USER_DATA'>
+interface DevEnvironment {
+  ARI_DEV_INSTANCE?: string
+  ARI_DEV_USER_DATA?: string
+}
 
 function devIdentity(environment: DevEnvironment) {
   const instance = environment.ARI_DEV_INSTANCE
