@@ -139,3 +139,20 @@ and PWA install; sleep/wake/network changes and ACL denial; terminal revocation;
 actual Electron safeStorage across restart; live managed Connect lease refresh.
 Full terminal/fork/integration/file/attachment UI behavior belongs to existing host
 adapters and renderer/mobile integration, not this loopback provider fixture.
+
+## Fresh core review, 2026-11-12
+
+Sole replacement worker in the existing core worktree, starting at `8471f3f3`.
+Reviewed the actual branch history and S1 independent-origin / S6 no-resend fixes.
+The fresh review found that failed credential encryption or registry persistence
+could leave a generated key or replacement device id active in memory. Credential
+updates now become active only after successful sealed persistence. Adversarial
+tests cover both failure seams and preserve the original durable credential.
+Additional shared tests reject absent, unreachable and malformed command receipts
+without resending the original mutation. Check results will be appended after the
+coordinated focused validation.
+
+Integration must preserve A's current Tailscale RPC changes in `rpc.ts`: constructor
+`profileDir`, enable `params`, the startup/enable `resume` calls and disable result
+preservation. Core is based on the older snapshot; those differences are not core
+edits to cherry-pick or intended reversions. Grants authorization remains B-owned.

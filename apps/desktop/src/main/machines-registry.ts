@@ -156,8 +156,10 @@ export class DesktopMachineCredential implements DeviceCredential {
     await this.load()
     if (this.#privateKey === null) {
       this.#box()
-      this.#privateKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
-      this.#persist()
+      const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
+      // A failed seal/write must not leave an unpersisted key usable in memory.
+      this.#persist(key, this.#deviceId, this.#displayName)
+      this.#privateKey = key
     }
     return pairingKeySchema.parse(createPublicKey(this.#privateKey).export({ format: 'jwk' }))
   }
@@ -171,9 +173,10 @@ export class DesktopMachineCredential implements DeviceCredential {
   }
   remember(record: { deviceId: string; displayName: string; projectIds: string[] }): Promise<void> {
     return Promise.resolve().then(() => {
+      if (this.#privateKey === null) throw new Error('The computer credential has no key.')
+      this.#persist(this.#privateKey, record.deviceId, record.displayName)
       this.#deviceId = record.deviceId
       this.#displayName = record.displayName
-      this.#persist()
     })
   }
   #box(): SecretBox {
@@ -184,13 +187,12 @@ export class DesktopMachineCredential implements DeviceCredential {
       )
     return box
   }
-  #persist(): void {
-    if (this.#privateKey === null) throw new Error('The computer credential has no key.')
+  #persist(privateKey: KeyObject, deviceId: string | null, displayName: string | null): void {
     const plain = JSON.stringify({
       machineId: this.#id,
-      privateKeyPem: this.#privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
-      deviceId: this.#deviceId,
-      displayName: this.#displayName,
+      privateKeyPem: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+      deviceId,
+      displayName,
     })
     this.#registry.update(this.#id, { credentialCipher: this.#box().encrypt(plain) })
   }
