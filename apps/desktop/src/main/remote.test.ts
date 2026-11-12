@@ -172,10 +172,24 @@ async function pair(
 }
 
 describe('remote security persistence failures', () => {
+  it('migrates legacy grants before constructor publication and preserves terminal choice', async () => {
+    const dir = tempDir('ari-legacy-grants-')
+    writeFileSync(join(dir, 'devices.json'), JSON.stringify({
+      devices: [{ deviceId: 'legacy-device', displayName: 'Phone', projectIds: ['saved'], pairedAt: 1, lastSeenAt: null, allowTerminal: true, publicKey: deviceKey().jwk }],
+      revoked: [],
+    }))
+    const { service } = makeService({ dir })
+    expect(service.state().devices[0]).toMatchObject({ allProjects: true, projectIds: ['saved'], allowTerminal: true })
+    expect(JSON.parse(readFileSync(join(dir, 'devices.json'), 'utf8')).devices[0].allProjects).toBe(true)
+    expect((await service.start()).enabled).toBe(true)
+    expect(service.state().devices[0]?.projectIds).toEqual(['proj_1'])
+  })
+
   function failDeviceWrites() {
     const rename = fs.renameSync
     return vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-      if (String(to).endsWith('devices.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      if (String(to).endsWith('devices.json'))
+        throw Object.assign(new Error('denied'), { code: 'EACCES' })
       rename(from, to)
     })
   }
@@ -192,37 +206,57 @@ describe('remote security persistence failures', () => {
     expect((await restarted.start()).devices).toEqual([])
   })
 
-  it.each(['revoke', 'terminal'] as const)('propagates failed %s withdrawal, denies runtime access and saves an explicit retry before restart', async (action) => {
-    const { service, dir } = makeService()
-    const origin = (await service.start()).origin!
-    const key = deviceKey()
-    const token = await pair(service, key)
-    const id = service.state().devices[0]!.deviceId
-    service.updateDeviceGrants(id, ['proj_1'], true)
-    const saved = readFileSync(join(dir, 'devices.json'), 'utf8')
-    const failure = failDeviceWrites()
-    const withdraw = () => action === 'revoke' ? service.revokeDevice(id) : service.updateDeviceGrants(id, ['proj_1'], false)
-    expect(withdraw).toThrow('Could not save remote security state')
-    expect(readFileSync(join(dir, 'devices.json'), 'utf8')).toBe(saved)
-    expect((await call(origin, '/query', { op: 'session.list' }, { authorization: `Bearer ${token}` })).status).toBe(401)
-    const challenge = await call(origin, '/device/challenge', { deviceId: id })
-    const nonce = (challenge.body['result'] as { nonce: string }).nonce
-    expect((await call(origin, '/device/authorize', { deviceId: id, nonce, signature: key.sign(nonce) })).status).toBe(403)
-    failure.mockRestore()
-    withdraw()
-    await service.stop()
-    expect((await service.start()).enabled).toBe(false)
-    const restarted = makeService({ dir }).service
-    const state = await restarted.start()
-    expect(state.enabled).toBe(true)
-    if (action === 'revoke') expect(state.devices).toEqual([])
-    else expect(state.devices[0]?.allowTerminal).toBe(false)
-  })
+  it.each(['revoke', 'terminal'] as const)(
+    'propagates failed %s withdrawal, denies runtime access and saves an explicit retry before restart',
+    async (action) => {
+      const { service, dir } = makeService()
+      const origin = (await service.start()).origin!
+      const key = deviceKey()
+      const token = await pair(service, key)
+      const id = service.state().devices[0]!.deviceId
+      service.updateDeviceGrants(id, ['proj_1'], true)
+      const saved = readFileSync(join(dir, 'devices.json'), 'utf8')
+      const failure = failDeviceWrites()
+      const withdraw = () =>
+        action === 'revoke'
+          ? service.revokeDevice(id)
+          : service.updateDeviceGrants(id, ['proj_1'], false)
+      expect(withdraw).toThrow('Could not save remote security state')
+      expect(readFileSync(join(dir, 'devices.json'), 'utf8')).toBe(saved)
+      expect(
+        (await call(origin, '/query', { op: 'session.list' }, { authorization: `Bearer ${token}` }))
+          .status,
+      ).toBe(401)
+      const challenge = await call(origin, '/device/challenge', { deviceId: id })
+      const nonce = (challenge.body['result'] as { nonce: string }).nonce
+      expect(
+        (
+          await call(origin, '/device/authorize', {
+            deviceId: id,
+            nonce,
+            signature: key.sign(nonce),
+          })
+        ).status,
+      ).toBe(403)
+      failure.mockRestore()
+      withdraw()
+      await service.stop()
+      expect((await service.start()).enabled).toBe(false)
+      const restarted = makeService({ dir }).service
+      const state = await restarted.start()
+      expect(state.enabled).toBe(true)
+      if (action === 'revoke') expect(state.devices).toEqual([])
+      else expect(state.devices[0]?.allowTerminal).toBe(false)
+    },
+  )
 
   it('blocks unreadable device records rather than treating them as missing', async () => {
     const read = fs.readFileSync
-    const denied = vi.spyOn(fs, 'readFileSync').mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
-      if (String(args[0]).endsWith('devices.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+    const denied = vi.spyOn(fs, 'readFileSync').mockImplementation(((
+      ...args: Parameters<typeof fs.readFileSync>
+    ) => {
+      if (String(args[0]).endsWith('devices.json'))
+        throw Object.assign(new Error('denied'), { code: 'EACCES' })
       return read(...args)
     }) as typeof fs.readFileSync)
     const { service } = makeService()
@@ -231,28 +265,45 @@ describe('remote security persistence failures', () => {
     denied.mockRestore()
   })
 
-  it.each(['corrupt', 'unreadable'] as const)('blocks a %s command history before listener publication', async (mode) => {
-    const { service, dir } = makeService()
-    writeFileSync(join(dir, 'idempotency.json'), mode === 'corrupt' ? 'broken' : '[]')
-    const read = fs.readFileSync
-    const denied = mode === 'unreadable' ? vi.spyOn(fs, 'readFileSync').mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
-      if (String(args[0]).endsWith('idempotency.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
-      return read(...args)
-    }) as typeof fs.readFileSync) : null
-    expect((await service.start()).enabled).toBe(false)
-    expect(service.state().error).not.toBeNull()
-    denied?.mockRestore()
-  })
+  it.each(['corrupt', 'unreadable'] as const)(
+    'blocks a %s command history before listener publication',
+    async (mode) => {
+      const { service, dir } = makeService()
+      writeFileSync(join(dir, 'idempotency.json'), mode === 'corrupt' ? 'broken' : '[]')
+      const read = fs.readFileSync
+      const denied =
+        mode === 'unreadable'
+          ? vi.spyOn(fs, 'readFileSync').mockImplementation(((
+              ...args: Parameters<typeof fs.readFileSync>
+            ) => {
+              if (String(args[0]).endsWith('idempotency.json'))
+                throw Object.assign(new Error('denied'), { code: 'EACCES' })
+              return read(...args)
+            }) as typeof fs.readFileSync)
+          : null
+      expect((await service.start()).enabled).toBe(false)
+      expect(service.state().error).not.toBeNull()
+      denied?.mockRestore()
+    },
+  )
 })
 
 describe('remote service lifecycle', () => {
   function deferred<T>() {
     let resolve!: (value: T) => void
-    const promise = new Promise<T>((done) => { resolve = done })
+    const promise = new Promise<T>((done) => {
+      resolve = done
+    })
     return { promise, resolve }
   }
 
-  const managedOptions = { port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null }
+  const managedOptions = {
+    port: 0,
+    issuer: 'https://connect.example',
+    hostname: 'computer.tunnel.example',
+    computerId: 'computer',
+    verifier: () => null,
+  }
 
   it('shares duplicate starts while project loading is delayed', async () => {
     const projects = deferred<{ id: string; name: string }[]>()
@@ -270,11 +321,19 @@ describe('remote service lifecycle', () => {
     const projects = deferred<{ id: string; name: string }[]>()
     const entered = deferred<void>()
     const createGateway = vi.fn(createRemoteGateway)
-    const { service } = makeService({ listProjects: () => { entered.resolve(); return projects.promise }, createGateway })
+    const { service } = makeService({
+      listProjects: () => {
+        entered.resolve()
+        return projects.promise
+      },
+      createGateway,
+    })
     const starting = service.start()
     await entered.promise
     let stopped = false
-    const stopping = service.stop().then(() => { stopped = true })
+    const stopping = service.stop().then(() => {
+      stopped = true
+    })
     await Promise.resolve()
     expect(stopped).toBe(false)
     projects.resolve([])
@@ -286,52 +345,70 @@ describe('remote service lifecycle', () => {
   it('closes a cancelled listener that finishes binding after stop', async () => {
     const bound = deferred<RemoteGateway>()
     const release = deferred<void>()
-    const { service } = makeService({ createGateway: async (options) => {
-      const gateway = await createRemoteGateway(options)
-      bound.resolve(gateway)
-      await release.promise
-      return gateway
-    } })
+    const { service } = makeService({
+      createGateway: async (options) => {
+        const gateway = await createRemoteGateway(options)
+        bound.resolve(gateway)
+        await release.promise
+        return gateway
+      },
+    })
     const starting = service.start()
     const gateway = await bound.promise
     const stopping = service.stop()
     release.resolve()
     await Promise.all([starting, stopping])
     expect(service.running).toBe(false)
-    await expect(fetch(`${gateway.origin}/info`, { headers: { origin: ALLOWED } })).rejects.toThrow()
+    await expect(
+      fetch(`${gateway.origin}/info`, { headers: { origin: ALLOWED } }),
+    ).rejects.toThrow()
   })
 
-  it.each(['managed', 'shutdown'] as const)('fences delayed managed binding during %s stop', async (mode) => {
-    const bound = deferred<RemoteGateway>()
-    const release = deferred<void>()
-    const { service } = makeService({ createGateway: async (options) => {
-      const gateway = await createRemoteGateway(options)
-      if (options.managedAccess !== undefined) {
-        bound.resolve(gateway)
-        await release.promise
-      }
-      return gateway
-    } })
-    await service.start()
-    const local = service.state().origin
-    const starting = service.startManaged(managedOptions)
-    expect(service.startManaged(managedOptions)).toBe(starting)
-    const gateway = await bound.promise
-    const stopping = mode === 'managed' ? service.stopManaged() : service.stop()
-    release.resolve()
-    expect(await starting).toBeNull()
-    await stopping
-    expect(service.state().clientUrl).toBeNull()
-    await expect(fetch(`${gateway.origin}/info`, { headers: { origin: 'https://connect.example' } })).rejects.toThrow()
-    expect(service.running).toBe(mode === 'managed')
-    if (mode === 'shutdown') await expect(fetch(`${local}/info`, { headers: { origin: ALLOWED } })).rejects.toThrow()
-  })
+  it.each(['managed', 'shutdown'] as const)(
+    'fences delayed managed binding during %s stop',
+    async (mode) => {
+      const bound = deferred<RemoteGateway>()
+      const release = deferred<void>()
+      const { service } = makeService({
+        createGateway: async (options) => {
+          const gateway = await createRemoteGateway(options)
+          if (options.managedAccess !== undefined) {
+            bound.resolve(gateway)
+            await release.promise
+          }
+          return gateway
+        },
+      })
+      await service.start()
+      const local = service.state().origin
+      const starting = service.startManaged(managedOptions)
+      expect(service.startManaged(managedOptions)).toBe(starting)
+      const gateway = await bound.promise
+      const stopping = mode === 'managed' ? service.stopManaged() : service.stop()
+      release.resolve()
+      expect(await starting).toBeNull()
+      await stopping
+      expect(service.state().clientUrl).toBeNull()
+      await expect(
+        fetch(`${gateway.origin}/info`, { headers: { origin: 'https://connect.example' } }),
+      ).rejects.toThrow()
+      expect(service.running).toBe(mode === 'managed')
+      if (mode === 'shutdown')
+        await expect(fetch(`${local}/info`, { headers: { origin: ALLOWED } })).rejects.toThrow()
+    },
+  )
 
   it('does not resurrect a queued managed start after shutdown cancels local startup', async () => {
     const projects = deferred<{ id: string; name: string }[]>()
     const entered = deferred<void>()
     const createGateway = vi.fn(createRemoteGateway)
-    const { service } = makeService({ listProjects: () => { entered.resolve(); return projects.promise }, createGateway })
+    const { service } = makeService({
+      listProjects: () => {
+        entered.resolve()
+        return projects.promise
+      },
+      createGateway,
+    })
     const starting = service.startManaged(managedOptions)
     await entered.promise
     const stopping = service.stop()
@@ -862,17 +939,30 @@ describe('remote service terminals', () => {
         onExit: () => undefined,
       }
     }
-    return { ...makeService({ dir: join(root, 'remote'), store, engine, terminalFactory, ...overrides }), kills }
+    return {
+      ...makeService({ dir: join(root, 'remote'), store, engine, terminalFactory, ...overrides }),
+      kills,
+    }
   }
 
   it('rejects a managed terminal delayed past stop and keeps the old host fenced after restart', async () => {
     let managedHost: Parameters<typeof createRemoteGateway>[0]['host'] | undefined
     let release!: (workspace: string) => void
     let entered!: () => void
-    const workspace = new Promise<string>((resolve) => { release = resolve })
-    const loading = new Promise<void>((resolve) => { entered = resolve })
+    const workspace = new Promise<string>((resolve) => {
+      release = resolve
+    })
+    const loading = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     const { service, kills } = terminalService({
-      engine: { ...fakeEngine(), workspace: () => { entered(); return workspace } } as unknown as Engine,
+      engine: {
+        ...fakeEngine(),
+        workspace: () => {
+          entered()
+          return workspace
+        },
+      } as unknown as Engine,
       createGateway: async (options) => {
         if (options.managedAccess !== undefined) managedHost = options.host
         return createRemoteGateway(options)
@@ -882,19 +972,40 @@ describe('remote service terminals', () => {
     await pair(service, deviceKey())
     const id = service.state().devices[0]!.deviceId
     service.updateDeviceGrants(id, ['proj_1'], true)
-    const options = { port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null }
+    const options = {
+      port: 0,
+      issuer: 'https://connect.example',
+      hostname: 'computer.tunnel.example',
+      computerId: 'computer',
+      verifier: () => null,
+    }
     await service.startManaged(options)
     if (managedHost === undefined) throw new Error('expected managed host')
     const oldHost = managedHost
-    const caller = { deviceId: id, projectIds: ['proj_1'], allowTerminal: true, managedLeaseExpiresAt: Date.now() + 60000 }
-    const command = { op: 'terminal.create' as const, sessionId: 'sess_one', cols: 80, rows: 24, clientCommandId: 'delayed', idempotencyKey: 'delayed-managed-terminal' }
+    const caller = {
+      deviceId: id,
+      projectIds: ['proj_1'],
+      allowTerminal: true,
+      managedLeaseExpiresAt: Date.now() + 60000,
+    }
+    const command = {
+      op: 'terminal.create' as const,
+      sessionId: 'sess_one',
+      cols: 80,
+      rows: 24,
+      clientCommandId: 'delayed',
+      idempotencyKey: 'delayed-managed-terminal',
+    }
     const pending = oldHost.execute(caller, command)
     await loading
     await service.stopManaged()
     release('.')
     expect(await pending).toMatchObject({ ok: false, code: 'access_revoked' })
     await service.startManaged(options)
-    expect(await oldHost.execute(caller, command)).toMatchObject({ ok: false, code: 'access_revoked' })
+    expect(await oldHost.execute(caller, command)).toMatchObject({
+      ok: false,
+      code: 'access_revoked',
+    })
     expect(kills).toHaveLength(0)
   })
 
@@ -933,35 +1044,40 @@ describe('remote service terminals', () => {
     expect(kills).toHaveLength(2)
   })
 
-  it.each([false, true])('kills an open terminal once terminal access is withdrawn, including failed persistence=%s', async (failSave) => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    onTestFinished(() => {
-      vi.useRealTimers()
-    })
-    const { service, kills } = terminalService()
-    const origin = (await service.start()).origin
-    if (origin === null) throw new Error('expected a running gateway')
-    const token = await pair(service, deviceKey(), ['proj_1'])
-    const deviceId = service.state().devices[0]?.deviceId
-    if (deviceId === undefined) throw new Error('expected a paired device')
-    service.updateDeviceGrants(deviceId, ['proj_1'], true)
-    expect((await open(origin, token, 'sess_one')).status).toBe(200)
-
-    vi.advanceTimersByTime(1000)
-    expect(kills[0]).not.toHaveBeenCalled()
-
-    if (failSave) {
-      const rename = fs.renameSync
-      const denied = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-        if (String(to).endsWith('devices.json')) throw new Error('disk full')
-        rename(from, to)
+  it.each([false, true])(
+    'kills an open terminal once terminal access is withdrawn, including failed persistence=%s',
+    async (failSave) => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      onTestFinished(() => {
+        vi.useRealTimers()
       })
-      expect(() => service.updateDeviceGrants(deviceId, ['proj_2'], false)).toThrow('Could not save')
-      denied.mockRestore()
-    } else service.updateDeviceGrants(deviceId, ['proj_2'], false)
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(kills[0]).toHaveBeenCalledOnce()
-    expect((await open(origin, token, 'sess_one')).status).toBe(403)
-    expect((await open(origin, token, 'sess_two')).status).toBe(403)
-  })
+      const { service, kills } = terminalService()
+      const origin = (await service.start()).origin
+      if (origin === null) throw new Error('expected a running gateway')
+      const token = await pair(service, deviceKey(), ['proj_1'])
+      const deviceId = service.state().devices[0]?.deviceId
+      if (deviceId === undefined) throw new Error('expected a paired device')
+      service.updateDeviceGrants(deviceId, ['proj_1'], true)
+      expect((await open(origin, token, 'sess_one')).status).toBe(200)
+
+      vi.advanceTimersByTime(1000)
+      expect(kills[0]).not.toHaveBeenCalled()
+
+      if (failSave) {
+        const rename = fs.renameSync
+        const denied = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+          if (String(to).endsWith('devices.json')) throw new Error('disk full')
+          rename(from, to)
+        })
+        expect(() => service.updateDeviceGrants(deviceId, ['proj_2'], false)).toThrow(
+          'Could not save',
+        )
+        denied.mockRestore()
+      } else service.updateDeviceGrants(deviceId, ['proj_2'], false)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(kills[0]).toHaveBeenCalledOnce()
+      expect((await open(origin, token, 'sess_one')).status).toBe(403)
+      expect((await open(origin, token, 'sess_two')).status).toBe(403)
+    },
+  )
 })

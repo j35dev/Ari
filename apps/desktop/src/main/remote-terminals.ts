@@ -23,7 +23,11 @@ export class RemoteTerminals {
   readonly #watchdog: ReturnType<typeof setInterval>
   readonly #now: () => number
 
-  constructor(factory: PtyFactory, allowed: (deviceId: string, projectId: string) => boolean, now: () => number = Date.now) {
+  constructor(
+    factory: PtyFactory,
+    allowed: (deviceId: string, projectId: string) => boolean,
+    now: () => number = Date.now,
+  ) {
     this.#now = now
     this.#terminals = new TerminalService(
       {
@@ -91,7 +95,9 @@ export class RemoteTerminals {
           data: '',
           seq: 0,
           exited: false,
-          ...(caller.managedLeaseExpiresAt === undefined ? {} : { managedLeaseExpiresAt: caller.managedLeaseExpiresAt }),
+          ...(caller.managedLeaseExpiresAt === undefined
+            ? {}
+            : { managedLeaseExpiresAt: caller.managedLeaseExpiresAt }),
         })
         try {
           this.#terminals.create(terminalId, session.workspace)
@@ -181,10 +187,21 @@ export class RemoteTerminals {
       this.#kill(id)
       return false
     }
-    if ((entry.managedLeaseExpiresAt === undefined) !== (caller.managedLeaseExpiresAt === undefined)) return false
+    if (
+      (entry.managedLeaseExpiresAt === undefined) !==
+      (caller.managedLeaseExpiresAt === undefined)
+    )
+      return false
     if (caller.managedLeaseExpiresAt !== undefined) {
-      if (caller.managedLeaseExpiresAt <= this.#now() || !caller.projectIds.includes(entry.projectId)) return false
-      entry.managedLeaseExpiresAt = Math.max(entry.managedLeaseExpiresAt ?? 0, caller.managedLeaseExpiresAt)
+      if (
+        caller.managedLeaseExpiresAt <= this.#now() ||
+        !caller.projectIds.includes(entry.projectId)
+      )
+        return false
+      entry.managedLeaseExpiresAt = Math.max(
+        entry.managedLeaseExpiresAt ?? 0,
+        caller.managedLeaseExpiresAt,
+      )
     }
     return true
   }
