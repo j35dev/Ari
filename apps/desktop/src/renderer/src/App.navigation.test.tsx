@@ -413,7 +413,8 @@ it('keeps real composer text, selection, pending attachment identity and chat th
     status: 'applied',
     observed: { mode: 'settings' },
   })
-  expect(await screen.findByRole('button', { name: 'Close settings' })).toBeVisible()
+  // The dialog fades in from opacity 0; a slow runner can look mid-fade.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Close settings' })).toBeVisible())
   expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
   const changes = send({ view: 'changes', projectId: 'p', sessionId: 'sess_b' })
   expect(await acknowledged(changes)).toMatchObject({
