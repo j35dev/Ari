@@ -406,7 +406,7 @@ it('keeps normal session history and execution on the signed host across fallbac
   cleanup.push(watched)
   const frames: NormalFrame[] = []
   const received: JournalEvent[] = []
-  const stop = clientB.subscribe('session.events', { sessionId: wireId }, (raw) => {
+  const receive = (raw: unknown) => {
     const frame = raw as NormalFrame
     frames.push(frame)
     if (frame.replayStart) history.begin()
@@ -417,8 +417,9 @@ it('keeps normal session history and execution on the signed host across fallbac
     }
     if (frame.replayDone) history.finish(frame.replayOutcome === 'complete', frame.replayMode)
     history.publish()
-  })
-  cleanup.push(stop)
+  }
+  let stop = clientB.subscribe('session.events', { sessionId: wireId }, receive)
+  cleanup.push(() => stop())
   const terminals = () => frames.filter((frame) => frame.replayDone)
   await vi.waitFor(() => expect(terminals()).toHaveLength(1), { timeout: 10_000 })
   expect(terminals()[0]).toMatchObject({
@@ -569,9 +570,14 @@ it('keeps normal session history and execution on the signed host across fallbac
   b.setProtocolVersion(1)
   expect(await machines.connect(savedB.id)).toMatchObject({ status: 'connected' })
   await refreshMachineInventory()
+  expect(clientB.readOnly).toBe(false)
+  // Normal SessionView reopens its subscription when availability changes.
+  stop()
+  history.begin()
+  stop = clientB.subscribe('session.events', { sessionId: wireId }, receive)
   await vi.waitFor(() => expect(terminals()).toHaveLength(5), { timeout: 10_000 })
   expect(terminals()[4]).toMatchObject({
-    replayMode: 'resume',
+    replayMode: 'full',
     replayOutcome: 'complete',
     liveTurnId: liveTurn,
   })
