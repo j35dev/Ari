@@ -43,11 +43,10 @@ export function numberWords(n: number): string {
 }
 
 export function normalizeSpeech(text: string): string {
+  // Translate assistant typography into native-safe pauses without losing English words.
   return text
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    // Typography is not another language. Keep English words while translating
-    // the punctuation commonly emitted by assistants into native-safe pauses.
     .replace(/[‘’‚‛]/g, "'")
     .replace(/[“”„‟]/g, '"')
     .replace(/(?<=\d)[–−](?=\d)/g, ' to ')

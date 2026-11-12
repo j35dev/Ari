@@ -123,8 +123,14 @@ it('Read aloud streams the written details, not only the authored automatic summ
   contents.send.mockImplementation((_channel, frame) => {
     if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
   })
-  await service.speak('<!-- aria:speak {"text":"The work is ready."} -->\nThe work is ready.\n- You can choose a project and an agent.\n- Workers report their results and questions.\n- Earlier sessions retain their context.\nWould you like to start?', { readAll: true })
-  const text = child.postMessage.mock.calls.filter(([request]) => request.kind === 'speak').map(([request]) => request.text).join(' ')
+  await service.speak(
+    '<!-- aria:speak {"text":"The work is ready."} -->\nThe work is ready.\n- You can choose a project and an agent.\n- Workers report their results and questions.\n- Earlier sessions retain their context.\nWould you like to start?',
+    { readAll: true },
+  )
+  const text = child.postMessage.mock.calls
+    .filter(([request]) => request.kind === 'speak')
+    .map(([request]) => request.text)
+    .join(' ')
   expect(text).toContain('choose a project and an agent')
   expect(text).toContain('results and questions')
   expect(text).toContain('retain their context')
@@ -138,7 +144,9 @@ it('clears an old playback error on retry and publishes completion after success
   child.postMessage.mockImplementation((request) => {
     if (request.kind === 'speak' && fail) {
       fail = false
-      queueMicrotask(() => child.emit('message', { id: request.id, error: 'Previous speech failed.' }))
+      queueMicrotask(() =>
+        child.emit('message', { id: request.id, error: 'Previous speech failed.' }),
+      )
     } else original(request)
   })
   const publish = vi.fn()

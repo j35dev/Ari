@@ -19,7 +19,9 @@ describe('Aria spoken replies', () => {
     expect(spoken).toContain('Two things finished while you were away.')
     expect(spoken).toContain('Machines swarm: Claude Code merged')
     expect(spoken).toContain('Watchdog: Codex needs approval')
-    expect(spoken).toContain('Want me to hand the mobile polish to Pi, or keep it with Claude Code?')
+    expect(spoken).toContain(
+      'Want me to hand the mobile polish to Pi, or keep it with Claude Code?',
+    )
     expect(spoken).not.toContain('apps/mobile/Pairing.tsx')
   })
   it('leaves tables charts code and links in the chat', () => {
@@ -66,7 +68,8 @@ describe('Aria spoken replies', () => {
   })
 
   it('keeps a fuller authored answer instead of clipping it to three sentences or 420 characters', () => {
-    const text = 'I can organize your projects and help you choose an agent. I can run tasks in parallel across projects. I keep earlier sessions available so we can continue related work. Workers report their outcomes and questions back to me. I can inspect code, browse references, and explain what changed. You can ask me for a fuller explanation whenever you need it. Tell me what you want to build, and I will help you start with the right project and model.'
+    const text =
+      'I can organize your projects and help you choose an agent. I can run tasks in parallel across projects. I keep earlier sessions available so we can continue related work. Workers report their outcomes and questions back to me. I can inspect code, browse references, and explain what changed. You can ask me for a fuller explanation whenever you need it. Tell me what you want to build, and I will help you start with the right project and model.'
     expect(text.length).toBeGreaterThan(420)
     const reply = `<!-- aria:speak ${JSON.stringify({ text })} -->\nWritten details follow.`
     expect(spokenLine(reply)).toBe(text)
@@ -74,9 +77,18 @@ describe('Aria spoken replies', () => {
   })
 
   it('Read aloud includes all useful list details even when the message has a short authored summary', () => {
-    const reply = '<!-- aria:speak {"text":"I coordinate your projects."} -->\nI coordinate work across your Ari projects.\n- **Build things** — create a project and choose an agent.\n- **Run tasks in parallel** — work across different projects.\n- **Keep context** — reuse earlier sessions.\n- **Report back** — explain the results and questions.\n- **Research and inspect** — read code and references.\n```ts\nsecretCode()\n```\n| Private | Table |\n| --- | --- |\nWhat would you like to build?'
+    const reply =
+      '<!-- aria:speak {"text":"I coordinate your projects."} -->\nI coordinate work across your Ari projects.\n- **Build things** — create a project and choose an agent.\n- **Run tasks in parallel** — work across different projects.\n- **Keep context** — reuse earlier sessions.\n- **Report back** — explain the results and questions.\n- **Research and inspect** — read code and references.\n```ts\nsecretCode()\n```\n| Private | Table |\n| --- | --- |\nWhat would you like to build?'
     const spoken = readableReply(reply)
-    for (const detail of ['choose an agent', 'different projects', 'reuse earlier sessions', 'results and questions', 'read code and references', 'What would you like to build?']) expect(spoken).toContain(detail)
+    for (const detail of [
+      'choose an agent',
+      'different projects',
+      'reuse earlier sessions',
+      'results and questions',
+      'read code and references',
+      'What would you like to build?',
+    ])
+      expect(spoken).toContain(detail)
     expect(spoken).not.toContain('secretCode')
     expect(spoken).not.toContain('Private')
     expect(spoken).not.toContain('aria:speak')

@@ -49,7 +49,8 @@ export function AriaVoiceSettings() {
   if (!settings?.experimental.ariaEnabled) return null
   const frame = progress[modelId]
   const cloud = settings.ariaVoice.engine === 'groq' || settings.speech.provider === 'groq'
-  const voiceError = error || voice?.error || progress['aria-voice']?.error || progress['groq']?.error
+  const voiceError =
+    error || voice?.error || progress['aria-voice']?.error || progress['groq']?.error
   return (
     <SettingsSection
       title="Aria voice"

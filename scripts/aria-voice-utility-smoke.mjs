@@ -118,7 +118,10 @@ async function smoke() {
       voice: 'af_heart',
       speed: 1,
     })
-    if (!punctuation.audio?.samples.length || punctuation.audio.samples.some((value) => !Number.isFinite(value)))
+    if (
+      !punctuation.audio?.samples.length ||
+      punctuation.audio.samples.some((value) => !Number.isFinite(value))
+    )
       throw new Error('The actual English punctuation reply failed synthesis')
     if (missingNativeWords(diagnostics)) throw new Error('Native engine dropped a word')
     const result = {
