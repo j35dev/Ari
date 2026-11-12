@@ -29,11 +29,25 @@ async function ready(view) {
     `)
     if (found) {
       await window.webContents.executeJavaScript('document.fonts.ready.then(() => true)')
+      await window.webContents.executeJavaScript(
+        'new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))',
+      )
       return
     }
     await new Promise((done) => setTimeout(done, 100))
   }
   throw new Error(`Fixture did not finish loading: ${view}`)
+}
+
+async function paintedFrame() {
+  return new Promise((done, reject) => {
+    const timeout = setTimeout(() => reject(new Error('No Chromium paint arrived')), 5000)
+    window.webContents.once('paint', (_event, _dirty, bitmap) => {
+      clearTimeout(timeout)
+      done(bitmap)
+    })
+    window.webContents.invalidate()
+  })
 }
 
 app
@@ -51,6 +65,7 @@ app
         sandbox: true,
         backgroundThrottling: false,
         partition: 'machines-capture',
+        offscreen: true,
       },
     })
     // No real host or other external endpoint can be contacted by this fixture.
@@ -59,7 +74,7 @@ app
         cancel: !['file:', 'data:', 'blob:'].some((prefix) => request.url.startsWith(prefix)),
       })
     })
-    window.webContents.on('console-message', (_event, details) => {
+    window.webContents.on('console-message', (details) => {
       if (details.level === 'error') errors.push(details.message)
     })
     const captures = []
@@ -120,14 +135,18 @@ app
         )
           throw new Error('Fixture reached a non-fixture RPC')
         const filename = `machines-${view}-${theme}.png`
-        await writeFile(join(evidence, filename), (await window.webContents.capturePage()).toPNG())
+        await window.webContents.executeJavaScript(
+          'new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))',
+        )
+        const bitmap = await paintedFrame()
+        await writeFile(join(evidence, filename), bitmap.toPNG())
         if (view === 'workspace') {
           const rect = Object.fromEntries(
             Object.entries(state.sidebar).map(([key, value]) => [key, Math.round(value)]),
           )
           await writeFile(
             join(evidence, `machines-sidebar-${theme}.png`),
-            (await window.webContents.capturePage(rect)).toPNG(),
+            bitmap.crop(rect).toPNG(),
           )
         }
         captures.push({ filename, ...state })
@@ -141,7 +160,7 @@ app
           fixture: 'real renderer components with fake RPC only',
           browser: `Electron ${process.versions.electron} / Chromium ${process.versions.chrome}`,
           profile: 'temporary D worktree profile, nonpersistent browser partition',
-          dimensions: { width: 1440, height: 1100, scale: 1 },
+          dimensions: { requestedWidth: 1440, requestedHeight: 1100, scale: 1 },
           captures,
           errors,
         },
