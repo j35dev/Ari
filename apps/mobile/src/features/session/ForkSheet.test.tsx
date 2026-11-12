@@ -78,7 +78,7 @@ describe('ForkSheet', () => {
       if (outcome instanceof Error) test.query.mockRejectedValue(outcome)
       else test.query.mockResolvedValue(outcome)
       render(<ForkSheet {...test.props} />)
-      await test.user.click(screen.getByRole('button', { name: 'Retry same fork' }))
+      await test.user.click(screen.getByRole('button', { name: 'Check fork receipt' }))
       await screen.findByRole('alert')
       expect(test.send).not.toHaveBeenCalled()
       expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: request.key })
@@ -179,7 +179,7 @@ describe('ForkSheet', () => {
     render(<ForkSheet {...test.props} />)
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Fork name' }).disabled).toBe(true)
     await test.user.click(
-      screen.getByRole<HTMLButtonElement>('button', { name: 'Retry same fork' }),
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Check fork receipt' }),
     )
     expect(test.send).toHaveBeenCalledOnce()
     expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: key })
@@ -212,7 +212,7 @@ describe('ForkSheet', () => {
     await test.user.click(screen.getByRole<HTMLButtonElement>('button', { name: 'Create fork' }))
     expect((await screen.findByRole('alert')).textContent).toContain('did not confirm')
     await test.user.click(
-      screen.getByRole<HTMLButtonElement>('button', { name: 'Retry same fork' }),
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Check fork receipt' }),
     )
     expect(test.send).toHaveBeenCalledOnce()
     expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: test.send.mock.calls[0]?.[1] })

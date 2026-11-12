@@ -387,7 +387,7 @@ describe('active-session reconnect ownership', () => {
     expect(session.send).not.toHaveBeenCalled()
   })
 
-  it('retains an uncertain command identity and payload until the user explicitly retries it', async () => {
+  it('retains an uncertain command identity and payload when checking an absent host receipt', async () => {
     const pending = {
       key: 'exact-pending-receipt',
       text: 'Run the tests',
@@ -396,23 +396,19 @@ describe('active-session reconnect ownership', () => {
     }
     writePending('https://first.example', 'phone', 'sess_1', pending)
     const { session } = await mount()
-    session.send.mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
+    session.query.mockImplementation(async (op) => {
+      if (op === 'command.status') throw new RemoteError('not_found', 'Host history absent')
+      return op === 'session.get' ? snapshot : []
+    })
     vi.useFakeTimers()
     act(() => session.streams[0]!.close(1006))
     await advance(2100)
     expect(session.send).not.toHaveBeenCalled()
     expect(readPending('https://first.example', 'phone', 'sess_1')).toEqual(pending)
-    fireEvent.click(screen.getByRole('button', { name: 'Retry same submission' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check submission receipt' }))
     await advance(0)
-    expect(session.send).toHaveBeenCalledExactlyOnceWith(
-      {
-        op: 'session.queue',
-        sessionId: 'sess_1',
-        text: pending.text,
-        attachmentIds: pending.attachmentIds,
-      },
-      pending.key,
-    )
+    expect(session.send).not.toHaveBeenCalled()
+    expect(session.query).toHaveBeenCalledWith('command.status', { idempotencyKey: pending.key })
     expect(readPending('https://first.example', 'phone', 'sess_1')).toEqual(pending)
   })
 })

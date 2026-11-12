@@ -153,7 +153,7 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
           const nextId = result.result?.terminalId ?? result.terminalId
           if (nextId === undefined)
             throw new Error(
-              'The computer did not return a terminal. Retry checks the same creation.',
+              'The computer did not return a terminal. Check its original receipt.',
             )
           id.current = nextId
           creating.current = null
@@ -331,7 +331,7 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
               } else setRevision((value) => value + 1)
             }}
           >
-            {inputBlocked ? 'Retry same terminal input' : 'Retry'}
+            {inputBlocked ? 'Check input receipt' : 'Check status'}
           </button>
         </div>
       )}

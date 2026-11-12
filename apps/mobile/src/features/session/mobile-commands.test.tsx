@@ -85,7 +85,7 @@ describe('mobile command decisions', () => {
     await render()
     expect(app.session.send).toHaveBeenCalledTimes(1)
     expect(host.textContent).toContain('Unconfirmed submission restored')
-    await click('Retry same submission')
+    await click('Check submission receipt')
     expect(app.session.send).toHaveBeenCalledOnce()
     expect(app.session.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: first?.[1] })
     expect(host.textContent).toContain('Queued on your computer')
@@ -101,8 +101,8 @@ describe('mobile command decisions', () => {
       else app.session.query.mockResolvedValue(outcome)
       await act(async () => root.render(<Composer sessionId="session-1" status="idle" controls={null}
         disabled={false} onSent={vi.fn()} onError={vi.fn()} />))
-      await click('Retry same submission')
-      await click('Retry same submission')
+      await click('Check submission receipt')
+      await click('Check submission receipt')
       expect(app.session.send).not.toHaveBeenCalled()
       expect(app.session.query).toHaveBeenNthCalledWith(1, 'command.status', { idempotencyKey: 'original-receipt' })
       expect(host.textContent).toContain('Response uncertain')
@@ -150,7 +150,7 @@ describe('mobile command decisions', () => {
       snapshotCommit: preview.snapshotCommit,
       expectedParentSnapshot: preview.expectedParentSnapshot,
     })
-    await click('Retry same integration')
+    await click('Check integration receipt')
     expect(app.session.send).toHaveBeenCalledOnce()
     expect(app.session.query).toHaveBeenLastCalledWith('command.status', { idempotencyKey: first?.[1] })
     expect(document.body.textContent).toContain('Changes integrated into the parent workspace')
@@ -165,13 +165,13 @@ describe('mobile command decisions', () => {
       await click('Integrate reviewed changes')
       if (outcome instanceof Error) app.session.query.mockRejectedValue(outcome)
       else app.session.query.mockResolvedValue(outcome)
-      await click('Retry same integration')
-      await click('Retry same integration')
+      await click('Check integration receipt')
+      await click('Check integration receipt')
       expect(app.session.send).toHaveBeenCalledOnce()
       expect(app.session.query).toHaveBeenLastCalledWith('command.status', {
         idempotencyKey: app.session.send.mock.calls[0]?.[1],
       })
-      expect(document.body.textContent).toContain('Retry same integration')
+      expect(document.body.textContent).toContain('Check integration receipt')
       expect(sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1')).not.toBeNull()
     },
   )
@@ -188,7 +188,7 @@ describe('mobile command decisions', () => {
     expect(document.body.textContent).toContain('The parent changed')
     expect(
       Array.from(document.querySelectorAll('button')).some(
-        (button) => button.textContent === 'Retry same integration',
+        (button) => button.textContent === 'Check integration receipt',
       ),
     ).toBe(false)
     await click('Refresh preview')

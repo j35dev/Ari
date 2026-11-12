@@ -1,4 +1,4 @@
-// Final focused validation after the shared lifecycle/context picks. Run under run-heavy.mjs.
+// Final mobile validation. Always invoked through the coordinator's run-heavy.mjs.
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 const pnpm = 'C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs'
@@ -8,8 +8,16 @@ async function check(args) {
   const result = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', (code, signal) => resolve({ code, signal })) })
   if (result.code !== 0) throw new Error(`Final check stopped: ${JSON.stringify(result)}`)
 }
-await check(['exec', 'eslint', 'apps/mobile/src/lib/lifecycle-device-store.ts', 'apps/mobile/src/lib/lifecycle-device-store.test.ts', 'apps/mobile/src/features/session/SessionScreen.test.tsx', 'apps/mobile/scripts/final-check.mjs'])
-await check(['--filter', '@ari/mobile', 'exec', 'vitest', 'run', 'src/lib/session.test.ts', '-t', 'mobile pairing', '--maxWorkers=1', '--no-file-parallelism'])
-await check(['exec', 'vitest', 'run', 'packages/remote-client/src/session.test.ts', '--maxWorkers=1', '--no-file-parallelism'])
+await check(['--filter', '@ari/mobile', 'exec', 'vitest', 'run',
+  'src/lib/command-receipt.test.ts', 'src/lib/computers.test.ts', 'src/lib/device-key.test.ts',
+  'src/lib/lifecycle-device-store.test.ts', 'src/lib/app-provider.pairing.test.tsx', 'src/lib/app-provider.test.tsx',
+  'src/lib/draft.test.ts', 'src/lib/terminal-writer.test.ts',
+  'src/features/new/NewChatScreen.test.tsx', 'src/features/pair/PairScreen.test.tsx',
+  'src/features/session/mobile-commands.test.tsx', 'src/features/session/ForkSheet.test.tsx',
+  'src/features/session/Terminal.test.tsx', 'src/features/session/Composer.test.tsx',
+  'src/features/session/SessionScreen.test.tsx', 'src/features/session/SessionScreen.reconnect.test.tsx',
+  'src/features/computers/ComputerSwitcher.test.tsx', 'src/App.test.tsx', 'src/shell/AppShell.test.tsx',
+  '--maxWorkers=1', '--no-file-parallelism'])
 await check(['--filter', '@ari/mobile', 'typecheck'])
+await check(['exec', 'eslint', 'apps/mobile'])
 await check(['--filter', '@ari/mobile', 'build'])

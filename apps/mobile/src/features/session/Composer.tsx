@@ -41,9 +41,10 @@ export function Composer({
   )
   const [attachments, setAttachments] = useState<AttachmentRef[]>([])
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [receipt, setReceipt] = useState<string | null>(
-    restored === null ? null : 'Unconfirmed submission restored. Retry checks the same receipt.',
+    restored === null ? null : 'Unconfirmed submission restored. Check its receipt.',
   )
   const [pending, setPending] = useState<PendingSubmission | null>(restored)
   const area = useRef<HTMLTextAreaElement>(null)
@@ -86,6 +87,7 @@ export function Composer({
       return
     }
     setBusy(true)
+    setChecking(pending !== null)
     setPending(command)
     setReceipt(null)
     try {
@@ -123,7 +125,7 @@ export function Composer({
       onError(
         error instanceof Error
           ? error.message
-          : 'The response was lost. Retry to check the same submission.',
+          : 'The response was lost. Check the original submission receipt.',
       )
       if (
         error instanceof RemoteError &&
@@ -132,9 +134,9 @@ export function Composer({
         setPending(null)
         writePending(app.origin, deviceId, sessionId, null)
         setReceipt('Not accepted. Your draft is still here.')
-      } else setReceipt('Response uncertain. Retry checks this submission using the same receipt.')
+      } else setReceipt('Response uncertain. Check the original submission receipt.')
     } finally {
-      if (alive.current) setBusy(false)
+      if (alive.current) { setBusy(false); setChecking(false) }
     }
   }
   async function upload(file: File): Promise<void> {
@@ -198,7 +200,7 @@ export function Composer({
   return (
     <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
       {!disabled && (running || busy) && (
-        <WorkingIndicator
+        checking ? <p role="status" className="mb-2 text-center text-xs text-fg-muted">Checking receipt…</p> : <WorkingIndicator
           sending={!running}
           {...(running && workingSince !== undefined ? { since: workingSince } : {})}
         />
@@ -298,7 +300,7 @@ export function Composer({
               stopInstead
                 ? 'Stop'
                 : pending !== null
-                  ? 'Retry same submission'
+                  ? 'Check submission receipt'
                   : running
                     ? 'Queue message'
                     : 'Send message'
@@ -311,7 +313,7 @@ export function Composer({
             ) : pending === null ? (
               <ArrowUp size={20} />
             ) : null}
-            {pending !== null && !stopInstead && (busy ? 'Submitting…' : 'Retry submission')}
+            {pending !== null && !stopInstead && (busy ? checking ? 'Checking…' : 'Submitting…' : 'Check receipt')}
           </button>
         </div>
       </form>
@@ -322,7 +324,7 @@ export function Composer({
       )}
       {pending !== null && pending.attachmentIds.length > 0 && (
         <p className="mt-1 text-center text-[11px] text-fg-subtle">
-          Retry includes {pending.attachmentIds.length} staged images from this submission.
+          This receipt includes {pending.attachmentIds.length} staged images from this submission.
         </p>
       )}
     </div>
