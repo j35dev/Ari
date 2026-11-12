@@ -149,8 +149,8 @@ it('keeps normal session history and execution on the signed host across fallbac
     now: () => now, moveBackCooldownMs: 60_000, onChange: (views) => registry.publish('machines.updates', views) })
   cleanup.push(() => machines.dispose())
   registerMachinesRpc(registry, machines)
-  registry.register('stream.subscribe', (params) => { subscribeMachineStream(registry, machines, params); return { id: params.id } })
-  registry.register('stream.unsubscribe', ({ id }) => { machines.unsubscribe(id); registry.unsubscribe(id); return { id } })
+  registry.register('stream.subscribe', (params) => { subscribeMachineStream(registry, machines, params); return { subscribed: true } })
+  registry.register('stream.unsubscribe', ({ id }) => { machines.unsubscribe(id); registry.unsubscribe(id); return { unsubscribed: true } })
   const ipcCalls: { method: string; params: unknown }[] = []
   vi.stubGlobal('window', { ari: {
     invoke: async (method: string, params?: unknown) => { ipcCalls.push({ method, params }); return registry.invoke(method, params) },
