@@ -876,7 +876,7 @@ describe('Machines with two real gateways and engines', () => {
       ok: false,
       error: { code: 'unreachable' },
     })
-    expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
+    expect((await host.store.load('sess_same')).session?.projectId).toBe('project_A')
     writeFileSync(join(host.dir, 'remote', 'receipts.json'), '{corrupt')
     await host.restart()
     expect((await machines.connect(id)).status).toBe('connected')
@@ -890,7 +890,7 @@ describe('Machines with two real gateways and engines', () => {
       error: { code: expect.stringMatching(/^(not_found|conflict)$/) },
     })
     expect(commands).toBe(1)
-    expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
+    expect((await host.store.load('sess_same')).session?.projectId).toBe('project_A')
   })
 
   it('recovers a failed OS-keyring unlock using the original paired key', async () => {
