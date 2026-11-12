@@ -51,6 +51,20 @@ before the passing screen/typecheck checks.
 
 ## Final restart after verification
 
+The publication full-check pause ended on 2026-11-13 with a launch from
+`503d776e`, containing reviewed application runtime `da40bbef` and packaging
+fixes through `d8c812ee`. Runner PID 29024 and Electron main PID 17060 are
+responding at below-normal priority. The visible title is **Ari Dev Machines**,
+renderer 5197 returned HTTP 200, and profile/AppUserModelID remain isolated.
+Gateway 8797 has no listener because hosting is off. Installed Ari remains
+PID 13384 on 8787. Startup logs show store/provider initialization with no fatal
+error; ordinary Vite chunk warnings remain. This restart was verified by
+process/title/log/HTTP observations; the earlier screen checks below are
+historical, not newly repeated native UI automation. Later publication changes
+are documentation/evidence only and do not alter the running application.
+
+### Earlier completion restart
+
 The approved verification pause ended with a restart from integration checkpoint
 `d8107b7e545ce7520cc5a400529b4c66ad9e03e4`, containing final runtime source
 `da40bbef99343f9dce054889cb336e7ba3977e25`. Subsequent handoff documentation does
