@@ -468,7 +468,8 @@ function SessionRow({
         className={`${
           variant === 'card'
             ? CARD_ROW
-            : 'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1'
+            : host ? 'flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 pr-1'
+              : 'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1'
         } text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           selected
             ? 'bg-accent/15 text-fg'
@@ -521,14 +522,16 @@ function SessionRow({
         ) : (
           <>
             <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
+            <span className="min-w-0 flex-1">
             <span
-              className={`min-w-0 flex-1 truncate text-[13px] ${
+              className={`block truncate text-[13px] ${
                 hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
               }`}
             >
               {session.title}
             </span>
-            {host && <span className="max-w-24 shrink-0 truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ` · ${host.status}` : ''}</span>}
+            {host && <span className="block truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ` · ${host.status}` : ''}</span>}
+            </span>
             {session.workspaceKind === 'managed-worktree' ? (
               <span
                 className="shrink-0 text-2xs text-fg-subtle"
