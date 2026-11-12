@@ -1,5 +1,7 @@
 import type { GatewayInfo, PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
 import type { RemoteClientMessage, RemoteServerMessage } from '@ari/contracts/remote'
+import type { SignedHostRouteManifest, SignedRouteProof, SignedRouteChallenge } from '@ari/contracts/route-auth'
+import type { DeviceAuthorization } from './route-auth'
 
 /**
  * The client half of the remote protocol.
@@ -108,6 +110,19 @@ export class GatewayClient {
     return this.#post<GatewayInfo>('/info', {})
   }
 
+  async routeManifest(): Promise<SignedHostRouteManifest> {
+    return this.#post('/routes/manifest', {}, true)
+  }
+  async routeProof(nonce: string): Promise<SignedRouteProof> {
+    return this.#post('/routes/proof', { audience: this.origin, nonce })
+  }
+  async routeChallenge(deviceId: string, clientNonce: string): Promise<SignedRouteChallenge> {
+    return this.#post('/routes/challenge', { audience: this.origin, deviceId, clientNonce })
+  }
+  async routeAuthorize(deviceId: string, nonce: string, signature: string): Promise<DeviceAuthorization> {
+    return this.#post('/routes/authorize', { audience: this.origin, deviceId, nonce, signature })
+  }
+
   async pairRequest(
     invitationId: string,
     displayName: string,
@@ -173,6 +188,7 @@ export class GatewayClient {
     sessionId: string,
     options: {
       fromSeq?: number
+      desktop?: true
       onFrame: (message: RemoteServerMessage) => void
       onClose?: (event: { code: number; reason: string }) => void
     },
@@ -186,7 +202,7 @@ export class GatewayClient {
 
     socket.addEventListener('open', () => {
       const subscribe: RemoteClientMessage = {
-        type: 'events.subscribe',
+        type: options.desktop === true ? 'events.desktop.subscribe' : 'events.subscribe',
         sessionId,
         ...(options.fromSeq === undefined ? {} : { fromSeq: options.fromSeq }),
       }
@@ -226,6 +242,7 @@ export class GatewayClient {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        redirect: 'error',
       })
     } catch (error) {
       // No response at all: the phone cannot tell a sleeping desktop from a

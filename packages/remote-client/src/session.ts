@@ -1,6 +1,7 @@
 import { RemoteError, type GatewayClient } from './gateway-client'
 import type { DeviceCredential, LeaseAdapter } from './credential'
 import type { RemoteServerMessage } from '@ari/contracts/remote'
+import type { DeviceAuthorization } from './route-auth'
 
 /**
  * The connection a phone actually lives with (ADR §17).
@@ -48,6 +49,9 @@ export interface SessionDeps {
   decisionTimeoutMs?: number
   /** Base backoff between connection attempts. Tests shorten it. */
   connectRetryMs?: number
+  connectAttempts?: number
+  /** Desktop pinned routes authenticate with a separate audience-bound proof. */
+  authorize?: (deviceId: string, signal: AbortSignal) => Promise<DeviceAuthorization>
 }
 
 /** The protocol this build speaks; the gateway answers with its own. */
@@ -75,6 +79,8 @@ export class RemoteSession {
   #capabilities: readonly string[] = []
   #listeners = new Set<() => void>()
   #connectRetryMs: number
+  readonly #connectAttempts: number
+  readonly #routeAuthorize: SessionDeps['authorize']
   readonly #managed: LeaseAdapter | null
   #lifecycle = new AbortController()
   readonly #subscriptions = new Set<() => void>()
@@ -88,6 +94,8 @@ export class RemoteSession {
     this.#decisionPollMs = deps.decisionPollMs ?? DECISION_POLL_MS
     this.#decisionTimeoutMs = deps.decisionTimeoutMs ?? DECISION_TIMEOUT_MS
     this.#connectRetryMs = deps.connectRetryMs ?? CONNECT_RETRY_MS
+    this.#connectAttempts = deps.connectAttempts ?? CONNECT_ATTEMPTS
+    this.#routeAuthorize = deps.authorize
   }
 
   get state(): ConnectionState {
@@ -160,13 +168,13 @@ export class RemoteSession {
         if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
           return this.#set('version-mismatch')
         }
-        this.#capabilities = info.capabilities
+        this.#capabilities = [...info.capabilities, ...(info.machinesExtensions?.operations ?? [])]
         await this.#authorize(deviceId, signal)
         signal?.throwIfAborted()
         return this.#set('connected')
       } catch (error) {
         signal?.throwIfAborted()
-        if (attempt + 1 >= CONNECT_ATTEMPTS || !retryable(error)) {
+        if (attempt + 1 >= this.#connectAttempts || !retryable(error)) {
           return this.#set(stateForError(error))
         }
         await waitForRetry(this.#connectRetryMs * (attempt + 1), signal)
@@ -262,9 +270,9 @@ export class RemoteSession {
         'Update Ari on your computer to use this version.',
       )
     }
-    this.#capabilities = info.capabilities
+    this.#capabilities = [...info.capabilities, ...(info.machinesExtensions?.operations ?? [])]
     for (const operation of requiredCapabilities) {
-      if (!info.capabilities.some((item) => item === operation)) {
+      if (!this.#capabilities.includes(operation)) {
         throw new RemoteError(
           'unsupported_capability',
           `This computer does not support ${operation}.`,
@@ -370,6 +378,7 @@ export class RemoteSession {
     sessionId: string,
     options: {
       fromSeq?: number
+      desktop?: true
       onFrame: (frame: unknown) => void
       onClose: (info: { code: number; reason: string }) => void
     },
@@ -384,6 +393,9 @@ export class RemoteSession {
       if (disposed || signal.aborted) return
       if (message.type === 'events.frame')
         for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
+      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId &&
+        (message.frame.kind === 'chunk' || message.frame.kind === 'live'))
+        for (const event of message.frame.events) cursor = Math.max(cursor ?? -1, event.seq)
       options.onFrame(message)
     }
     const onClose = (info: { code: number; reason: string }): void => {
@@ -405,6 +417,7 @@ export class RemoteSession {
       if (disposed || signal.aborted) return
       close = this.#client.subscribe(sessionId, {
         ...(cursor === undefined ? {} : { fromSeq: cursor }),
+        ...(options.desktop === true ? { desktop: true as const } : {}),
         onFrame,
         onClose,
       })
@@ -464,17 +477,23 @@ export class RemoteSession {
   async #authorize(deviceId: string, signal?: AbortSignal): Promise<void> {
     signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
-    const { nonce } = await this.#client.deviceChallenge(deviceId)
-    signal?.throwIfAborted()
-    const signature = await this.#keyring.sign(nonce)
-    signal?.throwIfAborted()
-    const authorized = await this.#client.deviceAuthorize(deviceId, { nonce, signature })
+    const authorized = this.#routeAuthorize === undefined
+      ? await this.#legacyAuthorize(deviceId, signal)
+      : await this.#routeAuthorize(deviceId, signal)
     signal?.throwIfAborted()
     await this.#renewLease(false, signal)
     signal?.throwIfAborted()
     this.#useToken(authorized.token, signal)
     this.#projectIds = authorized.projectIds
     this.#allowTerminal = authorized.allowTerminal === true
+  }
+
+  async #legacyAuthorize(deviceId: string, signal: AbortSignal): Promise<DeviceAuthorization> {
+    const { nonce } = await this.#client.deviceChallenge(deviceId)
+    signal.throwIfAborted()
+    const signature = await this.#keyring.sign(nonce)
+    signal.throwIfAborted()
+    return this.#client.deviceAuthorize(deviceId, {nonce, signature})
   }
 
   async #renewLease(force = false, signal?: AbortSignal): Promise<void> {
