@@ -103,7 +103,7 @@ export function ForkSheet({
   return (
     <BottomSheet title="Fork session" onClose={onClose}>
       <form
-        className="space-y-4 py-3"
+        className="min-w-0 space-y-4 py-3"
         onSubmit={(event) => {
           event.preventDefault()
           void fork()
@@ -125,7 +125,7 @@ export function ForkSheet({
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="block text-xs text-fg-muted">
+          <label className="block min-w-0 text-xs text-fg-muted">
             Agent
             <select
               value={provider}
@@ -135,7 +135,7 @@ export function ForkSheet({
                 setModel(next === parent.driverKind ? (parent.modelId ?? '') : '')
               }}
               disabled={locked}
-              className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
+              className="mt-2 min-h-12 w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 text-fg"
             >
               {!app.catalog?.providers.some((entry) => entry.driverKind === provider) && (
                 <option value={provider}>{provider}</option>
@@ -151,13 +151,13 @@ export function ForkSheet({
               ))}
             </select>
           </label>
-          <label className="block text-xs text-fg-muted">
+          <label className="block min-w-0 text-xs text-fg-muted">
             Model
             <select
               value={model}
               onChange={(event) => setModel(event.target.value)}
               disabled={locked || models.length === 0}
-              className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
+              className="mt-2 min-h-12 w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 text-fg"
             >
               <option value="">
                 {provider === parent.driverKind && parent.modelId !== null
