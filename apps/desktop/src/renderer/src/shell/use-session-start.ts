@@ -288,7 +288,8 @@ export function useSessionStart(options: {
       actions.current.clearRecovery()
       const sessionId = await actions.current.run({
         projectId, effective: { ...latest.current.defaults, ...overrides },
-        allowReuse: overrides.driverKind === undefined && overrides.workspaceMode !== 'isolated',
+        allowReuse: (overrides.driverKind === undefined || overrides.driverKind === latest.current.defaults.driverKind) &&
+          !overrides.lead && overrides.workspaceMode !== 'isolated',
         intent: latest.current.captureIntent(), draft: true,
       })
       if (!sessionId) throw new Error('Session creation was not confirmed.')
