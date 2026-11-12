@@ -138,7 +138,8 @@ export function Composer({
     }
   }
   async function upload(file: File): Promise<void> {
-    if (app.session === null) return
+    const session = app.session
+    if (session === null || disabled) return
     if (file.size > 1024 * 1024) {
       onError('Choose an image smaller than 1 MB.')
       return
@@ -150,13 +151,15 @@ export function Composer({
     setUploading(true)
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
+      if (!alive.current) return
       let binary = ''
       for (const byte of bytes) binary += String.fromCharCode(byte)
-      const outcome = await app.session.send({
+      const outcome = await session.send({
         op: 'attachments.stage',
         sessionId,
         files: [{ name: file.name, mimeType: file.type, dataBase64: btoa(binary) }],
       })
+      if (!alive.current) return
       const envelope = outcome as {
         result?: { attachments?: AttachmentRef[] }
         attachments?: AttachmentRef[]
@@ -165,9 +168,9 @@ export function Composer({
       if (staged === undefined) throw new Error('The computer did not confirm this attachment.')
       setAttachments((current) => [...current, ...staged].slice(0, 4))
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Could not upload this image.')
+      if (alive.current) onError(error instanceof Error ? error.message : 'Could not upload this image.')
     } finally {
-      setUploading(false)
+      if (alive.current) setUploading(false)
       if (input.current !== null) input.current.value = ''
     }
   }
@@ -258,7 +261,7 @@ export function Composer({
                 type="button"
                 className="icon-button text-fg-muted"
                 aria-label="Choose an image"
-                disabled={uploading || busy || pending !== null || attachments.length >= 4}
+                disabled={disabled || uploading || busy || pending !== null || attachments.length >= 4}
                 onClick={() => input.current?.click()}
               >
                 {uploading ? (
