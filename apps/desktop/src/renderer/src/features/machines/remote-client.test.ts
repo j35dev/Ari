@@ -19,7 +19,7 @@ describe('remote host ownership and receipts', () => {
     expect(readRemoteDraft('host-a', 'same').attachments[0]?.id).toBe('image-a')
     expect(readRemoteDraft('host-b', 'same')).toEqual({ text: 'B', attachments: [] })
   })
-  it('persists before sending, blocks another action, and checks the originating host before an explicit retry', async () => {
+  it('keeps the exact receipt and never resends when an old host returns not_found even with retry=true', async () => {
     invoke.mockImplementationOnce(async (method, params) => {
       expect(method).toBe('machines.command')
       expect(readReceipt('host-a', 'same')?.command).toEqual(params.command)
@@ -38,21 +38,22 @@ describe('remote host ownership and receipts', () => {
       sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' }),
     ).rejects.toThrow('Check the unconfirmed')
     expect(invoke).toHaveBeenCalledTimes(1)
+    invoke.mockClear()
     invoke
       .mockResolvedValueOnce({ ok: false, error: { code: 'not_found', message: 'no such key' } })
       .mockResolvedValueOnce({ ok: true, result: { accepted: true } })
-    await resolveReceipt('host-a', 'same', true)
-    expect(invoke.mock.calls[1]).toEqual([
+    await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow('outcome is unknown')
+    expect(readReceipt('host-a', 'same')).toEqual(receipt)
+    expect(invoke.mock.calls[0]).toEqual([
       'machines.query',
       {
         machineId: 'host-a',
         query: { op: 'command.status', idempotencyKey: receipt.command.idempotencyKey },
       },
     ])
-    expect(invoke.mock.calls[2]).toEqual([
-      'machines.command',
-      { machineId: 'host-a', command: receipt.command },
-    ])
+    expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(0)
+    await resolveReceipt('host-a', 'same', true)
+    expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(0)
     expect(readReceipt('host-a', 'same')).toBeNull()
     expect(readReceipt('host-b', 'same')).toBeNull()
   })
@@ -62,7 +63,7 @@ describe('remote host ownership and receipts', () => {
       sendRemote('host-a', 'same', { op: 'session.queue', sessionId: 'same', text: 'queued' }),
     ).rejects.toThrow()
     invoke.mockResolvedValueOnce({ ok: false, error: { code: 'not_found', message: 'missing' } })
-    await expect(resolveReceipt('host-a', 'same')).rejects.toThrow('explicitly retry')
+    await expect(resolveReceipt('host-a', 'same')).rejects.toThrow('outcome is unknown')
     expect(readReceipt('host-a', 'same')).not.toBeNull()
     invoke.mockResolvedValueOnce({ ok: true, result: { accepted: true } })
     await resolveReceipt('host-a', 'same', true)
@@ -156,23 +157,28 @@ describe('remote host ownership and receipts', () => {
     await resolveReceipt('host-a', 'same')
     expect(readReceipt('host-a', 'same')).toBeNull()
   })
-  it.each(['internal_error', 'conflict', 'not_found', 'stale_snapshot', 'idempotency_conflict', 'unreachable', 'future_failure'])(
-    'retains the exact receipt for uncertain %s failures',
-    async (code) => {
-      invoke.mockResolvedValueOnce({ ok: false, error: { code, message: 'Outcome unknown' } })
-      await expect(
-        sendRemote('host-a', 'same', {
-          op: 'session.interrupt',
-          sessionId: 'same',
-        }),
-      ).rejects.toThrow()
-      const saved = readReceipt('host-a', 'same')!
-      invoke.mockResolvedValueOnce({ ok: false, error: { code: 'conflict', message: 'Unknown' } })
-      await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow('Unknown')
-      expect(readReceipt('host-a', 'same')).toEqual(saved)
-      expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
-    },
-  )
+  it.each([
+    'internal_error',
+    'conflict',
+    'not_found',
+    'stale_snapshot',
+    'idempotency_conflict',
+    'unreachable',
+    'future_failure',
+  ])('retains the exact receipt for uncertain %s failures', async (code) => {
+    invoke.mockResolvedValueOnce({ ok: false, error: { code, message: 'Outcome unknown' } })
+    await expect(
+      sendRemote('host-a', 'same', {
+        op: 'session.interrupt',
+        sessionId: 'same',
+      }),
+    ).rejects.toThrow()
+    const saved = readReceipt('host-a', 'same')!
+    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'conflict', message: 'Unknown' } })
+    await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow('Unknown')
+    expect(readReceipt('host-a', 'same')).toEqual(saved)
+    expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
+  })
   it('clears only a proven guard refusal or explicit non-acceptance', async () => {
     invoke.mockResolvedValueOnce({
       ok: false,
@@ -211,5 +217,18 @@ describe('remote host ownership and receipts', () => {
     expect(await resolveReceipt('host-a', 'same')).toEqual({ sessionId: 'forked' })
     expect(readReceipt('host-a', 'same')).toBeNull()
     expect(invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
+  })
+  it('retains malformed mutation successes and confirms the real host terminal-close shape', async () => {
+    invoke.mockResolvedValueOnce({ ok: true, result: {} })
+    await expect(sendRemote('host-a', 'same', { op: 'session.interrupt', sessionId: 'same' })).rejects.toThrow()
+    const saved = readReceipt('host-a', 'same')!
+    invoke.mockResolvedValueOnce({ ok: true, result: {} })
+    await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow()
+    expect(readReceipt('host-a', 'same')).toEqual(saved)
+    invoke.mockResolvedValueOnce({ ok: true, result: { killed: true } })
+    expect(await sendRemote('host-a', 'terminal:same', {
+      op: 'terminal.kill', sessionId: 'same', terminalId: 'host-terminal',
+    })).toEqual({ killed: true })
+    expect(readReceipt('host-a', 'terminal:same')).toBeNull()
   })
 })

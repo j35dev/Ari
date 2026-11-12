@@ -2,6 +2,8 @@ import { z } from 'zod'
 import {
   remoteCommandEnvelopeSchema,
   remoteQuerySchema,
+  remoteAccountsSchema,
+  remoteRedeemSchema,
   type RemoteCommand,
   type RemoteQuery,
 } from '@ari/contracts/remote'
@@ -158,11 +160,12 @@ function assertScope(scope: string, action: RemoteAction): void {
   }
 }
 
-/** A user-requested retry first checks the originating host's recorded outcome. */
+/** Saved actions are checked read-only. Absence never proves non-execution. */
 export async function resolveReceipt(
   machineId: string,
   scope: string,
-  retry = false,
+  // Retain call compatibility for old controls without permitting resubmission.
+  _retry = false,
 ): Promise<unknown> {
   const receipt = readReceipt(machineId, scope)
   if (receipt === null) throw new Error('No unconfirmed submission exists.')
@@ -186,9 +189,8 @@ export async function resolveReceipt(
       error.code === 'not_found'
     ))
       throw error
-    if (retry) return submitReceipt(receipt)
     throw new Error(
-      'The host has no receipt for this action. You can explicitly retry the saved action.',
+      'The host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.',
       { cause: error },
     )
   }
@@ -200,11 +202,35 @@ function validateCommandResult(command: RemoteCommand, result: unknown): void {
     .safeParse(result)
   if (decision.success && !decision.data.accepted)
     throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
-  if (command.op === 'session.create') z.object({ sessionId: z.string().min(1) }).parse(result)
-  if (command.op === 'session.fork') z.object({ sessionId: z.string().min(1) }).parse(result)
-  if (command.op === 'terminal.create') z.object({ terminalId: z.string().min(1) }).parse(result)
-  if (command.op === 'attachments.stage')
-    z.object({ attachments: attachmentRefSchema.array() }).parse(result)
+  switch (command.op) {
+    case 'session.create':
+    case 'session.fork':
+      z.object({ sessionId: z.string().min(1) }).parse(result)
+      return
+    case 'terminal.create':
+      z.object({ terminalId: z.string().min(1) }).parse(result)
+      return
+    case 'terminal.kill':
+      z.object({ killed: z.literal(true) }).parse(result)
+      return
+    case 'attachments.stage':
+      z.object({ attachments: attachmentRefSchema.array() }).parse(result)
+      return
+    case 'accounts.activate':
+      remoteAccountsSchema.parse(result)
+      return
+    case 'usage.redeem':
+      remoteRedeemSchema.parse(result)
+      return
+    case 'changes.integrate':
+      z.object({
+        status: z.enum(['integrated', 'conflict', 'already_integrated']),
+        snapshotCommit: z.literal(command.snapshotCommit),
+      }).parse(result)
+      return
+    default:
+      z.object({ accepted: z.literal(true) }).parse(result)
+  }
 }
 
 export function messageOf(error: unknown): string {

@@ -13,10 +13,24 @@ import { MachinesProvider } from '../src/features/machines/use-machines'
 import { SettingsWorkspace } from '../src/features/settings/SettingsWorkspace'
 import { RemoteWorkspace } from '../src/features/machines/RemoteWorkspace'
 import { settingsSchema } from '@ari/contracts/settings'
+import { remoteCommandEnvelopeSchema } from '@ari/contracts/remote'
+import { scopeKey } from '../src/features/machines/remote-client'
+import { writeRemoteDraft } from '../src/features/machines/remote-drafts'
 
 const options = new URLSearchParams(location.search)
 const themeId = options.get('theme') === 'light' ? 'porcelain' : 'obsidian'
 localStorage.setItem('ari.theme', JSON.stringify({ mode: themeId, wallpaper: 'none' }))
+localStorage.removeItem(`ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`)
+writeRemoteDraft('host-a', 'same-session', { text: '', attachments: [] })
+if (options.get('view') === 'receipt') {
+  const command = remoteCommandEnvelopeSchema.parse({
+    op: 'session.prompt', sessionId: 'same-session', text: 'Continue the host task',
+    clientCommandId: 'fixture-command', idempotencyKey: 'fixture-command',
+  })
+  localStorage.setItem(`ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`,
+    JSON.stringify({ machineId: 'host-a', scope: 'same-session', command }))
+  writeRemoteDraft('host-a', 'same-session', { text: 'Continue the host task', attachments: [] })
+}
 const machines = [
   { ...machineFixture(), name: 'Studio workstation', allowTerminal: true },
   { ...machineFixture('host-b'), name: 'Build computer', status: 'offline' as const, error: null },
@@ -77,6 +91,8 @@ window.ari = {
         ])
       if (request.query.op === 'session.get') return reply(snapshot)
       if (request.query.op === 'models.list') return reply(catalogFixture)
+      if (request.query.op === 'command.status')
+        return { ok: false, error: { code: 'not_found', message: 'No retained receipt on this old host' } }
     }
     throw new Error(`Fixture refused RPC: ${method}`)
   },
@@ -101,7 +117,7 @@ createRoot(document.getElementById('root')!).render(
           <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border px-5 text-xs font-semibold">
             Ari <span className="ml-3 font-normal text-fg-subtle">Machines fixture</span>
           </header>
-          {options.get('view') === 'workspace' ? (
+          {options.get('view') === 'workspace' || options.get('view') === 'receipt' ? (
             <RemoteWorkspace
               target={{ machineId: 'host-a', sessionId: 'same-session' }}
               onSelect={() => undefined}

@@ -167,7 +167,7 @@ function RemoteNewSession({
       })
     }
   }, [catalog, projects, draft, machine.id])
-  async function create(retry = false, check = false): Promise<void> {
+  async function create(): Promise<void> {
     if (
       !alive.current ||
       storageError ||
@@ -190,7 +190,7 @@ function RemoteNewSession({
     setError(null)
     try {
       const result = pending
-        ? await resolveReceipt(machine.id, scope, retry && !check)
+        ? await resolveReceipt(machine.id, scope)
         : await sendRemote(machine.id, scope, {
             op: 'session.create',
             projectId: project,
@@ -285,15 +285,9 @@ function RemoteNewSession({
             <div className="flex gap-2">
               <Button
                 disabled={busy || machine.status !== 'connected'}
-                onClick={() => void create(false, true)}
+                onClick={() => void create()}
               >
                 Check creation
-              </Button>
-              <Button
-                disabled={busy || machine.status !== 'connected'}
-                onClick={() => void create(true)}
-              >
-                Retry saved creation
               </Button>
             </div>
           </div>

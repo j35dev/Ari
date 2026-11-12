@@ -56,7 +56,9 @@ describe('granted host terminal', () => {
           result:
             params.command.op === 'terminal.create'
               ? { terminalId: 'host-terminal' }
-              : { accepted: true },
+              : params.command.op === 'terminal.kill'
+                ? { killed: true }
+                : { accepted: true },
         }
       return {
         ok: true,

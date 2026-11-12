@@ -165,14 +165,14 @@ export function RemoteTerminal({
       clearInterval(timer)
     }
   }, [machine.id, machine.status, machine.allowTerminal, sessionId, opened])
-  async function open(retry = false): Promise<void> {
+  async function open(): Promise<void> {
     if (!can('terminal.create') || busy) return
     setBusy(true)
     setError(null)
     try {
       const receipt = readReceipt(machine.id, scope)
       const result = receipt
-        ? await resolveReceipt(machine.id, scope, retry)
+        ? await resolveReceipt(machine.id, scope)
         : await sendRemote(machine.id, scope, {
             op: 'terminal.create',
             sessionId,
@@ -262,13 +262,6 @@ export function RemoteTerminal({
           <p className="text-xs text-warning">Terminal action unconfirmed. Input is blocked.</p>
           <Button size="sm" disabled={busy || !can('command.status')} onClick={() => void open()}>
             Check terminal receipt
-          </Button>
-          <Button
-            size="sm"
-            disabled={busy || !can('command.status')}
-            onClick={() => void open(true)}
-          >
-            Retry saved terminal action
           </Button>
         </div>
       )}
