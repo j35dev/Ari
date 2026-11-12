@@ -10,6 +10,7 @@ import {
   shell,
   safeStorage,
   type WebContents,
+  type IpcMainEvent,
 } from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -987,7 +988,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       getSettingsStore().current.ariaVoice.mode === 'voice-replies',
   )
   const played = (
-    event: import('electron').IpcMainEvent,
+    event: IpcMainEvent,
     params: { id?: unknown; generation?: unknown; error?: unknown },
   ) => {
     if (

@@ -1,10 +1,11 @@
+import type { VoiceAudio } from '../features/aria/voice-playback'
 import type { RpcMethod, RpcResults, StreamFrame, StreamName } from '@ari/contracts/rpc'
 import type { DictationBridge } from '../../../shared/dictation'
 
 interface AriBridge {
   voice?: {
     onAudio: (
-      callback: (frame: import('../features/aria/voice-playback').VoiceAudio) => void,
+      callback: (frame: VoiceAudio) => void,
     ) => () => void
     played: (id: number, generation: number, error?: string) => void
   }

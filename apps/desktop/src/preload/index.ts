@@ -1,3 +1,4 @@
+import type { VoiceAudio } from '../renderer/src/features/aria/voice-playback'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { StreamBatchFrame, StreamFrame } from '@ari/contracts/rpc'
@@ -15,11 +16,11 @@ const api = {
     played: (id: number, generation: number, error?: string): void =>
       ipcRenderer.send('ari:ariaVoice.played', { id, generation, error }),
     onAudio: (
-      callback: (frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio) => void,
+      callback: (frame: VoiceAudio) => void,
     ): (() => void) => {
       const receive = (
         _event: IpcRendererEvent,
-        frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio,
+        frame: VoiceAudio,
       ) => callback(frame)
       ipcRenderer.on('ari:ariaVoice.audio', receive)
       return () => ipcRenderer.removeListener('ari:ariaVoice.audio', receive)
