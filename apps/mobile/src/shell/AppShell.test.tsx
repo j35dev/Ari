@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+vi.mock('../lib/app-state', () => ({ useApp: () => ({ origin: 'https://phone.test', session: { deviceId: 'phone' } }) }))
 
 vi.mock('../lib/service-worker', () => ({
   registerServiceWorker: vi.fn(),

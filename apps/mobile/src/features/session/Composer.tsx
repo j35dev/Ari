@@ -10,6 +10,7 @@ import {
   type PendingSubmission,
 } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { WorkingIndicator } from './WorkingIndicator'
 
 /** One draft and one receipt key per submission, retained through an uncertain response. */
@@ -40,13 +41,21 @@ export function Composer({
   )
   const [attachments, setAttachments] = useState<AttachmentRef[]>([])
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [receipt, setReceipt] = useState<string | null>(
-    restored === null ? null : 'Unconfirmed submission restored. Retry checks the same receipt.',
+    restored === null ? null : 'Unconfirmed submission restored. Check its receipt.',
   )
   const [pending, setPending] = useState<PendingSubmission | null>(restored)
   const area = useRef<HTMLTextAreaElement>(null)
   const input = useRef<HTMLInputElement>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
   const running = status === 'running'
   useEffect(() => {
     writeDraft(app.origin, sessionId, text, deviceId)
@@ -80,23 +89,36 @@ export function Composer({
       return
     }
     setBusy(true)
+    setChecking(pending !== null)
     setPending(command)
     setReceipt(null)
     try {
-      await session.send(
-        {
-          op:
-            command.mode === 'queue'
-              ? 'session.queue'
-              : command.mode === 'steer'
-                ? 'session.steer'
-                : 'session.prompt',
-          sessionId,
-          text: command.text,
-          ...(command.attachmentIds.length === 0 ? {} : { attachmentIds: command.attachmentIds }),
-        },
-        command.key,
-      )
+      if (pending !== null)
+        await checkCommandReceipt(
+          session,
+          command.key,
+          (result) =>
+            typeof result === 'object' &&
+            result !== null &&
+            'accepted' in result &&
+            result.accepted === true,
+        )
+      else
+        await session.send(
+          {
+            op:
+              command.mode === 'queue'
+                ? 'session.queue'
+                : command.mode === 'steer'
+                  ? 'session.steer'
+                  : 'session.prompt',
+            sessionId,
+            text: command.text,
+            ...(command.attachmentIds.length === 0 ? {} : { attachmentIds: command.attachmentIds }),
+          },
+          command.key,
+        )
+      if (!alive.current) return
       setText('')
       setAttachments([])
       setPending(null)
@@ -110,10 +132,11 @@ export function Composer({
         ),
       )
     } catch (error) {
+      if (!alive.current) return
       onError(
         error instanceof Error
           ? error.message
-          : 'The response was lost. Retry to check the same submission.',
+          : 'The response was lost. Check the original submission receipt.',
       )
       if (
         error instanceof RemoteError &&
@@ -122,13 +145,17 @@ export function Composer({
         setPending(null)
         writePending(app.origin, deviceId, sessionId, null)
         setReceipt('Not accepted. Your draft is still here.')
-      } else setReceipt('Response uncertain. Retry checks this submission using the same receipt.')
+      } else setReceipt('Response uncertain. Check the original submission receipt.')
     } finally {
-      setBusy(false)
+      if (alive.current) {
+        setBusy(false)
+        setChecking(false)
+      }
     }
   }
   async function upload(file: File): Promise<void> {
-    if (app.session === null) return
+    const session = app.session
+    if (session === null || disabled) return
     if (file.size > 1024 * 1024) {
       onError('Choose an image smaller than 1 MB.')
       return
@@ -140,13 +167,15 @@ export function Composer({
     setUploading(true)
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
+      if (!alive.current) return
       let binary = ''
       for (const byte of bytes) binary += String.fromCharCode(byte)
-      const outcome = await app.session.send({
+      const outcome = await session.send({
         op: 'attachments.stage',
         sessionId,
         files: [{ name: file.name, mimeType: file.type, dataBase64: btoa(binary) }],
       })
+      if (!alive.current) return
       const envelope = outcome as {
         result?: { attachments?: AttachmentRef[] }
         attachments?: AttachmentRef[]
@@ -155,9 +184,10 @@ export function Composer({
       if (staged === undefined) throw new Error('The computer did not confirm this attachment.')
       setAttachments((current) => [...current, ...staged].slice(0, 4))
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Could not upload this image.')
+      if (alive.current)
+        onError(error instanceof Error ? error.message : 'Could not upload this image.')
     } finally {
-      setUploading(false)
+      if (alive.current) setUploading(false)
       if (input.current !== null) input.current.value = ''
     }
   }
@@ -184,12 +214,18 @@ export function Composer({
   }
   return (
     <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
-      {!disabled && (running || busy) && (
-        <WorkingIndicator
-          sending={!running}
-          {...(running && workingSince !== undefined ? { since: workingSince } : {})}
-        />
-      )}
+      {!disabled &&
+        (running || busy) &&
+        (checking ? (
+          <p role="status" className="mb-2 text-center text-xs text-fg-muted">
+            Checking receipt…
+          </p>
+        ) : (
+          <WorkingIndicator
+            sending={!running}
+            {...(running && workingSince !== undefined ? { since: workingSince } : {})}
+          />
+        ))}
       <form
         className="rounded-3xl border border-border bg-surface-1 p-2"
         onSubmit={(event) => {
@@ -248,7 +284,9 @@ export function Composer({
                 type="button"
                 className="icon-button text-fg-muted"
                 aria-label="Choose an image"
-                disabled={uploading || busy || pending !== null || attachments.length >= 4}
+                disabled={
+                  disabled || uploading || busy || pending !== null || attachments.length >= 4
+                }
                 onClick={() => input.current?.click()}
               >
                 {uploading ? (
@@ -285,7 +323,7 @@ export function Composer({
               stopInstead
                 ? 'Stop'
                 : pending !== null
-                  ? 'Retry same submission'
+                  ? 'Check submission receipt'
                   : running
                     ? 'Queue message'
                     : 'Send message'
@@ -298,7 +336,9 @@ export function Composer({
             ) : pending === null ? (
               <ArrowUp size={20} />
             ) : null}
-            {pending !== null && !stopInstead && (busy ? 'Submitting…' : 'Retry submission')}
+            {pending !== null &&
+              !stopInstead &&
+              (busy ? (checking ? 'Checking…' : 'Submitting…') : 'Check receipt')}
           </button>
         </div>
       </form>
@@ -309,7 +349,7 @@ export function Composer({
       )}
       {pending !== null && pending.attachmentIds.length > 0 && (
         <p className="mt-1 text-center text-[11px] text-fg-subtle">
-          Retry includes {pending.attachmentIds.length} staged images from this submission.
+          This receipt includes {pending.attachmentIds.length} staged images from this submission.
         </p>
       )}
     </div>
