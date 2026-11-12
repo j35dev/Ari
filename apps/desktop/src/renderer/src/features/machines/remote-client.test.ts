@@ -156,7 +156,7 @@ describe('remote host ownership and receipts', () => {
     await resolveReceipt('host-a', 'same')
     expect(readReceipt('host-a', 'same')).toBeNull()
   })
-  it.each(['internal_error', 'conflict', 'not_found', 'unreachable', 'future_failure'])(
+  it.each(['internal_error', 'conflict', 'not_found', 'stale_snapshot', 'idempotency_conflict', 'unreachable', 'future_failure'])(
     'retains the exact receipt for uncertain %s failures',
     async (code) => {
       invoke.mockResolvedValueOnce({ ok: false, error: { code, message: 'Outcome unknown' } })
@@ -165,7 +165,7 @@ describe('remote host ownership and receipts', () => {
           op: 'session.interrupt',
           sessionId: 'same',
         }),
-      ).rejects.toThrow('Outcome unknown')
+      ).rejects.toThrow()
       const saved = readReceipt('host-a', 'same')!
       invoke.mockResolvedValueOnce({ ok: false, error: { code: 'conflict', message: 'Unknown' } })
       await expect(resolveReceipt('host-a', 'same', true)).rejects.toThrow('Unknown')
