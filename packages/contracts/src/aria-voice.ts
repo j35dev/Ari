@@ -108,12 +108,14 @@ export function condenseReply(reply: string): string {
       s.length <= 400 &&
       /\b(?:you|your|want|should|shall|can I|do I|may I|which|would)\b/i.test(s),
   )
-  const result = [
+  const explanation = [
     ...all.filter((sentence) => sentence !== question).slice(0, 6),
     structured ? 'I put the details in the chat.' : undefined,
-    question,
-  ].filter(Boolean)
-  return boundedSpeech(result.join(' '), 1800)
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const summary = boundedSpeech(explanation, 1800 - (question ? question.length + 1 : 0))
+  return [summary, question].filter(Boolean).join(' ')
 }
 
 /** Start with a short clause; later requests remain sentence-sized and provider-bounded. */
