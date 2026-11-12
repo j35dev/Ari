@@ -1770,6 +1770,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // than showing a QR code that would resolve to the phone itself.
         clientOrigin: () => origins.clientOrigin(),
         allowedOrigins: () => origins.allowedOrigins(),
+        routeSigning: {
+          secretBox: () => {
+            if (!safeStorage.isEncryptionAvailable()) return null
+            if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return null
+            return safeStorageBox(safeStorage)
+          },
+          servedOrigins: () => {
+            const state = origins.state()
+            return state.serving && state.owned === true && state.origin ? [state.origin] : []
+          },
+        },
         webRoot: () =>
           mobileWebRoot({
             isPackaged: app.isPackaged,
@@ -1784,7 +1795,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { port: getSettingsStore().current.remote.port },
     )
   remoteRef = remote
-  r.register('machines.localSnapshot', () => remote.localSnapshot())
+  r.register('machines.localSnapshot', (params) => remote.localSnapshot(params))
   const machines =
     machinesRef ??
     new MachinesService({
