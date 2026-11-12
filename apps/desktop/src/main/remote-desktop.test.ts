@@ -23,6 +23,8 @@ import { ConnectLeaseVerifier } from '../../../../packages/remote-gateway/src/co
 import { deviceKey } from '../../../../packages/remote-gateway/src/testing/device-key'
 import { RawWebSocket } from '../../../../packages/remote-gateway/src/testing/ws-client'
 import { Engine } from './engine'
+import { RpcRegistry } from './rpc-registry'
+import { SourceControlHost } from './source-control-host'
 import { createRemoteHost, type RemoteHostDeps } from './remote-host'
 import { normalizeRepositoryRemote, repositoryIdentityFromRemotes } from './remote-host-metadata'
 import { remotePathIsSafe } from './remote-files'
@@ -716,6 +718,30 @@ describe('desktop host wire', () => {
     expect(status.body.error?.code).toBe('conflict')
     expect(create).toHaveBeenCalledTimes(1)
     expect((await store.load('created-once')).session?.title).toBe('Effect survived')
+  })
+
+  it('filters both names of a sensitive rename from normal SCM status', async () => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, windowsHide: true, stdio: 'pipe' })
+    git('init', '-q'); git('config', 'user.email', 'fixture@example.test'); git('config', 'user.name', 'Fixture')
+    await writeFile(join(root, '.env'), 'SECRET=fixture')
+    git('add', '.env'); git('commit', '-qm', 'private fixture'); git('mv', '.env', 'safe.txt')
+    await engine.createSession(fixture())
+    const scm = new SourceControlHost(new RpcRegistry({ send: () => undefined }), {
+      root: async () => root, session: (id) => store.load(id),
+    })
+    try {
+      const local = await scm.status({ sessionId: 's' })
+      expect(local.ok && local.value.status.files.some((file) => file.oldPath === '.env')).toBe(true)
+      const deps = desktop()
+      deps.scm.status = (sessionId) => scm.status({ sessionId })
+      const gateway = await start(makeHost({ desktop: deps }))
+      const token = await pair(gateway)
+      const remote = await call(gateway, '/query', { op: 'scm.desktop.status', sessionId: 's' }, token)
+      expect(remote.status).toBe(200)
+      expect(remote.body.result).toMatchObject({ ok: true, value: { status: { files: [] } } })
+      expect(JSON.stringify(remote.body.result)).not.toContain('.env')
+      expect(JSON.stringify(remote.body.result)).not.toContain(root)
+    } finally { scm.close() }
   })
 })
 
