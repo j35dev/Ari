@@ -2,7 +2,7 @@
 const marker = /<!--\s*aria:speak\s+(\{[^\n]*\})\s*-->/g
 
 export function spokenLine(reply: string): string | null {
-  for (const match of reply.matchAll(marker)) {
+  for (const match of reply.replace(/```[^]*?(?:```|$)|~~~[^]*?(?:~~~|$)/g, '').matchAll(marker)) {
     try {
       const value = JSON.parse(match[1]!) as { text?: unknown }
       if (typeof value.text !== 'string' || value.text.length > 420) continue
@@ -62,7 +62,7 @@ export function speechChunks(text: string, limit = 200): string[] {
     if (!result.length) {
       const comma = rest.indexOf(',')
       const words = rest.split(/\s+/)
-      const split = comma > 0 && comma < 80 ? comma + 1 : words.length > 9 ? words.slice(0, 8).join(' ').length : 0
+      const split = comma > 0 && comma < 80 ? comma + 1 : words.length > 5 ? words.slice(0, 4).join(' ').length : 0
       if (split) { result.push(rest.slice(0, split).trim()); rest = rest.slice(split).trim() }
     }
     while (rest.length > limit) {

@@ -43,10 +43,10 @@ async function load(path: string): Promise<void> {
     maxNumSentences: 1,
   })
   loadedPath = path
+  const start = performance.now()
+  const audio = await tts.generateAsync({ text: prepareKokoro('The changes are ready for you to review.', words).text, sid: 3, speed: 1 })
   if (cached?.signature === signature) hardware = cached.hardware
   else {
-    const start = performance.now()
-    const audio = await tts.generateAsync({ text: prepareKokoro('The changes are ready for you to review.', words).text, sid: 3, speed: 1 })
     const firstAudioMs = performance.now() - start
     const rtf = firstAudioMs / (audio.samples.length / audio.sampleRate * 1000)
     hardware = { threads, ramGB: Math.round(totalmem() / 2 ** 30), logicalCores, provider, rtf, firstAudioMs, slow: rtf >= 1 }
