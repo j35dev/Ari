@@ -43,6 +43,7 @@ extraResources:
 # platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
 # so both must be unpacked.
 asarUnpack:
+  - '**/node_modules/sherpa-onnx-*/**'
   - '**/node_modules/@koromix/koffi-*/**'
   - '**/node_modules/koffi/**'
   - '**/node_modules/@lydell/node-pty/**'
@@ -89,7 +90,7 @@ mac:
   # Mach-O in both slices unless it is declared here. These are single-arch
   # addons that the resolver stub picks at runtime, so copying them verbatim is
   # exactly right; there is nothing to lipo together.
-  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@koromix/koffi-*,uiohook-napi}/**'
+  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@koromix/koffi-*,sherpa-onnx-*,uiohook-napi}/**'
   extendInfo:
     NSMicrophoneUsageDescription: Ari uses your microphone for local speech to text.
 linux:
