@@ -149,7 +149,18 @@ app
             bitmap.crop(rect).toPNG(),
           )
         }
-        captures.push({ filename, ...state })
+        captures.push({ filename, ...state, imageSize: bitmap.getSize() })
+        if (view === 'settings') {
+          await window.webContents.executeJavaScript(`
+            const panel = document.querySelector('.ari-enter-rise.ari-scroll');
+            panel.scrollTop = panel.scrollHeight;
+            new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))
+          `)
+          const bottom = await paintedFrame()
+          const bottomName = `machines-settings-bottom-${theme}.png`
+          await writeFile(join(evidence, bottomName), bottom.toPNG())
+          captures.push({ filename: bottomName, view: 'settings-bottom', theme, imageSize: bottom.getSize() })
+        }
       }
     }
     if (errors.length) throw new Error(`Renderer console errors: ${errors.join('; ')}`)
@@ -168,7 +179,7 @@ app
         2,
       ) + '\n',
     )
-    process.stdout.write(JSON.stringify({ evidence, screenshots: 8, success: true }) + '\n')
+    process.stdout.write(JSON.stringify({ evidence, screenshots: 10, success: true }) + '\n')
     clearTimeout(watchdog)
     window.destroy()
     app.quit()
