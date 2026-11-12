@@ -251,7 +251,6 @@ export function GitControl({
           disabled={disabled}
           aria-label={primary.label}
           title={primary.label}
-          title={primary.label}
           className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium transition-colors hover:bg-fg/6 disabled:pointer-events-none disabled:font-normal disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <Icon size={14} strokeWidth={1.7} aria-hidden className="text-fg-subtle" />
