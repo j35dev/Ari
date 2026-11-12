@@ -395,8 +395,8 @@ async function startControlTransport(
   return {
     orchestration,
     service,
-    prepareRootWorkspace: (session: Session, mode?: 'auto' | 'isolated' | 'shared') =>
-      service.prepareRootWorkspace(session, mode),
+    prepareRootWorkspace: (session: Session, mode?: 'auto' | 'isolated' | 'shared', baseSnapshotCommit?: string) =>
+      service.prepareRootWorkspace(session, mode, baseSnapshotCommit),
     approvals,
     supervisor,
     authorizeTurn: async (session: Session): Promise<string | null> => {
