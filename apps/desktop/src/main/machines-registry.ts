@@ -33,6 +33,7 @@ import {
 } from '@ari/contracts/machines'
 import {
   signedHostRouteManifestSchema,
+  routeAudienceSchema,
   type SignedHostRouteManifest,
 } from '@ari/contracts/route-auth'
 import { pairingKeySchema, type PairingPublicKey } from '@ari/contracts/remote'
@@ -53,6 +54,8 @@ const recordSchema = z
       .strict()
       .nullable(),
     manifest: signedHostRouteManifestSchema.nullable(),
+    /** Equal-time complete reports can narrow this durable set, but never grow it. */
+    manifestOrigins: z.array(routeAudienceSchema).max(16).nullable().default(null),
   })
   .strict()
 const registrySchema = z
@@ -66,7 +69,14 @@ const legacyRegistrySchema = z
   .object({
     version: z.literal(1),
     machines: z
-      .array(recordSchema.omit({ credentialOrigin: true, hostKey: true, manifest: true }))
+      .array(
+        recordSchema.omit({
+          credentialOrigin: true,
+          hostKey: true,
+          manifest: true,
+          manifestOrigins: true,
+        }),
+      )
       .max(100),
   })
   .strict()
@@ -98,6 +108,7 @@ export class MachinesRegistry {
           credentialOrigin: record.routes[0]!.origin,
           hostKey: null,
           manifest: null,
+          manifestOrigins: null,
         }))
       } else {
         const data = registrySchema.parse(raw)
@@ -138,6 +149,7 @@ export class MachinesRegistry {
       credentialOrigin: route.origin,
       hostKey: null,
       manifest: null,
+      manifestOrigins: null,
     }
     this.#save([...this.#records, record])
     return this.get(record.id)
@@ -147,7 +159,14 @@ export class MachinesRegistry {
     patch: Partial<
       Pick<
         MachineRecord,
-        'name' | 'identity' | 'lastSeenAt' | 'credentialCipher' | 'routes' | 'hostKey' | 'manifest'
+        | 'name'
+        | 'identity'
+        | 'lastSeenAt'
+        | 'credentialCipher'
+        | 'routes'
+        | 'hostKey'
+        | 'manifest'
+        | 'manifestOrigins'
       >
     >,
   ): MachineRecord {
@@ -191,20 +210,40 @@ export class MachinesRegistry {
   }
   learn(id: string, manifest: SignedHostRouteManifest, routes: MachineRoute[]): MachineRecord {
     const row = this.get(id)
-    const reported = new Set(routes.map((route) => route.origin))
+    const previous = row.manifest
+    // Compare with the current durable report, never an async caller's snapshot.
+    if (previous !== null && manifest.payload.issuedAt < previous.payload.issuedAt) return row
+    const offered = new Set(manifest.payload.routes)
+    const manifestOrigins =
+      previous !== null && manifest.payload.issuedAt === previous.payload.issuedAt
+        ? (row.manifestOrigins ?? previous.payload.routes)
+            .filter((origin) => offered.has(origin))
+            .sort()
+        : [...offered].sort()
+    const acceptedOrigins = new Set(manifestOrigins)
+    const acceptedRoutes = routes.filter((route) => acceptedOrigins.has(route.origin))
+    const reported = new Set(acceptedRoutes.map((route) => route.origin))
     const next = row.routes.filter(
       (route) => route.source !== 'learned' || reported.has(route.origin),
     )
-    for (const route of routes)
+    for (const route of acceptedRoutes)
       if (!next.some((item) => item.origin === route.origin))
         next.push({ ...route, source: 'learned', credentialOrigin: row.credentialOrigin })
     return this.update(id, {
       routes: next.slice(0, 16),
       manifest,
+      manifestOrigins,
       hostKey: { hostId: manifest.payload.hostId, publicKey: manifest.payload.publicKey },
     })
   }
   #validateRoutes(row: MachineRecord): void {
+    if (
+      row.manifestOrigins !== null &&
+      (row.manifest === null ||
+        new Set(row.manifestOrigins).size !== row.manifestOrigins.length ||
+        row.manifestOrigins.some((origin) => !row.manifest!.payload.routes.includes(origin)))
+    )
+      throw new Error('The saved computer route report has invalid accepted origins.')
     if (
       new Set(row.routes.map((route) => route.origin)).size !== row.routes.length ||
       (row.hostKey === null &&
