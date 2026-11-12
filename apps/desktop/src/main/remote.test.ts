@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { generateKeyPairSync, sign } from 'node:crypto'
+import * as fs from 'node:fs'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -164,6 +165,80 @@ async function pair(
     throw new Error(`expected a token, got ${JSON.stringify(redeemed.body)}`)
   return token
 }
+
+describe('remote security persistence failures', () => {
+  function failDeviceWrites() {
+    const rename = fs.renameSync
+    return vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(to).endsWith('devices.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      rename(from, to)
+    })
+  }
+
+  it('does not issue an approved device token when saving its record fails', async () => {
+    const { service, dir } = makeService()
+    await service.start()
+    const failure = failDeviceWrites()
+    await expect(pair(service, deviceKey())).rejects.toThrow('internal_error')
+    expect(service.state().error).toContain('Could not save')
+    failure.mockRestore()
+    await service.stop()
+    const restarted = makeService({ dir }).service
+    expect((await restarted.start()).devices).toEqual([])
+  })
+
+  it.each(['revoke', 'terminal'] as const)('propagates failed %s withdrawal, denies runtime access and saves an explicit retry before restart', async (action) => {
+    const { service, dir } = makeService()
+    const origin = (await service.start()).origin!
+    const key = deviceKey()
+    const token = await pair(service, key)
+    const id = service.state().devices[0]!.deviceId
+    service.updateDeviceGrants(id, ['proj_1'], true)
+    const saved = readFileSync(join(dir, 'devices.json'), 'utf8')
+    const failure = failDeviceWrites()
+    const withdraw = () => action === 'revoke' ? service.revokeDevice(id) : service.updateDeviceGrants(id, ['proj_1'], false)
+    expect(withdraw).toThrow('Could not save remote security state')
+    expect(readFileSync(join(dir, 'devices.json'), 'utf8')).toBe(saved)
+    expect((await call(origin, '/query', { op: 'session.list' }, { authorization: `Bearer ${token}` })).status).toBe(401)
+    const challenge = await call(origin, '/device/challenge', { deviceId: id })
+    const nonce = (challenge.body['result'] as { nonce: string }).nonce
+    expect((await call(origin, '/device/authorize', { deviceId: id, nonce, signature: key.sign(nonce) })).status).toBe(403)
+    failure.mockRestore()
+    withdraw()
+    await service.stop()
+    expect((await service.start()).enabled).toBe(false)
+    const restarted = makeService({ dir }).service
+    const state = await restarted.start()
+    expect(state.enabled).toBe(true)
+    if (action === 'revoke') expect(state.devices).toEqual([])
+    else expect(state.devices[0]?.allowTerminal).toBe(false)
+  })
+
+  it('blocks unreadable device records rather than treating them as missing', async () => {
+    const read = fs.readFileSync
+    const denied = vi.spyOn(fs, 'readFileSync').mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
+      if (String(args[0]).endsWith('devices.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      return read(...args)
+    }) as typeof fs.readFileSync)
+    const { service } = makeService()
+    expect((await service.start()).enabled).toBe(false)
+    expect(service.state().error).toContain('security records')
+    denied.mockRestore()
+  })
+
+  it.each(['corrupt', 'unreadable'] as const)('blocks a %s command history before listener publication', async (mode) => {
+    const { service, dir } = makeService()
+    writeFileSync(join(dir, 'idempotency.json'), mode === 'corrupt' ? 'broken' : '[]')
+    const read = fs.readFileSync
+    const denied = mode === 'unreadable' ? vi.spyOn(fs, 'readFileSync').mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
+      if (String(args[0]).endsWith('idempotency.json')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      return read(...args)
+    }) as typeof fs.readFileSync) : null
+    expect((await service.start()).enabled).toBe(false)
+    expect(service.state().error).not.toBeNull()
+    denied?.mockRestore()
+  })
+})
 
 describe('remote service lifecycle', () => {
   function deferred<T>() {
@@ -393,15 +468,16 @@ describe('remote service lifecycle', () => {
     expect(written).toContain('dev_')
   })
 
-  it('survives a corrupt device file by forgetting, not by failing to start', async () => {
+  it('blocks remote startup over corrupt device records while keeping the desktop state readable', async () => {
     const { service, dir } = makeService()
     await service.start()
     await service.stop()
     writeFileSync(join(dir, 'devices.json'), '{ not json', 'utf8')
 
     const state = await service.start()
-    expect(state.enabled).toBe(true)
+    expect(state.enabled).toBe(false)
     expect(state.devices).toEqual([])
+    expect(state.error).toContain('security records')
   })
 })
 

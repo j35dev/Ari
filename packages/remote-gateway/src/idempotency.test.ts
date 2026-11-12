@@ -4,6 +4,41 @@ import { IdempotencyStore } from './idempotency'
 const COMMAND = { op: 'session.prompt', sessionId: 'sess_1', text: 'hello' }
 
 describe('idempotency store', () => {
+  it('pins unresolved claims through expiry and refuses admission rather than evicting them', () => {
+    let now = 1000
+    const store = new IdempotencyStore({ maxEntries: 2, ttlMs: 1, now: () => now })
+    store.begin('pending-a', COMMAND)
+    store.begin('pending-b', COMMAND)
+    now += 10000
+    expect(store.prune()).toBe(0)
+    expect(store.begin('new', COMMAND)).toEqual({ outcome: 'capacity' })
+    expect(store.begin('pending-a', COMMAND)).toEqual({ outcome: 'in_flight' })
+    store.complete('pending-b', { accepted: true })
+    expect(store.begin('new', COMMAND)).toEqual({ outcome: 'fresh' })
+    expect(store.lookup('pending-a')).toBeDefined()
+  })
+
+  it('preserves unresolved claims after a restart', () => {
+    const store = new IdempotencyStore()
+    store.begin('pending', COMMAND)
+    const restored = IdempotencyStore.fromJSON(store.toJSON())
+    expect(restored.begin('pending', COMMAND)).toEqual({ outcome: 'in_flight' })
+  })
+
+  it.each(['broken', '{}', '[null]', '[["key", {}]]', JSON.stringify([
+    ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
+    ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
+  ])])('refuses corrupt history instead of forgetting executed work: %s', (json) => {
+    expect(() => IdempotencyStore.fromJSON(json)).toThrow()
+  })
+
+  it('validates restored outcomes rather than replaying damaged payloads', () => {
+    const store = new IdempotencyStore()
+    store.begin('key', COMMAND)
+    store.complete('key', 'damaged')
+    expect(() => IdempotencyStore.fromJSON(store.toJSON(), (value): value is number => typeof value === 'number')).toThrow('outcome')
+  })
+
   it('lets a first command through', () => {
     const store = new IdempotencyStore()
     expect(store.begin('key-1', COMMAND)).toEqual({ outcome: 'fresh' })

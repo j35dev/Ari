@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { z } from 'zod'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
@@ -20,6 +21,16 @@ import { ManagedWorkspaces } from '@ari/engine/git'
 import { RemoteIntegration } from './remote-integration'
 
 const log = createLogger('desktop:remote')
+
+const persistedPairingSchema = z.object({
+  devices: z.array(z.object({
+    deviceId: z.string().min(1), displayName: z.string(), projectIds: z.array(z.string()),
+    allProjects: z.boolean().optional(), allowTerminal: z.boolean().optional(),
+    pairedAt: z.number().finite().nonnegative(), lastSeenAt: z.number().finite().nonnegative().nullable(),
+    publicKey: z.object({ kty: z.literal('EC'), crv: z.literal('P-256'), x: z.string().min(1), y: z.string().min(1) }).strict(),
+  }).strict()),
+  revoked: z.array(z.object({ deviceId: z.string().min(1), revokedAt: z.number().finite().nonnegative() }).strict()),
+}).strict()
 
 /**
  * Remote access, on the desktop side (ADR §5, §9).
@@ -94,6 +105,7 @@ export class RemoteService {
   /** The port the user chose, so a restart can come back on the same one. */
   #port: number
   #error: string | null = null
+  #persistenceError: Error | null = null
   #projectIds: string[] | undefined
   #generation = 0
   #managedGeneration = 0
@@ -139,6 +151,10 @@ export class RemoteService {
     if (generation !== this.#generation) return this.state()
     if (port !== undefined) this.#port = port
     if (this.#gateway !== null) return this.state()
+    if (this.#persistenceError !== null) {
+      this.#error = this.#persistenceError.message
+      return this.#changed()
+    }
     this.#error = null
     try {
       await this.#refreshProjects()
@@ -147,12 +163,14 @@ export class RemoteService {
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
       this.#pairing = this.#makePairing()
+      if (this.#persistenceError !== null) return this.#changed()
       if (this.#deps.terminalFactory !== undefined)
         this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id, projectId) =>
           this.#pairing
             .devices()
             .some(
               (device) =>
+                this.#pairing.isDeviceActive(id) &&
                 device.deviceId === id &&
                 device.allowTerminal === true &&
                 (device.allProjects === true || device.projectIds.includes(projectId)),
@@ -500,29 +518,31 @@ export class RemoteService {
    * disagree about which devices exist.
    */
   #makePairing(): PairingService {
-    const restored = this.#readPairing()
-    return new PairingService({
+    try {
+      const restored = this.#readPairing()
+      return new PairingService({
       ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
       ...(restored === undefined ? {} : { restored }),
       projectIds: () => this.#projectIds,
       persist: { save: (state) => this.#writePairing(state) },
       onChange: () => this.#changed(),
-    })
+      })
+    } catch (cause) {
+      // The desktop can still show recovery guidance, but no listener may
+      // authorize devices from incomplete or unreadable security records.
+      const error = new Error('Remote security records could not be loaded or saved. Repair storage before restarting remote access.', { cause })
+      this.#persistenceError = error
+      this.#error = error.message
+      const pairing = new PairingService()
+      pairing.suspendAuthorization()
+      return pairing
+    }
   }
 
   #readPairing(): PersistedPairing | undefined {
     const raw = this.#read('devices.json')
     if (raw === undefined) return undefined
-    try {
-      const parsed = JSON.parse(raw) as PersistedPairing
-      if (!Array.isArray(parsed.devices) || !Array.isArray(parsed.revoked)) return undefined
-      return parsed
-    } catch {
-      // A corrupt file must not stop the desktop from starting or the user
-      // from pairing again; PairingService drops anything unusable in it.
-      log.warn('device records unreadable; starting with none')
-      return undefined
-    }
+    return persistedPairingSchema.parse(JSON.parse(raw))
   }
 
   #writePairing(state: PersistedPairing): void {
@@ -539,8 +559,9 @@ export class RemoteService {
   #read(name: string): string | undefined {
     try {
       return readFileSync(join(this.#deps.dir, name), 'utf8')
-    } catch {
-      return undefined
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
     }
   }
 
@@ -553,9 +574,16 @@ export class RemoteService {
       writeFileSync(tmp, contents, 'utf8')
       renameSync(tmp, path)
     } catch (error) {
-      // Losing a record is survivable — a phone re-authorizes, a command is
-      // retried under a fresh key — so this must not take the desktop down.
       log.error('could not write remote record', { name, error: String(error) })
+      const failure = new Error(
+        `Could not save remote security state (${name}). Remote authorization is blocked. Repair storage and retry the change before restarting; previously saved access may return after restart.`,
+        { cause: error },
+      )
+      this.#persistenceError = failure
+      this.#error = failure.message
+      this.#pairing?.suspendAuthorization()
+      if (this.#pairing !== undefined) this.#changed()
+      throw failure
     }
   }
 }

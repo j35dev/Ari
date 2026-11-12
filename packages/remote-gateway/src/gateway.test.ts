@@ -458,6 +458,42 @@ describe('remote gateway command allowlist', () => {
 })
 
 describe('remote gateway idempotency', () => {
+  it('does not dispatch when persisting the pre-dispatch claim fails', async () => {
+    const host = fakeHost()
+    const gateway = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0,
+      idempotency: { persist: () => { throw new Error('disk full') } },
+    })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey())
+    const failed = await call(gateway, '/command', COMMAND, { token })
+    expect(failed.status).toBe(500)
+    expect(host.executed).toHaveLength(0)
+    expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(409)
+    expect((await call(gateway, '/query', { op: 'command.status', idempotencyKey: 'missing-receipt-key' }, { token })).body).toMatchObject({ ok: false, error: { code: 'conflict' } })
+    expect(host.executed).toHaveLength(0)
+  })
+
+  it('retains the durable claim when completion persistence fails, including after restart', async () => {
+    const host = fakeHost()
+    let saved = '[]'
+    let writes = 0
+    const first = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0,
+      idempotency: { persist: (json) => { if (++writes > 1) throw new Error('disk full'); saved = json } },
+    })
+    running.push(first)
+    const key = deviceKey()
+    const token = await paired(first, key)
+    expect((await call(first, '/command', COMMAND, { token })).status).toBe(500)
+    const second = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, pairing: first.pairing, idempotency: { restore: saved } })
+    running.push(second)
+    expect((await call(second, '/command', COMMAND, { token })).status).toBe(409)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it.each(['broken', '{}', '[["key", {}]]', JSON.stringify([['key', { fingerprint: 'a'.repeat(64), at: 1, result: { reply: { ok: false } } }]])])('refuses to open a listener over corrupt receipt history: %s', async (restore) => {
+    await expect(createRemoteGateway({ host: fakeHost(), allowedOrigins: [ALLOWED], port: 0, idempotency: { restore } })).rejects.toThrow()
+  })
+
   it('keeps high-volume terminal receipts out of durable prompt records while preserving replay and key conflicts', async () => {
     const written: string[] = []
     const host = fakeHost({ capabilities: () => [...OPERATIONS, 'terminal.write'] })
