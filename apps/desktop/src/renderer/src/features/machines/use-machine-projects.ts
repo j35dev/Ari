@@ -27,7 +27,7 @@ export function useMachineProjects(projects: Project[], localSessions: SessionSu
       JSON.stringify([checkout.hostId, checkout.projectId]), group.id,
     ] as const)))
     const scopes = new Map<string, SessionScope>()
-    const hosts = new Map<string, { name: string; status: string; readOnly: boolean }>()
+    const hosts = new Map<string, { name: string; status: string; readOnly: boolean; administrationReason?: string }>()
     const project = (summary: SessionSummary, hostId: string): SessionSummary => {
       const machine = machines.find((item) => item.id === hostId)
       const scope: SessionScope = hostId === 'local' ? { kind: 'local', sessionId: summary.id } :
@@ -35,7 +35,8 @@ export function useMachineProjects(projects: Project[], localSessions: SessionSu
       const key = sessionViewKey(scope)
       scopes.set(key, scope)
       hosts.set(key, { name: machine?.name ?? 'This PC', status: machine?.status ?? 'connected',
-        readOnly: scope.kind === 'remote' && machine?.status !== 'connected' })
+        readOnly: scope.kind === 'remote' && (machine?.status !== 'connected' || machine.versionReady === false),
+        ...(scope.kind === 'remote' ? { administrationReason: 'Session archive and deletion are unavailable on this host.' } : {}) })
       const groupId = groupByCheckout.get(JSON.stringify([hostId, summary.projectId])) ??
         (scope.kind === 'local' ? summary.projectId : `checkout:${JSON.stringify([hostId, summary.projectId])}`)
       return projectSessionSummary(summary, (id) => sessionViewKey(scope.kind === 'local' ?

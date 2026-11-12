@@ -94,6 +94,7 @@ import {
   MAX_PANES,
   activePaneOf,
   assignSession,
+  assignTerminal,
   activeSessionOf,
   isBlankLeaf,
   leaves,
@@ -1364,14 +1365,33 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     () => new Set(spaceStore.spaces.flatMap((space) => terminalIdsInPanes(space.layout))),
     [spaceStore.spaces],
   )
-  const openTerminalInPane = useCallback(
-    (paneId: string) => {
-      if (shellRoot === null) return
-      const id = openTerminalTab({ title: 'Ari Terminal', cwd: shellRoot })
-      splitLayoutActions.assignTerminal(paneId, id)
-    },
-    [shellRoot],
-  )
+  const canOpenTerminalInPane = (paneId: string): boolean => {
+    const pane = spaceStore.spaces.flatMap((space) => leaves(space.layout.root)).find((leaf) => leaf.paneId === paneId)
+    if (!pane?.sessionId) return false
+    const scope = parseSessionViewKey(pane.sessionId)
+    return scope !== null && createSessionClient(scope).capabilityReason('terminal.create') === null
+  }
+  const openTerminalInPane = useCallback((paneId: string) => {
+    const origin = spaceStoreSnapshot().spaces.find((space) => leaves(space.layout.root).some((pane) => pane.paneId === paneId))
+    const key = origin && leaves(origin.layout.root).find((pane) => pane.paneId === paneId)?.sessionId
+    const scope = key ? parseSessionViewKey(key) : null
+    if (!origin || !scope) return
+    const client = createSessionClient(scope)
+    const reason = client.capabilityReason('terminal.create')
+    if (reason) { toast({ tone: 'info', title: reason }); return }
+    void (async () => {
+      try {
+        const cwd = scope.kind === 'remote' ? '.' : (await client.invoke('session.workspace', { sessionId: scope.sessionId })).path
+        if (!cwd || client.capabilityReason('terminal.create')) return
+        // A late workspace result cannot replace a different pane or follow focus to another host.
+        const current = spaceStoreSnapshot().spaces.find((space) => space.id === origin.id)
+        if (!current || leaves(current.layout.root).find((pane) => pane.paneId === paneId)?.sessionId !== key) return
+        const id = openTerminalTab({ title: 'Ari Terminal', cwd, ...(scope.kind === 'remote' ? { owner: scope } : {}) })
+        spaceActions.update((store) => ({ ...store, spaces: store.spaces.map((space) => space.id === origin.id
+          ? { ...space, layout: assignTerminal(space.layout, paneId, id) } : space) }))
+      } catch (error) { toast({ tone: 'danger', title: 'Could not open the terminal', description: String(error) }) }
+    })()
+  }, [toast])
 
   if (galleryOpen) {
     return (
@@ -1714,7 +1734,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                           onDropSession={splitLayoutActions.dropSession}
                           onDropPane={splitLayoutActions.dropPane}
                           onOpenTerminal={openTerminalInPane}
-                          canOpenTerminal={shellRoot !== null}
+                          canOpenTerminal={canOpenTerminalInPane}
                           terminalTitleOf={(id) =>
                             terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
                           }
@@ -1727,7 +1747,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 <TerminalPane
                                     key={`${paneId}:${terminalId}`}
                                     terminalId={terminalId}
-                                    owner={tab?.owner}
                                     cwd={tab?.cwd ?? shellRoot}
                                     initialCommand={tab?.command}
                                     active={visible && paneId === activePaneOf(layout)}
@@ -1772,9 +1791,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   childSessions={navigation.sessions.filter(
                                     (session) =>
                                       session.parentSessionId === sessionId && !session.archived,
-                                  )}
+                                  ).map((session) => ({ ...session, id: parseSessionViewKey(session.id)?.sessionId ?? session.id,
+                                    parentSessionId: session.parentSessionId ? parseSessionViewKey(session.parentSessionId)?.sessionId ?? session.parentSessionId : null }))}
                                   sessionTitle={sessionTitle}
-                                  parentSession={parentOf(navigation.sessions, sessionId)}
+                                  parentSession={(() => { const parent = parentOf(navigation.sessions, sessionId)
+                                    return parent ? { ...parent, id: parseSessionViewKey(parent.id)?.sessionId ?? parent.id } : null })()}
                                 />
                               )}
                             />
