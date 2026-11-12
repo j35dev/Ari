@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":8784519168,"cFreeBytes":21361295360}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-contracts","pid":3060,"startedAt":"2026-11-12T17:10:49.178Z","id":"5fd60a68-3123-4f1b-b757-aa1586568e22"}
+
+> @ari/contracts@0.1.0 test D:\Projects\Ari-aria-voice\packages\contracts
+> vitest run "src/aria-voice.test.ts" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-aria-voice/packages/contracts
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  01:10:52
+   Duration  421ms (transform 53ms, setup 0ms, import 80ms, tests 12ms, environment 0ms)
+
+{"heavyResult":{"worker":"voice-feedback-contracts","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/contracts","test","src/aria-voice.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

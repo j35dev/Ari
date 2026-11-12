@@ -49,6 +49,8 @@ export interface RoutineAddInput {
 }
 
 export interface ResumeScheduleOptions {
+  /** Optional feature gate; a disabled destination keeps its scheduled prompts. */
+  enabled?(sessionId: string): Promise<boolean>
   /** JSON file the pending entries survive a restart in. */
   path: string
   store: Pick<SessionStore, 'load'>
@@ -300,11 +302,15 @@ export class ResumeSchedule {
   async #sweep(): Promise<void> {
     const due = await this.#transaction(async () => {
       const now = this.#now()
-      const due = this.#entries.filter((entry) => entry.at <= now)
+      const due: RoutineEntry[] = []
+      for (const entry of this.#entries)
+        if (entry.at <= now && (await this.#options.enabled?.(entry.sessionId)) !== false)
+          due.push(entry)
       if (due.length === 0) return due
       // Persist consumption before dispatch: a crash may lose this occurrence,
       // but must not replay it. A failed save retains it and dispatches nothing.
-      const remaining = this.#entries.filter((entry) => entry.at > now)
+      const dueIds = new Set(due.map((entry) => entry.id))
+      const remaining = this.#entries.filter((entry) => !dueIds.has(entry.id))
       for (const entry of due) {
         if (entry.every === undefined) continue
         const next = entry.at + entry.every * (Math.floor((now - entry.at) / entry.every) + 1)

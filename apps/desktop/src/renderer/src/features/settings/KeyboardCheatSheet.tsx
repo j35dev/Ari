@@ -5,6 +5,7 @@ import { primaryButton } from '../../lib/recipes'
 import { isEditableTarget } from '../../shell/editable-target'
 import { resolveChord } from './KeybindingsSettings'
 import { APP_SHORTCUTS } from './shortcuts'
+import { useEngineSettings } from './useEngineSettings'
 
 interface CheatShortcut {
   /** Stable logical action id, shared with the future keybindings layer. */
@@ -43,6 +44,7 @@ function shortcutKeys(shortcut: CheatShortcut): readonly string[] {
  * dialog focus trap.
  */
 export function KeyboardCheatSheet() {
+  const { settings } = useEngineSettings()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -73,7 +75,9 @@ export function KeyboardCheatSheet() {
             </tr>
           </thead>
           <tbody>
-            {CHEAT_SHEET_SHORTCUTS.map((shortcut) => {
+            {CHEAT_SHEET_SHORTCUTS.filter(
+              (shortcut) => settings?.experimental.ariaEnabled || shortcut.id !== 'OpenAria',
+            ).map((shortcut) => {
               const keys = shortcutKeys(shortcut)
               return (
                 <tr key={shortcut.id} className="border-b border-border last:border-b-0">

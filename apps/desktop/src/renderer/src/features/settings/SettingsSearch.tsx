@@ -22,10 +22,15 @@ export interface SettingsIndexEntry {
  */
 export const SETTINGS_SEARCH_INDEX = [
   {
+    section: 'settings-experimental',
+    label: 'Experimental Aria',
+    keywords: 'aria coordinator experimental enable disable projects chat',
+  },
+  {
     section: 'settings-speech',
     label: 'Speech to text',
     keywords:
-      'speech microphone dictate dictation aria general external handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
+      'speech microphone dictate dictation general external handy whisper parakeet model download shortcut hold talk audio ducking lower volume music playback',
   },
   {
     section: 'settings-appearance',

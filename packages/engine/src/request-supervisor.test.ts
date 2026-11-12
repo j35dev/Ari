@@ -169,6 +169,24 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
 })
 
+it('holds disabled Aria attention across restart while its ordinary lead still wakes', async () => {
+  host.ariaEnabled = () => false
+  await question()
+  supervisor.start()
+  await ready()
+  await supervisor.evaluate('aria')
+  expect(await notices('aria')).toHaveLength(0)
+  expect((await inbox('aria'))[0]?.status).toBe('pending')
+  await supervisor.evaluate('lead')
+  expect(await notices('lead')).toHaveLength(1)
+  await restart()
+  await supervisor.evaluate('aria')
+  expect(await notices('aria')).toHaveLength(0)
+  host.ariaEnabled = () => true
+  await supervisor.evaluate('aria')
+  expect(await notices('aria')).toHaveLength(1)
+})
+
 it('recovers an idle lead and Aria from a descendant question without granting Aria the lead answer', async () => {
   await question()
   supervisor.start()

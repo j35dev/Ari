@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Bell,
   Cpu,
+  FlaskConical,
   FileCog,
   GitBranch,
   Keyboard,
@@ -17,6 +18,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { AppearanceSettings } from './AppearanceSettings'
 import { AdvancedSettings } from './AdvancedSettings'
+import { ExperimentalSettings } from './ExperimentalSettings'
 import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
@@ -43,6 +45,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'source-control', label: 'Source control', icon: GitBranch, group: 'Code' },
   { id: 'remote', label: 'Mobile access', icon: Smartphone, group: 'Connections' },
   { id: 'machines', label: 'Machines', icon: Monitor, group: 'Connections' },
+  { id: 'experimental', label: 'Experimental', icon: FlaskConical, group: null },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal, group: null },
 ] as const
 
@@ -203,6 +206,7 @@ export function SettingsWorkspace({
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
+          {section === 'experimental' ? <ExperimentalSettings /> : null}
         </div>
         {/* After the page in the DOM so it paints over the scroller without a
             z-index. The page title already says where you are. */}

@@ -1,0 +1,9 @@
+{"resourceGate":{"commitHeadroomBytes":9076748288,"cFreeBytes":21363113984}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-lint","pid":7208,"startedAt":"2026-11-12T17:10:13.845Z","id":"bda1dbab-b961-43fb-9b7f-592c01b176f2"}
+
+D:\Projects\Ari-aria-voice\apps\desktop\src\main\speech\pronunciation.test.ts
+  62:35  error  Unexpected control character(s) in regular expression: \x00  no-control-regex
+
+✖ 1 problem (1 error, 0 warnings)
+
+{"heavyResult":{"worker":"voice-feedback-lint","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","exec","eslint","apps/desktop/src/main/rpc.ts","apps/desktop/src/main/speech/pronunciation.test.ts","apps/desktop/src/main/speech/pronunciation.ts","apps/desktop/src/main/speech/voice-service.test.ts","apps/desktop/src/main/speech/voice-service.ts","apps/desktop/src/renderer/src/features/aria/VoiceNotice.test.tsx","apps/desktop/src/renderer/src/features/aria/VoiceNotice.tsx","apps/desktop/src/renderer/src/features/settings/AriaVoiceSettings.tsx","packages/contracts/src/aria-voice.test.ts","packages/contracts/src/aria-voice.ts","packages/engine/src/control-preamble.ts","scripts/aria-voice-utility-smoke.mjs"],"exitCode":1,"signal":null}}

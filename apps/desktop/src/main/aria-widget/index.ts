@@ -9,7 +9,11 @@ import { ChordTracker, defaultShortcut, parseChord, type HookKey } from './chord
 import { sendToAria } from './handoff'
 import { HoldToTalk, type WidgetSnapshot } from './model'
 import { widgetBounds } from './position'
-import { defaultDictationShortcut, speechBindingsError } from '@ari/contracts/settings'
+import {
+  defaultDictationShortcut,
+  speechBindingError,
+  speechBindingsError,
+} from '@ari/contracts/settings'
 import { CaptureLease } from '../speech/capture-lease'
 import { captureDictationTarget, prepareDictation } from '../speech/dictation-target'
 import type { DictationTarget } from '../../shared/dictation'
@@ -28,6 +32,7 @@ const METHODS = [
 ]
 
 export interface AriaWidgetDeps {
+  voice?: { stop(): void; warm(): void; arm(sessionId: string, text: string): Promise<unknown> }
   invoke(method: string, params?: unknown): Promise<unknown>
   openSettings(): void
   mainWindow?(): BrowserWindow | null
@@ -244,8 +249,10 @@ export class AriaWidget {
     this.settings = settings
     this.publish()
     const speech = this.settings.speech
-    const configuration =
-      JSON.stringify(speech ? { ...speech, duckAudio: undefined } : speech) ?? ''
+    const configuration = JSON.stringify({
+      speech: { ...speech, duckAudio: undefined },
+      ariaEnabled: settings.experimental.ariaEnabled,
+    })
     if (configuration === this.configuration && (this.hook || this.recoveryTimer)) return
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer)
     this.recoveryTimer = null
@@ -276,18 +283,23 @@ export class AriaWidget {
       const shortcut = speech.shortcut || defaultShortcut(process.platform)
       const dictationShortcut =
         speech.dictationShortcut || defaultDictationShortcut(process.platform)
-      const invalid = speechBindingsError(shortcut, dictationShortcut, process.platform)
+      const invalid = settings.experimental.ariaEnabled
+        ? speechBindingsError(shortcut, dictationShortcut, process.platform)
+        : speechBindingError(dictationShortcut, process.platform)
       if (invalid) throw new Error(invalid)
-      const chord = parseChord(shortcut, UiohookKey, process.platform)
+      const chord = settings.experimental.ariaEnabled
+        ? parseChord(shortcut, UiohookKey, process.platform)
+        : null
       const dictationChord = parseChord(dictationShortcut, UiohookKey, process.platform)
-      if (!chord || !dictationChord) throw new Error('Invalid speech shortcut')
+      if ((settings.experimental.ariaEnabled && !chord) || !dictationChord)
+        throw new Error('Invalid speech shortcut')
       // External support failing must not disable Aria or in-app dictation.
       await (this.deps.prepareTarget ?? prepareDictation)().catch((error) =>
         log.warn('external dictation unavailable', { error: String(error) }),
       )
       await this.createWindow()
       if (revision !== this.revision || this.disposed || !this.window) return
-      this.tracker = new ChordTracker(chord, UiohookKey.Escape)
+      this.tracker = chord ? new ChordTracker(chord, UiohookKey.Escape) : null
       this.dictationTracker = new ChordTracker(dictationChord, UiohookKey.Escape)
       this.hook = uIOhook
       uIOhook.on('keydown', this.keyDown)
@@ -300,6 +312,7 @@ export class AriaWidget {
   }
 
   private readonly keyDown = (event: HookKey): void => {
+    if (event.keycode === 1) this.deps.voice?.stop()
     const now = performance.now()
     const canStart = this.hold.canStart && !this.lease.busy
     const ariaAction = this.tracker?.down(event, now, canStart)
@@ -316,6 +329,13 @@ export class AriaWidget {
       if (!this.hold.down(now)) return
       this.token = this.lease.acquire()
       this.destination = ariaAction === 'down' ? 'aria' : 'dictation'
+      this.deps.voice?.stop()
+      if (
+        this.destination === 'aria' &&
+        this.settings?.ariaVoice?.mode !== 'off' &&
+        this.settings?.ariaVoice?.engine !== 'groq'
+      )
+        this.deps.voice?.warm()
       this.recoveryDelay = 1_000
       if (this.destination === 'dictation') {
         const id = this.hold.state.id
@@ -437,7 +457,10 @@ export class AriaWidget {
                 current: () =>
                   id === this.hold.state.id &&
                   this.hold.state.phase === 'transcribing' &&
+                  this.settings?.experimental.ariaEnabled === true &&
                   !this.disposed,
+                arm: (sessionId, text) =>
+                  this.deps.voice?.arm(sessionId, text) ?? Promise.resolve(),
                 open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
                 dispatch: async (command) =>
                   (await this.deps.invoke('command.dispatch', { command })) as {

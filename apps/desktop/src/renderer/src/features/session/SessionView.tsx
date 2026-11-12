@@ -378,6 +378,7 @@ function SessionViewContent({
           : rpc.capabilityReason(operation)
       : null
   const updateReason = actionReason('session.update')
+  const [readAloud, setReadAloud] = useState(false)
   const store = useMemo(() => transcriptStore(viewKey), [viewKey])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
@@ -817,6 +818,7 @@ function SessionViewContent({
             providerSessionId?: string | null
             context?: { hasMessages: boolean; hasTurns: boolean; hasProviderContext: boolean }
           }
+          setReadAloud(isHelmSession(m.session))
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
           setWorkspaceInfo({ sessionId, workspace: m.session.workspace })
           setMetadataFailureSession(null)
@@ -2239,6 +2241,7 @@ function SessionViewContent({
         ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
+            readAloud={readAloud}
             sessionId={sessionId}
             store={store}
             loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}

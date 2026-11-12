@@ -15,12 +15,15 @@ export function SessionKeepAlive({
   poolId,
   sessionId,
   hidden = false,
+  canRender,
   render,
 }: {
   poolId: string
   sessionId: string
   /** The whole pane is off screen (a space in the background): its current session hides too. */
   hidden?: boolean
+  /** Excludes disabled or unavailable sessions, including already cached views. */
+  canRender?: (sessionId: string) => boolean
   render: (sessionId: string, hidden: boolean) => ReactNode
 }) {
   const kept = useKeptSessions(poolId)
@@ -32,7 +35,7 @@ export function SessionKeepAlive({
   const hiddenElements = useRef(new Map<string, ReactNode>())
   // A stable order: React moves keyed children when their order changes, and
   // a moved node loses its scroll position.
-  const ids = [...new Set([sessionId, ...kept])].sort()
+  const ids = [...new Set([sessionId, ...kept])].filter((id) => canRender?.(id) ?? true).sort()
   const nextHidden = new Map<string, ReactNode>()
   const views = ids.map((id) => {
     if (id === sessionId) return <Fragment key={id}>{render(id, hidden)}</Fragment>

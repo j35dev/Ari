@@ -153,6 +153,24 @@ function command(op: RemoteCommand['op'], fields: Record<string, unknown>): Remo
   return { op, clientCommandId: 'cmd-1', idempotencyKey: 'idem-0001', ...fields } as RemoteCommand
 }
 
+it('keeps Aria out of mobile lists, deep links and attention even with a legacy explicit grant', async () => {
+  const store = await tempStore()
+  await store.append('coordinator', sessionCreated('coordinator', 'helm'))
+  await store.append('ordinary', sessionCreated('ordinary'))
+  const caller: RemoteCaller = { ...CALLER, projectIds: [...CALLER.projectIds, 'helm'] }
+  const host = hostFor(store, fakeEngine(), {
+    listProjects: async () => [
+      { id: 'helm', name: 'Aria' },
+      { id: 'proj_1', name: 'Project' },
+    ],
+  })
+  expect((await host.listSessions(caller)).map((session) => session.id)).toEqual(['ordinary'])
+  expect((await host.listProjects(caller)).map((project) => project.id)).toEqual(['proj_1'])
+  expect(await host.getSession(caller, 'coordinator')).toBeUndefined()
+  expect(await host.query(caller, 'session.get', { sessionId: 'coordinator' })).toBeNull()
+  expect(await host.query(caller, 'attention.list', { limit: 20 })).toMatchObject({ items: [] })
+})
+
 describe('remote host capabilities', () => {
   it('exposes future projects locally while a managed caller stays within signed IDs', async () => {
     const store = await tempStore()
