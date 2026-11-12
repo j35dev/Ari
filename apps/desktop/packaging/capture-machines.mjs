@@ -93,7 +93,7 @@ app
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
         text: document.body.innerText,
         sidebar: (() => {
-          const r = document.querySelector('aside')?.getBoundingClientRect();
+          const r = document.querySelector('[aria-label="Remote computers"]')?.getBoundingClientRect();
           return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
         })()
       })`)
