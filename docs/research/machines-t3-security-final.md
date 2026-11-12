@@ -6,13 +6,14 @@ Date: 2026-11-12. Review-only branch `machines/security-review` in
 `8b2d0dcb14af5cc841f92fdf339388df4d026fbf`, superseding the parent's earlier
 `afa7f96c4fa354334e22f0dfab0f8ae08912f824` designation.
 
-Disposition pending the final identity cleanup failure-injection execution.
+Bounded final source certification issued for
+`8b2d0dcb14af5cc841f92fdf339388df4d026fbf`, explicitly designated by the parent.
 No unresolved actionable source finding remains in the reviewed runtime scope.
 T1/T2/T3, the combined signed-route normal-client proof and identity recovery/key
 continuity independently pass at the exact source checkpoints below. The final
-cleanup delta is source-reviewed; its new execution is waiting for the shared
-resource lease. The parent's full integrated run continues and is not certified
-by this report. Real-hardware/platform and private-service checks remain below.
+cleanup delta also independently passes native-filesystem failure injection on
+this exact final source. The parent's full integrated run continues and is not
+certified by this report. Real-hardware/platform and private-service checks remain below.
 
 The [checkpoint ledger](machines-t3-security-review.md) preserves historical
 findings, source SHAs/blobs and reproduction/closure evidence. Controlling inputs
@@ -32,7 +33,7 @@ Original untracked `.review-temp/`, including `reproduce-takeover.mjs`, is prese
 
 The required stable machine-ID publication/recovery limitation was also closed
 in source and independently tested at `c537a8e2`; final cleanup hardening is
-reviewed at `8b2d0dcb`. The host-owner sensitive rename hardening filters both
+source-reviewed and independently tested at `8b2d0dcb`. The host-owner sensitive rename hardening filters both
 status path and oldPath. Its actual Git/SourceControlHost regression was
 source-inspected; this reviewer did not separately execute that regression.
 Prior S1-S9 source safeguards remain present in the inspected boundaries; their
@@ -52,6 +53,7 @@ the exact command, source/blob, resource admission, exit code and result.
 | [Replay closure](evidence/machines-t3-security/replay-closure-result.json) | `dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9` | Exit 0. 2,100 initial rows complete including seq zero; exact-cursor resume/live delivered and epoch fenced. Actual SessionClient/contracts with fixture IPC/inventory/action transport. |
 | [Combined normal-client proof](evidence/machines-t3-security/combined-result.json) | `1c2398a4177bdc97741bbbe0d8304f6640176d04` | Exit 0. Exact authored assertions through actual two Engines/stores, signed HTTP/WS, DNS/TCP, MachinesService/RPC/preload facade and normal SessionClient. 2,406 initial journal rows; full/resume/live, fallback/cooldown move-back, one B turn/A untouched, distinct route token, no reverse approval, redacted repo grouping, authenticated fixture Auto/Manual only, B-only revoke/cache purge. |
 | [Identity recovery/key continuity](evidence/machines-t3-security/identity-result.json) | `c537a8e2a492f1c2dc92894cd009ff6b07e79598` | Exit 0. Real files and two independent processes each for fresh/legacy/missing-primary/empty-primary cases; stable separate recovery, invalid-file preservation, same legacy ID and sealed key/anchor bytes, missing signing key cannot reset. Fixture AES-GCM. |
+| [Final identity cleanup](evidence/machines-t3-security/identity-cleanup-result.json) | `8b2d0dcb14af5cc841f92fdf339388df4d026fbf` | Exit 0. All prior identity/key/concurrent assertions pass again. Injected unlink failure retains a complete winner and two nonauthoritative unique temporaries; injected link plus unlink failure preserves original publication EACCES and leaves no primary/recovery. Native-fs injections restored in finally; fixture AES-GCM. |
 
 The combined proof replaces Vitest assertion/spy helpers only and preserves the
 authored source/assertions. Its first pre-assertion loader dependency failure is
@@ -116,6 +118,10 @@ The identity delta after `c537a8e2` is formatting plus final temporary-cleanup
 error handling. The sensitive oldPath filter and shell owner/offline display
 deltas were independently inspected. Subsequent session commits add test/config/
 handoff files only; the focused tsconfig extends, not replaces, the full config.
+The final comparison to integration `703de3f902cb2e3d70a102b1a3411b89dc7106d5`
+finds only the newer root-concurrency test fixture under runtime source directories,
+with no runtime implementation change. Its offered-model/workspace-token assertion
+additions are source evidence; no reviewer execution of that new test is claimed.
 
 F managed-workspaces/orchestration/workspace, RemoteTerminals, Tailscale and mobile
 have no changed source against prior final security baseline `3f55df73`. The

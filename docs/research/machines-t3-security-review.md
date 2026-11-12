@@ -1,8 +1,10 @@
 # Machines T3 parity independent security review
 
-Status: source audit complete through `4a962569`; independent route, replay,
-combined and identity proofs passed. Final runtime designation pending;
-no final integrated certification.
+Status: bounded final source certification issued for parent-designated runtime
+`8b2d0dcb14af5cc841f92fdf339388df4d026fbf`. Independent route, replay, combined,
+identity and final cleanup proofs pass. Full root verification/hardware remain
+separate. The [final report](machines-t3-security-final.md) supersedes historical
+pending-status statements in this checkpoint ledger.
 Reviewer: fresh Ari review session, codex / gpt-6.1-sol, xhigh effort, full permissions.
 Date: 2026-11-12. Review worktree: `D:/Projects/Ari-machines-wt/security`, branch
 `machines/security-review`. Existing untracked `.review-temp/` is preserved.
@@ -35,8 +37,9 @@ T1/T2/T3 are independently reproduced and independently closed at the merged sou
 named below. The combined signed-route normal-client proof independently passes at
 `1c2398a4`. The required identity publication/recovery change is source-reviewed at
 `c537a8e2`, with formatting-equivalent integrated source at `b9fac0c2`, and
-independently passes the recovery/key-continuity proof. Parent-designated final
-runtime source remains pending.
+independently passes the recovery/key-continuity proof. The parent-designated final
+runtime source is independently checked as documented in the
+final report.
 No new actionable source finding remains in the inspected scope. Source closure,
 authored/root execution, independent execution and hardware checks stay separate.
 The checkpoint ledger below preserves historical findings and intermediate limits;
@@ -584,3 +587,34 @@ and publication errors into actual immutable source. It will rerun all previous
 identity assertions on `8b2d0dcb` and verify a cleanup failure retains the winner
 while a simultaneous publication/cleanup failure exposes the original error.
 This new execution is pending; no final certification is issued at this WIP.
+
+## Final bounded source disposition: `8b2d0dcb`
+
+Parent explicitly confirmed `8b2d0dcb14af5cc841f92fdf339388df4d026fbf` as the
+final runtime source, superseding `afa7f96c`. Its final machine-ID blob
+`b884aff7ef9aa420ab0a28e3362fc0382e62a68c` independently passed all prior
+recovery/key-continuity/concurrent-process assertions plus the new native-fs
+cleanup/publication failure injections. `identity-cleanup-result.json` retains
+the exact source/command/resource/results. Exit 0; below-normal, one reviewer
+worker, shared capacity 2, 7,709,446,144 bytes commit headroom and 21,944,107,008
+bytes C: free. The completed primary/recovery winner stays usable despite two
+leftover unique public-ID temporaries. When publication itself fails, its original
+EACCES remains visible instead of the injected cleanup EBUSY, and no primary or
+recovery is invented. Filesystem injections were restored in finally; checked
+disposable roots alone were removed. Original `c537a8e2` evidence and the prior
+harness document remain preserved in security commit
+`ec5b05c29e178d274947daf258a512961f4e10c9`.
+
+T1/T2/T3 remain independently closed at unchanged tested merged blobs. Combined
+normal-client signed-route full/resume/live fallback/move-back and host-only
+revocation independently pass, as do the final identity guarantees in bounded
+file/process scope. No unresolved actionable source finding remains in the
+inspected final runtime. Bounded source certification is issued for this exact
+source and these named proofs; no full-suite, arbitrary-old exactly-once,
+OS-storage/crash/profile-owner or real-hardware certification is made.
+
+`machines-t3-security-final.md` provides the final severity/closure table, exact
+execution evidence, final source/blob table, source-only regression distinctions
+and remaining concrete hardware/private-service checks. Full root verification
+continues. Later test/config/handoff changes do not extend this runtime scope;
+any later runtime change must be compared against the named final source.
