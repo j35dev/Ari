@@ -18,8 +18,15 @@ import { IS_CONNECT_BUILD } from './connect'
 import { visibleProjects, visibleSessions } from './visibility'
 import { routeUrl } from './routes'
 import {
-  computerAddress, computerDestination, forgetComputerState, LEGACY_ORIGIN_KEY,
-  readComputers, saveComputer, takeComputerDirectory, writeComputers, type SavedComputer,
+  computerAddress,
+  computerDestination,
+  forgetComputerState,
+  LEGACY_ORIGIN_KEY,
+  readComputers,
+  saveComputer,
+  takeComputerDirectory,
+  writeComputers,
+  type SavedComputer,
 } from './computers'
 
 const ORIGIN_KEY = LEGACY_ORIGIN_KEY
@@ -119,7 +126,8 @@ export function AppProvider({
   const live = useRef<MobileSession | null>(null)
   const forgetting = useRef<Promise<void> | null>(null)
   const canSelectComputer = useCallback((): void => {
-    if (forgetting.current !== null) throw new Error('Wait for this computer to be forgotten before opening another.')
+    if (forgetting.current !== null)
+      throw new Error('Wait for this computer to be forgotten before opening another.')
   }, [])
   const connectionOwner = useRef<{
     session: MobileSession
@@ -134,9 +142,14 @@ export function AppProvider({
     live.current = null
   }, [])
   const refreshingSession = useRef<MobileSession | null>(null)
-  useEffect(() => { writeComputers(computers) }, [computers])
+  useEffect(() => {
+    writeComputers(computers)
+  }, [computers])
   const keyring = useMemo(
-    () => new DeviceKeyring(new LifecycleDeviceStore(origin === null ? store : (store.forOrigin?.(origin) ?? store))),
+    () =>
+      new DeviceKeyring(
+        new LifecycleDeviceStore(origin === null ? store : (store.forOrigin?.(origin) ?? store)),
+      ),
     [origin, store],
   )
   const refreshWith = useCallback(async (session: MobileSession): Promise<void> => {
@@ -213,9 +226,17 @@ export function AppProvider({
         if (state === 'reconnecting') scheduleReconnect()
         else cancelRetry()
         setConnection(state)
-        setComputers((saved) => saved.map((computer) => computer.origin === origin
-          ? { ...computer, status: state, lastConnectedAt: state === 'connected' ? Date.now() : computer.lastConnectedAt }
-          : computer))
+        setComputers((saved) =>
+          saved.map((computer) =>
+            computer.origin === origin
+              ? {
+                  ...computer,
+                  status: state,
+                  lastConnectedAt: state === 'connected' ? Date.now() : computer.lastConnectedAt,
+                }
+              : computer,
+          ),
+        )
         if (!canReconnect(state)) {
           setCapabilities([])
           setProjects([])
@@ -273,7 +294,12 @@ export function AppProvider({
       })()
       return connecting
     }
-    connectionOwner.current = { session, connect: () => connect('manual'), controller, pairing: null }
+    connectionOwner.current = {
+      session,
+      connect: () => connect('manual'),
+      controller,
+      pairing: null,
+    }
     void connect('initial')
     const visible = (): void => {
       if (document.visibilityState === 'visible') void connect()
@@ -302,12 +328,17 @@ export function AppProvider({
     async (invitationId: string, displayName: string): Promise<void> => {
       if (linked === null) throw new Error('Choose a computer first.')
       const owner = connectionOwner.current
-      if (owner === null || owner.session !== linked) throw new Error('Choose this computer again before pairing.')
-      if (owner.pairing !== null) throw new Error('A pairing attempt is already waiting for this computer.')
+      if (owner === null || owner.session !== linked)
+        throw new Error('Choose this computer again before pairing.')
+      if (owner.pairing !== null)
+        throw new Error('A pairing attempt is already waiting for this computer.')
       const pending = linked.pair(invitationId, displayName, owner.controller.signal)
       owner.pairing = pending
-      try { await pending }
-      finally { if (owner.pairing === pending) owner.pairing = null }
+      try {
+        await pending
+      } finally {
+        if (owner.pairing === pending) owner.pairing = null
+      }
       if (live.current !== linked) return
       setConnection(linked.state)
       setCapabilities(linked.capabilities)
@@ -341,41 +372,51 @@ export function AppProvider({
       }
     })()
     forgetting.current = pending
-    try { await pending }
-    finally { if (forgetting.current === pending) forgetting.current = null }
+    try {
+      await pending
+    } finally {
+      if (forgetting.current === pending) forgetting.current = null
+    }
   }, [keyring, origin, abandonConnection])
-  const rememberOrigin = useCallback((next: string): void => {
-    canSelectComputer()
-    const url = computerAddress(next, !IS_CONNECT_BUILD)
-    if (!IS_CONNECT_BUILD && url.origin !== location.origin) {
+  const rememberOrigin = useCallback(
+    (next: string): void => {
+      canSelectComputer()
+      const url = computerAddress(next, !IS_CONNECT_BUILD)
+      if (!IS_CONNECT_BUILD && url.origin !== location.origin) {
+        abandonConnection()
+        setLinked(null)
+        setOrigin(null)
+        setBooted(true)
+        setConnection('unpaired')
+        navigateTo(computerDestination(url.href, saveComputer(computers, url.origin)))
+        return
+      }
+      try {
+        localStorage.setItem(ORIGIN_KEY, url.origin)
+      } catch (failure) {
+        console.warn('Could not save the computer address', failure)
+      }
+      if (url.origin === origin) return
+      history.replaceState(
+        null,
+        '',
+        routeUrl({ destination: 'home', sessionId: null }, location.href),
+      )
+      setBooted(false)
       abandonConnection()
       setLinked(null)
-      setOrigin(null)
-      setBooted(true)
-      setConnection('unpaired')
-      navigateTo(computerDestination(url.href, saveComputer(computers, url.origin)))
-      return
-    }
-    try {
-      localStorage.setItem(ORIGIN_KEY, url.origin)
-    } catch (failure) {
-      console.warn('Could not save the computer address', failure)
-    }
-    if (url.origin === origin) return
-    history.replaceState(null, '', routeUrl({ destination: 'home', sessionId: null }, location.href))
-    setBooted(false)
-    abandonConnection()
-    setLinked(null)
-    setProjects([])
-    setSessions([])
-    setCapabilities([])
-    setCatalog(null)
-    setPairingCode(null)
-    setError(null)
-    setConnection('connecting')
-    setComputers((saved) => saveComputer(saved, url.origin))
-    setOrigin(url.origin)
-  }, [origin, computers, navigateTo, abandonConnection, canSelectComputer])
+      setProjects([])
+      setSessions([])
+      setCapabilities([])
+      setCatalog(null)
+      setPairingCode(null)
+      setError(null)
+      setConnection('connecting')
+      setComputers((saved) => saveComputer(saved, url.origin))
+      setOrigin(url.origin)
+    },
+    [origin, computers, navigateTo, abandonConnection, canSelectComputer],
+  )
   const chooseComputer = useCallback(
     (computerId: string, next: string): void => {
       canSelectComputer()
@@ -399,44 +440,64 @@ export function AppProvider({
     setBooted(true)
     setConnection('unpaired')
   }, [abandonConnection])
-  const switchComputer = useCallback((next: string): void => {
-    canSelectComputer()
-    const computer = computers.find((entry) => entry.origin === next)
-    if (IS_CONNECT_BUILD) {
-      if (computer?.managedComputerId === undefined) throw new Error('Choose this computer from Ari Connect.')
-      chooseComputer(computer.managedComputerId, computer.origin)
-      return
-    }
-    const destination = computerAddress(next)
-    if (destination.origin !== location.origin) {
-      changeComputer()
-      navigateTo(computerDestination(destination.href, computers))
-      return
-    }
-    setManagedComputerId(null)
-    if (origin === destination.origin) void reconnect()
-    else rememberOrigin(destination.origin)
-  }, [computers, chooseComputer, origin, reconnect, rememberOrigin, changeComputer, navigateTo, canSelectComputer])
-  const addComputer = useCallback((address: string, name?: string): void => {
-    canSelectComputer()
-    if (IS_CONNECT_BUILD) throw new Error('Choose computers from your approved Ari Connect account.')
-    const destination = computerAddress(address)
-    const saved = saveComputer(computers, destination.origin, name)
-    setComputers(saved)
-    writeComputers(saved)
-    if (destination.origin !== location.origin) {
-      changeComputer()
-      navigateTo(computerDestination(destination.href, saved))
-      return
-    }
-    if (destination.hash) navigateTo(computerDestination(destination.href, saved))
-    else if (origin === destination.origin) void reconnect()
-    else rememberOrigin(destination.origin)
-  }, [computers, origin, reconnect, rememberOrigin, changeComputer, navigateTo, canSelectComputer])
+  const switchComputer = useCallback(
+    (next: string): void => {
+      canSelectComputer()
+      const computer = computers.find((entry) => entry.origin === next)
+      if (IS_CONNECT_BUILD) {
+        if (computer?.managedComputerId === undefined)
+          throw new Error('Choose this computer from Ari Connect.')
+        chooseComputer(computer.managedComputerId, computer.origin)
+        return
+      }
+      const destination = computerAddress(next)
+      if (destination.origin !== location.origin) {
+        changeComputer()
+        navigateTo(computerDestination(destination.href, computers))
+        return
+      }
+      setManagedComputerId(null)
+      if (origin === destination.origin) void reconnect()
+      else rememberOrigin(destination.origin)
+    },
+    [
+      computers,
+      chooseComputer,
+      origin,
+      reconnect,
+      rememberOrigin,
+      changeComputer,
+      navigateTo,
+      canSelectComputer,
+    ],
+  )
+  const addComputer = useCallback(
+    (address: string, name?: string): void => {
+      canSelectComputer()
+      if (IS_CONNECT_BUILD)
+        throw new Error('Choose computers from your approved Ari Connect account.')
+      const destination = computerAddress(address)
+      const saved = saveComputer(computers, destination.origin, name)
+      setComputers(saved)
+      writeComputers(saved)
+      if (destination.origin !== location.origin) {
+        changeComputer()
+        navigateTo(computerDestination(destination.href, saved))
+        return
+      }
+      if (destination.hash) navigateTo(computerDestination(destination.href, saved))
+      else if (origin === destination.origin) void reconnect()
+      else rememberOrigin(destination.origin)
+    },
+    [computers, origin, reconnect, rememberOrigin, changeComputer, navigateTo, canSelectComputer],
+  )
   const renameComputer = useCallback((selected: string, name: string): void => {
     if (!name.trim()) throw new Error('Give this computer a name.')
-    setComputers((saved) => saved.map((computer) => computer.origin === selected
-      ? { ...computer, name: name.trim().slice(0, 80) } : computer))
+    setComputers((saved) =>
+      saved.map((computer) =>
+        computer.origin === selected ? { ...computer, name: name.trim().slice(0, 80) } : computer,
+      ),
+    )
   }, [])
   const activeComputer = computers.find((computer) => computer.origin === origin) ?? null
   return (

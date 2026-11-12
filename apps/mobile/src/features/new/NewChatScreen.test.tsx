@@ -124,7 +124,9 @@ describe('starting a new chat', () => {
     expect(app.session.send).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Check request receipt' }))
     await waitFor(() => expect(handlers.onOpen).toHaveBeenCalledWith('new-1'))
-    expect(app.session.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: first?.[1] })
+    expect(app.session.query).toHaveBeenCalledExactlyOnceWith('command.status', {
+      idempotencyKey: first?.[1],
+    })
     expect(sent()[1]).toEqual({
       op: 'session.prompt',
       sessionId: 'new-1',
@@ -133,7 +135,8 @@ describe('starting a new chat', () => {
   })
 
   it.each([null, { ok: true, result: {} }, new RemoteError('not_found', 'History absent')])(
-    'keeps an unconfirmed creation and never resubmits missing or corrupt history: %j', async (outcome) => {
+    'keeps an unconfirmed creation and never resubmits missing or corrupt history: %j',
+    async (outcome) => {
       app.session.send.mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
       if (outcome instanceof Error) app.session.query.mockRejectedValue(outcome)
       else app.session.query.mockResolvedValue(outcome)
@@ -145,7 +148,11 @@ describe('starting a new chat', () => {
       expect(stored).not.toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Check request receipt' }))
       await waitFor(() => expect(app.session.query).toHaveBeenCalledOnce())
-      await waitFor(() => expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Check request receipt' }).disabled).toBe(false))
+      await waitFor(() =>
+        expect(
+          screen.getByRole<HTMLButtonElement>('button', { name: 'Check request receipt' }).disabled,
+        ).toBe(false),
+      )
       expect(app.session.send).toHaveBeenCalledOnce()
       expect(sessionStorage.getItem('ari.creation:https://computer.example:phone-1')).toBe(stored)
       expect(handlers.onOpen).not.toHaveBeenCalled()
@@ -154,7 +161,12 @@ describe('starting a new chat', () => {
 
   it('retains a confirmed creation after leaving without sending a first prompt or navigating', async () => {
     let resolve!: (outcome: unknown) => void
-    app.session.send.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    app.session.send.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
     const view = render(<NewChatScreen {...handlers} />)
     write('Keep on this computer')
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
@@ -171,11 +183,15 @@ describe('starting a new chat', () => {
     view.unmount()
     app.session.deviceId = 'phone-2'
     const second = render(<NewChatScreen {...handlers} />)
-    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Describe a task' }).value).toBe('')
+    expect(
+      screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Describe a task' }).value,
+    ).toBe('')
     second.unmount()
     app.session.deviceId = 'phone-1'
     render(<NewChatScreen {...handlers} />)
-    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Describe a task' }).value).toBe('Studio draft')
+    expect(
+      screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Describe a task' }).value,
+    ).toBe('Studio draft')
     expect(app.session.send).not.toHaveBeenCalled()
   })
 
@@ -188,9 +204,9 @@ describe('starting a new chat', () => {
     write('Fix the flaky test')
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(handlers.onOpen).toHaveBeenCalledWith('new-1'))
-    expect(
-      sessionStorage.getItem('ari.pending:https://computer.example:phone-1:new-1'),
-    ).toContain('Fix the flaky test')
+    expect(sessionStorage.getItem('ari.pending:https://computer.example:phone-1:new-1')).toContain(
+      'Fix the flaky test',
+    )
   })
 
   it('opens the session with the message as a draft when the computer refuses it', async () => {

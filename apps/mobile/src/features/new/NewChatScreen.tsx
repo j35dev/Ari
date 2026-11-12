@@ -55,9 +55,13 @@ export function NewChatScreen({
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
-    return () => { alive.current = false }
+    return () => {
+      alive.current = false
+    }
   }, [])
-  useEffect(() => { writeDraft(app.origin, '$new', text, deviceId) }, [app.origin, deviceId, text])
+  useEffect(() => {
+    writeDraft(app.origin, '$new', text, deviceId)
+  }, [app.origin, deviceId, text])
   useEffect(() => {
     if (area.current !== null) {
       area.current.style.height = 'auto'
@@ -90,20 +94,25 @@ export function NewChatScreen({
     let id: string | null
     try {
       id = sessionIdOf(
-        pending !== null ? await checkCommandReceipt(session, command.key) : await session.send(
-          {
-            op: 'session.create',
-            projectId: command.projectId,
-            ...(command.driverKind === '' ? {} : { driverKind: command.driverKind }),
-            ...(command.modelId === '' ? {} : { modelId: command.modelId }),
-            ...(command.permissionMode === null ? {} : { permissionMode: command.permissionMode }),
-            ...(command.effort === null ? {} : { effort: command.effort }),
-          },
-          command.key,
-        ),
+        pending !== null
+          ? await checkCommandReceipt(session, command.key)
+          : await session.send(
+              {
+                op: 'session.create',
+                projectId: command.projectId,
+                ...(command.driverKind === '' ? {} : { driverKind: command.driverKind }),
+                ...(command.modelId === '' ? {} : { modelId: command.modelId }),
+                ...(command.permissionMode === null
+                  ? {}
+                  : { permissionMode: command.permissionMode }),
+                ...(command.effort === null ? {} : { effort: command.effort }),
+              },
+              command.key,
+            ),
       )
       if (!alive.current) return
-      if (id === null) throw new Error('Your computer did not return a session. Check its original receipt.')
+      if (id === null)
+        throw new Error('Your computer did not return a session. Check its original receipt.')
     } catch (error) {
       if (!alive.current) return
       setFailure(error instanceof Error ? error.message : 'Could not start this chat.')
@@ -190,7 +199,9 @@ export function NewChatScreen({
         <p className="text-[26px] font-semibold leading-tight tracking-[-0.04em]">
           What should we work on?
         </p>
-        <p className="mt-2 text-sm text-fg-muted">The agent works on your computer, in {projectName}.</p>
+        <p className="mt-2 text-sm text-fg-muted">
+          The agent works on your computer, in {projectName}.
+        </p>
       </div>
       {failure !== null && (
         <p role="alert" className="error-banner mx-4">
@@ -238,15 +249,29 @@ export function NewChatScreen({
             </div>
             <button
               type="submit"
-              className={pending !== null
-                ? 'inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-accent px-3 text-xs font-medium text-fg-on-accent disabled:opacity-50'
-                : 'icon-button rounded-full bg-accent text-fg-on-accent'}
-              aria-label={checking && busy ? 'Checking receipt' : pending !== null ? 'Check request receipt' : 'Send'}
+              className={
+                pending !== null
+                  ? 'inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-accent px-3 text-xs font-medium text-fg-on-accent disabled:opacity-50'
+                  : 'icon-button rounded-full bg-accent text-fg-on-accent'
+              }
+              aria-label={
+                checking && busy
+                  ? 'Checking receipt'
+                  : pending !== null
+                    ? 'Check request receipt'
+                    : 'Send'
+              }
               disabled={
                 busy || app.connection !== 'connected' || (pending === null && !text.trim())
               }
             >
-              {busy ? <LoaderCircle size={18} className="animate-spin" /> : pending !== null ? 'Check receipt' : <ArrowUp size={20} />}
+              {busy ? (
+                <LoaderCircle size={18} className="animate-spin" />
+              ) : pending !== null ? (
+                'Check receipt'
+              ) : (
+                <ArrowUp size={20} />
+              )}
             </button>
           </div>
         </div>

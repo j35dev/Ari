@@ -92,11 +92,15 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
     xterm.open(element)
     terminal.current = xterm
     fit.current = addon
-    writer.current = new TerminalWriter(sendInput, (error) => {
-      setInputBlocked(true)
-      xterm.options.disableStdin = true
-      setFailure(error instanceof Error ? error.message : 'Terminal input was not acknowledged.')
-    }, checkInput)
+    writer.current = new TerminalWriter(
+      sendInput,
+      (error) => {
+        setInputBlocked(true)
+        xterm.options.disableStdin = true
+        setFailure(error instanceof Error ? error.message : 'Terminal input was not acknowledged.')
+      },
+      checkInput,
+    )
     const input = xterm.onData((data) => {
       void write(data).catch((error: unknown) =>
         setFailure(error instanceof Error ? error.message : 'Could not write to the terminal.'),
@@ -140,21 +144,23 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
             creationKey: creating.current,
             closed: false,
           })
-          const result = (checking ? await checkCommandReceipt(session, creating.current) : await session.send(
-            {
-              op: 'terminal.create',
-              sessionId,
-              cols: Math.min(300, Math.max(20, terminal.current?.cols ?? 80)),
-              rows: Math.min(100, Math.max(5, terminal.current?.rows ?? 24)),
-            },
-            creating.current,
-          )) as { result?: { terminalId?: string }; terminalId?: string }
+          const result = (
+            checking
+              ? await checkCommandReceipt(session, creating.current)
+              : await session.send(
+                  {
+                    op: 'terminal.create',
+                    sessionId,
+                    cols: Math.min(300, Math.max(20, terminal.current?.cols ?? 80)),
+                    rows: Math.min(100, Math.max(5, terminal.current?.rows ?? 24)),
+                  },
+                  creating.current,
+                )
+          ) as { result?: { terminalId?: string }; terminalId?: string }
           if (cancelled) return
           const nextId = result.result?.terminalId ?? result.terminalId
           if (nextId === undefined)
-            throw new Error(
-              'The computer did not return a terminal. Check its original receipt.',
-            )
+            throw new Error('The computer did not return a terminal. Check its original receipt.')
           id.current = nextId
           creating.current = null
           writeTerminalState(app.origin, deviceId, sessionId, {
@@ -245,11 +251,17 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
     try {
       await closeRemoteTerminal(() => session.send({ op: 'terminal.kill', sessionId, terminalId }))
       writer.current?.dispose()
-      writer.current = new TerminalWriter(sendInput, (error) => {
-        setInputBlocked(true)
-        if (terminal.current !== null) terminal.current.options.disableStdin = true
-        setFailure(error instanceof Error ? error.message : 'Terminal input was not acknowledged.')
-      }, checkInput)
+      writer.current = new TerminalWriter(
+        sendInput,
+        (error) => {
+          setInputBlocked(true)
+          if (terminal.current !== null) terminal.current.options.disableStdin = true
+          setFailure(
+            error instanceof Error ? error.message : 'Terminal input was not acknowledged.',
+          )
+        },
+        checkInput,
+      )
       id.current = null
       cursor.current = 0
       setExited(false)
@@ -393,7 +405,9 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
         <button
           type="submit"
           className="secondary-button"
-          disabled={!started || !command || busy || exited || inputBlocked || app.connection !== 'connected'}
+          disabled={
+            !started || !command || busy || exited || inputBlocked || app.connection !== 'connected'
+          }
         >
           Run
         </button>

@@ -52,7 +52,9 @@ export function Composer({
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
-    return () => { alive.current = false }
+    return () => {
+      alive.current = false
+    }
   }, [])
   const running = status === 'running'
   useEffect(() => {
@@ -91,22 +93,31 @@ export function Composer({
     setPending(command)
     setReceipt(null)
     try {
-      if (pending !== null) await checkCommandReceipt(session, command.key,
-        (result) => typeof result === 'object' && result !== null && 'accepted' in result && result.accepted === true)
-      else await session.send(
-        {
-          op:
-            command.mode === 'queue'
-              ? 'session.queue'
-              : command.mode === 'steer'
-                ? 'session.steer'
-                : 'session.prompt',
-          sessionId,
-          text: command.text,
-          ...(command.attachmentIds.length === 0 ? {} : { attachmentIds: command.attachmentIds }),
-        },
-        command.key,
-      )
+      if (pending !== null)
+        await checkCommandReceipt(
+          session,
+          command.key,
+          (result) =>
+            typeof result === 'object' &&
+            result !== null &&
+            'accepted' in result &&
+            result.accepted === true,
+        )
+      else
+        await session.send(
+          {
+            op:
+              command.mode === 'queue'
+                ? 'session.queue'
+                : command.mode === 'steer'
+                  ? 'session.steer'
+                  : 'session.prompt',
+            sessionId,
+            text: command.text,
+            ...(command.attachmentIds.length === 0 ? {} : { attachmentIds: command.attachmentIds }),
+          },
+          command.key,
+        )
       if (!alive.current) return
       setText('')
       setAttachments([])
@@ -136,7 +147,10 @@ export function Composer({
         setReceipt('Not accepted. Your draft is still here.')
       } else setReceipt('Response uncertain. Check the original submission receipt.')
     } finally {
-      if (alive.current) { setBusy(false); setChecking(false) }
+      if (alive.current) {
+        setBusy(false)
+        setChecking(false)
+      }
     }
   }
   async function upload(file: File): Promise<void> {
@@ -170,7 +184,8 @@ export function Composer({
       if (staged === undefined) throw new Error('The computer did not confirm this attachment.')
       setAttachments((current) => [...current, ...staged].slice(0, 4))
     } catch (error) {
-      if (alive.current) onError(error instanceof Error ? error.message : 'Could not upload this image.')
+      if (alive.current)
+        onError(error instanceof Error ? error.message : 'Could not upload this image.')
     } finally {
       if (alive.current) setUploading(false)
       if (input.current !== null) input.current.value = ''
@@ -199,12 +214,18 @@ export function Composer({
   }
   return (
     <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
-      {!disabled && (running || busy) && (
-        checking ? <p role="status" className="mb-2 text-center text-xs text-fg-muted">Checking receipt…</p> : <WorkingIndicator
-          sending={!running}
-          {...(running && workingSince !== undefined ? { since: workingSince } : {})}
-        />
-      )}
+      {!disabled &&
+        (running || busy) &&
+        (checking ? (
+          <p role="status" className="mb-2 text-center text-xs text-fg-muted">
+            Checking receipt…
+          </p>
+        ) : (
+          <WorkingIndicator
+            sending={!running}
+            {...(running && workingSince !== undefined ? { since: workingSince } : {})}
+          />
+        ))}
       <form
         className="rounded-3xl border border-border bg-surface-1 p-2"
         onSubmit={(event) => {
@@ -263,7 +284,9 @@ export function Composer({
                 type="button"
                 className="icon-button text-fg-muted"
                 aria-label="Choose an image"
-                disabled={disabled || uploading || busy || pending !== null || attachments.length >= 4}
+                disabled={
+                  disabled || uploading || busy || pending !== null || attachments.length >= 4
+                }
                 onClick={() => input.current?.click()}
               >
                 {uploading ? (
@@ -313,7 +336,9 @@ export function Composer({
             ) : pending === null ? (
               <ArrowUp size={20} />
             ) : null}
-            {pending !== null && !stopInstead && (busy ? checking ? 'Checking…' : 'Submitting…' : 'Check receipt')}
+            {pending !== null &&
+              !stopInstead &&
+              (busy ? (checking ? 'Checking…' : 'Submitting…') : 'Check receipt')}
           </button>
         </div>
       </form>
