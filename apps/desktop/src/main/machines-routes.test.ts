@@ -15,7 +15,8 @@ import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gat
 import { createHostRouteSigner } from '@ari/remote-gateway/route-auth'
 import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteHost } from '@ari/remote-gateway/host'
-import type { MachineRoute } from '@ari/contracts/machines'
+import type { MachineRoute, MachineEventsFrame } from '@ari/contracts/machines'
+import { journalEventSchema } from '@ari/contracts/events'
 import { MachinesService } from './machines'
 import { DesktopMachineCredential, MachinesRegistry } from './machines-registry'
 import { MachineNetwork } from './machines-network'
@@ -75,7 +76,7 @@ class ControlledNetwork extends MachineNetwork {
     }
   }
 }
-async function fixture() {
+async function fixture(overrides: Partial<RemoteHost> = {}) {
   const box = aesGcmSecretBox(randomBytes(32))
   const signer = createHostRouteSigner(
     'host_stable',
@@ -87,7 +88,7 @@ async function fixture() {
   const start = async (): Promise<RemoteGateway> => {
     let audience: string | null = null
     const gateway = await createRemoteGateway({
-      host,
+      host: { ...host, ...overrides },
       pairing,
       port: 0,
       allowedOrigins: () => origins,
@@ -361,6 +362,71 @@ describe('verified ordered Machines routes', () => {
       body: '{}',
     })
     expect(response.status).toBe(401)
+  })
+
+  it('forwards desktop frames in one immutable scope and resumes the stream when moving back', async () => {
+    const event = journalEventSchema.parse({
+      seq: 0,
+      at: 1,
+      sessionId: 'session_scope',
+      type: 'session.updated',
+      title: 'Host session',
+    })
+    const f = await fixture({
+      capabilities: () => ['project.list', 'gateway.info', 'events.desktop.subscribe'],
+      desktopReplayState: async () => ({ projectId: 'project', seq: 0, liveTurnId: null }),
+      replayRange: async (_caller, _sessionId, options, onChunk) => {
+        if (options.afterSeq === undefined) await onChunk([event])
+        return { outcome: 'complete', seq: 0, reason: null }
+      },
+    })
+    f.network.offline.add(f.a.origin)
+    await f.machines.connect(f.saved.id)
+    const frames: MachineEventsFrame[] = []
+    await f.machines.subscribe(
+      'desktop_stream',
+      { machineId: f.saved.id, sessionId: 'session_scope', desktop: true },
+      (frame) => frames.push(frame),
+    )
+    await vi.waitFor(() =>
+      expect(
+        frames.some(
+          (frame) =>
+            frame.message.type === 'events.desktop.frame' &&
+            frame.message.frame.kind === 'terminal',
+        ),
+      ).toBe(true),
+    )
+    f.network.offline.delete(f.a.origin)
+    f.advance()
+    await f.machines.precheck(f.saved.id)
+    await vi.waitFor(() =>
+      expect(
+        frames.filter(
+          (frame) =>
+            frame.message.type === 'events.desktop.frame' &&
+            frame.message.frame.kind === 'terminal',
+        ),
+      ).toHaveLength(2),
+    )
+    expect(
+      frames.every(
+        (frame) =>
+          frame.machineId === f.saved.id &&
+          frame.message.type === 'events.desktop.frame' &&
+          frame.message.sessionId === 'session_scope',
+      ),
+    ).toBe(true)
+    const starts = frames.flatMap((frame) =>
+      frame.message.type === 'events.desktop.frame' && frame.message.frame.kind === 'start'
+        ? [frame.message.frame]
+        : [],
+    )
+    expect(starts).toMatchObject([
+      { replayMode: 'full', fromSeq: null },
+      { replayMode: 'resume', fromSeq: 0 },
+    ])
+    f.machines.unsubscribe('desktop_stream')
   })
 
   it('learns only signed reported routes, preserves manual routes and enforces complete reorder', async () => {
