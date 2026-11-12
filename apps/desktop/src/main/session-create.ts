@@ -7,12 +7,15 @@ export interface SessionCreateDeps {
   prepareRootWorkspace?: (
     session: Session,
     mode?: 'auto' | 'isolated' | 'shared',
+    baseSnapshotCommit?: string,
   ) => Promise<SessionWorkspace>
 }
 
 export async function createSession(
   deps: SessionCreateDeps,
   params: SessionCreateParams,
+  /** Trusted host-issued workspace selection; never accepted by the local RPC schema. */
+  selection?: { baseSnapshotCommit?: string },
 ): Promise<{ sessionId: string }> {
   // A session always runs inside a project: without one there is no workspace
   // to jail the terminal and file tools against. The renderer resolves a
@@ -34,7 +37,7 @@ export async function createSession(
     updatedAt: Date.now(),
   }
   if (deps.prepareRootWorkspace)
-    session.workspace = await deps.prepareRootWorkspace(session, params.workspaceMode)
+    session.workspace = await deps.prepareRootWorkspace(session, params.workspaceMode, selection?.baseSnapshotCommit)
   await deps.createSession(session)
   return { sessionId }
 }

@@ -22,7 +22,7 @@ export const machinesExtensionOperationSchema = z.enum([
   'session.stopChildren', 'session.resume.get', 'session.resume.schedule', 'session.resume.cancel',
   'plan.get', 'changes.turn', 'changes.turnFile', 'files.index', 'pastes.stage',
   'session.steer.attachments', 'scm.desktop.summary', 'scm.desktop.status', 'scm.desktop.review',
-  'events.desktop.subscribe',
+  'events.desktop.subscribe', 'scm.desktop.diff',
 ])
 export type MachinesExtensionOperation = z.infer<typeof machinesExtensionOperationSchema>
 export const machinesExtensionsSchema = z.object({
@@ -51,7 +51,7 @@ export const remoteHostResourcesSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('available'), sampledAt: z.number().int().nonnegative(),
     cpuUtilization: z.number().min(0).max(1), cpuCount: z.number().int().min(1).max(4096),
     availableMemoryBytes: z.number().int().nonnegative(), totalMemoryBytes: z.number().int().positive(),
-    reason: z.null(), }).strict(),
+    reason: z.null(), }).strict().refine((value) => value.availableMemoryBytes <= value.totalMemoryBytes),
   z.object({ status: z.literal('unavailable'), sampledAt: z.number().int().nonnegative().nullable(),
     cpuUtilization: z.null(), cpuCount: z.null(), availableMemoryBytes: z.null(), totalMemoryBytes: z.null(),
     reason: short, }).strict(),
@@ -97,13 +97,15 @@ export const remoteDesktopQuerySchema = z.discriminatedUnion('op', [
   read({ op: z.literal('files.index'), sessionId: id, cursor: path.optional(), limit: z.number().int().min(1).max(200).default(200) }),
   read({ op: z.literal('scm.desktop.summary'), sessionId: id }),
   read({ op: z.literal('scm.desktop.status'), sessionId: id }),
+  read({ op: z.literal('scm.desktop.diff'), sessionId: id, snapshotId: sourceControlSchemas.oid, path,
+    context: z.number().int().min(0).max(1000).default(3) }),
   read({ op: z.literal('scm.desktop.review'), sessionId: id,
     comparison: z.discriminatedUnion('kind', [read({ kind: z.literal('working-tree') }),
       read({ kind: z.literal('staged') }), read({ kind: z.literal('unstaged') }),
       read({ kind: z.literal('session') }), read({ kind: z.literal('turn'), turnId: id })]) }),
 ])
 export type RemoteDesktopQuery = z.infer<typeof remoteDesktopQuerySchema>
-const attachmentIds = z.array(z.string().min(1).max(128)).max(5).optional()
+const attachmentIds = z.array(z.string().min(1).max(128)).max(4).optional()
 export const remoteDesktopCommandSchema = z.discriminatedUnion('op', [
   write({ op: z.literal('session.desktop.create'), projectId: id, title: z.string().min(1).max(200),
     driverKind: driverKindSchema, modelId: z.string().min(1).max(200).nullable(),
@@ -150,6 +152,7 @@ export const remoteScmStatusSchema = outcome(read({
   turns: z.array(read({ turnId: id, stable: z.boolean(), error: short.optional() })).max(2000),
 }))
 export const remoteScmReviewSchema = outcome(sourceControlSchemas.manifest.extend({ files: z.array(sourceControlSchemas.file).max(2000) }).strict())
+export const remoteScmDiffSchema = outcome(z.string().max(4 * 1024 * 1024))
 export const remotePlanSchema = read({ items: z.array(read({ text: z.string().min(1).max(8000),
   status: z.enum(['pending', 'in_progress', 'done']) })).max(500).nullable(), error: short.optional() })
 export const remoteTurnDiffSchema = read({ diffText: z.string().max(4 * 1024 * 1024).nullable(),
@@ -157,6 +160,7 @@ export const remoteTurnDiffSchema = read({ diffText: z.string().max(4 * 1024 * 1
     files: z.array(sourceControlSchemas.file).max(2000) }).optional(), error: short.optional() })
 export const remoteTurnFileSchema = read({ diffText: z.string().max(4 * 1024 * 1024).nullable(), tooLarge: z.boolean().optional(), error: short.optional() })
 export const remoteFilesIndexSchema = read({ paths: z.array(path).max(200), nextCursor: path.nullable(), truncated: z.boolean() })
+export type RemoteFilesIndex = z.infer<typeof remoteFilesIndexSchema>
 export const remoteDesktopCommandResultSchemas = {
   'session.desktop.create': read({ sessionId: id }),
   'session.dequeue': read({ accepted: z.literal(true) }),
@@ -175,6 +179,7 @@ export const remoteDesktopQueryResultSchemas = {
   'session.resume.get': read({ at: z.number().int().positive().nullable() }), 'plan.get': remotePlanSchema,
   'changes.turn': remoteTurnDiffSchema, 'changes.turnFile': remoteTurnFileSchema, 'files.index': remoteFilesIndexSchema,
   'scm.desktop.summary': remoteScmSummarySchema, 'scm.desktop.status': remoteScmStatusSchema, 'scm.desktop.review': remoteScmReviewSchema,
+  'scm.desktop.diff': remoteScmDiffSchema,
 } as const
 
 export const machinesLocalSnapshotSchema = read({
