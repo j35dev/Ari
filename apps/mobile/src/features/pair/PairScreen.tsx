@@ -101,7 +101,9 @@ export function PairScreen({
           ari<span className="text-accent">.</span>
         </span>
       </header>
-      <div className="mt-5"><ComputerButton /></div>
+      <div className="mt-5">
+        <ComputerButton />
+      </div>
       <div className="mb-8 mt-14">
         <h1 className="text-[32px] font-semibold leading-tight tracking-[-0.055em]">
           {recovering
@@ -165,7 +167,8 @@ export function PairScreen({
                 {app.pairingCode ?? '••••••'}
               </p>
               <p className="text-xs leading-relaxed text-fg-subtle">
-                Approve only if both screens show the same code. Your computer approves this phone’s access.
+                Approve only if both screens show the same code. Your computer approves this phone’s
+                access.
               </p>
             </div>
           )}

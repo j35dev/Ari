@@ -31,7 +31,9 @@ export function ReviewIntegration({
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
-    return () => { alive.current = false }
+    return () => {
+      alive.current = false
+    }
   }, [])
   const supported =
     app.session?.supports('changes.preview') === true && app.session.supports('changes.integrate')
@@ -71,15 +73,19 @@ export function ReviewIntegration({
     setBusy(true)
     setFailure(null)
     try {
-      const outcome = (uncertain ? await checkCommandReceipt(app.session, reviewed.key) : await app.session.send(
-        {
-          op: 'changes.integrate',
-          sessionId,
-          snapshotCommit: reviewed.preview.snapshotCommit,
-          expectedParentSnapshot: reviewed.preview.expectedParentSnapshot,
-        },
-        reviewed.key,
-      )) as { result?: { status: string; files?: string[] }; status?: string; files?: string[] }
+      const outcome = (
+        uncertain
+          ? await checkCommandReceipt(app.session, reviewed.key)
+          : await app.session.send(
+              {
+                op: 'changes.integrate',
+                sessionId,
+                snapshotCommit: reviewed.preview.snapshotCommit,
+                expectedParentSnapshot: reviewed.preview.expectedParentSnapshot,
+              },
+              reviewed.key,
+            )
+      ) as { result?: { status: string; files?: string[] }; status?: string; files?: string[] }
       if (!alive.current) return
       const result = outcome.result ?? outcome
       if (result.status === 'conflict') {
@@ -99,8 +105,7 @@ export function ReviewIntegration({
         await onChanged().catch((error: unknown) =>
           setFailure(`Integrated, but refresh failed: ${messageOf(error)}`),
         )
-      } else
-        throw new Error('The computer did not confirm integration. Check its receipt.')
+      } else throw new Error('The computer did not confirm integration. Check its receipt.')
       setUncertain(false)
     } catch (error) {
       if (!alive.current) return

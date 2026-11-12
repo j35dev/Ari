@@ -72,10 +72,10 @@ export function ForkSheet({
       store.write(request)
       setPending(request)
       const { key, ...fields } = request
-      const result = pending !== null ? await checkCommandReceipt(session, key) : await session.send(
-        { op: 'session.fork', sessionId: parent.id, ...fields },
-        key,
-      )
+      const result =
+        pending !== null
+          ? await checkCommandReceipt(session, key)
+          : await session.send({ op: 'session.fork', sessionId: parent.id, ...fields }, key)
       if (!alive.current) return
       const id = sessionIdOf(result)
       if (id === null)
@@ -93,9 +93,7 @@ export function ForkSheet({
     } catch (error) {
       if (alive.current)
         setFailure(
-          error instanceof Error
-            ? error.message
-            : 'Could not confirm the fork. Check its receipt.',
+          error instanceof Error ? error.message : 'Could not confirm the fork. Check its receipt.',
         )
     } finally {
       inFlight.current = false

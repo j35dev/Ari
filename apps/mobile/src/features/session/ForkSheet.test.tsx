@@ -70,10 +70,15 @@ afterEach(() => {
 
 describe('ForkSheet', () => {
   it.each([null, { ok: true, result: {} }, new RemoteError('not_found', 'History absent')])(
-    'keeps a saved fork without resending missing or corrupt history: %j', async (outcome) => {
+    'keeps a saved fork without resending missing or corrupt history: %j',
+    async (outcome) => {
       const test = setup()
       const store = new ForkRequestStore(test.value.origin, 'device_test', parent.id)
-      const request = { key: 'original-receipt', title: 'Only one child', driverKind: 'claude' as const }
+      const request = {
+        key: 'original-receipt',
+        title: 'Only one child',
+        driverKind: 'claude' as const,
+      }
       store.write(request)
       if (outcome instanceof Error) test.query.mockRejectedValue(outcome)
       else test.query.mockResolvedValue(outcome)
@@ -81,7 +86,9 @@ describe('ForkSheet', () => {
       await test.user.click(screen.getByRole('button', { name: 'Check fork receipt' }))
       await screen.findByRole('alert')
       expect(test.send).not.toHaveBeenCalled()
-      expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: request.key })
+      expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', {
+        idempotencyKey: request.key,
+      })
       expect(store.read()).toEqual(request)
       expect(test.onForked).not.toHaveBeenCalled()
     },
@@ -215,7 +222,9 @@ describe('ForkSheet', () => {
       screen.getByRole<HTMLButtonElement>('button', { name: 'Check fork receipt' }),
     )
     expect(test.send).toHaveBeenCalledOnce()
-    expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: test.send.mock.calls[0]?.[1] })
+    expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', {
+      idempotencyKey: test.send.mock.calls[0]?.[1],
+    })
   })
 
   it('refuses network creation when a durable receipt cannot be saved', async () => {

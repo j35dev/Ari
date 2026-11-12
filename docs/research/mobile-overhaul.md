@@ -102,12 +102,12 @@ read-only workspace data, a fresh D: Chrome profile and the system Chrome.
 
 Representative comparisons:
 
-| View | Before | After |
-| --- | --- | --- |
-| Home, 360 light | [Before](../screenshots/mobile/before/360-light-home.png) | [After](../screenshots/mobile/after/360-light-home.png) |
-| Session, 360 light | [Before](../screenshots/mobile/before/360-light-session.png) | [After](../screenshots/mobile/after/360-light-session.png) |
-| Approval, 390 dark | [Before](../screenshots/mobile/before/390-dark-approval.png) | [After](../screenshots/mobile/after/390-dark-approval.png) |
-| Changes, 360 light | [Before](../screenshots/mobile/before/360-light-changes.png) | [After](../screenshots/mobile/after/360-light-changes.png) |
+| View                | Before                                                        | After                                                       |
+| ------------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| Home, 360 light     | [Before](../screenshots/mobile/before/360-light-home.png)     | [After](../screenshots/mobile/after/360-light-home.png)     |
+| Session, 360 light  | [Before](../screenshots/mobile/before/360-light-session.png)  | [After](../screenshots/mobile/after/360-light-session.png)  |
+| Approval, 390 dark  | [Before](../screenshots/mobile/before/390-dark-approval.png)  | [After](../screenshots/mobile/after/390-dark-approval.png)  |
+| Changes, 360 light  | [Before](../screenshots/mobile/before/360-light-changes.png)  | [After](../screenshots/mobile/after/360-light-changes.png)  |
 | Settings, 390 light | [Before](../screenshots/mobile/before/390-light-settings.png) | [After](../screenshots/mobile/after/390-light-settings.png) |
 
 Additional review: [Computers](../screenshots/mobile/after/360-dark-computers.png),

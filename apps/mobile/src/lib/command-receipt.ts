@@ -5,14 +5,20 @@ import type { MobileSession } from './session'
 export async function checkCommandReceipt(
   session: Pick<MobileSession, 'query'>,
   idempotencyKey: string,
-  validResult: (result: unknown) => boolean = (result) => typeof result === 'object' && result !== null,
+  validResult: (result: unknown) => boolean = (result) =>
+    typeof result === 'object' && result !== null,
 ): Promise<unknown> {
   try {
     const outcome = await session.query<unknown>('command.status', { idempotencyKey })
     if (
-      typeof outcome !== 'object' || outcome === null ||
-      !('ok' in outcome) || outcome.ok !== true || !('result' in outcome) || !validResult(outcome.result)
-    ) throw new Error('No authoritative command outcome.')
+      typeof outcome !== 'object' ||
+      outcome === null ||
+      !('ok' in outcome) ||
+      outcome.ok !== true ||
+      !('result' in outcome) ||
+      !validResult(outcome.result)
+    )
+      throw new Error('No authoritative command outcome.')
     return outcome
   } catch (error) {
     // Missing, expired, corrupt or hidden history cannot prove nonexecution.
