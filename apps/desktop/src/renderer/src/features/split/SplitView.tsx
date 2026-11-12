@@ -32,11 +32,14 @@ export interface SplitViewProps {
   onDropPane: (paneId: string, draggedPaneId: string) => void
   /** One pane's content. Split view owns the chrome; the shell owns this. */
   renderSession: (sessionId: string, paneId: string) => ReactNode
+  /** Client project drafts occupy a blank pane without inventing a session ID. */
+  renderBlank?: (paneId: string) => ReactNode
+  blankTitleOf?: (paneId: string) => string | null
   /** A pane hosting a terminal rather than a session. */
   renderTerminal?: (terminalId: string, paneId: string) => ReactNode
   terminalTitleOf?: (terminalId: string) => string | null
   onOpenTerminal?: (paneId: string) => void
-  canOpenTerminal?: boolean
+  canOpenTerminal?: boolean | ((paneId: string) => boolean)
 }
 
 /**
@@ -57,6 +60,8 @@ export function SplitView({
   onDropSession,
   onDropPane,
   renderSession,
+  renderBlank,
+  blankTitleOf,
   renderTerminal,
   terminalTitleOf,
   onOpenTerminal,
@@ -73,17 +78,18 @@ export function SplitView({
     if (leaf.sessionId !== null) return titleOf(leaf.sessionId) ?? 'Empty pane'
     const terminalId = terminalIdOf(leaf)
     if (terminalId !== null) return terminalTitleOf?.(terminalId) ?? 'Terminal'
-    return 'Empty pane'
+    return blankTitleOf?.(leaf.paneId) ?? 'Empty pane'
   }
 
   const renderLeaf = (leaf: PaneLeaf): ReactNode => {
     const { paneId, sessionId } = leaf
     const terminalId = terminalIdOf(leaf)
     const blank = isBlankLeaf(leaf)
-    const content = blank ? (
+    const terminalAvailable = typeof canOpenTerminal === 'function' ? canOpenTerminal(paneId) : canOpenTerminal
+    const content = blank ? renderBlank?.(paneId) ?? (
       <BlankPane
         onOpenTerminal={onOpenTerminal !== undefined ? () => onOpenTerminal(paneId) : undefined}
-        canOpenTerminal={canOpenTerminal}
+        canOpenTerminal={terminalAvailable}
       />
     ) : sessionId !== null ? (
       renderSession(sessionId, paneId)
@@ -106,7 +112,7 @@ export function SplitView({
           onDropSession={onDropSession}
           onDropPane={onDropPane}
           onOpenTerminal={blank ? onOpenTerminal : undefined}
-          canOpenTerminal={canOpenTerminal}
+          canOpenTerminal={terminalAvailable}
         >
           {content}
         </SoloDropSurface>
@@ -115,7 +121,7 @@ export function SplitView({
     return (
       <PaneFrame
         paneId={paneId}
-        title={blank ? null : nameOf(leaf)}
+        title={blank ? blankTitleOf?.(paneId) ?? null : nameOf(leaf)}
         focused={paneId === focusedPaneId}
         blank={blank}
         zoomed={layout.zoomedPaneId !== null}
@@ -127,7 +133,7 @@ export function SplitView({
         onDropSession={onDropSession}
         onDropPane={onDropPane}
         onOpenTerminal={blank ? onOpenTerminal : undefined}
-        canOpenTerminal={canOpenTerminal}
+        canOpenTerminal={terminalAvailable}
       >
         {content}
       </PaneFrame>

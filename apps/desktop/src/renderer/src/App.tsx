@@ -25,8 +25,16 @@ import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
+import { ScopedTitlebar } from './shell/ScopedTitlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { createSessionClient, parseSessionViewKey, sessionViewKey, SessionClientProvider, type SessionScope } from './features/session/session-client'
+import { useMachineProjects } from './features/machines/use-machine-projects'
+import { ProjectDraftPane } from './features/machines/ProjectDraftPane'
+import { DraftHandoff } from './features/machines/DraftHandoff'
+import { readProjectDrafts, writeProjectDrafts, type ProjectDraftEntry } from './features/machines/project-draft-registry'
+import type { ComposerSeed } from './features/composer/Composer'
+import { groupRepositories, type RepositoryGroup } from './features/machines/repository-groups'
 import { SessionKeepAlive } from './features/session/SessionKeepAlive'
 import { loadLastPick, nextLastPick, saveLastPick } from './features/composer/last-pick'
 import type { LastPick } from './features/composer/last-pick'
@@ -56,8 +64,6 @@ import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { openCheckedOutWorktree } from './features/changes/open-request-worktree'
 import { rememberReviewRange } from './features/changes/review-drafts'
-import { useSourceControl } from './features/changes/use-source-control'
-import { GitControl } from './features/changes/GitControl'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
@@ -87,6 +93,8 @@ import { focusNeighbour } from './features/split/split-geometry'
 import {
   MAX_PANES,
   activePaneOf,
+  assignSession,
+  assignTerminal,
   activeSessionOf,
   isBlankLeaf,
   leaves,
@@ -107,9 +115,6 @@ import { useSessionStart } from './shell/use-session-start'
 import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { MachinesProvider, useMachines } from './features/machines/use-machines'
-import { RemoteMachineGroups } from './features/machines/RemoteMachineGroups'
-import { MachineChooser } from './features/machines/MachineChooser'
-import { RemoteWorkspace, type RemoteTarget } from './features/machines/RemoteWorkspace'
 import {
   applyPatches,
   dropSettled,
@@ -157,14 +162,11 @@ export interface SessionDefaults {
   effort: string | null
   /** Creates the session as a lead; ordinary sessions leave this off. */
   lead?: boolean
+  workspaceMode?: 'auto' | 'isolated' | 'shared'
 }
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
-  const { machines } = useMachines()
-  const [remoteTarget, setRemoteTarget] = useState<RemoteTarget | null>(null)
-  const remoteTargetRef = useRef(remoteTarget)
-  remoteTargetRef.current = remoteTarget
-  const [localSessionChosen, setLocalSessionChosen] = useState(false)
+  const { machines, refreshInventory } = useMachines()
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
@@ -184,6 +186,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const patchTokenRef = useRef(0)
   const sessions = useMemo(() => applyPatches(listedSessions, patches), [listedSessions, patches])
   const [projects, setProjects] = useState<ProjectRow[]>([])
+  const navigation = useMachineProjects(projects, sessions)
+  const [draftRegistry] = useState(() => {
+    try { return { entries: readProjectDrafts(), error: null } }
+    catch { return { entries: [], error: 'Project drafts could not be read. Inspect saved drafts before starting another.' } }
+  })
+  const [projectDrafts, setProjectDrafts] = useState<ProjectDraftEntry[]>(draftRegistry.entries)
+  const projectDraftsRef = useRef(projectDrafts)
+  projectDraftsRef.current = projectDrafts
+  const [draftHandoff, setDraftHandoff] = useState<{ entry: ProjectDraftEntry; scope: SessionScope; seed: ComposerSeed } | null>(null)
+  const [createdSessionKeys, setCreatedSessionKeys] = useState<ReadonlySet<string>>(new Set())
   // Which session is active is now a property of the panes: it is whatever the
   // focused pane is showing, so every single-session view in the shell — the
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
@@ -191,17 +203,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const layout = useSplitLayout()
   const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
+  const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
+  const remoteActive = activeSessionScope?.kind === 'remote'
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, attentionCountOf, acknowledge, forget } =
-    useSessionActivity(visibleSessionIds)
+    useSessionActivity(visibleSessionIds, navigation.sessions.map((session) => session.id))
   // Every list refresh is a new array; the lookup changes identity only when
   // a title does, or each refresh would re-render every memoized transcript row.
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
-  const titlesKey = sessions.map((session) => `${session.id}:${session.title}`).join('\n')
+  const titlesKey = navigation.sessions.map((session) => `${session.id}:${session.title}`).join('\n')
   const sessionTitle = useCallback(
-    (id: string) => sessionsRef.current.find((session) => session.id === id)?.title,
-    [titlesKey],
+    (id: string) => navigation.sessions.find((session) => session.id === id)?.title,
+    [titlesKey, navigation.sessions],
   )
   const attachReviewRange = useCallback(
     (
@@ -225,6 +239,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
     overrides?: Partial<SessionDefaults>
+    preferredHostId?: string
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   // Where the pane area is the view on screen: settings, the gallery and the
@@ -235,12 +250,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     !settingsOpen &&
     !hubOpen &&
     !galleryOpen &&
-    remoteTarget === null &&
     fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible =
-    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null
+    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
   const [composerFocusRequest, setComposerFocusRequest] = useState<{
     sessionId: string
     intent: SessionStartIntent
@@ -288,7 +302,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const mountedSpaces = spaceStore.spaces
     .filter((space) => nextRecentSpaceIds.includes(space.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-  const workspaceToolOpen = settingsOpen || hubOpen || remoteTarget !== null
+  const workspaceToolOpen = settingsOpen || hubOpen
   // Where the keyboard was in the workspace, so leaving Settings or the hub
   // hands it back instead of dropping it on the page.
   const lastWorkspaceFocusRef = useRef<HTMLElement | null>(null)
@@ -304,14 +318,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   } | null>(null)
   useEffect(() => {
     let cancelled = false
-    if (activeSessionId) {
+    if (activeSessionId && parseSessionViewKey(activeSessionId)?.kind === 'local') {
       void rpc
         .invoke('session.workspace', { sessionId: activeSessionId })
         .then(({ path }) => {
           if (!cancelled) setSessionWorkspace({ id: activeSessionId, path })
         })
         .catch((error: unknown) => log.warn('workspace resolution failed', error))
-    }
+    } else setSessionWorkspace(null)
     return () => {
       cancelled = true
     }
@@ -378,7 +392,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * shortcut fires, the state changes, and the user sees nothing at all.
    */
   const leaveWorkspaceTool = useCallback(() => {
-    setRemoteTarget(null)
     setSettingsOpen(false)
     setHubOpen(false)
   }, [])
@@ -498,7 +511,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
-      if (remoteTargetRef.current !== null) return
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         toggleSidebar()
@@ -537,12 +549,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * take over from it.
    */
   const confirmPatch = useCallback(
-    (token: number, sessionId: string, patch: SessionPatch): Promise<void> =>
-      rpc
-        .invoke('command.dispatch', { command: { type: 'session.update', sessionId, ...patch } })
+    (token: number, sessionId: string, patch: SessionPatch): Promise<void> => {
+      const scope = parseSessionViewKey(sessionId)
+      if (!scope) return Promise.reject(new Error('Unknown session scope.'))
+      return createSessionClient(scope)
+        .invoke('command.dispatch', { command: { type: 'session.update', sessionId: scope.sessionId, ...patch } })
         .then((result) => {
           if (!result.accepted) throw new Error(result.reason ?? 'The change was refused.')
           refreshSessions()
+          void refreshInventory()
           const generation = listsRef.current
           setPatches((prev) =>
             prev.map((p) => (p.token === token ? { ...p, settledAt: generation } : p)),
@@ -556,9 +571,17 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             title: 'Couldn’t update the session',
             description: error instanceof Error ? error.message : String(error),
           })
-        }),
-    [refreshSessions, toast],
+        })
+    },
+    [refreshSessions, refreshInventory, toast],
   )
+  const destroyScopedSession = useCallback(async (key: string) => {
+    const scope = parseSessionViewKey(key)
+    if (!scope) throw new Error('Unknown session scope.')
+    await createSessionClient(scope).invoke('session.destroy', { sessionId: scope.sessionId })
+    setCreatedSessionKeys((old) => new Set([...old].filter((entry) => entry !== key)))
+    void refreshInventory()
+  }, [refreshInventory])
 
   /** Shows `patch` on each session at once and confirms them one by one. */
   const patchSessions = useCallback(
@@ -577,10 +600,20 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // shell pointed at something that no longer exists.
   useEffect(() => {
     if (!sessionsLoadedRef.current) return
-    const known = new Set(sessions.map((session) => session.id))
+    const known = new Set(navigation.sessions.map((session) => session.id))
+    for (const key of createdSessionKeys) {
+      const scope = parseSessionViewKey(key)
+      if (scope?.kind === 'local' || scope?.kind === 'remote' && machines.some((machine) => machine.id === scope.machineId && machine.status !== 'revoked')) known.add(key)
+    }
+    // Offline hosts keep their scoped pane refs until explicit removal/revocation.
+    for (const space of spaceStore.spaces) for (const id of sessionsOnScreen(space.layout)) {
+      const scope = parseSessionViewKey(id)
+      if (scope?.kind === 'remote' && machines.some((machine) => machine.id === scope.machineId &&
+        machine.status !== 'revoked' && machine.status !== 'unpaired')) known.add(id)
+    }
     splitLayoutActions.prune(known)
     keepAliveActions.keepOnly(known)
-  }, [sessions])
+  }, [navigation.sessions, machines, spaceStore.spaces, createdSessionKeys])
 
   // Late-bound so the global key handler (registered before the session
   // starters exist) can still open the new-session rail.
@@ -807,6 +840,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
+      if (remoteActive) { toast({ tone: 'info', title: 'Content search is unavailable on this host.' }); return }
       leaveWorkspaceTool()
       setSearchOpen(true)
       setPaletteOpen(false)
@@ -841,9 +875,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const navOrder = useMemo(
     () =>
       sidebarView === 'sessions'
-        ? sessionsViewOrder(sessions)
-        : sidebarOrder(sessions, openProjects),
-    [sessions, openProjects, sidebarView, collapsedChildren],
+        ? sessionsViewOrder(navigation.sessions)
+        : sidebarOrder(navigation.sessions, navigation.sidebarProjects),
+    [navigation.sessions, navigation.sidebarProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -912,13 +946,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
-      if (remoteTargetRef.current !== null) {
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-          e.preventDefault()
-          setRemoteTarget((target) => (target ? { ...target, sessionId: null } : target))
-        }
-        return
-      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
@@ -1079,7 +1106,28 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       } else intent.dispose()
     },
   })
-  const createSession = sessionStart.create
+  const openProjectDraft = useCallback((group: RepositoryGroup, lead = false, initialHostId?: string) => {
+    if (draftRegistry.error) { toast({ tone: 'warning', title: draftRegistry.error }); return }
+    const currentSpace = spaceStoreSnapshot().activeSpaceId
+    const paneId = activePaneOf(splitLayoutSnapshot())
+    const existing = projectDrafts.find((entry) => entry.groupId === group.id && entry.spaceId === currentSpace &&
+      localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) !== null)
+    const entry: ProjectDraftEntry = existing ? { ...existing, paneId } : {
+      id: crypto.randomUUID(), groupId: group.id, group, spaceId: currentSpace, paneId, initialHostId, lead,
+    }
+    const next = [...projectDrafts.filter((draft) => draft.id !== entry.id), entry]
+    try { writeProjectDrafts(next) } catch { toast({ tone: 'warning', title: 'Save project drafts before starting. Free browser storage and try again.' }); return }
+    setProjectDrafts(next)
+    splitLayoutActions.clear(paneId)
+    setNewSessionRequest(null)
+    leaveWorkspaceTool(); setFullPage(null); setInspector(null)
+  }, [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool])
+  const createSession = useCallback((projectId: string, overrides?: Partial<SessionDefaults>) => {
+    const group = navigation.groups.find((entry) => entry.id === projectId ||
+      entry.checkouts.some((checkout) => checkout.local && checkout.projectId === projectId))
+    if (group) openProjectDraft(group, overrides?.lead, newSessionRequest?.preferredHostId)
+    else toast({ tone: 'warning', title: 'Refresh projects before opening this draft.' })
+  }, [navigation.groups, openProjectDraft, newSessionRequest?.preferredHostId, toast])
 
   /**
    * Single door for every "new session" affordance. A session always belongs
@@ -1099,15 +1147,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
-      if (projects.length === 0 && machines.length === 0) {
-        sessionStart.pickProject(overrides, intent)
-        return
-      }
       intent?.dispose() // The chooser owns the next explicit pick and its focus.
-      setLocalSessionChosen(false)
       setNewSessionRequest({ anchor, overrides })
     },
-    [projects.length, machines.length, sessionStart.canStart, sessionStart.pickProject],
+    [sessionStart.canStart],
   )
 
   /**
@@ -1126,13 +1169,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const addProjectAndStart = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
       setNewSessionRequest(null)
-      sessionStart.pickProject(overrides)
+      void openProjectViaPicker().then((project) => {
+        if (!project) return
+        refreshProjects(); void refreshInventory()
+        const group = groupRepositories([{ hostId: 'local', hostName: 'This PC', projectId: project.id,
+          name: project.name, checkoutLabel: project.path, local: true, repository: null }])[0]!
+        openProjectDraft(group, overrides?.lead, 'local')
+      }).catch((error) => toast({ tone: 'danger', title: 'Could not open the project', description: String(error) }))
     },
-    [sessionStart.pickProject],
+    [refreshProjects, refreshInventory, openProjectDraft, toast],
   )
 
   const selectWorkspaceTool = useCallback(
     (id: SidebarNavId): void => {
+      if (remoteActive && (id === 'browser' || id === 'usage' || id === 'github')) {
+        toast({ tone: 'info', title: 'This tool is unavailable for the selected machine.' }); return
+      }
       if (id === 'settings') {
         setSettingsOpen(true)
         setHubOpen(false)
@@ -1166,7 +1218,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       setInspector((prev) => (prev === id ? null : id))
     },
-    [openSourceControl],
+    [openSourceControl, remoteActive, toast],
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
@@ -1177,7 +1229,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
-    activeSessionId !== null
+    remoteActive ? '.' : activeSessionId !== null
       ? sessionWorkspace?.id === activeSessionId
         ? sessionWorkspace.path
         : null
@@ -1188,7 +1240,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // IPC for fs.* calls.
   const activeScopeProjectId = activeSession?.projectId ?? projects[0]?.id
   const activeScope =
-    activeSessionId !== null
+    remoteActive && activeSessionScope ? { sessionId: activeSessionScope.sessionId } : activeSessionId !== null
       ? sessionWorkspace?.id === activeSessionId
         ? { sessionId: activeSessionId }
         : null
@@ -1196,17 +1248,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         ? { projectId: activeScopeProjectId }
         : null
   const changesSessionId = changesContext ? (changesContext.sessionId ?? null) : activeSessionId
+  const changesClientScope = changesContext ? changesContext.sessionId ? parseSessionViewKey(changesContext.sessionId) : null : activeSessionScope
+  const changesWireSessionId = changesClientScope?.sessionId ?? changesSessionId
   const changesProjectId = changesContext?.projectId ?? activeSession?.projectId ?? null
   const changesScope = changesContext
     ? changesContext.sessionId
-      ? { sessionId: changesContext.sessionId }
+      ? changesClientScope ? { sessionId: changesClientScope.sessionId } : null
       : { projectId: changesContext.projectId }
     : activeScope
   const sourceControlScope =
     inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
       ? changesScope
       : activeScope
-  const changeSummary = useSourceControl(sourceControlScope, 'summary')
   useAppNavigation({
     userIntent: () => {
       navigationGeneration.current++
@@ -1244,7 +1297,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       return true
     },
     apply: (target) => {
-      setRemoteTarget(null)
       navigationGeneration.current += 1
       setGalleryOpen(false)
       if (target.view === 'session' || target.view === 'aria')
@@ -1277,24 +1329,77 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
   const shellRoot = useMemo(
-    () => shellRootFor(activeSession, activeProjectPath, projects),
-    [activeSession, activeProjectPath, projects],
+    () => remoteActive ? null : shellRootFor(activeSession, activeProjectPath, projects),
+    [remoteActive, activeSession, activeProjectPath, projects],
   )
+  const localProjectIdFor = (groupId: string): string | null => {
+    const group = navigation.groups.find((entry) => entry.id === groupId)
+    if (!group) return projects.some((project) => project.id === groupId) ? groupId : null
+    const local = group.checkouts.filter((checkout) => checkout.local)
+    return local.length === 1 ? local[0]!.projectId : null
+  }
   const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const finishProjectDraft = (entry: ProjectDraftEntry, scope: SessionScope) => {
+    const key = sessionViewKey(scope)
+    setCreatedSessionKeys((old) => new Set(old).add(key))
+    const owner = projectDraftsRef.current.find((draft) => draft.id === entry.id)
+    const stillOwnsPane = owner?.paneId === entry.paneId && owner.spaceId === entry.spaceId &&
+      !projectDraftsRef.current.some((draft) => draft.id !== entry.id && draft.spaceId === entry.spaceId && draft.paneId === entry.paneId)
+    spaceActions.update((store) => ({ ...store, spaces: store.spaces.map((space) =>
+      stillOwnsPane && space.id === entry.spaceId && leaves(space.layout.root).find((pane) => pane.paneId === entry.paneId)?.sessionId === null
+        ? { ...space, layout: assignSession(space.layout, entry.paneId, key) } : space) }))
+    const next = projectDraftsRef.current.filter((draft) => draft.id !== entry.id)
+    try { writeProjectDrafts(next); setProjectDrafts(next) } catch { /* Retain the original draft metadata if storage refused. */ }
+    deleteSessionDraftText(`project-draft:${entry.id}`)
+    deleteSessionDraftIntent(`project-draft:${entry.id}`)
+    refreshSessions(); void refreshInventory()
+  }
+  const renderProjectDraft = (spaceId: string, paneId: string) => {
+    const entry = [...projectDrafts].reverse().find((draft) => draft.spaceId === spaceId && draft.paneId === paneId)
+    if (!entry) return undefined
+    return <ProjectDraftPane key={entry.id} entry={entry} projects={projects} defaults={defaults}
+      createLocal={sessionStart.createDraft} onCreated={(scope, seed) => {
+        if (seed) setDraftHandoff({ entry, scope, seed })
+        else finishProjectDraft(entry, scope)
+      }} onClose={() => {
+        const next = projectDrafts.map((draft) => draft.id === entry.id ? { ...draft, paneId: `parked:${draft.id}` } : draft)
+        try { writeProjectDrafts(next); setProjectDrafts(next) } catch { toast({ tone: 'warning', title: 'The draft could not be parked. Its content remains here.' }) }
+      }} />
+  }
   // Every space's panes, not only the one on screen: a terminal hosted in
   // another space must not also appear as a rail tab that can close it.
   const paneTerminalIds = useMemo(
     () => new Set(spaceStore.spaces.flatMap((space) => terminalIdsInPanes(space.layout))),
     [spaceStore.spaces],
   )
-  const openTerminalInPane = useCallback(
-    (paneId: string) => {
-      if (shellRoot === null) return
-      const id = openTerminalTab({ title: 'Ari Terminal', cwd: shellRoot })
-      splitLayoutActions.assignTerminal(paneId, id)
-    },
-    [shellRoot],
-  )
+  const canOpenTerminalInPane = (paneId: string): boolean => {
+    const pane = spaceStore.spaces.flatMap((space) => leaves(space.layout.root)).find((leaf) => leaf.paneId === paneId)
+    if (!pane?.sessionId) return false
+    const scope = parseSessionViewKey(pane.sessionId)
+    return scope !== null && (scope.kind === 'local' || machines.find((machine) => machine.id === scope.machineId)?.allowTerminal === true) &&
+      createSessionClient(scope).capabilityReason('terminal.create') === null
+  }
+  const openTerminalInPane = useCallback((paneId: string) => {
+    const origin = spaceStoreSnapshot().spaces.find((space) => leaves(space.layout.root).some((pane) => pane.paneId === paneId))
+    const key = origin && leaves(origin.layout.root).find((pane) => pane.paneId === paneId)?.sessionId
+    const scope = key ? parseSessionViewKey(key) : null
+    if (!origin || !scope) return
+    const client = createSessionClient(scope)
+    const reason = client.capabilityReason('terminal.create')
+    if (reason) { toast({ tone: 'info', title: reason }); return }
+    void (async () => {
+      try {
+        const cwd = scope.kind === 'remote' ? '.' : (await client.invoke('session.workspace', { sessionId: scope.sessionId })).path
+        if (!cwd || client.capabilityReason('terminal.create')) return
+        // A late workspace result cannot replace a different pane or follow focus to another host.
+        const current = spaceStoreSnapshot().spaces.find((space) => space.id === origin.id)
+        if (!current || leaves(current.layout.root).find((pane) => pane.paneId === paneId)?.sessionId !== key) return
+        const id = openTerminalTab({ title: 'Ari Terminal', cwd, ...(scope.kind === 'remote' ? { owner: scope } : {}) })
+        spaceActions.update((store) => ({ ...store, spaces: store.spaces.map((space) => space.id === origin.id
+          ? { ...space, layout: assignTerminal(space.layout, paneId, id) } : space) }))
+      } catch (error) { toast({ tone: 'danger', title: 'Could not open the terminal', description: String(error) }) }
+    })()
+  }, [toast])
 
   if (galleryOpen) {
     return (
@@ -1321,28 +1426,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
-      {remoteTarget !== null ? (
-        <Titlebar minimal />
-      ) : (
-        <Titlebar
+        <ScopedTitlebar
+          scope={inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control' ? changesClientScope : activeSessionScope}
+          gitScope={sourceControlScope}
+          onReview={() => openSourceControl('changes')}
+          onRequests={() => openSourceControl('requests')}
           activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
           onSelectTool={selectWorkspaceTool}
-          changeCount={changeSummary.summary?.changedFiles ?? null}
-          git={
-            sourceControlScope && changeSummary.summary ? (
-              <GitControl
-                scope={sourceControlScope}
-                summary={changeSummary.summary}
-                refresh={changeSummary.refresh}
-                onReview={() => openSourceControl('changes')}
-                onPullRequests={() => openSourceControl('requests')}
-              />
-            ) : undefined
-          }
-          usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
+          usage={remoteActive ? undefined : { sessionId: activeSessionId, kind: activeDriverKind }}
           onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
         />
-      )}
       {/* Settings and the hub cover the workspace rather than replace it: the
           sidebar, sessions and terminals stay mounted underneath, so going
           back is instant and nothing replays. */}
@@ -1354,7 +1447,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onOpenMachine={(machineId) => {
             setSettingsOpen(false)
             setHubOpen(false)
-            setRemoteTarget({ machineId, sessionId: null })
+            setNewSessionRequest({ anchor: { x: 24, y: 88 }, preferredHostId: machineId })
           }}
           onOpenSetup={onOpenSetup}
           workspacePath={sessionWorkspace?.path ?? null}
@@ -1371,21 +1464,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onBack={() => setHubOpen(false)}
         />
       ) : null}
-      {remoteTarget !== null && !settingsOpen && !hubOpen && (
-        <RemoteWorkspace
-          target={remoteTarget}
-          onSelect={(machineId, sessionId) => {
-            setPaletteOpen(false)
-            setSearchOpen(false)
-            setRemoteTarget({ machineId, sessionId })
-          }}
-          onBack={() => setRemoteTarget(null)}
-          onManage={() => {
-            setSettingsSection('machines')
-            setSettingsOpen(true)
-          }}
-        />
-      )}
       <div
         className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
         hidden={workspaceToolOpen}
@@ -1416,37 +1494,45 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 onNewChat={() => openAria(true)}
               />
               <SessionsUnderProjects
-                sessions={sessions}
-                projects={openProjects}
-                knownProjectNames={projects}
+                sessions={navigation.sessions}
+                projects={navigation.sidebarProjects}
+                knownProjectNames={navigation.sidebarProjects}
                 searchInputRef={sidebarSearchRef}
                 searchQuery={sidebarQuery}
                 onSearchQueryChange={setSidebarQuery}
                 onNewSession={beginNewSession}
                 onOpenProject={openProjectViaDialog}
                 onNewSessionInProject={(projectId) => createSession(projectId)}
-                onImportSessions={setImportProjectId}
-                onRevealProject={(projectId) => {
+                onImportSessions={(groupId) => { const id = localProjectIdFor(groupId); if (id) setImportProjectId(id) }}
+                onRevealProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const path = projects.find((p) => p.id === projectId)?.path
                   if (path === undefined) return
                   void rpc
                     .invoke('shell.revealPath', { path })
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onCloseProject={(projectId) => {
+                onCloseProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.close', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onRemoveProject={(projectId) => {
+                onRemoveProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.remove', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onReorderProject={moveProject}
-                onMoveProject={(projectId, delta) => {
+                onReorderProject={(groupId, beforeGroupId) => { const id = localProjectIdFor(groupId); const before = beforeGroupId ? localProjectIdFor(beforeGroupId) : null; if (id) moveProject(id, before) }}
+                onMoveProject={(groupId, delta) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const move = projectMoveForDelta(
                     openProjects.map((p) => p.id),
                     projectId,
@@ -1454,18 +1540,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   )
                   if (move) moveProject(move.id, move.beforeId)
                 }}
-                onLocateProject={openProjectViaDialog}
+                onLocateProject={(groupId) => { const id = localProjectIdFor(groupId); if (id) openProjectViaDialog(id) }}
                 activeSessionId={activeSessionId}
                 startedByAria={(id) => ariaStartedIds.has(id)}
                 activityOf={activityOf}
+                hostOf={(id) => navigation.hosts.get(id)}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
                 onRename={(id, title) => patchSessions([id], { title })}
                 onDelete={(id) => {
-                  const dropped = new Set([id, ...descendantIds(sessions, id)])
+                  const dropped = new Set([id, ...descendantIds(navigation.sessions, id)])
                   for (const gone of dropped) forget(gone)
-                  void rpc
-                    .invoke('session.destroy', { sessionId: id })
+                  void destroyScopedSession(id)
                     // The refreshed list blanks the panes those sessions were in.
                     .then(() => {
                       for (const gone of dropped) {
@@ -1484,14 +1570,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   const dropped = new Set<string>()
                   for (const id of ids) {
                     dropped.add(id)
-                    for (const child of descendantIds(sessions, id)) dropped.add(child)
+                    for (const child of descendantIds(navigation.sessions, id)) dropped.add(child)
                   }
                   for (const gone of dropped) forget(gone)
                   void (async () => {
                     for (const id of ids) {
                       try {
-                        await rpc.invoke('session.destroy', { sessionId: id })
-                        for (const gone of [id, ...descendantIds(sessions, id)]) {
+                        await destroyScopedSession(id)
+                        for (const gone of [id, ...descendantIds(navigation.sessions, id)]) {
                           deleteSessionDraftIntent(gone)
                           deleteSessionDraftText(gone)
                           writeReviewDrafts(gone, [])
@@ -1503,18 +1589,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     refreshSessions()
                   })()
                 }}
-              />
-              <RemoteMachineGroups
-                onOpen={(machineId, sessionId) => {
-                  setRemoteTarget({ machineId, sessionId })
-                  setPaletteOpen(false)
-                  setSearchOpen(false)
-                }}
-                onManage={() => {
-                  setSettingsSection('machines')
-                  setSettingsOpen(true)
-                }}
-                query={sidebarQuery}
               />
             </motion.aside>
           ) : null}
@@ -1563,7 +1637,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 </ErrorBoundary>
               ) : fullPage === 'changes' || fullPage === 'source-control' ? (
                 <ErrorBoundary label="Changes">
-                  <ChangesView
+                  <SessionClientProvider scope={changesClientScope ?? { kind: 'local', sessionId: '' }}>
+<ChangesView
                     initialTab={sourceControlTab}
                     onTabChange={setSourceControlTab}
                     onDock={() => {
@@ -1571,8 +1646,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                       setInspector('changes')
                     }}
                     onClose={() => setFullPage(null)}
-                    sessionId={changesSessionId}
-                    projectId={changesProjectId}
+                    sessionId={changesWireSessionId}
+                    projectId={changesClientScope?.kind === 'remote' ? null : changesProjectId}
                     onRange={
                       activeSessionId && changesSessionId === activeSessionId
                         ? attachReviewRange
@@ -1589,7 +1664,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                       })
                     }
                   />
-                </ErrorBoundary>
+                </SessionClientProvider>
+</ErrorBoundary>
               ) : null}
             </div>
           ) : null}
@@ -1620,6 +1696,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   >
                     {activeSessionId === null &&
                     paneCount(layout) === 1 &&
+                    !projectDrafts.some((draft) => draft.spaceId === space.id && draft.paneId === activePaneOf(layout)) &&
                     (leaves(layout.root)[0] === undefined ||
                       isBlankLeaf(leaves(layout.root)[0]!)) ? (
                       // Nothing open at all: the welcome panel is still the view.
@@ -1648,13 +1725,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         <SplitView
                           layout={layout}
                           titleOf={(id) => {
-                            const session = sessions.find((s) => s.id === id)
+                            const session = navigation.sessions.find((s) => s.id === id)
                             if (session === undefined) return null
                             if (isHelmSession(session)) return 'Aria'
                             const projectName =
                               session.projectId === UNFILED_GROUP_ID
                                 ? null
-                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                                : (navigation.sidebarProjects.find((p) => p.id === session.projectId)?.name ?? null)
                             return formatPaneTitle(session.title, projectName)
                           }}
                           onFocus={splitLayoutActions.focus}
@@ -1665,7 +1742,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                           onDropSession={splitLayoutActions.dropSession}
                           onDropPane={splitLayoutActions.dropPane}
                           onOpenTerminal={openTerminalInPane}
-                          canOpenTerminal={shellRoot !== null}
+                          canOpenTerminal={canOpenTerminalInPane}
                           terminalTitleOf={(id) =>
                             terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
                           }
@@ -1674,14 +1751,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                             return (
                               <ErrorBoundary label="Terminal">
                                 <div className="h-full min-h-0 overflow-hidden">
-                                  <TerminalPane
+                                  <SessionClientProvider scope={tab?.owner?.kind === 'remote' ? tab.owner : { kind: 'local', sessionId: '' }}>
+<TerminalPane
                                     key={`${paneId}:${terminalId}`}
                                     terminalId={terminalId}
                                     cwd={tab?.cwd ?? shellRoot}
                                     initialCommand={tab?.command}
                                     active={visible && paneId === activePaneOf(layout)}
                                   />
-                                </div>
+                                </SessionClientProvider>
+</div>
                               </ErrorBoundary>
                             )
                           }}
@@ -1694,12 +1773,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                               poolId={paneId}
                               sessionId={current}
                               hidden={!visible}
-                              render={(sessionId, hidden) => (
+                              render={(sessionId, hidden) => {
+                                const scope = parseSessionViewKey(sessionId)
+                                if (!scope) return <div className="p-4 text-sm text-fg-muted" role="status">This saved session scope is unavailable.</div>
+                                return (
                                 <SessionView
-                                  sessionId={sessionId}
+                                  sessionId={scope.sessionId}
+                                  scope={scope}
                                   onOpenAria={() => openAria()}
                                   startedByAria={ariaStartedIds.has(sessionId)}
-                                  hidden={hidden || remoteTarget !== null}
+                                  hidden={hidden}
                                   onComposerReady={
                                     composerFocusRequest?.sessionId === sessionId &&
                                     composerFocusRequest.intent.scope.spaceId === space.id &&
@@ -1709,23 +1792,27 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   }
                                   defaults={defaultsFor(sessionId)}
                                   onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                  onPick={rememberPick}
+                                  onPick={parseSessionViewKey(sessionId)?.kind === 'local' ? rememberPick : undefined}
                                   // A child session opens in the pane it was opened from,
                                   // rather than yanking the whole shell to it.
                                   onOpenSession={(childId) =>
                                     splitLayoutActions.assign(paneId, childId)
                                   }
                                   activityOf={activityOf}
-                                  childSessions={sessions.filter(
+                                  childSessions={navigation.sessions.filter(
                                     (session) =>
                                       session.parentSessionId === sessionId && !session.archived,
-                                  )}
+                                  ).map((session) => ({ ...session, id: parseSessionViewKey(session.id)?.sessionId ?? session.id,
+                                    parentSessionId: session.parentSessionId ? parseSessionViewKey(session.parentSessionId)?.sessionId ?? session.parentSessionId : null }))}
                                   sessionTitle={sessionTitle}
-                                  parentSession={parentOf(sessions, sessionId)}
+                                  parentSession={(() => { const parent = parentOf(navigation.sessions, sessionId)
+                                    return parent ? { ...parent, id: parseSessionViewKey(parent.id)?.sessionId ?? parent.id } : null })()}
                                 />
-                              )}
+                              )}}
                             />
                           )}
+                          renderBlank={(paneId) => renderProjectDraft(space.id, paneId)}
+                          blankTitleOf={(paneId) => projectDrafts.find((draft) => draft.spaceId === space.id && draft.paneId === paneId)?.group.name ?? null}
                         />
                       </ErrorBoundary>
                     )}
@@ -1761,19 +1848,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   {inspector === 'terminal' ? (
                     <div className="min-h-0 flex-1">
                       <ErrorBoundary label="Terminal">
-                        <TerminalDock
-                          cwd={shellRoot}
+                        <SessionClientProvider scope={activeSessionScope ?? { kind: 'local', sessionId: '' }}>
+<TerminalDock
+                          cwd={remoteActive ? '.' : shellRoot}
                           paneTerminalIds={paneTerminalIds}
                           onAddProject={() => openProjectViaDialog()}
                           onClose={() => setInspector(null)}
                         />
-                      </ErrorBoundary>
+                      </SessionClientProvider>
+</ErrorBoundary>
                     </div>
                   ) : inspector === 'browser' ? (
                     <div className="min-h-0 flex-1">
                       <ErrorBoundary label="Browser">
                         <BrowserPanel
-                          sessionId={activeSessionId ?? undefined}
+                          sessionId={remoteActive ? undefined : activeSessionId ?? undefined}
                           onClose={() => setInspector(null)}
                         />
                       </ErrorBoundary>
@@ -1797,15 +1886,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                       <div className="min-h-0 flex-1">
                         {inspector === 'changes' ? (
                           <ErrorBoundary label="Changes">
-                            <ChangesView
+                            <SessionClientProvider scope={changesClientScope ?? { kind: 'local', sessionId: '' }}>
+<ChangesView
                               initialTab={sourceControlTab}
                               onTabChange={setSourceControlTab}
                               onExpand={() => {
                                 setInspector(null)
                                 setFullPage('changes')
                               }}
-                              sessionId={changesSessionId}
-                              projectId={changesProjectId}
+                              sessionId={changesWireSessionId}
+                              projectId={changesClientScope?.kind === 'remote' ? null : changesProjectId}
                               onRange={
                                 activeSessionId && changesSessionId === activeSessionId
                                   ? attachReviewRange
@@ -1822,9 +1912,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 })
                               }
                             />
-                          </ErrorBoundary>
+                          </SessionClientProvider>
+</ErrorBoundary>
                         ) : activeProjectPath && activeScope ? (
-                          <FileExplorer root={activeProjectPath} scope={activeScope} />
+                          <SessionClientProvider scope={activeSessionScope ?? { kind: 'local', sessionId: '' }}><FileExplorer root={activeProjectPath} scope={activeScope} /></SessionClientProvider>
                         ) : (
                           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
                             Open a project first — the explorer browses its folder.
@@ -1857,36 +1948,24 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         />
       ) : null}
       <CommandPalette
-        open={paletteOpen && remoteTarget === null}
+        open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
       <ContentSearchOverlay
-        open={searchOpen && remoteTarget === null}
+        open={searchOpen && !remoteActive}
         onClose={() => setSearchOpen(false)}
-        root={activeProjectPath}
-        scope={activeScope}
+        root={remoteActive ? null : activeProjectPath}
+        scope={remoteActive ? null : activeScope}
       />
-      {setupCovered || remoteTarget !== null ? null : <KeyboardCheatSheet />}
-      {newSessionRequest !== null && machines.length > 0 && !localSessionChosen && (
-        <MachineChooser
-          machines={machines}
-          onClose={closeNewSessionMenu}
-          onChoose={(machineId) => {
-            if (machineId === null) setLocalSessionChosen(true)
-            else {
-              closeNewSessionMenu()
-              setSettingsOpen(false)
-              setHubOpen(false)
-              setRemoteTarget({ machineId, sessionId: null })
-            }
-          }}
-        />
-      )}
+      {setupCovered ? null : <KeyboardCheatSheet />}
       <NewSessionLauncher
-        open={newSessionRequest !== null && (machines.length === 0 || localSessionChosen)}
-        projects={projects}
-        sessions={sessions}
+        open={newSessionRequest !== null}
+        projects={navigation.sidebarProjects.filter((project) => !newSessionRequest?.preferredHostId || navigation.groups.find((group) => group.id === project.id)?.checkouts.some((checkout) => checkout.hostId === newSessionRequest.preferredHostId)).map((project) => ({ ...project,
+          path: project.path ?? navigation.groups.find((group) => group.id === project.id)?.label ?? 'Host checkout',
+          lastOpenedAt: 0, createdAt: 0,
+        }))}
+        sessions={navigation.sessions}
         preferredProjectId={activeSession?.projectId ?? null}
         onCreate={(projectId, lead) => {
           const overrides = newSessionRequest?.overrides
@@ -1895,6 +1974,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         onAddProject={() => addProjectAndStart(newSessionRequest?.overrides)}
         onClose={closeNewSessionMenu}
       />
+      {draftHandoff && <DraftHandoff key={sessionViewKey(draftHandoff.scope)} viewKey={sessionViewKey(draftHandoff.scope)} seed={draftHandoff.seed}
+        onApplied={() => { finishProjectDraft(draftHandoff.entry, draftHandoff.scope); setDraftHandoff(null) }} />}
     </div>
   )
 }

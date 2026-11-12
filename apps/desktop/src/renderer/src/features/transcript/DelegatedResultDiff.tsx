@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@ari/ui/dialog'
 import type { OrchestrationResultDiff, ResultPackage } from '@ari/contracts/orchestration'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from '../session/session-client'
 import { DiffSurface } from '../diffs/DiffSurface'
 import { ResultError, resultButton } from './result-controls'
 
@@ -26,7 +26,10 @@ export function DelegatedResultDiff({
   taskId: string
   target: Target
 }) {
+  const client = useSessionClient()
+  if (client.scope.kind === 'remote') return <Dialog open={open} onOpenChange={onOpenChange} title={title}><p className="text-xs text-fg-muted">Versioned result comparisons are unavailable on this host.</p></Dialog>
   const identity = JSON.stringify([
+    client.viewKey, client.authorizationEpoch,
     sessionId,
     taskId,
     target.resultId,
@@ -47,6 +50,7 @@ function PinnedReview({
   taskId,
   target,
 }: Parameters<typeof DelegatedResultDiff>[0]) {
+  const rpc = useSessionClient()
   const [manifest, setManifest] = useState<Manifest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
