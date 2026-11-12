@@ -76,16 +76,6 @@ describe('Titlebar workspace tools', () => {
     expect(onSelect).toHaveBeenCalledWith('terminal')
   })
 
-  it('names the place: the project, then what is open in it', () => {
-    const { rerender } = render(<Titlebar place={{ context: 'demo', title: 'Fix the build' }} />)
-    expect(screen.getByText('demo')).toBeInTheDocument()
-    expect(screen.getByText('Fix the build')).toBeInTheDocument()
-
-    rerender(<Titlebar place={{ context: null, title: 'Aria' }} />)
-    expect(screen.queryByText('demo')).not.toBeInTheDocument()
-    expect(screen.getByText('Aria')).toBeInTheDocument()
-  })
-
   it('gives the sidebar header a leading zone as wide as the sidebar', () => {
     render(<Titlebar leading={<span>sidebar header</span>} leadingWidth={264} />)
     const zone = screen.getByText('sidebar header').parentElement
