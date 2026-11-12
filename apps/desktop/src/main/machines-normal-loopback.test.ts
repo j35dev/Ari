@@ -96,6 +96,7 @@ class LoopbackNetwork extends MachineNetwork {
 }
 
 async function hostFixture(root: string, name: string, utilization: number, messages: number) {
+  let protocolVersion = 1
   const repo = join(root, name, 'repo')
   await mkdir(repo, { recursive: true })
   execFileSync('git', ['init', '-q'], { cwd: repo, windowsHide: true })
@@ -198,7 +199,7 @@ async function hostFixture(root: string, name: string, utilization: number, mess
     },
     version: () => ({
       ariVersion: 'fixture',
-      protocolVersion: 1,
+      protocolVersion,
       hostingMode: 'desktop',
       update: {
         supported: false,
@@ -243,10 +244,18 @@ async function hostFixture(root: string, name: string, utilization: number, mess
       },
     ],
   })
-  const signer = createHostRouteSigner(
+  const originalSigner = createHostRouteSigner(
     `host-${name}`,
     generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey,
   )
+  const signer: typeof originalSigner = {
+    ...originalSigner,
+    sign: (payload) => {
+      // Simulate a host upgrade using the real pinned key and HTTP listener.
+      if (payload.kind === 'ari.route-proof.v1') payload.protocolVersion = protocolVersion
+      return originalSigner.sign(payload)
+    },
+  }
   const origins: string[] = []
   const listeners: RemoteGateway[] = []
   cleanup.push(async () => {
@@ -267,10 +276,13 @@ async function hostFixture(root: string, name: string, utilization: number, mess
     listeners.push(gateway)
     return gateway
   }
-  return { store, engine, pairing, listen, listeners, signer, origins }
+  return {
+    store, engine, pairing, listen, listeners, signer, origins,
+    setProtocolVersion: (version: number) => { protocolVersion = version },
+  }
 }
 
-it('keeps normal session history and execution on the signed host across fallback, move-back and revoke', async () => {
+it('keeps normal session history and execution on the signed host across fallback, move-back, version mismatch and revoke', async () => {
   const parent = resolve(tmpdir())
   const root = await mkdtemp(join(parent, 'ari-normal-machines-'))
   cleanup.push(async () => {
@@ -523,6 +535,31 @@ it('keeps normal session history and execution on the signed host across fallbac
       ),
     ).hostId,
   ).toBe(savedA.id)
+  const versionCheckStart = network.calls.length
+  b.setProtocolVersion(2)
+  expect(await machines.connect(savedB.id)).toMatchObject({
+    status: 'incompatible', permissionsReady: false,
+  })
+  const versionChecks = network.calls.slice(versionCheckStart)
+  expect(versionChecks.length).toBeGreaterThan(0)
+  expect(versionChecks.every((call) =>
+    call.origin === primary.origin && call.path === '/routes/proof' && call.authorization === null,
+  )).toBe(true)
+  await refreshMachineInventory()
+  expect(clientB.readOnly).toBe(true)
+  await expect(clientB.invoke('session.load', { sessionId: wireId })).rejects.toThrow()
+  expect(clientA.readOnly).toBe(false)
+  expect((await a.store.load(wireId)).session?.title).toBe('A')
+  b.setProtocolVersion(1)
+  expect(await machines.connect(savedB.id)).toMatchObject({ status: 'connected' })
+  await refreshMachineInventory()
+  await vi.waitFor(() => expect(terminals()).toHaveLength(4), { timeout: 10_000 })
+  expect(terminals()[3]).toMatchObject({
+    replayMode: 'resume', replayOutcome: 'complete', liveTurnId: liveTurn,
+  })
+  expect(transcript.getSnapshot()).toHaveLength(2406)
+  expect(dispatchB.mock.calls.filter(([command]) => command.type === 'turn.start')).toHaveLength(1)
+  expect(dispatchA).not.toHaveBeenCalled()
   b.pairing.revoke(b.pairing.devices()[0]!.deviceId)
   await machines.connect(savedB.id)
   await refreshMachineInventory()
