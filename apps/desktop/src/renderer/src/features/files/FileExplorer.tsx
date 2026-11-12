@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FsScope, RpcResults } from '@ari/contracts/rpc'
 import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
@@ -152,7 +152,10 @@ export type FsTreeScope = Omit<FsScope, 'path'>
  * listed on mount; directories are listed via the `fs.list` RPC the first
  * time they expand and cached until refresh.
  */
-export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope }) {
+export function FileExplorer({ root, scope, readOnlyReason }: {
+  root: string; scope: FsTreeScope; readOnlyReason?: string | null
+}) {
+  const generation = useRef(0)
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
@@ -166,6 +169,7 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
   )
 
   useEffect(() => {
+    const epoch = ++generation.current
     let cancelled = false
     setEntries({})
     setExpanded(new Set())
@@ -184,19 +188,23 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
       })
     return () => {
       cancelled = true
+      if (generation.current === epoch) generation.current += 1
     }
   }, [root, scope])
 
   /** Lists a directory and caches it; surfaces failures in `error`. */
   const listDir = useCallback(
     (dir: string): void => {
+      const epoch = generation.current
       void rpc
         .invoke('fs.list', { ...scope, path: scopedDir(dir) })
         .then((result) => {
+          if (generation.current !== epoch) return
           setEntries((prev) => ({ ...prev, [dir]: result }))
           setError(null)
         })
         .catch((cause: unknown) => {
+          if (generation.current !== epoch) return
           setError(cause instanceof Error ? cause.message : String(cause))
         })
     },
@@ -290,6 +298,7 @@ export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope
           path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
           onClose={() => setEditingPath(null)}
           onSaved={refresh}
+          readOnlyReason={readOnlyReason}
         />
       )}
     </section>

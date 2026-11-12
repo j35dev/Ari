@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@ari/ui/button'
 import {
   Dialog,
@@ -23,6 +23,8 @@ interface FileEditorProps {
   onClose: () => void
   /** Called after a successful save so listings can refresh. */
   onSaved?: () => void
+  /** Host file writes are not exposed; keep the normal preview with a reason. */
+  readOnlyReason?: string | null
 }
 
 /**
@@ -32,17 +34,21 @@ interface FileEditorProps {
  * IPC. Escape, the scrim and Cancel all close without writing. Files over
  * the edit cap or binary ones render an error instead of an editable buffer.
  */
-export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
+export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: FileEditorProps) {
+  const readOnly = readOnlyReason != null
+  const generation = useRef(0)
   const [original, setOriginal] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    const epoch = ++generation.current
     let cancelled = false
     setOriginal(null)
     setDraft('')
     setError(null)
+    setSaving(false)
     void rpc
       .invoke('fs.readTextFile', { ...scope, path })
       .then((result) => {
@@ -61,34 +67,38 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
       })
     return () => {
       cancelled = true
+      if (generation.current === epoch) generation.current += 1
     }
   }, [path, scope])
 
   const dirty = original !== null && draft !== original
 
   const save = useCallback((): void => {
-    if (!dirty || saving) return
+    if (readOnly || !dirty || saving) return
+    const epoch = generation.current
     setSaving(true)
     setError(null)
     void rpc
       .invoke('fs.writeTextFile', { ...scope, path, content: draft })
       .then(() => {
+        if (generation.current !== epoch) return
         setOriginal(draft)
         onSaved?.()
       })
       .catch((cause: unknown) => {
+        if (generation.current !== epoch) return
         setError(cause instanceof Error ? cause.message : String(cause))
       })
       .finally(() => {
-        setSaving(false)
+        if (generation.current === epoch) setSaving(false)
       })
-  }, [dirty, draft, onSaved, path, saving, scope])
+  }, [dirty, draft, onSaved, path, readOnly, saving, scope])
 
   const loaded = original !== null
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent size="lg" aria-label={`Edit ${fileName(path)}`}>
+      <DialogContent size="lg" aria-label={`${readOnly ? 'Preview' : 'Edit'} ${fileName(path)}`}>
         <header className="flex items-center gap-2 border-b border-border px-5 py-3">
           <div className="min-w-0 flex-1">
             <DialogTitle className="truncate font-mono text-sm">{fileName(path)}</DialogTitle>
@@ -101,11 +111,15 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
           )}
         </header>
         <div className="flex min-h-0 flex-1 flex-col px-5 py-3">
+          {readOnlyReason != null && (
+            <p role="status" className="mb-2 text-xs text-fg-muted">{readOnlyReason}</p>
+          )}
           {loaded ? (
             <textarea
               aria-label="File contents"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              readOnly={readOnly}
+              onChange={(event) => { if (!readOnly) setDraft(event.target.value) }}
               spellCheck={false}
               className="h-full min-h-0 w-full flex-1 resize-none rounded-md border border-border bg-surface-1 p-2 font-mono text-xs text-fg outline-none focus:ring-2 focus:ring-accent-ring"
             />
@@ -125,9 +139,9 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
           )}
           <div className={error != null && loaded ? '' : 'flex-1'} />
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </Button>
-          <Button variant="primary" loading={saving} disabled={!dirty} onClick={save}>
+          <Button variant="primary" loading={saving} disabled={readOnly || !dirty} title={readOnlyReason ?? undefined} onClick={save}>
             Save
           </Button>
         </footer>

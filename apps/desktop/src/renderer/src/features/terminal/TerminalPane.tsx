@@ -47,6 +47,12 @@ export function TerminalPane({
   onErrorRef.current = onError
 
   useEffect(() => {
+    // Until a verified host adapter is installed, a remote UI tab cannot be
+    // adopted through this local pty path, including a restored split pane.
+    if (terminalId.startsWith('rterm_')) {
+      onErrorRef.current?.('Reconnect this terminal to its owning machine.')
+      return
+    }
     if (cwd === null) return
     const host = hostRef.current
     if (!host) return

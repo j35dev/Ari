@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalDock } from './TerminalDock'
-import { resetTerminalDock } from './terminal-dock'
+import { openTerminalTab, resetTerminalDock } from './terminal-dock'
 import { requestTerminalTab } from './terminal-requests'
 
 const { invokeFn } = vi.hoisted(() => ({ invokeFn: vi.fn() }))
@@ -73,6 +73,18 @@ describe('TerminalDock', () => {
     expect(panes()[0]).toHaveAttribute('data-cwd', 'D:\\Projects\\Ari')
     expect(panes()[0]).toHaveAttribute('data-active', 'true')
     expect(screen.getByRole('button', { name: 'Ari Terminal' })).toBeInTheDocument()
+  })
+
+  it('never mounts a remote-owned stored shell in the local rail', async () => {
+    installRpc()
+    const id = openTerminalTab({ title: 'remote-only', cwd: '/remote', owner: {
+      kind: 'remote', machineId: 'host', sessionId: 'sess_remote',
+    } })
+    render(<TerminalDock cwd="/local" />)
+    await waitFor(() => expect(panes()).toHaveLength(1))
+    expect(panes()[0]).toHaveAttribute('data-cwd', '/local')
+    expect(panes()[0]).not.toHaveAttribute('data-id', id)
+    expect(screen.queryByRole('button', { name: 'remote-only' })).not.toBeInTheDocument()
   })
 
   it('asks for a project instead of opening a shell it cannot run', async () => {
