@@ -33,13 +33,14 @@ if (view === 'receipt') {
     JSON.stringify({ machineId: scope.machineId, scope: scope.sessionId, command }))
 }
 let machines = [
-  { ...desktopMachineFixture(), name: 'Studio workstation', allowTerminal: true },
+  { ...desktopMachineFixture(), name: 'Studio workstation', allowTerminal: true, effectiveRoute: 'https://host-a.example.ts.net' },
   { ...desktopMachineFixture('host-b'), name: 'Build computer' },
   { ...desktopMachineFixture('host-c'), name: 'Travel laptop', status: 'pairing' as const },
 ]
 const snapshot = desktopSnapshotFixture()
 snapshot.session.title = 'Resource gate and Machines UI'
 snapshot.summary.title = snapshot.session.title
+snapshot.summary.updatedAt = Date.now() - 120_000
 const text = 'The test runner now checks commit headroom before starting a build. The workspace and agent remain on Studio workstation.\n\n```ts\nawait runHeavy("Build desktop", workspace)\n```'
 const events = [
   { type: 'user.message.added', seq: 0, at: 1, sessionId: scope.sessionId, message: {
@@ -92,6 +93,7 @@ window.ari = {
       if (op === 'session.resume.get') return reply({ at: null })
       if (op === 'files.index') return reply({ paths: [], nextCursor: null, truncated: false })
       if (op === 'plan.get') return reply({ items: null })
+      if (op === 'changes.turn') return reply({ diffText: null })
       if (op === 'project.workspaces') return reply({ projectId: 'same-project', truncated: false, options: [
         { token: 'host-main', label: 'Current checkout · main', kind: 'checkout', branch: 'main', workspaceMode: 'shared' },
         { token: 'host-isolated', label: 'New isolated worktree', kind: 'worktree', branch: 'main', workspaceMode: 'isolated' },
@@ -110,7 +112,7 @@ setTimeout(() => {
 Object.assign(window, { __ari: { state: () => ({ fixture: 'normal desktop Machines components', view, theme: themeId, trace }) } })
 
 const localProject = projectViewSchema.parse({ id: 'same-project', name: 'Ari', path: 'D:/code/Ari', createdAt: 1, open: true, status: 'ok' })
-const localSession = { ...snapshot.summary, id: 'sess_local', title: 'Finish the local scheduler' }
+const localSession = { ...snapshot.summary, id: 'sess_local', title: 'Finish the local scheduler', updatedAt: Date.now() - 90_000 }
 const defaults = { driverKind: 'codex' as const, modelId: 'gpt-6.1-sol', permissionMode: 'ask' as const, effort: 'high' }
 function Fixture() {
   const navigation = useMachineProjects([localProject], [localSession])

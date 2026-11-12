@@ -51,10 +51,14 @@ app.whenReady().then(async () => {
     await window.loadFile(resolve('out/machines-fixture/testing/machines.html'), { query: { theme, view } })
     await ready(view)
     if (view === 'permissions') await window.webContents.executeJavaScript(`
-      [...document.querySelectorAll('[aria-label="Studio workstation"] [role="tab"]')]
-        .find(button => button.textContent.trim() === 'Your permissions').click()`)
+      (() => { const card = document.querySelector('article[aria-label="Studio workstation"]');
+        [...card.querySelectorAll('[role="tab"]')].find(button => button.textContent.trim() === 'Your permissions').click();
+        card.scrollIntoView({ block: 'start' }); })()`)
     if (view === 'receipt') await window.webContents.executeJavaScript(`
       [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Check status').click()`)
+    // Paint the selected tab/receipt state before registering the capture listener.
+    await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await new Promise((done) => setTimeout(done, 150))
     const state = await window.webContents.executeJavaScript(`({ ...window.__ari.state(),
       activeTheme: document.documentElement.dataset.ariTheme,
       text: document.body.innerText,
