@@ -117,12 +117,20 @@
         "Files",
         "Terminal",
         "Details",
+        "Attach image",
         "Steer",
         "Queue",
         "Send"
       ],
       "horizontalOverflow": false,
-      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nAttach image\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "attachmentPicker": {
+        "label": "Attach image to host session",
+        "hidden": true,
+        "inputDisabled": false,
+        "buttonDisabled": false,
+        "iconHidden": true
+      },
       "sidebar": {
         "x": 0,
         "y": 98,
@@ -179,12 +187,20 @@
         "Terminal",
         "Details",
         "Check receipt",
+        "Attach image",
         "Steer",
         "Queue",
         "Send"
       ],
       "horizontalOverflow": false,
-      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nAttach image\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "attachmentPicker": {
+        "label": "Attach image to host session",
+        "hidden": true,
+        "inputDisabled": true,
+        "buttonDisabled": true,
+        "iconHidden": true
+      },
       "sidebar": {
         "x": 0,
         "y": 98,
@@ -305,12 +321,20 @@
         "Files",
         "Terminal",
         "Details",
+        "Attach image",
         "Steer",
         "Queue",
         "Send"
       ],
       "horizontalOverflow": false,
-      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nAttach image\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "attachmentPicker": {
+        "label": "Attach image to host session",
+        "hidden": true,
+        "inputDisabled": false,
+        "buttonDisabled": false,
+        "iconHidden": true
+      },
       "sidebar": {
         "x": 0,
         "y": 98,
@@ -367,12 +391,20 @@
         "Terminal",
         "Details",
         "Check receipt",
+        "Attach image",
         "Steer",
         "Queue",
         "Send"
       ],
       "horizontalOverflow": false,
-      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nAttach image\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "attachmentPicker": {
+        "label": "Attach image to host session",
+        "hidden": true,
+        "inputDisabled": true,
+        "buttonDisabled": true,
+        "iconHidden": true
+      },
       "sidebar": {
         "x": 0,
         "y": 98,

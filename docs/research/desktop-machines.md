@@ -109,3 +109,67 @@ The composer replaces native Choose File/No File Chosen chrome with the Ari
 the existing accessible label and retains its validation, limits, host/session
 scope and pending-action disablement. Only workspace and receipt captures will
 be refreshed in light/dark; approved settings and sidebar evidence is preserved.
+
+## Final correction verification and integration handoff
+
+New commits after the assigned `5a3a71e7` checkpoint:
+
+- `95683428`: preserve the corrected composer and all ten previously untracked
+  painted PNGs plus capture metadata before heavy work. This commit retains the
+  original native-picker screenshots as the before evidence in Git history.
+- `fb68823b`: format the focused capture option and attachment-control assertions.
+- The following final evidence commit records the four refreshed PNGs, combined
+  check transcript and this completed handoff. Code validated is `fb68823b`;
+  subsequent changes are evidence/documentation only.
+
+Every command below used the coordinator prefix:
+
+```text
+node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs TITLE D:/Projects/Ari-machines-wt/desktop -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs
+```
+
+| Title | pnpm arguments | Result |
+| --- | --- | --- |
+| `desktop-composer-format` | `exec prettier --write apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs docs/research/desktop-machines.md` | Passed; committed formatting before tests |
+| `desktop-composer-tests` | `--filter @ari/desktop exec vitest run src/renderer/src/features/machines/RemoteSession.test.tsx src/renderer/src/features/machines/remote-client.test.ts --maxWorkers=1 --no-file-parallelism` | 2 suites / 28 tests passed, 17.79 seconds |
+| `desktop-composer-types` | `--filter @ari/desktop exec tsc --noEmit -p tsconfig.machines.json` | Passed |
+| `desktop-composer-lint` | `exec eslint apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx apps/desktop/packaging/capture-machines.mjs` | Passed |
+| `desktop-composer-fixture-build` | `--filter @ari/desktop exec vite build --config machines-fixture.config.ts` | Passed, 14.70 seconds; Vite reported its large-chunk warning |
+| `desktop-composer-capture` | `--filter @ari/desktop exec electron packaging/capture-machines.mjs --composer-only` | Passed; four changed screenshots, no renderer console errors or horizontal overflow |
+
+The original fresh-check logs are in `out/desktop-composer-*.log`; their complete
+contents are preserved as `docs/research/evidence/desktop-machines/verification.txt`
+for integration and eventual worktree removal. No install, wide test/lint/build,
+live Ari, device settings, Tailscale, other worktree, push or PR was used. Every
+runner admission passed the resource gate; no killed/OOM step, provider mismatch
+or retry loop occurred. The session runtime is codex / gpt-6.1-sol, high, full.
+
+Captures use real renderer components with fake RPC, a hidden offscreen Electron
+43.4.1 / Chromium 150.0.7871.224 window, a temporary D-worktree profile and a
+nonpersistent partition. External network requests are blocked. Requested window
+size is 1440×1100; measured viewport/paint size is 1440×1020 at scale 1. The four
+updated files are `machines-workspace-light.png`, `machines-workspace-dark.png`,
+`machines-receipt-light.png` and `machines-receipt-dark.png`. All four were visually
+inspected: the attachment icon/text is readable, aligned with the other composer
+controls and correctly dimmed when an action is uncertain. The six approved
+settings/sidebar PNGs are byte-for-byte unchanged from `95683428`, and their
+metadata is retained. `capture.json` also records the hidden input's original
+label, hidden decorative icon and matching button/input enabled or pending states.
+
+Security findings for this correction: no new issue identified. The existing
+late-staging test proves that a delayed upload result stays in its originating
+machine/session draft. The receipt suite passes the old-host `not_found` and
+legacy `retry=true` regressions: the exact receipt is retained, and controls only
+query `command.status`. Both receipt captures deliberately check the old-host
+missing-result fixture; no `machines.command` occurs and no retry control is
+visible. No core/shared contract or credential code was edited.
+
+The dedicated workspace limitations listed above remain: one remote host session
+per view, separate host tools instead of local panes, read-only host previews,
+one selected diff at a time, no host queue editing or provider/device settings.
+The native OS picker was not driven by automation; component uploads exercise the
+existing labelled input and staging path. Integrated wide checks, two-computer/
+iPhone tailnet behavior, sleep/network transitions, secure-key restart and live
+managed Connect remain coordinator/hardware release gates. This branch is ready
+for coordinator review/integration; the coordinator can remove this worker and
+D-worktree after accepting the integration.
