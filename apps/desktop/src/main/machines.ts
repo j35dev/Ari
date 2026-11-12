@@ -7,6 +7,8 @@ import {
   type MachinePairingView,
   type MachineRoute,
   type MachineView,
+  type MachineAutoPreference,
+  type MachinesPreferences,
 } from '@ari/contracts/machines'
 import {
   REMOTE_ANONYMOUS_OPERATIONS,
@@ -17,7 +19,16 @@ import {
   type RemoteCommand,
   type RemoteQuery,
 } from '@ari/contracts/remote'
-import { GatewayClient, RemoteError, RemoteSession, type ConnectionState } from '@ari/remote-client'
+import {
+  GatewayClient,
+  RemoteError,
+  RemoteSession,
+  authorizeRoute,
+  verifyRoute,
+  verifyHostManifest,
+  type PinnedRouteIdentity,
+  type ConnectionState,
+} from '@ari/remote-client'
 import type { SecretBox } from '@ari/ari-core/endpoints'
 import { DesktopMachineCredential, MachinesRegistry, type MachineRecord } from './machines-registry'
 import {
@@ -28,7 +39,10 @@ import {
 } from './machines-network'
 
 interface Connection {
+  machineId: string
   client: GatewayClient
+  route: MachineRoute
+  pin: PinnedRouteIdentity | null
   credential: DesktopMachineCredential
   session: RemoteSession
   controller: AbortController
@@ -38,6 +52,9 @@ interface Connection {
 interface Subscription {
   machineId: string
   close: () => void
+  params: { machineId: string; sessionId: string; fromSeq?: number; desktop?: true }
+  emit: (frame: MachineEventsFrame) => void
+  cursor?: number
 }
 export interface MachinesServiceDeps {
   dir: string
@@ -50,6 +67,9 @@ export interface MachinesServiceDeps {
   tailnetRunner?: TailnetRunner
   decisionPollMs?: number
   decisionTimeoutMs?: number
+  precheckIntervalMs?: number
+  moveBackCooldownMs?: number
+  now?: () => number
 }
 
 /** A desktop client of other hosts. This service has no local Engine or filesystem RPC. */
@@ -58,10 +78,15 @@ export class MachinesService {
   readonly #storedRegistry: MachinesRegistry | null
   readonly #network: MachineNetwork
   readonly #connections = new Map<string, Connection>()
+  readonly #pendingConnections = new Set<Connection>()
   readonly #views = new Map<string, Pick<MachineView, 'status' | 'error' | 'allowTerminal'>>()
   readonly #pairing = new Map<string, MachinePairingView>()
   readonly #invitations = new Map<string, string>()
   readonly #subscriptions = new Map<string, Subscription>()
+  readonly #walks = new Map<string, Promise<MachineView>>()
+  readonly #prechecks = new Map<string, Promise<MachineView>>()
+  readonly #lastSwitch = new Map<string, number>()
+  readonly #precheckTimer: ReturnType<typeof setInterval>
   #disposed = false
   #discovery: Promise<MachineDiscovery[]> | null = null
 
@@ -75,6 +100,10 @@ export class MachinesService {
       this.#storedRegistry = null
     }
     this.#network = deps.network ?? new MachineNetwork({ allowLoopback: deps.allowLoopback })
+    this.#precheckTimer = setInterval(() => {
+      void this.precheck().catch(() => undefined)
+    }, deps.precheckIntervalMs ?? 60_000)
+    this.#precheckTimer.unref()
   }
   get #registry(): MachinesRegistry {
     if (this.#storedRegistry === null) throw registryUnavailable()
@@ -102,6 +131,20 @@ export class MachinesService {
       error = publicFailure(failure)
     }
     this.#assertOpen()
+    if (
+      invitationId !== undefined &&
+      identity?.machineId !== undefined &&
+      this.#registry
+        .list()
+        .some(
+          (saved) =>
+            saved.hostKey?.hostId === identity.machineId &&
+            !saved.routes.some((item) => item.origin === route.origin),
+        )
+    )
+      throw new Error(
+        'This pairing link uses an unknown address for a saved computer. Use Add route on that computer instead.',
+      )
     const row = this.#registry.add(
       name?.trim() || identity?.name || `Legacy Ari · ${new URL(route.origin).hostname}`,
       route,
@@ -175,6 +218,22 @@ export class MachinesService {
     code?: string
   }): Promise<MachinePairingView> {
     this.#assertOpen()
+    const pairingRow = this.#registry.get(params.machineId)
+    if (
+      pairingRow.hostKey === null &&
+      pairingRow.identity?.machineId !== undefined &&
+      this.#registry
+        .list()
+        .some(
+          (saved) =>
+            saved.id !== pairingRow.id &&
+            saved.hostKey?.hostId === pairingRow.identity?.machineId &&
+            !saved.routes.some((route) => route.origin === pairingRow.credentialOrigin),
+        )
+    )
+      throw new Error(
+        'This address belongs to a saved pinned computer. Use Add route on that computer instead of pairing again.',
+      )
     const connection = await this.#connection(params.machineId)
     if (connection.pairing !== undefined) return this.pairStatus(params.machineId)
     // Probe and verify identity/version before code resolution or request/redeem.
@@ -218,6 +277,7 @@ export class MachinesService {
           error: null,
         })
         this.#set(params.machineId, 'connected', null, connection.session.allowTerminal)
+        return this.#refreshManifest(params.machineId, connection)
       })
       .catch((error: unknown) => {
         if (!this.#active(params.machineId, connection)) return
@@ -256,49 +316,280 @@ export class MachinesService {
 
   async connect(machineId: string): Promise<MachineView> {
     this.#assertOpen()
-    this.#registry.get(machineId)
-    const prior = this.#connections.get(machineId)
-    if (prior?.connecting !== undefined) return prior.connecting
-    if (prior?.pairing !== undefined) return this.#view(this.#registry.get(machineId))
-    if (prior !== undefined) {
-      this.#connections.delete(machineId)
-      prior.controller.abort()
-      prior.session.disconnect()
-      this.#closeSubscriptions(machineId)
-    }
-    let connection: Connection
-    try {
-      connection = await this.#connection(machineId)
-    } catch (error) {
-      this.#failed(machineId, error)
-      return this.#view(this.#registry.get(machineId))
-    }
-    if (connection.connecting !== undefined) return connection.connecting
-    if (connection.pairing !== undefined) return this.#view(this.#registry.get(machineId))
-    connection.connecting = this.#connect(machineId, connection).finally(() => {
-      connection.connecting = undefined
+    const existing = this.#walks.get(machineId)
+    if (existing !== undefined) return existing
+    const record = this.#registry.get(machineId)
+    if (this.#connections.get(machineId)?.pairing !== undefined) return this.#view(record)
+    const walk = this.#walk(machineId).finally(() => {
+      if (this.#walks.get(machineId) === walk) this.#walks.delete(machineId)
     })
-    return connection.connecting
+    this.#walks.set(machineId, walk)
+    return walk
   }
-  async #connect(machineId: string, connection: Connection): Promise<MachineView> {
-    try {
-      this.#closeSubscriptions(machineId)
-      connection.session.disconnect()
-      await this.#negotiate(machineId, connection)
-      const state = await connection.session.connect(connection.controller.signal)
-      if (!this.#active(machineId, connection))
-        throw new Error('The computer connection was removed.')
-      this.#set(
-        machineId,
-        machineStatus(state),
-        state === 'connected' || state === 'unpaired' ? null : stateError(state),
-        connection.session.allowTerminal,
+  async #walk(machineId: string): Promise<MachineView> {
+    const row = this.#registry.get(machineId)
+    const prior = this.#connections.get(machineId)
+    if (prior !== undefined) this.#drop(machineId, prior, true)
+    let lastFailure: unknown = new RemoteError(
+      'unreachable',
+      'No saved computer route is reachable.',
+    )
+    for (const route of row.routes) {
+      this.#assertOpen()
+      this.#registry.get(machineId)
+      let connection: Connection | undefined
+      try {
+        connection = await this.#createConnection(machineId, route)
+        this.#assertOpen()
+        this.#registry.get(machineId)
+        if (connection.credential.deviceId === null && route.origin !== row.credentialOrigin) {
+          connection.controller.abort()
+          connection.session.disconnect()
+          continue
+        }
+        await this.#negotiate(machineId, connection, undefined, false)
+        const state = await connection.session.connect(connection.controller.signal)
+        if (state !== 'connected' && state !== 'unpaired') {
+          // An unsigned descriptor cannot stop the route walk.
+          throw new RemoteError(
+            state === 'revoked' || state === 'unknown-device' ? 'access_revoked' : 'unreachable',
+            stateError(state) ?? 'Route unavailable.',
+          )
+        }
+        this.#assertOpen()
+        this.#registry.get(machineId)
+        this.#connections.set(machineId, connection)
+        this.#pendingConnections.delete(connection)
+        this.#set(machineId, machineStatus(state), null, connection.session.allowTerminal)
+        if (state === 'connected') {
+          this.#lastSwitch.set(machineId, this.#now())
+          await this.#refreshManifest(machineId, connection)
+          await this.#resumeSubscriptions(machineId)
+        }
+        return this.#view(this.#registry.get(machineId))
+      } catch (error) {
+        lastFailure = error
+        if (connection !== undefined) this.#drop(machineId, connection, true)
+        if (this.#disposed || !this.#registry.list().some((record) => record.id === machineId))
+          throw error
+        if (error instanceof RemoteError && error.code === 'unsupported_version') break
+      }
+    }
+    this.#failed(machineId, lastFailure)
+    this.#failSubscriptions(machineId)
+    return this.#view(this.#registry.get(machineId))
+  }
+
+  preferences(): MachinesPreferences {
+    this.#assertOpen()
+    return this.#registry.preferences()
+  }
+  setAuto(enabled: boolean): MachinesPreferences {
+    this.#assertOpen()
+    const result = this.#registry.setAuto(enabled)
+    this.#changed()
+    return result
+  }
+  setPreference(machineId: string, tier: MachineAutoPreference): MachinesPreferences {
+    this.#assertOpen()
+    const result = this.#registry.setPreference(machineId, tier)
+    this.#changed()
+    return result
+  }
+  rememberProjectHost(projectKey: string, machineId: string): MachinesPreferences {
+    this.#assertOpen()
+    return this.#registry.rememberProjectHost(projectKey, machineId)
+  }
+  async addRoute(machineId: string, address: string): Promise<MachineView> {
+    this.#assertOpen()
+    const { route, invitationId } = parseMachineAddress(address, this.#deps.allowLoopback)
+    if (invitationId !== undefined)
+      throw new Error('Add the route origin without its pairing invitation.')
+    const row = this.#registry.get(machineId)
+    if (row.routes.some((item) => item.origin === route.origin)) return this.#view(row)
+    if (row.hostKey === null)
+      throw new Error(
+        'Reconnect over the independently paired address before adding a verified route. Legacy hosts require independent pairing.',
       )
-    } catch (error) {
-      if (!this.#active(machineId, connection)) throw error
-      this.#failed(machineId, error)
+    if (
+      new URL(row.credentialOrigin).protocol === 'https:' &&
+      new URL(route.origin).protocol !== 'https:'
+    )
+      throw new Error('An HTTPS computer credential cannot be used over HTTP.')
+    const options = await this.#network.clientOptions(route)
+    const pin = this.#pin(row)!
+    await verifyRoute(new GatewayClient(options), pin)
+    this.#assertOpen()
+    const current = this.#registry.get(machineId)
+    if (current.routes.length >= 16) throw new Error('Remove a saved route before adding another.')
+    this.#registry.update(machineId, {
+      routes: [
+        ...current.routes,
+        { ...route, source: 'manual', credentialOrigin: current.credentialOrigin },
+      ],
+    })
+    this.#changed()
+    return this.#view(this.#registry.get(machineId))
+  }
+  reorderRoutes(machineId: string, origins: string[]): MachineView {
+    this.#assertOpen()
+    const row = this.#registry.get(machineId)
+    if (
+      origins.length !== row.routes.length ||
+      new Set(origins).size !== origins.length ||
+      origins.some((origin) => !row.routes.some((route) => route.origin === origin))
+    )
+      throw new Error('Route order must contain every saved route exactly once.')
+    const result = this.#registry.update(machineId, {
+      routes: origins.map((origin) => row.routes.find((route) => route.origin === origin)!),
+    })
+    this.#changed()
+    return this.#view(result)
+  }
+  removeRoute(machineId: string, origin: string): MachineView {
+    this.#assertOpen()
+    const row = this.#registry.get(machineId)
+    const route = row.routes.find((item) => item.origin === origin)
+    if (route === undefined) return this.#view(row)
+    if (route.source === 'learned')
+      throw new Error('Learned routes are removed when the host stops reporting them.')
+    if (row.routes.length === 1)
+      throw new Error('Keep at least one route, or remove the saved computer.')
+    if (origin === row.credentialOrigin && row.hostKey === null)
+      throw new Error(
+        'The independently paired route holds this computer credential. Remove the computer to remove it.',
+      )
+    const connection = this.#connections.get(machineId)
+    for (const pending of this.#pendingConnections)
+      if (pending.machineId === machineId && pending.route.origin === origin) {
+        pending.controller.abort()
+        pending.session.disconnect()
+        this.#pendingConnections.delete(pending)
+      }
+    if (connection?.route.origin === origin) this.#drop(machineId, connection)
+    const result = this.#registry.update(machineId, {
+      routes: row.routes.filter((item) => item.origin !== origin),
+    })
+    this.#changed()
+    return this.#view(result)
+  }
+  /** Called on focus/network changes by the renderer, and automatically every minute. */
+  async precheck(machineId?: string): Promise<MachineView[]> {
+    this.#assertOpen()
+    const rows = machineId === undefined ? this.#registry.list() : [this.#registry.get(machineId)]
+    for (const row of rows) {
+      if (this.#walks.has(row.id)) continue
+      let checking = this.#prechecks.get(row.id)
+      if (checking === undefined) {
+        checking = this.#precheck(row.id).finally(() => this.#prechecks.delete(row.id))
+        this.#prechecks.set(row.id, checking)
+      }
+      await checking
+    }
+    return this.list()
+  }
+  async #precheck(machineId: string): Promise<MachineView> {
+    const active = this.#connections.get(machineId)
+    if (active === undefined || !active.session.usable) {
+      const saved = this.#registry.get(machineId)
+      const view = this.#view(saved)
+      if (
+        saved.credentialCipher !== null &&
+        view.status !== 'revoked' &&
+        view.status !== 'incompatible'
+      )
+        return this.connect(machineId)
+      return view
+    }
+    const row = this.#registry.get(machineId)
+    const index = row.routes.findIndex((route) => route.origin === active.route.origin)
+    if (
+      index < 1 ||
+      this.#now() - (this.#lastSwitch.get(machineId) ?? 0) <
+        (this.#deps.moveBackCooldownMs ?? 60_000)
+    )
+      return this.#view(row)
+    for (const route of row.routes.slice(0, index)) {
+      let candidate: Connection | undefined
+      try {
+        candidate = await this.#createConnection(machineId, route)
+        await this.#negotiate(machineId, candidate, undefined, false)
+        if ((await candidate.session.connect(candidate.controller.signal)) !== 'connected')
+          throw new Error('Route not authorized.')
+        if (
+          !this.#active(machineId, active) ||
+          this.#walks.has(machineId) ||
+          !this.#registry.get(machineId).routes.some((item) => item.origin === route.origin)
+        )
+          throw new Error('Stale route precheck.')
+        this.#drop(machineId, active, true)
+        this.#connections.set(machineId, candidate)
+        this.#pendingConnections.delete(candidate)
+        this.#lastSwitch.set(machineId, this.#now())
+        this.#set(machineId, 'connected', null, candidate.session.allowTerminal)
+        await this.#refreshManifest(machineId, candidate)
+        await this.#resumeSubscriptions(machineId)
+        return this.#view(this.#registry.get(machineId))
+      } catch (error) {
+        if (candidate !== undefined && this.#connections.get(machineId) === candidate) {
+          this.#drop(machineId, candidate)
+          this.#failed(machineId, error)
+          return this.#view(this.#registry.get(machineId))
+        }
+        candidate?.controller.abort()
+        candidate?.session.disconnect()
+        if (candidate !== undefined) this.#pendingConnections.delete(candidate)
+      }
     }
     return this.#view(this.#registry.get(machineId))
+  }
+  #now(): number {
+    return (this.#deps.now ?? Date.now)()
+  }
+  #drop(machineId: string, connection: Connection, keepSubscriptions = false): void {
+    this.#pendingConnections.delete(connection)
+    if (this.#connections.get(machineId) === connection) this.#connections.delete(machineId)
+    if (keepSubscriptions) {
+      for (const sub of this.#subscriptions.values()) if (sub.machineId === machineId) sub.close()
+    } else this.#closeSubscriptions(machineId)
+    connection.controller.abort()
+    connection.session.disconnect()
+  }
+  #pin(row: MachineRecord): PinnedRouteIdentity | null {
+    return row.hostKey === null ? null : { ...row.hostKey, credentialOrigin: row.credentialOrigin }
+  }
+  async #refreshManifest(machineId: string, connection: Connection): Promise<void> {
+    if (!this.#active(machineId, connection) || !connection.session.usable) return
+    const row = this.#registry.get(machineId)
+    // Initial key trust is possible only on the independently paired origin.
+    if (row.hostKey === null && connection.route.origin !== row.credentialOrigin) return
+    const info = machineIdentitySchema.parse(await connection.client.info())
+    this.#ensureActive(machineId, connection)
+    if (info.routeIdentity === undefined) return
+    const manifest = await verifyHostManifest(
+      await connection.client.routeManifest(),
+      connection.route.origin,
+      row.identity?.machineId,
+      this.#pin(row),
+    )
+    this.#ensureActive(machineId, connection)
+    const routes: MachineRoute[] = []
+    for (const origin of manifest.payload.routes) {
+      try {
+        const route = parseMachineAddress(origin, this.#deps.allowLoopback).route
+        if (
+          new URL(row.credentialOrigin).protocol === 'https:' &&
+          new URL(origin).protocol !== 'https:'
+        )
+          continue
+        routes.push(route)
+      } catch {
+        /* Unsupported transports do not relax production HTTPS policy. */
+      }
+    }
+    const updated = this.#registry.learn(machineId, manifest, routes)
+    connection.pin = this.#pin(updated)
+    this.#changed()
   }
 
   rename(machineId: string, name: string): MachineView {
@@ -312,6 +603,12 @@ export class MachinesService {
     if (!this.#registry.list().some((row) => row.id === machineId)) return { removed: false }
     const record = this.#registry.get(machineId)
     const connection = this.#connections.get(machineId)
+    for (const pending of this.#pendingConnections)
+      if (pending.machineId === machineId) {
+        pending.controller.abort()
+        pending.session.disconnect()
+        this.#pendingConnections.delete(pending)
+      }
     this.#closeSubscriptions(machineId)
     // Only revoke this client's device; never invoke a local/host approve or list operation.
     let revocation: Promise<unknown> | undefined
@@ -348,7 +645,13 @@ export class MachinesService {
   }
 
   async #revokeRemoved(record: MachineRecord, credential: DesktopMachineCredential): Promise<void> {
-    const client = new GatewayClient(await this.#routeOptions(record))
+    const client = new GatewayClient(
+      await this.#routeOptions(
+        record,
+        record.routes.find((route) => route.origin === record.credentialOrigin) ??
+          record.routes[0]!,
+      ),
+    )
     try {
       const info = machineIdentitySchema.parse(await client.info())
       if (
@@ -360,14 +663,25 @@ export class MachinesService {
         return
       const deviceId = credential.deviceId
       if (deviceId === null) return
-      const { nonce } = await client.deviceChallenge(deviceId)
-      const signature = await credential.sign(nonce)
-      const authorized = await client.deviceAuthorize(deviceId, { nonce, signature })
+      const pin = this.#pin(record)
+      const authorized =
+        pin === null
+          ? await this.#legacyRemovedAuthorization(client, credential, deviceId)
+          : await authorizeRoute(client, pin, credential, deviceId)
       client.token = authorized.token
       await client.query('device.revoke', { deviceId })
     } finally {
       client.token = null
     }
+  }
+  async #legacyRemovedAuthorization(
+    client: GatewayClient,
+    credential: DesktopMachineCredential,
+    deviceId: string,
+  ) {
+    const { nonce } = await client.deviceChallenge(deviceId)
+    const signature = await credential.sign(nonce)
+    return client.deviceAuthorize(deviceId, { nonce, signature })
   }
 
   async query(machineId: string, rawQuery: RemoteQuery): Promise<unknown> {
@@ -400,23 +714,30 @@ export class MachinesService {
 
   async subscribe(
     id: string,
-    params: { machineId: string; sessionId: string; fromSeq?: number },
+    params: { machineId: string; sessionId: string; fromSeq?: number; desktop?: true },
     emit: (frame: MachineEventsFrame) => void,
   ): Promise<void> {
     this.unsubscribe(id)
     let cancelled = false
     const pending: Subscription = {
       machineId: params.machineId,
+      params: { ...params },
+      emit,
+      cursor: params.fromSeq,
       close: () => {
         cancelled = true
       },
     }
     this.#subscriptions.set(id, pending)
     try {
-      const connection = await this.#ready(params.machineId, 'events.subscribe')
+      const connection = await this.#ready(
+        params.machineId,
+        params.desktop === true ? 'events.desktop.subscribe' : 'events.subscribe',
+      )
       if (cancelled || this.#subscriptions.get(id) !== pending) return
       const close = connection.session.subscribe(params.sessionId, {
         ...(params.fromSeq === undefined ? {} : { fromSeq: params.fromSeq }),
+        ...(params.desktop === true ? { desktop: true as const } : {}),
         onFrame: (raw) => {
           if (cancelled || !this.#active(params.machineId, connection)) return
           const parsed = remoteServerMessageSchema.safeParse(raw)
@@ -426,6 +747,23 @@ export class MachinesService {
           )
             return
           emit({ machineId: params.machineId, message: parsed.data })
+          const message = parsed.data
+          const events =
+            message.type === 'events.frame'
+              ? message.events
+              : message.type === 'events.desktop.frame' && message.frame.kind === 'chunk'
+                ? message.frame.events
+                : message.type === 'events.desktop.frame' && message.frame.kind === 'live'
+                  ? [message.frame.event]
+                  : []
+          for (const event of events) pending.cursor = Math.max(pending.cursor ?? -1, event.seq)
+          if (
+            message.type === 'events.desktop.frame' &&
+            message.frame.kind === 'terminal' &&
+            message.frame.replayOutcome === 'complete' &&
+            message.frame.seq >= 0
+          )
+            pending.cursor = Math.max(pending.cursor ?? -1, message.frame.seq)
         },
         onClose: () => {
           if (!cancelled && this.#active(params.machineId, connection))
@@ -461,11 +799,17 @@ export class MachinesService {
   }
   dispose(): void {
     this.#disposed = true
+    clearInterval(this.#precheckTimer)
     this.clearSubscriptions()
     for (const connection of this.#connections.values()) {
       connection.controller.abort()
       connection.session.disconnect()
     }
+    for (const connection of this.#pendingConnections) {
+      connection.controller.abort()
+      connection.session.disconnect()
+    }
+    this.#pendingConnections.clear()
     this.#connections.clear()
   }
 
@@ -474,18 +818,48 @@ export class MachinesService {
     const existing = this.#connections.get(machineId)
     if (existing !== undefined) return existing
     const row = this.#registry.get(machineId)
-    const options = await this.#routeOptions(row)
+    const connection = await this.#createConnection(
+      machineId,
+      row.routes.find((route) => route.origin === row.credentialOrigin) ?? row.routes[0]!,
+    )
     this.#assertOpen()
     this.#registry.get(machineId)
-    // An overlapping read may already have installed the connection.
-    const installed = this.#connections.get(machineId)
-    if (installed !== undefined) return installed
+    const winner = this.#connections.get(machineId)
+    if (winner !== undefined) {
+      connection.controller.abort()
+      connection.session.disconnect()
+      this.#pendingConnections.delete(connection)
+      return winner
+    }
+    this.#connections.set(machineId, connection)
+    this.#pendingConnections.delete(connection)
+    return connection
+  }
+  async #createConnection(machineId: string, route: MachineRoute): Promise<Connection> {
+    this.#assertOpen()
+    const row = this.#registry.get(machineId)
+    const options = await this.#routeOptions(row, route)
+    this.#assertOpen()
+    this.#registry.get(machineId)
     const credential = new DesktopMachineCredential(machineId, this.#registry, this.#deps.secretBox)
     const client = new GatewayClient(options)
     const controller = new AbortController()
     const session = new RemoteSession({
       client,
       keyring: credential,
+      connectAttempts: 1,
+      ...(row.hostKey === null
+        ? {}
+        : {
+            authorize: (deviceId: string, signal: AbortSignal) =>
+              authorizeRoute(
+                client,
+                this.#pin(this.#registry.get(machineId))!,
+                credential,
+                deviceId,
+                signal,
+              ),
+          }),
       ...(this.#deps.decisionPollMs === undefined
         ? {}
         : { decisionPollMs: this.#deps.decisionPollMs }),
@@ -493,7 +867,10 @@ export class MachinesService {
         ? {}
         : { decisionTimeoutMs: this.#deps.decisionTimeoutMs }),
       onState: (state) => {
-        if (!controller.signal.aborted && this.#connections.has(machineId)) {
+        if (
+          !controller.signal.aborted &&
+          this.#connections.get(machineId)?.controller === controller
+        ) {
           if (state === 'revoked' || state === 'unknown-device' || state === 'version-mismatch')
             this.#closeSubscriptions(machineId)
           this.#set(
@@ -512,36 +889,69 @@ export class MachinesService {
         }
       },
     })
-    const connection: Connection = { client, credential, session, controller }
+    const connection: Connection = {
+      machineId,
+      client,
+      credential,
+      session,
+      controller,
+      route,
+      pin: this.#pin(row),
+    }
+    this.#pendingConnections.add(connection)
     try {
       // Failed unlocks must never install an incomplete credential. A later
       // keyring recovery reloads the original sealed key and device id.
       await credential.load()
       this.#assertOpen()
       this.#registry.get(machineId)
-      const winner = this.#connections.get(machineId)
-      if (winner !== undefined) return winner
-      this.#connections.set(machineId, connection)
     } catch (error) {
       controller.abort()
       session.disconnect()
+      this.#pendingConnections.delete(connection)
       throw error
     }
     return connection
   }
-  async #routeOptions(row: MachineRecord): Promise<ConstructorParameters<typeof GatewayClient>[0]> {
-    // The route list is forward-compatible, but this version binds its key
-    // to the original origin only. Public identity cannot authorize failover.
-    const options = await this.#network.clientOptions(row.routes[0]!)
-    const identity = machineIdentitySchema.parse(await new GatewayClient(options).info())
+  async #routeOptions(
+    row: MachineRecord,
+    route: MachineRoute,
+  ): Promise<ConstructorParameters<typeof GatewayClient>[0]> {
+    if (row.hostKey === null && route.origin !== row.credentialOrigin)
+      throw new RemoteError(
+        'invalid_signature',
+        'Legacy computer addresses require independent pairing.',
+      )
+    if (
+      new URL(row.credentialOrigin).protocol === 'https:' &&
+      new URL(route.origin).protocol !== 'https:'
+    )
+      throw new RemoteError(
+        'invalid_signature',
+        'HTTPS computer credentials cannot be used over HTTP.',
+      )
+    const options = await this.#network.clientOptions(route)
+    const client = new GatewayClient(options)
+    const pin = this.#pin(row)
+    if (pin !== null) {
+      const proof = await verifyRoute(client, pin)
+      if (proof.protocolVersion !== REMOTE_PROTOCOL_VERSION)
+        throw new RemoteError(
+          'unsupported_version',
+          'The verified computer uses an unsupported Ari protocol.',
+        )
+    }
+    const identity = machineIdentitySchema.parse(await client.info())
     if (row.identity?.machineId !== undefined && identity.machineId !== row.identity.machineId)
       throw new RemoteError(
-        'access_revoked',
-        'This address now belongs to another computer. Remove it and pair again.',
+        pin === null ? 'access_revoked' : 'invalid_signature',
+        'This address now belongs to another computer. Verify its route on the original computer.',
       )
     if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
       throw new RemoteError(
-        'unsupported_version',
+        pin === null && route.origin === row.credentialOrigin
+          ? 'unsupported_version'
+          : 'invalid_signature',
         'This computer uses an unsupported Ari protocol.',
       )
     return options
@@ -564,19 +974,40 @@ export class MachinesService {
     if (envelope.ok !== true) throw new Error('This computer did not return an Ari identity.')
     return machineIdentitySchema.parse(envelope.result)
   }
-  async #negotiate(machineId: string, connection: Connection, operation?: string): Promise<void> {
+  async #negotiate(
+    machineId: string,
+    connection: Connection,
+    operation?: string,
+    installed = true,
+  ): Promise<void> {
+    if (connection.pin !== null) {
+      const proof = await verifyRoute(
+        connection.client,
+        connection.pin,
+        connection.controller.signal,
+      )
+      if (proof.protocolVersion !== REMOTE_PROTOCOL_VERSION)
+        throw new RemoteError(
+          'unsupported_version',
+          'The verified computer uses an unsupported Ari protocol.',
+        )
+    }
     const identity = machineIdentitySchema.parse(await connection.client.info())
-    this.#ensureActive(machineId, connection)
+    if (installed) this.#ensureActive(machineId, connection)
+    else {
+      this.#assertOpen()
+      this.#registry.get(machineId)
+    }
     const saved = this.#registry.get(machineId).identity
     if (saved?.machineId !== undefined && saved.machineId !== identity.machineId)
       throw new RemoteError(
-        'access_revoked',
-        'This address now belongs to a different computer. Remove it and pair again.',
+        connection.pin === null ? 'access_revoked' : 'invalid_signature',
+        'This address now belongs to a different computer. Verify its route on the original computer.',
       )
     this.#registry.update(machineId, { identity, lastSeenAt: Date.now() })
     if (identity.protocolVersion !== REMOTE_PROTOCOL_VERSION)
       throw new RemoteError(
-        'unsupported_version',
+        connection.pin === null ? 'unsupported_version' : 'invalid_signature',
         'This computer uses an unsupported Ari protocol. Update Ari before pairing or sending commands.',
       )
     // command.status is implemented by the v1 gateway's receipt store rather
@@ -585,6 +1016,7 @@ export class MachinesService {
       operation !== undefined &&
       operation !== 'command.status' &&
       !identity.capabilities.includes(operation) &&
+      !identity.machinesExtensions?.operations.some((item) => item === operation) &&
       !REMOTE_ANONYMOUS_OPERATIONS.some((item) => item === operation)
     )
       throw new RemoteError(
@@ -594,8 +1026,8 @@ export class MachinesService {
   }
   async #ready(machineId: string, operation: string): Promise<Connection> {
     this.#assertOpen()
-    let connection = await this.#connection(machineId)
-    if (!connection.session.usable) {
+    let connection = this.#connections.get(machineId)
+    if (connection === undefined || !connection.session.usable) {
       const view = await this.connect(machineId)
       if (view.status !== 'connected')
         throw new RemoteError(
@@ -637,6 +1069,8 @@ export class MachinesService {
       error: null,
       allowTerminal: false,
     }
+    const connection = this.#connections.get(row.id)
+    const connected = state.status === 'connected' && connection?.session.usable === true
     return {
       id: row.id,
       name: row.name,
@@ -644,6 +1078,14 @@ export class MachinesService {
       identity: row.identity,
       lastSeenAt: row.lastSeenAt,
       ...state,
+      status: state.status === 'connected' && !connected ? 'offline' : state.status,
+      allowTerminal: connected && state.allowTerminal,
+      effectiveRoute: connected ? connection.route.origin : null,
+      versionReady: connected,
+      permissionsReady: connected,
+      projectIds: connected ? [...connection.session.projectIds] : [],
+      autoPreference: this.#registry.preferences().hostTiers[row.id] ?? 'normal',
+      allProjects: connected && connection.session.allProjects === true,
     }
   }
   #set(
@@ -659,7 +1101,8 @@ export class MachinesService {
     const status =
       error instanceof RemoteError && error.code === 'unsupported_version'
         ? 'incompatible'
-        : error instanceof RemoteError && error.code === 'access_revoked'
+        : error instanceof RemoteError &&
+            (error.code === 'access_revoked' || error.code === 'invalid_signature')
           ? 'revoked'
           : 'offline'
     this.#set(id, status, publicFailure(error))
@@ -670,19 +1113,64 @@ export class MachinesService {
       error instanceof RemoteError &&
       [
         'access_revoked',
+        'invalid_signature',
         'unsupported_version',
         'unreachable',
         'authentication_expired',
         'unauthenticated',
       ].includes(error.code)
     ) {
-      this.#closeSubscriptions(id)
-      connection.session.disconnect()
+      this.#drop(
+        id,
+        connection,
+        error.code === 'unreachable' ||
+          error.code === 'authentication_expired' ||
+          error.code === 'unauthenticated',
+      )
       this.#failed(id, error)
     }
   }
   #closeSubscriptions(id: string): void {
     for (const [key, sub] of this.#subscriptions) if (sub.machineId === id) this.unsubscribe(key)
+  }
+  async #resumeSubscriptions(machineId: string): Promise<void> {
+    for (const [id, sub] of [...this.#subscriptions]) {
+      if (sub.machineId !== machineId || this.#subscriptions.get(id) !== sub) continue
+      try {
+        await this.subscribe(
+          id,
+          { ...sub.params, ...(sub.cursor === undefined ? {} : { fromSeq: sub.cursor }) },
+          sub.emit,
+        )
+      } catch {
+        sub.emit({
+          machineId,
+          message: {
+            type: 'error',
+            error: {
+              code: 'internal_error',
+              message: 'The computer route changed. Reconnect the activity stream to resume.',
+            },
+          },
+        })
+      }
+    }
+  }
+  #failSubscriptions(machineId: string): void {
+    for (const [id, sub] of [...this.#subscriptions])
+      if (sub.machineId === machineId) {
+        sub.emit({
+          machineId,
+          message: {
+            type: 'error',
+            error: {
+              code: 'internal_error',
+              message: 'No saved computer route is available. Reconnect to resume activity.',
+            },
+          },
+        })
+        this.unsubscribe(id)
+      }
   }
   #changed(): void {
     if (!this.#disposed) this.#deps.onChange?.(this.list())

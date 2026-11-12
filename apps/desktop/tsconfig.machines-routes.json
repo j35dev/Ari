@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": [
+    "src/main/machines.ts",
+    "src/main/machines-registry.ts",
+    "src/main/machines-network.ts",
+    "src/main/machines-rpc.ts",
+    "src/main/host-signing-identity.ts",
+    "src/main/machines-routes.test.ts"
+  ]
+}
