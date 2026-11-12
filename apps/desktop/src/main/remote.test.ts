@@ -174,13 +174,32 @@ async function pair(
 describe('remote security persistence failures', () => {
   it('migrates legacy grants before constructor publication and preserves terminal choice', async () => {
     const dir = tempDir('ari-legacy-grants-')
-    writeFileSync(join(dir, 'devices.json'), JSON.stringify({
-      devices: [{ deviceId: 'legacy-device', displayName: 'Phone', projectIds: ['saved'], pairedAt: 1, lastSeenAt: null, allowTerminal: true, publicKey: deviceKey().jwk }],
-      revoked: [],
-    }))
+    writeFileSync(
+      join(dir, 'devices.json'),
+      JSON.stringify({
+        devices: [
+          {
+            deviceId: 'legacy-device',
+            displayName: 'Phone',
+            projectIds: ['saved'],
+            pairedAt: 1,
+            lastSeenAt: null,
+            allowTerminal: true,
+            publicKey: deviceKey().jwk,
+          },
+        ],
+        revoked: [],
+      }),
+    )
     const { service } = makeService({ dir })
-    expect(service.state().devices[0]).toMatchObject({ allProjects: true, projectIds: ['saved'], allowTerminal: true })
-    expect(JSON.parse(readFileSync(join(dir, 'devices.json'), 'utf8')).devices[0].allProjects).toBe(true)
+    expect(service.state().devices[0]).toMatchObject({
+      allProjects: true,
+      projectIds: ['saved'],
+      allowTerminal: true,
+    })
+    expect(JSON.parse(readFileSync(join(dir, 'devices.json'), 'utf8')).devices[0].allProjects).toBe(
+      true,
+    )
     expect((await service.start()).enabled).toBe(true)
     expect(service.state().devices[0]?.projectIds).toEqual(['proj_1'])
   })
