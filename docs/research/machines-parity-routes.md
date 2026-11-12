@@ -81,3 +81,50 @@ changed here. `remote.ts` signer wiring is committed separately for cherry-pick.
 
 Renderer focus/online events should call `machines.precheck({})`; the service
 also prechecks every minute and gates move-back with a 60-second cooldown.
+
+## Current implementation checkpoint
+
+- `c2857460`: exact renderer preferences/routes/localSnapshot/desktop stream seam.
+- `c1f4ac02`: gateway route authority, signed manifests/proofs/challenges and
+  audience-bound short-lived route tokens; includes PairingService additions.
+- `15763692`, `fdac2917`: shared verification/session handshake and v2 registry,
+  ordered route service, persistent preferences and RPC registration.
+- `00b3f6f7`: narrow `remote.ts` sealed signer dependency wiring. Main host owner
+  still supplies `routeSigning` in `rpc.ts` using verified owned Serve state.
+- `6b51b07d`, `0b9212b6`, `994ff451`, `2439d0fd`: missing-key anchor, pending
+  lifecycle guards, typed stream scope, route token renewal and cursor-preserving
+  subscription reconnect. No mutation resends; receipt keys stay unchanged.
+- `bf26e65d`: allProjects included in route authorization and MachineView's
+  current authenticated direct grant; managed authorization clears this flag.
+- `772da0dd`: DNS/descriptor/proof deadlines <=2.5s; other operations retain 10s.
+  Minute/focus/network prechecks can reconnect saved offline hosts; revoked and
+  incompatible hosts require explicit reconnect.
+- `ec6a27bd`, `ff8eb679`, `11152ed2`: focused route proof and scope fixtures and
+  additive public desktop metadata assertion.
+
+Host dependencies integrated without taking ownership: `85cbb36e` -> `227e3b61`,
+`afe2da9e` -> `0361c6b6`, `9761a700` -> `86ad6ca0`. Gateway merge keeps the host's
+capability filtering/replay/receipt changes and route owner's routeIdentity flag.
+Do not cherry-pick these dependency copies twice if already on integration.
+
+Completed validation under run-heavy gate, below-normal, D caches, one worker:
+
+- Frozen install: passed, no lockfile change.
+- Contracts, remote-client, remote-gateway typechecks: passed after host merge.
+- First route/Machines suites: 27/27 passed before host adapter merge.
+- Latest combined desktop check: routes **15/15 passed** (real two-listener
+  fallback/move-back, signature/nonce/audience/expiry before device proof,
+  all-project learned-route grants, anonymous privacy, replay resume scope,
+  preferences and signing storage). Wider run: 73/77 passed.
+- The old Machines public descriptor exact-key assertion needs the additive
+  machinesExtensions field; updated in `11152ed2` and rerun pending.
+- Three host-owned `remote.test.ts` terminal cases return 409 after host owner
+  post-effect outcomeVisible recheck in gateway.ts; expected 200. The command's
+  receipt must remain claimed. Route owner has not weakened this check.
+- Focused main typecheck reports host-owned `remote-desktop-reads.ts:88` TS2488,
+  spreading `ParsedDiff | files[]` from the host adapter. No route-owned errors
+  were reported. Host owner must resolve this import dependency.
+
+Focused final reruns/lint follow. Fresh independent integrated security review,
+real tailnet/hardware and production rpc.ts served-exposure registration are
+still required. No UI, app/profile/Serve mutation, push or PR occurred here.
