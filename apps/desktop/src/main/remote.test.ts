@@ -323,13 +323,15 @@ describe('remote service lifecycle', () => {
       origin: null,
       error: expect.stringMatching(/preserved/),
     })
-    expect(await service.startManaged({
-      port: 0,
-      issuer: 'https://broker.test',
-      hostname: 'host.test',
-      computerId: 'host',
-      verifier: () => null,
-    })).toBeNull()
+    expect(
+      await service.startManaged({
+        port: 0,
+        issuer: 'https://broker.test',
+        hostname: 'host.test',
+        computerId: 'host',
+        verifier: () => null,
+      }),
+    ).toBeNull()
     expect(service.invite().invitation).toBeNull()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
   })
@@ -342,13 +344,15 @@ describe('remote service lifecycle', () => {
     const { service } = makeService({ dir })
     expect(service.state().error).toMatch(/host identity/)
     expect(await service.start()).toMatchObject({ enabled: false, origin: null })
-    expect(await service.startManaged({
-      port: 0,
-      issuer: 'https://broker.test',
-      hostname: 'host.test',
-      computerId: 'host',
-      verifier: () => null,
-    })).toBeNull()
+    expect(
+      await service.startManaged({
+        port: 0,
+        issuer: 'https://broker.test',
+        hostname: 'host.test',
+        computerId: 'host',
+        verifier: () => null,
+      }),
+    ).toBeNull()
     expect(fs.readdirSync(dir)).not.toContain('identity.json')
     expect(service.state().error).not.toMatch(/fixture/)
   })
