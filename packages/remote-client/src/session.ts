@@ -442,6 +442,14 @@ export class RemoteSession {
   }
 
   #set(state: ConnectionState): ConnectionState {
+    if (['unpaired', 'revoked', 'unknown-device', 'version-mismatch', 'unreachable'].includes(state)) {
+      this.#token = null
+      this.#client.token = null
+      this.#client.lease = null
+      this.#allowTerminal = false
+      this.#projectIds = []
+      this.#capabilities = []
+    }
     if (this.#state !== state) {
       this.#state = state
       this.#onState?.(state)
@@ -495,6 +503,9 @@ export class RemoteSession {
     const deviceId = this.#keyring.deviceId
     if (deviceId === null) throw new RemoteError('unauthenticated', 'this browser is not paired')
     try {
+      // A restarted host may now speak a different protocol. An expired-token
+      // refusal never permits skipping negotiation before a command retry.
+      await this.negotiate(signal)
       await this.#authorize(deviceId, signal)
       signal.throwIfAborted()
       this.#set('connected')
