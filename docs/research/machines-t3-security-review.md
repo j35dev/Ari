@@ -135,3 +135,69 @@ F orchestration branch ownership, physical overlap, managed cleanup and managed
 terminal implementations remain byte-identical to the previously reviewed
 snapshot; session-create adds only trusted host snapshot selection forwarding.
 Existing `.review-temp/reproduce-takeover.mjs` is preserved unchanged.
+
+## Independent route proof: open findings T1 and T2
+
+Execution evidence: `evidence/machines-t3-security/route-result.json`; reproducible
+source and fixture limits: `evidence/machines-t3-security/proof.md`. WIP was
+committed before the below-normal, one-worker run. Corrected run exited 0 on
+routes `494566a5`; it reproduces the gaps rather than claiming closure. The
+first harness attempt stopped before assertions because this worktree has no
+Zod install; the correction reads existing D integration dependencies only.
+
+### T1 — Medium / P2: older signed manifests restore disappeared learned routes
+
+Source: routes `494566a5`, `packages/remote-client/src/route-auth.ts`
+`verifyHostManifest` (blob `b16da24f68d63a3ba963ee8f0483c3dbfe8cf904`) and
+`apps/desktop/src/main/machines-registry.ts` `learn` (blob
+`9d8adbbf6a13bbb44757c74df4220edaf7ab2b65`). Same source is retained at the
+intermediate integration `77c07e60`.
+
+Proof signs an older complete report [A,B], then a newer complete report [A].
+After accepting [A], B is absent; accepting the older still-valid signed report
+restores B as learned. The verifier checks freshness/signature/audience/pin but
+has no revision/high-water comparison, and learn unconditionally replaces the
+saved manifest. This breaks the accepted monotonic learned-route lifetime
+contract. A copied ID/key cannot exploit it by itself: every destination still
+needs a fresh pinned proof before credentials, and device revocation remains
+effective. No credential-exfiltration or authorization-widening claim is made.
+
+Required source closure: persist a monotonic authenticated manifest revision or
+equivalent ordering, reject stale reports before any route/pin mutation, define
+restart/clock-rollback semantics, and regress newer removal followed by old
+report and overlapping refresh completion. A valid report may preserve the
+original credential slot without restoring removed route entries.
+
+### T2 — Medium / P2: a removed pending route can still receive device proof
+
+Source: routes `494566a5`, `apps/desktop/src/main/machines.ts` `#walk`,
+`#createConnection`, `removeRoute`, blob
+`f244bdf3cae985aebfe79f204adb2d2a903aa5ee`; retained at `77c07e60`.
+
+Proof starts connect using [A,B], delays A's network client-options work, removes
+manual A while that work is pending, then releases it. The old walk sends a
+device authorization proof to A and publishes connected A while the saved
+route list contains only B. A later authenticated manifest can legitimately
+relearn A if still reported; that separate behavior does not authorize the
+already-removed pending connection before fresh learning. The signed pinned
+identity remains required, so this is a lifecycle/selection violation, not a
+copied-ID credential leak. Existing removal only aborts connections already in
+the pending set; the asynchronous network/proof window precedes that insertion.
+
+Required source closure: route-list/lifecycle generation or current membership
+checks before network/proof, device authority and publication, with cancellation
+of pending setup that has not installed a Connection object. Keep credential
+slots independent from route membership. Regress delayed setup, removed later
+snapshot routes and late move-back/manifest results without weakening key proof.
+
+Additional replay concern is source-only until its independent fixture runs:
+session `47d32aba`, `session-client.tsx` blob
+`abcdc6887798e68f14b914190fbc02362eba0949` rejects every second start frame,
+including a valid resume after a complete replay. Routes `#resumeSubscriptions`
+forwards the new start into the same renderer handler on move-back/fallback;
+RemoteSession renewal also reconnects its stream. The saved started flag is not
+reset by terminal. The separate replay proof checks 2,100 rows, a valid resume,
+continued live rows and epoch fencing using actual SessionClient/contracts.
+
+No final integrated certification is issued. T1/T2 are open at the named source
+and their independent reproductions; the coordinator has been notified.
