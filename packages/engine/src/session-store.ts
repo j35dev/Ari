@@ -16,7 +16,7 @@ import {
   type ReplayDiagnostics,
 } from './journal-replay'
 import type { Message } from '@ari/contracts/message'
-import { applyEvent, type SessionReadModel, type UnstampedEvent } from './projection'
+import { applyEvent, initialReadModel, type SessionReadModel, type UnstampedEvent } from './projection'
 
 const log = createLogger('engine:session-store')
 
@@ -561,6 +561,38 @@ export class SessionStore {
    */
   async load(sessionId: string): Promise<SessionReadModel> {
     return this.#serial(sessionId, () => this.#modelFor(sessionId))
+  }
+
+  /** Desktop stream barrier: metadata/sequence only, without materializing journal history. */
+  readReplayState(sessionId: string, runtime: () => string | null): Promise<{
+    session: Session | null; seq: number; liveTurnId: string | null; incomplete: boolean
+  }> {
+    return this.#serial(sessionId, async () => {
+      const cached = this.#models.get(sessionId)
+      if (cached) return { session: cached.session, seq: cached.lastSeq, liveTurnId: runtime(),
+        incomplete: (this.#diagnostics.get(sessionId)?.rejectedCount ?? 0) > 0 }
+      let model = initialReadModel()
+      let seq = -1
+      let expected = 0
+      let incomplete = false
+      if (!(await this.exists(sessionId))) return { session: null, seq, liveTurnId: runtime(), incomplete }
+      try {
+        const journal = await this.openJournal(sessionId)
+        for await (const chunk of journal.readStrictByChunk()) {
+          for (const entry of chunk) {
+            if (entry.kind !== 'value') { incomplete = true; continue }
+            const parsed = journalEventSchema.safeParse(entry.value)
+            if (!parsed.success || parsed.data.sessionId !== sessionId) { incomplete = true; continue }
+            const event = parsed.data
+            if (event.seq !== expected) incomplete = true
+            expected = event.seq + 1
+            seq = Math.max(seq, event.seq)
+            if (event.type.startsWith('session.')) model = applyEvent(model, event)
+          }
+        }
+      } catch { incomplete = true }
+      return { session: model.session, seq, liveTurnId: runtime(), incomplete }
+    })
   }
 
   /** Full journal replay, bypassing and then refreshing the cached model. */

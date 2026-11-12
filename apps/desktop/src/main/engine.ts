@@ -7,7 +7,7 @@ import {
 } from '@ari/contracts/attachments'
 import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import type { DriverKind } from '@ari/contracts/common'
-import type { JournalEvent } from '@ari/contracts/events'
+import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin, MessagePart } from '@ari/contracts/message'
 import type { AgentEvent } from '@ari/contracts/agent-event'
@@ -1771,6 +1771,47 @@ export class Engine {
     for await (const chunk of journal.readByChunk()) {
       const events = chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : []))
       if (events.length > 0) onChunk(events)
+    }
+  }
+
+  /** A stable prefix reader that awaits its consumer and certifies sequence continuity. */
+  async replaySessionRangeChunks(
+    sessionId: string,
+    options: { afterSeq?: number; throughSeq: number; signal?: AbortSignal },
+    onChunk: (events: JournalEvent[]) => Promise<void>,
+  ): Promise<{ outcome: 'complete' | 'incomplete'; seq: number; reason: string | null }> {
+    let last = options.afterSeq ?? -1
+    let expected = 0
+    const fail = (reason: string) => ({ outcome: 'incomplete' as const, seq: last, reason })
+    if (last > options.throughSeq) return fail('resume sequence exceeds host history')
+    if (last === options.throughSeq) return { outcome: 'complete', seq: last, reason: null }
+    try {
+      const journal = await this.#deps.store.openJournal(sessionId)
+      for await (const chunk of journal.readStrictByChunk(options.signal)) {
+        options.signal?.throwIfAborted()
+        const events: JournalEvent[] = []
+        let reached = false
+        for (const entry of chunk) {
+          if (entry.kind !== 'value') {
+            if (events.length) await onChunk(events)
+            return fail('journal contains an unreadable record')
+          }
+          const parsed = journalEventSchema.safeParse(entry.value)
+          if (!parsed.success || parsed.data.sessionId !== sessionId || parsed.data.seq !== expected++) {
+            if (events.length) await onChunk(events)
+            return fail('journal sequence or event is invalid')
+          }
+          const event = parsed.data
+          if (event.seq > options.throughSeq) break
+          if (event.seq > last) { events.push(event); last = event.seq }
+          if (event.seq === options.throughSeq) { reached = true; break }
+        }
+        if (events.length) await onChunk(events)
+        if (reached) return { outcome: 'complete', seq: last, reason: null }
+      }
+      return fail('journal prefix is missing')
+    } catch {
+      return fail(options.signal?.aborted ? 'replay cancelled' : 'journal could not be read completely')
     }
   }
 }
