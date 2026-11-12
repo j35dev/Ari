@@ -7,6 +7,7 @@ import { join, resolve, sep } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import type { JournalEvent } from '@ari/contracts/events'
+import { journalEventSchema } from '@ari/contracts/events'
 import type { Project } from '@ari/contracts/project'
 import type { MachineRoute } from '@ari/contracts/machines'
 import type { SessionEventFrame, StreamFrame } from '@ari/contracts/rpc'
@@ -41,6 +42,7 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 const wireId = 'sess_same'
+type NormalFrame = SessionEventFrame & { replayStart?: boolean; replayMode?: 'full' | 'resume'; seq?: number }
 const session = (title: string): Session => ({ id: wireId, projectId: 'p', title,
   driverKind: 'codex', modelId: 'fixture', permissionMode: 'full', status: 'idle', createdAt: 1, updatedAt: 1 })
 
@@ -194,13 +196,16 @@ it('keeps normal session history and execution on the signed host across fallbac
   history.begin()
   const watched = transcript.subscribe(() => undefined)
   cleanup.push(watched)
-  const frames: SessionEventFrame[] = []
+  const frames: NormalFrame[] = []
   const received: JournalEvent[] = []
   const stop = clientB.subscribe('session.events', { sessionId: wireId }, (raw) => {
-    const frame = raw as SessionEventFrame
+    const frame = raw as NormalFrame
     frames.push(frame)
     if (frame.replayStart) history.begin()
-    for (const event of frame.events ?? (frame.event ? [frame.event] : [])) { received.push(event); history.add(event) }
+    for (const rawEvent of frame.events ?? (frame.event ? [frame.event] : [])) {
+      const event = journalEventSchema.parse(rawEvent)
+      received.push(event); history.add(event)
+    }
     if (frame.replayDone) history.finish(frame.replayOutcome === 'complete', frame.replayMode)
     history.publish()
   })
@@ -268,7 +273,7 @@ it('keeps normal session history and execution on the signed host across fallbac
   expect(groupRepositories(checkouts)).toHaveLength(1)
   expect(groupRepositories(checkouts)[0]!.checkouts).toHaveLength(2)
   expect(selectAutoHost(selections).hostId).toBe(savedB.id)
-  expect(selectAutoHost(selections.map((row) => row.id === savedB.id ? { ...row, preference: 'manual-only' } : row)).hostId).toBe(savedA.id)
+  expect(selectAutoHost(selections.map((row) => row.id === savedB.id ? { ...row, preference: 'manual-only' as const } : row)).hostId).toBe(savedA.id)
   b.pairing.revoke(b.pairing.devices()[0]!.deviceId)
   await machines.connect(savedB.id)
   await refreshMachineInventory()
