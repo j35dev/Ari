@@ -857,7 +857,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   async function outcomeVisible(caller: RemoteCaller, outcome: RecordedOutcome): Promise<boolean> {
     if (outcome.account === true) return true
     if (outcome.sessionId !== undefined)
-      return (await host.getSession(caller, outcome.sessionId)) !== undefined
+      return host.sessionVisible ? host.sessionVisible(caller, outcome.sessionId) :
+        (await host.getSession(caller, outcome.sessionId)) !== undefined
     return outcome.projectId !== undefined && hasProject(caller, outcome.projectId)
   }
 

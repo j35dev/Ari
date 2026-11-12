@@ -84,7 +84,7 @@ export async function safeSnapshotPath(workspace: string, path: string, refs: re
 
 export async function readRemoteTurnDiff(workspace: string, model: SessionReadModel, turnId: string) {
   const result = await queryTurnDiff(new GitService(), { path: workspace, turnId, checkpoints: model.checkpoints })
-  const files = result.summary?.files ?? (result.diffText ? parseDiff(result.diffText) : [])
+  const files = result.summary?.files ?? (result.diffText ? parseDiff(result.diffText).files : [])
   for (const file of files) {
     const checkpoint = model.checkpoints.find((row) => row.turnId === turnId)
     const refs = result.summary ? [result.summary.baseOid, result.summary.headOid] : checkpoint ? [checkpoint.gitRef, ...(checkpoint.endRef ? [checkpoint.endRef] : [])] : []

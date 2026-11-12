@@ -163,7 +163,7 @@ it('creates the first remote desktop send through the actual root policy and rep
     return { status: response.status, body: await response.json() as { ok: boolean; result: Record<string, unknown> } }
   }
   try {
-    const invitation = gateway.pairing.invite()
+    const invitation = gateway.pairing.begin(gateway.origin)
     const request = await call('/pair/request', { invitationId: invitation.invitationId, displayName: 'Desktop fixture', publicKey: key.jwk })
     gateway.pairing.approve(invitation.invitationId, gateway.pairing.pending(invitation.invitationId)!.confirmationCode, ['p'])
     token = (await call('/pair/redeem', { invitationId: invitation.invitationId, nonce: request.body.result.nonce,

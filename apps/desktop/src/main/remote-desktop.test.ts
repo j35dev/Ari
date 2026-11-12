@@ -61,7 +61,7 @@ async function call(gateway: RemoteGateway, path: string, body: unknown, token?:
 }
 async function pair(gateway: RemoteGateway, projects = ['p']) {
   const key = deviceKey()
-  const invitation = gateway.pairing.invite()
+  const invitation = gateway.pairing.begin(gateway.origin)
   const requested = await call(gateway, '/pair/request', { invitationId: invitation.invitationId, displayName: 'Fixture', publicKey: key.jwk })
   const nonce = (requested.body.result as { nonce: string }).nonce
   gateway.pairing.approve(invitation.invitationId, gateway.pairing.pending(invitation.invitationId)!.confirmationCode, projects)
