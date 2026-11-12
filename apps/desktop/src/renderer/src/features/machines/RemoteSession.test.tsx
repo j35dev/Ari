@@ -325,7 +325,9 @@ describe('RemoteSession', () => {
         return reply({ ok: true, result: { sessionId: 'confirmed-host-fork' } })
       return original(method, params)
     })
-    render(<RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />)
+    render(
+      <RemoteSession machine={machineFixture()} sessionId="same-session" onOpenSession={open} />,
+    )
     await screen.findByText('Hello from the host')
     await user.click(screen.getByRole('button', { name: 'Details', exact: true }))
     await user.type(screen.getByRole('textbox', { name: 'Fork name' }), 'Host fork')
@@ -334,7 +336,9 @@ describe('RemoteSession', () => {
     await user.click(screen.getByRole('button', { name: 'Check receipt' }))
     await waitFor(() => expect(open).toHaveBeenCalledWith('confirmed-host-fork'))
     expect(readReceipt('host-a', 'same-session')).toBeNull()
-    expect(mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
+    expect(
+      mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command'),
+    ).toHaveLength(1)
   })
   it('preserves late staged attachments only in the originating host draft', async () => {
     const user = userEvent.setup()
@@ -342,24 +346,36 @@ describe('RemoteSession', () => {
     let complete!: (result: unknown) => void
     mocks.invoke.mockImplementation((method, params) =>
       params.command?.op === 'attachments.stage'
-        ? new Promise((resolve) => { complete = resolve })
+        ? new Promise((resolve) => {
+            complete = resolve
+          })
         : original(method, params),
     )
     const show = (machineId: string) => (
-      <RemoteSession key={machineId} machine={machineFixture(machineId)}
-        sessionId="same-session" onOpenSession={vi.fn()} />
+      <RemoteSession
+        key={machineId}
+        machine={machineFixture(machineId)}
+        sessionId="same-session"
+        onOpenSession={vi.fn()}
+      />
     )
     const { rerender } = render(show('host-a'))
     await screen.findByText('Hello from the host')
-    await user.upload(screen.getByLabelText('Attach image to host session'),
-      new File(['png'], 'a.png', { type: 'image/png' }))
+    await user.upload(
+      screen.getByLabelText('Attach image to host session'),
+      new File(['png'], 'a.png', { type: 'image/png' }),
+    )
     await waitFor(() => expect(complete).toBeDefined())
     rerender(show('host-b'))
     await screen.findByRole('textbox', { name: 'Prompt on Build computer' })
     await user.type(screen.getByRole('textbox', { name: 'Prompt on Build computer' }), 'Unsent B')
-    await act(async () => complete(reply({ attachments: [
-      { id: 'host-a-image', name: 'a.png', mimeType: 'image/png', size: 3 },
-    ] })))
+    await act(async () =>
+      complete(
+        reply({
+          attachments: [{ id: 'host-a-image', name: 'a.png', mimeType: 'image/png', size: 3 }],
+        }),
+      ),
+    )
     expect(readRemoteDraft('host-a', 'same-session').attachments[0]?.id).toBe('host-a-image')
     expect(readRemoteDraft('host-b', 'same-session')).toEqual({ text: 'Unsent B', attachments: [] })
     expect(screen.queryByRole('button', { name: 'Remove a.png' })).not.toBeInTheDocument()

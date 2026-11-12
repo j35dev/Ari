@@ -177,15 +177,15 @@ function RemoteNewSession({
       return
     const submittedDraft = readCreationDraft(machine.id)
     const savedCommand = pending ? readReceipt(machine.id, scope)?.command : null
-    const ownsDraft = !savedCommand || (
-      savedCommand.op === 'session.create' &&
-      savedCommand.projectId === submittedDraft.projectId &&
-      (savedCommand.title ?? '') === submittedDraft.title.trim() &&
-      savedCommand.driverKind === submittedDraft.selection?.driverKind &&
-      (savedCommand.modelId ?? '') === submittedDraft.selection?.modelId &&
-      savedCommand.permissionMode === submittedDraft.selection?.permissionMode &&
-      (savedCommand.effort ?? null) === submittedDraft.selection?.effort
-    )
+    const ownsDraft =
+      !savedCommand ||
+      (savedCommand.op === 'session.create' &&
+        savedCommand.projectId === submittedDraft.projectId &&
+        (savedCommand.title ?? '') === submittedDraft.title.trim() &&
+        savedCommand.driverKind === submittedDraft.selection?.driverKind &&
+        (savedCommand.modelId ?? '') === submittedDraft.selection?.modelId &&
+        savedCommand.permissionMode === submittedDraft.selection?.permissionMode &&
+        (savedCommand.effort ?? null) === submittedDraft.selection?.effort)
     setBusy(true)
     setError(null)
     try {
@@ -199,7 +199,10 @@ function RemoteNewSession({
             ...(choice!.modelId ? { modelId: choice!.modelId } : { modelId: undefined }),
           })
       const id = createdSessionSchema.parse(result).sessionId
-      if (ownsDraft && JSON.stringify(readCreationDraft(machine.id)) === JSON.stringify(submittedDraft))
+      if (
+        ownsDraft &&
+        JSON.stringify(readCreationDraft(machine.id)) === JSON.stringify(submittedDraft)
+      )
         writeCreationDraft(machine.id, { projectId: '', title: '', selection: null })
       if (alive.current) onCreated(id)
     } catch (error) {
