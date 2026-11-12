@@ -2,7 +2,8 @@
 
 2026-11-12. Authoring: `D:/Projects/Ari-machines-wt/session-rework`, branch
 `machines/session-rework`, preserved source `22a53c69`. Final source/tests are
-`c2a9acccc301118f8ebefd003efa5e97fb36d602`; scoped type config is `4719a066`.
+`c2a9acccc301118f8ebefd003efa5e97fb36d602`; scoped validation uses
+`apps/desktop/tsconfig.machines-session.json`.
 Host, routes, tools and shell dependencies were consumed through `feat/machines`,
 including `4edbeb91`. The final handoff commit follows these source commits.
 
@@ -93,7 +94,7 @@ with worker `session-replacement`, below-normal priority, one Vitest worker,
 - Final real remote Composer suite: 7 passed, including real speech suppression,
   paste staging, cached offline/revoked view and reconnect live-turn fencing.
 - Scoped ESLint: all 20 assigned source/focused-test paths passed.
-- Scoped typecheck: `pnpm --filter @ari/desktop exec tsc --noEmit -p
+- Scoped typecheck passed: `pnpm --filter @ari/desktop exec tsc --noEmit -p
   tsconfig.machines-session.json`; result retained in the scoped log.
 - Full desktop typecheck remains blocked by shell-owned test findings at
   `Composer.test.tsx:913` (complex inferred union) and
