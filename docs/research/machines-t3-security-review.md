@@ -301,3 +301,23 @@ reproduction and checks durable no-op rejection, equal-time narrowing after
 reload, credential-slot preservation and the original pending-DNS reproduction.
 T1/T2 now have source-closure candidates at this authored SHA; final merge and
 independent executed closure remain required.
+
+## Independent integrated-snapshot route closure
+
+Ran the prepared route fixture with `fixed` on integrated
+`dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9`; this is the current merged source,
+not yet a parent-designated final target. Evidence is
+`evidence/machines-t3-security/route-closure-result.json`. The shared runner
+exited 0 with one below-normal worker, no signal. T1's old report leaves durable
+state byte-identical after reload, learned B remains absent, and equal-time wider
+reports cannot restore B after another reload. T2's delayed setup produces no
+device authorization proof or connected publication at the removed A; the walk
+continues successfully. Original credential slot/cipher and pin survive removal.
+Audience-specific tokens, consumed challenges, device withdrawal, no reciprocal
+device, unowned audience denial and candidate proof before credentials all pass.
+
+T1/T2 have independently tested closure at this exact snapshot and the named
+blobs (`f12b34a18848743326aa77b3bf14cd7251c611f1`,
+`093f6a3d56bfb87e2ea28c54f414fc487b275b37`). This fixture does not establish real
+DNS/TCP/TLS/Serve/OS keyring behavior or the combined two-engine route/SessionClient
+flow. Final-target source comparison and replay closure remain pending.
