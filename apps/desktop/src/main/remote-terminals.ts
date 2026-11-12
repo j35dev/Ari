@@ -165,9 +165,11 @@ export class RemoteTerminals {
     this.#entries.clear()
     return this.#terminals.close()
   }
-  closeManaged(): void {
+  async closeManaged(): Promise<void> {
+    const pending = []
     for (const [id, entry] of this.#entries)
-      if (entry.managedLeaseExpiresAt !== undefined) this.#kill(id)
+      if (entry.managedLeaseExpiresAt !== undefined) pending.push(this.#kill(id))
+    await Promise.all(pending)
   }
 
   #expired(entry: Entry): boolean {
@@ -186,8 +188,9 @@ export class RemoteTerminals {
     }
     return true
   }
-  #kill(id: string): void {
-    void this.#terminals.kill(id)
+  #kill(id: string): Promise<void> {
+    const pending = this.#terminals.kill(id)
     this.#entries.delete(id)
+    return pending
   }
 }

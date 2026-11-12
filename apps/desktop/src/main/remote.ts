@@ -334,7 +334,7 @@ export class RemoteService {
     const gateway = this.#managedGateway
     this.#managedGateway = null
     this.#managedClientUrl = null
-    this.#terminals?.closeManaged()
+    await this.#terminals?.closeManaged()
     if (gateway !== null) await gateway.close()
     this.#changed()
   }
