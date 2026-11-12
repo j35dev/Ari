@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AcpAuthRequiredError,
   AcpConnection,
@@ -708,7 +708,7 @@ describe('AcpConnection', () => {
     const created = await connection.newSession('/w')
     await expect(
       connection.prompt(created.sessionId as string, 'hello?', { stallSilenceMs: 120 }),
-    ).rejects.toThrow(/went silent for (120ms|0s).*wedged or waiting for login/s)
+    ).rejects.toThrow('The agent stopped responding. Retry to reconnect.')
     expect(child.killed).toBe(false)
     connection.kill()
   })
@@ -960,7 +960,14 @@ describe('AcpConnection', () => {
 
   it('inbound traffic proves liveness and disarms the stall watchdog', async () => {
     const child = fakeChild()
-    script(child, STANDARD_AGENT)
+    let promptId: number | undefined
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        promptId = id
+        return NO_REPLY
+      }
+      return STANDARD_AGENT(method, params, id)
+    })
     const connection = await AcpConnection.connect({
       launch: LAUNCH,
       cwd: '/w',
@@ -978,14 +985,237 @@ describe('AcpConnection', () => {
       )
     }, 40)
     try {
-      const stopReason = await connection.prompt(created.sessionId as string, 'work', {
+      const prompt = connection.prompt(created.sessionId as string, 'work', {
         stallSilenceMs: 120,
       })
-      expect(stopReason).toBe('end_turn')
+      await drain(240)
+      child.stdout.write(
+        `${JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } })}\n`,
+      )
+      await expect(prompt).resolves.toBe('end_turn')
     } finally {
       clearInterval(spam)
     }
     connection.kill()
+  })
+})
+
+describe('ACP prompt watchdog lifecycle', () => {
+  const stallSilenceMs = 1_200_000
+  let child: FakeChild
+  let connection: AcpConnection
+  const promptIds: number[] = []
+  const reply = (id: number, stopReason = 'end_turn') =>
+    child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason } })}\n`)
+  const update = (body: Record<string, unknown>) =>
+    child.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'sess_9', update: body } })}\n`,
+    )
+
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    promptIds.length = 0
+    child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        promptIds.push(id as number)
+        return NO_REPLY
+      }
+      return STANDARD_AGENT(method, params, id)
+    })
+    connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    await connection.newSession('/w')
+  })
+
+  afterEach(() => {
+    connection.kill()
+    vi.useRealTimers()
+  })
+
+  it('gives an automatic result prompt a full deadline after a long idle gap', async () => {
+    const first = connection.prompt('sess_9', 'delegate work', { stallSilenceMs })
+    reply(promptIds[0]!)
+    await first
+    await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+    const settled = vi.fn()
+    const prompt = connection.prompt('sess_9', 'A delegated session reported back', {
+      stallSilenceMs,
+    })
+    void prompt.then(settled, settled)
+    await vi.advanceTimersByTimeAsync(stallSilenceMs - 1)
+    expect(settled).not.toHaveBeenCalled()
+    reply(promptIds[1]!)
+    await expect(prompt).resolves.toBe('end_turn')
+  })
+
+  it('removes every watchdog when the turn ends and stays silent while idle', async () => {
+    const prompt = connection.prompt('sess_9', 'work', { stallSilenceMs })
+    reply(promptIds[0]!)
+    await expect(prompt).resolves.toBe('end_turn')
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+    expect(connection.reusable).toBe(true)
+  })
+
+  it('settles a paused turn even when cancel never gets a prompt reply', async () => {
+    const prompt = connection.prompt('sess_9', 'work', {
+      stallSilenceMs,
+      timeoutMs: stallSilenceMs,
+    })
+    connection.cancel('sess_9')
+    await expect(prompt).resolves.toBe('cancelled')
+    expect(vi.getTimerCount()).toBe(0)
+    expect(connection.reusable).toBe(false)
+    await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+    // The abandoned id cannot revive the cancelled turn.
+    reply(promptIds[0]!)
+    expect(connection.reusable).toBe(false)
+  })
+
+  it.each(['pending', 'in_progress'])(
+    'allows a %s tool to wait on delegated sessions past the silence limit',
+    async (status) => {
+      const settled = vi.fn()
+      const prompt = connection.prompt('sess_9', 'wait for the children', { stallSilenceMs })
+      void prompt.then(settled, settled)
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'wait',
+        status,
+        rawInput: { command: 'ari session wait child' },
+      })
+      await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+      expect(settled).not.toHaveBeenCalled()
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'wait', status: 'completed' })
+      await vi.advanceTimersByTimeAsync(stallSilenceMs - 1)
+      expect(settled).not.toHaveBeenCalled()
+      reply(promptIds[0]!)
+      await expect(prompt).resolves.toBe('end_turn')
+    },
+  )
+
+  it.each(['completed', 'failed'])('detects a real hang after a long tool %s', async (status) => {
+    const prompt = connection.prompt('sess_9', 'run a long build', { stallSilenceMs })
+    const failure = expect(prompt).rejects.toThrow(
+      'The agent stopped responding. Retry to reconnect.',
+    )
+    update({ sessionUpdate: 'tool_call_update', toolCallId: 'build', status: 'in_progress' })
+    await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+    update({ sessionUpdate: 'tool_call_update', toolCallId: 'build', status })
+    await vi.advanceTimersByTimeAsync(stallSilenceMs)
+    await failure
+    expect(connection.reusable).toBe(false)
+  })
+
+  it('does not carry unfinished background tools into the next prompt watchdog', async () => {
+    const first = connection.prompt('sess_9', 'launch work in the background', { stallSilenceMs })
+    update({ sessionUpdate: 'tool_call', toolCallId: 'old', status: 'in_progress' })
+    reply(promptIds[0]!)
+    await first
+    const next = connection.prompt('sess_9', 'do more work', { stallSilenceMs })
+    const failure = expect(next).rejects.toThrow('The agent stopped responding.')
+    await vi.advanceTimersByTimeAsync(stallSilenceMs)
+    await failure
+  })
+
+  it.each(['Agent', 'Task'])(
+    'allows a prompt held open for native async %s results',
+    async (toolName) => {
+      const settled = vi.fn()
+      const prompt = connection.prompt('sess_9', 'delegate a native task', { stallSilenceMs })
+      void prompt.then(settled, settled)
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'agent',
+        status: 'pending',
+        rawInput: { run_in_background: true },
+        _meta: { claudeCode: { toolName } },
+      })
+      // The launch tool ends; the child still runs and the adapter holds its RPC.
+      update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'agent',
+        status: 'completed',
+        _meta: {
+          claudeCode: { toolName, toolResponse: { status: 'async_launched', agentId: 'a7' } },
+        },
+      })
+      await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+      expect(settled).not.toHaveBeenCalled()
+      reply(promptIds[0]!)
+      await expect(prompt).resolves.toBe('end_turn')
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it('resumes hang detection after a native subagent is stopped', async () => {
+    const prompt = connection.prompt('sess_9', 'delegate work', { stallSilenceMs })
+    const failure = expect(prompt).rejects.toThrow('The agent stopped responding.')
+    update({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'agent',
+      status: 'pending',
+      rawInput: { run_in_background: true },
+      _meta: { claudeCode: { toolName: 'Agent' } },
+    })
+    update({ sessionUpdate: 'tool_call_update', toolCallId: 'agent', status: 'completed' })
+    await vi.advanceTimersByTimeAsync(stallSilenceMs * 3)
+    update({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'stop',
+      status: 'completed',
+      rawInput: { task_id: 'agent' },
+      _meta: { claudeCode: { toolName: 'TaskStop' } },
+    })
+    await vi.advanceTimersByTimeAsync(stallSilenceMs)
+    await failure
+  })
+
+  it('does not let a detached background shell suppress a foreground hang', async () => {
+    const prompt = connection.prompt('sess_9', 'launch a background shell', { stallSilenceMs })
+    const failure = expect(prompt).rejects.toThrow('The agent stopped responding.')
+    update({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'shell',
+      status: 'pending',
+      rawInput: { run_in_background: true },
+      _meta: { claudeCode: { toolName: 'Bash' } },
+    })
+    update({ sessionUpdate: 'tool_call_update', toolCallId: 'shell', status: 'completed' })
+    await vi.advanceTimersByTimeAsync(stallSilenceMs)
+    await failure
+  })
+
+  it('keeps adapter setup timing details out of a real timeout message', async () => {
+    child.stderr.write(
+      '[session/create] sessionId=internal phase=modes durationMs=1 totalMs=1921\n',
+    )
+    const prompt = connection.prompt('sess_9', 'work', { stallSilenceMs })
+    const failure = expect(prompt).rejects.toThrow(
+      /^The agent stopped responding\. Retry to reconnect\.$/,
+    )
+    await vi.advanceTimersByTimeAsync(stallSilenceMs)
+    await failure
+  })
+
+  it('still detects a process failure while a long tool is running', async () => {
+    const prompt = connection.prompt('sess_9', 'run a long tool', { stallSilenceMs })
+    const failure = expect(prompt).rejects.toThrow('exited mid-request')
+    update({ sessionUpdate: 'tool_call', toolCallId: 'build', status: 'in_progress' })
+    child.emitClose(1)
+    await failure
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clears cancellation watchdogs even if stdin throws', async () => {
+    const prompt = connection.prompt('sess_9', 'work', { stallSilenceMs })
+    const write = vi.spyOn(child.stdin, 'write').mockImplementation(() => {
+      throw new Error('broken pipe')
+    })
+    expect(() => connection.cancel('sess_9')).toThrow('broken pipe')
+    await expect(prompt).resolves.toBe('cancelled')
+    expect(vi.getTimerCount()).toBe(0)
+    write.mockRestore()
   })
 })
 

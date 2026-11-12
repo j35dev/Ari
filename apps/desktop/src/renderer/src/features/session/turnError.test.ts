@@ -71,6 +71,10 @@ describe('classifyTurnError', () => {
   })
 
   it('recognises timeouts and stalls', () => {
+    expect(classifyTurnError('The agent stopped responding. Retry to reconnect.')).toEqual({
+      title: 'Agent timed out',
+      hint: 'The agent stopped responding. Retry to reconnect.',
+    })
     expect(classifyTurnError('produced no output within 120s').title).toBe('Agent timed out')
     expect(classifyTurnError('handshake failed').title).toBe('Agent timed out')
   })

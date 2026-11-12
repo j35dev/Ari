@@ -58,9 +58,9 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
     // "went silent" is the stall watchdog's exact phrasing; "waiting for
     // login" in its message must land here, not in the auth family above.
-    /timed? ?out|no output within|went silent|stall|wedged|handshake/i,
+    /timed? ?out|no output within|went silent|stall|wedged|handshake|agent stopped responding/i,
     'Agent timed out',
-    'The agent stopped responding — it may be waiting for login or a hung process. Retry once it responds in a terminal.',
+    'The agent stopped responding. Retry to reconnect.',
   ],
   [
     /econnrefused|enotfound|econnreset|getaddrinfo|network|fetch failed/i,
