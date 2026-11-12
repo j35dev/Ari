@@ -52,7 +52,7 @@ const Context = createContext<MachinesState>({
   refresh: () => Promise.resolve(),
   local: null, localModels: null, inventories: new Map(),
   inventoryReady: false,
-  resources: new Map(), refreshResources: async () => new Map(),
+  resources: new Map(), refreshResources: () => Promise.resolve(new Map()),
   preferences: { autoEnabled: false, hostTiers: {}, projectHosts: {} },
   refreshInventory: () => Promise.resolve(),
 })
