@@ -41,19 +41,46 @@ import { ControlFailure, type ChildTask } from '@ari/contracts/agent-control'
 import type { RemoteForkCommand, RemoteForkResult } from './remote-fork'
 import { remoteCatalogDefaults } from './remote-catalog'
 import type { Project } from '@ari/contracts/project'
-import type { SessionCreateParams, SourceControlResult, SourceControlContext, GitSummary, GitReviewManifest } from '@ari/contracts/rpc'
-import { REMOTE_PROTOCOL_VERSION, remoteDesktopSessionResultSchema, remoteDesktopCommandSchema,
-  remoteDesktopCommandResultSchemas, remoteDesktopQueryResultSchemas,
-  type RemoteDesktopCommand, type RemoteDesktopQuery, type RemoteHostResources, type RemoteHostVersion,
+import type {
+  SessionCreateParams,
+  SourceControlResult,
+  SourceControlContext,
+  GitSummary,
+  GitReviewManifest,
+} from '@ari/contracts/rpc'
+import {
+  REMOTE_PROTOCOL_VERSION,
+  remoteDesktopSessionResultSchema,
+  remoteDesktopCommandSchema,
+  remoteDesktopCommandResultSchemas,
+  remoteDesktopQueryResultSchemas,
+  type RemoteDesktopCommand,
+  type RemoteDesktopQuery,
+  type RemoteHostResources,
+  type RemoteHostVersion,
 } from '@ari/contracts/remote'
-import { HostResourceSampler, readRepositoryIdentity, RemoteWorkspaceSelections } from './remote-host-metadata'
-import { indexRemoteFiles, readRemotePlan, readRemoteTurnDiff, readRemoteTurnFile, safeSnapshotPath, stageRemotePaste } from './remote-desktop-reads'
+import {
+  HostResourceSampler,
+  readRepositoryIdentity,
+  RemoteWorkspaceSelections,
+} from './remote-host-metadata'
+import {
+  indexRemoteFiles,
+  readRemotePlan,
+  readRemoteTurnDiff,
+  readRemoteTurnFile,
+  safeSnapshotPath,
+  stageRemotePaste,
+} from './remote-desktop-reads'
 import type { JournalEvent } from '@ari/contracts/events'
 
 function desktopEvent(event: JournalEvent): JournalEvent {
   if (event.type === 'session.ref.observed') return { ...event, ref: 'remote-context' }
   if (event.type === 'session.created' && event.session.workspace?.kind === 'managed-worktree')
-    return { ...event, session: { ...event.session, workspace: { ...event.session.workspace, path: '.' } } }
+    return {
+      ...event,
+      session: { ...event.session, workspace: { ...event.session.workspace, path: '.' } },
+    }
   return event
 }
 
@@ -61,18 +88,31 @@ const defaultResources = new HostResourceSampler()
 
 export interface RemoteDesktopDeps {
   projects: () => Promise<Project[]>
-  createSession: (params: SessionCreateParams, selection?: { baseSnapshotCommit?: string }) => Promise<{ sessionId: string }>
+  createSession: (
+    params: SessionCreateParams,
+    selection?: { baseSnapshotCommit?: string },
+  ) => Promise<{ sessionId: string }>
   resources?: () => RemoteHostResources | Promise<RemoteHostResources>
   version: () => RemoteHostVersion
   stopChildren: (sessionId: string) => Promise<{ stopped: number }>
-  resume: { get: (sessionId: string) => Promise<{ at: number | null }>;
-    schedule: (sessionId: string, at: number) => Promise<{ at: number }>;
-    cancel: (sessionId: string) => Promise<{ cancelled: boolean }> }
+  resume: {
+    get: (sessionId: string) => Promise<{ at: number | null }>
+    schedule: (sessionId: string, at: number) => Promise<{ at: number }>
+    cancel: (sessionId: string) => Promise<{ cancelled: boolean }>
+  }
   scm: {
     summary: (sessionId: string) => Promise<SourceControlResult<GitSummary>>
     status: (sessionId: string) => Promise<SourceControlResult<SourceControlContext>>
-    review: (sessionId: string, comparison: Extract<RemoteDesktopQuery, { op: 'scm.desktop.review' }>['comparison']) => Promise<SourceControlResult<GitReviewManifest>>
-    diff: (sessionId: string, snapshotId: string, path: string, context: number) => Promise<SourceControlResult<string>>
+    review: (
+      sessionId: string,
+      comparison: Extract<RemoteDesktopQuery, { op: 'scm.desktop.review' }>['comparison'],
+    ) => Promise<SourceControlResult<GitReviewManifest>>
+    diff: (
+      sessionId: string,
+      snapshotId: string,
+      path: string,
+      context: number,
+    ) => Promise<SourceControlResult<string>>
   }
 }
 
@@ -208,14 +248,22 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     deps.attachments === undefined ? null : new RemoteAttachments(deps.attachments)
   const workspaces = new RemoteWorkspaceSelections()
   const reviews = new Map<string, { workspace: string; manifest: GitReviewManifest }>()
-  const identities = new Map<string, { at: number; value: Awaited<ReturnType<typeof readRepositoryIdentity>> }>()
+  const identities = new Map<
+    string,
+    { at: number; value: Awaited<ReturnType<typeof readRepositoryIdentity>> }
+  >()
   const currentCaller = (caller: RemoteCaller): RemoteCaller | undefined =>
     caller.revalidate ? caller.revalidate() : caller
 
   async function projectCatalog(caller: RemoteCaller) {
-    const projects = deps.desktop ? await deps.desktop.projects() : (await deps.listProjects()).map((project) => ({
-      ...project, path: '', status: 'missing' as const, defaultAgent: null,
-    }))
+    const projects = deps.desktop
+      ? await deps.desktop.projects()
+      : (await deps.listProjects()).map((project) => ({
+          ...project,
+          path: '',
+          status: 'missing' as const,
+          defaultAgent: null,
+        }))
     const sessions = await store.listSessions()
     const rows = []
     for (const project of projects.slice(0, 512)) {
@@ -231,9 +279,14 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           identities.set(project.path, { at: Date.now(), value: identity })
         }
       }
-      rows.push({ id: project.id, name: project.name, status: project.status,
-        defaultAgent: project.defaultAgent ?? null, repositoryIdentity: identity,
-        sessionCount: sessions.filter((entry) => entry.projectId === project.id).length })
+      rows.push({
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        defaultAgent: project.defaultAgent ?? null,
+        repositoryIdentity: identity,
+        sessionCount: sessions.filter((entry) => entry.projectId === project.id).length,
+      })
     }
     return { projects: rows }
   }
@@ -244,33 +297,74 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     const model = await store.load(sessionId)
     const { messages: _messages, ...metadata } = result
     const session = metadata.session
-    return remoteDesktopSessionResultSchema.parse({ ...metadata,
-      session: { ...session, workspace: session.workspace?.kind === 'managed-worktree' ? { ...session.workspace, path: '.' } : session.workspace },
+    return remoteDesktopSessionResultSchema.parse({
+      ...metadata,
+      session: {
+        ...session,
+        workspace:
+          session.workspace?.kind === 'managed-worktree'
+            ? { ...session.workspace, path: '.' }
+            : session.workspace,
+      },
       summary: { ...metadata.summary, workspacePath: null },
-      context: { hasMessages: model.messages.length > 0,
-        hasTurns: model.lastTurn != null || model.activeTurnId != null || model.checkpoints.length > 0,
-        hasProviderContext: model.providerSessionId !== null },
-      lastTurn: model.lastTurn ? { ...model.lastTurn, ...(model.lastTurn.errorMessage ? { errorMessage: model.lastTurn.errorMessage.slice(0, 8000) } : {}) } : null,
-      liveTurnId: engine.liveTurnId(sessionId), liveCapabilities: engine.liveCapabilities(sessionId),
+      context: {
+        hasMessages: model.messages.length > 0,
+        hasTurns:
+          model.lastTurn != null || model.activeTurnId != null || model.checkpoints.length > 0,
+        hasProviderContext: model.providerSessionId !== null,
+      },
+      lastTurn: model.lastTurn
+        ? {
+            ...model.lastTurn,
+            ...(model.lastTurn.errorMessage
+              ? { errorMessage: model.lastTurn.errorMessage.slice(0, 8000) }
+              : {}),
+          }
+        : null,
+      liveTurnId: engine.liveTurnId(sessionId),
+      liveCapabilities: engine.liveCapabilities(sessionId),
     })
   }
 
-  async function desktopQuery(caller: RemoteCaller, op: RemoteOperation, params: Record<string, unknown>): Promise<unknown> {
+  async function desktopQuery(
+    caller: RemoteCaller,
+    op: RemoteOperation,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const live = currentCaller(caller)
     if (!live) return null
     if (op === 'project.catalog') return projectCatalog(caller)
-    if (op === 'host.resources') return deps.desktop?.resources ? deps.desktop.resources() : defaultResources.read()
-    if (op === 'host.permissions') return { deviceId: live.deviceId,
-      projectScope: live.allProjects ? { kind: 'all' } : { kind: 'ids', projectIds: [...live.projectIds] },
-      allowTerminal: live.allowTerminal === true, managedLeaseExpiresAt: live.managedLeaseExpiresAt ?? null }
-    if (op === 'host.version') return deps.desktop?.version() ?? {
-      ariVersion: 'unknown', protocolVersion: REMOTE_PROTOCOL_VERSION, hostingMode: 'desktop',
-      update: { supported: false, reason: 'Update execution is unavailable.', availableVersion: null,
-        stagedVersion: null, guidance: 'Update Ari on this machine.' },
-    }
+    if (op === 'host.resources')
+      return deps.desktop?.resources ? deps.desktop.resources() : defaultResources.read()
+    if (op === 'host.permissions')
+      return {
+        deviceId: live.deviceId,
+        projectScope: live.allProjects
+          ? { kind: 'all' }
+          : { kind: 'ids', projectIds: [...live.projectIds] },
+        allowTerminal: live.allowTerminal === true,
+        managedLeaseExpiresAt: live.managedLeaseExpiresAt ?? null,
+      }
+    if (op === 'host.version')
+      return (
+        deps.desktop?.version() ?? {
+          ariVersion: 'unknown',
+          protocolVersion: REMOTE_PROTOCOL_VERSION,
+          hostingMode: 'desktop',
+          update: {
+            supported: false,
+            reason: 'Update execution is unavailable.',
+            availableVersion: null,
+            stagedVersion: null,
+            guidance: 'Update Ari on this machine.',
+          },
+        }
+      )
     if (op === 'project.workspaces') {
       if (!deps.desktop || !granted(live, String(params['projectId']))) return null
-      const project = (await deps.desktop.projects()).find((project) => project.id === params['projectId'])
+      const project = (await deps.desktop.projects()).find(
+        (project) => project.id === params['projectId'],
+      )
       return project?.status === 'ok' ? workspaces.list(live.deviceId, project) : null
     }
     const sessionId = String(params['sessionId'])
@@ -281,12 +375,17 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     const workspace = await engine.workspace(session)
     if (!workspace) return null
     if (op === 'plan.get') return readRemotePlan(workspace, sessionId)
-    if (op === 'files.index') return indexRemoteFiles(workspace,
-      typeof params['cursor'] === 'string' ? params['cursor'] : undefined, Number(params['limit'] ?? 200))
+    if (op === 'files.index')
+      return indexRemoteFiles(
+        workspace,
+        typeof params['cursor'] === 'string' ? params['cursor'] : undefined,
+        Number(params['limit'] ?? 200),
+      )
     if (op === 'changes.turn' || op === 'changes.turnFile') {
       const model = await store.load(sessionId)
-      return op === 'changes.turn' ? readRemoteTurnDiff(workspace, model, String(params['turnId'])) :
-        readRemoteTurnFile(workspace, model, String(params['turnId']), String(params['path']))
+      return op === 'changes.turn'
+        ? readRemoteTurnDiff(workspace, model, String(params['turnId']))
+        : readRemoteTurnFile(workspace, model, String(params['turnId']), String(params['path']))
     }
     if (!deps.desktop) return null
     if (op === 'scm.desktop.summary') return deps.desktop.scm.summary(sessionId)
@@ -297,19 +396,43 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       for (const file of result.value.status.files) {
         if (await safeSnapshotPath(workspace, file.path, [])) files.push(file)
       }
-      return { ok: true, value: { ...result.value, workspace: { kind: session.workspace?.kind ?? 'project', path: '.' },
-        status: { ...result.value.status, files, remotes: result.value.status.remotes.map((remote) => ({ name: remote.name, url: '' })) } } }
+      return {
+        ok: true,
+        value: {
+          ...result.value,
+          workspace: { kind: session.workspace?.kind ?? 'project', path: '.' },
+          status: {
+            ...result.value.status,
+            files,
+            remotes: result.value.status.remotes.map((remote) => ({ name: remote.name, url: '' })),
+          },
+        },
+      }
     }
     if (op === 'scm.desktop.review') {
-      const result = await deps.desktop.scm.review(sessionId, params['comparison'] as Extract<RemoteDesktopQuery, { op: 'scm.desktop.review' }>['comparison'])
+      const result = await deps.desktop.scm.review(
+        sessionId,
+        params['comparison'] as Extract<
+          RemoteDesktopQuery,
+          { op: 'scm.desktop.review' }
+        >['comparison'],
+      )
       if (!result.ok) return result
       const manifest = result.value
       const files = []
       for (const file of manifest.files) {
-        if (await safeSnapshotPath(workspace, file.path, [manifest.baseOid, manifest.headOid]) &&
-          (!file.oldPath || await safeSnapshotPath(workspace, file.oldPath, [manifest.baseOid, manifest.headOid]))) files.push(file)
+        if (
+          (await safeSnapshotPath(workspace, file.path, [manifest.baseOid, manifest.headOid])) &&
+          (!file.oldPath ||
+            (await safeSnapshotPath(workspace, file.oldPath, [manifest.baseOid, manifest.headOid])))
+        )
+          files.push(file)
       }
-      const safe = { ...manifest, files, truncated: manifest.truncated || files.length !== manifest.files.length }
+      const safe = {
+        ...manifest,
+        files,
+        truncated: manifest.truncated || files.length !== manifest.files.length,
+      }
       if (reviews.size >= 128) reviews.delete(reviews.keys().next().value!)
       reviews.set(JSON.stringify([sessionId, manifest.id]), { workspace, manifest: safe })
       return { ok: true, value: safe }
@@ -319,9 +442,19 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       const path = String(params['path'])
       const saved = reviews.get(JSON.stringify([sessionId, snapshotId]))
       const file = saved?.manifest.files.find((file) => file.path === path)
-      if (!saved || saved.workspace !== workspace || !file ||
-        !(await safeSnapshotPath(workspace, path, [saved.manifest.baseOid, saved.manifest.headOid])))
-        return { ok: false, error: { code: 'stale', message: 'Review this session snapshot before reading its file.' } }
+      if (
+        !saved ||
+        saved.workspace !== workspace ||
+        !file ||
+        !(await safeSnapshotPath(workspace, path, [saved.manifest.baseOid, saved.manifest.headOid]))
+      )
+        return {
+          ok: false,
+          error: {
+            code: 'stale',
+            message: 'Review this session snapshot before reading its file.',
+          },
+        }
       return deps.desktop.scm.diff(sessionId, snapshotId, path, Number(params['context'] ?? 3))
     }
     return null
@@ -584,13 +717,34 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   return {
     capabilities: () => [
       ...OPERATIONS,
-      'project.catalog', 'host.resources', 'host.permissions', 'host.version', 'session.desktop.get',
-      'session.dequeue', 'session.steer.attachments', 'session.provider.switch',
-      'plan.get', 'changes.turn', 'changes.turnFile', 'files.index', 'pastes.stage',
+      'project.catalog',
+      'host.resources',
+      'host.permissions',
+      'host.version',
+      'session.desktop.get',
+      'session.dequeue',
+      'session.steer.attachments',
+      'session.provider.switch',
+      'plan.get',
+      'changes.turn',
+      'changes.turnFile',
+      'files.index',
+      'pastes.stage',
       'events.desktop.subscribe',
-      ...(deps.desktop ? ['project.workspaces', 'session.desktop.create', 'session.stopChildren',
-        'session.resume.get', 'session.resume.schedule', 'session.resume.cancel',
-        'scm.desktop.summary', 'scm.desktop.status', 'scm.desktop.review', 'scm.desktop.diff'] as const : []),
+      ...(deps.desktop
+        ? ([
+            'project.workspaces',
+            'session.desktop.create',
+            'session.stopChildren',
+            'session.resume.get',
+            'session.resume.schedule',
+            'session.resume.cancel',
+            'scm.desktop.summary',
+            'scm.desktop.status',
+            'scm.desktop.review',
+            'scm.desktop.diff',
+          ] as const)
+        : []),
       ...(deps.fork === undefined ? [] : (['session.fork'] as const)),
       ...(attachments === null ? [] : (['attachments.stage', 'attachments.read'] as const)),
       ...(deps.terminals === undefined
@@ -619,12 +773,19 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       const state = await store.readReplayState(sessionId, () => engine.liveTurnId(sessionId))
       const live = currentCaller(caller)
       return state.session && live && granted(live, state.session.projectId)
-        ? { projectId: state.session.projectId, seq: state.seq, liveTurnId: state.liveTurnId, incomplete: state.incomplete } : undefined
+        ? {
+            projectId: state.session.projectId,
+            seq: state.seq,
+            liveTurnId: state.liveTurnId,
+            incomplete: state.incomplete,
+          }
+        : undefined
     },
-    replayRange: (caller, sessionId, options, onChunk) => engine.replaySessionRangeChunks(sessionId, options, async (events) => {
-      if (!currentCaller(caller)) throw new Error('remote authorization expired')
-      await onChunk(events.map(desktopEvent))
-    }),
+    replayRange: (caller, sessionId, options, onChunk) =>
+      engine.replaySessionRangeChunks(sessionId, options, async (events) => {
+        if (!currentCaller(caller)) throw new Error('remote authorization expired')
+        await onChunk(events.map(desktopEvent))
+      }),
     replay: async (caller, sessionId, fromSeq) => {
       if ((await visible(caller, sessionId)) === undefined) return undefined
       const events = await engine.replaySession(sessionId)
@@ -634,7 +795,11 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       if (op === 'session.desktop.get') return desktopQuery(caller, op, params)
       if (op in remoteDesktopQueryResultSchemas) {
         const result = await desktopQuery(caller, op, params)
-        return result === null ? null : remoteDesktopQueryResultSchemas[op as keyof typeof remoteDesktopQueryResultSchemas].parse(result)
+        return result === null
+          ? null
+          : remoteDesktopQueryResultSchemas[
+              op as keyof typeof remoteDesktopQueryResultSchemas
+            ].parse(result)
       }
       switch (op) {
         case 'session.list':
@@ -790,52 +955,102 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     const desktop = remoteDesktopCommandSchema.safeParse(command)
     if (desktop.success) {
       const result = await executeDesktop(caller, desktop.data)
-      return result.ok ? { ok: true, result: remoteDesktopCommandResultSchemas[desktop.data.op].parse(result.result) } : result
+      return result.ok
+        ? {
+            ok: true,
+            result: remoteDesktopCommandResultSchemas[desktop.data.op].parse(result.result),
+          }
+        : result
     }
     return executeLegacy(caller, command as Exclude<RemoteCommand, RemoteDesktopCommand>)
   }
 
-  async function executeDesktop(caller: RemoteCaller, command: RemoteDesktopCommand): Promise<
-    { ok: true; result: unknown } | { ok: false; code: string; message: string }
-  > {
+  async function executeDesktop(
+    caller: RemoteCaller,
+    command: RemoteDesktopCommand,
+  ): Promise<{ ok: true; result: unknown } | { ok: false; code: string; message: string }> {
     const refuse = (code: string, message: string) => ({ ok: false as const, code, message })
     if (command.op === 'session.desktop.create') {
       const live = currentCaller(caller)
-      if (!live || !granted(live, command.projectId) || !deps.desktop) return refuse('not_found', 'no such project')
+      if (!live || !granted(live, command.projectId) || !deps.desktop)
+        return refuse('not_found', 'no such project')
       const project = (await deps.desktop.projects()).find((row) => row.id === command.projectId)
       if (!project || project.status !== 'ok') return refuse('not_found', 'no such project')
-      const selected = await validateCatalogSelection(command.driverKind, command.modelId, command.effort)
+      const selected = await validateCatalogSelection(
+        command.driverKind,
+        command.modelId,
+        command.effort,
+      )
       if (!selected.ok) return selected
       let selection: { baseSnapshotCommit?: string } = {}
       if (command.workspaceToken) {
-        try { selection = await workspaces.resolve(live.deviceId, project, command.workspaceToken, command.workspaceMode) }
-        catch { return refuse('conflict', 'Workspace selection changed or expired. Select it again.') }
+        try {
+          selection = await workspaces.resolve(
+            live.deviceId,
+            project,
+            command.workspaceToken,
+            command.workspaceMode,
+          )
+        } catch {
+          return refuse('conflict', 'Workspace selection changed or expired. Select it again.')
+        }
       }
       const admitted = currentCaller(caller)
       if (!admitted || !granted(admitted, project.id)) return refuse('not_found', 'no such project')
-      return { ok: true, result: await deps.desktop.createSession({ projectId: project.id, title: command.title,
-        driverKind: command.driverKind, modelId: selected.modelId, effort: command.effort,
-        permissionMode: command.permissionMode, workspaceMode: command.workspaceMode }, selection) }
+      return {
+        ok: true,
+        result: await deps.desktop.createSession(
+          {
+            projectId: project.id,
+            title: command.title,
+            driverKind: command.driverKind,
+            modelId: selected.modelId,
+            effort: command.effort,
+            permissionMode: command.permissionMode,
+            workspaceMode: command.workspaceMode,
+          },
+          selection,
+        ),
+      }
     }
     const session = await visible(caller, command.sessionId)
     if (!session) return refuse('not_found', 'no such session')
     if (command.op === 'session.provider.switch') {
-      const selected = await validateCatalogSelection(command.driverKind, command.modelId, command.effort)
+      const selected = await validateCatalogSelection(
+        command.driverKind,
+        command.modelId,
+        command.effort,
+      )
       if (!selected.ok) return selected
       if (!(await visible(caller, session.id))) return refuse('not_found', 'no such session')
-      const result = await engine.dispatch({ type: 'session.update', sessionId: session.id,
-        driverKind: command.driverKind, modelId: selected.modelId, effort: command.effort })
-      return result.accepted ? { ok: true, result: { accepted: true, switchTiming: result.switchTiming } } :
-        refuse('conflict', result.reason ?? 'This session cannot switch providers.')
+      const result = await engine.dispatch({
+        type: 'session.update',
+        sessionId: session.id,
+        driverKind: command.driverKind,
+        modelId: selected.modelId,
+        effort: command.effort,
+      })
+      return result.accepted
+        ? { ok: true, result: { accepted: true, switchTiming: result.switchTiming } }
+        : refuse('conflict', result.reason ?? 'This session cannot switch providers.')
     }
     if (command.op === 'session.dequeue' || command.op === 'session.steer.attachments') {
       const ids = command.attachmentIds ?? []
-      const refs = ids.length === 0 ? [] : attachments?.resolve(caller, session.id, ids, await store.load(session.id)) ?? null
+      const refs =
+        ids.length === 0
+          ? []
+          : (attachments?.resolve(caller, session.id, ids, await store.load(session.id)) ?? null)
       if (refs === null) return refuse('not_found', 'An attachment is unavailable.')
       if (!(await visible(caller, session.id))) return refuse('not_found', 'no such session')
-      const result = await engine.dispatch({ type: command.op === 'session.dequeue' ? 'message.dequeue' : 'message.steer',
-        sessionId: session.id, text: command.text, attachments: refs })
-      return result.accepted ? { ok: true, result: { accepted: true } } : refuse('conflict', result.reason ?? 'The provider refused this action.')
+      const result = await engine.dispatch({
+        type: command.op === 'session.dequeue' ? 'message.dequeue' : 'message.steer',
+        sessionId: session.id,
+        text: command.text,
+        attachments: refs,
+      })
+      return result.accepted
+        ? { ok: true, result: { accepted: true } }
+        : refuse('conflict', result.reason ?? 'The provider refused this action.')
     }
     if (command.op === 'session.stopChildren') {
       if (!deps.desktop) return refuse('unsupported_capability', 'Child controls are unavailable.')
@@ -844,39 +1059,80 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       let found = true
       while (found) {
         found = false
-        for (const row of rows) if (row.parentSessionId && descendants.has(row.parentSessionId) && !descendants.has(row.id)) {
-          descendants.add(row.id); found = true
-        }
+        for (const row of rows)
+          if (
+            row.parentSessionId &&
+            descendants.has(row.parentSessionId) &&
+            !descendants.has(row.id)
+          ) {
+            descendants.add(row.id)
+            found = true
+          }
       }
       const live = currentCaller(caller)
-      if (!live || rows.some((row) => descendants.has(row.id) && !granted(live, row.projectId))) return refuse('not_found', 'no such session')
+      if (!live || rows.some((row) => descendants.has(row.id) && !granted(live, row.projectId)))
+        return refuse('not_found', 'no such session')
       return { ok: true, result: await deps.desktop.stopChildren(session.id) }
     }
     if (command.op === 'session.resume.schedule' || command.op === 'session.resume.cancel') {
-      if (!deps.desktop || !(await visible(caller, session.id))) return refuse('not_found', 'no such session')
-      return { ok: true, result: command.op === 'session.resume.schedule' ?
-        await deps.desktop.resume.schedule(session.id, command.at) : await deps.desktop.resume.cancel(session.id) }
+      if (!deps.desktop || !(await visible(caller, session.id)))
+        return refuse('not_found', 'no such session')
+      return {
+        ok: true,
+        result:
+          command.op === 'session.resume.schedule'
+            ? await deps.desktop.resume.schedule(session.id, command.at)
+            : await deps.desktop.resume.cancel(session.id),
+      }
     }
     if (command.op === 'pastes.stage') {
       if (Buffer.byteLength(command.text, 'utf8') > 256 * 1024 || command.text.includes('\0'))
         return refuse('unsupported_capability', 'Paste exceeds the text limit.')
       const workspace = await engine.workspace(session)
-      if (!workspace || !(await visible(caller, session.id))) return refuse('not_found', 'no such session')
+      if (!workspace || !(await visible(caller, session.id)))
+        return refuse('not_found', 'no such session')
       return { ok: true, result: await stageRemotePaste(workspace, command.text) }
     }
     return refuse('unsupported_capability', 'This desktop action is unavailable.')
   }
 
-  async function validateCatalogSelection(kind: DriverKind, requestedModel: string | null, effort: string | null): Promise<
-    { ok: true; modelId: string | null } | { ok: false; code: string; message: string }
-  > {
+  async function validateCatalogSelection(
+    kind: DriverKind,
+    requestedModel: string | null,
+    effort: string | null,
+  ): Promise<{ ok: true; modelId: string | null } | { ok: false; code: string; message: string }> {
     const provider = (await modelCatalog()).providers.find((row) => row.driverKind === kind)
-    if (provider?.available !== true) return { ok: false, code: 'unsupported_capability', message: provider?.reason ?? 'Selected provider is unavailable.' }
-    const modelId = requestedModel === 'default' && kind !== 'ari-core' ? null : requestedModel ?? (kind === 'ari-core' ? provider.defaultModelId ?? null : null)
-    const model = provider.models.find((row) => row.id === modelId || (modelId !== null && row.aliases?.includes(modelId)))
-    if (modelId !== null && !model) return { ok: false, code: 'unsupported_capability', message: 'Selected model is unavailable.' }
-    if (kind === 'ari-core' && modelId === null) return { ok: false, code: 'unsupported_capability', message: 'Configure a host endpoint before creating this session.' }
-    if (effort !== null && !(await offersEffort(kind, model?.id ?? modelId, effort))) return { ok: false, code: 'unsupported_capability', message: 'Selected model does not offer that effort.' }
+    if (provider?.available !== true)
+      return {
+        ok: false,
+        code: 'unsupported_capability',
+        message: provider?.reason ?? 'Selected provider is unavailable.',
+      }
+    const modelId =
+      requestedModel === 'default' && kind !== 'ari-core'
+        ? null
+        : (requestedModel ?? (kind === 'ari-core' ? (provider.defaultModelId ?? null) : null))
+    const model = provider.models.find(
+      (row) => row.id === modelId || (modelId !== null && row.aliases?.includes(modelId)),
+    )
+    if (modelId !== null && !model)
+      return {
+        ok: false,
+        code: 'unsupported_capability',
+        message: 'Selected model is unavailable.',
+      }
+    if (kind === 'ari-core' && modelId === null)
+      return {
+        ok: false,
+        code: 'unsupported_capability',
+        message: 'Configure a host endpoint before creating this session.',
+      }
+    if (effort !== null && !(await offersEffort(kind, model?.id ?? modelId, effort)))
+      return {
+        ok: false,
+        code: 'unsupported_capability',
+        message: 'Selected model does not offer that effort.',
+      }
     return { ok: true, modelId: model?.id ?? modelId }
   }
 

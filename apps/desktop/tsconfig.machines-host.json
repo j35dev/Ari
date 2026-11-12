@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": [
+    "src/main/remote-host.ts",
+    "src/main/remote-host-metadata.ts",
+    "src/main/remote-desktop-reads.ts",
+    "src/main/remote.ts",
+    "src/main/rpc.ts",
+    "src/main/source-control-host.ts",
+    "src/main/remote-desktop.test.ts",
+    "src/main/remote-host-metadata.test.ts",
+    "src/main/remote.test.ts",
+    "src/main/root-concurrency.test.ts",
+    "src/main/source-control-host.test.ts"
+  ]
+}
