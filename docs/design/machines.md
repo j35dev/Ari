@@ -165,20 +165,25 @@ of rpc.ts/settings.ts/remote.ts/gateway.ts; coordinator reviews and resolves
 section-level conflicts. D owns desktop renderer Machines UI/sidebar/remote
 workspace and settings navigation. E owns apps/mobile UI/state/tests, except the
 client/session compatibility extraction owned by C. F owns its separate root
-worktree/concurrency engine/CLI/desktop human path fix and is never merged into
-feat/machines. Final security review is a separate report-only worker.
+worktree/concurrency engine/CLI/desktop human path fix. The 2026-11-12 takeover
+requires F integrated into feat/machines as well as retained on its independent
+origin/main branch for separate shipping. Final security review is a separate
+report-only worker.
 
 No worker installs or builds in the user's checkout or its managed C: worktree.
 Each uses the precreated D: worktree, D: pnpm store/cache/temp. The resumed work
-uses parallel authoring and one heavy worker/process at a time, serialized by
-the atomic D:/Projects/Ari-machines-wt/.heavy.lock lease. Before every install, test, typecheck,
+uses parallel authoring and up to two heavy workers/processes at a time, admitted
+atomically by scripts/coordination/run-heavy.mjs. The second slot is allowed only
+while commit headroom is at least 6GB; below that, new admission is limited to
+one slot. Existing work is allowed to finish. Before every install, test, typecheck,
 lint, build or browser capture, require at least 5GB free on C: and 1.5GB of
 commit headroom (commit limit minus committed bytes). Available physical memory
 is not a gate. Commit WIP before each long step, run tests with one worker and
 no file parallelism, and run heavy processes below normal priority. Stop/report
 a gate that remains failed for 15 minutes or a killed/OOM step without a retry
-loop; transient gate failures wait two minutes and recheck. Heartbeat active
-leases and reclaim locks stale for 30 minutes. The coordinator may do
+loop; transient gate failures wait 30 seconds and recheck. Heartbeat active
+leases and reclaim locks stale for 30 minutes only when their owner is no longer
+alive. The coordinator may do
 read-only review, planning and git integration while the worker runs. Run wide
 checks once, alone, after integration. Prefer fresh workers after pauses where
 the implementation state is on disk, because old provider conversations have
