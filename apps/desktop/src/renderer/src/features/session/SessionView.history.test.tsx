@@ -59,7 +59,7 @@ function texts(): string[] {
 }
 
 beforeEach(() => {
-  sessionId = `history_${++nextId}`
+  sessionId = `sess_history_${++nextId}`
   metadataFails = false
   attempts.length = 0
   localStorage.clear()
