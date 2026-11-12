@@ -7,4 +7,6 @@ export interface DeviceCredential {
   sign(nonce: string): Promise<string>
   remember(record: { deviceId: string; displayName: string; projectIds: string[] }): Promise<void>
 }
-export interface LeaseAdapter { token(force?: boolean): Promise<string> }
+export interface LeaseAdapter {
+  token(force?: boolean): Promise<string>
+}

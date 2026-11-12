@@ -76,6 +76,11 @@ export class RpcRegistry {
     this.#subscribers.delete(id)
   }
 
+  /** The object identity distinguishes reuse of the same id and scope. */
+  isCurrentSubscription(subscriber: StreamSubscriber): boolean {
+    return this.#subscribers.get(subscriber.id) === subscriber
+  }
+
   subscriberCount(name?: StreamName): number {
     if (!name) return this.#subscribers.size
     let count = 0
