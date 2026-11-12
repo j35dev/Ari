@@ -1,8 +1,9 @@
 # Independent Machines route lifecycle proof
 
 This is reviewer evidence, not runtime code. The script below loads immutable
-Git objects through Node's module hooks. Zod/ws are the installed dependencies
-in the security worktree. Its sealed-key box is an AES-GCM fixture, not an OS
+Git objects through Node's module hooks. Zod/ws are read from the existing D:
+integration dependencies; no dependency installation or checkout edit occurs.
+Its sealed-key box is an AES-GCM fixture, not an OS
 keyring claim. Its route walk uses a deterministic fake transport and real
 MachinesService, registry, client, crypto and PairingService source. No real
 Serve, app/profile, provider, network discovery or command execution is used.
@@ -24,7 +25,8 @@ import { pathToFileURL } from 'node:url'
 
 const cwd = process.cwd()
 const sha = process.argv[2] ?? '494566a5cf957c52c1a2b386c5e62034eaaa40c1'
-const require = createRequire(pathToFileURL(join(cwd, 'package.json')))
+const dependencyRoot = 'D:/Projects/Ari-machines'
+const require = createRequire(pathToFileURL(join(dependencyRoot, 'package.json')))
 const virtual = pathToFileURL(resolve(cwd, '.review-temp/t3-virtual')).href + '/'
 const sourceCache = new Map()
 const source = (path) => {
@@ -53,7 +55,8 @@ registerHooks({
       path = posix.normalize(posix.join(posix.dirname(context.parentURL.slice(virtual.length)), specifier))
       if (!/\.[mc]?[jt]sx?$/.test(path)) path = exists(`${path}.ts`) ? `${path}.ts` : `${path}/index.ts`
     } else if (!specifier.startsWith('node:') && context.parentURL?.startsWith(virtual)) {
-      return { url: pathToFileURL(require.resolve(specifier)).href, shortCircuit: true }
+      return { url: pathToFileURL(require.resolve(specifier, { paths: [dependencyRoot,
+        join(dependencyRoot, 'packages/remote-client'), join(dependencyRoot, 'apps/desktop')] })).href, shortCircuit: true }
     }
     if (path) return { url: sourceUrl(path), shortCircuit: true }
     return next(specifier, context)
