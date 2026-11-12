@@ -36,6 +36,87 @@ const authorized = {
   allowTerminal: true,
 }
 
+describe('RemoteSession protocol and device grants', () => {
+  it('refuses an incompatible pairing before resolving a code, generating a key or requesting approval', async () => {
+    const request = vi.fn<typeof fetch>(async () => success({ ...info, protocolVersion: 99 }))
+    const credential = keyring(false)
+    const publicKey = vi.spyOn(credential, 'publicKey')
+    const session = new RemoteSession({
+      client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+      keyring: credential,
+    })
+    await expect(session.resolvePairingCode('AAAA-BBBB')).rejects.toMatchObject({ code: 'unsupported_version' })
+    await expect(session.pair('inv_fixture', 'Desktop')).rejects.toMatchObject({ code: 'unsupported_version' })
+    expect(publicKey).not.toHaveBeenCalled()
+    expect(request.mock.calls.every(([url]) => String(url).endsWith('/info'))).toBe(true)
+  })
+
+  it('rechecks the protocol after host approval before redeeming a pairing', async () => {
+    let approved = false
+    const request = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input)
+      if (path.endsWith('/info')) return success({ ...info, protocolVersion: approved ? 99 : 1 })
+      if (path.endsWith('/pair/request')) return success({ nonce: 'nonce', confirmationCode: 'AAAA-BBBB' })
+      approved = true
+      return success({ status: 'approved' })
+    })
+    const credential = keyring(false)
+    const session = new RemoteSession({
+      client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+      keyring: credential,
+    })
+    await expect(session.pair('inv_fixture', 'Desktop')).rejects.toMatchObject({ code: 'unsupported_version' })
+    expect(request.mock.calls.some(([url]) => String(url).endsWith('/pair/redeem'))).toBe(false)
+    expect(credential.remember).not.toHaveBeenCalled()
+    expect(session.usable).toBe(false)
+  })
+
+  it.each(['query', 'send'] as const)('negotiates a restarted host before %s reauthorization', async (operation) => {
+    let restarted = false
+    let mutations = 0
+    const request = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input)
+      if (path.endsWith('/info')) return success({ ...info, protocolVersion: restarted ? 99 : 1 })
+      if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (path.endsWith('/device/authorize')) return success(authorized)
+      mutations++
+      restarted = true
+      return Response.json({ ok: false, error: { code: 'authentication_expired', message: 'host restarted' } }, { status: 401 })
+    })
+    const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
+    const session = new RemoteSession({ client, keyring: keyring() })
+    await session.connect()
+    await expect(operation === 'query' ? session.query('session.list') : session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'receipt_same')).rejects.toMatchObject({ code: 'unsupported_version' })
+    expect(mutations).toBe(1)
+    expect(request.mock.calls.filter(([url]) => String(url).endsWith('/device/challenge'))).toHaveLength(1)
+    expect(session.state).toBe('version-mismatch')
+    expect(session.usable).toBe(false)
+    expect(session.allowTerminal).toBe(false)
+    expect(session.projectIds).toEqual([])
+    await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
+  })
+
+  it('takes terminal access only from the current authenticated grant', async () => {
+    let grant: boolean | undefined = true
+    const request: typeof fetch = async (input) => {
+      const path = String(input)
+      if (path.endsWith('/info')) return success({ ...info, capabilities: ['terminal.create'] })
+      if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      return success({ ...authorized, allowTerminal: grant })
+    }
+    const session = new RemoteSession({
+      client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+      keyring: keyring(),
+    })
+    await session.connect()
+    expect(session.supports('terminal.create')).toBe(true)
+    grant = undefined
+    await session.connect()
+    expect(session.allowTerminal).toBe(false)
+    expect(session.supports('terminal.create')).toBe(false)
+  })
+})
+
 describe('RemoteSession disposal boundary', () => {
   it('discards a late connect authorization even after a fresh connection succeeds', async () => {
     const late = deferred<Response>()
