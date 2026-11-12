@@ -1,5 +1,5 @@
 // Run only through the shared heavy runner. Uses the system Chrome and a fresh D: profile.
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { setTimeout, clearTimeout } from 'node:timers'
@@ -9,8 +9,12 @@ import { pathToFileURL } from 'node:url'
 const { fetch, WebSocket } = globalThis
 
 const stage = process.argv[2]
-if (!['before', 'after'].includes(stage)) throw new Error('Expected before or after')
+if (!['before', 'after', 'recovery'].includes(stage)) throw new Error('Expected before, after or recovery')
 const root = process.cwd()
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, windowsHide: true, encoding: 'utf8' }).trim()
+const views = stage === 'recovery'
+  ? ['session-uncertain', 'new-uncertain', 'fork-uncertain', 'integration-uncertain', 'terminal-uncertain', 'new-empty']
+  : ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline', ...(stage === 'after' ? ['computers', 'computer-add', 'session-short', 'approval-short'] : [])]
 const { createServer } = await import(pathToFileURL(resolve(root, 'apps/mobile/node_modules/vite/dist/node/index.js')))
 const { default: react } = await import(pathToFileURL(resolve(root, 'apps/mobile/node_modules/@vitejs/plugin-react/dist/index.js')))
 const fixture = resolve(root, 'apps/mobile/scripts/fixtures/app-state.ts')
@@ -73,7 +77,7 @@ try {
   await command('Runtime.enable')
   const results = []
   for (const width of [360, 390]) for (const theme of ['light', 'dark']) {
-    for (const view of ['home', 'session', 'approval', 'error', 'empty', 'settings', 'files', 'changes', 'pair', 'offline', ...(stage === 'after' ? ['computers', 'computer-add', 'session-short', 'approval-short'] : [])]) {
+    for (const view of views) {
       const fixtureView = view === 'computers' || view === 'computer-add' ? 'home' : view.replace('-short', '')
       await command('Emulation.setDeviceMetricsOverride', { width, height: view.endsWith('-short') ? 480 : 844, deviceScaleFactor: 1, mobile: true })
       await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
@@ -99,18 +103,30 @@ try {
         await pause(100)
         if (view === 'computer-add') await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Add computer")?.click()')
       }
+      if (view.endsWith('-uncertain')) {
+        if (view === 'integration-uncertain') {
+          await evaluate('Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Continue integration review")?.click()')
+          await pause(100)
+        }
+        const label = { 'session-uncertain': 'Check submission receipt', 'new-uncertain': 'Check request receipt', 'fork-uncertain': 'Check fork receipt', 'integration-uncertain': 'Check integration receipt', 'terminal-uncertain': 'Check status' }[view]
+        await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.getAttribute('aria-label') === ${JSON.stringify(label)} || b.textContent.trim() === ${JSON.stringify(label)})?.click()`)
+      }
       await pause(250)
-      const geometry = await evaluate('({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent})')
+      const geometry = await evaluate('({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent, review: globalThis.ariMobileReview})')
       if (!geometry.text) throw new Error(`Fixture became empty in ${view}`)
       if (geometry.scrollWidth > width) throw new Error(`Page overflow in ${view} at ${width}`)
+      if (stage === 'recovery' && (geometry.review.commandCalls !== 0 ||
+        (view.endsWith('-uncertain') && (geometry.review.receiptQueries < 1 || !geometry.text.includes('cannot be confirmed')))))
+        throw new Error(`Recovery fixture did not show a read-only receipt failure: ${view}`)
       const screenshot = await command('Page.captureScreenshot', { format: 'png' })
       const filename = `${width}-${theme}-${view}.png`
       await writeFile(resolve(output, filename), Buffer.from(screenshot.data, 'base64'))
-      results.push({ filename, width, theme, view, scrollWidth: geometry.scrollWidth })
+      results.push({ filename, width, theme, view, scrollWidth: geometry.scrollWidth,
+        ...(stage === 'recovery' ? geometry.review : {}) })
       process.stdout.write(`Captured ${stage}/${filename}\n`)
     }
   }
-  await writeFile(resolve(output, 'evidence.json'), JSON.stringify({ stage, profile, source: 'local read-only component fixtures', results }, null, 2))
+  await writeFile(resolve(output, 'evidence.json'), JSON.stringify({ stage, profile, sourceCommit, source: 'local read-only component fixtures', results }, null, 2))
 } finally {
   socket?.close()
   chrome.kill()

@@ -80,7 +80,7 @@ export function ForkSheet({
       const id = sessionIdOf(result)
       if (id === null)
         throw new Error(
-          'The desktop did not confirm the child session. Inspect the parent or retry this same fork.',
+          'The desktop did not confirm the child session. Inspect the parent or check its receipt.',
         )
       await app
         .refresh()
@@ -95,7 +95,7 @@ export function ForkSheet({
         setFailure(
           error instanceof Error
             ? error.message
-            : 'Could not confirm the fork. Retry checks the same request.',
+            : 'Could not confirm the fork. Check its receipt.',
         )
     } finally {
       inFlight.current = false
@@ -185,7 +185,7 @@ export function ForkSheet({
             <p>
               {busy
                 ? 'Waiting for your computer to confirm the child task.'
-                : 'This fork has an outstanding receipt. Retry checks the same request.'}
+                : 'This fork has an outstanding receipt. Check the original request.'}
             </p>
             <p className="mt-2">
               Your agent may need native approval. Creation can wait up to five minutes; you can
@@ -214,7 +214,7 @@ export function ForkSheet({
           className="primary-button w-full"
           disabled={busy || !connected || !title.trim() || title.trim().length > 120}
         >
-          {busy ? 'Waiting for desktop…' : pending !== null ? 'Retry same fork' : 'Create fork'}
+          {busy ? 'Waiting for desktop…' : pending !== null ? 'Check fork receipt' : 'Create fork'}
         </button>
       </form>
     </BottomSheet>

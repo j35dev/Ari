@@ -122,7 +122,7 @@ describe('starting a new chat', () => {
     render(<NewChatScreen {...handlers} />)
     expect(screen.getByRole('alert').textContent).toContain('was not confirmed')
     expect(app.session.send).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check request receipt' }))
     await waitFor(() => expect(handlers.onOpen).toHaveBeenCalledWith('new-1'))
     expect(app.session.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: first?.[1] })
     expect(sent()[1]).toEqual({
@@ -143,9 +143,9 @@ describe('starting a new chat', () => {
       await screen.findByRole('alert')
       const stored = sessionStorage.getItem('ari.creation:https://computer.example:phone-1')
       expect(stored).not.toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Check request receipt' }))
       await waitFor(() => expect(app.session.query).toHaveBeenCalledOnce())
-      await waitFor(() => expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Retry' }).disabled).toBe(false))
+      await waitFor(() => expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Check request receipt' }).disabled).toBe(false))
       expect(app.session.send).toHaveBeenCalledOnce()
       expect(sessionStorage.getItem('ari.creation:https://computer.example:phone-1')).toBe(stored)
       expect(handlers.onOpen).not.toHaveBeenCalled()
@@ -221,7 +221,7 @@ describe('starting a new chat', () => {
   it('says what to do when no project is shared with this phone', () => {
     app.projects = []
     render(<NewChatScreen {...handlers} />)
-    expect(screen.getByText('Share a project first')).toBeTruthy()
+    expect(screen.getByText('Add a project on your computer')).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 

@@ -100,7 +100,7 @@ export function ReviewIntegration({
           setFailure(`Integrated, but refresh failed: ${messageOf(error)}`),
         )
       } else
-        throw new Error('The computer did not confirm integration. Retry checks the same request.')
+        throw new Error('The computer did not confirm integration. Check its receipt.')
       setUncertain(false)
     } catch (error) {
       if (!alive.current) return
@@ -180,7 +180,7 @@ export function ReviewIntegration({
                 }
                 onClick={() => void integrate()}
               >
-                {uncertain ? 'Retry same integration' : 'Integrate reviewed changes'}
+                {uncertain ? 'Check integration receipt' : 'Integrate reviewed changes'}
               </button>
             </>
           )}

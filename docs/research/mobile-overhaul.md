@@ -78,11 +78,15 @@ Visible changes, final evidence, checks and limitations will be appended here.
     command status when Retry is tapped. Missing or malformed host history keeps
     the receipt and asks the user to inspect that computer; it never repeats the
     mutation. Shell creation polling and terminal input Retry follow the same
-    rule. Existing button labels remain unchanged.
+    rule. Saved-submission controls now say Check receipt, Check fork receipt,
+    Check integration receipt or Check input receipt, with Checking feedback.
 13. The older pairing address form now uses the computer selector's private
     root-address policy, retaining explicit ports and invitations. Selection is
     held while a local forget completes. Late workspace completions cannot send
     a first prompt, restore receipt/draft state or navigate an abandoned view.
+14. New chat's no-project state asks users to add a project on the computer and
+    explains that approved phones can use all available projects. Attachment
+    upload is disabled offline and cannot dispatch after leaving the workspace.
 
 ## Screenshot evidence
 
@@ -142,6 +146,16 @@ client's automatic-recovery hardening. E replaces those calls with authenticated
 cover missing/corrupt host history, per-device drafts, delayed pairing cancellation
 and selecting a new connection during local forget. Final checks and screenshot
 review evidence will be recorded after validation.
+
+The first focused group passed 71 tests. The complete mobile run at 17213735
+finished with 366 passing and one failing test across 49 files (exit 1, 211.40s).
+The failure was an obsolete assertion expecting saved prompt mutation resend in
+`SessionScreen.reconnect.test.tsx:407`, corrected to assert read-only status lookup.
+The same run printed `[vitest-pool]: Timeout terminating forks worker for test files
+D:/Projects/Ari-machines-wt/mobile/apps/mobile/src/lib/conversation-parts.test.ts.`
+It completed normally with signal=null and no OOM report. That file's tests passed.
+No broad rerun is planned; the final focused group covers all changed behavior,
+and the coordinator owns the final integrated suite.
 
 The parent accepted B's secure legacy-key decision: an old unscoped IndexedDB
 credential has no trustworthy host binding. B preserves it without automatic
