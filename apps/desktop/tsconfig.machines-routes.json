@@ -7,7 +7,6 @@
     "src/main/machines-network.ts",
     "src/main/machines-rpc.ts",
     "src/main/host-signing-identity.ts",
-    "src/main/machines-routes.test.ts",
-    "src/main/remote.ts"
+    "src/main/machines-routes.test.ts"
   ]
 }
