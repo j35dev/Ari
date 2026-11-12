@@ -33,6 +33,23 @@ function replyWith(method: string, value: unknown): void {
 }
 
 describe('ModelSelector', () => {
+  it('uses the host catalog without local provider or endpoint probes', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<ModelSelector driverKind="codex" modelId="host-model" onChange={onChange}
+      hostCatalog={{ providers: [{ driverKind: 'codex', installed: true, available: true,
+        authStatus: 'authenticated', source: 'live', models: [{ id: 'host-model', label: 'Host model' }] }] }} />)
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    expect(await screen.findByRole('option', { name: /Host model/ })).toBeInTheDocument()
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    expect(rpcMocks.subscribe).not.toHaveBeenCalled()
+  })
+
+  it('waits for a remote catalog without substituting bundled or local models', async () => {
+    render(<ModelSelector driverKind="codex" modelId={null} onChange={vi.fn()} hostCatalog={null} />)
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    expect(rpcMocks.subscribe).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     rpcMocks.subscribe.mockClear()
     rpcMocks.invoke.mockReset()
