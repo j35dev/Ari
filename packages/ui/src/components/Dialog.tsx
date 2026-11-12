@@ -8,7 +8,12 @@ import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
 /** Scrim must blend over any theme, so it is a raw color-mix rather than a token. */
-const SCRIM_STYLE = { background: 'color-mix(in oklab, black 40%, transparent)' } as const
+const SCRIM_STYLE = {
+  background: 'color-mix(in oklab, black 58%, transparent)',
+  // What is behind stays recognisable but no longer readable.
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+} as const
 
 interface DialogContextValue {
   open: boolean

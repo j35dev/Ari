@@ -1,0 +1,30 @@
+{
+  "reviewedSource": "47d32aba0a705b9738fcbafcb9c8f62585df2f0a",
+  "sessionClientBlob": "abcdc6887798e68f14b914190fbc02362eba0949",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-replay-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-replay-proof.mjs 47d32aba0a705b9738fcbafcb9c8f62585df2f0a",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 11835101184,
+    "cFreeBytes": 22102310912,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "initialRows": 2100,
+    "seqZero": true,
+    "initialComplete": true,
+    "resumeRejected": true,
+    "resumeDelivered": false,
+    "liveDelivered": false,
+    "epochFenced": true,
+    "success": true
+  },
+  "limitations": [
+    "Actual immutable SessionClient and contract schemas; IPC, inventory and unused action transport are fixtures.",
+    "Existing D integration dependencies are read-only; no install, build, real profile or user checkout is touched.",
+    "No React DOM, real host, TLS, Tailscale, provider or operating-system keyring behavior is claimed.",
+    "Exit 0 confirms reproduction, not closure. The source precedes the authored reconnect fix 1c7cc319."
+  ]
+}

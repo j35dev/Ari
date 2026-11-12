@@ -1,0 +1,76 @@
+{"resourceGate":{"commitHeadroomBytes":7916687360,"cFreeBytes":22019870720}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-engine-tests","pid":26188,"startedAt":"2026-11-12T13:39:20.255Z","id":"2d4535ad-6e1b-45ec-8616-76352c848aa0"}
+
+> @ari/engine@0.1.0 test D:\Projects\Ari-machines\packages\engine
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/engine
+
+ ❯ src/orchestration.test.ts (34 tests | 2 failed) 246410ms
+   × invalidates accepted prerequisites when a newer attempt supersedes them 29748ms
+   × rejects an oversized full brief before workspace and session effects and exposes explicit retry recovery 40191ms
+Preparing worktree (new branch 'ari/work-s_a536db87a7e78224376f458d7de064f4cc9b4956cd80c75af24c61f491bdf830-2')
+Preparing worktree (new branch 'ari/work-mabcd123-2')
+Switched to a new branch 'feature'
+Switched to a new branch 'feature/review'
+(node:30156) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30156) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:30156) Warning: Closing file descriptor 6 on garbage collection
+(node:25792) Warning: Closing file descriptor 8 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:25792) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:25792) Warning: Closing file descriptor 7 on garbage collection
+(node:25792) Warning: Closing file descriptor 4 on garbage collection
+(node:25792) Warning: Closing file descriptor 6 on garbage collection
+(node:25792) Warning: Closing file descriptor 5 on garbage collection
+(node:25792) Warning: Closing file descriptor 14 on garbage collection
+(node:25792) Warning: Closing file descriptor 15 on garbage collection
+(node:25792) Warning: Closing file descriptor 16 on garbage collection
+(node:25792) Warning: Closing file descriptor 17 on garbage collection
+(node:25792) Warning: Closing file descriptor 21 on garbage collection
+(node:25792) Warning: Closing file descriptor 20 on garbage collection
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/orchestration.test.ts > invalidates accepted prerequisites when a newer attempt supersedes them
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ src/orchestration.test.ts:139:1
+    137|   reload()
+    138| })
+    139| afterEach(async () => {
+       | ^
+    140|   for (const row of await store.listSessions()) {
+    141|     await store.closeJournal(row.id)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/orchestration.test.ts > rejects an oversized full brief before workspace and session effects and exposes explicit retry recovery
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ src/orchestration.test.ts:74:1
+     72| }
+     73|
+     74| beforeEach(async () => {
+       | ^
+     75|   dir = await mkdtemp(join(tmpdir(), 'ari-orchestration-'))
+     76|   repo = join(dir, 'repo')
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/orchestration.test.ts > rejects an oversized full brief before workspace and session effects and exposes explicit retry recovery
+Error: EPERM: operation not permitted, rmdir 'D:\Projects\.ari-cache\machines-parity-private-temp\ari-orchestration-poW8l7\repo\.git\refs\heads'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed | 41 passed (42)
+      Tests  2 failed | 801 passed (803)
+   Start at  21:39:23
+   Duration  758.57s (transform 1.84s, setup 0ms, import 9.86s, tests 735.98s, environment 6ms)
+
+D:\Projects\Ari-machines\packages\engine:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ari/engine@0.1.0 test: `vitest run "--maxWorkers=1" "--no-file-parallelism"`
+Exit status 1
+{"heavyResult":{"worker":"integrated-engine-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/engine","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

@@ -13,11 +13,13 @@ import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { EffortGlyph, effortLevels } from './effort-level'
+import { PICKER, PickerOption, sentenceCase } from './TextPicker'
+import { ModeMark } from './mode-mark'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
 import type { DelegatedChild, TurnDiffValue } from '../transcript/types'
 import type { ChildTask } from '@ari/contracts/agent-control'
-import { Check, ChevronDown, Hand, PencilLine, X, Zap, type LucideIcon } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
@@ -28,12 +30,20 @@ import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
+import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import { resolveOfferedModel } from '@ari/providers/catalogs'
-import { rpc } from '../../lib/rpc'
+import {
+  SessionClientProvider,
+  createSessionClient,
+  useSessionClient,
+  sessionViewKey,
+  parseSessionViewKey,
+  type SessionScope,
+} from './session-client'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { AriaMark } from '@ari/ui/aria-mark'
-import { chip, cx, outlineButton, textButton } from '../../lib/recipes'
+import { chip, cx, outlineButton } from '../../lib/recipes'
 import type { ariaActivity } from '../aria/aria-activity'
 import { DitherScene } from '../scene/DitherScene'
 import { TranscriptView } from '../transcript'
@@ -44,7 +54,6 @@ import {
   type ComposerSeed,
   type QueuedMessageView,
 } from '../composer/Composer'
-import { stageImages } from '../composer/stage-images'
 import { readSessionDraftText } from '../composer/use-drafts'
 import {
   imageIntent,
@@ -250,7 +259,43 @@ export interface SessionDefaults {
  * journal replay through the same stream live events use, so there is exactly
  * one fold path and no load/replay race.
  */
-export function SessionView({
+export function SessionView(
+  props: Parameters<typeof SessionViewContent>[0] & { scope?: SessionScope },
+) {
+  const inherited = useSessionClient()
+  const scope =
+    props.scope ??
+    (inherited.scope.kind === 'remote'
+      ? { ...inherited.scope, sessionId: props.sessionId }
+      : parseSessionViewKey(props.sessionId))
+  if (!scope) throw new Error('SessionView requires a recognized session scope.')
+  if (props.scope && scope.sessionId !== props.sessionId)
+    throw new Error('SessionView requires the scoped wire session id.')
+  const client = useMemo(
+    () => createSessionClient(scope),
+    [scope.kind, scope.sessionId, scope.kind === 'remote' ? scope.machineId : null],
+  )
+  const keyOf = (id: string) =>
+    scope.kind === 'remote' ? sessionViewKey({ ...scope, sessionId: id }) : id
+  return (
+    <SessionClientProvider client={client}>
+      <ScopedSessionView
+        {...props}
+        sessionId={scope.sessionId}
+        onOpenSession={props.onOpenSession ? (id) => props.onOpenSession?.(keyOf(id)) : undefined}
+        sessionTitle={props.sessionTitle ? (id) => props.sessionTitle?.(keyOf(id)) : undefined}
+        activityOf={props.activityOf ? (id) => props.activityOf?.(keyOf(id)) : undefined}
+      />
+    </SessionClientProvider>
+  )
+}
+
+function ScopedSessionView(props: Parameters<typeof SessionViewContent>[0]) {
+  const client = useSessionClient()
+  return <SessionViewContent key={`${client.viewKey}:${client.authorizationEpoch}`} {...props} />
+}
+
+function SessionViewContent({
   sessionId,
   defaults,
   onDefaultsChange,
@@ -295,10 +340,56 @@ export function SessionView({
   /** Used only by the shell's explicit session-start handoff. */
   onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
-  const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  const rpc = useSessionClient()
+  const viewKey = rpc.viewKey
+  const remote = rpc.scope.kind === 'remote'
+  const [hostCatalog, setHostCatalog] = useState<RemoteModelCatalog | null>(null)
+  useEffect(() => {
+    if (rpc.scope.kind !== 'remote' || rpc.readOnly) return
+    let cancelled = false
+    void import('./session-client')
+      .then(({ readHostModelCatalog }) =>
+        readHostModelCatalog(rpc.scope.kind === 'remote' ? rpc.scope.machineId : ''),
+      )
+      .then((catalog) => {
+        if (!cancelled) setHostCatalog(catalog)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [rpc, rpc.availability])
+  const [, setReceiptRevision] = useState(0)
+  let receiptPending = false
+  let receiptError: string | null = null
+  try {
+    receiptPending = rpc.receipt() !== null
+  } catch (error) {
+    receiptPending = true
+    receiptError = error instanceof Error ? error.message : 'Submission evidence is unreadable.'
+  }
+  const hostBlocked = remote && (rpc.readOnly || receiptPending)
+  const actionReason = (operation: string): string | null =>
+    remote
+      ? receiptPending
+        ? 'Check the original submission receipt before another action.'
+        : rpc.readOnly
+          ? (rpc.capabilityReason('events.desktop.subscribe') ?? 'This host session is read-only.')
+          : rpc.capabilityReason(operation)
+      : null
+  const updateReason = actionReason('session.update')
+  const store = useMemo(() => transcriptStore(viewKey), [viewKey])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
+  const [workspaceInfo, setWorkspaceInfo] = useState<{
+    sessionId: string
+    workspace: Session['workspace']
+  } | null>(null)
+  const managedWorkspace =
+    workspaceInfo?.sessionId === sessionId && workspaceInfo.workspace?.kind === 'managed-worktree'
+      ? workspaceInfo.workspace
+      : null
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
   const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
@@ -311,6 +402,7 @@ export function SessionView({
   const historyJournalRef = useRef<HistoryJournal | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
+  const sendReason = actionReason(running ? 'session.queue' : 'session.prompt')
   const [providerSwitchable, setProviderSwitchable] = useState(false)
   // Aria's own chat (the helm project): it wears her identity, not a session's.
   const [helm, setHelm] = useState(false)
@@ -328,8 +420,8 @@ export function SessionView({
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
-  const draftIntent = useSessionDraftIntent(sessionId)
-  const sendPending = draftIntent.pendingId !== undefined
+  const draftIntent = useSessionDraftIntent(viewKey)
+  const sendPending = draftIntent.pendingId !== undefined || hostBlocked || sendReason !== null
   const viewMountedRef = useRef(true)
   useEffect(() => {
     viewMountedRef.current = true
@@ -347,7 +439,7 @@ export function SessionView({
   const [planNonce, setPlanNonce] = useState(0)
   // Review notes (M21.1): inline diff comments and review ranges attached to
   // the next message. They live in session storage so a reload keeps them.
-  const reviewNotes = useReviewDrafts(sessionId)
+  const reviewNotes = useReviewDrafts(viewKey)
   const elementPicks = draftIntent.picks
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
@@ -411,15 +503,23 @@ export function SessionView({
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
   useEffect(() => {
+    let cancelled = false
     void rpc
       .invoke('files.index', { sessionId })
-      .then((r) => setFileSuggestions(r.paths))
+      .then((r) => {
+        if (!cancelled) setFileSuggestions(r.paths)
+      })
       .catch(() => undefined)
     void rpc
       .invoke('providers.models')
-      .then(setCatalogModels)
+      .then((models) => {
+        if (!cancelled) setCatalogModels(models)
+      })
       .catch(() => undefined)
-  }, [sessionId])
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, rpc, rpc.availability])
 
   // Window size for the meter: what the provider measured, else the session
   // model's contextHint from the live catalog. Neither → used-count-only chip.
@@ -501,6 +601,7 @@ export function SessionView({
           })
           // Without a snapshot the cards still show, from live activity alone.
           .catch(() => {
+            if (remote) return
             if (!cancelled && request === taskRequest) setTasks((prev) => prev ?? [])
           })
       }, 200)
@@ -542,6 +643,7 @@ export function SessionView({
     let generation = 0
     let unsubscribe: (() => void) | null = null
     let retiring: { attempt: number; stop: () => void } | null = null
+    let continuedReplay = false
     const subscribeHistory = (): void => {
       if (generation > 0 && !replayDoneRef.current) return
       const attempt = ++generation
@@ -556,13 +658,23 @@ export function SessionView({
       setHistoryRetrying(true)
       unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
         if (cancelled) return
-        const frame = payload as SessionEventFrame
+        const frame = payload as SessionEventFrame & { seq?: number; replayStart?: boolean }
         if (frame.sessionId !== sessionId) return
         if (
           attempt !== generation &&
           (retiring?.attempt !== attempt || frame.replay === true || frame.replayDone === true)
         )
           return
+        if (frame.replayStart === true) {
+          if (!replayDoneRef.current) return
+          continuedReplay = true
+          replayDoneRef.current = false
+          appliedSeqsRef.current = new Set()
+          liveBufferRef.current = []
+          history.begin()
+          setHistoryRetrying(true)
+          return
+        }
         if (frame.replayDone === true) {
           if (replayDoneRef.current) return
           replayDoneRef.current = true
@@ -573,8 +685,16 @@ export function SessionView({
           setHistoryFailureSession(frame.replayOutcome === 'incomplete' ? sessionId : null)
           const buffered = liveBufferRef.current
           liveBufferRef.current = []
-          for (const event of buffered.sort((a, b) => a.seq - b.seq)) ingest(event, true)
-          history.finish(frame.replayOutcome !== 'incomplete')
+          const ordered = buffered.sort((a, b) => a.seq - b.seq)
+          const afterBarrier =
+            remote && frame.seq !== undefined
+              ? ordered.filter((event) => event.seq > frame.seq!)
+              : []
+          for (const event of ordered) if (!afterBarrier.includes(event)) ingest(event, true)
+          history.finish(
+            frame.replayOutcome !== 'incomplete',
+            (frame as SessionEventFrame & { replayMode?: 'full' | 'resume' }).replayMode,
+          )
           const { model, telemetry, settledTurnIds } = history.controls()
           settledTurnIdsRef.current = settledTurnIds
           for (const turnId of turnsInView)
@@ -596,7 +716,7 @@ export function SessionView({
           setTelemetry(telemetry)
           setApprovals(model.pendingApprovals)
           setPendingQuestion(model.pendingInputs.at(-1) ?? null)
-          if (attempt > 1) {
+          if (attempt > 1 || continuedReplay) {
             setQueued(model.queuedMessages)
             setBackground((prev) => ({ ...prev, tasks: model.backgroundTasks ?? [] }))
           }
@@ -611,6 +731,8 @@ export function SessionView({
               setTelemetry((prev) => ({ ...prev, startedAt: null }))
             }
           }
+          // Events newer than the host's replay barrier own the current runtime.
+          for (const event of afterBarrier) ingest(event, true)
           publishMessages()
           lastPartRef.current = history.lastPart
           return
@@ -620,10 +742,10 @@ export function SessionView({
           // chunk folds and lands before the next one, so a long session
           // paints progressively instead of waiting for one serialization.
           for (const event of (frame.events ?? []) as JournalEvent[])
-            ingest(event, false, attempt > 1)
+            ingest(event, false, attempt > 1 || continuedReplay)
           // A retry retains the current transcript until the ordered merge can
           // commit once, rather than rebuilding a long history per old chunk.
-          if (attempt === 1) publishMessages()
+          if (attempt === 1 && !continuedReplay) publishMessages()
           return
         }
         const event = frame.event as JournalEvent
@@ -693,14 +815,23 @@ export function SessionView({
             messages?: Message[]
             lastTurn?: unknown
             providerSessionId?: string | null
+            context?: { hasMessages: boolean; hasTurns: boolean; hasProviderContext: boolean }
           }
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+          setWorkspaceInfo({ sessionId, workspace: m.session.workspace })
           setMetadataFailureSession(null)
           setProviderSwitchable(canSwitchProvider(m.session))
           setHelm(isHelmSession(m.session))
           setProviderContext((previous) => ({
-            hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
-            hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
+            hasMessages:
+              previous.hasMessages ||
+              (m.messages?.length ?? 0) > 0 ||
+              m.context?.hasMessages === true,
+            hasTurns:
+              previous.hasTurns ||
+              m.activeTurnId !== null ||
+              m.lastTurn != null ||
+              m.context?.hasTurns === true,
             providerSessionId: m.providerSessionId ?? previous.providerSessionId,
           }))
           setMetadataReadySession(sessionId)
@@ -734,11 +865,12 @@ export function SessionView({
       unsubscribe?.()
       retiring?.stop()
     }
-  }, [sessionId, store, turnsInView])
+  }, [sessionId, store, turnsInView, rpc, rpc.availability])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
       case 'session.created':
+        setWorkspaceInfo({ sessionId, workspace: event.session.workspace })
         setProviderSwitchable(canSwitchProvider(event.session))
         setHelm(isHelmSession(event.session))
         break
@@ -1012,48 +1144,61 @@ export function SessionView({
           return true
         })
         .catch((err: unknown) => {
-          fail(err instanceof Error ? err.message : String(err), true)
+          let uncertain = !remote
+          if (remote) {
+            try {
+              uncertain = rpc.receipt() !== null
+            } catch {
+              uncertain = true
+            }
+          }
+          fail(err instanceof Error ? err.message : String(err), uncertain)
           return false
         })
+        .finally(() => setReceiptRevision((value) => value + 1))
     },
-    [toast],
+    [toast, rpc, remote],
   )
 
-  const rememberUnsent = useCallback((message: Omit<UnsentMessage, 'id'>) => {
-    updateSessionDraftIntent(message.sessionId, (state) => ({
-      ...state,
-      recoveries: [
-        ...state.recoveries,
-        {
-          ...message,
-          id: crypto.randomUUID(),
-          images: message.images ?? message.files.map(imageIntent),
-          delivery: message.delivery ?? 'unsent',
-        },
-      ],
-    }))
-  }, [])
+  const rememberUnsent = useCallback(
+    (message: Omit<UnsentMessage, 'id'>) => {
+      updateSessionDraftIntent(viewKey, (state) => ({
+        ...state,
+        recoveries: [
+          ...state.recoveries,
+          {
+            ...message,
+            id: crypto.randomUUID(),
+            images: message.images ?? message.files.map(imageIntent),
+            delivery: message.delivery ?? 'unsent',
+          },
+        ],
+      }))
+    },
+    [viewKey],
+  )
 
   const recoverMessage = useCallback(
     (message: ComposerRecovery, current: ComposerDraft, focus: boolean): boolean => {
       if (
+        hostBlocked ||
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        readSessionDraftIntent(sessionId).pendingId
+        readSessionDraftIntent(viewKey).pendingId
       )
         return false
-      const state = readSessionDraftIntent(sessionId)
+      const state = readSessionDraftIntent(viewKey)
       const saved = state.recoveries.find((entry) => entry.id === message.id)
       if (!saved) return false
       const latest = {
         ...current,
-        text: readSessionDraftText(sessionId),
+        text: readSessionDraftText(viewKey),
         files: state.images.flatMap((image) => (image.file ? [image.file] : [])),
         images: state.images,
       }
       if (!focus && (latest.text.length > 0 || latest.images.length > 0)) return false
-      const notes = readReviewDrafts(sessionId)
-      const picks = browserPicksState(sessionId)
+      const notes = readReviewDrafts(viewKey)
+      const picks = browserPicksState(viewKey)
       const remaining = state.recoveries.filter((entry) => entry.id !== saved.id)
       if (
         latest.text.length > 0 ||
@@ -1071,7 +1216,7 @@ export function SessionView({
           reattachRequired: state.reattachRequired,
         })
       }
-      updateSessionDraftIntent(sessionId, (prev) => ({
+      updateSessionDraftIntent(viewKey, (prev) => ({
         ...prev,
         images: saved.images,
         picks: saved.picks,
@@ -1079,19 +1224,19 @@ export function SessionView({
         delivery: saved.delivery === 'uncertain' ? 'uncertain' : undefined,
         reattachRequired: saved.reattachRequired,
       }))
-      writeReviewDrafts(sessionId, saved.notes)
+      writeReviewDrafts(viewKey, saved.notes)
       setComposerSeed((prev) => ({
         text: saved.text,
         files: saved.files,
         images: saved.images,
-        sessionId,
+        sessionId: viewKey,
         nonce: (prev?.nonce ?? 0) + 1,
         replaceFiles: true,
         focus,
       }))
       return true
     },
-    [sessionId],
+    [sessionId, viewKey, hostBlocked],
   )
 
   const recoveries = useMemo(
@@ -1109,15 +1254,16 @@ export function SessionView({
     ): boolean => {
       // Reserve synchronously: repeated Enter/clicks can precede React's render.
       if (
+        hostBlocked ||
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        readSessionDraftIntent(sessionId).pendingId
+        readSessionDraftIntent(viewKey).pendingId
       )
         return false
       // Snapshot context before asynchronous image preparation. New notes/picks
       // belong to the next draft, including when another session becomes active.
-      const notes = fromComposer ? readReviewDrafts(sessionId) : []
-      const picks = fromComposer ? browserPicksState(sessionId) : []
+      const notes = fromComposer ? readReviewDrafts(viewKey) : []
+      const picks = fromComposer ? browserPicksState(viewKey) : []
       const composerImages = images ?? files.map(imageIntent)
       const pickImages = picks.flatMap((pick) =>
         pick.imageIntent ? [pick.imageIntent] : pick.image ? [imageIntent(pick.image)] : [],
@@ -1132,7 +1278,7 @@ export function SessionView({
         })
         return false
       }
-      const state = readSessionDraftIntent(sessionId)
+      const state = readSessionDraftIntent(viewKey)
       if (fromComposer && state.reattachRequired) return false
       if (fromComposer && state.recoveries.length >= MAX_RECOVERIES) {
         toast({
@@ -1143,7 +1289,7 @@ export function SessionView({
         return false
       }
       const receiptId = crypto.randomUUID()
-      updateSessionDraftIntent(sessionId, (prev) => ({
+      updateSessionDraftIntent(viewKey, (prev) => ({
         ...prev,
         pendingId: receiptId,
         recoveries: fromComposer
@@ -1162,17 +1308,17 @@ export function SessionView({
             ]
           : prev.recoveries,
       }))
-      if (fromComposer) takeBrowserPicks(sessionId)
+      if (fromComposer) takeBrowserPicks(viewKey)
       const elementBlock = promptForPicks(picks)
       const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
-      if (notes.length > 0) writeReviewDrafts(sessionId, [])
+      if (notes.length > 0) writeReviewDrafts(viewKey, [])
       const restoreDraft = (_reason?: string, uncertain = false): void => {
         // Regenerate/retry already has its complete message in the transcript.
         // Recovery never merges a failed message into a newer draft.
         if (fromComposer)
-          updateSessionDraftIntent(sessionId, (prev) => ({
+          updateSessionDraftIntent(viewKey, (prev) => ({
             ...prev,
             recoveries: prev.recoveries.map((entry) =>
               entry.id === receiptId
@@ -1199,7 +1345,7 @@ export function SessionView({
         const filesToStage = checked.flatMap((image) =>
           !image.ref && image.file ? [image.file] : [],
         )
-        const refs = filesToStage.length ? await stageImages(filesToStage) : []
+        const refs = filesToStage.length ? await rpc.stageImages(filesToStage) : []
         if (refs.length !== filesToStage.length)
           throw new Error('Some images were not staged. Your message has been saved.')
         let index = 0
@@ -1208,7 +1354,7 @@ export function SessionView({
       void prepared
         .then(
           (staged) => {
-            if (readSessionDraftIntent(sessionId).pendingId !== receiptId) return false
+            if (readSessionDraftIntent(viewKey).pendingId !== receiptId) return false
             const refs = [
               ...attachments,
               ...staged.flatMap((image) => (image.ref ? [image.ref] : [])),
@@ -1217,7 +1363,7 @@ export function SessionView({
             const stagedPicks = picks.map((pick) =>
               pick.image || pick.imageIntent ? { ...pick, imageIntent: staged[pickIndex++] } : pick,
             )
-            updateSessionDraftIntent(sessionId, (prev) => ({
+            updateSessionDraftIntent(viewKey, (prev) => ({
               ...prev,
               recoveries: prev.recoveries.map((entry) =>
                 entry.id === receiptId
@@ -1252,7 +1398,7 @@ export function SessionView({
               restoreDraft,
             ).then((accepted) => {
               if (accepted)
-                updateSessionDraftIntent(sessionId, (prev) => ({
+                updateSessionDraftIntent(viewKey, (prev) => ({
                   ...prev,
                   recoveries: prev.recoveries.filter((entry) => entry.id !== receiptId),
                 }))
@@ -1267,7 +1413,7 @@ export function SessionView({
             })
           },
           (err: unknown) => {
-            restoreDraft()
+            restoreDraft(undefined, remote && rpc.receipt() !== null)
             if (
               viewMountedRef.current &&
               !hiddenRef.current &&
@@ -1283,13 +1429,14 @@ export function SessionView({
           },
         )
         .finally(() => {
-          updateSessionDraftIntent(sessionId, (prev) =>
+          setReceiptRevision((value) => value + 1)
+          updateSessionDraftIntent(viewKey, (prev) =>
             prev.pendingId === receiptId ? { ...prev, pendingId: undefined } : prev,
           )
         })
       return true
     },
-    [sessionId, running, dispatch, toast],
+    [sessionId, viewKey, hostBlocked, remote, rpc, running, dispatch, toast],
   )
 
   const handleSend = useCallback(
@@ -1347,7 +1494,7 @@ export function SessionView({
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
     (comment: { path: string; line: number | null; text: string }) => {
-      appendReviewNote(sessionId, comment)
+      appendReviewNote(viewKey, comment)
     },
     [sessionId],
   )
@@ -1393,7 +1540,7 @@ export function SessionView({
   const handleEditQueued = useCallback(
     (message: QueuedMessageView) => {
       if (message.attachments.length > 0) return
-      if (readSessionDraftIntent(sessionId).recoveries.length >= MAX_RECOVERIES) return
+      if (readSessionDraftIntent(viewKey).recoveries.length >= MAX_RECOVERIES) return
       // The draft changes only after the engine accepts the dequeue. Applying
       // it first wipes an in-progress draft when the row was already sent.
       void dispatch(
@@ -1416,7 +1563,7 @@ export function SessionView({
   // edit does; sending then starts a new turn through the normal send path.
   const handleEditMessage = useCallback(
     (text: string) => {
-      setComposerSeed((prev) => ({ text, sessionId, nonce: (prev?.nonce ?? 0) + 1 }))
+      setComposerSeed((prev) => ({ text, sessionId: viewKey, nonce: (prev?.nonce ?? 0) + 1 }))
     },
     [sessionId],
   )
@@ -1428,7 +1575,7 @@ export function SessionView({
         text: quote,
         nonce: (prev?.nonce ?? 0) + 1,
         mode: 'insert',
-        sessionId,
+        sessionId: viewKey,
       }))
     },
     [sessionId],
@@ -1471,13 +1618,12 @@ export function SessionView({
 
   const respondApproval = useCallback(
     (approvalId: string, answer: ApprovalAnswer) => {
-      void rpc
-        .invoke('command.dispatch', {
-          command: { type: 'approval.respond', sessionId, approvalId, ...answer },
-        })
-        .catch(() => undefined)
+      void dispatch(
+        { type: 'approval.respond', sessionId, approvalId, ...answer },
+        'Could not send approval',
+      )
     },
-    [sessionId],
+    [sessionId, dispatch],
   )
 
   const respondQuestion = useCallback(
@@ -1491,17 +1637,17 @@ export function SessionView({
       // Drop the overlay immediately so Submit cannot leave a locked card
       // sitting on screen while the engine journals the answer.
       setPendingQuestion(null)
-      void rpc
-        .invoke('command.dispatch', {
-          command: {
-            type: 'input.respond',
-            sessionId,
-            inputId: current.inputId,
-            value,
-          },
-        })
-        .then((result) => {
-          if (result.accepted) return
+      void dispatch(
+        {
+          type: 'input.respond',
+          sessionId,
+          inputId: current.inputId,
+          value,
+        },
+        'Could not send answer',
+      )
+        .then((accepted) => {
+          if (accepted) return
           if (turnAlive) setPendingQuestion(current)
           toast({
             title: 'Couldn’t send answer',
@@ -1522,7 +1668,7 @@ export function SessionView({
           })
         })
     },
-    [sessionId, pendingQuestion, running, toast],
+    [sessionId, pendingQuestion, running, toast, dispatch],
   )
 
   /**
@@ -1536,10 +1682,12 @@ export function SessionView({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
+      if (hostBlocked) return
       const switched = next.driverKind !== defaults.driverKind
       if (switched && providerLocked) return
-      const switchProvider = providerSwitchable && switched && hasProviderContext(providerContext)
-      const effort = providerSwitchable && switched ? { effort: null } : {}
+      const switchProvider =
+        switched && (remote || (providerSwitchable && hasProviderContext(providerContext)))
+      const effort = switched && (remote || providerSwitchable) ? { effort: null } : {}
       const before = {
         driverKind: defaultsRef.current.driverKind,
         modelId: defaultsRef.current.modelId,
@@ -1559,7 +1707,7 @@ export function SessionView({
         }
       const sequence = ++picks.sequence
       picks.pending++
-      if (!switchProvider) {
+      if (!switchProvider && !remote) {
         onDefaultsChange({ ...defaultsRef.current, ...next, ...effort })
       }
       void dispatch(
@@ -1571,6 +1719,13 @@ export function SessionView({
         if (modelPicksRef.current !== picks) return
         picks.pending--
         const current = defaultsRef.current
+        if (remote) {
+          if (accepted && sequence === picks.sequence && viewMountedRef.current) {
+            onDefaultsChange({ ...current, ...next, ...effort })
+            onPick?.({ ...next, ...effort })
+          }
+          return
+        }
         const acceptedEffort =
           effortRevision === effortRevisionRef.current &&
           (current.effort === pick.effort || (switchProvider && current.effort === before.effort))
@@ -1582,7 +1737,7 @@ export function SessionView({
         }
         // An older rejection must not overwrite a more recent optimistic pick.
         if (sequence !== picks.sequence) return
-        if (!accepted || switchProvider) {
+        if (!accepted || switchProvider || remote) {
           const patch = Object.fromEntries(
             changedFields
               .filter(
@@ -1606,11 +1761,27 @@ export function SessionView({
       providerContext,
       providerLocked,
       dispatch,
+      hostBlocked,
+      remote,
     ],
   )
 
   const changeEffort = useCallback(
     (effort: string | null) => {
+      if (hostBlocked) return
+      if (remote) {
+        void dispatch(
+          { type: 'session.update', sessionId, effort },
+          'Could not change effort',
+        ).then((accepted) => {
+          if (!accepted || !viewMountedRef.current) return
+          effortRevisionRef.current++
+          modelPicksRef.current.confirmed.effort = effort
+          onDefaultsChange({ ...defaultsRef.current, effort })
+          onPick?.({ effort })
+        })
+        return
+      }
       effortRevisionRef.current++
       modelPicksRef.current.confirmed.effort = effort
       onDefaultsChange({ ...defaults, effort })
@@ -1621,11 +1792,22 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, onPick, defaults],
+    [sessionId, onDefaultsChange, onPick, defaults, hostBlocked, remote, dispatch],
   )
 
   const changePermissionMode = useCallback(
     (permissionMode: PermissionMode) => {
+      if (hostBlocked) return
+      if (remote) {
+        void dispatch(
+          { type: 'session.update', sessionId, permissionMode },
+          'Could not change permission mode',
+        ).then((accepted) => {
+          if (accepted && viewMountedRef.current)
+            onDefaultsChange({ ...defaultsRef.current, permissionMode })
+        })
+        return
+      }
       // `defaults` must stay in the dep list: omitting it retained a closure
       // over the pre-model-change defaults, so switching modes wrote the stale
       // driverKind/modelId back and the model chip snapped to the CLI default.
@@ -1636,7 +1818,7 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, defaults],
+    [sessionId, onDefaultsChange, defaults, hostBlocked, remote, dispatch],
   )
 
   const delegations = useMemo(
@@ -1660,21 +1842,27 @@ export function SessionView({
       return phase === 'working' || phase === 'paused'
     })
   const stopChildren = useCallback(() => {
-    if (stoppingChildren) return
+    if (stoppingChildren || hostBlocked) return
     setStoppingChildren(true)
-    void rpc
-      .invoke('orchestration.stop', {
-        sessionId,
-        tree: true,
-        idempotencyKey: (stopChildrenKeyRef.current ??= `work_${crypto.randomUUID()}`),
-      })
+    void (
+      remote
+        ? rpc.invoke('session.stopChildren', { sessionId })
+        : rpc.invoke('orchestration.stop', {
+            sessionId,
+            tree: true,
+            idempotencyKey: (stopChildrenKeyRef.current ??= `work_${crypto.randomUUID()}`),
+          })
+    )
       .then(() => {
         stopChildrenKeyRef.current = null
         refreshTasksRef.current()
       })
       .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
-      .finally(() => setStoppingChildren(false))
-  }, [sessionId, toast, stoppingChildren])
+      .finally(() => {
+        setStoppingChildren(false)
+        setReceiptRevision((value) => value + 1)
+      })
+  }, [sessionId, rpc, remote, toast, stoppingChildren, hostBlocked])
 
   useEffect(() => {
     if (childSessions.length > 0) refreshTasksRef.current()
@@ -1756,7 +1944,7 @@ export function SessionView({
         onReady={
           !hidden && centered && metadataReadySession === sessionId ? onComposerReady : undefined
         }
-        sessionId={sessionId}
+        sessionId={viewKey}
         onSend={handleSend}
         sendPending={sendPending}
         recoveries={recoveries}
@@ -1776,18 +1964,32 @@ export function SessionView({
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
           composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
-            <>
+            <fieldset
+              disabled={hostBlocked}
+              className="min-w-0"
+              title={
+                hostBlocked
+                  ? (actionReason('session.prompt') ?? 'This session is read-only.')
+                  : undefined
+              }
+            >
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
                   is not asked here — it has the side panel. */}
               {pendingQuestion !== null && pendingPlan === null ? (
                 <>
-                  <QuestionPanel
-                    prompt={pendingQuestion.prompt}
-                    choicesJson={pendingQuestion.choicesJson}
-                    onRespond={respondQuestion}
-                    onCancel={cancelQuestion}
-                  />
+                  <fieldset
+                    disabled={actionReason('input.respond') !== null}
+                    title={actionReason('input.respond') ?? undefined}
+                    className="min-w-0"
+                  >
+                    <QuestionPanel
+                      prompt={pendingQuestion.prompt}
+                      choicesJson={pendingQuestion.choicesJson}
+                      onRespond={respondQuestion}
+                      onCancel={cancelQuestion}
+                    />
+                  </fieldset>
                   {approvals.length > 0 || childSessions.length > 0 ? (
                     <div className="border-t border-border" />
                   ) : null}
@@ -1796,16 +1998,31 @@ export function SessionView({
               {approvals.length > 0 ? (
                 <div className="max-h-40 space-y-px overflow-y-auto">
                   {approvals.map((a, i) => (
-                    <ApprovalCard
+                    <fieldset
                       key={a.approvalId}
-                      approvalId={a.approvalId}
-                      toolName={a.toolName}
-                      summaryJson={a.summaryJson}
-                      options={a.options}
-                      position={i + 1}
-                      total={approvals.length}
-                      onRespond={(answer) => respondApproval(a.approvalId, answer)}
-                    />
+                      disabled={
+                        actionReason('approval.respond') !== null ||
+                        (remote && a.options.length === 0)
+                      }
+                      title={
+                        actionReason('approval.respond') ??
+                        (remote && a.options.length === 0
+                          ? 'This host approval has no named options to answer.'
+                          : undefined)
+                      }
+                      className="min-w-0"
+                    >
+                      <ApprovalCard
+                        key={a.approvalId}
+                        approvalId={a.approvalId}
+                        toolName={a.toolName}
+                        summaryJson={a.summaryJson}
+                        options={a.options}
+                        position={i + 1}
+                        total={approvals.length}
+                        onRespond={(answer) => respondApproval(a.approvalId, answer)}
+                      />
+                    </fieldset>
                   ))}
                 </div>
               ) : null}
@@ -1832,36 +2049,60 @@ export function SessionView({
                   />
                 </>
               ) : null}
-            </>
+            </fieldset>
           ) : null
         }
         leading={
           <>
-            <ModelSelector
-              driverKind={defaults.driverKind}
-              modelId={defaults.modelId}
-              onChange={changeModel}
-              lockedTo={providerLocked ? defaults.driverKind : null}
-            />
-            <EffortChip
-              driverKind={defaults.driverKind}
-              modelId={defaults.modelId}
-              effort={defaults.effort}
-              onChange={changeEffort}
-            />
-            <PermissionModeChip
-              driverKind={defaults.driverKind}
-              mode={defaults.permissionMode}
-              onChange={changePermissionMode}
-            />
+            <fieldset
+              disabled={updateReason !== null}
+              title={updateReason ?? undefined}
+              className="contents"
+            >
+              <ModelSelector
+                hostCatalog={remote ? hostCatalog : undefined}
+                driverKind={defaults.driverKind}
+                modelId={defaults.modelId}
+                onChange={changeModel}
+                lockedTo={providerLocked ? defaults.driverKind : null}
+              />
+              <EffortChip
+                driverKind={defaults.driverKind}
+                modelId={defaults.modelId}
+                effort={defaults.effort}
+                onChange={changeEffort}
+                disabledReason={updateReason}
+              />
+              <PermissionModeChip
+                driverKind={defaults.driverKind}
+                mode={defaults.permissionMode}
+                onChange={changePermissionMode}
+                disabledReason={updateReason}
+              />
+            </fieldset>
+            {managedWorkspace ? (
+              <span
+                className="max-w-40 truncate text-2xs text-fg-subtle"
+                title={managedWorkspace.path}
+              >
+                Worktree · {managedWorkspace.branch}
+              </span>
+            ) : null}
           </>
         }
       />
     ),
     [
       centered,
+      viewKey,
+      remote,
+      hostCatalog,
+      hostBlocked,
+      updateReason,
+      sendReason,
       hidden,
       metadataReadySession,
+      managedWorkspace,
       onComposerReady,
       sessionId,
       handleSend,
@@ -1906,10 +2147,27 @@ export function SessionView({
   )
   const startFromStarter = useCallback(
     (text: string) => {
-      setComposerSeed({ text, sessionId, nonce: Date.now() })
+      setComposerSeed({ text, sessionId: viewKey, nonce: Date.now() })
     },
     [sessionId],
   )
+
+  /** What this host does not offer here, as "Feature: reason" lines. */
+  const unavailableHere = remote
+    ? (
+        [
+          ['files.index', 'File suggestions'],
+          ['message.dequeue', 'Queue editing'],
+          ['message.steer', 'Steering'],
+          ['session.stopChildren', 'Stopping child sessions'],
+          ['approval.respond', 'Approvals'],
+          ['input.respond', 'Answers'],
+        ] as const
+      ).flatMap(([operation, label]) => {
+        const reason = rpc.capabilityReason(operation)
+        return reason ? [`${label}: ${reason}`] : []
+      })
+    : []
 
   const view = (
     <div className="ari-session-workspace relative flex h-full min-h-0">
@@ -1925,6 +2183,52 @@ export function SessionView({
         ) : null}
         {helm && !centered ? <AriaHeader status={ariaStatus} /> : null}
         <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+        {/* A remote session that cannot act says why on one row in the
+            conversation column, with the one action that can fix it. */}
+        {remote && (rpc.readOnly || receiptPending) ? (
+          <div
+            role="status"
+            className="ari-chat-column mt-3 flex items-center gap-3 rounded-xl border border-border bg-surface-1 px-3.5 py-2.5"
+          >
+            <span aria-hidden className="ari-status" data-status="attention" />
+            <span className="min-w-0 flex-1 text-[13px] text-fg">
+              {receiptPending
+                ? (receiptError ??
+                  'Submission outcome is unknown. Check its original receipt before sending again.')
+                : (rpc.capabilityReason('events.desktop.subscribe') ??
+                  'Cached session. Reconnect to continue.')}
+            </span>
+            <button
+              type="button"
+              className={outlineButton}
+              onClick={() => {
+                void (receiptPending ? rpc.checkReceipt() : rpc.reconnect())
+                  .then(() => {
+                    setReceiptRevision((value) => value + 1)
+                    retryHistoryRef.current()
+                    retryMetadataRef.current()
+                  })
+                  .catch((error: unknown) =>
+                    toast({
+                      title: 'Could not confirm host state',
+                      description: error instanceof Error ? error.message : String(error),
+                      tone: 'danger',
+                    }),
+                  )
+              }}
+            >
+              {receiptPending ? 'Check status' : 'Reconnect'}
+            </button>
+          </div>
+        ) : null}
+        {remote && !hostBlocked && sendReason ? (
+          <p role="status" className="ari-chat-column mt-2 text-[13px] text-fg-subtle">
+            {sendReason}
+          </p>
+        ) : null}
+        {remote && unavailableHere.length > 0 ? (
+          <p className="ari-chat-column mt-1 text-xs text-fg-subtle">{unavailableHere.join(' ')}</p>
+        ) : null}
         {startedByAria ? (
           <button type="button" onClick={onOpenAria} className={paneOriginLink}>
             <span aria-hidden="true" className="flex shrink-0">
@@ -1948,7 +2252,7 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
-            onUndoTurn={undoTurn}
+            onUndoTurn={remote ? undefined : undoTurn}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
             providerSwitches={providerSwitches}
@@ -2002,7 +2306,7 @@ export function SessionView({
             resume={turnResume}
           />
         ) : null}
-        <ElementChips picks={elementPicks} sessionId={sessionId} />
+        <ElementChips picks={elementPicks} sessionId={viewKey} />
         {reviewNotes.length > 0 ? (
           <div
             className="ari-chat-column mb-2 flex shrink-0 flex-wrap items-center gap-1.5 px-3"
@@ -2109,64 +2413,6 @@ function AriaHeader({ status }: { status?: ReturnType<typeof ariaActivity> }) {
   )
 }
 
-/** The composer's pickers read as text until hovered: no border, no tile. */
-const PICKER = cx(textButton, 'shrink-0 whitespace-nowrap')
-
-/**
- * One choice in a picker's menu. With a hint it is two lines: the value, then
- * what choosing it means, in full, so nothing is cut off mid-sentence. A mark
- * says at a glance what kind of choice it is; a check marks the current one.
- */
-function PickerOption({
-  label,
-  hint,
-  mark,
-  selected,
-  onSelect,
-}: {
-  label: string
-  hint?: string
-  /** A 15px glyph drawn in the row's ink: an icon, or the effort bars. */
-  mark?: React.ReactNode
-  selected: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={selected}
-      onClick={onSelect}
-      className={cx(
-        'flex w-full min-w-0 gap-2.5 rounded-md px-2.5 text-left text-[13px] transition-colors hover:bg-fg/6 focus-visible:bg-fg/6 focus-visible:outline-none',
-        hint ? 'items-start py-2' : 'h-8 items-center',
-      )}
-    >
-      {mark !== undefined ? (
-        <span
-          className={cx('flex shrink-0', hint && 'mt-px', selected ? 'text-fg' : 'text-fg-subtle')}
-        >
-          {mark}
-        </span>
-      ) : null}
-      <span className="min-w-0 flex-1">
-        <span className={cx('block truncate text-fg', selected && 'font-medium')}>{label}</span>
-        {hint ? (
-          <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-fg-subtle">
-            {hint}
-          </span>
-        ) : null}
-      </span>
-      {/* Always laid out, so the text column is the same width on every row. */}
-      <Check
-        size={14}
-        aria-hidden
-        className={cx('shrink-0 text-fg', hint && 'mt-0.5', !selected && 'invisible')}
-      />
-    </button>
-  )
-}
-
 interface EffortOption {
   id: string
   label: string
@@ -2196,12 +2442,15 @@ export function EffortChip({
   modelId,
   effort,
   onChange,
+  disabledReason = null,
 }: {
   driverKind: DriverKind
   modelId?: string | null
   effort: string | null
   onChange: (effort: string | null) => void
+  disabledReason?: string | null
 }) {
+  const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [options, setOptions] = useState<EffortOption[]>([])
@@ -2282,38 +2531,57 @@ export function EffortChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind, modelId])
+  }, [driverKind, modelId, rpc, rpc.availability])
 
   useEffect(() => {
     // No list is not a verdict: an agent that has not answered yet (or a
     // probe that failed) would otherwise wipe the level the user saved.
-    if (!loaded || effort === null || options.length === 0) return
+    if (rpc.scope.kind === 'remote' || !loaded || effort === null || options.length === 0) return
     if (!options.some((o) => o.id === effort)) onChange(null)
   }, [loaded, options, effort, onChange])
 
-  if (options.length === 0) return null
+  if (options.length === 0)
+    return rpc.scope.kind === 'remote' ? (
+      <button
+        type="button"
+        disabled
+        title={disabledReason ?? 'The host has not reported effort choices.'}
+        className={PICKER}
+      >
+        {effort === null ? 'Host default' : sentenceCase(effort)}
+      </button>
+    ) : null
 
   const selectedId =
     (effort !== null && options.some((o) => o.id === effort) ? effort : null) ??
     options.find((o) => o.current)?.id ??
     options[0]?.id
+  const unknownEffort =
+    rpc.scope.kind === 'remote' &&
+    effort !== null &&
+    !options.some((option) => option.id === effort)
   const current = options.find((o) => o.id === selectedId) ?? options[0]
   if (current === undefined) return null
   const levels = effortLevels(options)
-  const described = options.some((option) => option.description)
 
   return (
     <div ref={setAnchor} className="relative">
       <button
         type="button"
+        disabled={disabledReason !== null || unknownEffort}
         onClick={() => setOpen((o) => !o)}
-        title={current.description ?? `Effort: ${sentenceCase(current.label)}`}
-        aria-label={`Effort: ${sentenceCase(current.label)}`}
+        title={
+          disabledReason ??
+          (unknownEffort
+            ? 'The host has not confirmed this saved effort.'
+            : (current.description ?? `Effort: ${sentenceCase(current.label)}`))
+        }
+        aria-label={`Effort: ${unknownEffort ? effort : sentenceCase(current.label)}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={PICKER}
       >
-        <span>{sentenceCase(current.label)}</span>
+        <span>{unknownEffort ? effort : sentenceCase(current.label)}</span>
         <ChevronDown
           size={12}
           aria-hidden
@@ -2326,14 +2594,14 @@ export function EffortChip({
           align="start"
           role="listbox"
           aria-label="Effort"
-          // Bare levels need only a narrow menu; described ones get room to read.
-          className={`${described ? 'w-72' : 'w-44'} overflow-hidden`}
+          className="w-44 overflow-hidden"
         >
           {options.map((option, index) => (
             <PickerOption
               key={option.id}
               label={sentenceCase(option.label)}
-              hint={option.description}
+              // One line per level; the description is a hover away.
+              title={option.description}
               mark={<EffortGlyph {...(levels[index] ?? { filled: 1, bars: 2 })} />}
               selected={option.id === selectedId}
               onSelect={() => {
@@ -2355,26 +2623,6 @@ const PERMISSION_MODES: { value: PermissionMode; label: string; hint: string }[]
 ]
 
 const DEFAULT_MODE = PERMISSION_MODES[0] as (typeof PERMISSION_MODES)[number]
-
-/**
- * What each level lets the agent do without asking, as a mark. An agent's own
- * mode names vary ("plan", "build", "yolo"); the mark is always Ari's meaning.
- */
-const MODE_ICON: Record<PermissionMode, LucideIcon> = {
-  ask: Hand,
-  'allow-edits': PencilLine,
-  full: Zap,
-}
-
-function ModeMark({ mode }: { mode: PermissionMode }) {
-  const Icon = MODE_ICON[mode]
-  return <Icon size={15} strokeWidth={1.7} aria-hidden />
-}
-
-/** Agents name their modes and levels in lowercase ("plan"); a menu reads them as sentences. */
-function sentenceCase(label: string): string {
-  return label === label.toLowerCase() ? label.charAt(0).toUpperCase() + label.slice(1) : label
-}
 
 /** A permission mode the harness advertised over ACP, mapped to Ari's enum. */
 interface DiscoveredModeOption {
@@ -2429,11 +2677,14 @@ export function PermissionModeChip({
   driverKind,
   mode,
   onChange,
+  disabledReason = null,
 }: {
   driverKind: DriverKind
   mode: PermissionMode
   onChange: (mode: PermissionMode) => void
+  disabledReason?: string | null
 }) {
+  const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
   const [discovered, setDiscovered] = useState<DiscoveredModeOption[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
@@ -2462,12 +2713,23 @@ export function PermissionModeChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind])
+  }, [driverKind, rpc, rpc.availability])
 
-  const entries = modeEntries(discovered)
+  const entries =
+    rpc.scope.kind === 'remote'
+      ? modeEntries(discovered).filter((entry) =>
+          discovered.some((option) => option.ariMode === entry.value),
+        )
+      : modeEntries(discovered)
+  const reason =
+    disabledReason ??
+    (rpc.scope.kind === 'remote' && discovered.length === 0
+      ? 'The host has not reported permission choices.'
+      : null)
   const current =
     entries.find((e) => e.value === mode && e.nativeCurrent === true) ??
     entries.find((e) => e.value === mode) ??
+    PERMISSION_MODES.find((entry) => entry.value === mode) ??
     DEFAULT_MODE
 
   useEffect(() => {
@@ -2499,8 +2761,9 @@ export function PermissionModeChip({
     <div ref={setAnchor} className="relative">
       <button
         type="button"
+        disabled={reason !== null}
         onClick={() => setOpen((o) => !o)}
-        title={`Permission mode: ${current.hint}`}
+        title={reason ?? `Permission mode: ${current.hint}`}
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}

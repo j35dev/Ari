@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { FolderPlus, Plus, RotateCcw, X } from 'lucide-react'
 import type { RpcResults } from '@ari/contracts/rpc'
-import { rpc } from '../../lib/rpc'
 import {
   cx,
   iconButton,
@@ -10,6 +9,9 @@ import {
   tab as tabClass,
   tabSelected,
 } from '../../lib/recipes'
+import { useToolSessionClient } from './tool-session-client'
+import { createTerminalSessionAdapter } from './terminal-session-adapter'
+import { sessionMachine } from '../session/session-machine-access'
 import { ContextMenu, type MenuAnchor } from '../../shell/ContextMenu'
 import { TerminalA11y } from './TerminalA11y'
 import { TerminalPane } from './TerminalPane'
@@ -19,6 +21,9 @@ import {
   openTerminalTab,
   subscribeTerminalDock,
   terminalDockState,
+  terminalOwnerOf,
+  terminalOwnerKey,
+  type TerminalOwner,
 } from './terminal-dock'
 import { subscribeTerminalRequests, type TerminalTabRequest } from './terminal-requests'
 
@@ -75,11 +80,34 @@ export function TerminalDock({
   /** Tabs already shown in a split pane — the rail hides them so a pty is never mounted twice. */
   paneTerminalIds?: ReadonlySet<string>
 }) {
+  const sessionClient = useToolSessionClient()
+  const rpc = useMemo(
+    () => createTerminalSessionAdapter(sessionClient),
+    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability],
+  )
+  const remote = rpc.scope.kind === 'remote'
+  const owner: TerminalOwner =
+    remote && rpc.scope.kind === 'remote'
+      ? { kind: 'remote', machineId: rpc.scope.machineId, sessionId: rpc.scope.sessionId }
+      : { kind: 'local' }
+  const ownerKey = terminalOwnerKey(owner)
+  const unavailableReason = remote
+    ? rpc.readOnly
+      ? 'Reconnect to the owning machine to use its terminal.'
+      : rpc.scope.kind === 'remote' && !sessionMachine(rpc.scope.machineId)?.allowTerminal
+        ? 'Grant terminal access on the owning machine to open a shell.'
+        : rpc.capabilityReason('terminal.create')
+    : null
+  const canOpen = !unavailableReason && (remote || cwd !== null)
   const dock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
   const paneHosted = paneTerminalIds ?? new Set<string>()
-  const tabs = dock.tabs.filter((tab) => !paneHosted.has(tab.id))
-  const activeId =
-    dock.activeId !== null && paneHosted.has(dock.activeId) ? (tabs[0]?.id ?? null) : dock.activeId
+  // Each rail mounts only shells owned by its immutable host/session scope.
+  const tabs = dock.tabs.filter(
+    (tab) => terminalOwnerKey(terminalOwnerOf(tab)) === ownerKey && !paneHosted.has(tab.id),
+  )
+  const activeId = tabs.some((tab) => tab.id === dock.activeId)
+    ? dock.activeId
+    : (tabs[0]?.id ?? null)
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
   // `terminal.create` rejections used to leave a blank blinking cursor; each
@@ -90,6 +118,10 @@ export function TerminalDock({
   // Agent presets are only offered for CLIs actually installed; the plain
   // shell preset is always available.
   useEffect(() => {
+    if (remote) {
+      setInstalledKinds(new Set())
+      return
+    }
     void rpc
       .invoke('providers.detect')
       .then((detections) => {
@@ -98,45 +130,70 @@ export function TerminalDock({
         )
       })
       .catch(() => undefined)
-  }, [])
+  }, [remote, rpc])
 
   const spawnPreset = useCallback(
     (preset: TabPreset) => {
-      if (cwd === null) return
-      openTerminalTab({ title: preset.label, cwd, command: preset.command })
+      if (!canOpen) return
+      openTerminalTab({
+        title: preset.label,
+        cwd: remote ? '.' : cwd!,
+        ...(remote ? { owner } : { command: preset.command }),
+      })
     },
-    [cwd],
+    [cwd, remote, canOpen, ownerKey],
   )
 
   // Run-script requests (M21.3) and CLI sign-in (M22.1) open their own tab.
   useEffect(
     () =>
-      subscribeTerminalRequests((request: TerminalTabRequest) => {
-        openTerminalTab({ title: request.title, cwd: request.cwd, command: request.command })
-      }),
-    [],
+      remote
+        ? undefined
+        : subscribeTerminalRequests((request: TerminalTabRequest) => {
+            openTerminalTab({ title: request.title, cwd: request.cwd, command: request.command })
+          }),
+    [remote],
   )
 
   // Opening the rail is a request for a shell, so an empty dock spawns one.
   // Emptying it by hand stays empty — the once-per-mount latch is what keeps
   // closing the last tab from instantly respawning it.
-  const autoOpened = useRef(false)
+  const autoOpened = useRef(new Set<string>())
   useEffect(() => {
-    if (autoOpened.current || cwd === null || tabs.length > 0) return
-    autoOpened.current = true
-    openTerminalTab({ title: SHELL_PRESET.label, cwd })
-  }, [cwd, tabs.length])
-
-  const closeTab = useCallback((id: string) => {
-    void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
-    closeTerminalTab(id)
-    setErrorByTab((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
+    if (autoOpened.current.has(ownerKey) || !canOpen || tabs.length > 0) return
+    autoOpened.current.add(ownerKey)
+    openTerminalTab({
+      title: SHELL_PRESET.label,
+      cwd: remote ? '.' : cwd!,
+      ...(remote ? { owner } : {}),
     })
-  }, [])
+  }, [cwd, tabs.length, canOpen, remote, ownerKey])
+
+  const closeTab = useCallback(
+    (id: string) => {
+      if (remote) {
+        void rpc
+          .invoke('terminal.kill', { id })
+          .then(() => closeTerminalTab(id))
+          .catch((error: unknown) => {
+            setErrorByTab((prev) => ({
+              ...prev,
+              [id]: error instanceof Error ? error.message : 'The close could not be confirmed.',
+            }))
+          })
+      } else {
+        void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
+        closeTerminalTab(id)
+      }
+      setErrorByTab((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    },
+    [rpc, remote],
+  )
 
   const handlePaneError = useCallback(
     (id: string) => (message: string) => {
@@ -147,17 +204,34 @@ export function TerminalDock({
 
   // Clearing the error and bumping the nonce remounts just that pane, which
   // re-runs `terminal.create` (idempotent per id: a live pty is re-adopted).
-  const retryTab = useCallback((id: string) => {
-    setErrorByTab((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    setRetryNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
-  }, [])
+  const retryTab = useCallback(
+    async (id: string) => {
+      if (remote) {
+        try {
+          await rpc.checkTerminal(id)
+        } catch (error) {
+          setErrorByTab((prev) => ({
+            ...prev,
+            [id]:
+              error instanceof Error ? error.message : 'The original action is still unconfirmed.',
+          }))
+          return
+        }
+      }
+      setErrorByTab((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setRetryNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+    },
+    [remote, rpc],
+  )
 
-  const availablePresets = PRESETS.filter((p) => p.kind === undefined || installedKinds.has(p.kind))
+  const availablePresets = remote
+    ? [SHELL_PRESET]
+    : PRESETS.filter((p) => p.kind === undefined || installedKinds.has(p.kind))
   const activeTitle = tabs.find((tab) => tab.id === activeId)?.title ?? 'none'
   const activeError = activeId !== null ? (errorByTab[activeId] ?? null) : null
 
@@ -187,6 +261,7 @@ export function TerminalDock({
                 <button
                   type="button"
                   aria-label={`Close ${tab.title}`}
+                  disabled={remote && rpc.readOnly}
                   onClick={() => closeTab(tab.id)}
                   className={cx(
                     rowAction,
@@ -202,7 +277,7 @@ export function TerminalDock({
         </div>
         {/* Nothing to launch into without a root — the rail offers the fix
             instead, in the empty state below. */}
-        {cwd !== null ? (
+        {canOpen ? (
           <RailButton
             label="New terminal"
             onClick={(e) => {
@@ -230,6 +305,11 @@ export function TerminalDock({
       ) : null}
 
       <TerminalA11y title={activeTitle} />
+      {unavailableReason ? (
+        <p role="status" className="border-b border-border px-3 py-2 text-xs text-fg-muted">
+          {unavailableReason}
+        </p>
+      ) : null}
 
       {activeError !== null && activeId !== null ? (
         <div
@@ -239,8 +319,14 @@ export function TerminalDock({
           <span className="min-w-0 flex-1 truncate" title={activeError}>
             Terminal failed to start: {activeError}
           </span>
-          <button type="button" onClick={() => retryTab(activeId)} className={outlineButton}>
-            <RotateCcw size={14} aria-hidden /> Retry
+          <button
+            type="button"
+            onClick={() => {
+              void retryTab(activeId)
+            }}
+            className={outlineButton}
+          >
+            <RotateCcw size={14} aria-hidden /> {remote ? 'Check original action' : 'Retry'}
           </button>
         </div>
       ) : null}
@@ -267,7 +353,7 @@ export function TerminalDock({
               </div>
             )
           })
-        ) : cwd === null ? (
+        ) : !remote && cwd === null ? (
           // Parked shells outrank this: a session switch resolves its
           // workspace a beat late, and an open shell must not blink out.
           <EmptyRail message="Add a project to open a terminal — shells run inside a project folder.">
@@ -281,11 +367,13 @@ export function TerminalDock({
           </EmptyRail>
         ) : (
           <EmptyRail message="No terminal open.">
-            <RailAction
-              label="Open a terminal"
-              icon={<Plus size={14} aria-hidden />}
-              onClick={() => spawnPreset(SHELL_PRESET)}
-            />
+            {canOpen ? (
+              <RailAction
+                label="Open a terminal"
+                icon={<Plus size={14} aria-hidden />}
+                onClick={() => spawnPreset(SHELL_PRESET)}
+              />
+            ) : null}
           </EmptyRail>
         )}
       </div>

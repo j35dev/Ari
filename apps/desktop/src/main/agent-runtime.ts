@@ -395,9 +395,13 @@ async function startControlTransport(
   return {
     orchestration,
     service,
+    prepareRootWorkspace: (session: Session, mode?: 'auto' | 'isolated' | 'shared', baseSnapshotCommit?: string) =>
+      service.prepareRootWorkspace(session, mode, baseSnapshotCommit),
     approvals,
     supervisor,
     authorizeTurn: async (session: Session): Promise<string | null> => {
+      const workspaceReason = await service.authorizeWorkspace(session)
+      if (workspaceReason) return workspaceReason
       if (!session.parentSessionId) return null
       if (session.archived) return 'Restore the child session before starting a turn.'
       const policy = options.policy()

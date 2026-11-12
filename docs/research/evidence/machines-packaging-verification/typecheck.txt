@@ -1,0 +1,44 @@
+{"resourceGate":{"commitHeadroomBytes":10550730752,"cFreeBytes":21520822272}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-typecheck","pid":9176,"startedAt":"2026-11-12T16:02:04.106Z","id":"578c5d37-a219-4071-9652-02beaf38f49b"}
+Scope: 10 of 11 workspace projects
+
+> @ari/contracts@0.1.0 typecheck D:\Projects\Ari-machines\packages\contracts
+> tsc --noEmit
+
+
+> @ari/shared@0.1.0 typecheck D:\Projects\Ari-machines\packages\shared
+> tsc --noEmit
+
+
+> @ari/engine@0.1.0 typecheck D:\Projects\Ari-machines\packages\engine
+> tsc --noEmit
+
+
+> @ari/providers@0.1.0 typecheck D:\Projects\Ari-machines\packages\providers
+> tsc --noEmit
+
+
+> @ari/remote-client@0.1.0 typecheck D:\Projects\Ari-machines\packages\remote-client
+> tsc --noEmit
+
+
+> @ari/remote-gateway@0.1.0 typecheck D:\Projects\Ari-machines\packages\remote-gateway
+> tsc --noEmit
+
+
+> @ari/ui@0.1.0 typecheck D:\Projects\Ari-machines\packages\ui
+> tsc --noEmit
+
+
+> @ari/mobile@0.1.0 typecheck D:\Projects\Ari-machines\apps\mobile
+> tsc --noEmit
+
+
+> @ari/ari-core@0.1.0 typecheck D:\Projects\Ari-machines\packages\ari-core
+> tsc --noEmit
+
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-machines\apps\desktop
+> tsc --noEmit
+
+{"heavyResult":{"worker":"publication-packaging-typecheck","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","-r","--workspace-concurrency=1","typecheck"],"exitCode":0,"signal":null}}

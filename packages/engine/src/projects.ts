@@ -224,6 +224,8 @@ type RemovedProject = z.infer<typeof removedProjectSchema>
 const registrySchema = z.object({
   projects: z.array(projectSchema),
   removed: z.array(removedProjectSchema),
+  /** Set once every saved project default has been moved to full auto. */
+  fullAutoMigrated: z.boolean().optional(),
 })
 
 /**
@@ -266,12 +268,25 @@ export class ProjectStore {
       const raw = await readFile(this.#path, 'utf8')
       const parsed: unknown = JSON.parse(raw)
       const legacy = z.array(projectSchema).safeParse(parsed)
+      let migrated = false
       if (legacy.success) {
         this.#projects = legacy.data
       } else {
         const registry = registrySchema.parse(parsed)
         this.#projects = registry.projects
         this.#removed = registry.removed
+        migrated = registry.fullAutoMigrated === true
+      }
+      // Full auto became the default for everyone, once: a project's saved
+      // agent no longer holds new sessions to Ask. Choosing Ask again later
+      // sticks, because the marker is written with this save.
+      if (!migrated) {
+        this.#projects = this.#projects.map((project) =>
+          project.defaultAgent && project.defaultAgent.permissionMode !== 'full'
+            ? { ...project, defaultAgent: { ...project.defaultAgent, permissionMode: 'full' } }
+            : project,
+        )
+        await this.#write()
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -459,7 +474,11 @@ export class ProjectStore {
   }
 
   async #write(): Promise<void> {
-    const payload = JSON.stringify({ projects: this.#projects, removed: this.#removed }, null, 2)
+    const payload = JSON.stringify(
+      { projects: this.#projects, removed: this.#removed, fullAutoMigrated: true },
+      null,
+      2,
+    )
     await mkdir(dirname(this.#path), { recursive: true })
     const tmp = `${this.#path}.tmp`
     await writeFile(tmp, payload, 'utf8')

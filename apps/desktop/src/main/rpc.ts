@@ -24,6 +24,8 @@ import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
 import { RemoteService } from './remote'
+import { MachinesService } from './machines'
+import { registerMachinesRpc, subscribeMachineStream } from './machines-rpc'
 import { RemoteConnectService } from './remote-connect'
 import { forkRemoteSession } from './remote-fork'
 import { catalogEfforts, catalogModes, remoteCatalogProviders } from './remote-catalog'
@@ -667,6 +669,7 @@ let appUpdaterRef: UpdateController | null = null
 /** Set once a runtime has started in this process; see `AgentRuntimeOptions.recover`. */
 let agentRuntimeStarted = false
 let remoteRef: RemoteService | null = null
+let machinesRef: MachinesService | null = null
 let remoteConnectRef: RemoteConnectService | null = null
 
 /** The port the gateway is bound to, or the one settings name before it runs. */
@@ -687,7 +690,7 @@ let remoteServicesRef: { origins: RemoteOrigins; tailscale: TailscaleServe } | n
  */
 function remoteServices(): { origins: RemoteOrigins; tailscale: TailscaleServe } {
   if (remoteServicesRef !== null) return remoteServicesRef
-  const tailscale = new TailscaleServe({ port: gatewayPort })
+  const tailscale = new TailscaleServe({ port: gatewayPort, profileDir: app.getPath('userData') })
   remoteServicesRef = {
     tailscale,
     origins: new RemoteOrigins({
@@ -1190,6 +1193,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    authorizeWorkspace: async (session) => (await controlReady).service.authorizeWorkspace(session),
     turnContext: async (session) => {
       if (!isHelmSession(session)) return null
       const rows = await getSessionStore().listSessions()
@@ -1246,6 +1250,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const sessionDeps: SessionCreateDeps = {
     loadProject,
     createSession: (session) => engine.createSession(session),
+    prepareRootWorkspace: async (session, mode, baseSnapshotCommit) =>
+      (await controlReady).prepareRootWorkspace(session, mode, baseSnapshotCommit),
   }
   // An archive follows a session's delegated children, and archived runs lose
   // their control grants.
@@ -1696,6 +1702,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         engine,
         store: getSessionStore(),
         dir: join(app.getPath('userData'), 'remote'),
+        ariVersion: app.getVersion(),
         driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
         defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
         defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
@@ -1735,6 +1742,49 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        desktop: {
+          projects: async () => {
+            await getProjectStore().load()
+            return getProjectStore().list()
+          },
+          createSession: (params, selection) => createSession(sessionDeps, params, selection),
+          version: () => ({
+            ariVersion: app.getVersion(),
+            protocolVersion: 1,
+            hostingMode: 'desktop',
+            update: {
+              supported: false,
+              reason: 'Remote update execution is unavailable.',
+              availableVersion: null,
+              stagedVersion: null,
+              guidance: 'Update Ari on this machine.',
+            },
+          }),
+          stopChildren: async (sessionId) => ({
+            stopped: await (await controlReady).supervisor.stopBelow(sessionId),
+          }),
+          resume: {
+            get: async (sessionId) => {
+              await resumeReady
+              return { at: await resumeSchedule.get(sessionId) }
+            },
+            schedule: async (sessionId, at) => {
+              await resumeReady
+              return { at: (await resumeSchedule.schedule(sessionId, at)).at }
+            },
+            cancel: async (sessionId) => {
+              await resumeReady
+              return { cancelled: await resumeSchedule.cancel(sessionId) }
+            },
+          },
+          scm: {
+            summary: (sessionId) => sourceControl.summary({ sessionId }),
+            status: (sessionId) => sourceControl.status({ sessionId }),
+            review: (sessionId, comparison) => sourceControl.review({ sessionId, comparison }),
+            diff: (sessionId, snapshotId, path, context) =>
+              sourceControl.diff({ sessionId, snapshotId, path, context }),
+          },
+        },
         terminalFactory: ptyFactory,
         fork: async (deviceId, command) =>
           forkRemoteSession((await controlReady).service, deviceId, command),
@@ -1744,6 +1794,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // than showing a QR code that would resolve to the phone itself.
         clientOrigin: () => origins.clientOrigin(),
         allowedOrigins: () => origins.allowedOrigins(),
+        routeSigning: {
+          secretBox: () => {
+            if (!safeStorage.isEncryptionAvailable()) return null
+            if (
+              process.platform === 'linux' &&
+              safeStorage.getSelectedStorageBackend() === 'basic_text'
+            )
+              return null
+            return safeStorageBox(safeStorage)
+          },
+          servedOrigins: () => {
+            const state = origins.state()
+            return state.serving && state.owned === true && state.origin ? [state.origin] : []
+          },
+        },
         webRoot: () =>
           mobileWebRoot({
             isPackaged: app.isPackaged,
@@ -1758,6 +1823,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { port: getSettingsStore().current.remote.port },
     )
   remoteRef = remote
+  r.register('machines.localSnapshot', (params) => remote.localSnapshot(params))
+  const machines =
+    machinesRef ??
+    new MachinesService({
+      dir: join(app.getPath('userData'), 'machines'),
+      secretBox: () => {
+        if (!safeStorage.isEncryptionAvailable()) return null
+        if (
+          process.platform === 'linux' &&
+          safeStorage.getSelectedStorageBackend() === 'basic_text'
+        )
+          return null
+        return safeStorageBox(safeStorage)
+      },
+      onChange: (views) => rpcRegistryRef?.publish('machines.updates', views),
+    })
+  machinesRef = machines
+  machines.clearSubscriptions()
+  registerMachinesRpc(r, machines)
+  shutdownTasks.push(() => {
+    machines.dispose()
+    machinesRef = null
+  })
   const connect =
     remoteConnectRef ??
     new RemoteConnectService({
@@ -1790,6 +1878,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const state = await remote.start(params.port)
     // Now there is a listener for Serve to point at, and a tailnet address is
     // what the pairing panel needs before it can show a QR code.
+    if (remote.running) await tailscale.resume(gatewayPort())
     await refreshTailscale()
     await connect.status()
     return state
@@ -1822,11 +1911,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
 
   r.register('remote.tailscale.status', () => refreshTailscale())
-  r.register('remote.tailscale.enable', async () => {
+  r.register('remote.tailscale.enable', async (params) => {
     // Serve needs a listener to proxy to; the panel disables the button when
     // remote access is off, and this is the same answer for any other caller.
     if (!remote.running) return { remote: remote.state(), tailscale: await refreshTailscale() }
-    const tailscaleState = await tailscale.enable(gatewayPort())
+    const tailscaleState = await tailscale.enable(gatewayPort(), params)
     // Origins are re-read because a new mapping is what turns the pairing
     // notice into a QR code — but the enable answer itself is kept, since a
     // refusal would otherwise vanish into a healthy-looking re-read.
@@ -1834,8 +1923,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { remote: remote.state(), tailscale: tailscaleState }
   })
   r.register('remote.tailscale.disable', async () => {
-    await tailscale.disable()
-    return refreshTailscale()
+    const state = await tailscale.disable()
+    await refreshTailscale()
+    return state
   })
 
   // Coming back on the port the user chose, if they left remote access on.
@@ -1853,6 +1943,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await remote.stop()
         return
       }
+      if (remote.running) await tailscale.resume(gatewayPort())
       await refreshTailscale()
       if (stopping) return
       await connect.status()
@@ -1902,12 +1993,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return model.session ? model : null
   })
 
-  r.register('session.workspace', async ({ sessionId }) => {
+  r.register('session.workspace', async ({ sessionId, checkOccupancy }) => {
     const viewedAt = Date.now()
     const { session } = await getSessionStore().load(sessionId)
     // The shell requests this when its selected session changes, including restored panes.
     if (session) projectSelection.record(session.projectId, viewedAt)
-    return { path: session ? await engine.workspace(session) : null }
+    return {
+      path: session ? await engine.workspace(session) : null,
+      ...(checkOccupancy
+        ? {
+            busyReason: session
+              ? await (await controlReady).service.authorizeWorkspace(session)
+              : null,
+          }
+        : {}),
+    }
   })
 
   r.register('session.tasks', async ({ sessionId }) =>
@@ -2845,6 +2945,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('scripts.list', async (params) => listScripts(await resolveScopeRoot(params)))
 
   r.register('stream.subscribe', (params) => {
+    // Machine streams have their own validated host/session scope and never
+    // enter local journal replay, filesystem resolution, or command dispatch.
+    if (params.name === 'machines.events' || params.name === 'machines.updates') {
+      subscribeMachineStream(rpcRegistry, machines, params)
+      return { subscribed: true }
+    }
+    machines.unsubscribe(params.id)
     rpcRegistry.subscribe({
       id: params.id,
       name: params.name,
@@ -2932,6 +3039,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('stream.unsubscribe', async (params) => {
+    machines.unsubscribe(params.id)
     await sourceControlLive.unwatch(params.id)
     rpcRegistry.unsubscribe(params.id)
     return { unsubscribed: true }

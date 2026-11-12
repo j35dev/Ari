@@ -125,6 +125,41 @@ async function harness() {
 }
 
 describe('desktop Ari Connect lifecycle', () => {
+  it('refreshes project registration on the heartbeat and sends no unsigned wildcard', async () => {
+    const h = await harness()
+    const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    const projects = ['proj_1']
+    const currentPairedRecords = vi.fn(async () => ({
+      devices: [
+        {
+          deviceId: 'dev_phone',
+          displayName: 'Phone',
+          allProjects: true,
+          projectIds: [...projects],
+          pairedAt: 1,
+          lastSeenAt: null,
+          publicKey: publicKey.export({ format: 'jwk' }) as {
+            kty: 'EC'
+            crv: 'P-256'
+            x: string
+            y: string
+          },
+        },
+      ],
+      revoked: [],
+    }))
+    Object.assign(h.deps.remote, { currentPairedRecords })
+    await h.ready()
+    const registrations = () =>
+      h.calls.filter((call) => call.method === 'POST' && call.url.endsWith('/devices'))
+    expect(registrations().at(-1)?.body).toMatchObject({ projectIds: ['proj_1'] })
+    projects.push('future')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(registrations().at(-1)?.body).toMatchObject({ projectIds: ['proj_1', 'future'] })
+    expect(registrations().at(-1)?.body).not.toHaveProperty('allProjects')
+    expect(currentPairedRecords).toHaveBeenCalled()
+  })
+
   it('deduplicates concurrent browser authorization and ignores a late response after disconnect', async () => {
     const h = await harness()
     await h.service.configure('https://connect.example')

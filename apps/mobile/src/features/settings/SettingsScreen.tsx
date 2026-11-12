@@ -14,6 +14,7 @@ import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
 import { connectRequest, IS_CONNECT_BUILD, type ConnectAccount } from '../../lib/connect'
 import { OwnerAccess } from '../connect/OwnerAccess'
+import { ComputerButton } from '../computers/ComputerSwitcher'
 
 /** Connection, appearance, and access are presented in everyday language. */
 export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
@@ -21,6 +22,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
   const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [label, setLabel] = useState(app.activeComputer?.name ?? '')
   const installed = window.matchMedia('(display-mode: standalone)').matches
   async function forget(): Promise<void> {
     setBusy(true)
@@ -60,7 +62,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
         </button>
         <h1 className="text-[17px] font-semibold tracking-tight">Settings</h1>
       </header>
-      <h2 className="section-label mt-6">Connected computer</h2>
+      <h2 className="section-label mt-6">Computers</h2>
+      <div className="mb-3"><ComputerButton /></div>
       <section className="rounded-2xl border border-border bg-surface-1 p-4">
         <div className="flex items-center gap-3">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-2">
@@ -68,11 +71,11 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-medium">
-              {app.origin === null
+              {app.activeComputer?.name ?? (app.origin === null
                 ? 'No computer'
                 : ['localhost', '127.0.0.1', '[::1]'].includes(new URL(app.origin).hostname)
                   ? 'This computer'
-                  : new URL(app.origin).hostname}
+                  : new URL(app.origin).host)}
             </p>
             <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
               <span
@@ -109,6 +112,17 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
             ? 'Waiting for the first sync'
             : `Last synced ${relativeTime(app.lastSyncedAt)}`}
         </p>
+        {app.origin !== null && <details className="mt-3 border-t border-border pt-2">
+          <summary className="min-h-11 cursor-pointer py-3 text-xs text-fg-muted">Rename this computer</summary>
+          <form className="flex gap-2 pb-2" onSubmit={(event) => {
+            event.preventDefault()
+            try { app.renameComputer(app.origin!, label) }
+            catch (error) { setFailure(error instanceof Error ? error.message : 'Could not rename this computer.') }
+          }}>
+            <input value={label} onChange={(event) => setLabel(event.target.value)} aria-label="Computer name" maxLength={80} className="computer-field min-w-0 flex-1" />
+            <button type="submit" className="secondary-button" disabled={!label.trim()}>Save</button>
+          </form>
+        </details>}
       </section>
       {IS_CONNECT_BUILD && (
         <button
@@ -120,17 +134,19 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
           <ChevronRight size={16} className="text-fg-subtle" />
         </button>
       )}
-      <h2 className="section-label mt-6">Appearance</h2>
-      <ThemePicker />
+      <details className="mt-5 rounded-2xl border border-border px-4">
+        <summary className="min-h-12 cursor-pointer py-4 text-sm font-medium">Appearance</summary>
+        <div className="pb-4 pt-2"><ThemePicker /></div>
+      </details>
       <h2 className="section-label mt-6">This phone's access</h2>
       <section className="rounded-2xl border border-border p-4">
         <div className="flex items-start gap-2.5">
           <ShieldCheck size={19} className="shrink-0 text-fg-muted" />
           <div>
-            <p className="text-sm font-medium">{app.projects.length} shared projects</p>
+            <p className="text-sm font-medium">{app.projects.length} available projects</p>
             <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-              Project access and terminal permission are approved on your computer. Revoke this
-              phone there at any time.
+              This phone is approved on this computer. Terminal access needs a separate permission.
+              Revoke this phone there at any time.
             </p>
           </div>
         </div>

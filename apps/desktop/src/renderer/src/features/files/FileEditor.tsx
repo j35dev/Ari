@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, FileText } from 'lucide-react'
-import { rpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { cx, iconButton, outlineButton, primaryButton, quietButton } from '../../lib/recipes'
 import { DiffHighlightPool, type HighlightLine } from '../diffs/diff-highlight-pool'
 import { languageForPath } from '../diffs/use-diff-highlight'
@@ -147,6 +147,8 @@ interface FileEditorProps {
   onClose: () => void
   /** Called after a successful save so listings can refresh. */
   onSaved?: () => void
+  /** Host file writes are not exposed; keep the normal preview with a reason. */
+  readOnlyReason?: string | null
 }
 
 /**
@@ -156,7 +158,13 @@ interface FileEditorProps {
  * absolute paths never cross IPC. Files over the edit cap or binary ones show
  * an error instead of an editable buffer. Line endings are kept as found.
  */
-export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
+export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: FileEditorProps) {
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
+  const editingReason = readOnlyReason ?? (rpc.scope.kind === 'remote' || rpc.readOnly
+    ? rpc.capabilityReason('fs.writeTextFile') ?? 'File editing is unavailable on this machine.' : null)
+  const readOnly = editingReason != null
+  const generation = useRef(0)
   const [original, setOriginal] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [eol, setEol] = useState<'\n' | '\r\n'>('\n')
@@ -169,14 +177,16 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
   const fieldRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
+    const epoch = ++generation.current
     let cancelled = false
     setOriginal(null)
     setDraft('')
     setError(null)
+    setSaving(false)
     setConfirmClose(false)
     setCaret({ line: 1, column: 1 })
     void rpc
-      .invoke('fs.readTextFile', { ...scope, path })
+      .invoke('fs.readTextFile', { ...wireScope, path })
       .then((result) => {
         if (cancelled) return
         // A truncated read means the file is larger than we hold in memory;
@@ -197,8 +207,9 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
       })
     return () => {
       cancelled = true
+      if (generation.current === epoch) generation.current += 1
     }
-  }, [path, scope])
+  }, [path, wireScope, rpc, rpc.authorizationEpoch, rpc.availability])
 
   useEffect(() => {
     if (savedAt === null) return
@@ -214,28 +225,32 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
   const { dir, name } = splitPath(path)
 
   const save = useCallback((): void => {
-    if (!dirty || saving) return
+    if (readOnly || !dirty || saving) return
     const content = draft
+    // A reply that lands after the file or its machine changed is dropped.
+    const epoch = generation.current
     setSaving(true)
     setError(null)
     void rpc
       .invoke('fs.writeTextFile', {
-        ...scope,
+        ...wireScope,
         path,
         content: eol === '\n' ? content : content.replace(/\n/g, eol),
       })
       .then(() => {
+        if (generation.current !== epoch) return
         setOriginal(content)
         setSavedAt(Date.now())
         onSaved?.()
       })
       .catch((cause: unknown) => {
+        if (generation.current !== epoch) return
         setError(cause instanceof Error ? cause.message : String(cause))
       })
       .finally(() => {
-        setSaving(false)
+        if (generation.current === epoch) setSaving(false)
       })
-  }, [dirty, draft, eol, onSaved, path, saving, scope])
+  }, [dirty, draft, eol, onSaved, path, readOnly, saving, wireScope, rpc])
 
   const requestClose = useCallback((): void => {
     if (dirty) setConfirmClose(true)
@@ -256,6 +271,8 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
     } else if (event.key === 'Escape') {
       event.preventDefault()
       requestClose()
+    } else if (readOnly) {
+      return
     } else if (event.key === 'Tab' && !mod && !event.altKey && !event.shiftKey) {
       event.preventDefault()
       insertAtCaret(field, '  ', setDraft)
@@ -272,7 +289,10 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
   const gutterWidth = `calc(${String(Math.max(2, String(lines.length).length))}ch + 28px)`
 
   return (
-    <section aria-label={`Edit ${name}`} className="flex h-full min-h-0 flex-col bg-bg">
+    <section
+      aria-label={`${readOnly ? 'Preview' : 'Edit'} ${name}`}
+      className="flex h-full min-h-0 flex-col bg-bg"
+    >
       <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border pl-1.5 pr-2">
         <button
           type="button"
@@ -295,17 +315,27 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
           ) : null}
         </h2>
         {dirty ? <span className="shrink-0 text-xs text-fg-subtle">Unsaved changes</span> : null}
+        {/* Read only keeps Save in place, disabled, with the reason on hover. */}
         <button
           type="button"
           onClick={save}
-          disabled={!dirty || saving}
+          disabled={readOnly || !dirty || saving}
           aria-busy={saving || undefined}
-          title="Save (Ctrl+S)"
+          title={editingReason ?? 'Save (Ctrl+S)'}
           className={cx(primaryButton, 'ml-1 shrink-0')}
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
       </header>
+
+      {editingReason !== null ? (
+        <p
+          role="status"
+          className="shrink-0 border-b border-border px-3 py-2 text-[13px] text-fg-muted"
+        >
+          {editingReason}
+        </p>
+      ) : null}
 
       {confirmClose ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-3 py-2">
@@ -371,7 +401,9 @@ export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
                 ref={fieldRef}
                 aria-label="File contents"
                 value={draft}
+                readOnly={readOnly}
                 onChange={(event) => {
+                  if (readOnly) return
                   setDraft(event.target.value)
                   trackCaret()
                   if (confirmClose) setConfirmClose(false)

@@ -32,6 +32,7 @@ import { insertProviderSwitchRows } from './provider-switch-rows'
 import { ProviderSwitchDivider } from './ProviderSwitchDivider'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
+import { useSessionClient } from '../session/session-client'
 import type {
   DelegatedChild,
   GroupedRow,
@@ -866,6 +867,7 @@ function renderRowBody({
  * cached per id); a missing file renders its filename, never a broken image.
  */
 function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
+  const client = useSessionClient()
   const [urls, setUrls] = useState<Record<string, string | null>>({})
   const [selected, setSelected] = useState<TranscriptImage | null>(null)
 
@@ -873,14 +875,14 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
     let cancelled = false
     void Promise.all(
       images.map(async (image) => {
-        const url = await attachmentDataUrl(image.attachmentId)
+        const url = await attachmentDataUrl(image.attachmentId, client)
         if (!cancelled) setUrls((prev) => ({ ...prev, [image.attachmentId]: url }))
       }),
     )
     return () => {
       cancelled = true
     }
-  }, [images])
+  }, [images, client, client.authorizationEpoch])
 
   if (images.length === 0) return null
   const selectedUrl = selected === null ? null : urls[selected.attachmentId]

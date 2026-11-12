@@ -7,6 +7,7 @@ import type { Duplex } from 'node:stream'
 import { z } from 'zod'
 import {
   REMOTE_PROTOCOL_VERSION,
+  REMOTE_ANONYMOUS_OPERATIONS,
   MAX_REMOTE_IMAGE_BYTES,
   pairingResolveSchema,
   remoteClientMessageSchema,
@@ -16,6 +17,9 @@ import {
   requiresAuthentication,
   type RemoteCommand,
   type RemoteErrorCode,
+  remoteOperationSchema, machinesExtensionOperationSchema,
+  remoteDesktopCommandResultSchemas, remoteDesktopQueryResultSchemas, remoteDesktopSessionResultSchema,
+  type GatewayInfo, type RemoteDesktopFrame,
 } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -25,6 +29,13 @@ import { IdempotencyStore } from './idempotency'
 import { isOriginAllowed, requestOrigin } from './origin'
 import { PairingService, type PairedDevice } from './pairing'
 import { acceptUpgrade, isWebSocketUpgrade } from './ws'
+import {
+  routeProofRequestSchema,
+  routeChallengeRequestSchema,
+  routeAuthorizeRequestSchema,
+  hostRouteManifestSchema,
+} from '@ari/contracts/route-auth'
+import { ownedRouteAudience, type RouteAuthority } from './route-auth'
 
 /**
  * The remote gateway (ADR §3, §5, §19).
@@ -63,6 +74,9 @@ export interface RemoteGatewayOptions {
   now?: () => number
   /** Dedicated managed listener: absent verification fails closed. Local/Tailscale listeners omit this. */
   managedAccess?: { verifier: () => ConnectLeaseVerifier | null }
+  /** Persisted public host metadata, never project or credential data. */
+  identity?: { machineId: string; name: string; ariVersion: string }
+  routeAuthority?: RouteAuthority
   /**
    * Where command deduplication records go if they are to outlive the
    * process. Absent, they live as long as the gateway does, which is exactly
@@ -97,22 +111,46 @@ interface RecordedOutcome {
    * sent it, so that device may always read it back.
    */
   account?: true
+  op?: string
 }
+
+const recordedOutcomeSchema = z
+  .object({
+    reply: z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
+    sessionId: z.string().min(1).optional(),
+    projectId: z.string().min(1).optional(),
+    account: z.literal(true).optional(),
+    op: z.string().min(1).max(100).optional(),
+  })
+  .strict()
+  .refine(
+    (outcome) =>
+      outcome.sessionId !== undefined ||
+      outcome.projectId !== undefined ||
+      outcome.account === true,
+  )
 
 /** What a finished command is filed under, which decides who may read its outcome back. */
 function scopeOf(command: RemoteCommand): Omit<RecordedOutcome, 'reply'> {
-  if (command.op === 'session.create') return { projectId: command.projectId }
+  if (command.op === 'session.create' || command.op === 'session.desktop.create') return { projectId: command.projectId }
   if (command.op === 'usage.redeem' || command.op === 'accounts.activate') return { account: true }
   return { sessionId: command.sessionId }
 }
 
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
   const host = options.host
+  const routeAudience = (): string | null =>
+    options.routeAuthority === undefined || options.managedAccess !== undefined
+      ? null
+      : ownedRouteAudience(options.routeAuthority)
   const pairing = options.pairing ?? new PairingService()
   const idempotency =
     options.idempotency?.restore === undefined
       ? new IdempotencyStore<RecordedOutcome>({ now: options.now })
-      : IdempotencyStore.fromJSON<RecordedOutcome>(options.idempotency.restore)
+      : IdempotencyStore.fromJSON<RecordedOutcome>(
+          options.idempotency.restore,
+          (result): result is RecordedOutcome => recordedOutcomeSchema.safeParse(result).success,
+        )
   const remember = (): void => options.idempotency?.persist?.(idempotency.toJSON())
   // Shell handles cannot survive this gateway lifetime. Keep their high-volume
   // receipts separate so keyboard input cannot evict durable prompt receipts.
@@ -171,7 +209,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const protocols = offeredProtocols(req)
     const token = bearerToken(protocols)
     if (token === undefined) return refuseUpgrade(socket, 401)
-    const device = pairing.authenticate(token)
+    const device = pairing.authenticate(token, routeAudience())
     if (device === undefined) return refuseUpgrade(socket, 401)
     pairing.touch(device.deviceId)
 
@@ -208,12 +246,18 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       connection.close(1000, 'unsubscribed')
     }
     const callerNow = (): RemoteCaller | undefined => {
-      const device = pairing.authenticate(token)
+      const device = pairing.authenticate(token, routeAudience())
       if (device === undefined) return undefined
       const caller = callerOf(device)
-      return lease === undefined
+      const effective = lease === undefined
         ? caller
-        : { ...caller, projectIds: lease.projectIds.filter((id) => caller.projectIds.includes(id)) }
+        : {
+            ...caller,
+            allProjects: false,
+            managedLeaseExpiresAt: lease.expiresAt,
+            projectIds: lease.projectIds.filter((id) => hasProject(caller, id)),
+          }
+      return { ...effective, revalidate: callerNow }
     }
     const expiryTimer =
       lease === undefined
@@ -226,6 +270,129 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     credentialTimer.unref()
 
     const send = (message: unknown): void => connection.send(JSON.stringify(message))
+
+    // DESKTOP REPLAY: subscribe before H, await bounded transport writes, then drain live once.
+    async function subscribeDesktop(sessionId: string, fromSeq?: number): Promise<void> {
+      const caller = callerNow()
+      if (!caller) return teardown()
+      if (!host.desktopReplayState || !host.replayRange) return send(errorMessage('unsupported_capability', 'Desktop history is unavailable.'))
+      if (subscriptions.size >= 8) return send(errorMessage('rate_limited', 'at most eight sessions may be streamed'))
+      const controller = new AbortController()
+      const buffer: JournalEvent[] = []
+      let bytes = 0
+      let lastSeq = fromSeq ?? -1
+      let projectId: string | undefined
+      let replaying = true
+      let pumping = false
+      let overflow: string | null = null
+      let releaseLive = (): void => {}
+      const stop = (): void => {
+        controller.abort()
+        releaseLive()
+        clearTimeout(timer)
+        if (subscriptions.get(sessionId) === stop) subscriptions.delete(sessionId)
+      }
+      const timer = setTimeout(() => { overflow = 'Replay exceeded its time limit; resync history.'; controller.abort() }, 120_000)
+      timer.unref()
+      const current = (): RemoteCaller | undefined => {
+        if (subscriptions.get(sessionId) !== stop || !connection.open ||
+          (lease && lease.expiresAt <= (options.now?.() ?? Date.now()))) return undefined
+        const live = callerNow()
+        return live && (projectId === undefined || hasProject(live, projectId)) ? live : undefined
+      }
+      const frame = async (value: RemoteDesktopFrame['frame'], signal?: AbortSignal): Promise<void> => {
+        if (!current()) { stop(); throw new Error('private stream authorization ended') }
+        await connection.sendAsync(JSON.stringify({ type: 'events.desktop.frame', sessionId, frame: value }), signal, () => current() !== undefined)
+        if (!current()) { stop(); throw new Error('private stream authorization ended') }
+      }
+      const incomplete = async (reason: string): Promise<void> => {
+        if (!current()) return stop()
+        try {
+          const state = await host.desktopReplayState!(caller, sessionId)
+          if (state && current()) await frame({ kind: 'terminal', replayOutcome: 'incomplete', seq: lastSeq,
+            liveTurnId: state.liveTurnId, reason })
+        } finally { stop() }
+      }
+      const pump = async (): Promise<void> => {
+        if (pumping || replaying) return
+        pumping = true
+        try {
+          while (buffer.length && current()) {
+            const event = buffer.shift()!
+            bytes -= Buffer.byteLength(JSON.stringify(event))
+            if (event.seq <= lastSeq) continue
+            if (event.seq !== lastSeq + 1) { await incomplete('Live event sequence has a gap; resync history.'); return }
+            await frame({ kind: 'live', event: host.desktopEvent?.(event) ?? event }, controller.signal)
+            lastSeq = event.seq
+          }
+          if (overflow) await incomplete(overflow)
+        } catch { if (current()) await incomplete(overflow ?? 'Event delivery is incomplete; resync history.').catch(stop) }
+        finally { pumping = false }
+      }
+      subscriptions.set(sessionId, stop)
+      releaseLive = host.subscribe(caller, sessionId, (event) => {
+        if (!current()) return stop()
+        if (controller.signal.aborted) return
+        const size = Buffer.byteLength(JSON.stringify(event))
+        if (buffer.length >= 2000 || bytes + size > 4 * 1024 * 1024 || size > 256 * 1024) {
+          overflow = 'Live buffer exceeded its bound; resync history.'
+          controller.abort()
+          if (!replaying) void incomplete(overflow).catch(stop)
+          return
+        }
+        buffer.push(event); bytes += size
+        if (!replaying) void pump()
+      })
+      if (!current()) releaseLive()
+      try {
+        const state = await host.desktopReplayState(caller, sessionId)
+        if (!current()) return stop()
+        if (!state) { stop(); return send(errorMessage('not_found', 'no such session')) }
+        projectId = state.projectId
+        await frame({ kind: 'start', replayMode: fromSeq === undefined ? 'full' : 'resume',
+          fromSeq: fromSeq ?? null, throughSeq: state.seq }, controller.signal)
+        const outcome = await host.replayRange(caller, sessionId,
+          { ...(fromSeq === undefined ? {} : { afterSeq: fromSeq }), throughSeq: state.seq, signal: controller.signal },
+          async (events) => {
+            if (!current()) throw new Error('private stream authorization ended')
+            // The reader caps event counts; serialization also caps encoded bytes.
+            let chunk: JournalEvent[] = []
+            let chunkBytes = 0
+            for (const event of events) {
+              const size = Buffer.byteLength(JSON.stringify(event))
+              if (size > 256 * 1024) throw new Error('journal event exceeds replay bound')
+              if (chunk.length && chunkBytes + size > 250 * 1024) {
+                await frame({ kind: 'chunk', events: chunk }, controller.signal)
+                lastSeq = chunk.at(-1)!.seq
+                chunk = []; chunkBytes = 0
+              }
+              if (event.seq !== (chunk.at(-1)?.seq ?? lastSeq) + 1) throw new Error('journal range contains a gap')
+              chunk.push(event); chunkBytes += size
+            }
+            if (chunk.length) {
+              await frame({ kind: 'chunk', events: chunk }, controller.signal)
+              lastSeq = chunk.at(-1)!.seq
+            }
+          })
+        if (!current()) return stop()
+        if (outcome.outcome !== 'complete' || state.incomplete || overflow) {
+          await incomplete(overflow ?? outcome.reason ?? 'Host history is incomplete; resync history.')
+          return
+        }
+        // Terminal is queued before all post-H events. A buffered newer turn follows it in order.
+        const runtime = await host.desktopReplayState(caller, sessionId)
+        if (!runtime || !current()) return stop()
+        await frame({ kind: 'terminal', replayOutcome: 'complete', seq: state.seq,
+          liveTurnId: runtime.liveTurnId, reason: null }, controller.signal)
+        lastSeq = state.seq
+        clearTimeout(timer)
+        replaying = false
+        await pump()
+      } catch {
+        if (current()) await incomplete(overflow ?? 'Host replay is incomplete; resync history.').catch(stop)
+        else stop()
+      }
+    }
 
     async function subscribe(sessionId: string, fromSeq?: number): Promise<void> {
       const caller = callerNow()
@@ -251,7 +418,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       const deliver = (event: JournalEvent, caughtUp?: boolean): void => {
         const live = current()
         if (live === undefined) return teardown()
-        if (projectId !== undefined && !live.projectIds.includes(projectId)) {
+        if (projectId !== undefined && !hasProject(live, projectId)) {
           stop()
           return send(
             errorMessage('access_revoked', 'this device no longer has access to that project'),
@@ -331,6 +498,11 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       if (subscriptions.has(message.data.sessionId)) return // already subscribed
 
       const { sessionId } = message.data
+      if (message.data.type === 'events.desktop.subscribe') {
+        if (!host.capabilities().includes('events.desktop.subscribe')) return send(errorMessage('unsupported_capability', 'This host cannot stream desktop history.'))
+        void subscribeDesktop(sessionId, message.data.fromSeq)
+        return
+      }
       if (!host.capabilities().includes('events.subscribe')) {
         return send(errorMessage('unsupported_capability', 'this host cannot stream events'))
       }
@@ -348,6 +520,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const origin = requestOrigin(req.headers)
+
+    // Navigation/probes do not carry Origin. This route exposes only public
+    // identity, and a supplied cross-origin request still follows exact policy.
+    if (url.pathname === '/api/identity' && req.method === 'GET') {
+      if (origin !== undefined && !originAllowed(origin))
+        return send(res, 403, fail('origin_not_allowed', 'origin is not allowed'))
+      return send(res, 200, { ok: true, result: publicInfo() }, origin)
+    }
 
     // The PWA is served before the allowlist check, because a browser sends no
     // `Origin` on a navigation. These are the app's own public files — no
@@ -384,10 +564,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       // ever makes.
       return reply(200, {
         ok: true,
-        result: {
-          protocolVersion: REMOTE_PROTOCOL_VERSION,
-          capabilities: [...host.capabilities()],
-        },
+        result: publicInfo(),
       })
     }
 
@@ -395,6 +572,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (body === undefined) return
 
     switch (url.pathname) {
+      case '/routes/manifest':
+        return routeManifest(req, reply)
+      case '/routes/proof':
+        return routeProof(reply, body)
+      case '/routes/challenge':
+        return routeChallenge(reply, body)
+      case '/routes/authorize':
+        return routeAuthorize(reply, body)
       case '/pair/request':
         return pairRequest(reply, body)
       case '/pair/status':
@@ -414,6 +599,115 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       default:
         return reply(404, fail('not_found', 'no such route'))
     }
+  }
+
+  function publicInfo(): GatewayInfo {
+    const identity = options.identity
+    const operations = host.capabilities().flatMap((operation) => {
+      const parsed = machinesExtensionOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : []
+    })
+    return {
+      ...(identity === undefined
+        ? {}
+        : { machineId: identity.machineId, name: identity.name, ariVersion: identity.ariVersion }),
+      ...(routeAudience() === null ? {} : { routeIdentity: { version: 1 as const } }),
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+      capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...host.capabilities()])]
+        .flatMap((operation) => { const parsed = remoteOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : [] }),
+      ...(operations.length ? { machinesExtensions: { version: 1 as const, operations } } : {}),
+    }
+  }
+
+  function routeManifest(req: IncomingMessage, reply: Reply): void {
+    const authority = options.routeAuthority
+    if (routeAudience() === null || authority === undefined)
+      return reply(400, fail('unsupported_capability', 'verified route authority is unavailable'))
+    if (authenticate(req) === undefined)
+      return reply(401, fail('unauthenticated', 'a device credential is required'))
+    const issuedAt = (options.now ?? Date.now)()
+    const payload = hostRouteManifestSchema.parse({
+      kind: 'ari.routes.v1',
+      hostId: authority.signer.hostId,
+      publicKey: authority.signer.publicKey,
+      issuedAt,
+      expiresAt: issuedAt + 5 * 60_000,
+      routes: [...new Set(authority.servedOrigins())],
+    })
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
+  }
+
+  function routeProof(reply: Reply, body: unknown): void {
+    const parsed = routeProofRequestSchema.safeParse(body)
+    const authority = options.routeAuthority
+    const audience = routeAudience()
+    if (
+      !parsed.success ||
+      audience === null ||
+      authority === undefined ||
+      parsed.data.audience !== audience
+    )
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
+    const issuedAt = (options.now ?? Date.now)()
+    const payload = {
+      kind: 'ari.route-proof.v1' as const,
+      hostId: authority.signer.hostId,
+      audience,
+      nonce: parsed.data.nonce,
+      issuedAt,
+      expiresAt: issuedAt + 30_000,
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+    }
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
+  }
+
+  function routeChallenge(reply: Reply, body: unknown): void {
+    const parsed = routeChallengeRequestSchema.safeParse(body)
+    const authority = options.routeAuthority
+    const audience = routeAudience()
+    if (
+      !parsed.success ||
+      audience === null ||
+      authority === undefined ||
+      parsed.data.audience !== audience
+    )
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
+    const payload = pairing.routeChallenge({
+      kind: 'ari.route-challenge.v1',
+      hostId: authority.signer.hostId,
+      audience,
+      clientNonce: parsed.data.clientNonce,
+      deviceId: parsed.data.deviceId,
+    })
+    return reply(200, { ok: true, result: { payload, signature: authority.signer.sign(payload) } })
+  }
+
+  function routeAuthorize(reply: Reply, body: unknown): void {
+    const parsed = routeAuthorizeRequestSchema.safeParse(body)
+    const audience = routeAudience()
+    if (!parsed.success || audience === null || parsed.data.audience !== audience)
+      return reply(
+        400,
+        fail('unsupported_capability', 'route audience is not owned by this listener'),
+      )
+    const result = pairing.authorizeRoute(parsed.data.deviceId, audience, parsed.data)
+    if (!result.ok)
+      return reply(statusFor(result.code), fail(result.code, 'route authorization refused'))
+    return reply(200, {
+      ok: true,
+      result: {
+        deviceId: result.device.deviceId,
+        token: result.token,
+        projectIds: result.device.projectIds,
+        allowTerminal: result.device.allowTerminal === true,
+        allProjects: result.device.allProjects === true,
+      },
+    })
   }
 
   function pairRequest(reply: Reply, body: unknown): void {
@@ -452,6 +746,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         deviceId: result.device.deviceId,
         token: result.token,
         projectIds: result.device.projectIds,
+        allProjects: result.device.allProjects === true,
         allowTerminal: result.device.allowTerminal === true,
       },
     })
@@ -513,7 +808,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         403,
         fail('access_revoked', 'a current Ari Connect membership lease is required'),
       )
-    const caller = managed?.caller ?? callerOf(device)
+    const caller = { ...(managed?.caller ?? callerOf(device)), revalidate: () => requestCaller(req) }
     if (!host.capabilities().includes(command.op)) {
       return reply(400, fail('unsupported_capability', 'this host cannot do that'))
     }
@@ -535,6 +830,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       terminal && idempotency.lookup(key) === undefined ? terminalReceipts : idempotency
     const durable = receipts === idempotency
     const outcome = receipts.begin(key, command)
+    if (outcome.outcome === 'capacity')
+      return reply(
+        429,
+        fail(
+          'rate_limited',
+          'Remote command history is full of unresolved commands. Inspect the host before submitting more work.',
+        ),
+      )
     if (outcome.outcome === 'conflict') {
       return reply(409, fail('idempotency_conflict', 'that key was used for another command'))
     }
@@ -547,7 +850,13 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       // a bodyless 200 would read as success to a client that lost the first
       // response, which is the only client that asks.
       if (outcome.result === undefined) {
-        return reply(409, fail('conflict', 'that command already failed; retry under a new key'))
+        return reply(
+          409,
+          fail(
+            'conflict',
+            'That command failed with an uncertain outcome; inspect the host before submitting again.',
+          ),
+        )
       }
       if (!(await outcomeVisible(caller, outcome.result))) {
         return reply(404, fail('not_found', 'no such command'))
@@ -559,10 +868,17 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // running" instead of running the prompt a second time.
     if (durable) remember()
 
+    const admitted = requestCaller(req)
+    if (!admitted) return reply(409, fail('conflict', 'Remote admission ended. Preserve and inspect the original command status.'))
     const result = await host.execute(caller, command)
     if (result.ok) {
-      receipts.complete(key, { reply: result, ...scopeOf(command) })
+      const schema = remoteDesktopCommandResultSchemas[command.op as keyof typeof remoteDesktopCommandResultSchemas]
+      if (schema && !schema.safeParse(result.result).success) throw new Error('invalid desktop command result')
+      const recorded = { reply: result, ...scopeOf(command), op: command.op }
+      receipts.complete(key, recorded)
       if (durable) remember()
+      const delivered = requestCaller(req)
+      if (!delivered || !(await outcomeVisible(delivered, recorded))) return reply(409, fail('conflict', 'Remote access ended. Preserve the original command receipt.'))
       return reply(200, result)
     }
     // Recorded, so a retry sees the same refusal rather than re-running a
@@ -592,13 +908,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // names, so a client can tell what it is speaking to without learning
     // anything about the machine.
     if (requested.op === 'gateway.info') {
-      return reply(200, {
-        ok: true,
-        result: {
-          protocolVersion: REMOTE_PROTOCOL_VERSION,
-          capabilities: [...host.capabilities()],
-        },
-      })
+      return reply(200, { ok: true, result: publicInfo() })
     }
     const managed = device === undefined ? undefined : authorizeManaged(headerLease(req), device)
     if (managed === null)
@@ -606,14 +916,21 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         403,
         fail('access_revoked', 'a current Ari Connect membership lease is required'),
       )
-    const caller = device === undefined ? undefined : (managed?.caller ?? callerOf(device))
+    const caller = device === undefined ? undefined : { ...(managed?.caller ?? callerOf(device)), revalidate: () => requestCaller(req) }
 
     if (requested.op === 'command.status') {
       if (device === undefined)
         return reply(401, fail('unauthenticated', 'a device credential is required'))
       const receiptKey = JSON.stringify([device.deviceId, requested.idempotencyKey])
       const record = idempotency.lookup(receiptKey) ?? terminalReceipts.lookup(receiptKey)
-      if (record === undefined) return reply(404, fail('not_found', 'no such key'))
+      if (record === undefined)
+        return reply(
+          409,
+          fail(
+            'conflict',
+            'Outcome unknown: no retained receipt; inspect the host before submitting again.',
+          ),
+        )
       // Only the outcome goes back, not the store's own bookkeeping — when the
       // record was written is the gateway's business.
       if (record.failed) {
@@ -639,14 +956,31 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
 
     const { op, ...params } = requested
     const result = await host.query(caller ?? callerOf(device), op, params)
+    const fresh = requestCaller(req)
+    if (!fresh) return reply(403, fail('access_revoked', 'Remote access ended before delivery.'))
+    if ('sessionId' in requested && (await host.getSession(fresh, requested.sessionId)) === undefined)
+      return reply(404, fail('not_found', 'no such session'))
+    if ('projectId' in requested && !hasProject(fresh, requested.projectId)) return reply(404, fail('not_found', 'no such project'))
+    const schema = op === 'session.desktop.get' ? remoteDesktopSessionResultSchema :
+      remoteDesktopQueryResultSchemas[op as keyof typeof remoteDesktopQueryResultSchemas]
+    if (schema && result !== null && !schema.safeParse(result).success) throw new Error('invalid desktop query result')
     return reply(200, { ok: true, result })
   }
 
   async function outcomeVisible(caller: RemoteCaller, outcome: RecordedOutcome): Promise<boolean> {
     if (outcome.account === true) return true
     if (outcome.sessionId !== undefined)
-      return (await host.getSession(caller, outcome.sessionId)) !== undefined
-    return outcome.projectId !== undefined && caller.projectIds.includes(outcome.projectId)
+      return host.sessionVisible ? host.sessionVisible(caller, outcome.sessionId) :
+        (await host.getSession(caller, outcome.sessionId)) !== undefined
+    return outcome.projectId !== undefined && hasProject(caller, outcome.projectId)
+  }
+
+  function requestCaller(req: IncomingMessage): RemoteCaller | undefined {
+    const device = authenticate(req)
+    if (!device) return undefined
+    const managed = authorizeManaged(headerLease(req), device)
+    if (managed === null) return undefined
+    return { ...(managed?.caller ?? callerOf(device)), revalidate: () => requestCaller(req) }
   }
 
   function authorizeManaged(
@@ -666,7 +1000,9 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       : {
           caller: {
             deviceId: device.deviceId,
-            projectIds: lease.projectIds,
+            allProjects: false,
+            managedLeaseExpiresAt: lease.expiresAt,
+            projectIds: lease.projectIds.filter((id) => hasProject(callerOf(device), id)),
             allowTerminal: device.allowTerminal === true,
           },
           expiresAt: lease.expiresAt,
@@ -678,7 +1014,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (typeof header !== 'string' || !header.toLowerCase().startsWith('bearer ')) return undefined
     const token = header.slice(7).trim()
     if (token.length === 0) return undefined
-    const device = pairing.authenticate(token)
+    const device = pairing.authenticate(token, routeAudience())
     if (device === undefined) return undefined
     pairing.touch(device.deviceId)
     return device
@@ -813,8 +1149,13 @@ function callerOf(device: PairedDevice): RemoteCaller {
   return {
     deviceId: device.deviceId,
     projectIds: [...device.projectIds],
+    allProjects: device.allProjects === true,
     allowTerminal: device.allowTerminal === true,
   }
+}
+
+function hasProject(caller: RemoteCaller, projectId: string): boolean {
+  return caller.allProjects === true || caller.projectIds.includes(projectId)
 }
 
 function errorMessage(code: RemoteErrorCode, message: string): unknown {

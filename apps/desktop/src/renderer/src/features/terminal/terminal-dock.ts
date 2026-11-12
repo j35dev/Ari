@@ -6,7 +6,14 @@
  * again instead of orphaning them and spawning a fresh shell.
  */
 
-/** One shell tab in the rail; `id` doubles as the pty session id. */
+/** A remote tab is permanently owned by one saved host and wire session. */
+export type TerminalOwner =
+  | { readonly kind: 'local' }
+  | { readonly kind: 'remote'; readonly machineId: string; readonly sessionId: string }
+
+const LOCAL_OWNER: TerminalOwner = Object.freeze({ kind: 'local' })
+
+/** One shell tab. Remote tab IDs are UI identities, never host pty IDs. */
 export interface TerminalTab {
   id: string
   /** Tab label, e.g. "Ari Terminal 2" or "my-app: dev". */
@@ -15,6 +22,12 @@ export interface TerminalTab {
   cwd: string
   /** First command written into the shell after spawn (presets, run scripts). */
   command?: string
+  /** Absent only for legacy/local shells. Never infer remote ownership from cwd. */
+  owner?: TerminalOwner
+  /** Set once from the authenticated host's confirmed creation result. */
+  hostTerminalId?: string
+  /** Persisted before dispatch so missing receipt history cannot recreate a shell. */
+  creationAttempted?: boolean
 }
 
 export interface TerminalDockState {
@@ -54,9 +67,22 @@ function load(): TerminalDockState {
     const tabs: TerminalTab[] = []
     for (const entry of raws) {
       if (typeof entry !== 'object' || entry === null) continue
-      const { id, title, cwd } = entry as Record<string, unknown>
+      const { id, title, cwd, owner: rawOwner, hostTerminalId, creationAttempted } = entry as Record<string, unknown>
       if (typeof id !== 'string' || typeof title !== 'string' || typeof cwd !== 'string') continue
-      tabs.push({ id, title, cwd })
+      const owner = parseOwner(rawOwner)
+      // A damaged remote owner/binding must never become a local terminal.
+      if (owner === null || (id.startsWith('rterm_') && owner.kind !== 'remote')) continue
+      if (hostTerminalId !== undefined && (owner.kind !== 'remote' || !validId(hostTerminalId)))
+        continue
+      if (creationAttempted !== undefined && typeof creationAttempted !== 'boolean') continue
+      tabs.push({
+        id,
+        title,
+        cwd,
+        ...(owner.kind === 'remote' ? { owner } : {}),
+        ...(typeof hostTerminalId === 'string' ? { hostTerminalId } : {}),
+        ...(owner.kind === 'remote' ? { creationAttempted: creationAttempted !== false } : {}),
+      })
     }
     if (tabs.length === 0) return EMPTY
     const storedActive = (parsed as { activeId?: unknown }).activeId
@@ -75,23 +101,32 @@ let state: TerminalDockState = load()
 const listeners = new Set<() => void>()
 let seq = 0
 
-function persist(next: TerminalDockState): void {
+function persist(next: TerminalDockState, required = false): void {
   try {
     localStorage.setItem(
       TERMINAL_DOCK_STORAGE_KEY,
       JSON.stringify({
-        tabs: next.tabs.map((tab) => ({ id: tab.id, title: tab.title, cwd: tab.cwd })),
+        tabs: next.tabs.map((tab) => ({
+          id: tab.id,
+          title: tab.title,
+          cwd: tab.cwd,
+          ...(tab.owner?.kind === 'remote' ? { owner: tab.owner } : {}),
+          ...(tab.hostTerminalId !== undefined ? { hostTerminalId: tab.hostTerminalId } : {}),
+          ...(tab.owner?.kind === 'remote' ? { creationAttempted: tab.creationAttempted === true } : {}),
+        })),
         activeId: next.activeId,
       }),
     )
-  } catch {
+  } catch (error) {
+    if (required) throw error
     // Best effort: the in-memory dock is already the truth for this run.
   }
 }
 
-function commit(next: TerminalDockState): void {
+function commit(next: TerminalDockState, required = false): void {
+  if (required) persist(next, true)
   state = next
-  persist(next)
+  if (!required) persist(next)
   for (const listener of listeners) listener()
 }
 
@@ -125,11 +160,104 @@ export function uniqueTabTitle(base: string, tabs: readonly TerminalTab[]): stri
  * reload — which restarts the sequence while main-process ptys survive — can
  * never adopt a stranger's shell through the idempotent `terminal.create`.
  */
-export function openTerminalTab(tab: Omit<TerminalTab, 'id'>): string {
-  const id = `term_${++seq}_${Math.random().toString(36).slice(2, 8)}`
-  const titled: TerminalTab = { ...tab, id, title: uniqueTabTitle(tab.title, state.tabs) }
+export function openTerminalTab(tab: Omit<TerminalTab, 'id' | 'hostTerminalId' | 'creationAttempted'>): string {
+  const owner = parseOwner(tab.owner)
+  if (owner === null) throw new Error('The terminal owner is invalid.')
+  const prefix = owner.kind === 'remote' ? 'rterm' : 'term'
+  const id = `${prefix}_${++seq}_${Math.random().toString(36).slice(2, 8)}`
+  const titled: TerminalTab = {
+    ...tab,
+    ...(owner.kind === 'remote' ? { owner, creationAttempted: false } : {}),
+    id,
+    title: uniqueTabTitle(tab.title, state.tabs),
+  }
   commit({ tabs: [...state.tabs, titled], activeId: id })
   return id
+}
+
+function validId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+}
+
+function parseOwner(value: unknown): TerminalOwner | null {
+  if (value === undefined) return LOCAL_OWNER
+  if (typeof value !== 'object' || value === null) return null
+  const owner = value as Record<string, unknown>
+  if (owner.kind === 'local' && Object.keys(owner).length === 1) return LOCAL_OWNER
+  if (
+    owner.kind === 'remote' &&
+    Object.keys(owner).length === 3 &&
+    validId(owner.machineId) &&
+    validId(owner.sessionId)
+  )
+    return Object.freeze({ kind: 'remote', machineId: owner.machineId, sessionId: owner.sessionId })
+  return null
+}
+
+export function terminalOwnerOf(tab: TerminalTab): TerminalOwner {
+  return tab.owner ?? LOCAL_OWNER
+}
+
+export function terminalOwnerKey(owner: TerminalOwner): string {
+  return owner.kind === 'local' ? 'local' : JSON.stringify([owner.machineId, owner.sessionId])
+}
+
+export function terminalTabsForOwner(owner: TerminalOwner): readonly TerminalTab[] {
+  const key = terminalOwnerKey(owner)
+  return state.tabs.filter((tab) => terminalOwnerKey(terminalOwnerOf(tab)) === key)
+}
+
+/** Bind only the verified creation result; later host/session/pty rebinding is refused. */
+export function bindRemoteTerminalTab(
+  id: string,
+  owner: Extract<TerminalOwner, { kind: 'remote' }>,
+  hostTerminalId: string,
+): void {
+  const tab = state.tabs.find((entry) => entry.id === id)
+  const expected = parseOwner(owner)
+  if (
+    !tab ||
+    expected?.kind !== 'remote' ||
+    tab.owner?.kind !== 'remote' ||
+    terminalOwnerKey(tab.owner) !== terminalOwnerKey(expected) ||
+    !validId(hostTerminalId) ||
+    (tab.hostTerminalId !== undefined && tab.hostTerminalId !== hostTerminalId)
+  )
+    throw new Error('This terminal belongs to another host, session or shell.')
+  if (tab.hostTerminalId === hostTerminalId) return
+  commit({
+    ...state,
+    tabs: state.tabs.map((entry) => (entry.id === id ? { ...entry, hostTerminalId, creationAttempted: true } : entry)),
+  }, true)
+}
+
+export function findTerminalTab(id: string): TerminalTab | undefined {
+  return state.tabs.find((tab) => tab.id === id)
+}
+
+/** A durable dispatch latch; only an explicit new tab can request a new shell. */
+export function markRemoteTerminalCreation(id: string, owner: TerminalOwner): boolean {
+  const tab = findTerminalTab(id)
+  if (owner.kind !== 'remote' || tab?.owner?.kind !== 'remote' ||
+    terminalOwnerKey(owner) !== terminalOwnerKey(tab.owner))
+    throw new Error('The terminal does not belong to this session.')
+  if (tab.creationAttempted) return false
+  commit({ ...state, tabs: state.tabs.map((entry) => entry.id === id ? { ...entry, creationAttempted: true } : entry) }, true)
+  return true
+}
+
+/** Dispose presentation on revoke/removal; original submission receipts live separately. */
+export function forgetMachineTerminals(machineId: string): void {
+  const tabs = state.tabs.filter(
+    (tab) => tab.owner?.kind !== 'remote' || tab.owner.machineId !== machineId,
+  )
+  if (tabs.length === state.tabs.length) return
+  commit({
+    tabs,
+    activeId: tabs.some((tab) => tab.id === state.activeId)
+      ? state.activeId
+      : (tabs[0]?.id ?? null),
+  })
 }
 
 /**

@@ -62,6 +62,12 @@ export class ManagedWorkspaces {
     const inside = await this.git.isRepo(cwd)
     if (!inside.ok || !inside.value)
       throw new ControlFailure('workspace_not_git', 'Isolated workers require a Git repository.')
+    const verifiedHead = await this.git.runPlumbing(cwd, ['rev-parse', '--verify', 'HEAD'])
+    if (!verifiedHead.ok)
+      throw new ControlFailure(
+        'workspace_not_git',
+        'Isolated sessions require a Git repository with a commit.',
+      )
     const scratch = await mkdtemp(join(tmpdir(), 'ari-snapshot-'))
     try {
       const env = {
@@ -74,7 +80,7 @@ export class ManagedWorkspaces {
         GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
         GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
       }
-      const head = (await this.#run(cwd, ['rev-parse', '--verify', 'HEAD'])).trim()
+      const head = verifiedHead.value.stdout.trim()
       await this.#run(cwd, ['read-tree', 'HEAD'], env)
       await this.#run(cwd, ['add', '--all', '--', '.'], env)
       const tree = (await this.#run(cwd, ['write-tree'], env)).trim()

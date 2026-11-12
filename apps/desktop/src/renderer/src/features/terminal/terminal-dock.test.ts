@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   activateTerminalTab,
+  bindRemoteTerminalTab,
   closeTerminalTab,
+  forgetMachineTerminals,
   openTerminalTab,
   resetTerminalDock,
   subscribeTerminalDock,
   terminalDockState,
+  terminalTabsForOwner,
   uniqueTabTitle,
   TERMINAL_DOCK_STORAGE_KEY,
 } from './terminal-dock'
@@ -156,5 +159,90 @@ describe('terminal-dock', () => {
 
     const reloaded = await import('./terminal-dock')
     expect(reloaded.terminalDockState().activeId).toBe('term_1_abc')
+  })
+
+  it('keeps local, host and session rails separate even when paths and host IDs collide', () => {
+    const a = { kind: 'remote' as const, machineId: 'machine-a', sessionId: 'sess_same' }
+    const b = { kind: 'remote' as const, machineId: 'machine-b', sessionId: 'sess_same' }
+    const other = { ...a, sessionId: 'sess_other' }
+    const local = openTerminalTab({ title: 'shell', cwd: '/repo' })
+    const remote = openTerminalTab({ title: 'shell', cwd: '/repo', owner: a })
+    openTerminalTab({ title: 'shell', cwd: '/repo', owner: b })
+    openTerminalTab({ title: 'shell', cwd: '/repo', owner: other })
+    expect(terminalTabsForOwner({ kind: 'local' }).map((tab) => tab.id)).toEqual([local])
+    expect(terminalTabsForOwner(a).map((tab) => tab.id)).toEqual([remote])
+    expect(remote).toMatch(/^rterm_/)
+  })
+
+  it('binds a remote shell once and refuses adoption by a different host or session', () => {
+    const owner = { kind: 'remote' as const, machineId: 'machine-a', sessionId: 'sess_a' }
+    const id = openTerminalTab({ title: 'shell', cwd: '.', owner })
+    bindRemoteTerminalTab(id, owner, 'host-term')
+    const before = terminalDockState()
+    bindRemoteTerminalTab(id, owner, 'host-term')
+    expect(terminalDockState()).toBe(before)
+    for (const foreign of [
+      { ...owner, machineId: 'machine-b' },
+      { ...owner, sessionId: 'sess_b' },
+    ])
+      expect(() => bindRemoteTerminalTab(id, foreign, 'host-term')).toThrow('another host')
+    expect(() => bindRemoteTerminalTab(id, owner, 'different-term')).toThrow('another host')
+    expect(() => bindRemoteTerminalTab(id, owner, '')).toThrow('another host')
+    expect(terminalDockState()).toBe(before)
+  })
+
+  it('restores exact remote ownership and confirmed host ID without replaying input', async () => {
+    const owner = { kind: 'remote' as const, machineId: 'machine-a', sessionId: 'sess_a' }
+    const id = openTerminalTab({ title: 'shell', cwd: '.', owner, command: 'dangerous-once' })
+    bindRemoteTerminalTab(id, owner, 'host-term')
+    vi.resetModules()
+    const reloaded = await import('./terminal-dock')
+    expect(reloaded.terminalDockState().tabs).toEqual([
+      { id, title: 'shell', cwd: '.', owner, hostTerminalId: 'host-term', creationAttempted: true },
+    ])
+  })
+
+  it('never restores a damaged remote binding as a local shell', async () => {
+    localStorage.setItem(
+      TERMINAL_DOCK_STORAGE_KEY,
+      JSON.stringify({
+        tabs: [
+          { id: 'term_legacy', title: 'local', cwd: '/repo' },
+          { id: 'rterm_missing', title: 'remote', cwd: '/repo' },
+          {
+            id: 'term_bad',
+            title: 'remote',
+            cwd: '/repo',
+            owner: { kind: 'remote', machineId: 'a' },
+          },
+          { id: 'term_unknown', title: 'remote', cwd: '/repo', owner: { kind: 'other' } },
+          { id: 'term_misbound', title: 'local', cwd: '/repo', hostTerminalId: 'host-term' },
+        ],
+        activeId: 'rterm_missing',
+      }),
+    )
+    vi.resetModules()
+    const reloaded = await import('./terminal-dock')
+    expect(reloaded.terminalDockState()).toEqual({
+      tabs: [{ id: 'term_legacy', title: 'local', cwd: '/repo' }],
+      activeId: 'term_legacy',
+    })
+  })
+
+  it('revocation removes only the affected host tabs, preserving other hosts and local shells', () => {
+    const local = openTerminalTab({ title: 'local', cwd: '/repo' })
+    const b = openTerminalTab({
+      title: 'b',
+      cwd: '.',
+      owner: { kind: 'remote', machineId: 'b', sessionId: 's' },
+    })
+    openTerminalTab({
+      title: 'a',
+      cwd: '.',
+      owner: { kind: 'remote', machineId: 'a', sessionId: 's' },
+    })
+    forgetMachineTerminals('a')
+    expect(terminalDockState().tabs.map((tab) => tab.id)).toEqual([local, b])
+    expect(terminalDockState().activeId).toBe(local)
   })
 })

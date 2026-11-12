@@ -6,7 +6,7 @@ import type {
   OrchestrationTask,
   ResultPackage,
 } from '@ari/contracts/orchestration'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from '../session/session-client'
 
 type Target = Pick<ResultPackage, 'resultId' | 'attemptId' | 'snapshotCommit' | 'version'>
 const targetOf = ({ resultId, attemptId, snapshotCommit, version }: ResultPackage): Target => ({
@@ -25,6 +25,8 @@ class ResultActionFailure extends Error {}
 
 /** Nothing is fetched/subscribed until opened. Selection and receipts survive collapse. */
 export function useDelegatedResult(sessionId: string, childSessionId: string, open: boolean) {
+  const rpc = useSessionClient()
+  const unsupported = rpc.scope.kind === 'remote' ? 'Versioned result review, integration, checks and correction are unavailable on this host. The worker report remains readable.' : null
   const [task, setTask] = useState<OrchestrationTask | null>(null)
   const [target, setTarget] = useState<Target | null>(null)
   const [loading, setLoading] = useState(false)
@@ -48,6 +50,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   }, [])
 
   const refresh = useCallback(async () => {
+    if (unsupported) { setLoadError(unsupported); return }
     const sequence = ++request.current
     // Only the first load (or a retry after a failure) shows as loading. Every
     // orchestration change in the parent session triggers a refresh, and a
@@ -86,9 +89,9 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     } finally {
       if (alive.current && sequence === request.current) setLoading(false)
     }
-  }, [sessionId, childSessionId])
+  }, [sessionId, childSessionId, rpc, unsupported])
   useEffect(() => {
-    if (!open) return
+    if (!open || unsupported) return
     void refresh()
     return rpc.subscribe('orchestration.changed', { sessionId }, () => {
       void refresh()
@@ -106,6 +109,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     method: M,
     params: OrchestrationParams<M>,
   ): Promise<OrchestrationResults[M]> => {
+    if (unsupported) return Promise.reject(new Error(unsupported))
     return rpc.invoke(method, params).catch(async (cause: unknown) => {
       if (!alive.current || !('idempotencyKey' in params)) throw cause
       // Electron does not preserve custom Error fields. Only a durable completed
@@ -291,6 +295,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     currentResult,
     loading,
     loadError,
+    unsupported,
     busy,
     error,
     notice,

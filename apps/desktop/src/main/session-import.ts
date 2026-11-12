@@ -1,3 +1,4 @@
+import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createHash } from 'node:crypto'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { RpcResults } from '@ari/contracts/rpc'
@@ -171,7 +172,7 @@ async function writeImportedJournal(
       title: transcript.title,
       driverKind: 'pi',
       modelId: transcript.model,
-      permissionMode: 'ask',
+      permissionMode: DEFAULT_PERMISSION_MODE,
       status: 'idle',
       createdAt: startedAt,
       updatedAt: lastAt,
@@ -310,7 +311,9 @@ async function importedRefs(sessions: SessionStore): Promise<Set<string>> {
     }
     if (!isPi) continue
     for (const ref of observed) {
-      refs.add(ref.startsWith(IMPORTED_PI_REF_PREFIX) ? ref.slice(IMPORTED_PI_REF_PREFIX.length) : ref)
+      refs.add(
+        ref.startsWith(IMPORTED_PI_REF_PREFIX) ? ref.slice(IMPORTED_PI_REF_PREFIX.length) : ref,
+      )
     }
   }
   return refs

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@ari/contracts/session'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from './session-client'
 
 const log = createLogger('session:title')
 
@@ -18,6 +18,7 @@ export interface SessionTitle {
  * through the engine and reflects the new title immediately.
  */
 export function useSessionTitle(sessionId: string): SessionTitle {
+  const rpc = useSessionClient()
   const [title, setTitle] = useState<string | null>(null)
 
   useEffect(() => {
@@ -36,16 +37,17 @@ export function useSessionTitle(sessionId: string): SessionTitle {
     return () => {
       cancelled = true
     }
-  }, [sessionId])
+  }, [sessionId, rpc, rpc.authorizationEpoch])
 
   const rename = useCallback(
     async (next: string): Promise<void> => {
-      await rpc.invoke('command.dispatch', {
+      const result = await rpc.invoke('command.dispatch', {
         command: { type: 'session.update', sessionId, title: next },
       })
+      if (!result.accepted) throw new Error(result.reason ?? 'The host refused the title change.')
       setTitle(next)
     },
-    [sessionId],
+    [sessionId, rpc],
   )
 
   return { title, rename }

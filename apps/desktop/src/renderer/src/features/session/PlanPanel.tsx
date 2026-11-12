@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight, ListTodo } from 'lucide-react'
 import type { RpcResults } from '@ari/contracts/rpc'
-import { rpc } from '../../lib/rpc'
+import { useSessionClient } from './session-client'
 
 type PlanItems = RpcResults['plan.get']['items']
 type PlanStatus = NonNullable<PlanItems>[number]['status']
@@ -21,6 +21,7 @@ export function PlanPanel({
   sessionId: string | null
   refreshNonce?: number
 }) {
+  const rpc = useSessionClient()
   const [items, setItems] = useState<PlanItems>(null)
   const [expanded, setExpanded] = useState(true)
   useEffect(() => {
@@ -36,7 +37,7 @@ export function PlanPanel({
     return () => {
       cancelled = true
     }
-  }, [sessionId, refreshNonce])
+  }, [sessionId, refreshNonce, rpc, rpc.authorizationEpoch])
   if (items === null || items.length === 0) return null
   return (
     <div className="ari-chat-column flex flex-col gap-2 pt-3">

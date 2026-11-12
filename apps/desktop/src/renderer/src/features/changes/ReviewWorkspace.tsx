@@ -17,8 +17,8 @@ import type {
 } from '@ari/contracts/rpc'
 import { Select } from '@ari/ui/select'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
 import { iconButton } from '../../lib/recipes'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { DiffSurface, type DiffRange } from '../diffs/DiffSurface'
 import { ReviewNavigator } from './ReviewNavigator'
 import { useSourceControl } from './use-source-control'
@@ -64,7 +64,10 @@ function ScopedReview({
   label = 'Review changes',
   renderControls,
 }: ReviewWorkspaceProps & { scope: GitScope }) {
-  const scopeKey = JSON.stringify(scope)
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = toolWireScope(rpc, scope)
+  const remote = rpc.scope.kind === 'remote'
+  const scopeKey = remote ? `${rpc.viewKey}:${JSON.stringify(scope)}` : JSON.stringify(scope)
   const preferences = useReviewPreferences(scopeKey)
   const { comparison, path: selected, filter } = preferences.value
   const { context, manifest, error, watchError, loading, refresh } = useSourceControl(
@@ -98,14 +101,14 @@ function ScopedReview({
     : file
       ? [file.path]
       : []
-  const key = manifest && file ? `${manifest.id}:${file.path}:${contextLines}` : ''
+  const key = manifest && file ? `${rpc.viewKey}:${rpc.authorizationEpoch}:${manifest.id}:${file.path}:${contextLines}` : ''
   useEffect(() => {
     if (!manifest || !file) return
     let cancelled = false
     const requestId = crypto.randomUUID()
     void rpc
       .invoke('scm.diff', {
-        ...scope,
+        ...wireScope,
         snapshotId: manifest.id,
         path: file.path,
         context: contextLines,
@@ -134,19 +137,19 @@ function ScopedReview({
         .invoke('scm.cancel', { requestId })
         .catch((error: unknown) => log.warn('Diff cancellation failed', { error: String(error) }))
     }
-  }, [manifest, file?.path, contextLines, retry])
+  }, [manifest, file?.path, contextLines, retry, rpc, rpc.authorizationEpoch, rpc.availability])
   const options = [
     { value: 'working-tree', label: 'Working tree' },
     { value: 'unstaged', label: 'Unstaged' },
     { value: 'staged', label: 'Staged' },
-    { value: 'branch', label: 'Branch changes' },
+    { value: 'branch', label: remote ? 'Branch changes · unavailable on this host' : 'Branch changes', disabled: remote },
     ...(scope.sessionId ? [{ value: 'session', label: 'This session' }] : []),
     ...(context?.turns ?? []).map((turn, index) => ({
       value: `turn:${turn.turnId}`,
       label: `Turn ${index + 1}${turn.stable ? '' : ' · unavailable'}`,
     })),
     ...(comparison.kind === 'commit'
-      ? [{ value: 'commit', label: `Commit ${comparison.ref.slice(0, 7)}` }]
+      ? [{ value: 'commit', label: `Commit ${comparison.ref.slice(0, 7)}`, disabled: remote }]
       : []),
   ]
   const choice = comparison.kind === 'turn' ? `turn:${comparison.turnId}` : comparison.kind
@@ -160,6 +163,7 @@ function ScopedReview({
     }
   }
   const selectComparison = (value: string) => {
+    if (remote && (value === 'branch' || value === 'commit')) return
     setContextLines(3)
     setSelection([])
     if (value.startsWith('turn:'))
@@ -181,13 +185,24 @@ function ScopedReview({
         <h2 className="sr-only">{label}</h2>
         <p className="flex min-w-0 items-center gap-1.5 text-[13px] text-fg-muted">
           <GitBranch size={14} className="shrink-0 text-fg-subtle" aria-hidden />
-          <span className="min-w-0 truncate">
+          {/* A managed worktree's path is one hover away, not a second header row. */}
+          <span
+            className="min-w-0 truncate"
+            title={
+              context?.workspace?.kind === 'managed-worktree' ? context.workspace.path : undefined
+            }
+          >
             {context
               ? (context.status.branch ?? 'Detached HEAD')
               : loading
                 ? 'Reading repository…'
                 : 'Repository unavailable'}{' '}
-            · {scope.sessionId ? 'session' : 'project'}
+            ·{' '}
+            {context?.workspace?.kind === 'managed-worktree'
+              ? 'worktree'
+              : scope.sessionId
+                ? 'session'
+                : 'project'}
           </span>
           {context?.status.ahead ? (
             <span className="shrink-0 font-mono text-xs" title="Commits ahead of upstream">
@@ -261,7 +276,9 @@ function ScopedReview({
               : undefined
           }
           selectedCommit={comparison.kind === 'commit' ? comparison.ref : undefined}
+          commitUnavailableReason={remote ? 'Commit comparisons are unavailable on this host.' : undefined}
           onCommit={(ref) => {
+            if (remote) return
             preferences.change({ comparison: { kind: 'commit', ref } })
             setContextLines(3)
           }}

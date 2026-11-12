@@ -9,6 +9,7 @@ import { shelve, type ShelfRow } from '../../lib/shelves'
 import { useAttention } from '../../lib/use-attention'
 import { UsageSheet } from '../usage/UsageSheet'
 import { SessionActions } from './SessionActions'
+import { ComputerButton } from '../computers/ComputerSwitcher'
 
 const HOLD_MS = 480
 
@@ -43,12 +44,12 @@ export function HomeScreen({
   }, [app.projects, app.sessions])
   const connected = app.connection === 'connected'
   const hostname = app.origin === null ? null : new URL(app.origin).hostname
-  const host =
+  const host = app.activeComputer?.name ?? (
     hostname === null
       ? 'No computer'
       : ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
         ? 'This computer'
-        : (hostname.split('.')[0] ?? hostname)
+        : (hostname.split('.')[0] ?? hostname))
   const canCreate = connected && app.session?.supports('session.create') === true
   const hasArchived = app.sessions.some((session) => session.archived === true)
   const filtered = projectId !== null || query.trim() !== ''
@@ -59,16 +60,6 @@ export function HomeScreen({
           ari<span className="text-accent">.</span>
         </span>
         <div className="flex min-w-0 items-center gap-1">
-          <span
-            role="status"
-            aria-label={`${host}, ${connectionLabel(app.connection)}`}
-            className="flex min-w-0 items-center gap-2 text-xs text-fg-muted"
-          >
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${connected ? 'bg-success' : 'bg-warning'}`}
-            />
-            <span className="truncate">{host}</span>
-          </span>
           {connected && app.session?.supports('usage.allowance') === true && (
             <button
               type="button"
@@ -89,6 +80,13 @@ export function HomeScreen({
           </button>
         </div>
       </header>
+      <div className="shrink-0 px-5 pb-3">
+        <ComputerButton />
+        <div className="mt-4 flex items-baseline justify-between gap-3">
+          <h1 className="text-[24px] font-semibold tracking-tight">Sessions</h1>
+          <span role="status" aria-label={`${host}, ${connectionLabel(app.connection)}`} className="text-xs text-fg-subtle">{connectionLabel(app.connection)}</span>
+        </div>
+      </div>
       {!connected && (
         <div
           role="status"
@@ -162,11 +160,11 @@ export function HomeScreen({
         )}
         {shelves.length === 0 && (
           <EmptyState
-            title={filtered ? 'Nothing matches' : 'No sessions yet'}
+            title={filtered ? 'Nothing matches' : !connected ? 'Computer unavailable' : 'No sessions yet'}
             detail={
               filtered
                 ? 'Try another project or a different search.'
-                : 'Start one here. The agent works on your computer while you keep an eye on it from your phone.'
+                : !connected ? 'Reconnect to load sessions. Your agents and workspace stay on this computer.' : 'Start one here. The agent works on your computer while you keep an eye on it from your phone.'
             }
             action={
               !filtered && (
@@ -189,6 +187,7 @@ export function HomeScreen({
               className={`mb-1 text-xs font-medium ${shelf.id === 'needs-you' ? 'text-warning' : 'text-fg-subtle'}`}
             >
               {shelf.title}
+              <span aria-hidden className="ml-2 tabular-nums text-fg-subtle">{shelf.rows.length}</span>
             </h2>
             <ul>
               {shelf.rows.map((row) => (
@@ -223,9 +222,10 @@ export function HomeScreen({
         aria-label="New chat"
         onClick={onNewSession}
         disabled={!canCreate}
-        className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-5 flex size-14 items-center justify-center rounded-full bg-accent text-fg-on-accent shadow-[var(--ari-shadow-2)] disabled:opacity-40"
+        className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-5 flex min-h-13 items-center justify-center gap-2 rounded-full bg-accent px-5 text-sm font-medium text-fg-on-accent shadow-[var(--ari-shadow-2)] disabled:opacity-40"
       >
         <SquarePen size={22} />
+        New chat
       </button>
       {acting !== null && <SessionActions session={acting} onClose={() => setActing(null)} />}
       {usage && <UsageSheet onClose={() => setUsage(false)} />}
