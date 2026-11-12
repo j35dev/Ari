@@ -13,6 +13,11 @@ export const ARIA_LEXICON = {
   pr: 'p ˌ i ˈ ɑ ɹ',
   // The stock dictionary omits this everyday plural used by the fallback condenser.
   details: 'd ə t ˈ A l z',
+  // Common status forms omitted by the pinned dictionary must remain spoken words.
+  completed: 'k ə m p l ˈ i t ᵻ d',
+  reviewed: 'ɹ ə v j ˈ u d',
+  verified: 'v ˈ ɛ ɹ ə f ˌ I d',
+  unloaded: 'ə n l ˈ O d ᵻ d',
 } as const
 const ones =
   'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(
@@ -44,48 +49,55 @@ export function numberWords(n: number): string {
 
 export function normalizeSpeech(text: string): string {
   // Translate assistant typography into native-safe pauses without losing English words.
-  return text
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[‘’‚‛]/g, "'")
-    .replace(/[“”„‟]/g, '"')
-    .replace(/(?<=\d)[–−](?=\d)/g, ' to ')
-    .replace(/[—―]/g, ', ')
-    .replace(/[‐‑‒–−]/g, '-')
-    .replace(/…/g, '...')
-    .replace(/[→⇒]/g, ' to ')
-    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (_, domain: string) => domain.replace(/\./g, ' dot '))
-    .replace(/\b([A-Z]{2,5})\b/g, (value) =>
-      ['PR', 'ACP', 'CLI'].includes(value) ? value.toLowerCase() : value.split('').join(' '),
-    )
-    .replace(/\$(\d+(?:,\d{3})*(?:\.\d+)?)/g, (_, value: string) =>
-      Number(value.replace(/,/g, '')) < 1
-        ? `${numberWords(Number(value.replace(/,/g, '')) * 100)} cents`
-        : `${numberWords(Number(value.replace(/,/g, '')))} dollars`,
-    )
-    .replace(/-?\d+(?:,\d{3})*(?:\.\d+)?/g, (value) => {
-      const n = Number(value.replace(/,/g, ''))
-      if (Number.isInteger(n)) return numberWords(n)
-      const rounded = Math.abs(n)
-        .toFixed(Math.abs(n) < 1 ? 2 : 1)
-        .replace(/0+$/, '')
-        .replace(/\.$/, '')
-      const [whole, fraction] = rounded.split('.')
-      return `${n < 0 ? 'minus ' : ''}${numberWords(Number(whole))}${
-        fraction
-          ? ` point ${fraction
-              .split('')
-              .map((d) => numberWords(Number(d)))
-              .join(' ')}`
-          : ''
-      }`
-    })
-    .replace(/%/g, ' percent')
-    .replace(/&/g, ' and ')
-    .replace(/@/g, ' at ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return (
+    text
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[‘’‚‛]/g, "'")
+      .replace(/[“”„‟]/g, '"')
+      .replace(/(?<=\d)[–−](?=\d)/g, ' to ')
+      .replace(/[—―]/g, ', ')
+      .replace(/[‐‑‒–−]/g, '-')
+      .replace(/…/g, '...')
+      .replace(/[→⇒]/g, ' to ')
+      .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (_, domain: string) =>
+        domain.replace(/\./g, ' dot '),
+      )
+      .replace(/\b(?:PR|ACP|CLI)\b/g, (value) => value.toLowerCase())
+      // Capitalization is often emphasis (READY, DONE), rather than an initialism.
+      .replace(
+        /\b(?:AI|API|CPU|GPU|UI|RPC|SDK|URL|USB|HTML|CSS|HTTP|HTTPS|STT|TTS|LLM)\b/g,
+        (value) => value.split('').join(' '),
+      )
+      .replace(/\$(\d+(?:,\d{3})*(?:\.\d+)?)/g, (_, value: string) =>
+        Number(value.replace(/,/g, '')) < 1
+          ? `${numberWords(Number(value.replace(/,/g, '')) * 100)} cents`
+          : `${numberWords(Number(value.replace(/,/g, '')))} dollars`,
+      )
+      .replace(/-?\d+(?:,\d{3})*(?:\.\d+)?/g, (value) => {
+        const n = Number(value.replace(/,/g, ''))
+        if (Number.isInteger(n)) return numberWords(n)
+        const rounded = Math.abs(n)
+          .toFixed(Math.abs(n) < 1 ? 2 : 1)
+          .replace(/0+$/, '')
+          .replace(/\.$/, '')
+        const [whole, fraction] = rounded.split('.')
+        return `${n < 0 ? 'minus ' : ''}${numberWords(Number(whole))}${
+          fraction
+            ? ` point ${fraction
+                .split('')
+                .map((d) => numberWords(Number(d)))
+                .join(' ')}`
+            : ''
+        }`
+      })
+      .replace(/%/g, ' percent')
+      .replace(/&/g, ' and ')
+      .replace(/@/g, ' at ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
 }
 
 /** Groq has no pronunciation dictionary API; use simple spoken respellings. */
