@@ -126,6 +126,27 @@ afterEach(async () => {
   await Promise.all(live.splice(0).map((service) => service.stop()))
 })
 
+it('omits resource sampling for inventory and shares explicit local Auto sampling with host readers', async () => {
+  const resources = vi.fn(async () => ({ status: 'available' as const, sampledAt: 1000, cpuUtilization: 0.2,
+    cpuCount: 4, availableMemoryBytes: 4 * 1024 ** 3, totalMemoryBytes: 8 * 1024 ** 3, reason: null }))
+  const { service } = makeService({ desktop: {
+    projects: async () => [], resources,
+    createSession: async () => ({ sessionId: 'unused' }), stopChildren: async () => ({ stopped: 0 }),
+    version: () => ({ ariVersion: 'fixture', protocolVersion: 1, hostingMode: 'desktop', update: {
+      supported: false, reason: 'Manual only.', availableVersion: null, stagedVersion: null, guidance: 'Update Ari here.' } }),
+    resume: { get: async () => ({ at: null }), schedule: async (_id, at) => ({ at }), cancel: async () => ({ cancelled: false }) },
+    scm: { summary: async () => ({ ok: false, error: { code: 'unsupported', message: 'Fixture' } }),
+      status: async () => ({ ok: false, error: { code: 'unsupported', message: 'Fixture' } }),
+      review: async () => ({ ok: false, error: { code: 'unsupported', message: 'Fixture' } }),
+      diff: async () => ({ ok: false, error: { code: 'unsupported', message: 'Fixture' } }) },
+  } })
+  expect((await service.localSnapshot()).resources).toMatchObject({ status: 'unavailable', sampledAt: null })
+  expect((await service.localSnapshot({ sampleResources: false })).resources.status).toBe('unavailable')
+  expect(resources).not.toHaveBeenCalled()
+  expect((await service.localSnapshot({ sampleResources: true })).resources).toEqual(await resources())
+  expect(resources).toHaveBeenCalledTimes(2)
+})
+
 async function call(
   origin: string,
   path: string,
