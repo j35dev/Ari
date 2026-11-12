@@ -211,17 +211,52 @@ describe('mobile command decisions', () => {
       ).not.toBeNull()
     },
   )
-  it('requires a fresh preview after a stale-parent refusal', async () => {
-    app.session.query.mockResolvedValue({ preview, error: null })
+  it('retains an integration receipt after a conflict error and only checks status after remount', async () => {
+    app.session.query.mockResolvedValueOnce({ preview, error: null })
     app.session.send.mockRejectedValue(
-      new RemoteError('conflict', 'The parent changed. Refresh the preview.'),
+      new RemoteError('conflict', 'Integration failed after its journal write.'),
     )
+    const render = async (): Promise<void> => {
+      await act(async () =>
+        root.render(<ReviewIntegration sessionId="child-1" onChanged={vi.fn()} />),
+      )
+    }
+    await render()
+    await click('Review integration')
+    await click('Integrate reviewed changes')
+    const key = app.session.send.mock.calls[0]?.[1]
+    expect(key).toBeTruthy()
+    expect(document.body.textContent).toContain('The integration outcome is unknown')
+    expect(
+      sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1'),
+    ).toContain(key)
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    await render()
+    app.session.query.mockResolvedValue({
+      ok: false,
+      code: 'conflict',
+      message: 'Integration failed after its journal write.',
+    })
+    await click('Continue integration review')
+    await click('Check integration receipt')
+    await click('Check integration receipt')
+    expect(app.session.send).toHaveBeenCalledOnce()
+    expect(app.session.query).toHaveBeenLastCalledWith('command.status', { idempotencyKey: key })
+    expect(
+      sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1'),
+    ).toContain(key)
+  })
+  it('requires a fresh preview after a confirmed non-applied conflict result', async () => {
+    app.session.query.mockResolvedValue({ preview, error: null })
+    app.session.send.mockResolvedValue({ ok: true, result: { status: 'conflict', files: ['src/main.ts'] } })
     await act(async () =>
       root.render(<ReviewIntegration sessionId="child-1" onChanged={vi.fn()} />),
     )
     await click('Review integration')
     await click('Integrate reviewed changes')
-    expect(document.body.textContent).toContain('The parent changed')
+    expect(document.body.textContent).toContain('No changes were applied')
+    expect(sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1')).toBeNull()
     expect(
       Array.from(document.querySelectorAll('button')).some(
         (button) => button.textContent === 'Check integration receipt',
