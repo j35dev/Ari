@@ -321,3 +321,31 @@ blobs (`f12b34a18848743326aa77b3bf14cd7251c611f1`,
 `093f6a3d56bfb87e2ea28c54f414fc487b275b37`). This fixture does not establish real
 DNS/TCP/TLS/Serve/OS keyring behavior or the combined two-engine route/SessionClient
 flow. Final-target source comparison and replay closure remain pending.
+
+## Independent integrated-snapshot replay closure
+
+Ran the unchanged replay reproduction with `fixed` on the same integrated
+`dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9`, SessionClient blob
+`548933015c1804e8b35eac68d6c87fc7a4860f07`.
+`evidence/machines-t3-security/replay-closure-result.json` records the exact
+command, one-worker below-normal resource gate and exit 0/no signal. It delivered
+seq 0 and all 2,100 initial rows, admitted the exact-cursor resumed row, delivered
+the following live event, and rejected late frames after the authorization epoch
+advanced. T3 has independently tested closure for this reproduction at this
+merged snapshot. Its fixture boundary remains explicit: actual SessionClient
+and contracts, fixture IPC/inventory; no DOM or combined host/route proof.
+
+No additional runtime source changed. The host follow-up `f8c5217c` was inspected:
+bounded replay/file/metadata contracts retain the reviewed behavior, the main
+SCM dependency uses typed SourceControlHost reads with exact session IDs instead
+of generic RPC registry casts, and the broader changes format the same adapters.
+New authored real-two-engine replay/ownership/restart, slow-consumer cancellation,
+live-buffer overflow, revocation and invalid post-effect result tests are useful
+source evidence; their separate execution claims require the coordinator's final
+test output. Their two-engine test uses direct legacy tokens, not signed ordered
+route fallback/move-back through normal SessionClient. The combined parity proof
+gap therefore remains.
+
+T1/T2/T3 are independently closed at the named merged source. A parent-designated
+final integrated SHA must still be compared for merge changes before final
+disposition; hardware and combined-route proof gates are not waived.
