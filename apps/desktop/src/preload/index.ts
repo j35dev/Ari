@@ -15,13 +15,8 @@ const api = {
   voice: {
     played: (id: number, generation: number, error?: string): void =>
       ipcRenderer.send('ari:ariaVoice.played', { id, generation, error }),
-    onAudio: (
-      callback: (frame: VoiceAudio) => void,
-    ): (() => void) => {
-      const receive = (
-        _event: IpcRendererEvent,
-        frame: VoiceAudio,
-      ) => callback(frame)
+    onAudio: (callback: (frame: VoiceAudio) => void): (() => void) => {
+      const receive = (_event: IpcRendererEvent, frame: VoiceAudio) => callback(frame)
       ipcRenderer.on('ari:ariaVoice.audio', receive)
       return () => ipcRenderer.removeListener('ari:ariaVoice.audio', receive)
     },

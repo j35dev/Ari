@@ -4,9 +4,7 @@ import type { DictationBridge } from '../../../shared/dictation'
 
 interface AriBridge {
   voice?: {
-    onAudio: (
-      callback: (frame: VoiceAudio) => void,
-    ) => () => void
+    onAudio: (callback: (frame: VoiceAudio) => void) => () => void
     played: (id: number, generation: number, error?: string) => void
   }
   dictation?: DictationBridge
