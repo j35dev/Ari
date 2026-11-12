@@ -112,6 +112,10 @@ export interface ComposerProps {
    * the draft so the next turn's agent is visible without leaving the box.
    */
   leading?: React.ReactNode
+  /** Project draft controls outside the plate; existing sessions leave this empty. */
+  belowControls?: React.ReactNode
+  /** Drafts retain large pasted text locally until the host session exists. */
+  draftOnly?: boolean
   placeholder?: string
   disabled?: boolean
   /** Draft injection from outside (edit a transcript message); see {@link ComposerSeed}. */
@@ -175,6 +179,8 @@ export function Composer({
   onEditQueued,
   suggestions,
   leading,
+  belowControls,
+  draftOnly = false,
   placeholder = 'Ask anything, @ for files, / for commands…',
   disabled = false,
   seed,
@@ -584,7 +590,7 @@ export function Composer({
       if (decision.action === 'inline') return
       e.preventDefault()
       // No session means no workspace to write into, so the text stays inline.
-      if (sessionId === undefined) {
+      if (sessionId === undefined || draftOnly) {
         insertRange(start, end, pasted)
         return
       }
@@ -1114,6 +1120,7 @@ export function Composer({
           </div>
         </div>
       </div>
+      {belowControls && <div className="pt-2">{belowControls}</div>}
     </div>
   )
 }
