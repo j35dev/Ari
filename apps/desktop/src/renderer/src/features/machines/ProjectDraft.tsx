@@ -194,6 +194,10 @@ export function ProjectDraft({
   )
   const [workspaceLocked, setWorkspaceLocked] = useState(savedChoice?.workspaceLocked ?? false)
   const [pick, setPick] = useState<ProjectAgent | null>(savedChoice?.pick ?? null)
+  // An agent can name several of its modes for one Ari level (Auto and Bypass
+  // are both full). The level is what is saved; this remembers which name was
+  // picked, so exactly one row is ticked.
+  const [nativeModeId, setNativeModeId] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [autoSampling, setAutoSampling] = useState(false)
   const pendingRef = useRef(false)
@@ -592,15 +596,35 @@ export function ProjectDraft({
                 <TextPicker
                   label="Permission mode"
                   disabled={attempt !== null || pending}
-                  value={pick.permissionMode}
-                  onChange={(value) =>
-                    setPick({ ...pick, permissionMode: value as ProjectAgent['permissionMode'] })
+                  value={
+                    modes.length > 0
+                      ? ((
+                          modes.find(
+                            (mode) =>
+                              mode.id === nativeModeId && mode.ariMode === pick.permissionMode,
+                          ) ??
+                          modes.find(
+                            (mode) => mode.ariMode === pick.permissionMode && mode.current === true,
+                          ) ??
+                          modes.find((mode) => mode.ariMode === pick.permissionMode)
+                        )?.id ?? '')
+                      : pick.permissionMode
                   }
+                  onChange={(value) => {
+                    const native = modes.find((mode) => mode.id === value)
+                    setNativeModeId(native?.id ?? null)
+                    setPick({
+                      ...pick,
+                      permissionMode: native
+                        ? native.ariMode
+                        : (value as ProjectAgent['permissionMode']),
+                    })
+                  }}
                   mark={<ModeMark mode={pick.permissionMode} />}
                   options={
                     modes.length > 0
                       ? modes.map((mode) => ({
-                          value: mode.ariMode,
+                          value: mode.id,
                           label: sentenceCase(mode.label),
                           hint: mode.description,
                           mark: <ModeMark mode={mode.ariMode} />,
