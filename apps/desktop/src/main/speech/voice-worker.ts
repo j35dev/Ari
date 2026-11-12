@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { cpus, totalmem, setPriority, constants } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
-import { ARIA_LEXICON, lexiconWords, prepareKokoro } from './pronunciation'
+import { ARIA_LEXICON, expandLexicon, lexiconWords, prepareKokoro } from './pronunciation'
 import { KOKORO_FILES } from './voice-model'
 import { acceleratedVoiceProvider, fasterVoiceProvider } from './voice-provider'
 import { verifyDownload } from './download'
@@ -59,8 +59,11 @@ async function load(path: string): Promise<void> {
     .map(([word, phonemes]) => `${word} ${phonemes}`)
     .join('\n')
   const lexiconPath = join(path, 'aria-lexicon.txt')
-  await writeFile(lexiconPath, extra + '\n' + lexicon)
-  words = lexiconWords(extra + '\n' + lexicon)
+  // The dictionary lists many words without their plural, past or -ing form, and
+  // a word it lacks is spelled out. Add the regular forms it is missing.
+  const full = `${extra}\n${lexicon}\n${expandLexicon(lexicon)}`
+  await writeFile(lexiconPath, full)
+  words = lexiconWords(full)
   const logicalCores = cpus().length
   const threads = Math.max(1, Math.min(4, Math.floor(logicalCores / 2)))
   const signature = `${cpus()[0]?.model}:${logicalCores}:${totalmem()}:kokoro-2.0.1-warm-v2`

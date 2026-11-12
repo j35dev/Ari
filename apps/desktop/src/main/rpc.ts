@@ -985,7 +985,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const voice = new VoiceService(getSettingsStore(), speech, groq, contents)
   voice.publish = (frame) => rpcRegistryRef?.publish('speech.progress', frame)
   const voiceTurn = new VoiceTurn(
-    (text) => void voice.speak(text),
+    (text, follow) => void voice.speak(text, { follow }),
     () =>
       getSettingsStore().current.experimental.ariaEnabled &&
       getSettingsStore().current.ariaVoice.mode === 'voice-replies',

@@ -2,7 +2,11 @@
 import { expect, it } from 'vitest'
 import {
   ARIA_LEXICON,
+  expandLexicon,
+  inflections,
   lexiconWords,
+  nearWord,
+  splitIntoWords,
   normalizeSpeech,
   normalizeCloudSpeech,
   numberWords,
@@ -90,4 +94,43 @@ it('speaks emphasized English and common status words naturally while retaining 
   expect(prepared.text).toBe('ready. the work is approved, completed, reviewed and verified. done.')
   expect(normalizeSpeech('READY DONE HELLO APPROVED')).toBe('READY DONE HELLO APPROVED')
   expect(normalizeSpeech('API CPU GPU PR ACP CLI')).toBe('A P I C P U G P U pr acp cli')
+})
+
+it('derives the regular forms the dictionary leaves out, matching the hand-written ones', () => {
+  // The same phonemes the lexicon above had to list by hand before this existed.
+  const forms = (word: string, phonemes: string) => new Map(inflections(word, phonemes))
+  expect(forms('complete', 'k ə m p l ˈ i t').get('completed')).toBe(ARIA_LEXICON.completed)
+  expect(forms('detail', 'd ə t ˈ A l').get('details')).toBe(ARIA_LEXICON.details)
+  expect(forms('review', 'ɹ ə v j ˈ u').get('reviewed')).toBe(ARIA_LEXICON.reviewed)
+  expect(forms('agent', 'ˈ A ʤ ᵊ n t').get('agents')).toBe('ˈ A ʤ ᵊ n t s')
+  expect(forms('box', 'b ˈ ɑ k s').get('boxes')).toBe('b ˈ ɑ k s ᵻ z')
+  expect(forms('push', 'p ˈ ʊ ʃ').get('pushed')).toBe('p ˈ ʊ ʃ t')
+  expect(forms('delete', 'd ə l ˈ i t').get('deleting')).toBe('d ə l ˈ i t ɪ ŋ')
+  expect(forms('stop', 's t ˈ ɑ p').get('stopped')).toBe('s t ˈ ɑ p t')
+  expect(forms('try', 't ɹ ˈ I').get('tries')).toBe('t ɹ ˈ I z')
+
+  const extra = expandLexicon('agent ˈ A ʤ ᵊ n t\nagents x\nwalked w ˈ ɔ k t\nan æ n')
+  // Listed forms are left alone, inflections get none of their own, short words are skipped.
+  expect(extra).toContain('agenting ')
+  expect(extra).not.toMatch(/^agents /m)
+  expect(extra).not.toContain('walkeds')
+  expect(extra).not.toMatch(/^ans /m)
+})
+it('says compounds, possessives and near-miss names as words instead of spelling them', () => {
+  const words = lexiconWords(
+    'work x\ntree x\nfront x\nend x\ncollect x\nthe x\nari x\nin x\n' +
+      'abcdefghijklmnopqrstuvwxyz'
+        .split('')
+        .map((letter) => `${letter} x`)
+        .join('\n'),
+  )
+  expect(splitIntoWords('worktree', words)).toEqual(['work', 'tree'])
+  expect(splitIntoWords('zzqx', words)).toBeNull()
+  expect(nearWord('kollect', words)).toBe('collect')
+  expect(nearWord('zustand', words)).toBeNull()
+  const prepared = prepareKokoro("The worktree in Ari's Kollect frontend.", words)
+  expect(prepared.text).toBe('the work tree in ari collect front end.')
+  expect(prepared.spelled).toEqual([])
+  // A word with no reading at all is still spelled, and reported.
+  expect(prepareKokoro('Zustand', words).spelled).toEqual(['Zustand'])
 })

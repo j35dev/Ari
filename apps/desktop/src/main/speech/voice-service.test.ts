@@ -160,3 +160,30 @@ it('clears an old playback error on retry and publishes completion after success
   expect((await service.status()).error).toBeNull()
   expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'complete' }))
 })
+
+it('says a following passage after the one playing instead of cutting it off', async () => {
+  const { service, contents } = fixture()
+  const audioFrames = () => contents.send.mock.calls.filter((call) => call[1]?.audio)
+  const first = service.speak('Finding the sessions.')
+  const second = service.speak('Four sessions are gone.', { follow: true })
+  const frame = await audioFrame(contents)
+  // The second passage has not started: the first is still playing.
+  expect(audioFrames()).toHaveLength(1)
+  service.played(frame.id, frame.generation)
+  await first
+  await vi.waitFor(() => expect(audioFrames()).toHaveLength(2))
+  const next = audioFrames()[1]![1]
+  // Same generation: it followed, it did not interrupt.
+  expect(next.generation).toBe(frame.generation)
+  service.played(next.id, next.generation)
+  await second
+})
+it('drops what was queued when speech is stopped', async () => {
+  const { service, contents } = fixture()
+  const first = service.speak('Finding the sessions.')
+  const second = service.speak('Four sessions are gone.', { follow: true })
+  await audioFrame(contents)
+  service.stop()
+  await Promise.all([first, second])
+  expect(contents.send.mock.calls.filter((call) => call[1]?.audio)).toHaveLength(1)
+})
