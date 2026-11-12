@@ -4,6 +4,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import { BottomSheet } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { routeUrl } from '../../lib/routes'
 import { ForkRequestStore, type ForkRequest } from './fork-request'
 
@@ -71,10 +72,11 @@ export function ForkSheet({
       store.write(request)
       setPending(request)
       const { key, ...fields } = request
-      const result = await session.send(
+      const result = pending !== null ? await checkCommandReceipt(session, key) : await session.send(
         { op: 'session.fork', sessionId: parent.id, ...fields },
         key,
       )
+      if (!alive.current) return
       const id = sessionIdOf(result)
       if (id === null)
         throw new Error(

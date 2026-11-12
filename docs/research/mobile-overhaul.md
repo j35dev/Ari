@@ -74,6 +74,15 @@ Visible changes, final evidence, checks and limitations will be appended here.
     It aborts/disconnects the abandoned client. Local storage generations reject
     late pairing saves and clear after any already-running local write, without
     waiting for an offline gateway response.
+12. Saved prompt/new-chat/fork/integration receipts are checked with read-only
+    command status when Retry is tapped. Missing or malformed host history keeps
+    the receipt and asks the user to inspect that computer; it never repeats the
+    mutation. Shell creation polling and terminal input Retry follow the same
+    rule. Existing button labels remain unchanged.
+13. The older pairing address form now uses the computer selector's private
+    root-address policy, retaining explicit ports and invitations. Selection is
+    held while a local forget completes. Late workspace completions cannot send
+    a first prompt, restore receipt/draft state or navigate an abandoned view.
 
 ## Screenshot evidence
 
@@ -123,3 +132,19 @@ Additional review: [Computers](../screenshots/mobile/after/360-dark-computers.pn
   Physical keyboard/safe-area behavior, network/sleep/ACL/revocation on hardware,
   live managed broker/tunnel lease refresh, and the parent-wide integrated suite
   remain release verification. Fixtures do not claim those checks.
+
+## Fresh-worker review, 2026-11-12
+
+Starting snapshot: bd182168. The existing 96 captures are retained. Review found
+that the UI's explicit receipt retries still called `send`, despite the shared
+client's automatic-recovery hardening. E replaces those calls with authenticated
+`command.status` queries, including terminal creation/input recovery. Regressions
+cover missing/corrupt host history, per-device drafts, delayed pairing cancellation
+and selecting a new connection during local forget. Final checks and screenshot
+review evidence will be recorded after validation.
+
+The parent accepted B's secure legacy-key decision: an old unscoped IndexedDB
+credential has no trustworthy host binding. B preserves it without automatic
+migration, requiring fresh pairing per origin. E does not edit B's key-store
+implementation/tests or C's shared client; those dependencies must be integrated
+and verified by the coordinator.

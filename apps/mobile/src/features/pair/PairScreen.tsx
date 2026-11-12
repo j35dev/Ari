@@ -54,11 +54,8 @@ export function PairScreen({
   }
   function openAddress(): void {
     try {
-      const url = new URL(address.trim())
-      if (url.protocol !== 'https:' || url.username || url.password)
-        throw new Error('Use the HTTPS address shown in desktop Mobile access settings.')
       // Each private gateway serves its own PWA; navigation avoids a cross-origin credential handoff.
-      location.assign(url.href)
+      app.addComputer(address)
     } catch (error) {
       setFailure(
         error instanceof Error ? error.message : 'Enter the HTTPS address of your computer.',

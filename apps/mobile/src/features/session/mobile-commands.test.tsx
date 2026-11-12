@@ -56,7 +56,8 @@ const preview = {
 }
 
 describe('mobile command decisions', () => {
-  it('restores an uncertain queued submission after remount and retries the same payload and receipt', async () => {
+  it('restores an uncertain queued submission after remount and checks its receipt without resending', async () => {
+    app.session.query.mockResolvedValue({ ok: true, result: { accepted: true } })
     app.session.send
       .mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
       .mockResolvedValue({ ok: true })
@@ -85,10 +86,30 @@ describe('mobile command decisions', () => {
     expect(app.session.send).toHaveBeenCalledTimes(1)
     expect(host.textContent).toContain('Unconfirmed submission restored')
     await click('Retry same submission')
-    expect(app.session.send.mock.calls[1]).toEqual(first)
+    expect(app.session.send).toHaveBeenCalledOnce()
+    expect(app.session.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: first?.[1] })
     expect(host.textContent).toContain('Queued on your computer')
     expect(host.querySelector('textarea')?.value).toBe('')
   })
+  it.each([null, { ok: true, result: {} }, new RemoteError('not_found', 'History absent')])(
+    'keeps a saved prompt and blocks resubmission for missing or corrupt history: %j', async (outcome) => {
+      sessionStorage.setItem('ari.pending:https://computer.example:phone-1:session-1', JSON.stringify({
+        op: 'session.prompt', sessionId: 'session-1', text: 'Run once',
+        clientCommandId: 'original-receipt', idempotencyKey: 'original-receipt',
+      }))
+      if (outcome instanceof Error) app.session.query.mockRejectedValue(outcome)
+      else app.session.query.mockResolvedValue(outcome)
+      await act(async () => root.render(<Composer sessionId="session-1" status="idle" controls={null}
+        disabled={false} onSent={vi.fn()} onError={vi.fn()} />))
+      await click('Retry same submission')
+      await click('Retry same submission')
+      expect(app.session.send).not.toHaveBeenCalled()
+      expect(app.session.query).toHaveBeenNthCalledWith(1, 'command.status', { idempotencyKey: 'original-receipt' })
+      expect(host.textContent).toContain('Response uncertain')
+      expect(sessionStorage.getItem('ari.pending:https://computer.example:phone-1:session-1')).toContain('original-receipt')
+      expect(host.querySelector('textarea')?.disabled).toBe(true)
+    },
+  )
   it('keeps offline drafts editable without sending them automatically', async () => {
     await act(async () =>
       root.render(
@@ -110,7 +131,8 @@ describe('mobile command decisions', () => {
     expect(app.session.send).not.toHaveBeenCalled()
   })
   it('reviews both snapshots and retains the same integration receipt after a lost response', async () => {
-    app.session.query.mockResolvedValue({ preview, error: null })
+    app.session.query.mockResolvedValueOnce({ preview, error: null })
+      .mockResolvedValue({ ok: true, result: { status: 'integrated' } })
     app.session.send
       .mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
       .mockResolvedValue({ ok: true, result: { status: 'integrated' } })
@@ -129,10 +151,30 @@ describe('mobile command decisions', () => {
       expectedParentSnapshot: preview.expectedParentSnapshot,
     })
     await click('Retry same integration')
-    expect(app.session.send.mock.calls[1]).toEqual(first)
+    expect(app.session.send).toHaveBeenCalledOnce()
+    expect(app.session.query).toHaveBeenLastCalledWith('command.status', { idempotencyKey: first?.[1] })
     expect(document.body.textContent).toContain('Changes integrated into the parent workspace')
     expect(changed).toHaveBeenCalledOnce()
   })
+  it.each([null, { ok: true, result: {} }, new RemoteError('not_found', 'History absent')])(
+    'keeps a reviewed integration receipt without resending missing or corrupt history: %j', async (outcome) => {
+      app.session.query.mockResolvedValueOnce({ preview, error: null })
+      app.session.send.mockRejectedValue(new RemoteError('unreachable', 'lost acknowledgement'))
+      await act(async () => root.render(<ReviewIntegration sessionId="child-1" onChanged={vi.fn()} />))
+      await click('Review integration')
+      await click('Integrate reviewed changes')
+      if (outcome instanceof Error) app.session.query.mockRejectedValue(outcome)
+      else app.session.query.mockResolvedValue(outcome)
+      await click('Retry same integration')
+      await click('Retry same integration')
+      expect(app.session.send).toHaveBeenCalledOnce()
+      expect(app.session.query).toHaveBeenLastCalledWith('command.status', {
+        idempotencyKey: app.session.send.mock.calls[0]?.[1],
+      })
+      expect(document.body.textContent).toContain('Retry same integration')
+      expect(sessionStorage.getItem('ari.integration:https://computer.example:phone-1:child-1')).not.toBeNull()
+    },
+  )
   it('requires a fresh preview after a stale-parent refusal', async () => {
     app.session.query.mockResolvedValue({ preview, error: null })
     app.session.send.mockRejectedValue(

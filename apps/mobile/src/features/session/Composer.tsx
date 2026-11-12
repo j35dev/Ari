@@ -10,6 +10,7 @@ import {
   type PendingSubmission,
 } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { WorkingIndicator } from './WorkingIndicator'
 
 /** One draft and one receipt key per submission, retained through an uncertain response. */
@@ -47,6 +48,11 @@ export function Composer({
   const [pending, setPending] = useState<PendingSubmission | null>(restored)
   const area = useRef<HTMLTextAreaElement>(null)
   const input = useRef<HTMLInputElement>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
   const running = status === 'running'
   useEffect(() => {
     writeDraft(app.origin, sessionId, text, deviceId)
@@ -83,7 +89,9 @@ export function Composer({
     setPending(command)
     setReceipt(null)
     try {
-      await session.send(
+      if (pending !== null) await checkCommandReceipt(session, command.key,
+        (result) => typeof result === 'object' && result !== null && 'accepted' in result && result.accepted === true)
+      else await session.send(
         {
           op:
             command.mode === 'queue'
@@ -97,6 +105,7 @@ export function Composer({
         },
         command.key,
       )
+      if (!alive.current) return
       setText('')
       setAttachments([])
       setPending(null)
@@ -110,6 +119,7 @@ export function Composer({
         ),
       )
     } catch (error) {
+      if (!alive.current) return
       onError(
         error instanceof Error
           ? error.message
@@ -124,7 +134,7 @@ export function Composer({
         setReceipt('Not accepted. Your draft is still here.')
       } else setReceipt('Response uncertain. Retry checks this submission using the same receipt.')
     } finally {
-      setBusy(false)
+      if (alive.current) setBusy(false)
     }
   }
   async function upload(file: File): Promise<void> {

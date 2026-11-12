@@ -117,6 +117,10 @@ export function AppProvider({
   const [managedComputerId, setManagedComputerId] = useState<string | null>(null)
   const [linked, setLinked] = useState<MobileSession | null>(null)
   const live = useRef<MobileSession | null>(null)
+  const forgetting = useRef<Promise<void> | null>(null)
+  const canSelectComputer = useCallback((): void => {
+    if (forgetting.current !== null) throw new Error('Wait for this computer to be forgotten before opening another.')
+  }, [])
   const connectionOwner = useRef<{
     session: MobileSession
     connect: () => Promise<void>
@@ -315,6 +319,7 @@ export function AppProvider({
     await connectionOwner.current?.connect()
   }, [])
   const forget = useCallback(async (): Promise<void> => {
+    if (forgetting.current !== null) return forgetting.current
     const selected = origin
     // Close the visible workspace before deleting its credential. Late reads cannot repaint it.
     abandonConnection()
@@ -323,18 +328,24 @@ export function AppProvider({
     setManagedComputerId(null)
     setConnection('unpaired')
     // The local store generation rejects delayed pairing writes; no remote wait is needed.
-    await keyring.forget()
-    if (selected !== null) {
-      forgetComputerState(selected)
-      setComputers((saved) => saved.filter((computer) => computer.origin !== selected))
-    }
-    try {
-      if (localStorage.getItem(ORIGIN_KEY) === selected) localStorage.removeItem(ORIGIN_KEY)
-    } catch (failure) {
-      console.warn('Could not forget the saved address', failure)
-    }
+    const pending = (async () => {
+      await keyring.forget()
+      if (selected !== null) {
+        forgetComputerState(selected)
+        setComputers((saved) => saved.filter((computer) => computer.origin !== selected))
+      }
+      try {
+        if (localStorage.getItem(ORIGIN_KEY) === selected) localStorage.removeItem(ORIGIN_KEY)
+      } catch (failure) {
+        console.warn('Could not forget the saved address', failure)
+      }
+    })()
+    forgetting.current = pending
+    try { await pending }
+    finally { if (forgetting.current === pending) forgetting.current = null }
   }, [keyring, origin, abandonConnection])
   const rememberOrigin = useCallback((next: string): void => {
+    canSelectComputer()
     const url = computerAddress(next, !IS_CONNECT_BUILD)
     if (!IS_CONNECT_BUILD && url.origin !== location.origin) {
       abandonConnection()
@@ -364,15 +375,16 @@ export function AppProvider({
     setConnection('connecting')
     setComputers((saved) => saveComputer(saved, url.origin))
     setOrigin(url.origin)
-  }, [origin, computers, navigateTo, abandonConnection])
+  }, [origin, computers, navigateTo, abandonConnection, canSelectComputer])
   const chooseComputer = useCallback(
     (computerId: string, next: string): void => {
+      canSelectComputer()
       if (!IS_CONNECT_BUILD) throw new Error('This build uses your own private network.')
       setManagedComputerId(computerId)
       setComputers((saved) => saveComputer(saved, next, undefined, computerId))
       rememberOrigin(next)
     },
-    [rememberOrigin],
+    [rememberOrigin, canSelectComputer],
   )
   const changeComputer = useCallback((): void => {
     abandonConnection()
@@ -388,6 +400,7 @@ export function AppProvider({
     setConnection('unpaired')
   }, [abandonConnection])
   const switchComputer = useCallback((next: string): void => {
+    canSelectComputer()
     const computer = computers.find((entry) => entry.origin === next)
     if (IS_CONNECT_BUILD) {
       if (computer?.managedComputerId === undefined) throw new Error('Choose this computer from Ari Connect.')
@@ -403,8 +416,9 @@ export function AppProvider({
     setManagedComputerId(null)
     if (origin === destination.origin) void reconnect()
     else rememberOrigin(destination.origin)
-  }, [computers, chooseComputer, origin, reconnect, rememberOrigin, changeComputer, navigateTo])
+  }, [computers, chooseComputer, origin, reconnect, rememberOrigin, changeComputer, navigateTo, canSelectComputer])
   const addComputer = useCallback((address: string, name?: string): void => {
+    canSelectComputer()
     if (IS_CONNECT_BUILD) throw new Error('Choose computers from your approved Ari Connect account.')
     const destination = computerAddress(address)
     const saved = saveComputer(computers, destination.origin, name)
@@ -418,7 +432,7 @@ export function AppProvider({
     if (destination.hash) navigateTo(computerDestination(destination.href, saved))
     else if (origin === destination.origin) void reconnect()
     else rememberOrigin(destination.origin)
-  }, [computers, origin, reconnect, rememberOrigin, changeComputer, navigateTo])
+  }, [computers, origin, reconnect, rememberOrigin, changeComputer, navigateTo, canSelectComputer])
   const renameComputer = useCallback((selected: string, name: string): void => {
     if (!name.trim()) throw new Error('Give this computer a name.')
     setComputers((saved) => saved.map((computer) => computer.origin === selected
