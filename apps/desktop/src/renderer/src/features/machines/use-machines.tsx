@@ -37,6 +37,7 @@ interface MachinesState {
   error: string | null
   refresh: () => Promise<void>
   local: MachinesLocalSnapshot | null
+  localModels: RemoteModelCatalog | null
   inventories: ReadonlyMap<string, MachineInventory>
   preferences: MachinesPreferences
   refreshInventory: () => Promise<void>
@@ -45,7 +46,7 @@ const Context = createContext<MachinesState>({
   machines: [],
   error: null,
   refresh: () => Promise.resolve(),
-  local: null, inventories: new Map(),
+  local: null, localModels: null, inventories: new Map(),
   preferences: { autoEnabled: false, hostTiers: {}, projectHosts: {} },
   refreshInventory: () => Promise.resolve(),
 })
@@ -54,6 +55,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const [machines, setMachines] = useState<MachineView[]>([])
   const [error, setError] = useState<string | null>(null)
   const [local, setLocal] = useState<MachinesLocalSnapshot | null>(null)
+  const [localModels, setLocalModels] = useState<RemoteModelCatalog | null>(null)
   const [inventories, setInventories] = useState<ReadonlyMap<string, MachineInventory>>(new Map())
   const [preferences, setPreferences] = useState<MachinesPreferences>({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
   const machinesRef = useRef(machines)
@@ -77,7 +79,11 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
     const currentMachines = machinesRef.current
     const results = await Promise.allSettled([
       rpc.invoke('machines.localSnapshot').then((raw) => {
-        if (alive.current && inventoryRevision.current === generation) setLocal(machinesLocalSnapshotSchema.parse(raw))
+        if (alive.current && inventoryRevision.current === generation) {
+          setLocal(machinesLocalSnapshotSchema.parse(raw))
+          const models = remoteModelCatalogSchema.safeParse((raw as { models?: unknown }).models)
+          setLocalModels(models.success ? models.data : null)
+        }
       }),
       rpc.invoke('machines.preferences').then((raw) => {
         if (alive.current && inventoryRevision.current === generation) setPreferences(machinesPreferencesSchema.parse(raw))
@@ -139,7 +145,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       clearInterval(timer)
     }
   }, [refresh])
-  return <Context.Provider value={{ machines, error, refresh, local, inventories, preferences, refreshInventory }}>{children}</Context.Provider>
+  return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, preferences, refreshInventory }}>{children}</Context.Provider>
 }
 
 export const useMachines = () => useContext(Context)
