@@ -574,7 +574,8 @@ async function runProfile(options, suiteRoot, fixturePath) {
     }
     await selectChat()
     await screenshot(renderer, root, '02-chat')
-    await click(renderer, 'nav[aria-label="Workspace"] button[aria-label="Settings"]')
+    // Settings lives in the sidebar footer; the titlebar's Workspace nav holds the panels.
+    await click(renderer, 'footer button[aria-label="Settings"]')
     await poll('Settings mounted', () =>
       renderer.evaluate(`(() => {
         const el = document.querySelector('nav[aria-label="Settings sections"]');
