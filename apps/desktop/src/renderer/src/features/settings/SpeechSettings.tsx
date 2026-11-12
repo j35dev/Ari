@@ -73,7 +73,11 @@ export function SpeechSettings() {
       if (bindingLease.current === token) bindingLease.current = null
     }
   }, [recordingShortcut])
-  const loadModels = useCallback(async () => setModels((await rpc.invoke('speech.models')).filter(model => model.kind !== 'tts')), [])
+  const loadModels = useCallback(
+    async () =>
+      setModels((await rpc.invoke('speech.models')).filter((model) => model.kind !== 'tts')),
+    [],
+  )
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
   }, [loadModels])

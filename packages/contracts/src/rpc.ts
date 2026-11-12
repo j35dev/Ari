@@ -1504,7 +1504,20 @@ export interface RpcResults extends OrchestrationResults {
   }
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
-  'aria.voice.status': { installed: boolean; loaded: boolean; error: string | null; hardware: { threads: number; ramGB: number; logicalCores: number; provider: string; rtf: number; firstAudioMs: number; slow: boolean } | null }
+  'aria.voice.status': {
+    installed: boolean
+    loaded: boolean
+    error: string | null
+    hardware: {
+      threads: number
+      ramGB: number
+      logicalCores: number
+      provider: string
+      rtf: number
+      firstAudioMs: number
+      slow: boolean
+    } | null
+  }
   'aria.voice.warm': { warming: boolean }
   'aria.voice.stop': { stopped: boolean }
   'aria.voice.read': { speaking: boolean }

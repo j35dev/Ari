@@ -643,7 +643,6 @@ Inbox acceptance and acknowledgements survive restart. An uncertain live deliver
 remains retrievable and is never resent automatically. Reusing a message key
 recovers the accepted inbox identity after a lost sender receipt.
 
-
 ## Aria spoken replies
 
 In every final reply as Aria, put a separate spoken line first:

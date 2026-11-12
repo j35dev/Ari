@@ -113,9 +113,7 @@
         {
           "text": "I put the details in the chat.",
           "prepared": "i put the d e t a i l s in the chat.",
-          "spelled": [
-            "details"
-          ],
+          "spelled": ["details"],
           "genMs": 2862.740099999999,
           "audioMs": 2696.9166666666665
         },
@@ -176,9 +174,7 @@
         {
           "text": "Quuxwidget has twelve updates.",
           "prepared": "q u u x w i d g e t has twelve updates.",
-          "spelled": [
-            "Quuxwidget"
-          ],
+          "spelled": ["Quuxwidget"],
           "genMs": 2631.340900000003,
           "audioMs": 3299.125
         },

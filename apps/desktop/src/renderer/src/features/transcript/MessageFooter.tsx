@@ -86,7 +86,9 @@ export function MessageFooter({
           {formatCost(usage.costUsd)}
         </span>
       ) : null}
-      {readAloud && message.sessionId && message.role === 'assistant' ? <ReadAloud sessionId={message.sessionId} messageId={message.id}/> : null}
+      {readAloud && message.sessionId && message.role === 'assistant' ? (
+        <ReadAloud sessionId={message.sessionId} messageId={message.id} />
+      ) : null}
       {text ? <CopyButton text={text} /> : null}
       {onQuote && quotable.length > 0 ? (
         <button

@@ -383,7 +383,11 @@ export class SpeechService {
 
   #currentStatus(): SpeechStatus {
     const model = this.#model
-    const cloud = this.#settingsReady && this.#settings.current.experimental.ariaEnabled && this.#settings.current.speech.enabled && this.#settings.current.speech.provider === 'groq'
+    const cloud =
+      this.#settingsReady &&
+      this.#settings.current.experimental.ariaEnabled &&
+      this.#settings.current.speech.enabled &&
+      this.#settings.current.speech.provider === 'groq'
     return {
       engine: this.#engine,
       engineError: this.#engineError,
@@ -391,15 +395,16 @@ export class SpeechService {
       engineReinstallable: this.#reinstallAllowed,
       model,
       loading: Boolean(this.#preparing && this.#settings.current.speech.enabled),
-      ready: cloud || (
-        this.#settings.current.speech.enabled &&
-        Boolean(
-          model?.installed &&
-          this.#validated === model.installed.path &&
-          model.installed.path === this.#settings.current.speech.modelPath,
-        ) &&
-        this.#engine === 'ready' &&
-        !this.#error),
+      ready:
+        cloud ||
+        (this.#settings.current.speech.enabled &&
+          Boolean(
+            model?.installed &&
+            this.#validated === model.installed.path &&
+            model.installed.path === this.#settings.current.speech.modelPath,
+          ) &&
+          this.#engine === 'ready' &&
+          !this.#error),
       error: this.#error ?? this.#engineError,
     }
   }
@@ -618,29 +623,49 @@ export class SpeechService {
 
   async #downloadVoice(): Promise<{ started: boolean }> {
     if (this.#downloads.has(KOKORO_ID)) return { started: false }
-    if ([...this.#downloads.keys()].some(id => id !== 'engine')) throw new Error('Wait for the current model download or cancel it first.')
+    if ([...this.#downloads.keys()].some((id) => id !== 'engine'))
+      throw new Error('Wait for the current model download or cancel it first.')
     const path = join(this.#root, 'models', KOKORO_ID)
     if ((await discoverVoiceModel(join(this.#root, 'models'))).installed) return { started: false }
-    void this.#start(KOKORO_ID, async signal => {
+    void this.#start(KOKORO_ID, async (signal) => {
       await mkdir(path, { recursive: true })
       let completed = 0
       for (const file of KOKORO_FILES) {
         const target = join(path, file.name)
         if ((await stat(target).catch(() => null))?.size === file.size) {
-          try { await verifyDownload(target, file.sha256); completed += file.size; continue }
-          catch { await rm(target, { force: true }) }
+          try {
+            await verifyDownload(target, file.sha256)
+            completed += file.size
+            continue
+          } catch {
+            await rm(target, { force: true })
+          }
         }
         await downloadFile({
-          id: KOKORO_ID, url: `https://huggingface.co/${KOKORO_MODEL.repository}/resolve/${KOKORO_MODEL.revision}/${file.name}`,
-          path: target, size: file.size, sha256: file.sha256, signal,
-          progress: frame => this.#emit({ ...frame, received: completed + frame.received, total: KOKORO_MODEL.size }),
+          id: KOKORO_ID,
+          url: `https://huggingface.co/${KOKORO_MODEL.repository}/resolve/${KOKORO_MODEL.revision}/${file.name}`,
+          path: target,
+          size: file.size,
+          sha256: file.sha256,
+          signal,
+          progress: (frame) =>
+            this.#emit({
+              ...frame,
+              received: completed + frame.received,
+              total: KOKORO_MODEL.size,
+            }),
         })
         completed += file.size
       }
       signal.throwIfAborted()
       await writeFile(join(path, 'verified.json.tmp'), JSON.stringify(KOKORO_FILES))
       await rename(join(path, 'verified.json.tmp'), join(path, 'verified.json'))
-      this.#emit({ id: KOKORO_ID, phase: 'complete', received: KOKORO_MODEL.size, total: KOKORO_MODEL.size })
+      this.#emit({
+        id: KOKORO_ID,
+        phase: 'complete',
+        received: KOKORO_MODEL.size,
+        total: KOKORO_MODEL.size,
+      })
     })
     return { started: true }
   }
@@ -654,7 +679,8 @@ export class SpeechService {
   async discard(modelId: string): Promise<{ discarded: boolean }> {
     if (modelId === KOKORO_ID) {
       if (this.#downloads.has(modelId)) throw new Error('Cancel the model download first.')
-      for (const file of KOKORO_FILES) await rm(join(this.#root, 'models', KOKORO_ID, `${file.name}.partial`), { force: true })
+      for (const file of KOKORO_FILES)
+        await rm(join(this.#root, 'models', KOKORO_ID, `${file.name}.partial`), { force: true })
       this.#models = null
       return { discarded: true }
     }
@@ -738,11 +764,17 @@ export class SpeechService {
     if (!pcm.length || pcm.some((value) => !Number.isFinite(value) || Math.abs(value) > 1))
       throw new Error('Invalid recording.')
     await this.#init()
-    if (this.#settings.current.experimental.ariaEnabled && this.#settings.current.speech.enabled && this.#settings.current.speech.provider === 'groq' && this.groq)
+    if (
+      this.#settings.current.experimental.ariaEnabled &&
+      this.#settings.current.speech.enabled &&
+      this.#settings.current.speech.provider === 'groq' &&
+      this.groq
+    )
       return withLocalFallback(
         () => this.groq!.transcribe(pcm, this.#settings.current.speech.groqModel, language),
         () => this.#transcribeLocal(pcm, language),
-        message => this.#emit({ id: 'groq', phase: 'error', received: 0, total: 0, error: message }),
+        (message) =>
+          this.#emit({ id: 'groq', phase: 'error', received: 0, total: 0, error: message }),
       )
     return this.#transcribeLocal(pcm, language)
   }

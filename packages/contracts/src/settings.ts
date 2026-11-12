@@ -277,7 +277,9 @@ export const ariaVoiceSettingsSchema = z.object({
 
 export const speechSettingsSchema = z.object({
   provider: z.enum(['local', 'groq']).default('local'),
-  groqModel: z.enum(['whisper-large-v3-turbo', 'whisper-large-v3']).default('whisper-large-v3-turbo'),
+  groqModel: z
+    .enum(['whisper-large-v3-turbo', 'whisper-large-v3'])
+    .default('whisper-large-v3-turbo'),
   enabled: z.boolean().default(false),
   modelId: z.string().nullable().default(null),
   modelPath: z.string().nullable().default(null),

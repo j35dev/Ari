@@ -328,7 +328,12 @@ export class AriaWidget {
       this.token = this.lease.acquire()
       this.destination = ariaAction === 'down' ? 'aria' : 'dictation'
       this.deps.voice?.stop()
-      if (this.destination === 'aria' && this.settings?.ariaVoice?.mode !== 'off' && this.settings?.ariaVoice?.engine !== 'groq') this.deps.voice?.warm()
+      if (
+        this.destination === 'aria' &&
+        this.settings?.ariaVoice?.mode !== 'off' &&
+        this.settings?.ariaVoice?.engine !== 'groq'
+      )
+        this.deps.voice?.warm()
       this.recoveryDelay = 1_000
       if (this.destination === 'dictation') {
         const id = this.hold.state.id
@@ -449,7 +454,8 @@ export class AriaWidget {
                   this.hold.state.phase === 'transcribing' &&
                   this.settings?.experimental.ariaEnabled === true &&
                   !this.disposed,
-                arm: (sessionId, text) => this.deps.voice?.arm(sessionId, text) ?? Promise.resolve(),
+                arm: (sessionId, text) =>
+                  this.deps.voice?.arm(sessionId, text) ?? Promise.resolve(),
                 open: async () => (await this.deps.invoke('aria.open')) as { sessionId: string },
                 dispatch: async (command) =>
                   (await this.deps.invoke('command.dispatch', { command })) as {

@@ -12,9 +12,15 @@ ipcRenderer.on(STREAM_CHANNEL, (_event: IpcRendererEvent, frame: StreamFrame | S
 
 const api = {
   voice: {
-    played: (id: number, generation: number, error?: string): void => ipcRenderer.send('ari:ariaVoice.played', { id, generation, error }),
-    onAudio: (callback: (frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio) => void): (() => void) => {
-      const receive = (_event: IpcRendererEvent, frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio) => callback(frame)
+    played: (id: number, generation: number, error?: string): void =>
+      ipcRenderer.send('ari:ariaVoice.played', { id, generation, error }),
+    onAudio: (
+      callback: (frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio) => void,
+    ): (() => void) => {
+      const receive = (
+        _event: IpcRendererEvent,
+        frame: import('../renderer/src/features/aria/voice-playback').VoiceAudio,
+      ) => callback(frame)
       ipcRenderer.on('ari:ariaVoice.audio', receive)
       return () => ipcRenderer.removeListener('ari:ariaVoice.audio', receive)
     },
