@@ -30,7 +30,8 @@ interface Deps {
   version: string
   secretBox(): SecretBox | null
   openExternal(url: string): Promise<void>
-  remote: Pick<RemoteService, 'running' | 'startManaged' | 'stopManaged' | 'pairedRecords'>
+  remote: Pick<RemoteService, 'running' | 'startManaged' | 'stopManaged' | 'pairedRecords'> &
+    Partial<Pick<RemoteService, 'currentPairedRecords'>>
   fetch?: typeof fetch
   probeConnector?: typeof probeConnectConnector
   runConnector?: typeof runConnectConnector
@@ -313,7 +314,11 @@ export class RemoteConnectService {
         )
           return
         const base = `/computers/${encodeURIComponent(this.#stored.computerId)}/devices`
-        const records = this.#deps.remote.pairedRecords()
+        const records =
+          this.#deps.remote.currentPairedRecords === undefined
+            ? this.#deps.remote.pairedRecords()
+            : await this.#deps.remote.currentPairedRecords()
+        if (!this.#current(generation) || this.#state.phase !== 'ready') return
         for (const device of records.devices) {
           const payload = {
             computerId: this.#stored.computerId,

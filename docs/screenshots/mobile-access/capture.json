@@ -1,0 +1,35 @@
+{
+  "surface": "Isolated actual RemoteSettings renderer with Ari fonts and tokens; temporary browser profile; read-only synthetic RPC",
+  "captures": [
+    {
+      "name": "settings-ready-obsidian.png",
+      "width": 1080,
+      "height": 1600
+    },
+    {
+      "name": "settings-repair-obsidian.png",
+      "width": 1080,
+      "height": 1600
+    },
+    {
+      "name": "settings-approval-obsidian.png",
+      "width": 1065,
+      "height": 1635
+    },
+    {
+      "name": "settings-ready-porcelain.png",
+      "width": 1080,
+      "height": 1600
+    },
+    {
+      "name": "settings-repair-porcelain.png",
+      "width": 1080,
+      "height": 1600
+    },
+    {
+      "name": "settings-approval-porcelain.png",
+      "width": 1065,
+      "height": 1635
+    }
+  ]
+}

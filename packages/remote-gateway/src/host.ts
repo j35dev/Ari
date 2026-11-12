@@ -23,10 +23,14 @@ import type {
  */
 export interface RemoteCaller {
   deviceId: string
-  /** Projects the user granted at pairing. Empty grants nothing. */
+  /** Effective project IDs; managed callers are limited to the signed lease's IDs. */
   projectIds: readonly string[]
+  /** Local all-project approval. Managed gateway callers always clear this flag. */
+  allProjects?: boolean
   /** Explicit desktop approval; shells run as the host user, not inside a filesystem sandbox. */
   allowTerminal?: boolean
+  /** Set only by gateway verification of a signed Connect lease. Never supplied by a client. */
+  managedLeaseExpiresAt?: number
 }
 
 /**

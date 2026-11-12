@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Project } from '@ari/contracts/project'
 import type { RemoteConnectState, RemoteState, TailscaleState } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import { rpc } from '../../lib/rpc'
-import { visibleProjects } from '../aria/visibility'
 
 const log = createLogger('settings:remote')
 
@@ -13,7 +11,6 @@ export function useRemoteAccess() {
   const [remote, setRemote] = useState<RemoteState | null>(null)
   const [tailscale, setTailscale] = useState<TailscaleState | null>(null)
   const [connect, setConnect] = useState<RemoteConnectState | null>(null)
-  const [projects, setProjects] = useState<Project[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const locked = useRef(false)
@@ -43,9 +40,6 @@ export function useRemoteAccess() {
         }),
         rpc.invoke('remote.tailscale.status').then((state) => {
           if (live.current) setTailscale(state)
-        }),
-        rpc.invoke('project.list').then((list) => {
-          if (live.current) setProjects(visibleProjects(list))
         }),
         rpc.invoke('remote.connect.status').then((state) => {
           if (live.current) setConnect(state)
@@ -92,7 +86,6 @@ export function useRemoteAccess() {
     remote,
     tailscale,
     connect,
-    projects,
     error,
     busy,
     run,

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { z } from 'zod'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
@@ -20,6 +21,37 @@ import { ManagedWorkspaces } from '@ari/engine/git'
 import { RemoteIntegration } from './remote-integration'
 
 const log = createLogger('desktop:remote')
+
+const persistedPairingSchema = z
+  .object({
+    devices: z.array(
+      z
+        .object({
+          deviceId: z.string().min(1),
+          displayName: z.string(),
+          projectIds: z.array(z.string()),
+          allProjects: z.boolean().optional(),
+          allowTerminal: z.boolean().optional(),
+          pairedAt: z.number().finite().nonnegative(),
+          lastSeenAt: z.number().finite().nonnegative().nullable(),
+          publicKey: z
+            .object({
+              kty: z.literal('EC'),
+              crv: z.literal('P-256'),
+              x: z.string().min(1),
+              y: z.string().min(1),
+            })
+            .strict(),
+        })
+        .strict(),
+    ),
+    revoked: z.array(
+      z
+        .object({ deviceId: z.string().min(1), revokedAt: z.number().finite().nonnegative() })
+        .strict(),
+    ),
+  })
+  .strict()
 
 /**
  * Remote access, on the desktop side (ADR §5, §9).
@@ -74,6 +106,8 @@ export interface RemoteServiceDeps {
   onChange?: (state: RemoteState) => void
   now?: () => number
   terminalFactory?: PtyFactory
+  /** Trusted listener factory; tests can hold publication while stop cancels startup. */
+  createGateway?: typeof createRemoteGateway
   fork?: RemoteHostDeps['fork']
   tasks?: RemoteHostDeps['tasks']
 }
@@ -92,6 +126,13 @@ export class RemoteService {
   /** The port the user chose, so a restart can come back on the same one. */
   #port: number
   #error: string | null = null
+  #persistenceError: Error | null = null
+  #projectIds: string[] | undefined
+  #generation = 0
+  #managedGeneration = 0
+  #lifecycle: Promise<void> = Promise.resolve()
+  #starting: Promise<RemoteState> | null = null
+  #startingManaged: Promise<number | null> | null = null
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
@@ -116,28 +157,53 @@ export class RemoteService {
   }
 
   /** Starts the gateway and records that remote access is on. */
-  async start(port?: number): Promise<RemoteState> {
+  start(port?: number): Promise<RemoteState> {
+    if (this.#starting !== null) return this.#starting
+    const generation = this.#generation
+    const pending = this.#serialize(() => this.#start(generation, port))
+    this.#starting = pending
+    void pending
+      .finally(() => {
+        if (this.#starting === pending) this.#starting = null
+      })
+      .catch(() => undefined)
+    return pending
+  }
+
+  async #start(generation: number, port?: number): Promise<RemoteState> {
+    if (generation !== this.#generation) return this.state()
     if (port !== undefined) this.#port = port
     if (this.#gateway !== null) return this.state()
+    if (this.#persistenceError !== null) {
+      this.#error = this.#persistenceError.message
+      return this.#changed()
+    }
     this.#error = null
     try {
+      await this.#refreshProjects()
+      if (generation !== this.#generation) return this.state()
       // Rebuilt rather than reused: the pairing service reads its records at
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
       this.#pairing = this.#makePairing()
+      if (this.#persistenceError !== null) return this.#changed()
       if (this.#deps.terminalFactory !== undefined)
-        this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id, projectId) =>
-          this.#pairing
-            .devices()
-            .some(
-              (device) =>
-                device.deviceId === id &&
-                device.allowTerminal === true &&
-                device.projectIds.includes(projectId),
-            ),
+        this.#terminals = new RemoteTerminals(
+          this.#deps.terminalFactory,
+          (id, projectId) =>
+            this.#pairing
+              .devices()
+              .some(
+                (device) =>
+                  this.#pairing.isDeviceActive(id) &&
+                  device.deviceId === id &&
+                  device.allowTerminal === true &&
+                  (device.allProjects === true || device.projectIds.includes(projectId)),
+              ),
+          this.#deps.now,
         )
       const webRoot = this.#deps.webRoot?.()
-      this.#gateway = await createRemoteGateway({
+      const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
@@ -174,21 +240,41 @@ export class RemoteService {
         ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
         ...(webRoot === undefined ? {} : { webRoot }),
       })
+      if (generation !== this.#generation) {
+        await gateway.close()
+        await this.#terminals?.close()
+        this.#terminals = undefined
+        return this.state()
+      }
+      this.#gateway = gateway
       log.info('remote access listening', { port: this.#gateway.port })
     } catch (error) {
       await this.#terminals?.close()
       this.#terminals = undefined
-      this.#error = error instanceof Error ? error.message : String(error)
+      this.#error =
+        generation === this.#generation
+          ? error instanceof Error
+            ? error.message
+            : String(error)
+          : null
       log.error('remote access failed to start', { error: this.#error })
       this.#gateway = null
     }
     return this.#changed()
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    this.#generation++
+    this.#managedGeneration++
+    this.#starting = null
+    this.#startingManaged = null
+    return this.#serialize(() => this.#stop())
+  }
+
+  async #stop(): Promise<void> {
     await this.#terminals?.close()
     this.#terminals = undefined
-    await this.stopManaged()
+    await this.#stopManaged()
     const gateway = this.#gateway
     this.#gateway = null
     this.#invitation = null
@@ -200,60 +286,118 @@ export class RemoteService {
   }
 
   /** An independent listener makes a forged Origin unable to bypass managed membership. */
-  async startManaged(options: {
+  startManaged(options: {
     port: number
     issuer: string
     hostname: string
     computerId: string
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
-    if (!this.running) await this.start()
-    if (!this.running) return null
-    await this.stopManaged()
-    this.#managedGateway = await createRemoteGateway({
-      host: createRemoteHost({
-        engine: this.#deps.engine,
-        store: this.#deps.store,
-        driverKinds: this.#deps.driverKinds,
-        defaultPermissionMode: this.#deps.defaultPermissionMode,
-        defaultDriverKind: this.#deps.defaultDriverKind,
-        hasProject: this.#deps.hasProject,
-        listProjects: this.#deps.listProjects,
-        listModels: this.#deps.listModels,
+    if (this.#startingManaged !== null) return this.#startingManaged
+    this.#managedGeneration++
+    const generation = this.#generation
+    const managedGeneration = this.#managedGeneration
+    const pending = this.#serialize(async () => {
+      const current = () =>
+        generation === this.#generation && managedGeneration === this.#managedGeneration
+      if (!current()) return null
+      if (!this.running) await this.#start(generation)
+      if (!this.running || !current()) return null
+      await this.#stopManaged()
+      if (!current()) return null
+      const terminals = this.#terminals
+      const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
+        host: createRemoteHost({
+          engine: this.#deps.engine,
+          store: this.#deps.store,
+          driverKinds: this.#deps.driverKinds,
+          defaultPermissionMode: this.#deps.defaultPermissionMode,
+          defaultDriverKind: this.#deps.defaultDriverKind,
+          hasProject: this.#deps.hasProject,
+          listProjects: this.#deps.listProjects,
+          listModels: this.#deps.listModels,
+          pairing: this.#pairing,
+          mintSessionId: this.#deps.mintSessionId,
+          attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
+          integration: this.#integration,
+          ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
+          ...(this.#deps.effortsForModel === undefined
+            ? {}
+            : { effortsForModel: this.#deps.effortsForModel }),
+          ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
+          ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
+          ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
+          ...(terminals === undefined
+            ? {}
+            : {
+                terminals: {
+                  execute: (...args: Parameters<RemoteTerminals['execute']>) =>
+                    current()
+                      ? terminals.execute(...args)
+                      : {
+                          ok: false as const,
+                          code: 'access_revoked',
+                          message: 'Managed remote access stopped.',
+                        },
+                  read: (...args: Parameters<RemoteTerminals['read']>) =>
+                    current() ? terminals.read(...args) : null,
+                },
+              }),
+        }),
+        allowedOrigins: [options.issuer, `https://${options.hostname}`],
+        port: options.port,
         pairing: this.#pairing,
-        mintSessionId: this.#deps.mintSessionId,
-        attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
-        integration: this.#integration,
-        ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
-        ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
-        ...(this.#deps.effortsForModel === undefined
-          ? {}
-          : { effortsForModel: this.#deps.effortsForModel }),
-        ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
-        ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
-        ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
-        ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
-      }),
-      allowedOrigins: [options.issuer, `https://${options.hostname}`],
-      port: options.port,
-      pairing: this.#pairing,
-      managedAccess: { verifier: options.verifier },
-      idempotency: {
-        restore: this.#read('managed-idempotency.json') ?? undefined,
-        persist: (json) => this.#write('managed-idempotency.json', json),
-      },
+        managedAccess: { verifier: options.verifier },
+        ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
+        idempotency: {
+          restore: this.#read('managed-idempotency.json') ?? undefined,
+          persist: (json) => this.#write('managed-idempotency.json', json),
+        },
+      })
+      if (!current()) {
+        await gateway.close()
+        return null
+      }
+      this.#managedGateway = gateway
+      this.#managedClientUrl = `${options.issuer}/?computer=${encodeURIComponent(options.computerId)}`
+      this.#changed()
+      return gateway.port
     })
-    this.#managedClientUrl = `${options.issuer}/?computer=${encodeURIComponent(options.computerId)}`
-    this.#changed()
-    return this.#managedGateway.port
+    this.#startingManaged = pending
+    void pending
+      .finally(() => {
+        if (this.#startingManaged === pending) this.#startingManaged = null
+      })
+      .catch(() => undefined)
+    return pending
   }
 
-  async stopManaged(): Promise<void> {
+  stopManaged(): Promise<void> {
+    this.#managedGeneration++
+    this.#startingManaged = null
+    return this.#serialize(() => this.#stopManaged())
+  }
+
+  async #stopManaged(): Promise<void> {
     const gateway = this.#managedGateway
     this.#managedGateway = null
     this.#managedClientUrl = null
-    if (gateway !== null) await gateway.close()
+    try {
+      if (gateway !== null) await gateway.close()
+    } finally {
+      await this.#terminals?.closeManaged()
+    }
     this.#changed()
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#lifecycle.then(operation)
+    this.#lifecycle = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
   }
 
   pairedRecords(): PersistedPairing {
@@ -262,6 +406,16 @@ export class RemoteService {
       devices: records.devices.filter((device) => this.#managedDeviceIds.has(device.deviceId)),
       revoked: records.revoked.filter((device) => this.#managedDeviceIds.has(device.deviceId)),
     }
+  }
+
+  /** Refresh the host registry for managed device registration and subsequent lease renewal. */
+  async currentPairedRecords(): Promise<PersistedPairing> {
+    await this.#refreshProjects()
+    return this.pairedRecords()
+  }
+
+  async #refreshProjects(): Promise<void> {
+    this.#projectIds = (await this.#deps.listProjects()).map((project) => project.id)
   }
 
   state(): RemoteState {
@@ -325,7 +479,7 @@ export class RemoteService {
   approve(
     invitationId: string,
     confirmationCode: string,
-    projectIds: readonly string[],
+    projectIds: readonly string[] = [],
     allowTerminal = false,
   ): RemoteState {
     const gateway = this.#gateway
@@ -365,7 +519,7 @@ export class RemoteService {
   ): RemoteState {
     if (!this.#pairing.updateGrants(deviceId, projectIds, allowTerminal))
       throw new Error(`no paired device ${deviceId}`)
-    return this.state()
+    return this.#changed()
   }
 
   #pendingInvitation(): RemoteState['pending'] {
@@ -400,6 +554,7 @@ export class RemoteService {
       deviceId: device.deviceId,
       displayName: device.displayName,
       projectIds: [...device.projectIds],
+      allProjects: device.allProjects === true,
       pairedAt: device.pairedAt,
       lastSeenAt: device.lastSeenAt,
       allowTerminal: device.allowTerminal === true,
@@ -418,28 +573,39 @@ export class RemoteService {
    * disagree about which devices exist.
    */
   #makePairing(): PairingService {
-    const restored = this.#readPairing()
-    return new PairingService({
-      ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
-      ...(restored === undefined ? {} : { restored }),
-      persist: { save: (state) => this.#writePairing(state) },
-      onChange: () => this.#changed(),
-    })
+    try {
+      const restored = this.#readPairing()
+      let initialized = false
+      const pairing = new PairingService({
+        ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
+        ...(restored === undefined ? {} : { restored }),
+        projectIds: () => this.#projectIds,
+        persist: { save: (state) => this.#writePairing(state) },
+        onChange: () => {
+          if (initialized) this.#changed()
+        },
+      })
+      initialized = true
+      return pairing
+    } catch (cause) {
+      // The desktop can still show recovery guidance, but no listener may
+      // authorize devices from incomplete or unreadable security records.
+      const error = new Error(
+        'Remote security records could not be loaded or saved. Repair storage before restarting remote access.',
+        { cause },
+      )
+      this.#persistenceError = error
+      this.#error = error.message
+      const pairing = new PairingService()
+      pairing.suspendAuthorization()
+      return pairing
+    }
   }
 
   #readPairing(): PersistedPairing | undefined {
     const raw = this.#read('devices.json')
     if (raw === undefined) return undefined
-    try {
-      const parsed = JSON.parse(raw) as PersistedPairing
-      if (!Array.isArray(parsed.devices) || !Array.isArray(parsed.revoked)) return undefined
-      return parsed
-    } catch {
-      // A corrupt file must not stop the desktop from starting or the user
-      // from pairing again; PairingService drops anything unusable in it.
-      log.warn('device records unreadable; starting with none')
-      return undefined
-    }
+    return persistedPairingSchema.parse(JSON.parse(raw))
   }
 
   #writePairing(state: PersistedPairing): void {
@@ -456,8 +622,9 @@ export class RemoteService {
   #read(name: string): string | undefined {
     try {
       return readFileSync(join(this.#deps.dir, name), 'utf8')
-    } catch {
-      return undefined
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
     }
   }
 
@@ -467,12 +634,19 @@ export class RemoteService {
     try {
       mkdirSync(dirname(path), { recursive: true })
       const tmp = `${path}.tmp`
-      writeFileSync(tmp, contents, 'utf8')
+      writeFileSync(tmp, contents, { encoding: 'utf8', flush: true })
       renameSync(tmp, path)
     } catch (error) {
-      // Losing a record is survivable — a phone re-authorizes, a command is
-      // retried under a fresh key — so this must not take the desktop down.
       log.error('could not write remote record', { name, error: String(error) })
+      const failure = new Error(
+        `Could not save remote security state (${name}). Remote authorization is blocked. Repair storage and retry the change before restarting; previously saved access may return after restart.`,
+        { cause: error },
+      )
+      this.#persistenceError = failure
+      this.#error = failure.message
+      this.#pairing?.suspendAuthorization()
+      if (this.#pairing !== undefined) this.#changed()
+      throw failure
     }
   }
 }
