@@ -1,5 +1,5 @@
 import { createPrivateKey, generateKeyPairSync, randomUUID } from 'node:crypto'
-import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { SecretBox } from '@ari/ari-core/endpoints'
@@ -12,12 +12,14 @@ export function loadHostSigningIdentity(dir: string, hostId: string, secretBox: 
   const box = secretBox()
   if (box === null) throw new Error('Secure host signing storage is unavailable.')
   const path = join(dir, 'host-signing.json')
+  const anchor = join(dir, 'host-signing-anchor.json')
   let raw: string
   try {
     if (statSync(path).size > 32768) throw new Error('Host signing identity is too large.')
     raw = readFileSync(path, 'utf8')
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    if (existsSync(anchor)) throw new Error('The existing host signing identity is missing. Restore its sealed data before hosting.')
     const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
     const cipher = box.encrypt(JSON.stringify({ hostId, privateKeyPem: key.export({ type: 'pkcs8', format: 'pem' }).toString() }))
     raw = JSON.stringify(stored.parse({ version: 1, hostId, cipher }))
@@ -33,6 +35,13 @@ export function loadHostSigningIdentity(dir: string, hostId: string, secretBox: 
       raw = readFileSync(path, 'utf8')
     } finally { unlinkSync(temporary) }
   }
+  if (!existsSync(anchor)) {
+    try { linkSync(path, anchor) } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+    }
+  }
+  if (statSync(anchor).size > 32768 || readFileSync(anchor, 'utf8') !== raw)
+    throw new Error('The host signing identity no longer matches its established sealed key.')
   const record = stored.parse(JSON.parse(raw))
   if (record.hostId !== hostId) throw new Error('Host signing identity belongs to another host.')
   const decrypted = box.decrypt(record.cipher)
