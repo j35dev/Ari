@@ -37,6 +37,7 @@ export function resourceEligibility(host: SelectionHost, now: number): string | 
   const sample = host.resources
   if (
     !sample?.available ||
+    !Number.isFinite(sample.sampledAt) || sample.sampledAt <= 0 ||
     sample.sampledAt > now ||
     now - sample.sampledAt > RESOURCE_FRESH_MS ||
     sample.cpuUtilization === null ||
