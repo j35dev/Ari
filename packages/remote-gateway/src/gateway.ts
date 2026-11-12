@@ -29,6 +29,9 @@ import { IdempotencyStore } from './idempotency'
 import { isOriginAllowed, requestOrigin } from './origin'
 import { PairingService, type PairedDevice } from './pairing'
 import { acceptUpgrade, isWebSocketUpgrade } from './ws'
+import { routeProofRequestSchema, routeChallengeRequestSchema, routeAuthorizeRequestSchema,
+  hostRouteManifestSchema } from '@ari/contracts/route-auth'
+import { ownedRouteAudience, type RouteAuthority } from './route-auth'
 
 /**
  * The remote gateway (ADR §3, §5, §19).
@@ -69,6 +72,7 @@ export interface RemoteGatewayOptions {
   managedAccess?: { verifier: () => ConnectLeaseVerifier | null }
   /** Persisted public host metadata, never project or credential data. */
   identity?: { machineId: string; name: string; ariVersion: string }
+  routeAuthority?: RouteAuthority
   /**
    * Where command deduplication records go if they are to outlive the
    * process. Absent, they live as long as the gateway does, which is exactly
@@ -131,6 +135,8 @@ function scopeOf(command: RemoteCommand): Omit<RecordedOutcome, 'reply'> {
 
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
   const host = options.host
+  const routeAudience = (): string | null => options.routeAuthority === undefined || options.managedAccess !== undefined
+    ? null : ownedRouteAudience(options.routeAuthority)
   const pairing = options.pairing ?? new PairingService()
   const idempotency =
     options.idempotency?.restore === undefined
@@ -197,7 +203,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const protocols = offeredProtocols(req)
     const token = bearerToken(protocols)
     if (token === undefined) return refuseUpgrade(socket, 401)
-    const device = pairing.authenticate(token)
+    const device = pairing.authenticate(token, routeAudience())
     if (device === undefined) return refuseUpgrade(socket, 401)
     pairing.touch(device.deviceId)
 
@@ -234,7 +240,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       connection.close(1000, 'unsubscribed')
     }
     const callerNow = (): RemoteCaller | undefined => {
-      const device = pairing.authenticate(token)
+      const device = pairing.authenticate(token, routeAudience())
       if (device === undefined) return undefined
       const caller = callerOf(device)
       const effective = lease === undefined
@@ -560,6 +566,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (body === undefined) return
 
     switch (url.pathname) {
+      case '/routes/manifest':
+        return routeManifest(req, reply)
+      case '/routes/proof':
+        return routeProof(reply, body)
+      case '/routes/challenge':
+        return routeChallenge(reply, body)
+      case '/routes/authorize':
+        return routeAuthorize(reply, body)
       case '/pair/request':
         return pairRequest(reply, body)
       case '/pair/status':
@@ -587,6 +601,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       ...(identity === undefined
         ? {}
         : { machineId: identity.machineId, name: identity.name, ariVersion: identity.ariVersion }),
+      ...(routeAudience() === null ? {} : { routeIdentity: { version: 1 as const } }),
       protocolVersion: REMOTE_PROTOCOL_VERSION,
       capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...host.capabilities()])]
         .flatMap((operation) => { const parsed = remoteOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : [] }),
@@ -594,6 +609,52 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         const parsed = machinesExtensionOperationSchema.safeParse(operation); return parsed.success ? [parsed.data] : []
       }) },
     }
+  }
+
+  function routeManifest(req: IncomingMessage, reply: Reply): void {
+    const authority = options.routeAuthority
+    if (routeAudience() === null || authority === undefined)
+      return reply(400, fail('unsupported_capability', 'verified route authority is unavailable'))
+    if (authenticate(req) === undefined) return reply(401, fail('unauthenticated', 'a device credential is required'))
+    const issuedAt = (options.now ?? Date.now)()
+    const payload = hostRouteManifestSchema.parse({kind: 'ari.routes.v1', hostId: authority.signer.hostId,
+      publicKey: authority.signer.publicKey, issuedAt, expiresAt: issuedAt + 5 * 60_000,
+      routes: [...new Set(authority.servedOrigins())]})
+    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+  }
+
+  function routeProof(reply: Reply, body: unknown): void {
+    const parsed = routeProofRequestSchema.safeParse(body)
+    const authority = options.routeAuthority
+    const audience = routeAudience()
+    if (!parsed.success || audience === null || authority === undefined || parsed.data.audience !== audience)
+      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
+    const issuedAt = (options.now ?? Date.now)()
+    const payload = {kind: 'ari.route-proof.v1' as const, hostId: authority.signer.hostId, audience,
+      nonce: parsed.data.nonce, issuedAt, expiresAt: issuedAt + 30_000, protocolVersion: REMOTE_PROTOCOL_VERSION}
+    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+  }
+
+  function routeChallenge(reply: Reply, body: unknown): void {
+    const parsed = routeChallengeRequestSchema.safeParse(body)
+    const authority = options.routeAuthority
+    const audience = routeAudience()
+    if (!parsed.success || audience === null || authority === undefined || parsed.data.audience !== audience)
+      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
+    const payload = pairing.routeChallenge({kind: 'ari.route-challenge.v1', hostId: authority.signer.hostId,
+      audience, clientNonce: parsed.data.clientNonce, deviceId: parsed.data.deviceId})
+    return reply(200, {ok: true, result: {payload, signature: authority.signer.sign(payload)}})
+  }
+
+  function routeAuthorize(reply: Reply, body: unknown): void {
+    const parsed = routeAuthorizeRequestSchema.safeParse(body)
+    const audience = routeAudience()
+    if (!parsed.success || audience === null || parsed.data.audience !== audience)
+      return reply(400, fail('unsupported_capability', 'route audience is not owned by this listener'))
+    const result = pairing.authorizeRoute(parsed.data.deviceId, audience, parsed.data)
+    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'route authorization refused'))
+    return reply(200, {ok: true, result: {deviceId: result.device.deviceId, token: result.token,
+      projectIds: result.device.projectIds, allowTerminal: result.device.allowTerminal === true}})
   }
 
   function pairRequest(reply: Reply, body: unknown): void {
@@ -899,7 +960,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (typeof header !== 'string' || !header.toLowerCase().startsWith('bearer ')) return undefined
     const token = header.slice(7).trim()
     if (token.length === 0) return undefined
-    const device = pairing.authenticate(token)
+    const device = pairing.authenticate(token, routeAudience())
     if (device === undefined) return undefined
     pairing.touch(device.deviceId)
     return device
