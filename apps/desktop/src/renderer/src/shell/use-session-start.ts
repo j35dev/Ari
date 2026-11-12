@@ -77,7 +77,7 @@ export function useSessionStart(options: {
         description: recovery.checked
           ? 'The session list is refreshed. The earlier request may still have created a session. Open it from the sidebar, or explicitly start another.'
           : `${recovery.error} The request may have created a session. Check the session list before starting another.`,
-        action: recovery.checked
+        action: recovery.checked && !recovery.attempt.draft
           ? { label: 'Start another session', onClick: retry }
           : {
               label: 'Check sessions',

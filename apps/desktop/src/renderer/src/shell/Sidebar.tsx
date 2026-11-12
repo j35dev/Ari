@@ -488,7 +488,7 @@ function SessionRow({
               <span className="min-w-0 truncate text-2xs font-medium text-fg-subtle">
                 {projectName ?? 'Unfiled'}
               </span>
-              {host && <span className="max-w-24 truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ' · Offline' : ''}</span>}
+              {host && <span className="max-w-24 truncate text-2xs text-fg-subtle" title={`${host.name} · ${host.status}`}>{host.name}{host.readOnly ? ` · ${host.status}` : ''}</span>}
               {session.driverKind ? (
                 <span className="shrink-0" title={driverLabel(session.driverKind)}>
                   <ProviderLogo kind={session.driverKind} />

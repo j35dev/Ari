@@ -192,6 +192,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     catch { return { entries: [], error: 'Project drafts could not be read. Inspect saved drafts before starting another.' } }
   })
   const [projectDrafts, setProjectDrafts] = useState<ProjectDraftEntry[]>(draftRegistry.entries)
+  const projectDraftsRef = useRef(projectDrafts)
+  projectDraftsRef.current = projectDrafts
   const [draftHandoff, setDraftHandoff] = useState<{ entry: ProjectDraftEntry; scope: SessionScope; seed: ComposerSeed } | null>(null)
   const [createdSessionKeys, setCreatedSessionKeys] = useState<ReadonlySet<string>>(new Set())
   // Which session is active is now a property of the panes: it is whatever the
@@ -838,6 +840,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
+      if (remoteActive) { toast({ tone: 'info', title: 'Content search is unavailable on this host.' }); return }
       leaveWorkspaceTool()
       setSearchOpen(true)
       setPaletteOpen(false)
@@ -1250,7 +1253,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const changesProjectId = changesContext?.projectId ?? activeSession?.projectId ?? null
   const changesScope = changesContext
     ? changesContext.sessionId
-      ? { sessionId: changesContext.sessionId }
+      ? changesClientScope ? { sessionId: changesClientScope.sessionId } : null
       : { projectId: changesContext.projectId }
     : activeScope
   const sourceControlScope =
@@ -1339,9 +1342,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const finishProjectDraft = (entry: ProjectDraftEntry, scope: SessionScope) => {
     const key = sessionViewKey(scope)
     setCreatedSessionKeys((old) => new Set(old).add(key))
+    const owner = projectDraftsRef.current.find((draft) => draft.id === entry.id)
+    const stillOwnsPane = owner?.paneId === entry.paneId && owner.spaceId === entry.spaceId &&
+      !projectDraftsRef.current.some((draft) => draft.id !== entry.id && draft.spaceId === entry.spaceId && draft.paneId === entry.paneId)
     spaceActions.update((store) => ({ ...store, spaces: store.spaces.map((space) =>
-      space.id === entry.spaceId ? { ...space, layout: assignSession(space.layout, entry.paneId, key) } : space) }))
-    const next = projectDrafts.filter((draft) => draft.id !== entry.id)
+      stillOwnsPane && space.id === entry.spaceId && leaves(space.layout.root).find((pane) => pane.paneId === entry.paneId)?.sessionId === null
+        ? { ...space, layout: assignSession(space.layout, entry.paneId, key) } : space) }))
+    const next = projectDraftsRef.current.filter((draft) => draft.id !== entry.id)
     try { writeProjectDrafts(next); setProjectDrafts(next) } catch { /* Retain the original draft metadata if storage refused. */ }
     deleteSessionDraftText(`project-draft:${entry.id}`)
     deleteSessionDraftIntent(`project-draft:${entry.id}`)
@@ -1369,7 +1376,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     const pane = spaceStore.spaces.flatMap((space) => leaves(space.layout.root)).find((leaf) => leaf.paneId === paneId)
     if (!pane?.sessionId) return false
     const scope = parseSessionViewKey(pane.sessionId)
-    return scope !== null && createSessionClient(scope).capabilityReason('terminal.create') === null
+    return scope !== null && (scope.kind === 'local' || machines.find((machine) => machine.id === scope.machineId)?.allowTerminal === true) &&
+      createSessionClient(scope).capabilityReason('terminal.create') === null
   }
   const openTerminalInPane = useCallback((paneId: string) => {
     const origin = spaceStoreSnapshot().spaces.find((space) => leaves(space.layout.root).some((pane) => pane.paneId === paneId))
@@ -1942,10 +1950,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         commands={commands}
       />
       <ContentSearchOverlay
-        open={searchOpen}
+        open={searchOpen && !remoteActive}
         onClose={() => setSearchOpen(false)}
-        root={activeProjectPath}
-        scope={activeScope}
+        root={remoteActive ? null : activeProjectPath}
+        scope={remoteActive ? null : activeScope}
       />
       {setupCovered ? null : <KeyboardCheatSheet />}
       <NewSessionLauncher
