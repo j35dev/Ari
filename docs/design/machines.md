@@ -1,13 +1,18 @@
 # Machines and remote access
 
-Status: T3 parity matrix and design, 2026-11-12. Supersedes the earlier dedicated
+Status: desktop core parity implemented, 2026-11-12; integrated final checks and
+preview restart are recorded in the
+[completion report](../research/machines-parity-final-2026-11-12.md). Headless
+hosting and transactional remote update execution are deferred with full designs.
+The matrix below preserves its preimplementation baseline and scope decisions.
+Supersedes the earlier dedicated
 remote workspace, separate remote sidebar, no-load-balancing and
 independent-origin-only product direction. Those describe the baseline, not the
 target; their security guarantees remain mandatory.
 
 Ari baseline: `14e43fe1fdfc2f83503ba3d9f43951564f57f652`.
 Authoring: `machines/parity-rework`, `D:/Projects/Ari-machines-wt/parity-rework`.
-This is the first design deliverable, with no code/contracts changed. Concrete
+This was the first design deliverable, written before code/contracts changed. Concrete
 freeze proposals and boundaries are in
 [machines-parity-contracts.md](../research/machines-parity-contracts.md).
 

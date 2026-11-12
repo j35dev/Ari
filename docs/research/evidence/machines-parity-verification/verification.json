@@ -1,0 +1,1294 @@
+{
+  "recordedAt": "2026-11-12T14:59:18.278066+00:00",
+  "integrationCheckpoint": "53d4e82c3da4b00497d58b18932452e92596f62b",
+  "finalRuntimeSource": "da40bbef99343f9dce054889cb336e7ba3977e25",
+  "disposition": "Complete with documented correction reruns; not a single clean full-suite invocation.",
+  "fullRun": [
+    {
+      "name": "typecheck",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-typecheck",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "-r",
+        "--workspace-concurrency=1",
+        "typecheck"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:33:53.808Z",
+      "finishedAt": "2026-11-12T13:36:22.869Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\typecheck.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "lint",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-lint",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "lint"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:36:22.871Z",
+      "finishedAt": "2026-11-12T13:38:50.362Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\lint.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "contracts-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-contracts-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/contracts",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:38:50.363Z",
+      "finishedAt": "2026-11-12T13:39:07.200Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\contracts-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "remote-gateway-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-remote-gateway-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/remote-gateway",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:39:07.201Z",
+      "finishedAt": "2026-11-12T13:39:15.395Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\remote-gateway-tests.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "remote-client-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-remote-client-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/remote-client",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:39:15.396Z",
+      "finishedAt": "2026-11-12T13:39:20.170Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\remote-client-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "engine-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-engine-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/engine",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:39:20.171Z",
+      "finishedAt": "2026-11-12T13:52:02.164Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\engine-tests.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "ari-core-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-ari-core-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/ari-core",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:52:02.168Z",
+      "finishedAt": "2026-11-12T13:52:27.580Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\ari-core-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "providers-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-providers-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/providers",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T13:52:27.581Z",
+      "finishedAt": "2026-11-12T14:04:26.557Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\providers-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "shared-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-shared-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/shared",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:04:26.560Z",
+      "finishedAt": "2026-11-12T14:05:06.284Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\shared-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "ui-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-ui-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/ui",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:05:06.285Z",
+      "finishedAt": "2026-11-12T14:10:45.604Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\ui-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "mobile-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-mobile-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/mobile",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:10:45.606Z",
+      "finishedAt": "2026-11-12T14:13:26.802Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\mobile-tests.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "desktop-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-desktop-tests",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:13:26.805Z",
+      "finishedAt": "2026-11-12T14:45:46.295Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\desktop-tests.log",
+      "exitCode": 1,
+      "signal": null
+    },
+    {
+      "name": "desktop-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-desktop-build",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build",
+        "--outDir",
+        "D:\\Projects\\.ari-cache\\machines-parity-integrated\\desktop-production"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:45:46.297Z",
+      "finishedAt": "2026-11-12T14:46:16.144Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\desktop-build.log",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "mobile-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\Projects\\Ari-machines\\scripts\\coordination\\run-heavy.mjs",
+        "integrated-mobile-build",
+        "D:\\Projects\\Ari-machines",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/mobile",
+        "build"
+      ],
+      "cwd": "D:\\Projects\\Ari-machines",
+      "startedAt": "2026-11-12T14:46:16.145Z",
+      "finishedAt": "2026-11-12T14:46:32.356Z",
+      "logPath": "D:\\Projects\\.ari-cache\\machines-parity-integrated\\mobile-build.log",
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "checks": [
+    {
+      "name": "ari-core-tests",
+      "artifact": "ari-core-tests.txt",
+      "sha256": "68c47edd0b5d4b465f64a387a6bb389df920b623327020ed3f0eba9a0205a30b",
+      "result": {
+        "worker": "integrated-ari-core-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/ari-core",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 4764385280,
+          "cFreeBytes": 21947125760
+        }
+      ],
+      "testSummary": [
+        "Test Files  25 passed (25)",
+        "Tests  282 passed (282)"
+      ]
+    },
+    {
+      "name": "contracts-tests",
+      "artifact": "contracts-tests.txt",
+      "sha256": "b08a94b0c22188784d95f71f13f6fd670242ef62ad799f8733896fa673b319ad",
+      "result": {
+        "worker": "integrated-contracts-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/contracts",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8110424064,
+          "cFreeBytes": 22020435968
+        }
+      ],
+      "testSummary": [
+        "Test Files  16 passed (16)",
+        "Tests  224 passed (224)"
+      ]
+    },
+    {
+      "name": "desktop-app-correction",
+      "artifact": "desktop-app-correction.txt",
+      "sha256": "1a0f6723a3d4a316d36933a87caad2216087e20c26dd91b066bda236fa3b3beb",
+      "result": {
+        "worker": "integrated-app-fixtures-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "exec",
+          "vitest",
+          "run",
+          "src/renderer/src/App.navigation.test.tsx",
+          "src/renderer/src/App.onboarding.test.tsx",
+          "src/renderer/src/App.first-session.test.tsx",
+          "src/renderer/src/features/machines/use-machines.test.tsx",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 10446454784,
+          "cFreeBytes": 21675323392
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 failed | 2 passed (3)",
+        "Tests  1 failed | 27 passed (28)"
+      ]
+    },
+    {
+      "name": "desktop-app-final-correction",
+      "artifact": "desktop-app-final-correction.txt",
+      "sha256": "0382c8ad856b7e6da04dea54536455d0e4972d4aea09ae34fa54216453c944a8",
+      "result": {
+        "worker": "integrated-app-final-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "exec",
+          "vitest",
+          "run",
+          "src/renderer/src/App.navigation.test.tsx",
+          "src/renderer/src/App.onboarding.test.tsx",
+          "src/renderer/src/App.first-session.test.tsx",
+          "src/renderer/src/features/machines/MachineNavigation.test.tsx",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 10110533632,
+          "cFreeBytes": 21702860800
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 failed | 3 passed (4)",
+        "Tests  1 failed | 35 passed (36)"
+      ]
+    },
+    {
+      "name": "desktop-build",
+      "artifact": "desktop-build.txt",
+      "sha256": "3eaafe843cdea69d0d608a8d8e7545e4a490c82d52342db3348a6aa3638f0116",
+      "result": {
+        "worker": "integrated-desktop-build",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "build",
+          "--outDir",
+          "D:\\Projects\\.ari-cache\\machines-parity-integrated\\desktop-production"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 10291478528,
+          "cFreeBytes": 21682274304
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "desktop-host-runtime-correction",
+      "artifact": "desktop-host-runtime-correction.txt",
+      "sha256": "6aa93e20a238eda21b18c6900604098b72ac727876c453dd22e75de2e6a4674a",
+      "result": {
+        "worker": "integrated-host-runtime-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "exec",
+          "vitest",
+          "run",
+          "src/main/remote-host.test.ts",
+          "src/main/agent-runtime.test.ts",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8513789952,
+          "cFreeBytes": 21682249728
+        }
+      ],
+      "testSummary": [
+        "Test Files  2 passed (2)",
+        "Tests  76 passed (76)"
+      ]
+    },
+    {
+      "name": "desktop-onboarding-races-final",
+      "artifact": "desktop-onboarding-races-final.txt",
+      "sha256": "8aa469c71663cbcb46e4cda2bd99bc635241fccea01d5b9be525c3a14fcc9cba",
+      "result": {
+        "worker": "integrated-onboarding-races-final",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "exec",
+          "vitest",
+          "run",
+          "src/renderer/src/App.onboarding.test.tsx",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8882921472,
+          "cFreeBytes": 21677920256
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  13 passed (13)"
+      ]
+    },
+    {
+      "name": "desktop-owner-correction",
+      "artifact": "desktop-owner-correction.txt",
+      "sha256": "379bfa6cfde79e80b6100d1162aec8ca4a260b774c37be3da7f48063531258c4",
+      "result": {
+        "worker": "integrated-onboarding-effort-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "exec",
+          "vitest",
+          "run",
+          "src/renderer/src/features/onboarding",
+          "src/renderer/src/features/session/SessionView.test.tsx",
+          "src/main/remote-host.test.ts",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8627744768,
+          "cFreeBytes": 21728071680
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 failed | 8 passed (9)",
+        "Tests  1 failed | 219 passed (220)"
+      ]
+    },
+    {
+      "name": "desktop-tests",
+      "artifact": "desktop-tests.txt",
+      "sha256": "981e736f3e4965fb32aa411d2539ac92b2f85e8610e04e482657abd6cc65fe04",
+      "result": {
+        "worker": "integrated-desktop-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 7876907008,
+          "cFreeBytes": 21815922688
+        }
+      ],
+      "testSummary": [
+        "Test Files  6 failed | 342 passed | 3 skipped (351)",
+        "Tests  26 failed | 3740 passed | 4 skipped (3770)"
+      ]
+    },
+    {
+      "name": "engine-tests-correction",
+      "artifact": "engine-tests-correction.txt",
+      "sha256": "ddadabfdaea967343cd0baf2e128207edf923f2df2ac237c66a767155df97495",
+      "result": {
+        "worker": "final-engine-timing-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/engine",
+          "test",
+          "src/orchestration.test.ts",
+          "-t",
+          "invalidates accepted prerequisites|rejects an oversized full brief",
+          "--testTimeout=60000",
+          "--hookTimeout=60000",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 5328470016,
+          "cFreeBytes": 21922918400
+        },
+        {
+          "commitHeadroomBytes": 5916999680,
+          "cFreeBytes": 21944295424
+        },
+        {
+          "commitHeadroomBytes": 7392514048,
+          "cFreeBytes": 21944094720
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  2 passed | 32 skipped (34)"
+      ]
+    },
+    {
+      "name": "engine-tests",
+      "artifact": "engine-tests.txt",
+      "sha256": "07624295be4016ebb6c0e8351b09b258f4c9131d7d1f8bbe42a0407a9452f060",
+      "result": {
+        "worker": "integrated-engine-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/engine",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 7916687360,
+          "cFreeBytes": 22019870720
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 failed | 41 passed (42)",
+        "Tests  2 failed | 801 passed (803)"
+      ]
+    },
+    {
+      "name": "lint-correction",
+      "artifact": "lint-correction.txt",
+      "sha256": "1a6329b093786a691c367d0a8e605b573744150c04b809b00751d78f44583a75",
+      "result": {
+        "worker": "final-lint-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "lint"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 4591443968,
+          "cFreeBytes": 22013808640
+        },
+        {
+          "commitHeadroomBytes": 5135052800,
+          "cFreeBytes": 22010732544
+        },
+        {
+          "commitHeadroomBytes": 663937024,
+          "cFreeBytes": 22004776960
+        },
+        {
+          "commitHeadroomBytes": 3105165312,
+          "cFreeBytes": 22003277824
+        },
+        {
+          "commitHeadroomBytes": 4524081152,
+          "cFreeBytes": 22002757632
+        },
+        {
+          "commitHeadroomBytes": 2576601088,
+          "cFreeBytes": 21999288320
+        },
+        {
+          "commitHeadroomBytes": 5146472448,
+          "cFreeBytes": 22004989952
+        },
+        {
+          "commitHeadroomBytes": 4072312832,
+          "cFreeBytes": 22005481472
+        },
+        {
+          "commitHeadroomBytes": 1211904000,
+          "cFreeBytes": 21997977600
+        },
+        {
+          "commitHeadroomBytes": 2748104704,
+          "cFreeBytes": 21984493568
+        },
+        {
+          "commitHeadroomBytes": 4715220992,
+          "cFreeBytes": 21973172224
+        },
+        {
+          "commitHeadroomBytes": 3598135296,
+          "cFreeBytes": 21993410560
+        },
+        {
+          "commitHeadroomBytes": 4421943296,
+          "cFreeBytes": 21979095040
+        },
+        {
+          "commitHeadroomBytes": 3687297024,
+          "cFreeBytes": 21964959744
+        },
+        {
+          "commitHeadroomBytes": 4338483200,
+          "cFreeBytes": 21973221376
+        },
+        {
+          "commitHeadroomBytes": 4084252672,
+          "cFreeBytes": 21977952256
+        },
+        {
+          "commitHeadroomBytes": 4943224832,
+          "cFreeBytes": 21959782400
+        },
+        {
+          "commitHeadroomBytes": 4069638144,
+          "cFreeBytes": 21957353472
+        },
+        {
+          "commitHeadroomBytes": 4440469504,
+          "cFreeBytes": 21947219968
+        },
+        {
+          "commitHeadroomBytes": 6718844928,
+          "cFreeBytes": 21945618432
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "lint-final",
+      "artifact": "lint-final.txt",
+      "sha256": "11927c49f21d63da61b3cce723c50ce345b9e4dd079a162015c6aa6ab43bbd00",
+      "result": {
+        "worker": "final-lint-after-shell-fix",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "lint"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6756810752,
+          "cFreeBytes": 21721821184
+        },
+        {
+          "commitHeadroomBytes": 7147368448,
+          "cFreeBytes": 21824860160
+        },
+        {
+          "commitHeadroomBytes": 6313644032,
+          "cFreeBytes": 21813383168
+        },
+        {
+          "commitHeadroomBytes": 7060381696,
+          "cFreeBytes": 21823086592
+        },
+        {
+          "commitHeadroomBytes": 9056423936,
+          "cFreeBytes": 21821702144
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "lint-post-onboarding",
+      "artifact": "lint-post-onboarding.txt",
+      "sha256": "1e43142b6844319d27dd71ebc40792a8ccb12d8c29f4ce208078ab7739c097ac",
+      "result": {
+        "worker": "integrated-lint-post-onboarding",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "lint"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8454623232,
+          "cFreeBytes": 21661872128
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "lint",
+      "artifact": "lint.txt",
+      "sha256": "8658a79178a2f23fa11a836c82d0559a0bd7ac2939f3b0a0a2c7f0cee493d621",
+      "result": {
+        "worker": "integrated-lint",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "lint"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6042128384,
+          "cFreeBytes": 22025515008
+        },
+        {
+          "commitHeadroomBytes": 6492037120,
+          "cFreeBytes": 22024933376
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "mobile-build",
+      "artifact": "mobile-build.txt",
+      "sha256": "348c0e4dab24b895c2a376c3f400b0e630549cc6ea51e4a91855b87f40b4b2f9",
+      "result": {
+        "worker": "integrated-mobile-build",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/mobile",
+          "build"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8519507968,
+          "cFreeBytes": 21682024448
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "mobile-tests",
+      "artifact": "mobile-tests.txt",
+      "sha256": "eefd310246a212b272d4c967fb47b6a163cc850d4e5eb753bb4b8b72683aacfe",
+      "result": {
+        "worker": "integrated-mobile-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/mobile",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 7738408960,
+          "cFreeBytes": 21828132864
+        }
+      ],
+      "testSummary": [
+        "Test Files  49 passed (49)",
+        "Tests  371 passed (371)"
+      ]
+    },
+    {
+      "name": "providers-tests",
+      "artifact": "providers-tests.txt",
+      "sha256": "6fba31c551febcb3b5c0eb58b940939daa2f02990e61197faa19ca39b9f57bda",
+      "result": {
+        "worker": "integrated-providers-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/providers",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6811815936,
+          "cFreeBytes": 21937287168
+        }
+      ],
+      "testSummary": [
+        "Test Files  52 passed (52)",
+        "Tests  702 passed | 1 skipped (703)"
+      ]
+    },
+    {
+      "name": "remote-client-tests",
+      "artifact": "remote-client-tests.txt",
+      "sha256": "5238810ad52e9972af076d0a219fa85502d46c26d47c5af5ed7f07a972e27ce2",
+      "result": {
+        "worker": "integrated-remote-client-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/remote-client",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8076337152,
+          "cFreeBytes": 22019870720
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  24 passed (24)"
+      ]
+    },
+    {
+      "name": "remote-gateway-tests-correction",
+      "artifact": "remote-gateway-tests-correction.txt",
+      "sha256": "49d8bdb97cce4ffd501bf2ee1f22202cd6a2afe0f37bc60514cca6f969eae853",
+      "result": {
+        "worker": "final-gateway-correction",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/remote-gateway",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 2975539200,
+          "cFreeBytes": 22002683904
+        },
+        {
+          "commitHeadroomBytes": 4434571264,
+          "cFreeBytes": 22003179520
+        },
+        {
+          "commitHeadroomBytes": 4389392384,
+          "cFreeBytes": 21998997504
+        },
+        {
+          "commitHeadroomBytes": 5097734144,
+          "cFreeBytes": 22004330496
+        },
+        {
+          "commitHeadroomBytes": 3544199168,
+          "cFreeBytes": 22004609024
+        },
+        {
+          "commitHeadroomBytes": 4059656192,
+          "cFreeBytes": 21988638720
+        },
+        {
+          "commitHeadroomBytes": 4672028672,
+          "cFreeBytes": 21972979712
+        },
+        {
+          "commitHeadroomBytes": 4482523136,
+          "cFreeBytes": 21987946496
+        },
+        {
+          "commitHeadroomBytes": 3542753280,
+          "cFreeBytes": 21969076224
+        },
+        {
+          "commitHeadroomBytes": 4502777856,
+          "cFreeBytes": 21972602880
+        },
+        {
+          "commitHeadroomBytes": 5237698560,
+          "cFreeBytes": 21975867392
+        },
+        {
+          "commitHeadroomBytes": 5248614400,
+          "cFreeBytes": 21977325568
+        },
+        {
+          "commitHeadroomBytes": 4928344064,
+          "cFreeBytes": 21958664192
+        },
+        {
+          "commitHeadroomBytes": 3913826304,
+          "cFreeBytes": 21950861312
+        },
+        {
+          "commitHeadroomBytes": 3734749184,
+          "cFreeBytes": 21947035648
+        },
+        {
+          "commitHeadroomBytes": 6320353280,
+          "cFreeBytes": 21937700864
+        },
+        {
+          "commitHeadroomBytes": 3082149888,
+          "cFreeBytes": 21920772096
+        },
+        {
+          "commitHeadroomBytes": 5841305600,
+          "cFreeBytes": 21918576640
+        },
+        {
+          "commitHeadroomBytes": 6687686656,
+          "cFreeBytes": 21923274752
+        },
+        {
+          "commitHeadroomBytes": 5334228992,
+          "cFreeBytes": 21919334400
+        },
+        {
+          "commitHeadroomBytes": 4960968704,
+          "cFreeBytes": 21944823808
+        },
+        {
+          "commitHeadroomBytes": 5647511552,
+          "cFreeBytes": 21944127488
+        },
+        {
+          "commitHeadroomBytes": 6363516928,
+          "cFreeBytes": 21943156736
+        },
+        {
+          "commitHeadroomBytes": 7058616320,
+          "cFreeBytes": 21941739520
+        }
+      ],
+      "testSummary": [
+        "Test Files  6 passed (6)",
+        "Tests  182 passed (182)"
+      ]
+    },
+    {
+      "name": "remote-gateway-tests",
+      "artifact": "remote-gateway-tests.txt",
+      "sha256": "631a6cd29531c926146bf19c2c583c6872450009653df8a11e6b919fd5e2b49b",
+      "result": {
+        "worker": "integrated-remote-gateway-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/remote-gateway",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 1,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8041873408,
+          "cFreeBytes": 22020063232
+        }
+      ],
+      "testSummary": [
+        "Test Files  1 failed | 5 passed (6)",
+        "Tests  4 failed | 178 passed (182)"
+      ]
+    },
+    {
+      "name": "shared-tests",
+      "artifact": "shared-tests.txt",
+      "sha256": "dfe2ce132d3917e665551207c56cdeeadebd1e00f4b29a6ebd91e54c7fb3970f",
+      "result": {
+        "worker": "integrated-shared-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/shared",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6350995456,
+          "cFreeBytes": 21936173056
+        },
+        {
+          "commitHeadroomBytes": 7593529344,
+          "cFreeBytes": 21918011392
+        }
+      ],
+      "testSummary": [
+        "Test Files  5 passed (5)",
+        "Tests  16 passed (16)"
+      ]
+    },
+    {
+      "name": "typecheck-final-desktop",
+      "artifact": "typecheck-final-desktop.txt",
+      "sha256": "8d4cfbac948450e8e45cf5da2321cf84e8e778d9cf7afc41d44de308aa5218fc",
+      "result": {
+        "worker": "final-desktop-types",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8194228224,
+          "cFreeBytes": 21768531968
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "typecheck-fixtures-final",
+      "artifact": "typecheck-fixtures-final.txt",
+      "sha256": "67d8e367645869897c8bccad8a97a67bd9b8a8a2a09502e957bf3ecb460fe01c",
+      "result": {
+        "worker": "integrated-final-fixture-types",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 8202866688,
+          "cFreeBytes": 21675319296
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "typecheck-onboarding-final",
+      "artifact": "typecheck-onboarding-final.txt",
+      "sha256": "1cb4407ca8abbce9d15405965528b9e92de57c30c4b541589b080bb01ee796fd",
+      "result": {
+        "worker": "integrated-final-desktop-types",
+        "executable": "node",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/desktop",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 9174134784,
+          "cFreeBytes": 21721284608
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "typecheck",
+      "artifact": "typecheck.txt",
+      "sha256": "025c755fca1d75192be612e38cfa40d49c1c85c476505cb95ba6f1e2b92b3470",
+      "result": {
+        "worker": "integrated-typecheck",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "-r",
+          "--workspace-concurrency=1",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6653652992,
+          "cFreeBytes": 22025924608
+        }
+      ],
+      "testSummary": []
+    },
+    {
+      "name": "ui-tests",
+      "artifact": "ui-tests.txt",
+      "sha256": "b6e7789db4e3f371d568de20826e8fff456bf1d46d9ea610fc26942cbcc4987d",
+      "result": {
+        "worker": "integrated-ui-tests",
+        "executable": "C:\\Program Files\\nodejs\\node.exe",
+        "args": [
+          "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+          "--filter",
+          "@ari/ui",
+          "test",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "signal": null
+      },
+      "resourceGates": [
+        {
+          "commitHeadroomBytes": 6190825472,
+          "cFreeBytes": 21917700096
+        }
+      ],
+      "testSummary": [
+        "Test Files  38 passed (38)",
+        "Tests  323 passed (323)"
+      ]
+    }
+  ],
+  "coverageNotes": [
+    "The long full run overlapped reviewed fixture/runtime corrections. Final scoped reruns cover changed and initially failing files; unaffected packages retained their passing full suites.",
+    "Gateway: four legacy extension-omission fixture failures corrected; full 182-test rerun passed.",
+    "Engine: 801 passed, two loaded-Windows orchestration timeout/cleanup failures; the two named regressions passed with 60s test/hook bounds and unchanged runtime.",
+    "Desktop: full 3740 passed, 26 failed, four skipped across six files. These failures comprise two scoped mock-arity assertions, 15 obsolete App fixtures, seven completion tests transformed against cached pre-correction runtime, one obsolete capability list, and one short-socket test under the long private TEMP.",
+    "Desktop corrections: nine owner files yielded 219 passes with only the capability fixture failure subsequently fixed; both host/runtime files passed 76/76 with a protected shorter TEMP; navigation, first-session and machine-navigation passed in the 35/36 correction run; its only wrong-role new setup assertion was fixed and the complete onboarding file then passed 13/13.",
+    "Both new setup ordering/space-ownership regressions passed. No scope/grant guard was weakened to satisfy old fixtures.",
+    "Final full lint and final desktop fixture typecheck passed. Both production builds passed after final runtime correction.",
+    "Real two-engine/gateway normal-client proof and independent security/identity evidence are retained separately under machines-t3-security."
+  ],
+  "limitations": [
+    "Real tailnet/mobile/OS-keyring/PTY/Connect hardware not certified.",
+    "Headless host and transactional remote updates remain deferred designs."
+  ]
+}
