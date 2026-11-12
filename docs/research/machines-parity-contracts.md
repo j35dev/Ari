@@ -52,9 +52,13 @@ extensions in remote.ts (or a separately exported desktop schema imported there)
   session.resume.get/schedule/cancel, plan.get, changes.turn/turnFile,
   files.index, pastes.stage, and attachment-aware steer with real host rejection
   when the live provider cannot steer images.
-- scm.desktop.summary/status/review: session-scoped projections into the normal
+- scm.desktop.summary/status/review/diff: session-scoped projections into the normal
   SCM read DTOs. No broad SCM write tunnel. Preserve reviewed changes.preview /
   integrate as the explicitly snapshot-checked integration action.
+  The diff query accepts sessionId, a host-reviewed snapshotId, safe relative
+  path and bounded context; the host verifies snapshot/session/workspace binding
+  and the remote-files policy. It cannot use an arbitrary OID or expose excluded
+  secrets through a full local diff. scm.cancel stays client-local cancellation.
 
 All mutations retain strict original clientCommandId/idempotencyKey envelopes
 and operation-specific result validation. Unknown outcomes are status-only,
