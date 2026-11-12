@@ -1,0 +1,418 @@
+desktop-composer-format.log
+{"resourceGate":{"commitHeadroomBytes":9577095168,"cFreeBytes":22671286272}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-format","pid":28008,"startedAt":"2026-11-12T08:18:48.090Z","id":"c87d351a-2551-4d87-a0c0-0f97f2df5bd3"}
+apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx 282ms (unchanged)
+apps/desktop/packaging/capture-machines.mjs 63ms
+docs/research/desktop-machines.md 65ms (unchanged)
+{"heavyResult":{"worker":"desktop-composer-format","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","exec","prettier","--write","apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx","apps/desktop/packaging/capture-machines.mjs","docs/research/desktop-machines.md"],"exitCode":0,"signal":null}}
+
+desktop-composer-tests.log
+{"resourceGate":{"commitHeadroomBytes":9449332736,"cFreeBytes":22670917632}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-tests","pid":25568,"startedAt":"2026-11-12T08:19:26.364Z","id":"ff6e4f6f-6e7f-4145-9618-238b96bac9cd"}
+
+ RUN  v4.1.11 D:/Projects/Ari-machines-wt/desktop/apps/desktop
+
+
+ Test Files  2 passed (2)
+      Tests  28 passed (28)
+   Start at  16:19:31
+   Duration  17.79s (transform 526ms, setup 4.60s, import 1.55s, tests 4.39s, environment 6.50s)
+
+{"heavyResult":{"worker":"desktop-composer-tests","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vitest","run","src/renderer/src/features/machines/RemoteSession.test.tsx","src/renderer/src/features/machines/remote-client.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}
+
+desktop-composer-types.log
+{"resourceGate":{"commitHeadroomBytes":9503682560,"cFreeBytes":22670647296}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-types","pid":3468,"startedAt":"2026-11-12T08:19:26.373Z","id":"fd79414a-9612-4570-930b-d0247cc496c6"}
+{"heavyResult":{"worker":"desktop-composer-types","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","tsc","--noEmit","-p","tsconfig.machines.json"],"exitCode":0,"signal":null}}
+
+desktop-composer-lint.log
+{"resourceGate":{"commitHeadroomBytes":10324209664,"cFreeBytes":22733025280}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-lint","pid":22424,"startedAt":"2026-11-12T08:20:20.015Z","id":"1fec8d3f-b485-45d1-82c0-0d5c672ff93f"}
+{"heavyResult":{"worker":"desktop-composer-lint","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","exec","eslint","apps/desktop/src/renderer/src/features/machines/RemoteSession.tsx","apps/desktop/packaging/capture-machines.mjs"],"exitCode":0,"signal":null}}
+
+desktop-composer-fixture-build.log
+{"resourceGate":{"commitHeadroomBytes":8459370496,"cFreeBytes":22697959424}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-fixture-build","pid":15796,"startedAt":"2026-11-12T08:20:49.910Z","id":"88ae7a8c-cfa8-4440-a0ab-c686f71e7c11"}
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 3129 modules transformed.
+rendering chunks...
+computing gzip size...
+../../out/machines-fixture/testing/machines.html                                              0.40 kB │ gzip:   0.26 kB
+../../out/machines-fixture/assets/fira-code-symbols2-wght-normal-CE6EOz_n.woff2               4.12 kB
+../../out/machines-fixture/assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2              5.81 kB
+../../out/machines-fixture/assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2          6.18 kB
+../../out/machines-fixture/assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2               7.42 kB
+../../out/machines-fixture/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2        7.50 kB
+../../out/machines-fixture/assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2            7.70 kB
+../../out/machines-fixture/assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2                 8.00 kB
+../../out/machines-fixture/assets/manrope-vietnamese-wght-normal-usUDDRr7.woff2               8.52 kB
+../../out/machines-fixture/assets/fira-code-greek-ext-wght-normal-wWus70Ix.woff2              8.61 kB
+../../out/machines-fixture/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2             9.00 kB
+../../out/machines-fixture/assets/manrope-greek-wght-normal-DL7QRZyv.woff2                    9.44 kB
+../../out/machines-fixture/assets/source-sans-3-greek-ext-wght-normal-BXZfsJY4.woff2          9.75 kB
+../../out/machines-fixture/assets/source-sans-3-vietnamese-wght-normal-BDs68eHQ.woff2        10.36 kB
+../../out/machines-fixture/assets/source-sans-3-cyrillic-ext-wght-normal-c-5QAGAI.woff2      10.73 kB
+../../out/machines-fixture/assets/fira-code-cyrillic-wght-normal-Y3u8pIsh.woff2              11.98 kB
+../../out/machines-fixture/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2         12.11 kB
+../../out/machines-fixture/assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2             12.94 kB
+../../out/machines-fixture/assets/fira-code-latin-ext-wght-normal-Dvfvaomy.woff2             13.27 kB
+../../out/machines-fixture/assets/source-serif-4-vietnamese-wght-normal-BsaNuasd.woff2       13.51 kB
+../../out/machines-fixture/assets/fira-code-greek-wght-normal-B2SviObF.woff2                 13.78 kB
+../../out/machines-fixture/assets/manrope-cyrillic-wght-normal-Dvxsihut.woff2                14.50 kB
+../../out/machines-fixture/assets/source-sans-3-greek-wght-normal-Cc-u-6OI.woff2             14.53 kB
+../../out/machines-fixture/assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2            14.70 kB
+../../out/machines-fixture/assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2                  15.08 kB
+../../out/machines-fixture/assets/manrope-latin-ext-wght-normal-Ch3YOpNY.woff2               15.12 kB
+../../out/machines-fixture/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2        15.20 kB
+../../out/machines-fixture/assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2                 16.51 kB
+../../out/machines-fixture/assets/source-serif-4-cyrillic-ext-wght-normal-DHTKMUil.woff2     18.11 kB
+../../out/machines-fixture/assets/source-sans-3-cyrillic-wght-normal-BMDVbyM7.woff2          18.50 kB
+../../out/machines-fixture/assets/source-serif-4-greek-wght-normal-BpXpdlRW.woff2            20.18 kB
+../../out/machines-fixture/assets/fira-code-cyrillic-ext-wght-normal-DhYMMuQd.woff2          22.13 kB
+../../out/machines-fixture/assets/geist-mono-latin-wght-normal-XN7g48iV.woff2                23.13 kB
+../../out/machines-fixture/assets/manrope-latin-wght-normal-DHIcAJRg.woff2                   24.84 kB
+../../out/machines-fixture/assets/source-sans-3-latin-wght-normal-Bo_j9asI.woff2             28.87 kB
+../../out/machines-fixture/assets/geist-latin-wght-normal-BgDaEnEv.woff2                     29.40 kB
+../../out/machines-fixture/assets/fira-code-latin-wght-normal-CHoedHDv.woff2                 36.28 kB
+../../out/machines-fixture/assets/source-serif-4-cyrillic-wght-normal-B1g8a0vD.woff2         36.51 kB
+../../out/machines-fixture/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2            40.40 kB
+../../out/machines-fixture/assets/source-serif-4-latin-ext-wght-normal-BVZ5su8S.woff2        42.21 kB
+../../out/machines-fixture/assets/source-serif-4-latin-wght-normal-DMe4EKeb.woff2            50.94 kB
+../../out/machines-fixture/assets/source-sans-3-latin-ext-wght-normal-C8iNium2.woff2         60.09 kB
+../../out/machines-fixture/assets/stillwater-1tlEBJ1E.jpg                                   153.15 kB
+../../out/machines-fixture/assets/anime-city-DyNGoncj.jpg                                   422.44 kB
+../../out/machines-fixture/assets/moon-landscape-BLjQ5E2Q.jpg                               465.93 kB
+../../out/machines-fixture/assets/moon-landscape-2-Bbw8UqZO.jpg                             634.12 kB
+../../out/machines-fixture/assets/machines-f28oeiuP.css                                     132.87 kB │ gzip:  27.00 kB
+../../out/machines-fixture/assets/codeowners-Bp6g37R7.js                                      0.55 kB │ gzip:   0.32 kB
+../../out/machines-fixture/assets/shellsession-BADoaaVG.js                                    0.71 kB │ gzip:   0.43 kB
+../../out/machines-fixture/assets/tsv-B_m7g4N7.js                                             0.74 kB │ gzip:   0.34 kB
+../../out/machines-fixture/assets/html-derivative-DlHx6ybY.js                                 0.90 kB │ gzip:   0.50 kB
+../../out/machines-fixture/assets/git-rebase-r7XF79zn.js                                      0.98 kB │ gzip:   0.44 kB
+../../out/machines-fixture/assets/qmldir-C8lEn-DE.js                                          1.00 kB │ gzip:   0.45 kB
+../../out/machines-fixture/assets/csv-fuZLfV_i.js                                             1.14 kB │ gzip:   0.37 kB
+../../out/machines-fixture/assets/git-commit-F4YmCXRG.js                                      1.23 kB │ gzip:   0.53 kB
+../../out/machines-fixture/assets/xsl-CtQFsRM5.js                                             1.39 kB │ gzip:   0.52 kB
+../../out/machines-fixture/assets/dotenv-Da5cRb03.js                                          1.42 kB │ gzip:   0.53 kB
+../../out/machines-fixture/assets/sparql-rVzFXLq3.js                                          1.48 kB │ gzip:   0.82 kB
+../../out/machines-fixture/assets/ini-BEwlwnbL.js                                             1.53 kB │ gzip:   0.50 kB
+../../out/machines-fixture/assets/fortran-fixed-form-CkoXwp7k.js                              1.67 kB │ gzip:   0.69 kB
+../../out/machines-fixture/assets/docker-BcOcwvcX.js                                          1.74 kB │ gzip:   0.60 kB
+../../out/machines-fixture/assets/desktop-BmXAJ9_W.js                                         1.83 kB │ gzip:   0.76 kB
+../../out/machines-fixture/assets/hxml-2-FPmUDs.js                                            1.89 kB │ gzip:   0.90 kB
+../../out/machines-fixture/assets/wenyan-BV7otONQ.js                                          2.16 kB │ gzip:   1.09 kB
+../../out/machines-fixture/assets/jssm-C2t-YnRu.js                                            2.24 kB │ gzip:   0.62 kB
+../../out/machines-fixture/assets/reg-C-SQnVFl.js                                             2.35 kB │ gzip:   0.70 kB
+../../out/machines-fixture/assets/edge-FbVlp4U3.js                                            2.36 kB │ gzip:   0.70 kB
+../../out/machines-fixture/assets/diff-D97Zzqfu.js                                            2.57 kB │ gzip:   0.70 kB
+../../out/machines-fixture/assets/gleam-BspZqrRM.js                                           2.58 kB │ gzip:   0.82 kB
+../../out/machines-fixture/assets/erb-DXfck5VN.js                                             2.61 kB │ gzip:   0.84 kB
+../../out/machines-fixture/assets/hy-DFXneXwc.js                                              2.65 kB │ gzip:   1.18 kB
+../../out/machines-fixture/assets/json-Cp-IABpG.js                                            2.82 kB │ gzip:   0.78 kB
+../../out/machines-fixture/assets/openscad-C4EeE6gA.js                                        2.82 kB │ gzip:   1.01 kB
+../../out/machines-fixture/assets/log-2UxHyX5q.js                                             2.85 kB │ gzip:   0.90 kB
+../../out/machines-fixture/assets/cairo-KRGpt6FW.js                                           2.94 kB │ gzip:   0.81 kB
+../../out/machines-fixture/assets/berry-uYugtg8r.js                                           3.01 kB │ gzip:   0.81 kB
+../../out/machines-fixture/assets/jsonl-DcaNXYhu.js                                           3.01 kB │ gzip:   0.79 kB
+../../out/machines-fixture/assets/jsonc-Des-eS-w.js                                           3.11 kB │ gzip:   0.80 kB
+../../out/machines-fixture/assets/logo-BtOb2qkB.js                                            3.13 kB │ gzip:   1.47 kB
+../../out/machines-fixture/assets/po-BTJTHyun.js                                              3.24 kB │ gzip:   0.91 kB
+../../out/machines-fixture/assets/json5-C9tS-k6U.js                                           3.25 kB │ gzip:   0.83 kB
+../../out/machines-fixture/assets/mipsasm-CKIfxQSi.js                                         3.26 kB │ gzip:   1.18 kB
+../../out/machines-fixture/assets/tasl-QIJgUcNo.js                                            3.29 kB │ gzip:   0.85 kB
+../../out/machines-fixture/assets/rbs-CpoqiR4B.js                                             3.31 kB │ gzip:   0.73 kB
+../../out/machines-fixture/assets/genie-D0YGMca9.js                                           3.36 kB │ gzip:   1.21 kB
+../../out/machines-fixture/assets/rel-C3B-1QV4.js                                             3.37 kB │ gzip:   1.11 kB
+../../out/machines-fixture/assets/vala-CsfeWuGM.js                                            3.37 kB │ gzip:   1.19 kB
+../../out/machines-fixture/assets/splunk-BtCnVYZw.js                                          3.44 kB │ gzip:   1.52 kB
+../../out/machines-fixture/assets/fluent-C4IJs8-o.js                                          3.61 kB │ gzip:   0.90 kB
+../../out/machines-fixture/assets/ssh-config-_ykCGR6B.js                                      3.62 kB │ gzip:   1.60 kB
+../../out/machines-fixture/assets/jsonnet-DFQXde-d.js                                         3.62 kB │ gzip:   1.05 kB
+../../out/machines-fixture/assets/kdl-DV7GczEv.js                                             3.63 kB │ gzip:   1.04 kB
+../../out/machines-fixture/assets/glsl-DplSGwfg.js                                            3.63 kB │ gzip:   1.41 kB
+../../out/machines-fixture/assets/hurl-irOxFIW8.js                                            3.65 kB │ gzip:   1.16 kB
+../../out/machines-fixture/assets/narrat-DRg8JJMk.js                                          3.67 kB │ gzip:   1.11 kB
+../../out/machines-fixture/assets/turtle-BsS91CYL.js                                          3.70 kB │ gzip:   0.98 kB
+../../out/machines-fixture/assets/zenscript-DVFEvuxE.js                                       3.91 kB │ gzip:   1.28 kB
+../../out/machines-fixture/assets/ron-D8l8udqQ.js                                             3.91 kB │ gzip:   0.98 kB
+../../out/machines-fixture/assets/gn-n2N0HUVH.js                                              4.00 kB │ gzip:   1.49 kB
+../../out/machines-fixture/assets/pascal-D93ZcfNL.js                                          4.15 kB │ gzip:   1.67 kB
+../../out/machines-fixture/assets/tcl-dwOrl1Do.js                                             4.43 kB │ gzip:   1.52 kB
+../../out/machines-fixture/assets/nextflow-C-mBbutL.js                                        4.51 kB │ gzip:   1.17 kB
+../../out/machines-fixture/assets/rosmsg-BJDFO7_C.js                                          4.52 kB │ gzip:   1.06 kB
+../../out/machines-fixture/assets/http-jrhK8wxY.js                                            4.55 kB │ gzip:   1.12 kB
+../../out/machines-fixture/assets/polar-C0HS_06l.js                                           4.67 kB │ gzip:   1.12 kB
+../../out/machines-fixture/assets/sdbl-DVxCFoDh.js                                            4.70 kB │ gzip:   2.01 kB
+../../out/machines-fixture/assets/fennel-BYunw83y.js                                          4.77 kB │ gzip:   1.53 kB
+../../out/machines-fixture/assets/bibtex-CHM0blh-.js                                          4.80 kB │ gzip:   0.83 kB
+../../out/machines-fixture/assets/llvm-BZoOZj88.js                                            5.04 kB │ gzip:   2.01 kB
+../../out/machines-fixture/assets/wgsl-Dx-B1_4e.js                                            5.14 kB │ gzip:   1.39 kB
+../../out/machines-fixture/assets/gdresource-TyuKm33G.js                                      5.29 kB │ gzip:   1.34 kB
+../../out/machines-fixture/assets/qml-3beO22l8.js                                             5.34 kB │ gzip:   1.38 kB
+../../out/machines-fixture/assets/zig-VOosw3JB.js                                             5.34 kB │ gzip:   1.55 kB
+../../out/machines-fixture/assets/dax-CEL-wOlO.js                                             5.37 kB │ gzip:   2.23 kB
+../../out/machines-fixture/assets/bicep-Bmn6On1c.js                                           5.38 kB │ gzip:   1.15 kB
+../../out/machines-fixture/assets/xml-sdJ4AIDG.js                                             5.38 kB │ gzip:   1.21 kB
+../../out/machines-fixture/assets/awk-DMzUqQB5.js                                             5.46 kB │ gzip:   1.38 kB
+../../out/machines-fixture/assets/jinja-f2NsQr07.js                                           5.69 kB │ gzip:   1.40 kB
+../../out/machines-fixture/assets/lean-BZvkOJ9d.js                                            5.78 kB │ gzip:   1.92 kB
+../../out/machines-fixture/assets/powerquery-CEu0bR-o.js                                      5.90 kB │ gzip:   1.52 kB
+../../out/machines-fixture/assets/shaderlab-Dg9Lc6iA.js                                       5.92 kB │ gzip:   2.08 kB
+../../out/machines-fixture/assets/cypher-COkxafJQ.js                                          5.96 kB │ gzip:   1.73 kB
+../../out/machines-fixture/assets/coq-C7JzOVbR.js                                             6.01 kB │ gzip:   1.95 kB
+../../out/machines-fixture/assets/vb-Cu-pLBUe.js                                              6.08 kB │ gzip:   2.33 kB
+../../out/machines-fixture/assets/min-dark-CafNBF8u.js                                        6.29 kB │ gzip:   1.71 kB
+../../out/machines-fixture/assets/gdshader-DkwncUOv.js                                        6.33 kB │ gzip:   1.73 kB
+../../out/machines-fixture/assets/ara-BRHolxvo.js                                             6.36 kB │ gzip:   1.81 kB
+../../out/machines-fixture/assets/verilog-nZwndyjY.js                                         6.41 kB │ gzip:   1.92 kB
+../../out/machines-fixture/assets/clojure-P80f7IUj.js                                         6.41 kB │ gzip:   1.42 kB
+../../out/machines-fixture/assets/postcss-CXtECtnM.js                                         6.42 kB │ gzip:   1.91 kB
+../../out/machines-fixture/assets/red-hvxz__6c.js                                             6.42 kB │ gzip:   1.63 kB
+../../out/machines-fixture/assets/toml-vGWfd6FD.js                                            6.43 kB │ gzip:   1.28 kB
+../../out/machines-fixture/assets/proto-C7zT0LnQ.js                                           6.55 kB │ gzip:   1.42 kB
+../../out/machines-fixture/assets/chapel-DTp_pixX.js                                          6.62 kB │ gzip:   1.85 kB
+../../out/machines-fixture/assets/solarized-light-Dlz6yCKv.js                                 6.63 kB │ gzip:   1.76 kB
+../../out/machines-fixture/assets/r-Cf5RLm7j.js                                               6.74 kB │ gzip:   1.84 kB
+../../out/machines-fixture/assets/talonscript-CkByrt1z.js                                     6.76 kB │ gzip:   1.49 kB
+../../out/machines-fixture/assets/riscv-BM1_JUlF.js                                           6.91 kB │ gzip:   1.98 kB
+../../out/machines-fixture/assets/min-light-CTRr51gU.js                                       6.97 kB │ gzip:   1.89 kB
+../../out/machines-fixture/assets/soy-8wufbnw4.js                                             6.98 kB │ gzip:   1.66 kB
+../../out/machines-fixture/assets/solarized-dark-CpvCGNkr.js                                  7.00 kB │ gzip:   1.83 kB
+../../out/machines-fixture/assets/scheme-C98Dy4si.js                                          7.17 kB │ gzip:   2.05 kB
+../../out/machines-fixture/assets/hlsl-D3lLCCz7.js                                            7.26 kB │ gzip:   2.19 kB
+../../out/machines-fixture/assets/qss-IeuSbFQv.js                                             7.47 kB │ gzip:   2.58 kB
+../../out/machines-fixture/assets/prisma-Vru482bI.js                                          7.74 kB │ gzip:   1.48 kB
+../../out/machines-fixture/assets/systemd-4A_iFExJ.js                                         7.87 kB │ gzip:   2.55 kB
+../../out/machines-fixture/assets/regexp-CDVJQ6XC.js                                          7.99 kB │ gzip:   1.42 kB
+../../out/machines-fixture/assets/monokai-BRVnQi9A.js                                         8.03 kB │ gzip:   1.94 kB
+../../out/machines-fixture/assets/haml-D5jkg6IW.js                                            8.26 kB │ gzip:   1.81 kB
+../../out/machines-fixture/assets/vue-html-AaS7Mt5G.js                                        8.47 kB │ gzip:   1.68 kB
+../../out/machines-fixture/assets/plsql-ChMvpjG-.js                                           8.51 kB │ gzip:   3.00 kB
+../../out/machines-fixture/assets/dart-bE4Kk8sk.js                                            8.62 kB │ gzip:   2.00 kB
+../../out/machines-fixture/assets/horizon-BUw7H-hv.js                                         8.78 kB │ gzip:   1.96 kB
+../../out/machines-fixture/assets/kotlin-BdnUsdx6.js                                          8.79 kB │ gzip:   2.13 kB
+../../out/machines-fixture/assets/horizon-bright-CUuTKBJd.js                                  8.79 kB │ gzip:   1.97 kB
+../../out/machines-fixture/assets/make-CHLpvVh8.js                                            8.96 kB │ gzip:   1.77 kB
+../../out/machines-fixture/assets/andromeeda-C4gqWexZ.js                                      9.02 kB │ gzip:   2.36 kB
+../../out/machines-fixture/assets/sas-DEy46yEz.js                                             9.06 kB │ gzip:   3.81 kB
+../../out/machines-fixture/assets/dark-plus-C3mMm8J8.js                                       9.10 kB │ gzip:   2.10 kB
+../../out/machines-fixture/assets/slack-dark-BthQWCQV.js                                      9.12 kB │ gzip:   1.97 kB
+../../out/machines-fixture/assets/smithy-cds9vsN8.js                                          9.13 kB │ gzip:   1.53 kB
+../../out/machines-fixture/assets/sass-Cj5Yp3dK.js                                            9.29 kB │ gzip:   2.49 kB
+../../out/machines-fixture/assets/plastic-3e1v2bzS.js                                         9.30 kB │ gzip:   1.98 kB
+../../out/machines-fixture/assets/slack-ochin-DqwNpetd.js                                     9.43 kB │ gzip:   2.10 kB
+../../out/machines-fixture/assets/tex-D96PA37w.js                                             9.67 kB │ gzip:   3.06 kB
+../../out/machines-fixture/assets/jison-wvAkD_A8.js                                           9.69 kB │ gzip:   1.85 kB
+../../out/machines-fixture/assets/cmake-D1j8_8rp.js                                           9.86 kB │ gzip:   3.37 kB
+../../out/machines-fixture/assets/light-plus-B7mTdjB0.js                                      9.94 kB │ gzip:   2.27 kB
+../../out/machines-fixture/assets/hcl-BWvSN4gD.js                                            10.05 kB │ gzip:   1.93 kB
+../../out/machines-fixture/assets/pkl-u5AG7uiY.js                                            10.37 kB │ gzip:   1.38 kB
+../../out/machines-fixture/assets/beancount-k_qm7-4y.js                                      10.37 kB │ gzip:   1.44 kB
+../../out/machines-fixture/assets/nextflow-groovy-vE_lwT2v.js                                10.44 kB │ gzip:   2.14 kB
+../../out/machines-fixture/assets/dream-maker-BtqSS_iP.js                                    10.47 kB │ gzip:   2.25 kB
+../../out/machines-fixture/assets/raku-DXvB9xmW.js                                           10.47 kB │ gzip:   2.94 kB
+../../out/machines-fixture/assets/yaml-Buea-lGh.js                                           10.51 kB │ gzip:   2.27 kB
+../../out/machines-fixture/assets/rst-bs7f0vWN.js                                            10.67 kB │ gzip:   2.42 kB
+../../out/machines-fixture/assets/elm-DbKCFpqz.js                                            10.97 kB │ gzip:   2.12 kB
+../../out/machines-fixture/assets/github-light-DAi9KRSo.js                                   11.18 kB │ gzip:   2.51 kB
+../../out/machines-fixture/assets/just-Cwhn7H3k.js                                           11.23 kB │ gzip:   2.80 kB
+../../out/machines-fixture/assets/prolog-CbFg5uaA.js                                         11.36 kB │ gzip:   3.83 kB
+../../out/machines-fixture/assets/terraform-BETggiCN.js                                      11.39 kB │ gzip:   2.51 kB
+../../out/machines-fixture/assets/github-dark-DHJKELXO.js                                    11.41 kB │ gzip:   2.55 kB
+../../out/machines-fixture/assets/puppet-BMWR74SV.js                                         11.44 kB │ gzip:   2.11 kB
+../../out/machines-fixture/assets/laserwave-DUszq2jm.js                                      11.50 kB │ gzip:   2.58 kB
+../../out/machines-fixture/assets/gherkin-DyxjwDmM.js                                        11.95 kB │ gzip:   5.05 kB
+../../out/machines-fixture/assets/wasm-MzD3tlZU.js                                           12.01 kB │ gzip:   2.19 kB
+../../out/machines-fixture/assets/hjson-D5-asLiD.js                                          12.05 kB │ gzip:   1.64 kB
+../../out/machines-fixture/assets/surrealql-Cjom0U5J.js                                      12.06 kB │ gzip:   3.30 kB
+../../out/machines-fixture/assets/handlebars-BpdQsYii.js                                     12.15 kB │ gzip:   2.38 kB
+../../out/machines-fixture/assets/apache-Pmp26Uib.js                                         12.46 kB │ gzip:   3.72 kB
+../../out/machines-fixture/assets/vesper-DRje8inN.js                                         12.73 kB │ gzip:   1.98 kB
+../../out/machines-fixture/assets/bat-CickPsom.js                                            12.89 kB │ gzip:   3.23 kB
+../../out/machines-fixture/assets/fish-BvzEVeQv.js                                           13.04 kB │ gzip:   1.74 kB
+../../out/machines-fixture/assets/nsis-BlV79W_Q.js                                           13.13 kB │ gzip:   4.07 kB
+../../out/machines-fixture/assets/v-BGw2Nkan.js                                              13.33 kB │ gzip:   2.77 kB
+../../out/machines-fixture/assets/vitesse-light-CVO1_9PV.js                                  13.62 kB │ gzip:   3.04 kB
+../../out/machines-fixture/assets/aurora-x-D-2ljcwZ.js                                       13.66 kB │ gzip:   2.28 kB
+../../out/machines-fixture/assets/vitesse-black-Bkuqu6BP.js                                  13.68 kB │ gzip:   3.06 kB
+../../out/machines-fixture/assets/vitesse-dark-D0r3Knsf.js                                   13.76 kB │ gzip:   3.06 kB
+../../out/machines-fixture/assets/pug-DKIMFp6K.js                                            13.84 kB │ gzip:   2.58 kB
+../../out/machines-fixture/assets/synthwave-84-CbfX1IO0.js                                   14.04 kB │ gzip:   2.87 kB
+../../out/machines-fixture/assets/smalltalk-BOQMe2GC.js                                      14.13 kB │ gzip:   2.16 kB
+../../out/machines-fixture/assets/github-light-default-D7oLnXFd.js                           14.16 kB │ gzip:   3.04 kB
+../../out/machines-fixture/assets/github-light-high-contrast-BfjtVDDH.js                     14.28 kB │ gzip:   3.02 kB
+../../out/machines-fixture/assets/clarity-Dn5IMItf.js                                        14.36 kB │ gzip:   2.51 kB
+../../out/machines-fixture/assets/github-dark-dimmed-DH5Ifo-i.js                             14.43 kB │ gzip:   3.13 kB
+../../out/machines-fixture/assets/github-dark-default-Cuk6v7N8.js                            14.44 kB │ gzip:   3.13 kB
+../../out/machines-fixture/assets/github-dark-high-contrast-E3gJ1_iC.js                      14.60 kB │ gzip:   3.09 kB
+../../out/machines-fixture/assets/gnuplot-DdkO51Og.js                                        14.78 kB │ gzip:   3.27 kB
+../../out/machines-fixture/assets/rust-B1yitclQ.js                                           15.07 kB │ gzip:   2.72 kB
+../../out/machines-fixture/assets/kusto-wEQ09or8.js                                          15.17 kB │ gzip:   3.92 kB
+../../out/machines-fixture/assets/nix-CwoSXNpI.js                                            15.51 kB │ gzip:   2.48 kB
+../../out/machines-fixture/assets/lua-BaeVxFsk.js                                            15.54 kB │ gzip:   3.16 kB
+../../out/machines-fixture/assets/actionscript-3-B3316cI-.js                                 15.54 kB │ gzip:   2.71 kB
+../../out/machines-fixture/assets/abap-BdImnpbu.js                                           15.85 kB │ gzip:   5.91 kB
+../../out/machines-fixture/assets/matlab-D7o27uSR.js                                         16.09 kB │ gzip:   3.06 kB
+../../out/machines-fixture/assets/luau-BnpPk5vE.js                                           16.14 kB │ gzip:   3.55 kB
+../../out/machines-fixture/assets/cue-D82EKSYY.js                                            16.20 kB │ gzip:   2.06 kB
+../../out/machines-fixture/assets/elixir-CkH2-t6x.js                                         16.32 kB │ gzip:   2.80 kB
+../../out/machines-fixture/assets/solidity-DijEV5ha.js                                       16.41 kB │ gzip:   3.16 kB
+../../out/machines-fixture/assets/odin-BBf5iR-q.js                                           16.51 kB │ gzip:   2.94 kB
+../../out/machines-fixture/assets/ts-tags-D351s5mN.js                                        16.57 kB │ gzip:   2.07 kB
+../../out/machines-fixture/assets/kanagawa-wave-DFGoQZhC.js                                  17.12 kB │ gzip:   2.93 kB
+../../out/machines-fixture/assets/kanagawa-lotus-C3DzagqV.js                                 17.12 kB │ gzip:   2.93 kB
+../../out/machines-fixture/assets/kanagawa-dragon-BuwD2xS4.js                                17.12 kB │ gzip:   2.95 kB
+../../out/machines-fixture/assets/move-el3G9tDJ.js                                           17.66 kB │ gzip:   3.06 kB
+../../out/machines-fixture/assets/graphql-ChdNCCLP.js                                        18.00 kB │ gzip:   2.52 kB
+../../out/machines-fixture/assets/liquid-C0sCDyMI.js                                         18.09 kB │ gzip:   3.16 kB
+../../out/machines-fixture/assets/svelte-Cy7k_4gC.js                                         18.24 kB │ gzip:   3.14 kB
+../../out/machines-fixture/assets/material-theme-D5KoaKCx.js                                 18.62 kB │ gzip:   3.11 kB
+../../out/machines-fixture/assets/material-theme-darker-BfHTSMKl.js                          18.63 kB │ gzip:   3.11 kB
+../../out/machines-fixture/assets/material-theme-ocean-CyktbL80.js                           18.63 kB │ gzip:   3.14 kB
+../../out/machines-fixture/assets/material-theme-lighter-B0m2ddpp.js                         18.63 kB │ gzip:   3.11 kB
+../../out/machines-fixture/assets/material-theme-palenight-Csfq5Kiy.js                       18.64 kB │ gzip:   3.13 kB
+../../out/machines-fixture/assets/gdscript-DqcFQ5yU.js                                       19.09 kB │ gzip:   3.77 kB
+../../out/machines-fixture/assets/groovy-gcz8RCvz.js                                         19.18 kB │ gzip:   3.60 kB
+../../out/machines-fixture/assets/glimmer-js-ByusRIyA.js                                     20.07 kB │ gzip:   2.95 kB
+../../out/machines-fixture/assets/glimmer-ts-BfAWNZQY.js                                     20.07 kB │ gzip:   2.94 kB
+../../out/machines-fixture/assets/ayu-dark-DYE7WIF3.js                                       20.08 kB │ gzip:   3.94 kB
+../../out/machines-fixture/assets/ayu-mirage-32ctXXKs.js                                     20.09 kB │ gzip:   3.94 kB
+../../out/machines-fixture/assets/ayu-light-BA47KaF1.js                                      20.15 kB │ gzip:   3.93 kB
+../../out/machines-fixture/assets/powershell-BmBUJMz7.js                                     20.16 kB │ gzip:   4.07 kB
+../../out/machines-fixture/assets/mdc-D1_yUvq7.js                                            20.18 kB │ gzip:   6.81 kB
+../../out/machines-fixture/assets/viml-CJc9bBzg.js                                           20.37 kB │ gzip:   6.73 kB
+../../out/machines-fixture/assets/snazzy-light-Bw305WKR.js                                   20.77 kB │ gzip:   3.83 kB
+../../out/machines-fixture/assets/nushell-D3jzshHO.js                                        20.88 kB │ gzip:   5.36 kB
+../../out/machines-fixture/assets/dracula-BzJJZx-M.js                                        21.07 kB │ gzip:   4.00 kB
+../../out/machines-fixture/assets/dracula-soft-BXkSAIEj.js                                   21.08 kB │ gzip:   4.04 kB
+../../out/machines-fixture/assets/wit-5i3qLPDT.js                                            21.47 kB │ gzip:   2.89 kB
+../../out/machines-fixture/assets/rose-pine-5qJOZa0Y.js                                      21.74 kB │ gzip:   3.88 kB
+../../out/machines-fixture/assets/rose-pine-moon-C9pEdX9L.js                                 21.75 kB │ gzip:   3.90 kB
+../../out/machines-fixture/assets/rose-pine-dawn-zx0QlTCp.js                                 21.75 kB │ gzip:   3.90 kB
+../../out/machines-fixture/assets/twig-27uCiNez.js                                           21.98 kB │ gzip:   3.98 kB
+../../out/machines-fixture/assets/nim-BIad80T-.js                                            22.46 kB │ gzip:   3.16 kB
+../../out/machines-fixture/assets/common-lisp-Cg-RD9OK.js                                    22.58 kB │ gzip:   6.06 kB
+../../out/machines-fixture/assets/gruvbox-dark-hard-CFHQjOhq.js                              22.63 kB │ gzip:   4.18 kB
+../../out/machines-fixture/assets/gruvbox-dark-soft-CVdnzihN.js                              22.63 kB │ gzip:   4.17 kB
+../../out/machines-fixture/assets/gruvbox-light-hard-CH1njM8p.js                             22.64 kB │ gzip:   4.18 kB
+../../out/machines-fixture/assets/gruvbox-light-soft-hJgmCMqR.js                             22.64 kB │ gzip:   4.18 kB
+../../out/machines-fixture/assets/gruvbox-dark-medium-GsRaNv29.js                            22.64 kB │ gzip:   4.18 kB
+../../out/machines-fixture/assets/gruvbox-light-medium-DRw_LuNl.js                           22.64 kB │ gzip:   4.18 kB
+../../out/machines-fixture/assets/sql-CRqJ_cUM.js                                            23.43 kB │ gzip:   7.42 kB
+../../out/machines-fixture/assets/cadence-Bv_4Rxtq.js                                        23.67 kB │ gzip:   3.67 kB
+../../out/machines-fixture/assets/astro-HNnZUWAn.js                                          24.01 kB │ gzip:   7.55 kB
+../../out/machines-fixture/assets/apl-CORt7UWP.js                                            24.04 kB │ gzip:   4.20 kB
+../../out/machines-fixture/assets/templ-DhtptRzy.js                                          24.06 kB │ gzip:   5.40 kB
+../../out/machines-fixture/assets/vhdl-CeAyd5Ju.js                                           24.26 kB │ gzip:   3.87 kB
+../../out/machines-fixture/assets/angular-html-DA-rfuFy.js                                   24.29 kB │ gzip:   4.01 kB
+../../out/machines-fixture/assets/purescript-CklMAg4u.js                                     24.69 kB │ gzip:   3.25 kB
+../../out/machines-fixture/assets/moonbit-CHtswR0a.js                                        24.94 kB │ gzip:   3.79 kB
+../../out/machines-fixture/assets/vue-BqiEGhQt.js                                            24.96 kB │ gzip:   3.04 kB
+../../out/machines-fixture/assets/typespec-CAFt9gP4.js                                       25.05 kB │ gzip:   2.63 kB
+../../out/machines-fixture/assets/one-light-C3Wv6jpd.js                                      25.30 kB │ gzip:   3.67 kB
+../../out/machines-fixture/assets/fsharp-CXgrBDvD.js                                         25.31 kB │ gzip:   4.13 kB
+../../out/machines-fixture/assets/marko-DjSrsDqO.js                                          25.48 kB │ gzip:   3.59 kB
+../../out/machines-fixture/assets/night-owl-light-CMTm3GFP.js                                25.90 kB │ gzip:   4.26 kB
+../../out/machines-fixture/assets/c3-Dp5svz6Z.js                                             26.39 kB │ gzip:   3.99 kB
+../../out/machines-fixture/assets/system-verilog-0hqHdDBg.js                                 26.56 kB │ gzip:   4.88 kB
+../../out/machines-fixture/assets/nord-Ddv68eIx.js                                           26.72 kB │ gzip:   4.40 kB
+../../out/machines-fixture/assets/codeql-DsOJ9woJ.js                                         26.88 kB │ gzip:   3.79 kB
+../../out/machines-fixture/assets/scss-D5BDwBP9.js                                           27.20 kB │ gzip:   4.20 kB
+../../out/machines-fixture/assets/java-CylS5w8V.js                                           27.22 kB │ gzip:   4.26 kB
+../../out/machines-fixture/assets/coffee-Ch7k5sss.js                                         27.42 kB │ gzip:   6.35 kB
+../../out/machines-fixture/assets/razor-BjBPvh-w.js                                          27.51 kB │ gzip:   3.57 kB
+../../out/machines-fixture/assets/scala-CqE71os6.js                                          28.89 kB │ gzip:   3.94 kB
+../../out/machines-fixture/assets/night-owl-C39BiMTA.js                                      28.91 kB │ gzip:   5.16 kB
+../../out/machines-fixture/assets/crystal-DGywbUpC.js                                        29.39 kB │ gzip:   4.45 kB
+../../out/machines-fixture/assets/applescript-Co6uUVPk.js                                    29.57 kB │ gzip:   5.93 kB
+../../out/machines-fixture/assets/stylus-BEDo0Tqx.js                                         31.07 kB │ gzip:   7.99 kB
+../../out/machines-fixture/assets/julia-5Bft2YPA.js                                          31.08 kB │ gzip:   4.34 kB
+../../out/machines-fixture/assets/ahk-CsyLZFj1.js                                            31.44 kB │ gzip:   7.81 kB
+../../out/machines-fixture/assets/poimandres-CS3Unz2-.js                                     33.49 kB │ gzip:   5.50 kB
+../../out/machines-fixture/assets/one-dark-pro-DVMEJ2y_.js                                   33.79 kB │ gzip:   5.52 kB
+../../out/machines-fixture/assets/bsl-DlhNcFeZ.js                                            33.95 kB │ gzip:   8.36 kB
+../../out/machines-fixture/assets/nginx-BpAMiNFr.js                                          35.37 kB │ gzip:   4.43 kB
+../../out/machines-fixture/assets/houston-DnULxvSX.js                                        35.42 kB │ gzip:   5.78 kB
+../../out/machines-fixture/assets/tokyo-night-hegEt444.js                                    35.67 kB │ gzip:   6.24 kB
+../../out/machines-fixture/assets/haxe-CfZj7gIn.js                                           35.95 kB │ gzip:   6.01 kB
+../../out/machines-fixture/assets/org-DM6o9KBp.js                                            36.32 kB │ gzip:   3.70 kB
+../../out/machines-fixture/assets/erlang-DsQrWhSR.js                                         37.48 kB │ gzip:   4.40 kB
+../../out/machines-fixture/assets/bird2-Bx8U0n9b.js                                          38.68 kB │ gzip:   8.50 kB
+../../out/machines-fixture/assets/cobol-nBiQ_Alo.js                                          39.13 kB │ gzip:  10.86 kB
+../../out/machines-fixture/assets/asm-D_Q5rh1f.js                                            40.72 kB │ gzip:   8.21 kB
+../../out/machines-fixture/assets/shellscript-Yzrsuije.js                                    41.48 kB │ gzip:   6.09 kB
+../../out/machines-fixture/assets/haskell-Df6bDoY_.js                                        41.49 kB │ gzip:   6.44 kB
+../../out/machines-fixture/assets/perl-B9cMNwum.js                                           43.16 kB │ gzip:   4.67 kB
+../../out/machines-fixture/assets/d-85-TOEBH.js                                              43.80 kB │ gzip:   8.47 kB
+../../out/machines-fixture/assets/ahk2-8Zs4aa1G.js                                           45.07 kB │ gzip:   9.88 kB
+../../out/machines-fixture/assets/ruby-C0TQ7zu5.js                                           46.72 kB │ gzip:   5.83 kB
+../../out/machines-fixture/assets/go-C27-OAKa.js                                             46.82 kB │ gzip:   5.18 kB
+../../out/machines-fixture/assets/apex-DhZFqWV2.js                                           47.89 kB │ gzip:   6.90 kB
+../../out/machines-fixture/assets/ada-bCR0ucgS.js                                            48.08 kB │ gzip:   6.03 kB
+../../out/machines-fixture/assets/css-CLj8gQPS.js                                            49.04 kB │ gzip:  11.86 kB
+../../out/machines-fixture/assets/imba-DGztddWO.js                                           49.93 kB │ gzip:   9.46 kB
+../../out/machines-fixture/assets/catppuccin-mocha-Ct7hS0mc.js                               50.85 kB │ gzip:   8.49 kB
+../../out/machines-fixture/assets/catppuccin-latte-DH-8KZSZ.js                               50.85 kB │ gzip:   8.49 kB
+../../out/machines-fixture/assets/catppuccin-frappe-CZL1YF0i.js                              50.85 kB │ gzip:   8.51 kB
+../../out/machines-fixture/assets/catppuccin-macchiato-B7yYVSCf.js                           50.86 kB │ gzip:   8.50 kB
+../../out/machines-fixture/assets/everforest-dark-BgDCqdQA.js                                53.75 kB │ gzip:   8.42 kB
+../../out/machines-fixture/assets/everforest-light-C8M2exoo.js                               53.75 kB │ gzip:   8.42 kB
+../../out/machines-fixture/assets/mermaid-CQcHuHx7.js                                        54.81 kB │ gzip:   4.81 kB
+../../out/machines-fixture/assets/wikitext-BhOHFoWU.js                                       55.89 kB │ gzip:   4.76 kB
+../../out/machines-fixture/assets/stata-DI20mbqo.js                                          56.99 kB │ gzip:  12.36 kB
+../../out/machines-fixture/assets/html-pp8916En.js                                           57.25 kB │ gzip:  11.69 kB
+../../out/machines-fixture/assets/ballerina-BFfxhgS-.js                                      58.69 kB │ gzip:   8.15 kB
+../../out/machines-fixture/assets/markdown-Cvjx9yec.js                                       59.34 kB │ gzip:   5.64 kB
+../../out/machines-fixture/assets/ocaml-C0hk2d4L.js                                          62.45 kB │ gzip:   5.02 kB
+../../out/machines-fixture/assets/mojo-DJz3ZmWd.js                                           69.52 kB │ gzip:   9.27 kB
+../../out/machines-fixture/assets/python-B6aJPvgy.js                                         69.95 kB │ gzip:   9.13 kB
+../../out/machines-fixture/assets/c-BIGW1oBm.js                                              72.11 kB │ gzip:  10.51 kB
+node.exe : 
+At line:2 char:1
++ & node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs de ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: 
+https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+../../out/machines-fixture/assets/latex-D5pSuvFb.js                                          72.90 kB │ gzip:   6.78 kB
+../../out/machines-fixture/assets/vyper-CDx5xZoG.js                                          74.65 kB │ gzip:  10.74 kB
+../../out/machines-fixture/assets/hack-BWmVpMyf.js                                           81.13 kB │ gzip:  26.38 kB
+../../out/machines-fixture/assets/swift-C2oV4EkX.js                                          87.23 kB │ gzip:  14.84 kB
+../../out/machines-fixture/assets/fortran-free-form-BxgE0vQu.js                              88.97 kB │ gzip:  11.27 kB
+../../out/machines-fixture/assets/csharp-DSvCPggb.js                                         90.19 kB │ gzip:  10.75 kB
+../../out/machines-fixture/assets/racket-BqYA7rlc.js                                         92.39 kB │ gzip:  15.02 kB
+../../out/machines-fixture/assets/less-B1dDrJ26.js                                           97.63 kB │ gzip:  14.70 kB
+../../out/machines-fixture/assets/blade-2xfisSek.js                                         104.98 kB │ gzip:  28.20 kB
+../../out/machines-fixture/assets/objective-c-DXmwc3jG.js                                   105.41 kB │ gzip:  23.33 kB
+../../out/machines-fixture/assets/php-Csjmro_R.js                                           113.09 kB │ gzip:  28.74 kB
+../../out/machines-fixture/assets/asciidoc-CSVQ5wI8.js                                      136.05 kB │ gzip:   9.50 kB
+../../out/machines-fixture/assets/mdx-Cmh6b_Ma.js                                           136.11 kB │ gzip:  23.35 kB
+../../out/machines-fixture/assets/typst-BUadGCkm.js                                         163.55 kB │ gzip:  10.98 kB
+../../out/machines-fixture/assets/objective-cpp-CLxacb5B.js                                 171.97 kB │ gzip:  30.62 kB
+../../out/machines-fixture/assets/javascript-wDzz0qaB.js                                    174.83 kB │ gzip:  16.51 kB
+../../out/machines-fixture/assets/tsx-COt5Ahok.js                                           175.54 kB │ gzip:  16.51 kB
+../../out/machines-fixture/assets/jsx-g9-lgVsj.js                                           177.79 kB │ gzip:  16.61 kB
+../../out/machines-fixture/assets/typescript-BPQ3VLAy.js                                    181.08 kB │ gzip:  16.04 kB
+../../out/machines-fixture/assets/angular-ts-BrjP3tb8.js                                    183.82 kB │ gzip:  16.63 kB
+../../out/machines-fixture/assets/vue-vine-BoDAl6tE.js                                      190.05 kB │ gzip:  17.99 kB
+../../out/machines-fixture/assets/wolfram-lXgVvXCa.js                                       262.39 kB │ gzip:  77.14 kB
+../../out/machines-fixture/assets/wasm-CG6Dc4jp.js                                          622.34 kB │ gzip: 230.29 kB
+../../out/machines-fixture/assets/cpp-BMRokrvK.js                                           785.49 kB │ gzip:  53.20 kB
+../../out/machines-fixture/assets/emacs-lisp-C_m_b--Z.js                                    790.01 kB │ gzip: 198.83 kB
+../../out/machines-fixture/assets/machines-C5uXCbe_.js                                    1,434.03 kB │ gzip: 421.28 kB
+✓ built in 14.70s
+{"heavyResult":{"worker":"desktop-composer-fixture-build","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vite","build","--config","machines-fixture.config.ts"],"exitCode":0,"signal":null}}
+
+desktop-composer-capture.log
+{"resourceGate":{"commitHeadroomBytes":8805990400,"cFreeBytes":22663450624}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-capture","pid":27760,"startedAt":"2026-11-12T08:21:48.985Z","id":"0fcf3169-a9fe-4217-9f7d-25706247fbb2"}
+
+{"evidence":"D:\\Projects\\Ari-machines-wt\\desktop\\docs\\research\\evidence\\desktop-machines","screenshots":4,"success":true}
+{"heavyResult":{"worker":"desktop-composer-capture","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","electron","packaging/capture-machines.mjs","--composer-only"],"exitCode":0,"signal":null}}
+
