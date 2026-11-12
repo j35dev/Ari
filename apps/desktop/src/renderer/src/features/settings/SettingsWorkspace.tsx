@@ -7,6 +7,7 @@ import {
   GitBranch,
   Keyboard,
   Mic,
+  Monitor,
   Palette,
   Plug,
   Shield,
@@ -21,6 +22,7 @@ import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
+import { MachinesSettings } from './MachinesSettings'
 import { SpeechSettings } from './SpeechSettings'
 import { SourceControlSettings } from './SourceControlSettings'
 import { SettingsPage } from './SettingsPage'
@@ -40,6 +42,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'permissions', label: 'Permissions', icon: Shield, group: 'AI' },
   { id: 'source-control', label: 'Source control', icon: GitBranch, group: 'Code' },
   { id: 'remote', label: 'Mobile access', icon: Smartphone, group: 'Connections' },
+  { id: 'machines', label: 'Machines', icon: Monitor, group: 'Connections' },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal, group: null },
 ] as const
 
@@ -71,6 +74,7 @@ export interface SettingsWorkspaceProps {
   onOpenTerminal?: () => void
   /** Active session workspace. Null inventories the home directory. */
   workspacePath?: string | null
+  onOpenMachine?: (machineId: string) => void
 }
 
 function isSettingsSection(value: string): value is SettingsSectionId {
@@ -95,6 +99,7 @@ export function SettingsWorkspace({
   onOpenSetup,
   onOpenTerminal,
   workspacePath = null,
+  onOpenMachine,
 }: SettingsWorkspaceProps) {
   const [internal, setInternal] = useState<SettingsSectionId>('appearance')
   const section = controlledSection ?? internal
@@ -233,6 +238,12 @@ export function SettingsWorkspace({
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}
+          {section === 'machines' ? (
+            <MachinesSettings
+              onOpenMachine={onOpenMachine}
+              onHosting={() => setSection('remote')}
+            />
+          ) : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
