@@ -164,3 +164,67 @@ credential has no trustworthy host binding. B preserves it without automatic
 migration, requiring fresh pairing per origin. E does not edit B's key-store
 implementation/tests or C's shared client; those dependencies must be integrated
 and verified by the coordinator.
+
+## Final fresh-worker evidence
+
+Ready for integration. All E changes remain in `apps/mobile`, this handoff and
+mobile screenshot evidence. No shared client, key-store implementation, package
+metadata or lockfile edits were made by the fresh worker.
+
+- At c03d78c6, the final focused group passed **152 tests in 19 files** in 73.78s.
+  This includes the corrected reconnect assertion, receipt recovery for prompt,
+  create, fork, integration, shell creation/input, pairing/forget races, origin
+  selection, per-device drafts, navigation, composer and computer selector.
+- The four lint errors were unsafe `any` assignments in test assertions. After
+  fixing their types, the affected two files passed **15 tests** at a6a92c20.
+- At 679e0bd3, `@ari/mobile typecheck`, `eslint apps/mobile` and the mobile
+  production build all passed (runner exit 0, signal=null; Vite build 9.79s).
+  The last UI edit only constrains native fork selectors; browser capture checks
+  verify it without adding a jsdom layout assertion.
+- All original **96** PNGs were decoded, checked against their evidence JSON and
+  inspected in eight contact sheets, with representative full-size review.
+  They remain unchanged. The complete **24** supplemental captures under
+  `docs/screenshots/mobile/recovery` cover saved prompt, create, fork, integration,
+  shell creation and new-chat empty states at 360/390px, light/dark, height 844px.
+  All have `commandCalls=0`, page overflow=0 and sheet overflow=0. Each of the
+  20 uncertain views records at least one read-only receipt query.
+  [Capture metadata](../screenshots/mobile/recovery/evidence.json) records exact
+  source 679e0bd3004717aa3881f3faedb11538277f7dc8 and the temporary D: profile.
+- Initial capture stopped on a fixture missing `session.fork`; its capability
+  fixture was corrected. Visual review then constrained native selector widths
+  and added an inner-sheet overflow guard before the accepted complete capture.
+  No OOM, killed process or Azure resource mismatch occurred; no retry loop ran.
+- The full-suite shutdown-warning test and mobile Vitest configuration match
+  the 6f018a75 main baseline exactly (`git diff` empty for conversation-parts
+  source/test and vitest.config.ts). No separate shutdown baseline execution was
+  claimed. The only full-suite assertion failure is fixed and covered by the
+  passing focused group; the parent requested no broad rerun.
+
+Accepted recovery examples:
+[Prompt](../screenshots/mobile/recovery/360-light-session-uncertain.png),
+[new chat](../screenshots/mobile/recovery/360-light-new-uncertain.png),
+[fork](../screenshots/mobile/recovery/360-dark-fork-uncertain.png),
+[integration](../screenshots/mobile/recovery/390-light-integration-uncertain.png),
+[shell](../screenshots/mobile/recovery/390-dark-terminal-uncertain.png),
+[no projects](../screenshots/mobile/recovery/390-dark-new-empty.png).
+
+Security findings resolved in E: saved-receipt mutation resend, repeated shell
+creation, terminal input resend, selection during local credential clear, delayed
+workspace completion and offline/abandoned attachment staging. The private address
+form now shares the Tailscale/root-origin validator. Non-443 origins remain distinct;
+public directory metadata carries no keys, device records, tokens, drafts or receipts.
+Current private-key generation remains non-extractable Web Crypto P-256.
+
+Integration dependencies: B preserves legacy unscoped IndexedDB credentials
+without assigning them to a mutable selected origin; users pair each destination
+afresh. C maps every non-authoritative automatic receipt-lookup failure to
+`unreachable` with the original key. The parent assigned and will integrate both
+independently; this branch does not claim final verification of their latest code.
+Hardware tailnet/iPhone/PWA, host sleep/network/ACL/revocation, managed Connect
+broker/tunnel refresh and the integrated suite remain release checks. All work
+used the assigned D: worktree and coordinator runner; no install, live device,
+settings/Tailscale mutation, push, PR or worker delegation occurred.
+
+Fresh-worker commits before this evidence commit, in authoring order:
+`3dd2c461`, `17213735`, `3fa3efae`, `c03d78c6`, `80378275`, `a6a92c20`,
+`62395705`, `679e0bd3`. Starting snapshot was bd182168.
