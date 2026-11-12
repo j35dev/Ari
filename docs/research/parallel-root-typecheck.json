@@ -1,4 +1,4 @@
-﻿{
+{
   "include": [
     "../../apps/desktop/src/main/agent-control-recovery.test.ts",
     "../../apps/desktop/src/main/agent-runtime.ts",
@@ -25,7 +25,10 @@
     "../../packages/engine/src/workspace.ts",
     "../../apps/desktop/src/assets.d.ts",
     "../../apps/desktop/src/**/*.d.ts",
-    "../../apps/desktop/src/test-setup.dom.ts"
+    "../../apps/desktop/src/test-setup.dom.ts",
+    "../../packages/engine/src/git/managed-workspaces.test.ts",
+    "../../packages/engine/src/git/orchestration-branch.test.ts",
+    "../../packages/engine/src/git/orchestration-branch.ts"
   ],
   "extends": "../../apps/desktop/tsconfig.json"
 }
