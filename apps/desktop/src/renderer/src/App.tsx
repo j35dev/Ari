@@ -1889,6 +1889,7 @@ function RendererMotion({ children }: { children: React.ReactNode }) {
 
 /** Headless: announces provider updates once the toast context exists. */
 function UpdateToastWatcher() {
+  useVoicePlayback()
   useUpdateToasts()
   useAppUpdateToast()
   return null
@@ -1903,7 +1904,6 @@ const log = createLogger('app:shell')
  * wipes away to reveal it already painted.
  */
 export function App() {
-  useVoicePlayback()
   const [booted, setBooted] = useState(false)
   const [launched, setLaunched] = useState(false)
 

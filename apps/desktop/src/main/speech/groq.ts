@@ -48,7 +48,9 @@ export class GroqSpeech {
     form.append('model', model); form.append('response_format', 'json')
     if (language) form.append('language', language)
     const response = await this.call('transcriptions', form, signal)
-    const result = await response.json() as { text?: unknown }
+    let result: { text?: unknown }
+    try { result = await response.json() as { text?: unknown } }
+    catch { throw new Error('Groq returned an invalid transcription. Using local speech.') }
     if (typeof result.text !== 'string') throw new Error('Groq returned no transcription. Using local speech.')
     return { text: result.text }
   }

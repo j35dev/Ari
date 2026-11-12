@@ -9,7 +9,7 @@ export const ARIA_LEXICON = {
 const ones = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(' ')
 const tens = 'zero ten twenty thirty forty fifty sixty seventy eighty ninety'.split(' ')
 export function numberWords(n: number): string {
-  if (!Number.isFinite(n)) throw new Error('Invalid spoken number.')
+  if (!Number.isFinite(n) || Math.abs(n) > Number.MAX_SAFE_INTEGER) throw new Error('Invalid spoken number.')
   n = Math.round(n)
   if (n < 0) return `minus ${numberWords(-n)}`
   if (n < 20) return ones[n]!

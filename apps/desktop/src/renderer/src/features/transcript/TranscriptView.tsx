@@ -833,7 +833,7 @@ function renderRowBody({
                 {row.text ?? ''}
               </div>
             ) : (
-              <MarkdownBlock text={row.text ?? ''} streaming={active} />
+              <MarkdownBlock text={writtenReply(row.text ?? '')} streaming={active} />
             )}
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter
