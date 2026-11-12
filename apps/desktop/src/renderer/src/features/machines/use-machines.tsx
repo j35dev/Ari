@@ -103,6 +103,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   }, [acceptMachines])
   const refreshInventory = useCallback(async () => {
     const generation = ++inventoryRevision.current
+    setInventoryReady(false)
     const currentMachines = machinesRef.current
     const results = await Promise.allSettled([
       rpc.invoke('machines.localSnapshot').then((raw) => {
