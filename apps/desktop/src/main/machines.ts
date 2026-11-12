@@ -453,7 +453,9 @@ export class MachinesService {
     if (route === undefined) return this.#view(row)
     if (route.source === 'learned')
       throw new Error('Learned routes are removed when the host stops reporting them.')
-    if (origin === row.credentialOrigin)
+    if (row.routes.length === 1)
+      throw new Error('Keep at least one route, or remove the saved computer.')
+    if (origin === row.credentialOrigin && row.hostKey === null)
       throw new Error(
         'The independently paired route holds this computer credential. Remove the computer to remove it.',
       )
@@ -646,7 +648,8 @@ export class MachinesService {
     const client = new GatewayClient(
       await this.#routeOptions(
         record,
-        record.routes.find((route) => route.origin === record.credentialOrigin)!,
+        record.routes.find((route) => route.origin === record.credentialOrigin) ??
+          record.routes[0]!,
       ),
     )
     try {
@@ -660,14 +663,25 @@ export class MachinesService {
         return
       const deviceId = credential.deviceId
       if (deviceId === null) return
-      const { nonce } = await client.deviceChallenge(deviceId)
-      const signature = await credential.sign(nonce)
-      const authorized = await client.deviceAuthorize(deviceId, { nonce, signature })
+      const pin = this.#pin(record)
+      const authorized =
+        pin === null
+          ? await this.#legacyRemovedAuthorization(client, credential, deviceId)
+          : await authorizeRoute(client, pin, credential, deviceId)
       client.token = authorized.token
       await client.query('device.revoke', { deviceId })
     } finally {
       client.token = null
     }
+  }
+  async #legacyRemovedAuthorization(
+    client: GatewayClient,
+    credential: DesktopMachineCredential,
+    deviceId: string,
+  ) {
+    const { nonce } = await client.deviceChallenge(deviceId)
+    const signature = await credential.sign(nonce)
+    return client.deviceAuthorize(deviceId, { nonce, signature })
   }
 
   async query(machineId: string, rawQuery: RemoteQuery): Promise<unknown> {
@@ -806,7 +820,7 @@ export class MachinesService {
     const row = this.#registry.get(machineId)
     const connection = await this.#createConnection(
       machineId,
-      row.routes.find((route) => route.origin === row.credentialOrigin)!,
+      row.routes.find((route) => route.origin === row.credentialOrigin) ?? row.routes[0]!,
     )
     this.#assertOpen()
     this.#registry.get(machineId)
@@ -1055,6 +1069,8 @@ export class MachinesService {
       error: null,
       allowTerminal: false,
     }
+    const connection = this.#connections.get(row.id)
+    const connected = state.status === 'connected' && connection?.session.usable === true
     return {
       id: row.id,
       name: row.name,
@@ -1062,18 +1078,14 @@ export class MachinesService {
       identity: row.identity,
       lastSeenAt: row.lastSeenAt,
       ...state,
-      effectiveRoute: this.#connections.get(row.id)?.session.usable
-        ? this.#connections.get(row.id)!.route.origin
-        : null,
-      versionReady: state.status === 'connected',
-      permissionsReady: state.status === 'connected',
-      projectIds:
-        state.status === 'connected'
-          ? [...(this.#connections.get(row.id)?.session.projectIds ?? [])]
-          : [],
+      status: state.status === 'connected' && !connected ? 'offline' : state.status,
+      allowTerminal: connected && state.allowTerminal,
+      effectiveRoute: connected ? connection.route.origin : null,
+      versionReady: connected,
+      permissionsReady: connected,
+      projectIds: connected ? [...connection.session.projectIds] : [],
       autoPreference: this.#registry.preferences().hostTiers[row.id] ?? 'normal',
-      allProjects:
-        state.status === 'connected' && this.#connections.get(row.id)?.session.allProjects === true,
+      allProjects: connected && connection.session.allProjects === true,
     }
   }
   #set(
