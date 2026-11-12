@@ -8,7 +8,7 @@ import { getAudioDucking } from './audio-ducking'
 import { type SpeechService } from './service'
 import { KOKORO_ID } from './voice-model'
 import { type GroqSpeech, pcmWav, withLocalFallback } from './groq'
-import { normalizeSpeech } from './pronunciation'
+import { normalizeCloudSpeech } from './pronunciation'
 
 type Status = RpcResults['aria.voice.status']
 type Reply = {
@@ -182,7 +182,7 @@ export class VoiceService {
     if (!this.enabled()) return
     const generation = this.generation
     const signal = this.abort.signal
-    const chunks = speechChunks(condenseReply(reply))
+    const chunks = speechChunks(condenseReply(reply), this.settings.current.ariaVoice.engine === 'groq' ? 120 : 200)
     if (!chunks.length) return
     this.state.error = null
     let engine = this.settings.current.ariaVoice.engine
@@ -198,7 +198,7 @@ export class VoiceService {
       if (engine === 'kokoro') return local()
       return withLocalFallback(
         () =>
-          this.groq.speak(normalizeSpeech(text), this.settings.current.ariaVoice.groqVoice, signal),
+          this.groq.speak(normalizeCloudSpeech(text), this.settings.current.ariaVoice.groqVoice, signal),
         local,
         (message) => {
           engine = 'kokoro'

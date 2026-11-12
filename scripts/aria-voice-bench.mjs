@@ -118,7 +118,7 @@ for (const [name, written] of Object.entries(replies)) {
     for (const word of prepared.text.match(/[a-z]+(?:'[a-z]+)?/g) ?? [])
       if (!words.has(word)) throw new Error(`Dropped word: ${word}`)
     const genStart = performance.now()
-    const audio = await tts.generateAsync({ text: prepared.text, sid: 3, speed: 1 })
+    const audio = await tts.generateAsync({ text: prepared.text, sid: 3, speed: 1, enableExternalBuffer: false })
     if (!audio.samples.length || audio.samples.some((x) => !Number.isFinite(x)))
       throw new Error('Invalid PCM')
     firstMs ??= performance.now() - start
