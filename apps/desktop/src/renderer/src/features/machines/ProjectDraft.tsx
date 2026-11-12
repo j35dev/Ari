@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import type { ProjectAgent } from '@ari/contracts/project'
 import { projectAgentSchema } from '@ari/contracts/project'
@@ -43,12 +43,14 @@ const readyProvider = (row: RemoteModelCatalog['providers'][number]) =>
   row.available !== false && row.installed !== false && row.authStatus !== 'unauthenticated'
 
 export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled, lastManualHostId,
-  clientFor, defaultFor, onRememberHost, onCreated, onClose }: {
+  clientFor, defaultFor, refreshHosts, autoReady = true, onRememberHost, onCreated, onClose }: {
   draftId: string
   group: RepositoryGroup
   hosts: SelectionHost[]
   initialHostId?: string
   autoEnabled: boolean
+  autoReady?: boolean
+  refreshHosts: (hostIds: readonly string[]) => Promise<SelectionHost[]>
   lastManualHostId?: string
   clientFor: (hostId: string) => ProjectDraftClient
   defaultFor: (hostId: string, projectId: string) => ProjectAgent | null
@@ -78,7 +80,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   const [selection, setSelection] = useState<DraftMachineSelection>(() => {
     if (restored.attempt) return { mode: 'manual', hostId: restored.attempt.hostId, reason: 'Original submission — check its status.' }
     if (savedChoice) return savedChoice.selection
-    if (!initialHostId && autoEnabled) return { mode: 'auto', ...selectAutoHost(hosts) }
+    if (!initialHostId && autoEnabled) return { mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' }
     const remembered = hosts.find((host) => host.id === lastManualHostId && manualEligibility(host) === null)
     const hostId = initialHostId ?? remembered?.id ?? 'local'
     return { mode: 'manual', hostId, reason: `${hosts.find((host) => host.id === hostId)?.name ?? 'This PC'} runs this draft.` }
@@ -96,7 +98,11 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
   const [workspaceLocked, setWorkspaceLocked] = useState(savedChoice?.workspaceLocked ?? false)
   const [pick, setPick] = useState<ProjectAgent | null>(savedChoice?.pick ?? null)
   const [pending, setPending] = useState(false)
+  const [autoSampling, setAutoSampling] = useState(false)
   const pendingRef = useRef(false)
+  const autoGeneration = useRef(0)
+  const defaultAutoHandled = useRef(Boolean(initialHostId || restored.attempt || savedChoice || restored.error))
+  useEffect(() => () => { autoGeneration.current++ }, [])
   const [failure, setFailure] = useState<string | null>(restored.error)
   const canvasRef = useRef<HTMLDivElement>(null)
   const client = useMemo(() => selection.hostId ? clientFor(selection.hostId) : null, [clientFor, selection.hostId])
@@ -111,6 +117,27 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     pick.modelId !== null && !model ? 'The saved model is unavailable. Choose a model from this host.' :
     pick.effort !== null && !efforts.some((effort) => effort.id === pick.effort) ? 'The saved effort is unavailable on this host.' :
     modes.length > 0 && !modes.some((mode) => mode.ariMode === pick.permissionMode) ? 'The saved permission mode is unavailable on this host.' : null
+
+  const chooseAuto = useCallback(() => {
+    const generation = ++autoGeneration.current
+    setCheckoutId(null); setPick(null); setWorkspaceToken(undefined); setFailure(null)
+    setAutoSampling(true)
+    setSelection({ mode: 'auto', hostId: null, reason: 'Checking fresh machine resources…' })
+    const candidates = hostsRef.current.filter((host) => host.preference !== 'manual-only' && manualEligibility(host) === null)
+    void refreshHosts(candidates.map((host) => host.id)).then((fresh) => {
+      if (autoGeneration.current === generation) setSelection({ mode: 'auto', ...selectAutoHost(fresh) })
+    }).catch(() => {
+      if (autoGeneration.current === generation) setSelection({ mode: 'auto', hostId: null,
+        reason: 'Fresh CPU and memory data required — select a machine manually.' })
+    }).finally(() => { if (autoGeneration.current === generation) setAutoSampling(false) })
+  }, [refreshHosts])
+  useEffect(() => {
+    if (workspaceLocked || attempt !== null) defaultAutoHandled.current = true
+    if (!defaultAutoHandled.current && autoEnabled && autoReady) {
+      defaultAutoHandled.current = true
+      chooseAuto()
+    }
+  }, [autoEnabled, autoReady, chooseAuto, workspaceLocked, attempt])
 
   useEffect(() => {
     let alive = true
@@ -152,32 +179,45 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
       throw new Error('The creation result belongs to a different machine. Check the original submission.')
   }
   const send = (text: string, files: File[]) => {
-    if (pendingRef.current || attemptRef.current || restored.error) return false
-    const reason = validateSelection(selectedHost, selection.mode === 'auto') ?? pickReason ??
+    if (pendingRef.current || autoSampling || attemptRef.current || restored.error) return false
+    const reason = validateSelection(selectedHost, false) ?? pickReason ??
       (!projectId ? 'Choose the checkout on this machine.' : null)
     if (reason || !client || !pick || !projectId || !selection.hostId) { setFailure(reason); return false }
     const hostId = selection.hostId
     const frozenPick = { ...pick }
     const option = workspaces?.options.find((item) => item.token === workspaceToken)
     const started: Attempt = { draftId, groupId: group.id, hostId, projectId, text, phase: 'create', scope: null }
-    try { rememberAttempt(started) } catch { setFailure('Save the draft receipt before sending. Free browser storage and try again.'); return false }
     pendingRef.current = true; setPending(true); setFailure(null)
     void (async () => {
       try {
+        // The original Auto host alone is re-sampled. Refusal precedes any durable effect.
+        const freshHost = selection.mode === 'auto'
+          ? (await refreshHosts([hostId])).find((host) => host.id === hostId) : selectedHost
+        const currentHost = () => {
+          const current = hostsRef.current.find((host) => host.id === hostId)
+          return current && { ...current, resources: freshHost?.resources ?? null }
+        }
+        const beforeCreate = validateSelection(currentHost(), selection.mode === 'auto')
+        if (beforeCreate) { setFailure(beforeCreate); return }
+        try { rememberAttempt(started) } catch {
+          setFailure('Save the draft receipt before sending. Free browser storage and try again.'); return
+        }
         const scope = await client.create({ draftId, projectId, title: text.trim().slice(0, 120) || 'New session',
           pick: frozenPick, workspaceToken, workspaceMode: option?.workspaceMode ?? 'auto' })
         verifyScope(scope, hostId)
         rememberAttempt({ ...started, scope, phase: 'stage' })
-        const stageReason = validateSelection(hostsRef.current.find((host) => host.id === hostId), selection.mode === 'auto')
+        const stageReason = validateSelection(currentHost(), selection.mode === 'auto')
         if (stageReason) throw new Error(stageReason)
         const attachmentIds = files.length > 0 ? await client.stage(scope, files) : []
-        const dispatchReason = validateSelection(hostsRef.current.find((host) => host.id === hostId), selection.mode === 'auto')
+        const dispatchReason = validateSelection(currentHost(), selection.mode === 'auto')
         if (dispatchReason) throw new Error(dispatchReason)
         rememberAttempt({ ...started, scope, phase: 'prompt' })
         await client.prompt(scope, { draftId, text, attachmentIds })
         localStorage.removeItem(attemptKey(draftId))
         onCreated(scope)
-      } catch (error) { setFailure(`${messageOf(error)} Check the original submission; it will not be sent again.`) }
+      } catch (error) { setFailure(attemptRef.current
+        ? `${messageOf(error)} Check the original submission; it will not be sent again.`
+        : `${messageOf(error)} Select a machine manually.`) }
       finally { pendingRef.current = false; setPending(false) }
     })()
     // Keep text and image bytes in the normal Composer until confirmed handoff.
@@ -218,7 +258,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
         {attempt && !pending && <button type="button" className="mt-2 rounded border border-border px-2 py-1" onClick={() => void check()}>Check original submission</button>}
         {attempt?.scope && attempt.phase === 'stage' && <button type="button" disabled={pending} className="ml-2 rounded border border-border px-2 py-1" onClick={() => openCreated(attempt.scope!, attempt.text)}>Open created session</button>}
       </div>}
-      <Composer sessionId={`project-draft:${draftId}`} draftOnly centered disabled={pending || attempt !== null || restored.error !== null}
+      <Composer sessionId={`project-draft:${draftId}`} draftOnly remoteInput={selection.hostId !== 'local'} centered disabled={pending || autoSampling || attempt !== null || restored.error !== null}
         sendPending={pending} onSend={send} placeholder="Describe what you want to do in this project…"
         leading={<>
           <ModelSelector driverKind={pick?.driverKind ?? 'ari-core'} modelId={pick?.modelId ?? null} hostCatalog={catalog}
@@ -235,11 +275,13 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
           </select>}
         </>}
         belowControls={<>
-          <MachinePicker hosts={hosts} selection={selection} locked={locked} onSelect={(id) => {
-            if (locked) return
+          <MachinePicker hosts={hosts} selection={selection} locked={locked || pending} onSelect={(id) => {
+            if (locked || pendingRef.current) return
+            defaultAutoHandled.current = true
             setCheckoutId(null); setPick(null); setWorkspaceToken(undefined); setFailure(null)
-            if (id === 'auto') setSelection({ mode: 'auto', ...selectAutoHost(hosts) })
-            else { setSelection({ mode: 'manual', hostId: id, reason: `${hosts.find((host) => host.id === id)?.name ?? id} runs this draft.` }); onRememberHost(id) }
+            if (id === 'auto') chooseAuto()
+            else { autoGeneration.current++; setAutoSampling(false)
+              setSelection({ mode: 'manual', hostId: id, reason: `${hosts.find((host) => host.id === id)?.name ?? id} runs this draft.` }); onRememberHost(id) }
           }} />
           {choices.length > 1 && <label className="mt-2 flex items-center gap-2 text-xs text-fg-muted">Checkout
             <select aria-label="Project checkout" value={projectId ?? ''} disabled={locked} onChange={(event) => setCheckoutId(event.target.value || null)}
@@ -247,7 +289,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
               {choices.map((checkout) => <option key={checkout.projectId} value={checkout.projectId}>{checkout.checkoutLabel}</option>)}
             </select></label>}
           {workspaces && <label className="mt-2 flex items-center gap-2 text-xs text-fg-muted">Workspace
-            <select aria-label="Project workspace" value={workspaceToken ?? ''} disabled={locked} onChange={(event) => {
+            <select aria-label="Project workspace" value={workspaceToken ?? ''} disabled={locked || pending || autoSampling} onChange={(event) => {
               const token = event.target.value || undefined; setWorkspaceToken(token)
               const kind = workspaces.options.find((option) => option.token === token)?.kind
               if (kind === 'branch' || kind === 'worktree') setWorkspaceLocked(true)

@@ -30,6 +30,7 @@ describe('machine Auto policy', () => {
     expect(selectAutoHost([busy, memory], now).hostId).toBeNull()
     expect(validateSelection(busy, true, now)).toContain('Busy')
     expect(validateSelection(busy, false, now)).toBeNull()
+    expect(validateSelection(host('manual', { preference: 'manual-only' }), true, now)).toContain('manual')
     const stable = selectAutoHost([host('local')], now)
     expect(validateSelection(host('local'), true, now + RESOURCE_FRESH_MS + 1)).toContain('Fresh')
     expect(stable.hostId).toBe('local')
