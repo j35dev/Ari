@@ -36,14 +36,14 @@ runner timers. `9b98cbb4` retains uncertain mobile integration conflicts;
 
 ## Workstreams and verification
 
-| Stream | Delivered behavior | Focused worker evidence |
-| --- | --- | --- |
-| A — Tailscale | Shows foreign target and listener status; alternate HTTPS port, exact explicit replacement, owned stale repair, saved-port disable; selected origins/pairing URLs persist | 69 desktop/origin/pairing tests; desktop/contracts types and scoped lint |
-| B — Mobile access | Paired devices get current/future projects; terminal access stays explicit; clear setup/status/device UI; signed Connect project intersection and registration refresh | 188 desktop, 163 gateway, 9 key-store, 28 contract tests; types/lint/format and six screenshots |
-| C — Machines core | Shared client/contracts, identity/capabilities/discovery, sealed origin-bound registry, host-approved desktop pairing and host-owned RPC | 19 Machines tests including real two-engine/two-gateway lifecycle; 27 RemoteService tests; 244 wire/client/contracts/mobile checks; broader 128 desktop passes, one platform skip; scoped types/lint |
-| D — Desktop | Machines settings, remote sidebar and host choice, dedicated remote session/tools/terminal, scoped drafts/attachments/actions, offline/version states | Focused suites/types/lint; final composer correction 28 tests; ten screenshot images with preserved capture transcript |
-| E — Mobile | Computer switcher, navigation/home/settings/offline/composer improvements, per-origin/device drafts, guarded forget/cancellation, read-only recovery | Final 152 focused tests plus 15 affected tests; types/lint/build; 120 before/after/recovery screenshots |
-| F — Parallel roots | Admission by physical folder, automatic isolated root on busy Git project, explicit isolation, CLI/human/Aria recovery, worktree labels and exact branch ownership | 44 desktop and 137 distinct engine tests; types/lint; real Git foreign-branch preservation regressions |
+| Stream             | Delivered behavior                                                                                                                                                        | Focused worker evidence                                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A — Tailscale      | Shows foreign target and listener status; alternate HTTPS port, exact explicit replacement, owned stale repair, saved-port disable; selected origins/pairing URLs persist | 69 desktop/origin/pairing tests; desktop/contracts types and scoped lint                                                                                                                             |
+| B — Mobile access  | Paired devices get current/future projects; terminal access stays explicit; clear setup/status/device UI; signed Connect project intersection and registration refresh    | 188 desktop, 163 gateway, 9 key-store, 28 contract tests; types/lint/format and six screenshots                                                                                                      |
+| C — Machines core  | Shared client/contracts, identity/capabilities/discovery, sealed origin-bound registry, host-approved desktop pairing and host-owned RPC                                  | 19 Machines tests including real two-engine/two-gateway lifecycle; 27 RemoteService tests; 244 wire/client/contracts/mobile checks; broader 128 desktop passes, one platform skip; scoped types/lint |
+| D — Desktop        | Machines settings, remote sidebar and host choice, dedicated remote session/tools/terminal, scoped drafts/attachments/actions, offline/version states                     | Focused suites/types/lint; final composer correction 28 tests; ten screenshot images with preserved capture transcript                                                                               |
+| E — Mobile         | Computer switcher, navigation/home/settings/offline/composer improvements, per-origin/device drafts, guarded forget/cancellation, read-only recovery                      | Final 152 focused tests plus 15 affected tests; types/lint/build; 120 before/after/recovery screenshots                                                                                              |
+| F — Parallel roots | Admission by physical folder, automatic isolated root on busy Git project, explicit isolation, CLI/human/Aria recovery, worktree labels and exact branch ownership        | 44 desktop and 137 distinct engine tests; types/lint; real Git foreign-branch preservation regressions                                                                                               |
 
 Worker evidence is separate from coordinator verification. The integrated pass used
 `scripts/coordination/verify-machines.mjs` and resource-gated `run-heavy.mjs`, one
@@ -53,24 +53,24 @@ Processes ran below normal priority with D: caches/temp. The integrated install 
 the existing D: pnpm store and frozen lockfile. No live Ari, device/profile/settings
 or Tailscale Serve configuration was changed.
 
-| Integrated check | Final outcome |
-| --- | --- |
-| Monorepo typecheck | Passed recheck; final desktop typecheck also passed after the fixture correction |
-| Full lint | Passed recheck; changed App fixture also passed scoped lint |
-| Contracts | 224 passed |
-| Gateway | 182 passed |
-| Shared remote client | 24 passed |
-| Engine | 803 passed |
-| Ari Core | 282 passed |
-| Providers | 702 passed, 1 skipped with private D: TEMP; baseline ACL explanation below |
-| Shared | 16 passed |
-| UI | 323 passed |
-| Mobile | 371 passed, all 49 files |
-| Desktop | Full run: 3,660 passed, 4 skipped, one obsolete fixture failure; corrected App/session-start-runtime group: 52 passed |
-| Explicit two-engine/Git proof | 23 passed in 39.95s; both real gateways/engines and the applied-before-journal-failure regression |
-| Desktop production build | Passed |
-| Mobile production build | Passed |
-| Refreshed mobile recovery capture | 24 images, zero mutations, no page/sheet overflow |
+| Integrated check                  | Final outcome                                                                                                         |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Monorepo typecheck                | Passed recheck; final desktop typecheck also passed after the fixture correction                                      |
+| Full lint                         | Passed recheck; changed App fixture also passed scoped lint                                                           |
+| Contracts                         | 224 passed                                                                                                            |
+| Gateway                           | 182 passed                                                                                                            |
+| Shared remote client              | 24 passed                                                                                                             |
+| Engine                            | 803 passed                                                                                                            |
+| Ari Core                          | 282 passed                                                                                                            |
+| Providers                         | 702 passed, 1 skipped with private D: TEMP; baseline ACL explanation below                                            |
+| Shared                            | 16 passed                                                                                                             |
+| UI                                | 323 passed                                                                                                            |
+| Mobile                            | 371 passed, all 49 files                                                                                              |
+| Desktop                           | Full run: 3,660 passed, 4 skipped, one obsolete fixture failure; corrected App/session-start-runtime group: 52 passed |
+| Explicit two-engine/Git proof     | 23 passed in 39.95s; both real gateways/engines and the applied-before-journal-failure regression                     |
+| Desktop production build          | Passed                                                                                                                |
+| Mobile production build           | Passed                                                                                                                |
+| Refreshed mobile recovery capture | 24 images, zero mutations, no page/sheet overflow                                                                     |
 
 There are **no unresolved failing assertions**. The 6,588 distinct passing cases
 combine the full pass with the justified provider-environment and App-fixture
@@ -243,7 +243,6 @@ No alternate deletion or force was attempted. The feature worktree registrations
 were removed, but residual `concurrency`, `grants`, `core`, `mobile` and `desktop`
 directories remain under `D:/Projects/Ari-machines-wt`. The security worktree retains
 untracked `.review-temp/reproduce-takeover.mjs`; its data is preserved for review.
-
 
 Worker runtimes: all Machines feature/review workers used codex / gpt-6.1-sol
 with full permissions. A/B/F/security and final desktop replacement used high;
