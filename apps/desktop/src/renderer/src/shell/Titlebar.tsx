@@ -51,22 +51,16 @@ function detectPlatform(): TitlebarPlatform {
   return 'other'
 }
 
-/** Where the user is: the project, then the thing open in it. */
-export interface TitlebarPlace {
-  /** The project or section the title belongs to; null when there is none. */
-  context: string | null
-  title: string
-}
-
 /**
  * The window's top edge: a drag strip on the chrome, with no fill or border of
  * its own. The leading zone is the sidebar's header (wordmark, search,
- * collapse) and is exactly as wide as the sidebar; after it comes the place,
- * and at the trailing edge the provider's usage, the Git control and the
+ * collapse) and is exactly as wide as the sidebar. The sidebar already marks
+ * the open session, so the bar does not repeat its name; a remote session
+ * names its machine. At the trailing edge are the provider's usage, the Git control and the
  * panel toggles.
  *
  * The bar is a size container. As the window narrows its pieces give up their
- * words in order (provider name, project, branch, Git action label) and keep
+ * words in order (provider name, branch, Git action label) and keep
  * their icons, so nothing is squeezed to a letter or pushed under the window
  * buttons.
  */
@@ -80,7 +74,6 @@ export function Titlebar({
   usage,
   leading,
   leadingWidth,
-  place = null,
   overview = false,
   machineLabel,
 }: {
@@ -99,7 +92,6 @@ export function Titlebar({
   leading?: ReactNode
   /** Width of the leading zone in pixels; follows the sidebar as it resizes. */
   leadingWidth?: number
-  place?: TitlebarPlace | null
   /** Offer Aria's overview panel beside the workspace panels. */
   overview?: boolean
   /** The immutable remote owner of the session/tools currently shown. */
@@ -139,40 +131,15 @@ export function Titlebar({
         </div>
       )}
 
-      {(place !== null || machineLabel) && !minimal ? (
-        <div className="flex min-w-0 items-center gap-2 pl-3 text-sm text-fg-subtle">
-          {/* A remote session names the machine it runs on before anything else. */}
-          {machineLabel ? (
-            <>
-              <span
-                aria-label="Session machine"
-                title={machineLabel}
-                className="flex max-w-56 items-center gap-1.5"
-              >
-                <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
-                <span className="truncate">{machineLabel}</span>
-              </span>
-              {place !== null ? (
-                <span aria-hidden className="opacity-50">
-                  /
-                </span>
-              ) : null}
-            </>
-          ) : null}
-          {place?.context != null ? (
-            <>
-              <span className="hidden max-w-48 shrink-0 truncate @[76rem]:inline">
-                {place.context}
-              </span>
-              <span aria-hidden className="hidden opacity-50 @[76rem]:inline">
-                /
-              </span>
-            </>
-          ) : null}
-          {place !== null ? (
-            <span className="min-w-0 truncate font-medium text-fg">{place.title}</span>
-          ) : null}
-        </div>
+      {machineLabel && !minimal ? (
+        <span
+          aria-label="Session machine"
+          title={machineLabel}
+          className="flex min-w-0 max-w-56 items-center gap-1.5 pl-3 text-sm text-fg-subtle"
+        >
+          <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
+          <span className="truncate">{machineLabel}</span>
+        </span>
       ) : null}
 
       <div className="min-w-4 flex-1" />

@@ -236,7 +236,7 @@ export function GitControl({
         {/* The branch the workspace is on; it used to take a row of its own
             above the transcript. */}
         <span
-          className="hidden max-w-44 items-center gap-1.5 px-2 text-fg-subtle @[68rem]:flex"
+          className="hidden max-w-44 items-center gap-1.5 px-2 text-fg-subtle @[62rem]:flex"
           title={summary.branch ?? 'Detached HEAD'}
           data-testid="git-branch"
         >
@@ -254,7 +254,7 @@ export function GitControl({
           className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium transition-colors hover:bg-fg/6 disabled:pointer-events-none disabled:font-normal disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <Icon size={14} strokeWidth={1.7} aria-hidden className="text-fg-subtle" />
-          <span className="hidden whitespace-nowrap @[58rem]:inline">
+          <span className="hidden whitespace-nowrap @[52rem]:inline">
             {busy ? 'Working…' : primary.label}
           </span>
         </button>
