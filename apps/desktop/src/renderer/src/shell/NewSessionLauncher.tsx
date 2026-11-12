@@ -5,7 +5,6 @@ import { Folder, FolderPlus, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
 import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
-import type { Project } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { visibleProjects } from '../features/aria/visibility'
 
@@ -28,6 +27,15 @@ function openedLabel(timestamp: number, now = Date.now()): string | null {
 const ITEM_HEIGHT = 44
 /** The list scrolls past this; the search field stays what carries scale. */
 const LIST_MAX_HEIGHT = 320
+export interface LauncherProject {
+  id: string
+  name: string
+  path: string
+  createdAt: number
+  lastOpenedAt: number
+  status?: 'ok' | 'missing'
+  hostLabel?: string
+}
 
 /**
  * The "New session" launcher: a centered, dimmed project chooser (same modal
@@ -48,7 +56,7 @@ export function NewSessionLauncher({
 }: {
   /** Whether the overlay is currently shown. */
   open: boolean
-  projects: Project[]
+  projects: LauncherProject[]
   /** The live session list, for per-project open counts and recency. */
   sessions: SessionSummary[]
   /** The project of the focused session, offered first when set. */
@@ -269,6 +277,7 @@ export function NewSessionLauncher({
                           {project.name}
                           {missing ? ' (folder missing)' : ''}
                         </span>
+                        {project.hostLabel && <span className="truncate text-2xs text-fg-subtle">{project.hostLabel}</span>}
                         {/* Reversed text with left ellipsis keeps the tail —
                             the distinguishing part of a path — visible. */}
                         <span className="truncate text-left font-mono text-2xs text-fg-subtle/70 [direction:rtl]">

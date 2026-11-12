@@ -27,6 +27,8 @@ import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { createSessionClient, parseSessionViewKey, sessionViewKey, SessionClientProvider, type SessionScope } from './features/session/session-client'
+import { useMachineProjects } from './features/machines/use-machine-projects'
 import { SessionKeepAlive } from './features/session/SessionKeepAlive'
 import { loadLastPick, nextLastPick, saveLastPick } from './features/composer/last-pick'
 import type { LastPick } from './features/composer/last-pick'
@@ -107,9 +109,6 @@ import { useSessionStart } from './shell/use-session-start'
 import { captureSessionStartIntent, type SessionStartIntent } from './shell/session-start-focus'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { MachinesProvider, useMachines } from './features/machines/use-machines'
-import { RemoteMachineGroups } from './features/machines/RemoteMachineGroups'
-import { MachineChooser } from './features/machines/MachineChooser'
-import { RemoteWorkspace, type RemoteTarget } from './features/machines/RemoteWorkspace'
 import {
   applyPatches,
   dropSettled,
@@ -160,11 +159,7 @@ export interface SessionDefaults {
 }
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
-  const { machines } = useMachines()
-  const [remoteTarget, setRemoteTarget] = useState<RemoteTarget | null>(null)
-  const remoteTargetRef = useRef(remoteTarget)
-  remoteTargetRef.current = remoteTarget
-  const [localSessionChosen, setLocalSessionChosen] = useState(false)
+  const { machines, refreshInventory } = useMachines()
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
@@ -184,6 +179,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const patchTokenRef = useRef(0)
   const sessions = useMemo(() => applyPatches(listedSessions, patches), [listedSessions, patches])
   const [projects, setProjects] = useState<ProjectRow[]>([])
+  const navigation = useMachineProjects(projects, sessions)
   // Which session is active is now a property of the panes: it is whatever the
   // focused pane is showing, so every single-session view in the shell — the
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
@@ -193,15 +189,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, attentionCountOf, acknowledge, forget } =
-    useSessionActivity(visibleSessionIds)
+    useSessionActivity(visibleSessionIds, navigation.sessions.map((session) => session.id))
   // Every list refresh is a new array; the lookup changes identity only when
   // a title does, or each refresh would re-render every memoized transcript row.
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
-  const titlesKey = sessions.map((session) => `${session.id}:${session.title}`).join('\n')
+  const titlesKey = navigation.sessions.map((session) => `${session.id}:${session.title}`).join('\n')
   const sessionTitle = useCallback(
-    (id: string) => sessionsRef.current.find((session) => session.id === id)?.title,
-    [titlesKey],
+    (id: string) => navigation.sessions.find((session) => session.id === id)?.title,
+    [titlesKey, navigation.sessions],
   )
   const attachReviewRange = useCallback(
     (
@@ -225,6 +221,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
     overrides?: Partial<SessionDefaults>
+    preferredHostId?: string
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   // Where the pane area is the view on screen: settings, the gallery and the
@@ -235,12 +232,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     !settingsOpen &&
     !hubOpen &&
     !galleryOpen &&
-    remoteTarget === null &&
     fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible =
-    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && remoteTarget === null
+    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
   const [composerFocusRequest, setComposerFocusRequest] = useState<{
     sessionId: string
     intent: SessionStartIntent
@@ -288,7 +284,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const mountedSpaces = spaceStore.spaces
     .filter((space) => nextRecentSpaceIds.includes(space.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-  const workspaceToolOpen = settingsOpen || hubOpen || remoteTarget !== null
+  const workspaceToolOpen = settingsOpen || hubOpen
   // Where the keyboard was in the workspace, so leaving Settings or the hub
   // hands it back instead of dropping it on the page.
   const lastWorkspaceFocusRef = useRef<HTMLElement | null>(null)
@@ -304,7 +300,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   } | null>(null)
   useEffect(() => {
     let cancelled = false
-    if (activeSessionId) {
+    if (activeSessionId && parseSessionViewKey(activeSessionId)?.kind === 'local') {
       void rpc
         .invoke('session.workspace', { sessionId: activeSessionId })
         .then(({ path }) => {
@@ -378,7 +374,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * shortcut fires, the state changes, and the user sees nothing at all.
    */
   const leaveWorkspaceTool = useCallback(() => {
-    setRemoteTarget(null)
     setSettingsOpen(false)
     setHubOpen(false)
   }, [])
@@ -498,7 +493,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
-      if (remoteTargetRef.current !== null) return
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         toggleSidebar()
@@ -537,12 +531,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * take over from it.
    */
   const confirmPatch = useCallback(
-    (token: number, sessionId: string, patch: SessionPatch): Promise<void> =>
-      rpc
-        .invoke('command.dispatch', { command: { type: 'session.update', sessionId, ...patch } })
+    (token: number, sessionId: string, patch: SessionPatch): Promise<void> => {
+      const scope = parseSessionViewKey(sessionId)
+      if (!scope) return Promise.reject(new Error('Unknown session scope.'))
+      return createSessionClient(scope).rpc
+        .invoke('command.dispatch', { command: { type: 'session.update', sessionId: scope.sessionId, ...patch } })
         .then((result) => {
           if (!result.accepted) throw new Error(result.reason ?? 'The change was refused.')
           refreshSessions()
+          void refreshInventory()
           const generation = listsRef.current
           setPatches((prev) =>
             prev.map((p) => (p.token === token ? { ...p, settledAt: generation } : p)),
@@ -556,9 +553,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             title: 'Couldn’t update the session',
             description: error instanceof Error ? error.message : String(error),
           })
-        }),
-    [refreshSessions, toast],
+        })
+    },
+    [refreshSessions, refreshInventory, toast],
   )
+  const destroyScopedSession = useCallback(async (key: string) => {
+    const scope = parseSessionViewKey(key)
+    if (!scope) throw new Error('Unknown session scope.')
+    await createSessionClient(scope).rpc.invoke('session.destroy', { sessionId: scope.sessionId })
+    void refreshInventory()
+  }, [refreshInventory])
 
   /** Shows `patch` on each session at once and confirms them one by one. */
   const patchSessions = useCallback(
@@ -577,10 +581,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // shell pointed at something that no longer exists.
   useEffect(() => {
     if (!sessionsLoadedRef.current) return
-    const known = new Set(sessions.map((session) => session.id))
+    const known = new Set(navigation.sessions.map((session) => session.id))
+    // Offline hosts keep their scoped pane refs until explicit removal/revocation.
+    for (const space of spaceStore.spaces) for (const id of sessionsOnScreen(space.layout)) {
+      const scope = parseSessionViewKey(id)
+      if (scope?.kind === 'remote' && machines.some((machine) => machine.id === scope.machineId &&
+        machine.status !== 'revoked' && machine.status !== 'unpaired')) known.add(id)
+    }
     splitLayoutActions.prune(known)
     keepAliveActions.keepOnly(known)
-  }, [sessions])
+  }, [navigation.sessions, machines, spaceStore.spaces])
 
   // Late-bound so the global key handler (registered before the session
   // starters exist) can still open the new-session rail.
@@ -841,9 +851,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const navOrder = useMemo(
     () =>
       sidebarView === 'sessions'
-        ? sessionsViewOrder(sessions)
-        : sidebarOrder(sessions, openProjects),
-    [sessions, openProjects, sidebarView, collapsedChildren],
+        ? sessionsViewOrder(navigation.sessions)
+        : sidebarOrder(navigation.sessions, navigation.sidebarProjects),
+    [navigation.sessions, navigation.sidebarProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -912,13 +922,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
-      if (remoteTargetRef.current !== null) {
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-          e.preventDefault()
-          setRemoteTarget((target) => (target ? { ...target, sessionId: null } : target))
-        }
-        return
-      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
@@ -1104,7 +1107,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       intent?.dispose() // The chooser owns the next explicit pick and its focus.
-      setLocalSessionChosen(false)
       setNewSessionRequest({ anchor, overrides })
     },
     [projects.length, machines.length, sessionStart.canStart, sessionStart.pickProject],
@@ -1170,6 +1172,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
+  const remoteActive = activeSessionScope?.kind === 'remote'
   // The usage chip names the driver of whichever session is active, which in a
   // split is the focused pane's — not the shell's seed for new sessions.
   const activeDriverKind =
@@ -1206,7 +1210,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
       ? changesScope
       : activeScope
-  const changeSummary = useSourceControl(sourceControlScope, 'summary')
+  const changeSummary = useSourceControl(remoteActive ? null : sourceControlScope, 'summary')
   useAppNavigation({
     userIntent: () => {
       navigationGeneration.current++
@@ -1244,7 +1248,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       return true
     },
     apply: (target) => {
-      setRemoteTarget(null)
       navigationGeneration.current += 1
       setGalleryOpen(false)
       if (target.view === 'session' || target.view === 'aria')
@@ -1277,9 +1280,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
   const shellRoot = useMemo(
-    () => shellRootFor(activeSession, activeProjectPath, projects),
-    [activeSession, activeProjectPath, projects],
+    () => remoteActive ? null : shellRootFor(activeSession, activeProjectPath, projects),
+    [remoteActive, activeSession, activeProjectPath, projects],
   )
+  const localProjectIdFor = (groupId: string): string | null => {
+    const group = navigation.groups.find((entry) => entry.id === groupId)
+    if (!group) return projects.some((project) => project.id === groupId) ? groupId : null
+    const local = group.checkouts.filter((checkout) => checkout.local)
+    return local.length === 1 ? local[0]!.projectId : null
+  }
   const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
   // Every space's panes, not only the one on screen: a terminal hosted in
   // another space must not also appear as a rail tab that can close it.
@@ -1321,9 +1330,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
-      {remoteTarget !== null ? (
-        <Titlebar minimal />
-      ) : (
         <Titlebar
           activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
           onSelectTool={selectWorkspaceTool}
@@ -1342,7 +1348,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
           onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
         />
-      )}
       {/* Settings and the hub cover the workspace rather than replace it: the
           sidebar, sessions and terminals stay mounted underneath, so going
           back is instant and nothing replays. */}
@@ -1354,7 +1359,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onOpenMachine={(machineId) => {
             setSettingsOpen(false)
             setHubOpen(false)
-            setRemoteTarget({ machineId, sessionId: null })
+            setNewSessionRequest({ anchor: { x: 24, y: 88 }, preferredHostId: machineId })
           }}
           onOpenSetup={onOpenSetup}
           workspacePath={sessionWorkspace?.path ?? null}
@@ -1371,21 +1376,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           onBack={() => setHubOpen(false)}
         />
       ) : null}
-      {remoteTarget !== null && !settingsOpen && !hubOpen && (
-        <RemoteWorkspace
-          target={remoteTarget}
-          onSelect={(machineId, sessionId) => {
-            setPaletteOpen(false)
-            setSearchOpen(false)
-            setRemoteTarget({ machineId, sessionId })
-          }}
-          onBack={() => setRemoteTarget(null)}
-          onManage={() => {
-            setSettingsSection('machines')
-            setSettingsOpen(true)
-          }}
-        />
-      )}
       <div
         className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
         hidden={workspaceToolOpen}
@@ -1416,37 +1406,45 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                 onNewChat={() => openAria(true)}
               />
               <SessionsUnderProjects
-                sessions={sessions}
-                projects={openProjects}
-                knownProjectNames={projects}
+                sessions={navigation.sessions}
+                projects={navigation.sidebarProjects}
+                knownProjectNames={navigation.sidebarProjects}
                 searchInputRef={sidebarSearchRef}
                 searchQuery={sidebarQuery}
                 onSearchQueryChange={setSidebarQuery}
                 onNewSession={beginNewSession}
                 onOpenProject={openProjectViaDialog}
                 onNewSessionInProject={(projectId) => createSession(projectId)}
-                onImportSessions={setImportProjectId}
-                onRevealProject={(projectId) => {
+                onImportSessions={(groupId) => { const id = localProjectIdFor(groupId); if (id) setImportProjectId(id) }}
+                onRevealProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const path = projects.find((p) => p.id === projectId)?.path
                   if (path === undefined) return
                   void rpc
                     .invoke('shell.revealPath', { path })
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onCloseProject={(projectId) => {
+                onCloseProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.close', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onRemoveProject={(projectId) => {
+                onRemoveProject={(groupId) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   void rpc
                     .invoke('project.remove', { id: projectId })
                     .then(refreshProjects)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onReorderProject={moveProject}
-                onMoveProject={(projectId, delta) => {
+                onReorderProject={(groupId, beforeGroupId) => { const id = localProjectIdFor(groupId); const before = beforeGroupId ? localProjectIdFor(beforeGroupId) : null; if (id) moveProject(id, before) }}
+                onMoveProject={(groupId, delta) => {
+                  const projectId = localProjectIdFor(groupId)
+                  if (!projectId) return
                   const move = projectMoveForDelta(
                     openProjects.map((p) => p.id),
                     projectId,
@@ -1454,18 +1452,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   )
                   if (move) moveProject(move.id, move.beforeId)
                 }}
-                onLocateProject={openProjectViaDialog}
+                onLocateProject={(groupId) => { const id = localProjectIdFor(groupId); if (id) openProjectViaDialog(id) }}
                 activeSessionId={activeSessionId}
                 startedByAria={(id) => ariaStartedIds.has(id)}
                 activityOf={activityOf}
+                hostOf={(id) => navigation.hosts.get(id)}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
                 onRename={(id, title) => patchSessions([id], { title })}
                 onDelete={(id) => {
-                  const dropped = new Set([id, ...descendantIds(sessions, id)])
+                  const dropped = new Set([id, ...descendantIds(navigation.sessions, id)])
                   for (const gone of dropped) forget(gone)
-                  void rpc
-                    .invoke('session.destroy', { sessionId: id })
+                  void destroyScopedSession(id)
                     // The refreshed list blanks the panes those sessions were in.
                     .then(() => {
                       for (const gone of dropped) {
@@ -1484,14 +1482,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   const dropped = new Set<string>()
                   for (const id of ids) {
                     dropped.add(id)
-                    for (const child of descendantIds(sessions, id)) dropped.add(child)
+                    for (const child of descendantIds(navigation.sessions, id)) dropped.add(child)
                   }
                   for (const gone of dropped) forget(gone)
                   void (async () => {
                     for (const id of ids) {
                       try {
-                        await rpc.invoke('session.destroy', { sessionId: id })
-                        for (const gone of [id, ...descendantIds(sessions, id)]) {
+                        await destroyScopedSession(id)
+                        for (const gone of [id, ...descendantIds(navigation.sessions, id)]) {
                           deleteSessionDraftIntent(gone)
                           deleteSessionDraftText(gone)
                           writeReviewDrafts(gone, [])
@@ -1503,18 +1501,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     refreshSessions()
                   })()
                 }}
-              />
-              <RemoteMachineGroups
-                onOpen={(machineId, sessionId) => {
-                  setRemoteTarget({ machineId, sessionId })
-                  setPaletteOpen(false)
-                  setSearchOpen(false)
-                }}
-                onManage={() => {
-                  setSettingsSection('machines')
-                  setSettingsOpen(true)
-                }}
-                query={sidebarQuery}
               />
             </motion.aside>
           ) : null}
@@ -1648,13 +1634,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         <SplitView
                           layout={layout}
                           titleOf={(id) => {
-                            const session = sessions.find((s) => s.id === id)
+                            const session = navigation.sessions.find((s) => s.id === id)
                             if (session === undefined) return null
                             if (isHelmSession(session)) return 'Aria'
                             const projectName =
                               session.projectId === UNFILED_GROUP_ID
                                 ? null
-                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                                : (navigation.sidebarProjects.find((p) => p.id === session.projectId)?.name ?? null)
                             return formatPaneTitle(session.title, projectName)
                           }}
                           onFocus={splitLayoutActions.focus}
@@ -1696,10 +1682,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                               hidden={!visible}
                               render={(sessionId, hidden) => (
                                 <SessionView
-                                  sessionId={sessionId}
+                                  sessionId={parseSessionViewKey(sessionId)?.sessionId ?? sessionId}
+                                  scope={parseSessionViewKey(sessionId) ?? undefined}
                                   onOpenAria={() => openAria()}
                                   startedByAria={ariaStartedIds.has(sessionId)}
-                                  hidden={hidden || remoteTarget !== null}
+                                  hidden={hidden}
                                   onComposerReady={
                                     composerFocusRequest?.sessionId === sessionId &&
                                     composerFocusRequest.intent.scope.spaceId === space.id &&
@@ -1709,19 +1696,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   }
                                   defaults={defaultsFor(sessionId)}
                                   onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                  onPick={rememberPick}
+                                  onPick={parseSessionViewKey(sessionId)?.kind === 'local' ? rememberPick : undefined}
                                   // A child session opens in the pane it was opened from,
                                   // rather than yanking the whole shell to it.
                                   onOpenSession={(childId) =>
-                                    splitLayoutActions.assign(paneId, childId)
+                                    splitLayoutActions.assign(paneId, sessionViewKey({ ...(parseSessionViewKey(sessionId) ?? { kind: 'local' }), sessionId: childId } as SessionScope))
                                   }
                                   activityOf={activityOf}
-                                  childSessions={sessions.filter(
+                                  childSessions={navigation.sessions.filter(
                                     (session) =>
                                       session.parentSessionId === sessionId && !session.archived,
                                   )}
                                   sessionTitle={sessionTitle}
-                                  parentSession={parentOf(sessions, sessionId)}
+                                  parentSession={parentOf(navigation.sessions, sessionId)}
                                 />
                               )}
                             />
@@ -1857,34 +1844,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         />
       ) : null}
       <CommandPalette
-        open={paletteOpen && remoteTarget === null}
+        open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
       <ContentSearchOverlay
-        open={searchOpen && remoteTarget === null}
+        open={searchOpen}
         onClose={() => setSearchOpen(false)}
         root={activeProjectPath}
         scope={activeScope}
       />
-      {setupCovered || remoteTarget !== null ? null : <KeyboardCheatSheet />}
-      {newSessionRequest !== null && machines.length > 0 && !localSessionChosen && (
-        <MachineChooser
-          machines={machines}
-          onClose={closeNewSessionMenu}
-          onChoose={(machineId) => {
-            if (machineId === null) setLocalSessionChosen(true)
-            else {
-              closeNewSessionMenu()
-              setSettingsOpen(false)
-              setHubOpen(false)
-              setRemoteTarget({ machineId, sessionId: null })
-            }
-          }}
-        />
-      )}
+      {setupCovered ? null : <KeyboardCheatSheet />}
       <NewSessionLauncher
-        open={newSessionRequest !== null && (machines.length === 0 || localSessionChosen)}
+        open={newSessionRequest !== null}
         projects={projects}
         sessions={sessions}
         preferredProjectId={activeSession?.projectId ?? null}
