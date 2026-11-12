@@ -230,11 +230,12 @@ try {
         }
         await pause(250)
         const geometry = await evaluate(
-        '({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent, review: globalThis.ariMobileReview, sheetOverflow: Array.from(document.querySelectorAll(\'[role="dialog"] .overflow-y-auto\')).reduce((max, node) => Math.max(max, node.scrollWidth - node.clientWidth), 0)})',
+          '({width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.querySelector("#root").textContent, review: globalThis.ariMobileReview, sheetOverflow: Array.from(document.querySelectorAll(\'[role="dialog"] .overflow-y-auto\')).reduce((max, node) => Math.max(max, node.scrollWidth - node.clientWidth), 0)})',
         )
         if (!geometry.text) throw new Error(`Fixture became empty in ${view}`)
         if (geometry.scrollWidth > width) throw new Error(`Page overflow in ${view} at ${width}`)
-      if (geometry.sheetOverflow > 1) throw new Error(`Sheet overflow in ${view} at ${width}: ${geometry.sheetOverflow}`)
+        if (geometry.sheetOverflow > 1)
+          throw new Error(`Sheet overflow in ${view} at ${width}: ${geometry.sheetOverflow}`)
         if (
           stage === 'recovery' &&
           (geometry.review.commandCalls !== 0 ||
@@ -252,7 +253,7 @@ try {
           theme,
           view,
           scrollWidth: geometry.scrollWidth,
-        sheetOverflow: geometry.sheetOverflow,
+          sheetOverflow: geometry.sheetOverflow,
           ...(stage === 'recovery' ? geometry.review : {}),
         })
         process.stdout.write(`Captured ${stage}/${filename}\n`)
