@@ -147,7 +147,9 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       }),
     ])
     // Inventory carries no resource authorization or sampling side effect.
-    if (results[0]?.status === 'rejected' && alive.current && inventoryRevision.current === generation) setLocal(null)
+    if (results[0]?.status === 'rejected' && alive.current && inventoryRevision.current === generation) {
+      setLocal(null); setLocalModels(null)
+    }
     if (alive.current && inventoryRevision.current === generation) setInventoryReady(true)
   }, [])
   const refreshResources = useCallback(async (hostIds: readonly string[]) => {
