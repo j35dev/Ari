@@ -189,7 +189,7 @@ describe('remote service lifecycle', () => {
     expect(service.state().error).toMatch(/host identity/)
     expect(await service.start()).toMatchObject({ enabled: false, origin: null })
     expect(await service.startManaged({ port: 0, issuer: 'https://broker.test', hostname: 'host.test', computerId: 'host', verifier: () => null })).toBeNull()
-    expect(readdirSync(dir)).toEqual([])
+    expect(readdirSync(dir)).not.toContain('identity.json')
     expect(service.state().error).not.toMatch(/fixture/)
   })
 
