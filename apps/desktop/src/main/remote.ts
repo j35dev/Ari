@@ -22,7 +22,7 @@ import { loadMachineIdentity, type HostIdentity } from './machine-identity'
 
 const log = createLogger('desktop:remote')
 const IDENTITY_ERROR =
-  'The saved host identity could not be read or securely persisted. Its existing data has been preserved; restore it from a backup and restart Ari before enabling remote access.'
+  'The host identity could not be loaded or saved. Existing data has been preserved; check the remote profile permissions or restore its identity from a backup, then restart Ari before enabling remote access.'
 
 /**
  * Remote access, on the desktop side (ADR §5, §9).

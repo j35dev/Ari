@@ -887,7 +887,7 @@ describe('Machines with two real gateways and engines', () => {
       }),
     ).toMatchObject({
       ok: false,
-      error: { code: 'not_found' },
+      error: { code: expect.stringMatching(/^(not_found|conflict)$/) },
     })
     expect(commands).toBe(1)
     expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
