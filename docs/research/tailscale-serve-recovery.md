@@ -139,3 +139,19 @@ exact explicit replacement. No automatic target-based ownership migration occurs
 
 No user decision is required for the code. Keep the observed foreign 443 mapping
 unless the user explicitly confirms its exact replacement in the setup UI.
+
+## Publication verification, 2026-11-12
+
+The user authorized publication as a standalone PR into `main`. An isolated D:
+worktree verified source `9df9d9ba15e7f845ccc47a6457d76ae8f9f994b2` with its own
+frozen-lockfile offline install and workspace links. All nine package typechecks,
+scoped ESLint, all three affected suites (69/69 tests), and the desktop production
+build passed. These are fresh standalone checks, separate from the full Machines
+verification. The runtime is unchanged; only this publication evidence was added.
+
+Exact commands, resource admission, original output and hashes are in
+[the publication record](evidence/tailscale-publication-verification/verification.json).
+Every heavy step used the shared resource lease, below-normal priority, one test
+worker, no file parallelism and a protected short D: TEMP. No installed app,
+user checkout or real Serve mapping was changed. The non-443/tailnet/iPhone,
+sleep/network/ACL and mixed-mount hardware limits above remain.

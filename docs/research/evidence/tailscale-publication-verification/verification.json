@@ -1,0 +1,234 @@
+{
+  "recordedAt": "2026-11-12T15:48:47.248Z",
+  "source": "9df9d9ba15e7f845ccc47a6457d76ae8f9f994b2",
+  "collectionCheckpoint": "9df9d9ba15e7f845ccc47a6457d76ae8f9f994b2",
+  "allPassed": true,
+  "fixtureEnvironment": {
+    "temp": "D:/Projects/.ari-cache/mvp",
+    "testWorkers": 1,
+    "fileParallelism": false,
+    "priority": "BelowNormal",
+    "lease": "scripts/coordination/run-heavy.mjs"
+  },
+  "checks": [
+    {
+      "name": "install",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "tailscale-publication-install",
+        "D:/Projects/Ari-machines-wt/tailscale-publication",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "install",
+        "--frozen-lockfile",
+        "--offline",
+        "--store-dir",
+        "D:/Projects/.ari-cache/pnpm-store"
+      ],
+      "cwd": "D:/Projects/Ari-machines-wt/tailscale-publication",
+      "startedAt": "2026-11-12T15:41:42.713Z",
+      "finishedAt": "2026-11-12T15:43:36.054Z",
+      "logPath": "D:\\Projects\\.ari-cache\\tailscale-publication-verification\\install.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "install.txt",
+      "sha256": "3da30d58a0ce4c8d4ba8b433961fc68d97d7e93e99628bb167e12a7eef7f53fe",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "tailscale-publication-install",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "install",
+            "--frozen-lockfile",
+            "--offline",
+            "--store-dir",
+            "D:/Projects/.ari-cache/pnpm-store"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "tailscale-publication-typecheck",
+        "D:/Projects/Ari-machines-wt/tailscale-publication",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "-r",
+        "--workspace-concurrency=1",
+        "typecheck"
+      ],
+      "cwd": "D:/Projects/Ari-machines-wt/tailscale-publication",
+      "startedAt": "2026-11-12T15:43:36.056Z",
+      "finishedAt": "2026-11-12T15:45:02.914Z",
+      "logPath": "D:\\Projects\\.ari-cache\\tailscale-publication-verification\\typecheck.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "typecheck.txt",
+      "sha256": "21664ed63c109ace0bf03329ecab6b4d456ffb68de6e618a9a893737c561c2fd",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "tailscale-publication-typecheck",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "-r",
+            "--workspace-concurrency=1",
+            "typecheck"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "lint",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "tailscale-publication-lint",
+        "D:/Projects/Ari-machines-wt/tailscale-publication",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "exec",
+        "eslint",
+        "apps/desktop/src/main/remote-origins.ts",
+        "apps/desktop/src/main/remote-origins.test.ts",
+        "apps/desktop/src/main/rpc.ts",
+        "apps/desktop/src/main/tailscale.ts",
+        "apps/desktop/src/main/tailscale.test.ts",
+        "apps/desktop/src/main/tailscale-pairing.test.ts",
+        "packages/contracts/src/rpc.ts"
+      ],
+      "cwd": "D:/Projects/Ari-machines-wt/tailscale-publication",
+      "startedAt": "2026-11-12T15:45:02.915Z",
+      "finishedAt": "2026-11-12T15:45:24.437Z",
+      "logPath": "D:\\Projects\\.ari-cache\\tailscale-publication-verification\\lint.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "lint.txt",
+      "sha256": "cca3995cdc762e27755ad1845f4fde238215866aaddb0dafd375bec990798e05",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "tailscale-publication-lint",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "exec",
+            "eslint",
+            "apps/desktop/src/main/remote-origins.ts",
+            "apps/desktop/src/main/remote-origins.test.ts",
+            "apps/desktop/src/main/rpc.ts",
+            "apps/desktop/src/main/tailscale.ts",
+            "apps/desktop/src/main/tailscale.test.ts",
+            "apps/desktop/src/main/tailscale-pairing.test.ts",
+            "packages/contracts/src/rpc.ts"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "tailscale-tests",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "tailscale-publication-tailscale-tests",
+        "D:/Projects/Ari-machines-wt/tailscale-publication",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "src/main/tailscale.test.ts",
+        "src/main/remote-origins.test.ts",
+        "src/main/tailscale-pairing.test.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:/Projects/Ari-machines-wt/tailscale-publication",
+      "startedAt": "2026-11-12T15:45:24.437Z",
+      "finishedAt": "2026-11-12T15:45:31.347Z",
+      "logPath": "D:\\Projects\\.ari-cache\\tailscale-publication-verification\\tailscale-tests.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "tailscale-tests.txt",
+      "sha256": "fb222a4d97922897c5638ffc48f37d5d5e76674a3b837e0d8f5937888d2c6bd0",
+      "testSummary": [
+        "Test Files  3 passed (3)",
+        "Tests  69 passed (69)"
+      ],
+      "heavyResults": [
+        {
+          "worker": "tailscale-publication-tailscale-tests",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "test",
+            "src/main/tailscale.test.ts",
+            "src/main/remote-origins.test.ts",
+            "src/main/tailscale-pairing.test.ts",
+            "--maxWorkers=1",
+            "--no-file-parallelism"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "name": "desktop-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "tailscale-publication-desktop-build",
+        "D:/Projects/Ari-machines-wt/tailscale-publication",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build"
+      ],
+      "cwd": "D:/Projects/Ari-machines-wt/tailscale-publication",
+      "startedAt": "2026-11-12T15:45:31.348Z",
+      "finishedAt": "2026-11-12T15:45:55.823Z",
+      "logPath": "D:\\Projects\\.ari-cache\\tailscale-publication-verification\\desktop-build.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "desktop-build.txt",
+      "sha256": "93f62d33d95525b75da2af3498d2eb72586ebd089a30e53b7a23f895260a7f01",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "tailscale-publication-desktop-build",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "build"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    }
+  ]
+}
