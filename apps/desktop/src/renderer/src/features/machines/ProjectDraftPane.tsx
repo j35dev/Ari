@@ -19,6 +19,26 @@ const resource = (sample: RemoteHostResources | null): SelectionHost['resources'
   availableMemoryBytes: sample.availableMemoryBytes, totalMemoryBytes: sample.totalMemoryBytes,
 } : null
 
+function selectionHosts(entry: ProjectDraftEntry, projects: Project[], metadata: ReturnType<typeof useMachines>,
+  samples = metadata.resources): SelectionHost[] {
+  return [
+    { id: 'local', name: 'This PC', connected: true, compatible: true,
+      hasProject: entry.group.checkouts.some((checkout) => checkout.local && projects.some((project) => project.id === checkout.projectId && project.status !== 'missing')),
+      usableCatalog: usable(metadata.localModels), preference: metadata.preferences.hostTiers.local ?? 'normal',
+      resources: resource(samples.get('local') ?? null) },
+    ...metadata.machines.map((machine) => {
+      const inventory = metadata.inventories.get(machine.id)
+      return { id: machine.id, name: machine.name, connected: machine.status === 'connected',
+        compatible: machine.versionReady !== false && machine.identity?.machinesExtensions?.operations.includes('session.desktop.create') === true,
+        hasProject: entry.group.checkouts.some((checkout) => checkout.hostId === machine.id &&
+          inventory?.projects.some((project) => project.id === checkout.projectId && project.status !== 'missing')),
+        usableCatalog: inventory?.permissions !== null && inventory?.permissions !== undefined && usable(inventory?.catalog ?? null),
+        preference: metadata.preferences.hostTiers[machine.id] ?? 'normal', resources: resource(samples.get(machine.id) ?? null),
+      }
+    }),
+  ].filter((host) => !entry.lead || host.id === 'local')
+}
+
 export function ProjectDraftPane({ entry, projects, defaults, createLocal, onCreated, onClose }: {
   entry: ProjectDraftEntry
   projects: Project[]
@@ -53,25 +73,17 @@ export function ProjectDraftPane({ entry, projects, defaults, createLocal, onCre
     ? latest.current.projects.find((project) => project.id === projectId)?.defaultAgent ?? latest.current.defaults
     : latest.current.metadata.inventories.get(hostId)?.projects.find((project) => project.id === projectId)?.defaultAgent ?? null,
   [])
-  const hosts = useMemo<SelectionHost[]>(() => [
-    { id: 'local', name: 'This PC', connected: true, compatible: true,
-      hasProject: entry.group.checkouts.some((checkout) => checkout.local && projects.some((project) => project.id === checkout.projectId && project.status !== 'missing')),
-      usableCatalog: usable(metadata.localModels), preference: metadata.preferences.hostTiers.local ?? 'normal',
-      resources: resource(metadata.local?.resources ?? null) },
-    ...metadata.machines.map((machine) => {
-      const inventory = metadata.inventories.get(machine.id)
-      return { id: machine.id, name: machine.name, connected: machine.status === 'connected',
-        compatible: machine.versionReady !== false && machine.identity?.machinesExtensions?.operations.includes('session.desktop.create') === true,
-        hasProject: entry.group.checkouts.some((checkout) => checkout.hostId === machine.id &&
-          inventory?.projects.some((project) => project.id === checkout.projectId && project.status !== 'missing')),
-        usableCatalog: inventory?.permissions !== null && inventory?.permissions !== undefined && usable(inventory?.catalog ?? null),
-        preference: metadata.preferences.hostTiers[machine.id] ?? 'normal', resources: resource(inventory?.resources ?? null),
-      }
-    }),
-  ].filter((host) => !entry.lead || host.id === 'local'), [entry.group, entry.lead, projects, metadata])
+  const hosts = useMemo(() => selectionHosts(entry, projects, metadata), [entry, projects, metadata])
+  const refreshHosts = useCallback(async (hostIds: readonly string[]) => {
+    const samples = await latest.current.metadata.refreshResources(hostIds)
+    return selectionHosts(entry, latest.current.projects, latest.current.metadata, samples)
+  }, [entry])
+  const autoReady = metadata.local !== null && metadata.machines.every((machine) =>
+    machine.status !== 'connected' || !entry.group.checkouts.some((checkout) => checkout.hostId === machine.id) ||
+    metadata.inventories.has(machine.id))
   return <ProjectDraft draftId={entry.id} group={entry.group} hosts={hosts} initialHostId={entry.initialHostId}
-    autoEnabled={metadata.preferences.autoEnabled} lastManualHostId={metadata.preferences.projectHosts[entry.groupId]}
-    clientFor={clientFor} defaultFor={defaultFor} onCreated={onCreated} onClose={onClose}
+    autoEnabled={metadata.preferences.autoEnabled} autoReady={autoReady} lastManualHostId={metadata.preferences.projectHosts[entry.groupId]}
+    clientFor={clientFor} defaultFor={defaultFor} refreshHosts={refreshHosts} onCreated={onCreated} onClose={onClose}
     onRememberHost={(hostId) => { void rpc.invoke('machines.rememberProjectHost', { projectKey: entry.groupId, machineId: hostId })
       .then(() => metadata.refreshInventory()).catch(() => undefined) }} />
 }
