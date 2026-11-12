@@ -1766,7 +1766,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   // A child session opens in the pane it was opened from,
                                   // rather than yanking the whole shell to it.
                                   onOpenSession={(childId) =>
-                                    splitLayoutActions.assign(paneId, sessionViewKey({ ...(parseSessionViewKey(sessionId) ?? { kind: 'local' }), sessionId: childId } as SessionScope))
+                                    splitLayoutActions.assign(paneId, childId)
                                   }
                                   activityOf={activityOf}
                                   childSessions={navigation.sessions.filter(

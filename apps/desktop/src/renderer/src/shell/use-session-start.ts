@@ -242,6 +242,7 @@ export function useSessionStart(options: {
       recoveryRef.current = recovery
       showRecovery(recovery)
       if (attempt.draft) throw error
+      return undefined
     } finally {
       busy(false)
     }
