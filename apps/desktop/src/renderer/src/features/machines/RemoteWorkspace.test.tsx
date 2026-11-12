@@ -117,13 +117,19 @@ describe('host session creation', () => {
     const original = mocks.invoke.getMockImplementation()!
     mocks.invoke.mockImplementation((method, params) =>
       method === 'machines.command'
-        ? new Promise((resolve) => { complete = resolve })
+        ? new Promise((resolve) => {
+            complete = resolve
+          })
         : original(method, params),
     )
     const show = (machineId: string) => (
       <MachinesProvider>
-        <RemoteWorkspace target={{ machineId, sessionId: null }} onSelect={onSelect}
-          onBack={vi.fn()} onManage={vi.fn()} />
+        <RemoteWorkspace
+          target={{ machineId, sessionId: null }}
+          onSelect={onSelect}
+          onBack={vi.fn()}
+          onManage={vi.fn()}
+        />
       </MachinesProvider>
     )
     const { rerender } = render(show('host-a'))
@@ -151,14 +157,17 @@ describe('host session creation', () => {
     mocks.invoke.mockImplementation(async (method, params) => {
       if (method === 'machines.command')
         return { ok: false, error: { code: 'internal_error', message: 'Creation unknown' } }
-      if (params?.query?.op === 'command.status')
-        return reply({ sessionId: 'confirmed-original' })
+      if (params?.query?.op === 'command.status') return reply({ sessionId: 'confirmed-original' })
       return original(method, params)
     })
     const show = () => (
       <MachinesProvider>
-        <RemoteWorkspace target={{ machineId: 'host-a', sessionId: null }} onSelect={onSelect}
-          onBack={vi.fn()} onManage={vi.fn()} />
+        <RemoteWorkspace
+          target={{ machineId: 'host-a', sessionId: null }}
+          onSelect={onSelect}
+          onBack={vi.fn()}
+          onManage={vi.fn()}
+        />
       </MachinesProvider>
     )
     const first = render(show())
@@ -175,6 +184,8 @@ describe('host session creation', () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('host-a', 'confirmed-original'))
     expect(readCreationDraft('host-a')).toEqual(newer)
     expect(readReceipt('host-a', 'new-session')).toBeNull()
-    expect(mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command')).toHaveLength(1)
+    expect(
+      mocks.invoke.mock.calls.filter(([method]) => method === 'machines.command'),
+    ).toHaveLength(1)
   })
 })

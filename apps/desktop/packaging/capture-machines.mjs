@@ -1,10 +1,11 @@
 // Run with the coordinator runner and `pnpm --filter @ari/desktop exec electron
-// packaging/capture-machines.cjs` after building machines-fixture.config.ts.
+// packaging/capture-machines.mjs` after building machines-fixture.config.ts.
 // This starts only a hidden Chromium fixture, with an isolated temporary profile.
-const { app, BrowserWindow } = require('electron')
-const { mkdir, writeFile } = require('node:fs/promises')
-const { mkdirSync, mkdtempSync } = require('node:fs')
-const { resolve, join } = require('node:path')
+/* global process, setTimeout, clearTimeout */
+import { app, BrowserWindow } from 'electron'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { resolve, join } from 'node:path'
 
 const scratch = resolve('out/machines-capture-profiles')
 mkdirSync(scratch, { recursive: true })
