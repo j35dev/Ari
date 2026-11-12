@@ -460,6 +460,7 @@ describe('Machines with two real gateways and engines', () => {
       'ariVersion',
       'capabilities',
       'machineId',
+      'machinesExtensions',
       'name',
       'protocolVersion',
     ])
