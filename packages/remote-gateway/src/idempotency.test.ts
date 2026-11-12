@@ -25,10 +25,16 @@ describe('idempotency store', () => {
     expect(restored.begin('pending', COMMAND)).toEqual({ outcome: 'in_flight' })
   })
 
-  it.each(['broken', '{}', '[null]', '[["key", {}]]', JSON.stringify([
-    ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
-    ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
-  ])])('refuses corrupt history instead of forgetting executed work: %s', (json) => {
+  it.each([
+    'broken',
+    '{}',
+    '[null]',
+    '[["key", {}]]',
+    JSON.stringify([
+      ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
+      ['key', { fingerprint: 'a'.repeat(64), at: 1 }],
+    ]),
+  ])('refuses corrupt history instead of forgetting executed work: %s', (json) => {
     expect(() => IdempotencyStore.fromJSON(json)).toThrow()
   })
 
@@ -36,7 +42,12 @@ describe('idempotency store', () => {
     const store = new IdempotencyStore()
     store.begin('key', COMMAND)
     store.complete('key', 'damaged')
-    expect(() => IdempotencyStore.fromJSON(store.toJSON(), (value): value is number => typeof value === 'number')).toThrow('outcome')
+    expect(() =>
+      IdempotencyStore.fromJSON(
+        store.toJSON(),
+        (value): value is number => typeof value === 'number',
+      ),
+    ).toThrow('outcome')
   })
 
   it('lets a first command through', () => {

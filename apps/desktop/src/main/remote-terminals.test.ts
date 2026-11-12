@@ -138,7 +138,13 @@ describe('remote terminals', () => {
     expect(manager.read({ ...managed, managedLeaseExpiresAt: 5000 }, 's', id, 0)).toBeNull()
     await vi.advanceTimersByTimeAsync(0)
     expect(shells[0]?.kill).toHaveBeenCalledOnce()
-    expect(manager.execute(managed, { ...envelope, op: 'terminal.create', cols: 80, rows: 24 }, { projectId: 'p', workspace: '.' })).toMatchObject({ ok: false, code: 'access_revoked' })
+    expect(
+      manager.execute(
+        managed,
+        { ...envelope, op: 'terminal.create', cols: 80, rows: 24 },
+        { projectId: 'p', workspace: '.' },
+      ),
+    ).toMatchObject({ ok: false, code: 'access_revoked' })
   })
 
   it('requires a desktop grant and preserves ownership for every operation', () => {

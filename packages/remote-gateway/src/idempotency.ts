@@ -134,18 +134,48 @@ export class IdempotencyStore<T = unknown> {
     return JSON.stringify([...this.#records.entries()])
   }
 
-  static fromJSON<T>(json: string, validateResult?: (result: unknown) => result is T): IdempotencyStore<T> {
+  static fromJSON<T>(
+    json: string,
+    validateResult?: (result: unknown) => result is T,
+  ): IdempotencyStore<T> {
     const store = new IdempotencyStore<T>()
     const entries: unknown = JSON.parse(json)
     if (!Array.isArray(entries)) throw new Error('Remote command history is not an array')
-    if (entries.length > store.#maxEntries) throw new Error('Remote command history exceeds capacity')
+    if (entries.length > store.#maxEntries)
+      throw new Error('Remote command history exceeds capacity')
     for (const entry of entries) {
-      if (!Array.isArray(entry) || entry.length !== 2) throw new Error('Invalid remote command history entry')
+      if (!Array.isArray(entry) || entry.length !== 2)
+        throw new Error('Invalid remote command history entry')
       const [key, value] = entry as unknown[]
-      if (typeof key !== 'string' || key.length === 0 || store.#records.has(key) || value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid remote command history entry')
+      if (
+        typeof key !== 'string' ||
+        key.length === 0 ||
+        store.#records.has(key) ||
+        value === null ||
+        typeof value !== 'object' ||
+        Array.isArray(value)
+      )
+        throw new Error('Invalid remote command history entry')
       const record = value as Record<string, unknown>
-      if (record['result'] !== undefined && validateResult !== undefined && !validateResult(record['result'])) throw new Error('Invalid remote command history outcome')
-      if (typeof record['fingerprint'] !== 'string' || !/^[a-f0-9]{64}$/.test(record['fingerprint']) || typeof record['at'] !== 'number' || !Number.isFinite(record['at']) || record['at'] < 0 || (record['failed'] !== undefined && typeof record['failed'] !== 'boolean') || (record['failed'] === true && record['result'] !== undefined) || Object.keys(record).some((field) => !['fingerprint', 'at', 'failed', 'result'].includes(field))) throw new Error('Invalid remote command history record')
+      if (
+        record['result'] !== undefined &&
+        validateResult !== undefined &&
+        !validateResult(record['result'])
+      )
+        throw new Error('Invalid remote command history outcome')
+      if (
+        typeof record['fingerprint'] !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(record['fingerprint']) ||
+        typeof record['at'] !== 'number' ||
+        !Number.isFinite(record['at']) ||
+        record['at'] < 0 ||
+        (record['failed'] !== undefined && typeof record['failed'] !== 'boolean') ||
+        (record['failed'] === true && record['result'] !== undefined) ||
+        Object.keys(record).some(
+          (field) => !['fingerprint', 'at', 'failed', 'result'].includes(field),
+        )
+      )
+        throw new Error('Invalid remote command history record')
       store.#records.set(key, value as Record_<T>)
     }
     return store
@@ -154,16 +184,16 @@ export class IdempotencyStore<T = unknown> {
   /** Oldest first, so the longest-remembered keys go before recent ones. */
   #makeRoom(): boolean {
     if (this.#records.size < this.#maxEntries) return true
-      let oldestKey: string | undefined
-      let oldest = Infinity
-      for (const [key, record] of this.#records) {
-        if ((record.result !== undefined || record.failed === true) && record.at < oldest) {
-          oldest = record.at
-          oldestKey = key
-        }
+    let oldestKey: string | undefined
+    let oldest = Infinity
+    for (const [key, record] of this.#records) {
+      if ((record.result !== undefined || record.failed === true) && record.at < oldest) {
+        oldest = record.at
+        oldestKey = key
       }
-      if (oldestKey === undefined) return false
-      this.#records.delete(oldestKey)
-      return true
+    }
+    if (oldestKey === undefined) return false
+    this.#records.delete(oldestKey)
+    return true
   }
 }

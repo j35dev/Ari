@@ -133,3 +133,8 @@ on its membership heartbeat. The private Connect service must accept updated
 registrations, apply account restrictions, and sign the authorized IDs into each
 renewed lease. This repository cannot verify or deploy that service; leases here
 remain signed, project-bound and limited to 120 seconds.
+
+Legacy browser keys stored before per-computer scoping have no reliable gateway
+binding. Ari retains that old IndexedDB database without copying its key to the
+currently selected computer. Pair each computer again to create its own
+non-extractable key and receive a fresh host approval.

@@ -21,9 +21,14 @@ import {
 
 describe('device key', () => {
   it('never assigns legacy credentials to a mutable selected origin or clears the original store', async () => {
-    const legacy = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify'])
+    const legacy = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, [
+      'sign',
+      'verify',
+    ])
     const loadKey = vi.spyOn(IndexedDbDeviceStore.prototype, 'loadKey').mockResolvedValue(legacy)
-    const loadRecord = vi.spyOn(IndexedDbDeviceStore.prototype, 'loadRecord').mockResolvedValue({ deviceId: 'legacy-device', displayName: 'Phone', projectIds: [] })
+    const loadRecord = vi
+      .spyOn(IndexedDbDeviceStore.prototype, 'loadRecord')
+      .mockResolvedValue({ deviceId: 'legacy-device', displayName: 'Phone', projectIds: [] })
     const saveKey = vi.spyOn(IndexedDbDeviceStore.prototype, 'saveKey').mockResolvedValue()
     const saveRecord = vi.spyOn(IndexedDbDeviceStore.prototype, 'saveRecord').mockResolvedValue()
     const clear = vi.spyOn(IndexedDbDeviceStore.prototype, 'clear').mockResolvedValue()

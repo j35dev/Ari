@@ -461,8 +461,15 @@ describe('remote gateway command allowlist', () => {
 describe('remote gateway idempotency', () => {
   it('does not dispatch when persisting the pre-dispatch claim fails', async () => {
     const host = fakeHost()
-    const gateway = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0,
-      idempotency: { persist: () => { throw new Error('disk full') } },
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: {
+        persist: () => {
+          throw new Error('disk full')
+        },
+      },
     })
     running.push(gateway)
     const token = await paired(gateway, deviceKey())
@@ -470,9 +477,24 @@ describe('remote gateway idempotency', () => {
     expect(failed.status).toBe(500)
     expect(host.executed).toHaveLength(0)
     expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(409)
-    expect((await call(gateway, '/query', { op: 'command.status', idempotencyKey: 'missing-receipt-key' }, { token })).body).toMatchObject({ ok: false, error: { code: 'conflict' } })
+    expect(
+      (
+        await call(
+          gateway,
+          '/query',
+          { op: 'command.status', idempotencyKey: 'missing-receipt-key' },
+          { token },
+        )
+      ).body,
+    ).toMatchObject({ ok: false, error: { code: 'conflict' } })
     expect(host.executed).toHaveLength(0)
-    const restarted = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, pairing: gateway.pairing, idempotency: { restore: '[]' } })
+    const restarted = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      pairing: gateway.pairing,
+      idempotency: { restore: '[]' },
+    })
     running.push(restarted)
     expect((await call(restarted, '/command', COMMAND, { token })).status).toBe(200)
     expect(host.executed).toHaveLength(1)
@@ -482,14 +504,28 @@ describe('remote gateway idempotency', () => {
     const host = fakeHost()
     let saved = '[]'
     let writes = 0
-    const first = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0,
-      idempotency: { persist: (json) => { if (++writes > 1) throw new Error('disk full'); saved = json } },
+    const first = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: {
+        persist: (json) => {
+          if (++writes > 1) throw new Error('disk full')
+          saved = json
+        },
+      },
     })
     running.push(first)
     const key = deviceKey()
     const token = await paired(first, key)
     expect((await call(first, '/command', COMMAND, { token })).status).toBe(500)
-    const second = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, pairing: first.pairing, idempotency: { restore: saved } })
+    const second = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      pairing: first.pairing,
+      idempotency: { restore: saved },
+    })
     running.push(second)
     expect((await call(second, '/command', COMMAND, { token })).status).toBe(409)
     expect(host.executed).toHaveLength(1)
@@ -499,7 +535,12 @@ describe('remote gateway idempotency', () => {
     const receipts = new IdempotencyStore()
     for (let index = 0; index < 1000; index++) receipts.begin(`pending-${index}`, COMMAND)
     const host = fakeHost()
-    const gateway = await createRemoteGateway({ host, allowedOrigins: [ALLOWED], port: 0, idempotency: { restore: receipts.toJSON() } })
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: { restore: receipts.toJSON() },
+    })
     running.push(gateway)
     const token = await paired(gateway, deviceKey())
     const refusal = await call(gateway, '/command', COMMAND, { token })
@@ -508,8 +549,22 @@ describe('remote gateway idempotency', () => {
     expect(host.executed).toHaveLength(0)
   })
 
-  it.each(['broken', '{}', '[["key", {}]]', JSON.stringify([['key', { fingerprint: 'a'.repeat(64), at: 1, result: { reply: { ok: false } } }]])])('refuses to open a listener over corrupt receipt history: %s', async (restore) => {
-    await expect(createRemoteGateway({ host: fakeHost(), allowedOrigins: [ALLOWED], port: 0, idempotency: { restore } })).rejects.toThrow()
+  it.each([
+    'broken',
+    '{}',
+    '[["key", {}]]',
+    JSON.stringify([
+      ['key', { fingerprint: 'a'.repeat(64), at: 1, result: { reply: { ok: false } } }],
+    ]),
+  ])('refuses to open a listener over corrupt receipt history: %s', async (restore) => {
+    await expect(
+      createRemoteGateway({
+        host: fakeHost(),
+        allowedOrigins: [ALLOWED],
+        port: 0,
+        idempotency: { restore },
+      }),
+    ).rejects.toThrow()
   })
 
   it('keeps high-volume terminal receipts out of durable prompt records while preserving replay and key conflicts', async () => {
@@ -952,18 +1007,49 @@ describe('isolated managed gateway', () => {
 
   it('passes only a verified signed lease deadline to the host and refuses expired or altered leases', async () => {
     const seen: RemoteCaller[] = []
-    const host = fakeHost({ query: async (caller) => { seen.push(caller); return caller.managedLeaseExpiresAt } })
+    const host = fakeHost({
+      query: async (caller) => {
+        seen.push(caller)
+        return caller.managedLeaseExpiresAt
+      },
+    })
     const h = await managed(host)
-    const allowed = await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })
+    const allowed = await call(
+      h.gateway,
+      '/query',
+      { op: 'session.list' },
+      { token: h.token, headers: { 'x-ari-connect-lease': h.lease } },
+    )
     expect(allowed).toMatchObject({ status: 200, body: { result: 101000 } })
     expect(seen[0]).toMatchObject({ allProjects: false, managedLeaseExpiresAt: 101000 })
     const parts = h.lease.split('.')
-    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString()) as Record<string, unknown>
+    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString()) as Record<
+      string,
+      unknown
+    >
     claims['exp'] = 999999
     parts[1] = Buffer.from(JSON.stringify(claims)).toString('base64url')
-    expect((await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': parts.join('.') } })).status).toBe(403)
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { token: h.token, headers: { 'x-ari-connect-lease': parts.join('.') } },
+        )
+      ).status,
+    ).toBe(403)
     h.advance(1000)
-    expect((await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token, headers: { 'x-ari-connect-lease': h.lease } })).status).toBe(403)
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { token: h.token, headers: { 'x-ari-connect-lease': h.lease } },
+        )
+      ).status,
+    ).toBe(403)
     expect(seen).toHaveLength(1)
   })
 

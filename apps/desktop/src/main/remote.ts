@@ -22,15 +22,36 @@ import { RemoteIntegration } from './remote-integration'
 
 const log = createLogger('desktop:remote')
 
-const persistedPairingSchema = z.object({
-  devices: z.array(z.object({
-    deviceId: z.string().min(1), displayName: z.string(), projectIds: z.array(z.string()),
-    allProjects: z.boolean().optional(), allowTerminal: z.boolean().optional(),
-    pairedAt: z.number().finite().nonnegative(), lastSeenAt: z.number().finite().nonnegative().nullable(),
-    publicKey: z.object({ kty: z.literal('EC'), crv: z.literal('P-256'), x: z.string().min(1), y: z.string().min(1) }).strict(),
-  }).strict()),
-  revoked: z.array(z.object({ deviceId: z.string().min(1), revokedAt: z.number().finite().nonnegative() }).strict()),
-}).strict()
+const persistedPairingSchema = z
+  .object({
+    devices: z.array(
+      z
+        .object({
+          deviceId: z.string().min(1),
+          displayName: z.string(),
+          projectIds: z.array(z.string()),
+          allProjects: z.boolean().optional(),
+          allowTerminal: z.boolean().optional(),
+          pairedAt: z.number().finite().nonnegative(),
+          lastSeenAt: z.number().finite().nonnegative().nullable(),
+          publicKey: z
+            .object({
+              kty: z.literal('EC'),
+              crv: z.literal('P-256'),
+              x: z.string().min(1),
+              y: z.string().min(1),
+            })
+            .strict(),
+        })
+        .strict(),
+    ),
+    revoked: z.array(
+      z
+        .object({ deviceId: z.string().min(1), revokedAt: z.number().finite().nonnegative() })
+        .strict(),
+    ),
+  })
+  .strict()
 
 /**
  * Remote access, on the desktop side (ADR §5, §9).
@@ -141,9 +162,11 @@ export class RemoteService {
     const generation = this.#generation
     const pending = this.#serialize(() => this.#start(generation, port))
     this.#starting = pending
-    void pending.finally(() => {
-      if (this.#starting === pending) this.#starting = null
-    }).catch(() => undefined)
+    void pending
+      .finally(() => {
+        if (this.#starting === pending) this.#starting = null
+      })
+      .catch(() => undefined)
     return pending
   }
 
@@ -165,17 +188,20 @@ export class RemoteService {
       this.#pairing = this.#makePairing()
       if (this.#persistenceError !== null) return this.#changed()
       if (this.#deps.terminalFactory !== undefined)
-        this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id, projectId) =>
-          this.#pairing
-            .devices()
-            .some(
-              (device) =>
-                this.#pairing.isDeviceActive(id) &&
-                device.deviceId === id &&
-                device.allowTerminal === true &&
-                (device.allProjects === true || device.projectIds.includes(projectId)),
-            ),
-          this.#deps.now)
+        this.#terminals = new RemoteTerminals(
+          this.#deps.terminalFactory,
+          (id, projectId) =>
+            this.#pairing
+              .devices()
+              .some(
+                (device) =>
+                  this.#pairing.isDeviceActive(id) &&
+                  device.deviceId === id &&
+                  device.allowTerminal === true &&
+                  (device.allProjects === true || device.projectIds.includes(projectId)),
+              ),
+          this.#deps.now,
+        )
       const webRoot = this.#deps.webRoot?.()
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
         host: createRemoteHost({
@@ -225,9 +251,12 @@ export class RemoteService {
     } catch (error) {
       await this.#terminals?.close()
       this.#terminals = undefined
-      this.#error = generation === this.#generation
-        ? (error instanceof Error ? error.message : String(error))
-        : null
+      this.#error =
+        generation === this.#generation
+          ? error instanceof Error
+            ? error.message
+            : String(error)
+          : null
       log.error('remote access failed to start', { error: this.#error })
       this.#gateway = null
     }
@@ -269,7 +298,8 @@ export class RemoteService {
     const generation = this.#generation
     const managedGeneration = this.#managedGeneration
     const pending = this.#serialize(async () => {
-      const current = () => generation === this.#generation && managedGeneration === this.#managedGeneration
+      const current = () =>
+        generation === this.#generation && managedGeneration === this.#managedGeneration
       if (!current()) return null
       if (!this.running) await this.#start(generation)
       if (!this.running || !current()) return null
@@ -277,43 +307,53 @@ export class RemoteService {
       if (!current()) return null
       const terminals = this.#terminals
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
-      host: createRemoteHost({
-        engine: this.#deps.engine,
-        store: this.#deps.store,
-        driverKinds: this.#deps.driverKinds,
-        defaultPermissionMode: this.#deps.defaultPermissionMode,
-        defaultDriverKind: this.#deps.defaultDriverKind,
-        hasProject: this.#deps.hasProject,
-        listProjects: this.#deps.listProjects,
-        listModels: this.#deps.listModels,
+        host: createRemoteHost({
+          engine: this.#deps.engine,
+          store: this.#deps.store,
+          driverKinds: this.#deps.driverKinds,
+          defaultPermissionMode: this.#deps.defaultPermissionMode,
+          defaultDriverKind: this.#deps.defaultDriverKind,
+          hasProject: this.#deps.hasProject,
+          listProjects: this.#deps.listProjects,
+          listModels: this.#deps.listModels,
+          pairing: this.#pairing,
+          mintSessionId: this.#deps.mintSessionId,
+          attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
+          integration: this.#integration,
+          ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
+          ...(this.#deps.effortsForModel === undefined
+            ? {}
+            : { effortsForModel: this.#deps.effortsForModel }),
+          ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
+          ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
+          ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
+          ...(terminals === undefined
+            ? {}
+            : {
+                terminals: {
+                  execute: (...args: Parameters<RemoteTerminals['execute']>) =>
+                    current()
+                      ? terminals.execute(...args)
+                      : {
+                          ok: false as const,
+                          code: 'access_revoked',
+                          message: 'Managed remote access stopped.',
+                        },
+                  read: (...args: Parameters<RemoteTerminals['read']>) =>
+                    current() ? terminals.read(...args) : null,
+                },
+              }),
+        }),
+        allowedOrigins: [options.issuer, `https://${options.hostname}`],
+        port: options.port,
         pairing: this.#pairing,
-        mintSessionId: this.#deps.mintSessionId,
-        attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
-        integration: this.#integration,
-        ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
-        ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
-        ...(this.#deps.effortsForModel === undefined
-          ? {}
-          : { effortsForModel: this.#deps.effortsForModel }),
-        ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
-        ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
-        ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
-        ...(terminals === undefined ? {} : { terminals: {
-          execute: (...args: Parameters<RemoteTerminals['execute']>) => current()
-            ? terminals.execute(...args)
-            : { ok: false as const, code: 'access_revoked', message: 'Managed remote access stopped.' },
-          read: (...args: Parameters<RemoteTerminals['read']>) => current() ? terminals.read(...args) : null,
-        } }),
-      }),
-      allowedOrigins: [options.issuer, `https://${options.hostname}`],
-      port: options.port,
-      pairing: this.#pairing,
-      managedAccess: { verifier: options.verifier },
-      ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
-      idempotency: {
-        restore: this.#read('managed-idempotency.json') ?? undefined,
-        persist: (json) => this.#write('managed-idempotency.json', json),
-      },
+        managedAccess: { verifier: options.verifier },
+        ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
+        idempotency: {
+          restore: this.#read('managed-idempotency.json') ?? undefined,
+          persist: (json) => this.#write('managed-idempotency.json', json),
+        },
       })
       if (!current()) {
         await gateway.close()
@@ -325,9 +365,11 @@ export class RemoteService {
       return gateway.port
     })
     this.#startingManaged = pending
-    void pending.finally(() => {
-      if (this.#startingManaged === pending) this.#startingManaged = null
-    }).catch(() => undefined)
+    void pending
+      .finally(() => {
+        if (this.#startingManaged === pending) this.#startingManaged = null
+      })
+      .catch(() => undefined)
     return pending
   }
 
@@ -351,7 +393,10 @@ export class RemoteService {
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#lifecycle.then(operation)
-    this.#lifecycle = result.then(() => undefined, () => undefined)
+    this.#lifecycle = result.then(
+      () => undefined,
+      () => undefined,
+    )
     return result
   }
 
@@ -530,17 +575,25 @@ export class RemoteService {
   #makePairing(): PairingService {
     try {
       const restored = this.#readPairing()
-      return new PairingService({
-      ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
-      ...(restored === undefined ? {} : { restored }),
-      projectIds: () => this.#projectIds,
-      persist: { save: (state) => this.#writePairing(state) },
-      onChange: () => this.#changed(),
+      let initialized = false
+      const pairing = new PairingService({
+        ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
+        ...(restored === undefined ? {} : { restored }),
+        projectIds: () => this.#projectIds,
+        persist: { save: (state) => this.#writePairing(state) },
+        onChange: () => {
+          if (initialized) this.#changed()
+        },
       })
+      initialized = true
+      return pairing
     } catch (cause) {
       // The desktop can still show recovery guidance, but no listener may
       // authorize devices from incomplete or unreadable security records.
-      const error = new Error('Remote security records could not be loaded or saved. Repair storage before restarting remote access.', { cause })
+      const error = new Error(
+        'Remote security records could not be loaded or saved. Repair storage before restarting remote access.',
+        { cause },
+      )
       this.#persistenceError = error
       this.#error = error.message
       const pairing = new PairingService()
