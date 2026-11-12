@@ -1,16 +1,44 @@
 {
   "ok": true,
+  "at": "2026-11-12T16:11:17.917Z",
+  "sourceSha": "86d1cc3e348548d8b7c72a1f32bccc04afb047ad",
+  "electron": "43.4.1",
   "hardware": {
     "threads": 4,
     "ramGB": 16,
     "logicalCores": 12,
     "provider": "cpu",
-    "rtf": 0.6566742431943395,
-    "firstAudioMs": 1345.8264999999992,
+    "rtf": 0.6635999999999996,
+    "firstAudioMs": 1360.0481999999993,
     "slow": false
   },
+  "preloadMs": 7924.5043000000005,
+  "firstAudioMs": 885.5297,
+  "utilityMetrics": {
+    "cpu": {
+      "cumulativeCPUUsage": 44.15625,
+      "percentCPUUsage": 0,
+      "idleWakeupsPerSecond": 0
+    },
+    "pid": 30132,
+    "type": "Utility",
+    "creationTime": 1794499861605.289,
+    "serviceName": "node.mojom.NodeService",
+    "name": "Aria voice smoke",
+    "memory": {
+      "workingSetSize": 758772,
+      "peakWorkingSetSize": 759740,
+      "privateBytes": 883716
+    },
+    "integrityLevel": "medium",
+    "sandboxed": false
+  },
   "sampleRate": 24000,
-  "samples": 47619,
+  "samples": 25669,
   "cancellation": "passed",
-  "nativeWords": "passed"
+  "inFlightCancellation": "passed",
+  "nativeWords": "passed",
+  "spelled": [
+    "Quuxwidget"
+  ]
 }
