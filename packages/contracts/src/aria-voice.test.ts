@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { condenseReply, speechChunks, spokenLine, writtenReply } from './aria-voice'
+import { condenseReply, readableReply, speechChunks, spokenLine, writtenReply } from './aria-voice'
 
 describe('Aria spoken replies', () => {
   it('extracts only a complete authored line while keeping the written reply separate', () => {
@@ -15,9 +15,12 @@ describe('Aria spoken replies', () => {
   it('condenses real progress reports without speaking lists paths or IDs', () => {
     const reply =
       'Two things finished while you were away.\n\n- **Machines swarm**: Claude Code merged `apps/mobile/Pairing.tsx`.\n- **Watchdog**: Codex needs approval on PR #515.\n\nWant me to hand the mobile polish to Pi, or keep it with Claude Code?'
-    expect(condenseReply(reply)).toBe(
-      'Two things finished while you were away. I put the details in the chat. Want me to hand the mobile polish to Pi, or keep it with Claude Code?',
-    )
+    const spoken = condenseReply(reply)
+    expect(spoken).toContain('Two things finished while you were away.')
+    expect(spoken).toContain('Machines swarm: Claude Code merged')
+    expect(spoken).toContain('Watchdog: Codex needs approval')
+    expect(spoken).toContain('Want me to hand the mobile polish to Pi, or keep it with Claude Code?')
+    expect(spoken).not.toContain('apps/mobile/Pairing.tsx')
   })
   it('leaves tables charts code and links in the chat', () => {
     const reply =
@@ -60,5 +63,23 @@ describe('Aria spoken replies', () => {
     expect(chunks.join(' ')).toBe(text)
     expect(chunks.every((chunk) => length(chunk) <= 80)).toBe(true)
     expect(() => speechChunks('x'.repeat(201))).toThrow('too long')
+  })
+
+  it('keeps a fuller authored answer instead of clipping it to three sentences or 420 characters', () => {
+    const text = 'I can organize your projects and help you choose an agent. I can run tasks in parallel across projects. I keep earlier sessions available so we can continue related work. Workers report their outcomes and questions back to me. I can inspect code, browse references, and explain what changed. You can ask me for a fuller explanation whenever you need it. Tell me what you want to build, and I will help you start with the right project and model.'
+    expect(text.length).toBeGreaterThan(420)
+    const reply = `<!-- aria:speak ${JSON.stringify({ text })} -->\nWritten details follow.`
+    expect(spokenLine(reply)).toBe(text)
+    expect(condenseReply(reply)).toBe(text)
+  })
+
+  it('Read aloud includes all useful list details even when the message has a short authored summary', () => {
+    const reply = '<!-- aria:speak {"text":"I coordinate your projects."} -->\nI coordinate work across your Ari projects.\n- **Build things** — create a project and choose an agent.\n- **Run tasks in parallel** — work across different projects.\n- **Keep context** — reuse earlier sessions.\n- **Report back** — explain the results and questions.\n- **Research and inspect** — read code and references.\n```ts\nsecretCode()\n```\n| Private | Table |\n| --- | --- |\nWhat would you like to build?'
+    const spoken = readableReply(reply)
+    for (const detail of ['choose an agent', 'different projects', 'reuse earlier sessions', 'results and questions', 'read code and references', 'What would you like to build?']) expect(spoken).toContain(detail)
+    expect(spoken).not.toContain('secretCode')
+    expect(spoken).not.toContain('Private')
+    expect(spoken).not.toContain('aria:speak')
+    expect(condenseReply(reply)).toBe('I coordinate your projects.')
   })
 })

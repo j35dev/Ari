@@ -117,3 +117,38 @@ it('keeps pronunciation-expanded Groq requests under its limit and streams witho
     expect(call[0].length).toBeLessThanOrEqual(200)
   expect(child.postMessage.mock.calls.some(([request]) => request.kind === 'speak')).toBe(false)
 })
+
+it('Read aloud streams the written details, not only the authored automatic summary', async () => {
+  const { service, contents, child } = fixture()
+  contents.send.mockImplementation((_channel, frame) => {
+    if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
+  })
+  await service.speak('<!-- aria:speak {"text":"The work is ready."} -->\nThe work is ready.\n- You can choose a project and an agent.\n- Workers report their results and questions.\n- Earlier sessions retain their context.\nWould you like to start?', { readAll: true })
+  const text = child.postMessage.mock.calls.filter(([request]) => request.kind === 'speak').map(([request]) => request.text).join(' ')
+  expect(text).toContain('choose a project and an agent')
+  expect(text).toContain('results and questions')
+  expect(text).toContain('retain their context')
+  expect(text).toContain('Would you like to start?')
+})
+
+it('clears an old playback error on retry and publishes completion after successful audio', async () => {
+  const { service, contents, child } = fixture()
+  const original = child.postMessage.getMockImplementation()!
+  let fail = true
+  child.postMessage.mockImplementation((request) => {
+    if (request.kind === 'speak' && fail) {
+      fail = false
+      queueMicrotask(() => child.emit('message', { id: request.id, error: 'Previous speech failed.' }))
+    } else original(request)
+  })
+  const publish = vi.fn()
+  service.publish = publish
+  await service.speak('The work is ready.')
+  expect((await service.status()).error).toBe('Previous speech failed.')
+  contents.send.mockImplementation((_channel, frame) => {
+    if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
+  })
+  await service.speak('The work is ready.')
+  expect((await service.status()).error).toBeNull()
+  expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'complete' }))
+})

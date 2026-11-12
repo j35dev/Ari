@@ -1677,7 +1677,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (part.type === 'text') text += part.text
       else if (part.type === 'tool-call' || part.type === 'tool-result') text = ''
     }
-    await voice.speak(text)
+    await voice.speak(text, { readAll: true })
     return { speaking: true }
   })
   r.register('speech.status', () => speech.status())

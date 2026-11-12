@@ -1,14 +1,15 @@
 /** Aria's spoken reply travels separately from markdown in a hidden protocol line. */
 const marker = /<!--\s*aria:speak\s+(\{[^\n]*\})\s*-->/g
+const MAX_SPOKEN_CHARACTERS = 6000
 
 export function spokenLine(reply: string): string | null {
   for (const match of reply.replace(/```[^]*?(?:```|$)|~~~[^]*?(?:~~~|$)/g, '').matchAll(marker)) {
     try {
       const value = JSON.parse(match[1]!) as { text?: unknown }
-      if (typeof value.text !== 'string' || value.text.length > 420) continue
+      if (typeof value.text !== 'string' || value.text.length > MAX_SPOKEN_CHARACTERS) continue
       const line = value.text.trim()
       if (!line || /[`\n\r]|\|.*\||<|>/.test(line)) continue
-      return sentences(plain(line)).slice(0, 3).join(' ')
+      return plain(line)
     } catch {
       /* An incomplete streaming marker is not a spoken reply. */
     }
@@ -31,7 +32,7 @@ function sentences(text: string): string[] {
 function plain(text: string): string {
   return text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, 'the chat')
-    .replace(/\[[^\]]*\]\([^)]*\)/g, 'the chat')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(
       /https?:\/\/([^/\s?#]+)[^\s]*/g,
       (url, domain: string) =>
@@ -45,10 +46,7 @@ function plain(text: string): string {
     .trim()
 }
 
-/** Outcome plus a direct question. Structured content is always left in the chat. */
-export function condenseReply(reply: string): string {
-  const authored = spokenLine(reply)
-  if (authored) return authored
+function speechContent(reply: string): { text: string; structured: boolean } {
   let structured = false
   const text = writtenReply(reply)
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, () => {
@@ -56,12 +54,16 @@ export function condenseReply(reply: string): string {
       return '\n'
     })
     .split(/\r?\n/)
-    .filter((line) => {
-      if (/^\s*(?:\||[-*+]\s|\d+[.)]\s|#{1,6}\s|>)/.test(line) || /\|.*\|/.test(line)) {
+    .flatMap((line) => {
+      if (/^\s*\|/.test(line) || /\|.*\|/.test(line) || /^\s*See \[/.test(line)) {
         structured = true
-        return false
+        return []
       }
-      return true
+      // Headings label the written layout; list items often carry the answer.
+      if (/^\s*#{1,6}\s/.test(line)) return []
+      const item = line.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+|>\s*)/, '').trim()
+      if (!item) return []
+      return [/[.!?][*_'"”’]*$/.test(item) ? item : `${item}.`]
     })
     .join('\n')
     .replace(/`[^`]*`/g, () => {
@@ -69,20 +71,41 @@ export function condenseReply(reply: string): string {
       return 'the details in the chat'
     })
     .replace(/<!--[^]*?-->/g, '')
-  const all = sentences(plain(text))
-  const outcome = all.find((s) => !s.endsWith('?') && s.length <= 220)
-  const question = all.find(
+  return { text: plain(text), structured }
+}
+
+function boundedSpeech(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const prefix = text.slice(0, limit - 35)
+  const boundary = Math.max(prefix.lastIndexOf('. '), prefix.lastIndexOf('? '), prefix.lastIndexOf('! '))
+  const cut = boundary >= 0 ? prefix.slice(0, boundary + 1) : prefix.slice(0, prefix.lastIndexOf(' ')) + '.'
+  return `${cut} More details are in the chat.`
+}
+
+/** Read aloud includes useful prose and list details, rather than the automatic summary. */
+export function readableReply(reply: string): string {
+  const { text, structured } = speechContent(reply)
+  return boundedSpeech([text, structured ? 'I put the code and tables in the chat.' : ''].filter(Boolean).join(' '), MAX_SPOKEN_CHARACTERS)
+}
+
+/** A useful conversational summary, including the explanation and a direct question. */
+export function condenseReply(reply: string): string {
+  const authored = spokenLine(reply)
+  if (authored) return authored
+  const { text, structured } = speechContent(reply)
+  const all = sentences(text)
+  const question = all.findLast(
     (s) =>
       s.endsWith('?') &&
-      s.length <= 180 &&
+      s.length <= 400 &&
       /\b(?:you|your|want|should|shall|can I|do I|may I|which|would)\b/i.test(s),
   )
   const result = [
-    outcome,
+    ...all.filter((sentence) => sentence !== question).slice(0, 6),
     structured ? 'I put the details in the chat.' : undefined,
     question,
   ].filter(Boolean)
-  return result.slice(0, 3).join(' ')
+  return boundedSpeech(result.join(' '), 1800)
 }
 
 /** Start with a short clause; later requests remain sentence-sized and provider-bounded. */

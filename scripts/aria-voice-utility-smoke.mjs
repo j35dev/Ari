@@ -109,6 +109,17 @@ async function smoke() {
     })
     setTimeout(() => worker.postMessage({ kind: 'cancel', generation: 2 }), 50)
     if (!(await interrupted).cancelled) throw new Error('Utility returned audio after interruption')
+    const punctuation = await request({
+      id: 6,
+      kind: 'speak',
+      path: model,
+      generation: 2,
+      text: 'No projects yet — none in the workspace and none running. Want to create one?',
+      voice: 'af_heart',
+      speed: 1,
+    })
+    if (!punctuation.audio?.samples.length || punctuation.audio.samples.some((value) => !Number.isFinite(value)))
+      throw new Error('The actual English punctuation reply failed synthesis')
     if (missingNativeWords(diagnostics)) throw new Error('Native engine dropped a word')
     const result = {
       ok: true,
@@ -125,6 +136,8 @@ async function smoke() {
       inFlightCancellation: 'passed',
       nativeWords: 'passed',
       spelled: names.spelled,
+      punctuation: 'passed',
+      punctuationAudioSeconds: punctuation.audio.samples.length / punctuation.audio.sampleRate,
     }
     await writeFile(
       join(root, 'docs', 'research', 'aria-voice-measurements', 'utility-smoke.json'),
