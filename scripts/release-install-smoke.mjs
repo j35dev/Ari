@@ -34,7 +34,7 @@ const packagingRequire = createRequire(builderRequire.resolve('app-builder-lib/p
 const asar = packagingRequire('@electron/asar') // Existing packaging dependency; pure filesystem IO.
 
 const GUID = 'fd055408-59d9-59bf-b984-065eaf3c68a4' // Builder UUID v5(com.ari.desktop).
-const candidateName = (platform) => BASELINE[platform].name.replace('0.3.12', '0.3.13')
+const candidateName = (platform) => BASELINE[platform].name.replace('0.3.13', '0.3.14')
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const commandText = (value) => {
   const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? '')
@@ -61,7 +61,7 @@ export async function verifyAsset(path, expected) {
   assert.ok(info.isFile() && !info.isSymbolicLink(), 'Installer must be a regular file')
   assert.equal(info.size, expected.bytes, 'Installer size mismatch')
   assert.equal(await sha256(path), expected.sha256, 'Installer hash mismatch')
-  return { ...expected, path, version: expected.name.includes('0.3.12') ? '0.3.12' : '0.3.13' }
+  return { ...expected, path, version: expected.name.includes('0.3.13') ? '0.3.13' : '0.3.14' }
 }
 
 export async function inventory(root, selected) {
@@ -131,7 +131,7 @@ async function installation(executable, resources, platform, version) {
 
 async function testedPackage(options, receipt) {
   assert.equal(receipt.sourceHead, options.sourceHead, 'Package receipt differs from source')
-  assert.equal(receipt.version, '0.3.13')
+  assert.equal(receipt.version, '0.3.14')
   assert.equal(receipt.platform, options.platform)
   assert.ok(!receipt.nativeFailure, 'Packaged native gate failed')
   const arches = launchArches(options.platform, options.hostArch)
@@ -144,7 +144,7 @@ async function testedPackage(options, receipt) {
     options.packagedExecutable,
     options.packagedResources,
     options.platform,
-    '0.3.13',
+    '0.3.14',
   )
   for (const native of receipt.native) {
     assert.equal(native.kind, 'packaged-native-module-load')
@@ -187,7 +187,7 @@ export function installedPlans(installed, options, root) {
       },
       functional: {
         sourceHead: options.sourceHead,
-        version: '0.3.13',
+        version: '0.3.14',
         arch: entry.arch,
         executable: installed.executable,
         resources: installed.resources,

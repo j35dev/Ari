@@ -95,7 +95,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Ari ${{ env.RELEASE_VERSION }}
-          body_path: docs/releases/0.3.13.md
+          body_path: docs/releases/0.3.14.md
           draft: true
           prerelease: false
           files: release-stage/*

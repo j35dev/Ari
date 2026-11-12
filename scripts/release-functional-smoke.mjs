@@ -717,7 +717,7 @@ export async function smoke(options) {
       'Absolute reviewed artifact/fixture/evidence paths required',
     )
   assert.match(options.sourceHead ?? '', /^[a-f0-9]{40}$/i, 'Exact reviewed source head required')
-  assert.equal(version, '0.3.13', 'This harness is scoped to candidate 0.3.13')
+  assert.equal(version, '0.3.14', 'This harness is scoped to candidate 0.3.14')
   assert.ok(['x64', 'arm64'].includes(arch))
   const [runnerRoot, outputRoot, executable, resources, archive, fixture] = await Promise.all([
     realpath(process.env.RUNNER_TEMP),

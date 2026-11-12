@@ -19,7 +19,7 @@ function native(arch) {
     kind: 'packaged-native-module-load',
     arch,
     platform: 'darwin',
-    version: '0.3.13',
+    version: '0.3.14',
     electron: '43.4.1',
     physicalBehaviorTested: false,
     archive: join(context.resources, `app-${arch}.asar`),
@@ -29,7 +29,7 @@ function native(arch) {
 }
 const receipt = {
   sourceHead: context.sourceHead,
-  version: '0.3.13',
+  version: '0.3.14',
   platform: 'darwin',
   native: [native('arm64')],
 }

@@ -33,11 +33,11 @@ export async function pinnedPlan(dist, sourceHead) {
   const receipt = JSON.parse(await readFile(join(dist, 'macos-intel-transfer.json'), 'utf8'))
   assert.equal(receipt.kind, 'macos-universal-transfer')
   assert.equal(receipt.sourceHead, sourceHead, 'Transfer source differs from candidate')
-  assert.equal(receipt.version, '0.3.13')
+  assert.equal(receipt.version, '0.3.14')
   assert.equal(receipt.platform, 'darwin')
   assert.equal(receipt.arch, 'x64')
   assert.equal(receipt.nativeExecuted, false, 'A transfer receipt is not native proof')
-  assert.equal(receipt.zip?.name, 'Ari-0.3.13-universal.zip')
+  assert.equal(receipt.zip?.name, 'Ari-0.3.14-universal.zip')
   // This release's universal package uses a shared ASAR. Do not reuse x64 pins
   // for a split ARM64 archive if a future build changes the packaging layout.
   assert.equal(receipt.archiveName, 'app.asar', 'Split ARM64 archives need their own transfer pin')
@@ -104,7 +104,7 @@ export async function recordDiagnosis(plan, dataRoot, nativeSmoke = smoke) {
     assert.equal(native.kind, 'packaged-native-module-load')
     assert.equal(native.arch, 'arm64')
     assert.equal(native.platform, 'darwin')
-    assert.equal(native.version, '0.3.13')
+    assert.equal(native.version, '0.3.14')
     assert.ok(native.electron, 'Packaged Electron entry is required')
     assert.equal(native.physicalBehaviorTested, false)
     assert.equal(native.executableSha256, plan.executableSha256)

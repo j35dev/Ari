@@ -41,7 +41,7 @@ const HISTORICAL_TIMELINE = {
   data: {
     events: [
       { label: 'v0.2.0', date: '2026-08-30', description: 'Previous release' },
-      { label: 'v0.3.13', date: 'in progress', tone: 'warning' },
+      { label: 'v0.3.14', date: 'in progress', tone: 'warning' },
     ],
   },
 }
