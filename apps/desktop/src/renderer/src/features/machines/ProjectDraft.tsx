@@ -130,7 +130,7 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     return () => { alive = false }
   }, [client, projectId, selection.hostId, defaultFor])
   useEffect(() => {
-    if (!pick && catalog?.defaults && projectId && !attemptRef.current) {
+    if (!pick && catalog?.defaults?.driverKind && projectId && !attemptRef.current) {
       setPick({ driverKind: catalog.defaults.driverKind, modelId: catalog.defaults.modelId,
         permissionMode: catalog.defaults.permissionMode, effort: null })
     }

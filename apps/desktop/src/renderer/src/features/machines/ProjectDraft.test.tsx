@@ -6,6 +6,7 @@ import { ProjectDraft, type ProjectDraftClient } from './ProjectDraft'
 import { groupRepositories } from './repository-groups'
 import type { SelectionHost } from './machine-policy'
 import { catalogFixture } from './fixtures.test-support'
+import { remoteModelCatalogSchema } from '@ari/contracts/remote'
 import { dropDraftIntentMemory } from '../composer/draft-recovery-store'
 import { dropDraftTextMemory } from '../composer/use-drafts'
 
@@ -27,11 +28,11 @@ let props: ComponentProps<typeof ProjectDraft>
 beforeEach(() => {
   localStorage.clear(); dropDraftIntentMemory(); dropDraftTextMemory(); rpc.invoke.mockReset()
   client = {
-    catalog: vi.fn(async () => catalogFixture),
-    workspaces: vi.fn(async (projectId) => ({ projectId, truncated: false, options: [
+    catalog: vi.fn(async () => remoteModelCatalogSchema.parse(catalogFixture)),
+    workspaces: vi.fn<ProjectDraftClient['workspaces']>(async (projectId) => ({ projectId, truncated: false, options: [
       { token: 'branch-main', label: 'Main branch', kind: 'branch', branch: 'main', workspaceMode: 'isolated' },
     ] })),
-    create: vi.fn(async () => ({ kind: 'remote', machineId: 'host-a', sessionId: 'sess_created' })),
+    create: vi.fn<ProjectDraftClient['create']>(async () => ({ kind: 'remote', machineId: 'host-a', sessionId: 'sess_created' })),
     stage: vi.fn(async () => []), prompt: vi.fn(async () => {}),
     checkCreate: vi.fn(async () => null), checkPrompt: vi.fn(async () => false),
   }
