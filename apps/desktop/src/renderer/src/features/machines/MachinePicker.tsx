@@ -30,8 +30,8 @@ export function MachinePicker({ hosts, selection, locked, onSelect }: {
         <ChevronDown size={11} />
       </button>
       <span className="text-fg-subtle" role="status">{selection.reason}</span>
-      <Popover open={open && !locked} onClose={() => setOpen(false)} anchor={anchor} placement="top-start">
-        <Popover.Content role="menu" aria-label="Execution machines" className="w-80 p-1">
+      <Popover open={open && !locked} onOpenChange={setOpen} anchor={anchor}>
+        <Popover.Content side="top" align="start" role="menu" aria-label="Execution machines" className="w-80 p-1">
           <button type="button" role="menuitem" onClick={() => choose('auto')}
             className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2">
             <Sparkles size={14} /><span className="flex-1">Auto<span className="block text-xs text-fg-subtle">Choose once using fresh machine resources</span></span>
