@@ -69,7 +69,7 @@ it('merges local and remote rows into one repository, retains offline ownership,
   expect(select).toHaveBeenLastCalledWith(JSON.stringify(['host-a', 'sess_same']))
 })
 it('keeps a fork with a different origin in its own labeled repository', async () => {
-  projects = { projects: [{ ...projects.projects[0]!, repositoryIdentity: { ...projects.projects[0]!.repositoryIdentity,
+  projects = { projects: [{ ...projects.projects[0]!, repositoryIdentity: { ...projects.projects[0]!.repositoryIdentity!,
     origin: { canonicalKey: 'github.com/fork/ari', displayName: 'fork/Ari' } } }] }
   render(<MachinesProvider><Sidebar /></MachinesProvider>)
   await screen.findByText('Host task')
