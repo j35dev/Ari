@@ -1,0 +1,5 @@
+/* The existing highlighter emits both palettes and defaults to dark colors.
+   Apply its light palette only inside the dedicated Machines workspace. */
+[data-ari-scheme='light'] .ari-remote-workspace .ari-md pre code span {
+  color: var(--shiki-light, var(--ari-fg)) !important;
+}
