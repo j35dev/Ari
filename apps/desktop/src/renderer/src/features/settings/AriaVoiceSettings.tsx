@@ -8,6 +8,7 @@ import { useEngineSettings } from './useEngineSettings'
 import { useSpeech } from '../speech/useSpeech'
 import { rpc } from '../../lib/rpc'
 import { progressLabel, inProgress, sizeLabel } from './SpeechSettings'
+import { VoiceNotice } from '../aria/VoiceNotice'
 
 const modelId = 'kokoro-82m-v1.0'
 export function AriaVoiceSettings() {
@@ -17,6 +18,7 @@ export function AriaVoiceSettings() {
   const [keyStatus, setKeyStatus] = useState<RpcResults['speech.groq.status'] | null>(null)
   const [key, setKey] = useState('')
   const [error, setError] = useState('')
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const refresh = useCallback(async () => {
     const [nextVoice, nextKey] = await Promise.all([
@@ -34,6 +36,7 @@ export function AriaVoiceSettings() {
   const run = async (action: () => Promise<unknown>) => {
     setPending(true)
     setError('')
+    setDismissedError(null)
     try {
       await action()
       await refresh()
@@ -46,15 +49,14 @@ export function AriaVoiceSettings() {
   if (!settings?.experimental.ariaEnabled) return null
   const frame = progress[modelId]
   const cloud = settings.ariaVoice.engine === 'groq' || settings.speech.provider === 'groq'
+  const voiceError = error || voice?.error || progress['aria-voice']?.error || progress['groq']?.error
   return (
     <SettingsSection
       title="Aria voice"
-      description="Kokoro runs on this computer. Aria speaks short replies to hold-to-talk requests; Read aloud works on demand. Esc or holding the shortcut again stops speech."
+      description="Kokoro runs on this computer. Voice replies include the main explanation; Read aloud includes the reply’s useful details. Esc or holding the shortcut again stops speech."
     >
-      {(error || voice?.error || progress['groq']?.error || progress['aria-voice']?.error) && (
-        <p role="alert" className="text-sm text-danger">
-          {error || voice?.error || progress['aria-voice']?.error || progress['groq']?.error}
-        </p>
+      {voiceError && voiceError !== dismissedError && (
+        <VoiceNotice message={voiceError} onDismiss={() => setDismissedError(voiceError)} />
       )}
       <SettingsRow
         label="Speak replies to voice requests"
@@ -266,7 +268,7 @@ export function AriaVoiceSettings() {
       {cloud && (
         <SettingsRow
           label="What leaves this computer"
-          hint="Groq speech input sends only your recording. Speech output sends only Aria’s short spoken line. No chat history is sent. Groq retains usage metadata; inference content is not retained by default, but reliability and abuse logs may be kept for up to 30 days. Enable Zero Data Retention in your Groq account to opt out. Missing keys or failures fall back locally with a message."
+          hint="Groq speech input sends only your recording. Speech output sends the spoken reply or the message you choose to read aloud. No other chat history is sent. Groq retains usage metadata; inference content is not retained by default, but reliability and abuse logs may be kept for up to 30 days. Enable Zero Data Retention in your Groq account to opt out. Missing keys or failures fall back locally with a message."
         />
       )}
     </SettingsSection>

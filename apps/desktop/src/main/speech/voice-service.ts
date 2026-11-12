@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { utilityProcess, type UtilityProcess, type WebContents } from 'electron'
 import type { SettingsStore } from '@ari/engine/settings'
 import type { RpcResults, SpeechProgress } from '@ari/contracts/rpc'
-import { condenseReply, speechChunks } from '@ari/contracts/aria-voice'
+import { condenseReply, readableReply, speechChunks } from '@ari/contracts/aria-voice'
 import { getAudioDucking } from './audio-ducking'
 import { type SpeechService } from './service'
 import { KOKORO_ID } from './voice-model'
@@ -147,6 +147,8 @@ export class VoiceService {
       entry.reject(new Error('Speech interrupted.'))
     }
     this.playback.clear()
+    this.state.error = null
+    this.publish({ id: 'aria-voice', phase: 'cancelled', received: 0, total: 0 })
     getAudioDucking().setActive(this.owner, false)
     this.scheduleIdle()
   }
@@ -177,7 +179,7 @@ export class VoiceService {
       })
     })
   }
-  async speak(reply: string): Promise<void> {
+  async speak(reply: string, options: { readAll?: boolean } = {}): Promise<void> {
     this.stop()
     if (!this.enabled()) return
     const generation = this.generation
@@ -185,7 +187,7 @@ export class VoiceService {
     let chunks: string[]
     try {
       chunks = speechChunks(
-        condenseReply(reply),
+        options.readAll ? readableReply(reply) : condenseReply(reply),
         200,
         this.settings.current.ariaVoice.engine === 'groq'
           ? (text) => normalizeCloudSpeech(text).length
@@ -236,6 +238,7 @@ export class VoiceService {
         getAudioDucking().setActive(this.owner, this.settings.current.speech.duckAudio)
         await this.play(audio, generation)
       }
+      this.publish({ id: 'aria-voice', phase: 'complete', received: 0, total: 0 })
     } catch (error) {
       if (!signal.aborted) this.report(error instanceof Error ? error.message : 'Speech failed.')
     } finally {

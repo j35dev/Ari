@@ -46,6 +46,15 @@ export function normalizeSpeech(text: string): string {
   return text
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+    // Typography is not another language. Keep English words while translating
+    // the punctuation commonly emitted by assistants into native-safe pauses.
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/(?<=\d)[–−](?=\d)/g, ' to ')
+    .replace(/[—―]/g, ', ')
+    .replace(/[‐‑‒–−]/g, '-')
+    .replace(/…/g, '...')
+    .replace(/[→⇒]/g, ' to ')
     .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (_, domain: string) => domain.replace(/\./g, ' dot '))
     .replace(/\b([A-Z]{2,5})\b/g, (value) =>
       ['PR', 'ACP', 'CLI'].includes(value) ? value.toLowerCase() : value.split('').join(' '),
@@ -76,7 +85,6 @@ export function normalizeSpeech(text: string): string {
     .replace(/&/g, ' and ')
     .replace(/@/g, ' at ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -108,7 +116,7 @@ export function prepareKokoro(
   // Refuse unsupported scripts rather than allowing the native engine to omit them.
   if ([...normalized].some((character) => character.charCodeAt(0) > 127))
     throw new Error(
-      'Kokoro’s English voice cannot pronounce this text. Try Groq or edit the spoken line.',
+      'Kokoro’s English voice cannot read this language. Choose Groq in speech output settings.',
     )
   const spelled: string[] = []
   let count = 0
