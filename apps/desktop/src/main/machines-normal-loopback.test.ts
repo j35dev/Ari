@@ -564,11 +564,13 @@ it('keeps normal session history and execution on the signed host across fallbac
   await expect(clientB.invoke('session.load', { sessionId: wireId })).rejects.toThrow()
   expect(clientA.readOnly).toBe(false)
   expect((await a.store.load(wireId)).session?.title).toBe('A')
+  await vi.waitFor(() => expect(terminals()).toHaveLength(4), { timeout: 10_000 })
+  expect(terminals()[3]).toMatchObject({ replayOutcome: 'incomplete', liveTurnId: null })
   b.setProtocolVersion(1)
   expect(await machines.connect(savedB.id)).toMatchObject({ status: 'connected' })
   await refreshMachineInventory()
-  await vi.waitFor(() => expect(terminals()).toHaveLength(4), { timeout: 10_000 })
-  expect(terminals()[3]).toMatchObject({
+  await vi.waitFor(() => expect(terminals()).toHaveLength(5), { timeout: 10_000 })
+  expect(terminals()[4]).toMatchObject({
     replayMode: 'resume',
     replayOutcome: 'complete',
     liveTurnId: liveTurn,
