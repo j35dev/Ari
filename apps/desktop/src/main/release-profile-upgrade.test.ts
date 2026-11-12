@@ -93,7 +93,8 @@ it('cold-loads the frozen 0.3.12 profile without losing projects, transcripts, q
   )
   const settings = new SettingsStore({ dir: profile })
   const loaded = await settings.load()
-  expect(loaded.sessions).toEqual({ defaultDriverKind: 'codex', defaultPermissionMode: 'ask' })
+  // A saved Ask default is the one preference an upgrade changes: full auto is now everyone's default.
+  expect(loaded.sessions).toEqual({ defaultDriverKind: 'codex', defaultPermissionMode: 'full' })
   expect(loaded.appearance).toMatchObject({ mode: 'graphite', themeId: 'graphite', fontSize: 15 })
   expect(loaded.speech).toMatchObject({
     enabled: true,

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { settingsSchema, type SettingsUpdate } from '@ari/contracts/settings'
 import type { OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import { App } from './App'
+import { localSnapshotFixture } from './features/machines/fixtures.test-support'
 import { useEngineSettings } from './features/settings/useEngineSettings'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { keepAliveActions } from './features/session/session-keep-alive'
@@ -24,7 +25,7 @@ vi.mock('./features/session/SessionView', () => ({
 let settings: ReturnType<typeof settingsSchema.parse>
 const sessions = [
   { id: 'aria', projectId: 'helm', title: 'Aria', updatedAt: 2, messageCount: 42 },
-  { id: 'ordinary', projectId: 'p', title: 'Project task', updatedAt: 1, messageCount: 3 },
+  { id: 'sess_ordinary', projectId: 'p', title: 'Project task', updatedAt: 1, messageCount: 3 },
 ]
 function Toggle() {
   const { settings, update } = useEngineSettings()
@@ -73,6 +74,13 @@ beforeEach(() => {
         return []
       case 'files.index':
         return { paths: [] }
+      // Machines is part of the shell now; with none paired it reports this PC only.
+      case 'machines.list':
+        return []
+      case 'machines.preferences':
+        return { autoEnabled: false, hostTiers: {}, projectHosts: {} }
+      case 'machines.localSnapshot':
+        return localSnapshotFixture()
       case 'aria.open':
         return { sessionId: 'aria' }
       default:
@@ -140,7 +148,7 @@ it('keeps ordinary chats available when settings fail to load', async () => {
     if (method === 'settings.get') throw new Error('Settings unavailable')
     return invoke(method, params)
   })
-  splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'ordinary')
+  splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess_ordinary')
   render(<App />)
   await screen.findByText('Ordinary project chat')
   expect(screen.queryByRole('button', { name: 'Open Aria' })).not.toBeInTheDocument()
