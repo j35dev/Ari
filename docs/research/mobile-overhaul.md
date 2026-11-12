@@ -87,6 +87,8 @@ Visible changes, final evidence, checks and limitations will be appended here.
 14. New chat's no-project state asks users to add a project on the computer and
     explains that approved phones can use all available projects. Attachment
     upload is disabled offline and cannot dispatch after leaving the workspace.
+15. Fork provider/model selectors are constrained to their columns, preventing
+    native select contents from widening and clipping the phone sheet.
 
 ## Screenshot evidence
 
