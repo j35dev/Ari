@@ -6,7 +6,9 @@ SHA. It uses real files and independent Node processes in the shared runner's
 D: temporary directory. Only sealed storage is fixture AES-GCM. It checks fresh
 publication, separate recovery storage, restart/missing/empty recovery, legacy
 ID and sealed-key continuity, invalid-file preservation and concurrent fresh,
-legacy, missing-primary and empty-primary initializers. No OS keyring, process
+legacy, missing-primary and empty-primary initializers. The final variant also
+injects filesystem unlink/link errors to check best-effort temporary cleanup
+cannot mask publication failure or invalidate a complete winner. No OS keyring, process
 crash or power-loss durability claim is made. Source audit covers fsync and
 no-replace publication; Windows directory fsync is explicitly unavailable.
 
@@ -155,9 +157,43 @@ if (process.argv[3] === '--child') {
     fs.writeFileSync(primary(empty), '')
     assert.deepEqual(await concurrent(empty), beforeEmpty); concurrentCases.push('empty-primary')
     assert.equal(fs.readFileSync(primary(empty) + '.empty', 'utf8'), '')
+    const nativeFs = require('node:fs')
+    const { syncBuiltinESMExports } = await import('node:module')
+    const savedUnlink = nativeFs.unlinkSync
+    const savedLink = nativeFs.linkSync
+    const cleanupDir = profile()
+    const failureDir = profile()
+    const isTemporary = (path, dir) => String(path).startsWith(primary(dir) + '.') && String(path).endsWith('.tmp')
+    try {
+      nativeFs.unlinkSync = (path) => {
+        if (isTemporary(path, cleanupDir) || isTemporary(path, failureDir))
+          throw Object.assign(new Error('Fixture temporary cleanup refused.'), { code: 'EBUSY' })
+        return savedUnlink(path)
+      }
+      syncBuiltinESMExports()
+      const cleanupWinner = loadMachineIdentity(cleanupDir, '1')
+      assert.deepEqual(loadMachineIdentity(cleanupDir, '2'), { ...cleanupWinner, ariVersion: '2' })
+      assert.equal(fs.readdirSync(cleanupDir).filter((name) => name.endsWith('.tmp')).length, 2)
+      nativeFs.linkSync = (from, to) => {
+        if (String(to) === primary(failureDir) || String(to) === recovery(failureDir))
+          throw Object.assign(new Error('Fixture original publication failure.'), { code: 'EACCES' })
+        return savedLink(from, to)
+      }
+      syncBuiltinESMExports()
+      assert.throws(() => loadMachineIdentity(failureDir, '1'),
+        (error) => error.code === 'EACCES' && error.message === 'Fixture original publication failure.')
+      assert.equal(fs.existsSync(primary(failureDir)), false)
+      assert.equal(fs.existsSync(recovery(failureDir)), false)
+      assert.equal(fs.readdirSync(failureDir).filter((name) => name.endsWith('.tmp')).length, 1)
+    } finally {
+      nativeFs.unlinkSync = savedUnlink
+      nativeFs.linkSync = savedLink
+      syncBuiltinESMExports()
+    }
     console.log(JSON.stringify({ source: sha, stableWinner: true, separateRecovery: true,
       missingAndEmptyRecovery: true, legacyIDAndSealedKeyContinuity: true,
       noSigningKeyReset: true, invalidFilesPreserved: true, concurrentCases,
+      cleanupFailureRetainsWinner: true, cleanupFailurePreservesPublicationError: true,
       realIndependentProcesses: true, fixtureSealedStorage: true, success: true }, null, 2))
   } finally {
     for (const root of roots) {
