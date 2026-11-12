@@ -54,6 +54,7 @@ export const machineViewSchema = z.object({
   versionReady: z.boolean().optional(),
   permissionsReady: z.boolean().optional(),
   projectIds: z.array(z.string()).optional(),
+  allProjects: z.boolean().optional(),
   autoPreference: z.enum(['prefer', 'normal', 'less-often', 'manual-only']).optional(),
 })
 export type MachineView = z.infer<typeof machineViewSchema>

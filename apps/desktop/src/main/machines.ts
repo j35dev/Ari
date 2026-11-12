@@ -1063,6 +1063,8 @@ export class MachinesService {
           ? [...(this.#connections.get(row.id)?.session.projectIds ?? [])]
           : [],
       autoPreference: this.#registry.preferences().hostTiers[row.id] ?? 'normal',
+      allProjects:
+        state.status === 'connected' && this.#connections.get(row.id)?.session.allProjects === true,
     }
   }
   #set(

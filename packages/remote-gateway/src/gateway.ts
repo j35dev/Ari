@@ -573,6 +573,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         token: result.token,
         projectIds: result.device.projectIds,
         allowTerminal: result.device.allowTerminal === true,
+        allProjects: result.device.allProjects === true,
       },
     })
   }

@@ -21,6 +21,7 @@ export interface DeviceAuthorization {
   deviceId: string
   token: string
   projectIds: string[]
+  allProjects?: boolean
   allowTerminal?: boolean
 }
 function reject(): never {
