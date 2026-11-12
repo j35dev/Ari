@@ -25,6 +25,13 @@ function keyring(paired = true): DeviceCredential {
 function success(result: unknown): Response {
   return Response.json({ ok: true, result })
 }
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+}
+function requestBody(init?: RequestInit): string {
+  if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body.')
+  return init.body
+}
 const info = {
   protocolVersion: 1,
   capabilities: ['session.list', 'session.prompt', 'events.subscribe'],
@@ -52,13 +59,13 @@ describe('RemoteSession protocol and device grants', () => {
       code: 'unsupported_version',
     })
     expect(publicKey).not.toHaveBeenCalled()
-    expect(request.mock.calls.every(([url]) => String(url).endsWith('/info'))).toBe(true)
+    expect(request.mock.calls.every(([url]) => requestUrl(url).endsWith('/info'))).toBe(true)
   })
 
   it('rechecks the protocol after host approval before redeeming a pairing', async () => {
     let approved = false
     const request = vi.fn<typeof fetch>(async (input) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success({ ...info, protocolVersion: approved ? 99 : 1 })
       if (path.endsWith('/pair/request'))
         return success({ nonce: 'nonce', confirmationCode: 'AAAA-BBBB' })
@@ -66,6 +73,7 @@ describe('RemoteSession protocol and device grants', () => {
       return success({ status: 'approved' })
     })
     const credential = keyring(false)
+    const remember = vi.spyOn(credential, 'remember')
     const session = new RemoteSession({
       client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
       keyring: credential,
@@ -73,8 +81,8 @@ describe('RemoteSession protocol and device grants', () => {
     await expect(session.pair('inv_fixture', 'Desktop')).rejects.toMatchObject({
       code: 'unsupported_version',
     })
-    expect(request.mock.calls.some(([url]) => String(url).endsWith('/pair/redeem'))).toBe(false)
-    expect(credential.remember).not.toHaveBeenCalled()
+    expect(request.mock.calls.some(([url]) => requestUrl(url).endsWith('/pair/redeem'))).toBe(false)
+    expect(remember).not.toHaveBeenCalled()
     expect(session.usable).toBe(false)
   })
 
@@ -84,7 +92,7 @@ describe('RemoteSession protocol and device grants', () => {
       let restarted = false
       let mutations = 0
       const request = vi.fn<typeof fetch>(async (input) => {
-        const path = String(input)
+        const path = requestUrl(input)
         if (path.endsWith('/info')) return success({ ...info, protocolVersion: restarted ? 99 : 1 })
         if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
         if (path.endsWith('/device/authorize')) return success(authorized)
@@ -105,7 +113,7 @@ describe('RemoteSession protocol and device grants', () => {
       ).rejects.toMatchObject({ code: 'unsupported_version' })
       expect(mutations).toBe(1)
       expect(
-        request.mock.calls.filter(([url]) => String(url).endsWith('/device/challenge')),
+        request.mock.calls.filter(([url]) => requestUrl(url).endsWith('/device/challenge')),
       ).toHaveLength(1)
       expect(session.state).toBe('version-mismatch')
       expect(session.usable).toBe(false)
@@ -118,7 +126,7 @@ describe('RemoteSession protocol and device grants', () => {
   it('takes terminal access only from the current authenticated grant', async () => {
     let grant: boolean | undefined = true
     const request: typeof fetch = async (input) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success({ ...info, capabilities: ['terminal.create'] })
       if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
       return success({ ...authorized, allowTerminal: grant })
@@ -141,7 +149,7 @@ describe('RemoteSession disposal boundary', () => {
     const late = deferred<Response>()
     let authorizations = 0
     const request = vi.fn<typeof fetch>(async (input) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success(info)
       if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
       if (path.endsWith('/device/authorize'))
@@ -174,7 +182,7 @@ describe('RemoteSession disposal boundary', () => {
       let authorizations = 0
       let operations = 0
       const request = vi.fn<typeof fetch>(async (input) => {
-        const path = String(input)
+        const path = requestUrl(input)
         if (path.endsWith('/info')) return success(info)
         if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
         if (path.endsWith('/device/authorize'))
@@ -212,9 +220,9 @@ describe('RemoteSession disposal boundary', () => {
       token: async () => (++leases === 1 ? 'initial_lease' : late.promise),
     }
     const request = vi.fn<typeof fetch>(async (input) => {
-      if (String(input).endsWith('/info')) return success(info)
-      if (String(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
-      if (String(input).endsWith('/device/authorize')) return success(authorized)
+      if (requestUrl(input).endsWith('/info')) return success(info)
+      if (requestUrl(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (requestUrl(input).endsWith('/device/authorize')) return success(authorized)
       return success([])
     })
     const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
@@ -250,8 +258,8 @@ describe('RemoteSession disposal boundary', () => {
       token: async () => (++leases === 1 ? 'initial_lease' : late.promise),
     }
     const request: typeof fetch = async (input) => {
-      if (String(input).endsWith('/info')) return success(info)
-      if (String(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (requestUrl(input).endsWith('/info')) return success(info)
+      if (requestUrl(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
       return success(authorized)
     }
     const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
@@ -292,7 +300,7 @@ describe('RemoteSession disposal boundary', () => {
     const late = deferred<Response>()
     let redeeming = false
     const request: typeof fetch = async (input) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success(info)
       if (path.endsWith('/pair/request'))
         return success({ nonce: 'nonce', confirmationCode: 'AAAA-BBBB' })
@@ -304,6 +312,7 @@ describe('RemoteSession disposal boundary', () => {
       return success(authorized)
     }
     const credential = keyring(false)
+    const remember = vi.spyOn(credential, 'remember')
     const client = new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request })
     const session = new RemoteSession({ client, keyring: credential })
     const pairing = session.pair('inv_fixture', 'Desktop')
@@ -312,7 +321,7 @@ describe('RemoteSession disposal boundary', () => {
     session.disconnect()
     late.resolve(success(authorized))
     await cancelled
-    expect(credential.remember).not.toHaveBeenCalled()
+    expect(remember).not.toHaveBeenCalled()
     expect(session.state).toBe('unpaired')
     expect(session.allowTerminal).toBe(false)
     await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
@@ -333,11 +342,11 @@ describe('RemoteSession uncertain mutation receipts', () => {
     let mutations = 0
     const keys: string[] = []
     const request: typeof fetch = async (input, init) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success(info)
       if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
       if (path.endsWith('/device/authorize')) return success(authorized)
-      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string }
+      const body = JSON.parse(requestBody(init)) as { idempotencyKey: string }
       keys.push(body.idempotencyKey)
       if (path.endsWith('/command')) {
         mutations++
@@ -353,14 +362,13 @@ describe('RemoteSession uncertain mutation receipts', () => {
       keyring: keyring(),
     })
     await session.connect()
-    await expect(
-      session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt'),
-    ).rejects.toMatchObject({
+    const sending = session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt')
+    await expect(sending).rejects.toMatchObject({
       code: 'unreachable',
       idempotencyKey: 'original_receipt',
       retryable: false,
-      message: expect.stringMatching(/may have executed/),
     })
+    await expect(sending).rejects.toThrow(/may have executed/)
     expect(mutations).toBe(1)
     expect(keys).toEqual(['original_receipt', 'original_receipt'])
   })
@@ -369,7 +377,7 @@ describe('RemoteSession uncertain mutation receipts', () => {
     async (receipt) => {
       let mutations = 0
       const request: typeof fetch = async (input) => {
-        const path = String(input)
+        const path = requestUrl(input)
         if (path.endsWith('/info')) return success(info)
         if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
         if (path.endsWith('/device/authorize')) return success(authorized)
@@ -399,14 +407,14 @@ describe('RemoteSession uncertain mutation receipts', () => {
     let authorizations = 0
     const keys: string[] = []
     const request: typeof fetch = async (input, init) => {
-      const path = String(input)
+      const path = requestUrl(input)
       if (path.endsWith('/info')) return success(info)
       if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
       if (path.endsWith('/device/authorize')) {
         authorizations++
         return success(authorized)
       }
-      keys.push((JSON.parse(String(init?.body)) as { idempotencyKey: string }).idempotencyKey)
+      keys.push((JSON.parse(requestBody(init)) as { idempotencyKey: string }).idempotencyKey)
       return ++mutations === 1
         ? Response.json(
             {

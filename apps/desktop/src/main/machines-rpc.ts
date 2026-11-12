@@ -31,6 +31,7 @@ async function operationResult(operation: () => Promise<unknown>): Promise<Machi
       return { ok: false, error: { code: error.code, message: error.message } }
     // Unexpected failures provide no command outcome. Keep the ordinary IPC
     // rejection so clients retain their receipt and do not automatically retry.
+    // eslint-disable-next-line preserve-caught-error -- Transport causes may contain paths or credentials and must not cross IPC.
     throw new Error('The computer request failed with an unknown outcome.')
   }
 }
