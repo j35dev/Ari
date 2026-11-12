@@ -99,7 +99,7 @@ export const machinesPreferencesSchema = z
 export type MachinesPreferences = z.infer<typeof machinesPreferencesSchema>
 export const machinesRpcParams = {
   'machines.list': z.undefined(),
-  'machines.localSnapshot': z.undefined(),
+  'machines.localSnapshot': z.object({ sampleResources: z.boolean().optional() }).strict().optional(),
   'machines.discover': z.undefined(),
   'machines.add': z
     .object({
