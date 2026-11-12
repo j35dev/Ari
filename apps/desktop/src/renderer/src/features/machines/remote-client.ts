@@ -4,6 +4,7 @@ import {
   remoteQuerySchema,
   remoteAccountsSchema,
   remoteRedeemSchema,
+  remoteDesktopCommandResultSchemas,
   type RemoteCommand,
   type RemoteQuery,
 } from '@ari/contracts/remote'
@@ -155,7 +156,10 @@ function assertScope(scope: string, action: RemoteAction): void {
       ].includes(scope)
     )
       throw new Error('The command belongs to another session.')
-  } else if (action.op === 'session.create' && scope !== 'new-session') {
+  } else if (
+    (action.op === 'session.create' || action.op === 'session.desktop.create') &&
+    scope !== 'new-session' && !scope.startsWith('draft:')
+  ) {
     throw new Error('Session creation belongs to the selected host’s creation draft.')
   }
 }
@@ -202,6 +206,12 @@ function validateCommandResult(command: RemoteCommand, result: unknown): void {
     .safeParse(result)
   if (decision.success && !decision.data.accepted)
     throw new RefusedCommand(decision.data.reason ?? 'The host refused this command.')
+  if (command.op in remoteDesktopCommandResultSchemas) {
+    remoteDesktopCommandResultSchemas[
+      command.op as keyof typeof remoteDesktopCommandResultSchemas
+    ].parse(result)
+    return
+  }
   switch (command.op) {
     case 'session.create':
     case 'session.fork':
