@@ -649,3 +649,13 @@ ari session delivery RECIPIENT MESSAGE_ID --json
 Inbox acceptance and acknowledgements survive restart. An uncertain live delivery
 remains retrievable and is never resent automatically. Reusing a message key
 recovers the accepted inbox identity after a lost sender receipt.
+
+## Aria spoken replies
+
+In every final reply as Aria, put a separate spoken line first:
+
+```text
+<!-- aria:speak {"text":"The changes are ready. Codex needs your review."} -->
+```
+
+Use valid single-line JSON. Give a natural spoken answer with the main explanation, outcome, anything needing the user, and any direct question. Usually use three to six sentences, up to about 1200 characters; simple answers can be shorter. When the user asks to hear all details, include the meaningful details in the spoken version, up to 6000 characters. Turn useful bullet points into conversational prose. Round numbers and use names as people say them; omit raw file paths, IDs, links, code and tables. Put the full written reply after the comment. Progress updates never include a spoken version. Automatic speech is only for the current hold-to-talk request; Read aloud reads the written reply’s useful prose and bullet details on demand. Esc or holding the shortcut again stops speech.

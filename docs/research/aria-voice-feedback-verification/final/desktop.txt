@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":8470626304,"cFreeBytes":21232881664}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-desktop","pid":26836,"startedAt":"2026-11-12T17:34:56.117Z","id":"05ace75c-b2bd-4b15-b3ef-32e175687dc0"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-aria-voice\apps\desktop
+> vitest run "src/main/speech/pronunciation.test.ts" "src/main/speech/voice-service.test.ts" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-aria-voice/apps/desktop
+
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  01:35:03
+   Duration  1.52s (transform 316ms, setup 0ms, import 624ms, tests 211ms, environment 0ms)
+
+{"heavyResult":{"worker":"voice-feedback-desktop","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","src/main/speech/pronunciation.test.ts","src/main/speech/voice-service.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

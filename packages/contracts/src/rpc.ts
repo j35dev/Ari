@@ -313,6 +313,7 @@ export const streamNames = [
 export type StreamName = (typeof streamNames)[number]
 
 export interface SpeechModel {
+  kind?: 'stt' | 'tts'
   id: string
   name: string
   description: string
@@ -1012,6 +1013,13 @@ export const rpcParams = {
     defaultModel: z.string().min(1).optional(),
   }),
   'settings.get': z.undefined(),
+  'aria.voice.status': z.undefined(),
+  'aria.voice.warm': z.undefined(),
+  'aria.voice.stop': z.undefined(),
+  'aria.voice.read': z.object({ sessionId: z.string().min(1), messageId: z.string().min(1) }),
+  'aria.voice.arm': z.object({ sessionId: z.string().min(1), text: z.string().min(1).max(100000) }),
+  'speech.groq.status': z.undefined(),
+  'speech.groq.key': z.object({ key: z.string().trim().min(1).max(512).nullable() }).strict(),
   'speech.status': z.undefined(),
   'speech.models': z.undefined(),
   'speech.engine.download': z.undefined(),
@@ -1508,6 +1516,26 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   }
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
+  'aria.voice.status': {
+    installed: boolean
+    loaded: boolean
+    error: string | null
+    hardware: {
+      threads: number
+      ramGB: number
+      logicalCores: number
+      provider: string
+      rtf: number
+      firstAudioMs: number
+      slow: boolean
+    } | null
+  }
+  'aria.voice.warm': { warming: boolean }
+  'aria.voice.stop': { stopped: boolean }
+  'aria.voice.read': { speaking: boolean }
+  'aria.voice.arm': { armed: boolean }
+  'speech.groq.status': { configured: boolean; encryptionAvailable: boolean }
+  'speech.groq.key': { saved: boolean }
   'speech.status': SpeechStatus
   'speech.models': SpeechModel[]
   'speech.engine.download': { started: boolean }

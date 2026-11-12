@@ -1,0 +1,36 @@
+{
+  "at": "2026-11-12T15:49:32.695Z",
+  "sourceSha": "1d602e77dbafa978ad45667867ad5a746048a474",
+  "cpu": "Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz",
+  "cores": 12,
+  "ramGB": 15.909957885742188,
+  "threads": 1,
+  "provider": "dml",
+  "runtimeBytes": 23161917,
+  "downloadBytes": 359719088,
+  "directML": false,
+  "files": [
+    {
+      "name": "model.onnx",
+      "size": 325560556,
+      "sha256": "b40f62b166ac8164b0627ef48a0b358eda0985e272fb03ef5252e7206305da11"
+    },
+    {
+      "name": "voices.bin",
+      "size": 28200960,
+      "sha256": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29"
+    },
+    {
+      "name": "lexicon-us-en.txt",
+      "size": 5956885,
+      "sha256": "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14"
+    },
+    {
+      "name": "tokens.txt",
+      "size": 687,
+      "sha256": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425"
+    }
+  ],
+  "replies": [],
+  "unavailable": "The shipped sherpa-onnx 2.0.1 Windows runtime has no DirectML execution-provider entry point."
+}

@@ -21,6 +21,30 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('migrates Aria off and preserves its choices across disable, restart and enable', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        speech: { shortcut: 'f20', dictationShortcut: 'f21', enabled: true },
+        sessions: { defaultDriverKind: 'codex', defaultPermissionMode: 'full' },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    const saved = await store.load()
+    expect(saved.experimental.ariaEnabled).toBe(false)
+    await store.update({ experimental: { ariaEnabled: true } })
+    await store.update({ experimental: { ariaEnabled: false } })
+    const restarted = new SettingsStore({ dir })
+    const off = await restarted.load()
+    expect(off.experimental.ariaEnabled).toBe(false)
+    expect(off.speech).toEqual(saved.speech)
+    expect(off.sessions).toEqual(saved.sessions)
+    const on = await restarted.update({ experimental: { ariaEnabled: true } })
+    expect(on.experimental.ariaEnabled).toBe(true)
+    expect(on.speech).toEqual(saved.speech)
+    expect(on.delegation).toEqual(saved.delegation)
+  })
   it.each(['ctrl+k', 'ctrl+enter', 'ctrl+alt+s'])(
     'repairs legacy Aria action binding %s without discarding speech preferences',
     async (shortcut) => {

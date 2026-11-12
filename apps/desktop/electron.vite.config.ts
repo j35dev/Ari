@@ -19,10 +19,12 @@ export default defineConfig({
           'electron-updater',
           'koffi',
           'transcribe-cpp',
+          'sherpa-onnx-node',
           'uiohook-napi',
         ],
         input: {
           index: 'src/main/index.ts',
+          'voice-worker': 'src/main/speech/voice-worker.ts',
           'speech-worker': 'src/main/speech/worker.ts',
           'dictation-worker': 'src/main/speech/dictation-worker.ts',
           'audio-ducking-worker': 'src/main/speech/audio-ducking-worker.ts',

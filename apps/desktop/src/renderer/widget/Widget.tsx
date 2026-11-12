@@ -21,6 +21,7 @@ interface MeterTrace {
   readings: number
   peak: number
 }
+import { DictationIndicator } from './DictationIndicator'
 
 export function Widget(props: {
   state: WidgetSnapshot
@@ -46,6 +47,7 @@ export function Widget(props: {
         : { ...trace, level, readings, peak },
     )
   }
+  if (state.destination === 'dictation') return <DictationIndicator {...props} />
   if (state.phase === 'hidden') return null
   const text =
     state.phase === 'listening'
@@ -76,10 +78,7 @@ export function Widget(props: {
         </span>
       )}
       {state.phase === 'sent' && (
-        <span
-          className="aria-sent"
-          aria-label={state.destination === 'dictation' ? 'Inserted' : 'Sent'}
-        >
+        <span className="aria-sent" aria-label="Sent">
           ✓
         </span>
       )}

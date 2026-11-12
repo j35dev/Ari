@@ -1,3 +1,4 @@
+import { writtenReply } from '@ari/contracts/aria-voice'
 import {
   memo,
   useCallback,
@@ -138,9 +139,11 @@ export function TranscriptView({
   onOpenSession,
   onTurnInView,
   hidden = false,
+  readAloud = false,
 }: {
   sessionId: string
   messages: Message[]
+  readAloud?: boolean
   /**
    * Called with a turn's id once its last row comes near the viewport, so
    * per-turn work (the diff card query) runs for turns the reader can see
@@ -293,7 +296,7 @@ export function TranscriptView({
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
         .join('\n')
-      if (text.trim().length > 0) map.set(message.id, text)
+      if (text.trim().length > 0) map.set(message.id, writtenReply(text))
     }
     return map
   }, [messages])
@@ -586,6 +589,7 @@ export function TranscriptView({
                       ? quoteTextById.get(row.messageId)
                       : undefined
                   }
+                  readAloud={readAloud}
                   regenerateDisabled={regenerateDisabled}
                   active={running && index === activeIndex}
                   terminal={chatStyle === 'terminal'}
@@ -685,6 +689,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   onRegenerate,
   onQuote,
   quoteText,
+  readAloud,
   regenerateDisabled,
   active,
   terminal,
@@ -709,6 +714,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   /** Present on every assistant footer that has reply text. */
   onQuote?: (quoted: string) => void
   quoteText?: string
+  readAloud?: boolean
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
@@ -726,6 +732,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
     onRegenerate,
     onQuote,
     quoteText,
+    readAloud,
     regenerateDisabled,
     onDiffComment,
     onRetryTurnDiff,
@@ -758,6 +765,7 @@ function renderRowBody({
   onRegenerate,
   onQuote,
   quoteText,
+  readAloud,
   regenerateDisabled,
   onDiffComment,
   onRetryTurnDiff,
@@ -777,6 +785,7 @@ function renderRowBody({
   onRegenerate?: () => void
   onQuote?: (quoted: string) => void
   quoteText?: string
+  readAloud?: boolean
   regenerateDisabled: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   onRetryTurnDiff?: (turnId: string) => void
@@ -830,13 +839,13 @@ function renderRowBody({
                 {row.text ?? ''}
               </div>
             ) : (
-              <MarkdownBlock text={row.text ?? ''} streaming={active} />
+              <MarkdownBlock text={writtenReply(row.text ?? '')} streaming={active} />
             )}
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter
                 message={{
                   id: row.messageId,
-                  sessionId: '',
+                  sessionId,
                   turnId: null,
                   role: 'assistant',
                   parts: [{ type: 'text', text: row.text ?? '' }],
@@ -845,6 +854,7 @@ function renderRowBody({
                 onRegenerate={onRegenerate}
                 onQuote={onQuote}
                 quoteText={quoteText}
+                readAloud={readAloud}
                 actionDisabled={regenerateDisabled}
               />
             ) : null}

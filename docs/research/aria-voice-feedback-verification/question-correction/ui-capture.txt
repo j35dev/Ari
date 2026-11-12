@@ -1,0 +1,5 @@
+{"resourceGate":{"commitHeadroomBytes":7652442112,"cFreeBytes":21252833280}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-ui-capture","pid":16864,"startedAt":"2026-11-12T17:27:00.280Z","id":"14e2c116-a340-4fc9-bc01-0de03d3cfded"}
+
+Voice feedback screenshots passed: 2 themes, no overflow/errors
+{"heavyResult":{"worker":"voice-feedback-ui-capture","executable":"D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe","args":["D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs"],"exitCode":0,"signal":null}}

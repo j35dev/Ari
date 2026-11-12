@@ -41,7 +41,13 @@
     "react-dom": "^19.2.8",
     "transcribe-cpp": "0.4.1",
     "uiohook-napi": "1.5.5",
-    "ws": "^8.22.2"
+    "ws": "^8.22.2",
+    "sherpa-onnx-node": "2.0.1",
+    "sherpa-onnx-win-x64": "2.0.1",
+    "sherpa-onnx-darwin-x64": "2.0.1",
+    "sherpa-onnx-darwin-arm64": "2.0.1",
+    "sherpa-onnx-linux-x64": "2.0.1",
+    "sherpa-onnx-linux-arm64": "2.0.1"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",

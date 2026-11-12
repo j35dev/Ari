@@ -12,6 +12,8 @@ vi.mock('../../lib/rpc', () => ({
 }))
 
 const baseSettings: Settings = {
+  ariaVoice: defaultSettings.ariaVoice,
+  experimental: { ariaEnabled: false },
   speech: defaultSettings.speech,
   version: 1,
   delegation: delegationSettingsSchema.parse({}),

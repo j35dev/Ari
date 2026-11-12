@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { KeyboardCheatSheet } from './KeyboardCheatSheet'
+
+const mocks = vi.hoisted(() => ({ ariaEnabled: false }))
+vi.mock('./useEngineSettings', () => ({
+  useEngineSettings: () => ({ settings: { experimental: { ariaEnabled: mocks.ariaEnabled } } }),
+}))
+beforeEach(() => {
+  mocks.ariaEnabled = false
+})
 
 describe('KeyboardCheatSheet', () => {
   it('opens on a bare ? keypress and lists shortcuts in a two-column table', async () => {
@@ -18,6 +26,14 @@ describe('KeyboardCheatSheet', () => {
     expect(screen.getByText('Toggle command palette')).toBeInTheDocument()
     expect(screen.getByText('Answer an approval card')).toBeInTheDocument()
     expect(screen.getByText('Pick a question option')).toBeInTheDocument()
+    expect(screen.queryByText('Open Aria')).not.toBeInTheDocument()
+  })
+
+  it('restores Aria in the cheat sheet only when enabled', async () => {
+    mocks.ariaEnabled = true
+    render(<KeyboardCheatSheet />)
+    fireEvent.keyDown(window, { key: '?' })
+    expect(await screen.findByText('Open Aria')).toBeInTheDocument()
   })
 
   it('resolves Mod chords for the current platform', async () => {

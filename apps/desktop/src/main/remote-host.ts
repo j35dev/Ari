@@ -21,6 +21,7 @@ import type {
   RemoteRedeem,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
+import { HELM_PROJECT_ID } from '@ari/contracts/helm'
 import type {
   ProviderAccountsResult,
   ProviderAllowance,
@@ -502,7 +503,10 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
-    return caller.allProjects === true || caller.projectIds.includes(projectId)
+    return (
+      projectId !== HELM_PROJECT_ID &&
+      (caller.allProjects === true || caller.projectIds.includes(projectId))
+    )
   }
 
   /**

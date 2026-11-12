@@ -1,3 +1,5 @@
+import { ReadAloud } from '../aria/ReadAloud'
+import { writtenReply } from '@ari/contracts/aria-voice'
 import { CopyButton } from './CopyButton'
 import type { Message } from '@ari/contracts/message'
 import { RefreshCw, TextQuote } from 'lucide-react'
@@ -59,8 +61,10 @@ export function MessageFooter({
   onQuote,
   quoteText,
   actionDisabled = false,
+  readAloud = false,
 }: {
   message: Message
+  readAloud?: boolean
   usage?: MessageUsage
   /** Present on the newest assistant message: offers regenerating the last turn. */
   onRegenerate?: () => void
@@ -71,7 +75,7 @@ export function MessageFooter({
   /** Disables action buttons — true while a turn runs or no prompt exists. */
   actionDisabled?: boolean
 }) {
-  const text = messageText(message)
+  const text = writtenReply(messageText(message))
   const quotable = quoteText?.trim() ?? ''
   const newest = onRegenerate !== undefined
   return (
@@ -95,6 +99,9 @@ export function MessageFooter({
             : 'opacity-0 transition-opacity focus-within:opacity-100 group-hover/turn:opacity-100'
         }`}
       >
+        {readAloud && message.sessionId && message.role === 'assistant' ? (
+          <ReadAloud sessionId={message.sessionId} messageId={message.id} />
+        ) : null}
         {text ? <CopyButton text={text} /> : null}
         {onQuote && quotable.length > 0 ? (
           <button

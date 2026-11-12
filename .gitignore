@@ -38,3 +38,7 @@ recordings/
 .pnpm-store/
 
 new-icon.png
+
+# Isolated voice utility-process verification profile.
+.voice-smoke/
+/docs/research/aria-voice-checks/

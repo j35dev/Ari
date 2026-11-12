@@ -1,3 +1,4 @@
+import type { GroqSpeech } from './groq'
 // @vitest-environment node
 import { mkdtemp, mkdir, writeFile, readFile, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -1351,6 +1352,41 @@ it('returns an install receipt before queued inspection finishes and releases a 
   expect(await service.install()).toEqual({ started: true })
   await vi.waitFor(() => expect(service.status().engine).toBe('ready'), { timeout: 3000 })
   expect(installer).toHaveBeenCalledOnce()
+})
+
+it('uses the selected Groq Whisper model for both dictation callers without preloading local inference', async () => {
+  const { store, service } = await setup(false)
+  await store.update({
+    experimental: { ariaEnabled: true },
+    speech: { enabled: true, provider: 'groq', groqModel: 'whisper-large-v3' },
+  })
+  const transcribe = vi.fn(async () => ({ text: 'Cloud dictation' }))
+  service.groq = { transcribe } as unknown as GroqSpeech
+  expect(await service.transcribe(new Float32Array(160), 'en')).toEqual({ text: 'Cloud dictation' })
+  expect(transcribe).toHaveBeenCalledWith(expect.any(Float32Array), 'whisper-large-v3', 'en')
+  expect(mocks.fork).not.toHaveBeenCalled()
+})
+
+it('falls back from Groq transcription to the selected local model with a visible notice', async () => {
+  const { dir, store, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  await store.update({ experimental: { ariaEnabled: true }, speech: { provider: 'groq' } })
+  service.groq = {
+    transcribe: vi.fn(async () => {
+      throw new Error('Groq could not be reached. Using local speech.')
+    }),
+  } as unknown as GroqSpeech
+  const result = await service.transcribe(new Float32Array(160))
+  expect(result).toHaveProperty('text')
+  expect(service.snapshot()).toContainEqual(
+    expect.objectContaining({
+      id: 'groq',
+      phase: 'error',
+      error: 'Groq could not be reached. Using local speech.',
+    }),
+  )
 })
 
 it.each([
