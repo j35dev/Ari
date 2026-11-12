@@ -55,6 +55,8 @@ const streams = new Map<string, { name: string; params: Record<string, unknown> 
 const reply = (result: unknown) => ({ ok: true, result })
 window.ari = {
   async invoke(method, raw) {
+    // Preserve asynchronous IPC delivery while keeping this fixture offline.
+    await Promise.resolve()
     trace.push(method)
     const params = raw as Record<string, unknown> | undefined
     if (method === 'machines.list') return machines
@@ -129,7 +131,7 @@ function Fixture() {
         <main className="min-w-0 flex-1">
           {draft ? navigation.groups[0] && metadata.localModels && <ProjectDraftPane
             entry={{ id: 'fixture-draft', groupId: navigation.groups[0].id, group: navigation.groups[0], spaceId: 'fixture-space', paneId: 'fixture-pane' }}
-            projects={[localProject]} defaults={defaults} createLocal={async () => { throw new Error('Screenshot refuses mutations') }} onCreated={() => {}} onClose={() => {}} /> :
+            projects={[localProject]} defaults={defaults} createLocal={() => Promise.reject(new Error('Screenshot refuses mutations'))} onCreated={() => {}} onClose={() => {}} /> :
             <SessionView sessionId={scope.sessionId} scope={scope} defaults={defaults} onDefaultsChange={() => {}} />}
         </main>
       </div>}

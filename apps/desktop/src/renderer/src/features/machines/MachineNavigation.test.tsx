@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { projectViewSchema } from '@ari/contracts/project'
 import { sessionSummarySchema } from '@ari/contracts/rpc'
+import type { RemoteProjectCatalog } from '@ari/contracts/remote'
 import { MachinesProvider, useMachines } from './use-machines'
 import { useMachineProjects } from './use-machine-projects'
 import { SessionsUnderProjects } from '../../shell/Sidebar'
@@ -15,7 +16,7 @@ const localSession = sessionSummarySchema.parse({ id: 'sess_same', projectId: 's
 const remoteSession = { ...localSession, title: 'Host task' }
 let hosts = [desktopMachineFixture()]
 let update: (raw: unknown) => void
-let projects = projectCatalogFixture()
+let projects: RemoteProjectCatalog = projectCatalogFixture()
 const select = vi.fn()
 function ResourceProbe() {
   const metadata = useMachines()

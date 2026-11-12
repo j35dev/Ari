@@ -908,10 +908,12 @@ describe('Composer owning machine input', () => {
   const scope = { kind: 'remote' as const, machineId: 'host-a', sessionId: 'sess_wire' }
   const viewKey = JSON.stringify(['host-a', 'sess_wire'])
   let client: SessionClient
+  const hostInvoke = vi.fn<(method: string, params?: unknown) => Promise<unknown>>()
   beforeEach(() => {
     localStorage.clear(); rpcMocks.invoke.mockReset(); rpcMocks.useSpeech.mockClear()
+    hostInvoke.mockReset(); hostInvoke.mockResolvedValue({ bytesWritten: 32768, path: '.ari/pastes/host-issued.txt' })
     client = { ...createSessionClient({ kind: 'local', sessionId: 'sess_wire' }), scope, viewKey,
-      invoke: vi.fn<SessionClient['invoke']>().mockResolvedValue({ bytesWritten: 32768, path: '.ari/pastes/host-issued.txt' }) }
+      invoke: hostInvoke as SessionClient['invoke'] }
   })
   const paste = (input: HTMLElement, text: string) => fireEvent.paste(input, {
     clipboardData: { files: [], getData: (type: string) => type === 'text/plain' ? text : '' },
@@ -919,7 +921,7 @@ describe('Composer owning machine input', () => {
   it('writes long text through the owning client with its wire ID and uses the host-issued path', async () => {
     render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
     const input = screen.getByRole('textbox', { name: 'Message' })
-    const text = 'original bytes'.repeat(PASTE_FILE_MIN_BYTES)
+    const text = 'a'.repeat(PASTE_FILE_MIN_BYTES)
     paste(input, text)
     expect(client.invoke).toHaveBeenCalledWith('fs.writeTextFile', expect.objectContaining({ sessionId: 'sess_wire', content: text }))
     await waitFor(() => expect(input).toHaveValue('@.ari/pastes/host-issued.txt '))
@@ -927,7 +929,7 @@ describe('Composer owning machine input', () => {
     expect(rpcMocks.useSpeech).not.toHaveBeenCalled()
   })
   it('retains long text after an unknown host paste outcome and never falls back or retries', async () => {
-    vi.mocked(client.invoke).mockRejectedValue(new Error('Acknowledgement lost'))
+    hostInvoke.mockRejectedValue(new Error('Acknowledgement lost'))
     const view = render(<SessionClientProvider client={client}><Composer sessionId={viewKey} onSend={vi.fn()} /></SessionClientProvider>)
     const text = 'a'.repeat(PASTE_FILE_MIN_BYTES)
     paste(screen.getByRole('textbox', { name: 'Message' }), text)
