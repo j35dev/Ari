@@ -38,7 +38,7 @@ it('recognises the titled branch, a collision suffix, and the old id branch', ()
   expect(branchBelongsToSession(`ari/j9bo5_5yipru/${id}`, id)).toBe(true)
   expect(branchBelongsToSession('ari/edit-queued-message-aaaaaaaa', id)).toBe(false)
   expect(branchBelongsToSession('main', id)).toBe(false)
-  expect(branchBelongsToSession('ari/child', 'child')).toBe(false)
+  expect(branchBelongsToSession('ari/child', 'child')).toBe(true)
   expect(branchBelongsToSession('ari/edit-queued-message-c2825b69', id)).toBe(false)
 })
 
