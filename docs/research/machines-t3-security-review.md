@@ -418,3 +418,35 @@ exact executed result and final runtime designation have not arrived yet.
 
 No final integrated certification is issued. Review-only documents/evidence are
 committed; original and new untracked .review-temp evidence is retained.
+
+## Final candidate and combined-proof execution preparation
+
+Parent designated runtime candidate `1c2398a4177bdc97741bbbe0d8304f6640176d04`
+and then reopened final source for the required machine-ID publication/recovery
+fix. No final certification applies yet. The candidate differs from `7b11fd89`
+only by the combined proof and a nonbehavioral regex lint comment. The T1/T2/T3
+runtime blobs and their relevant client/gateway dependencies remain unchanged
+from the independent merged closure runs.
+
+Independently inspected the combined test at authored `edb20fdf` blob
+`863fea3015e69fdc5de32b00ef8cc5d2fa33ff94`, and integrated `1c2398a4` adds
+runtime journalEvent parsing at its normal-history consumer. It uses actual
+Engine/SessionStore/RemoteHost/gateway, real signed HTTP/WebSocket listeners,
+MachinesService/RpcRegistry, the normal preload RPC facade, SessionClient,
+inventory authorization epochs, history and watched transcript stores. It
+checks 2,406 initial journal rows including seq 0, full/resume/live fallback and
+move-back, one host's live turn and dispatch, immutable tuple ownership, distinct
+route token, independent approvals/no reverse authorization, grouped redacted
+repository identities, authenticated fixture-resource Auto/Manual only policy,
+and host-only revoke with watched-cache purge. The test controls HTTP route
+reachability and invokes reconnect; it is not proof of every spontaneous network
+failure. It does not exercise a real incompatible binary, OS resource/keyring,
+provider process, TLS/Tailscale or React DOM.
+
+`evidence/machines-t3-security/combined-proof.md` records a reviewer standalone
+execution wrapper for this exact authored test. It removes the prior independent
+replay fixture's IPC/inventory/action mocks and substitutes only the test runner's
+matchers/spy helpers, preserving the authored source assertions and actual source
+path. The author/root test claim and reviewer execution will be reported separately.
+The next narrow source audit is the parent-authored identity publication/recovery
+change and its real-process regression, followed by final SHA comparison.
