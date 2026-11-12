@@ -1,3 +1,4 @@
+import { writtenReply } from '@ari/contracts/aria-voice'
 import {
   memo,
   useCallback,
@@ -293,7 +294,7 @@ export function TranscriptView({
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
         .join('\n')
-      if (text.trim().length > 0) map.set(message.id, text)
+      if (text.trim().length > 0) map.set(message.id, writtenReply(text))
     }
     return map
   }, [messages])

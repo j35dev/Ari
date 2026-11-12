@@ -64,7 +64,7 @@ process.parentPort?.on('message', (event: { data: Request }) => {
       if (request.generation !== generation) { process.parentPort?.postMessage({ id: request.id, cancelled: true }); return }
       if (hardware?.slow) throw new Error('Kokoro is slower than real time on this computer. Choose Groq in Aria settings for smooth speech.')
       const prepared = prepareKokoro(request.text!, words)
-      const audio = await tts!.generateAsync({ text: prepared.text, sid: request.voice === 'am_michael' ? 12 : 3, speed: request.speed ?? 1,
+      const audio = await tts!.generateAsync({ text: prepared.text, sid: request.voice === 'am_michael' ? 16 : 3, speed: request.speed ?? 1,
         onProgress: () => request.generation === generation ? 1 : 0 })
       process.parentPort?.postMessage(request.generation === generation ? { id: request.id, audio, spelled: prepared.spelled } : { id: request.id, cancelled: true })
     } catch (error) { process.parentPort?.postMessage({ id: request.id, error: error instanceof Error ? error.message : 'Local speech failed.' }) }
