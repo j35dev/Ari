@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { createSessionClient, parseSessionViewKey } from './session-client'
 import { reduceSessionAttention } from './session-attention'
 import {
   ACTIVE_SETTLE_LINGER_MS,
@@ -21,7 +22,7 @@ import {
  * watched the lock-in play. The store is one small entry per live session, plus
  * a fade timer for each on-screen settle.
  */
-export function useSessionActivity(visibleSessionIds: readonly string[]): {
+export function useSessionActivity(visibleSessionIds: readonly string[], scopedSessionKeys: readonly string[] = []): {
   activityOf: (sessionId: string) => SessionActivity | undefined
   attentionCountOf: (sessionId: string) => number
   acknowledge: (sessionId: string) => void
@@ -104,8 +105,9 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
     [remove],
   )
 
+  const consumeRef = useRef<(payload: unknown) => void>(() => undefined)
   useEffect(() => {
-    const unsubscribe = rpc.subscribe('session.events', {}, (payload) => {
+    const onFrame = (payload: unknown) => {
       const frame = payload as Partial<SessionEventFrame> | null
       if (frame?.replay === true || frame?.replayDone === true) return
       const sessionId = frame?.sessionId
@@ -198,7 +200,9 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
         // A new turn superseded the fading settle — stop the fade.
         clearFade(sessionId)
       }
-    })
+    }
+    consumeRef.current = onFrame
+    const unsubscribe = rpc.subscribe('session.events', {}, onFrame)
 
     return () => {
       unsubscribe()
@@ -206,6 +210,20 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
       fadeTimersRef.current.clear()
     }
   }, [acknowledge, clearFade])
+
+  const remoteKeys = scopedSessionKeys.filter((key) => parseSessionViewKey(key)?.kind === 'remote').sort().join('\n')
+  useEffect(() => {
+    const stops = remoteKeys.split('\n').filter(Boolean).map((key) => {
+      const scope = parseSessionViewKey(key)
+      if (scope?.kind !== 'remote') return () => undefined
+      const client = createSessionClient(scope)
+      return client.subscribe('session.events', { sessionId: scope.sessionId }, (payload) => {
+        const frame = payload as SessionEventFrame
+        consumeRef.current({ ...frame, sessionId: key })
+      })
+    })
+    return () => { for (const stop of stops) stop() }
+  }, [remoteKeys])
 
   // Changes identity only when some session's activity does, so memoized
   // consumers (the transcript's delegation cards) skip unrelated renders.

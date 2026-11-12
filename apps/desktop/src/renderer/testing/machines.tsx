@@ -1,146 +1,140 @@
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
+import { ToastProvider } from '@ari/ui/toast'
 import '@ari/ui/fonts'
 import '../src/styles/index.css'
 import '../src/features/transcript/transcript.css'
-import {
-  machineFixture,
-  snapshotFixture,
-  catalogFixture,
-} from '../src/features/machines/fixtures.test-support'
-import { MachinesProvider } from '../src/features/machines/use-machines'
+import { desktopMachineFixture, desktopSnapshotFixture, catalogFixture, localSnapshotFixture,
+  projectCatalogFixture, resourcesFixture, versionFixture } from '../src/features/machines/fixtures.test-support'
+import { MachinesProvider, useMachines } from '../src/features/machines/use-machines'
+import { useMachineProjects } from '../src/features/machines/use-machine-projects'
+import { ProjectDraftPane } from '../src/features/machines/ProjectDraftPane'
+import { SessionView } from '../src/features/session/SessionView'
+import { sessionViewKey } from '../src/features/session/session-client'
 import { SettingsWorkspace } from '../src/features/settings/SettingsWorkspace'
-import { RemoteWorkspace } from '../src/features/machines/RemoteWorkspace'
+import { SessionsUnderProjects } from '../src/shell/Sidebar'
 import { settingsSchema } from '@ari/contracts/settings'
+import { projectViewSchema } from '@ari/contracts/project'
 import { remoteCommandEnvelopeSchema } from '@ari/contracts/remote'
 import { scopeKey } from '../src/features/machines/remote-client'
-import { writeRemoteDraft } from '../src/features/machines/remote-drafts'
 
 const options = new URLSearchParams(location.search)
+const view = options.get('view') ?? 'settings'
 const themeId = options.get('theme') === 'light' ? 'porcelain' : 'obsidian'
+localStorage.clear()
 localStorage.setItem('ari.theme', JSON.stringify({ mode: themeId, wallpaper: 'none' }))
-localStorage.removeItem(`ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`)
-writeRemoteDraft('host-a', 'same-session', { text: '', attachments: [] })
-if (options.get('view') === 'receipt') {
-  const command = remoteCommandEnvelopeSchema.parse({
-    op: 'session.prompt',
-    sessionId: 'same-session',
-    text: 'Continue the host task',
-    clientCommandId: 'fixture-command',
-    idempotencyKey: 'fixture-command',
-  })
-  localStorage.setItem(
-    `ari.machines.receipt.v1:${scopeKey('host-a', 'same-session')}`,
-    JSON.stringify({ machineId: 'host-a', scope: 'same-session', command }),
-  )
-  writeRemoteDraft('host-a', 'same-session', { text: 'Continue the host task', attachments: [] })
+const scope = { kind: 'remote' as const, machineId: 'host-a', sessionId: 'sess_remote' }
+if (view === 'receipt') {
+  const command = remoteCommandEnvelopeSchema.parse({ op: 'session.prompt', sessionId: scope.sessionId,
+    text: 'Continue the host task', clientCommandId: 'fixture-command', idempotencyKey: 'fixture-command' })
+  localStorage.setItem(`ari.machines.receipt.v1:${scopeKey(scope.machineId, scope.sessionId)}`,
+    JSON.stringify({ machineId: scope.machineId, scope: scope.sessionId, command }))
 }
-const machines = [
-  { ...machineFixture(), name: 'Studio workstation', allowTerminal: true },
-  { ...machineFixture('host-b'), name: 'Build computer', status: 'offline' as const, error: null },
-  { ...machineFixture('host-c'), name: 'Travel laptop', status: 'pairing' as const },
-  {
-    ...machineFixture('host-d'),
-    name: 'Archive computer',
-    status: 'incompatible' as const,
-    identity: { ...machineFixture().identity!, protocolVersion: 2 },
-  },
+let machines = [
+  { ...desktopMachineFixture(), name: 'Studio workstation', allowTerminal: true },
+  { ...desktopMachineFixture('host-b'), name: 'Build computer' },
+  { ...desktopMachineFixture('host-c'), name: 'Travel laptop', status: 'pairing' as const },
 ]
-const snapshot = snapshotFixture(
-  'same-session',
-  'The test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\n```ts\nawait runHeavy("Build desktop", workspace)\n```',
-)
+const snapshot = desktopSnapshotFixture()
 snapshot.session.title = 'Resource gate and Machines UI'
 snapshot.summary.title = snapshot.session.title
-snapshot.messages.unshift({
-  id: 'user-1',
-  sessionId: 'same-session',
-  turnId: 'turn-1',
-  role: 'user',
-  createdAt: 1,
-  parts: [{ type: 'text', text: 'Make the desktop workspace work across my computers.' }],
-})
+const text = 'The test runner now checks commit headroom before starting a build. The workspace and agent remain on Studio workstation.\n\n```ts\nawait runHeavy("Build desktop", workspace)\n```'
+const events = [
+  { type: 'user.message.added', seq: 0, at: 1, sessionId: scope.sessionId, message: {
+    id: 'user-1', sessionId: scope.sessionId, turnId: 'turn-1', role: 'user', createdAt: 1,
+    parts: [{ type: 'text', text: 'Make the desktop workspace work across my computers.' }] } },
+  { type: 'turn.started', seq: 1, at: 2, sessionId: scope.sessionId, turnId: 'turn-1' },
+  { type: 'assistant.parts.appended', seq: 2, at: 3, sessionId: scope.sessionId, messageId: 'assistant-1', parts: [{ type: 'text', text }] },
+  { type: 'turn.settled', seq: 3, at: 4, sessionId: scope.sessionId, turnId: 'turn-1', stopReason: 'completed', errorMessage: null },
+]
 const trace: string[] = []
+const subscribers = new Map<string, Parameters<Window['ari']['subscribe']>[1]>()
+const streams = new Map<string, { name: string; params: Record<string, unknown> }>()
 const reply = (result: unknown) => ({ ok: true, result })
 window.ari = {
-  async invoke(method: string, params?: unknown) {
-    await Promise.resolve()
+  async invoke(method, raw) {
     trace.push(method)
+    const params = raw as Record<string, unknown> | undefined
     if (method === 'machines.list') return machines
-    if (method === 'machines.pairStatus')
-      return {
-        machineId: 'host-c',
-        status: 'pairing',
-        confirmationCode: 'K7MV-4AX9',
-        expiresAt: 1_794_394_800_000,
-        error: null,
-      }
-    if (method === 'stream.subscribe' || method === 'stream.unsubscribe')
-      return { subscribed: true }
+    if (method === 'machines.localSnapshot') return localSnapshotFixture()
+    if (method === 'machines.preferences') return { autoEnabled: view === 'auto', hostTiers: { 'host-a': 'prefer' }, projectHosts: {} }
+    if (method === 'machines.pairStatus') return { machineId: 'host-c', status: 'pairing', confirmationCode: 'K7MV-4AX9', expiresAt: Date.now() + 60_000, error: null }
     if (method === 'settings.get') return settingsSchema.parse({ version: 1 })
+    if (method === 'speech.status') return { ready: false }
+    if (method === 'stream.unsubscribe') { streams.delete(params!.id as string); return { subscribed: false } }
+    if (method === 'stream.subscribe') {
+      const id = params!.id as string
+      streams.set(id, { name: params!.name as string, params: params!.params as Record<string, unknown> })
+      if (params!.name === 'machines.events') setTimeout(() => {
+        for (const frame of [
+          { kind: 'start', replayMode: 'full', fromSeq: null, throughSeq: 3 },
+          { kind: 'chunk', events },
+          { kind: 'terminal', replayOutcome: 'complete', seq: 3, liveTurnId: null, reason: null },
+        ]) subscribers.get(id)?.({ payload: { machineId: scope.machineId,
+          message: { type: 'events.desktop.frame', sessionId: scope.sessionId, frame } } } as never)
+      }, 50)
+      return { subscribed: true }
+    }
     if (method === 'machines.query') {
-      const request = params as { machineId: string; query: { op: string } }
-      if (request.query.op === 'project.list')
-        return reply([
-          {
-            id: 'same-project',
-            name: request.machineId === 'host-a' ? 'Ari desktop' : 'Build infrastructure',
-            sessionCount: 2,
-          },
-        ])
-      if (request.query.op === 'session.list')
-        return reply([
-          snapshot.summary,
-          { ...snapshot.summary, id: 'session-2', title: 'Improve the release pipeline' },
-        ])
-      if (request.query.op === 'session.get') return reply(snapshot)
-      if (request.query.op === 'models.list') return reply(catalogFixture)
-      if (request.query.op === 'command.status')
-        return {
-          ok: false,
-          error: { code: 'not_found', message: 'No retained receipt on this old host' },
-        }
+      const request = raw as { machineId: string; query: { op: string } }
+      const op = request.query.op
+      if (op === 'project.catalog') return reply(projectCatalogFixture())
+      if (op === 'session.list') return reply([{ ...snapshot.summary, title: request.machineId === 'host-b' ? 'Improve the release pipeline' : snapshot.summary.title }])
+      if (op === 'models.list') return reply(catalogFixture)
+      if (op === 'host.resources') return reply(resourcesFixture())
+      if (op === 'host.permissions') return reply({ deviceId: 'fixture-device', projectScope: { kind: 'all' }, allowTerminal: true, managedLeaseExpiresAt: null })
+      if (op === 'host.version') return reply(versionFixture)
+      if (op === 'session.desktop.get') return reply(snapshot)
+      if (op === 'session.resume.get') return reply({ at: null })
+      if (op === 'files.index') return reply({ paths: [], nextCursor: null, truncated: false })
+      if (op === 'plan.get') return reply({ items: null })
+      if (op === 'project.workspaces') return reply({ projectId: 'same-project', truncated: false, options: [
+        { token: 'host-main', label: 'Current checkout · main', kind: 'checkout', branch: 'main', workspaceMode: 'shared' },
+        { token: 'host-isolated', label: 'New isolated worktree', kind: 'worktree', branch: 'main', workspaceMode: 'isolated' },
+      ] })
+      if (op === 'command.status') return { ok: false, error: { code: 'not_found', message: 'The original outcome is still unknown.' } }
     }
     throw new Error(`Fixture refused RPC: ${method}`)
   },
-  subscribe: () => () => undefined,
+  subscribe(id, callback) { subscribers.set(id, callback); return () => { subscribers.delete(id) } },
 }
-Object.assign(window, {
-  __ari: {
-    state: () => ({
-      fixture: 'desktop-machines',
-      view: options.get('view') ?? 'settings',
-      theme: themeId,
-      viewport: { width: innerWidth, height: innerHeight },
-      trace,
-    }),
-  },
-})
-createRoot(document.getElementById('root')!).render(
-  <ThemeProvider>
-    <MotionProvider reducedMotion>
-      <MachinesProvider>
-        <div className="flex h-screen flex-col bg-bg text-fg">
-          <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border px-5 text-xs font-semibold">
-            Ari <span className="ml-3 font-normal text-fg-subtle">Machines fixture</span>
-          </header>
-          {options.get('view') === 'workspace' || options.get('view') === 'receipt' ? (
-            <RemoteWorkspace
-              target={{ machineId: 'host-a', sessionId: 'same-session' }}
-              onSelect={() => undefined}
-              onBack={() => undefined}
-              onManage={() => undefined}
-            />
-          ) : (
-            <SettingsWorkspace
-              section="machines"
-              onBack={() => undefined}
-              onOpenMachine={() => undefined}
-            />
-          )}
-        </div>
-      </MachinesProvider>
-    </MotionProvider>
-  </ThemeProvider>,
-)
+setTimeout(() => {
+  machines = machines.map((machine) => machine.id === 'host-b' ? { ...machine, status: 'offline' } : machine)
+  for (const [id, stream] of streams) if (stream.name === 'machines.updates')
+    subscribers.get(id)?.({ payload: machines } as never)
+}, 700)
+Object.assign(window, { __ari: { state: () => ({ fixture: 'normal desktop Machines components', view, theme: themeId, trace }) } })
+
+const localProject = projectViewSchema.parse({ id: 'same-project', name: 'Ari', path: 'D:/code/Ari', createdAt: 1, open: true, status: 'ok' })
+const localSession = { ...snapshot.summary, id: 'sess_local', title: 'Finish the local scheduler' }
+const defaults = { driverKind: 'codex' as const, modelId: 'gpt-6.1-sol', permissionMode: 'ask' as const, effort: 'high' }
+function Fixture() {
+  const navigation = useMachineProjects([localProject], [localSession])
+  const metadata = useMachines()
+  const [selection, setSelection] = useState(sessionViewKey(scope))
+  const draft = view === 'draft' || view === 'auto'
+  return <div className="flex h-screen flex-col bg-bg text-fg">
+    <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border px-5 text-xs font-semibold">
+      Ari <span className="ml-3 font-normal text-fg-subtle">{draft ? 'New project draft' : 'Machines'}</span>
+    </header>
+    {view === 'settings' || view === 'permissions' ? <SettingsWorkspace section="machines" onBack={() => {}} /> :
+      <div className="flex min-h-0 flex-1">
+        <aside aria-label="Projects and sessions" className="w-72 shrink-0 overflow-auto border-r border-border bg-surface-1 p-3">
+          <SessionsUnderProjects projects={navigation.sidebarProjects} sessions={navigation.sessions} activeSessionId={selection}
+            hostOf={(id) => navigation.hosts.get(id)} onSelect={setSelection} onRename={() => {}} onDelete={() => {}}
+            onTogglePin={() => {}} onToggleArchive={() => {}} />
+        </aside>
+        <main className="min-w-0 flex-1">
+          {draft ? navigation.groups[0] && metadata.localModels && <ProjectDraftPane
+            entry={{ id: 'fixture-draft', groupId: navigation.groups[0].id, group: navigation.groups[0], spaceId: 'fixture-space', paneId: 'fixture-pane' }}
+            projects={[localProject]} defaults={defaults} createLocal={async () => { throw new Error('Screenshot refuses mutations') }} onCreated={() => {}} onClose={() => {}} /> :
+            <SessionView sessionId={scope.sessionId} scope={scope} defaults={defaults} onDefaultsChange={() => {}} />}
+        </main>
+      </div>}
+  </div>
+}
+createRoot(document.getElementById('root')!).render(<ThemeProvider><MotionProvider reducedMotion><ToastProvider>
+  <MachinesProvider><Fixture /></MachinesProvider>
+</ToastProvider></MotionProvider></ThemeProvider>)
