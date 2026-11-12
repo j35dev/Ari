@@ -47,6 +47,31 @@ describe('appDisplayName', () => {
 })
 
 describe('isolateDevInstance', () => {
+  it('isolates a named unpackaged run without changing the default identity', () => {
+    const app = fakeApp(false)
+    const environment = { ARI_DEV_INSTANCE: 'machines', ARI_DEV_USER_DATA: '/tmp/machines-profile' }
+    expect(isolateDevInstance(app, environment)).toBe(true)
+    expect(app.names).toEqual(['Ari Dev Machines'])
+    expect(app.paths).toEqual([['userData', environment.ARI_DEV_USER_DATA]])
+    expect(app.modelIds).toEqual([`${DEV_APP_USER_MODEL_ID}.machines`])
+    expect(appDisplayName(false, environment)).toBe('Ari Dev Machines')
+    expect(appDisplayName(false, {})).toBe(DEV_APP_NAME)
+  })
+
+  it('rejects incomplete overrides before changing any identity fields', () => {
+    const app = fakeApp(false)
+    expect(() => isolateDevInstance(app, { ARI_DEV_INSTANCE: 'machines' })).toThrow('absolute profile')
+    expect(app.names).toEqual([])
+    expect(app.paths).toEqual([])
+  })
+
+  it('ignores overrides for packaged installs', () => {
+    const app = fakeApp(true)
+    expect(isolateDevInstance(app, { ARI_DEV_INSTANCE: 'invalid name' })).toBe(false)
+    expect(app.names).toEqual([])
+    expect(appDisplayName(true, { ARI_DEV_INSTANCE: 'invalid name' })).toBe(PACKAGED_APP_NAME)
+  })
+
   it('rewrites name, userData, and AppUserModelID when unpackaged', () => {
     const app = fakeApp(false, '/Users/dev/Library/Application Support')
     expect(isolateDevInstance(app)).toBe(true)

@@ -12,6 +12,9 @@ export default defineConfig({
         external: [
           /^node:/,
           'electron',
+          // Keep ws's guarded optional native peer loading at runtime. Vite's
+          // development placeholder otherwise throws before Ari can start.
+          'ws',
           '@lydell/node-pty',
           'electron-updater',
           'koffi',
