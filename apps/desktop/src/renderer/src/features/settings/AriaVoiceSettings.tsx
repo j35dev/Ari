@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
-import { SettingsSection } from './SettingsSection'
+import { SettingsSection, SETTINGS_FIELD_CLASS } from './SettingsSection'
 import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
 import { useSpeech } from '../speech/useSpeech'
@@ -241,7 +241,7 @@ export function AriaVoiceSettings() {
           autoComplete="off"
           value={key}
           onChange={(event) => setKey(event.target.value)}
-          className="h-8 rounded-md border border-border bg-surface-0 px-2 text-xs"
+          className={`${SETTINGS_FIELD_CLASS} w-56 font-mono text-xs`}
         />
         <Button
           size="sm"
