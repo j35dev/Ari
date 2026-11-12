@@ -17,6 +17,7 @@ import {
   remoteRedeemSchema,
   remoteQuerySchema,
   remoteModelCatalogSchema,
+  remoteOperationSchema,
   type RemoteCommand,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
@@ -210,39 +211,7 @@ describe('remote host capabilities', () => {
 
 /** Mirrors the contract's own lists, so a typo in a capability is caught here. */
 function commandOrReadExists(op: string): boolean {
-  const queries = new Set([
-    'gateway.info',
-    'session.list',
-    'session.get',
-    'attention.list',
-    'files.list',
-    'files.read',
-    'project.list',
-    'models.list',
-    'usage.allowance',
-    'accounts.list',
-    'changes.files',
-    'changes.diff',
-    'command.status',
-    'device.list',
-    'device.revoke',
-  ])
-  const commands = new Set([
-    'session.create',
-    'session.prompt',
-    'session.queue',
-    'session.steer',
-    'session.interrupt',
-    'session.archive',
-    'session.update',
-    'approval.respond',
-    'input.respond',
-    'changes.integrate',
-    'usage.redeem',
-    'accounts.activate',
-  ])
-  const overTheWire = new Set(['events.subscribe', 'events.ack', 'events.snapshot'])
-  return queries.has(op) || commands.has(op) || overTheWire.has(op)
+  return remoteOperationSchema.safeParse(op).success
 }
 
 describe('reading sessions', () => {

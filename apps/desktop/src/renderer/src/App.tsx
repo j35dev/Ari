@@ -193,6 +193,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [projectDrafts, setProjectDrafts] = useState<ProjectDraftEntry[]>(draftRegistry.entries)
   const projectDraftsRef = useRef(projectDrafts)
   projectDraftsRef.current = projectDrafts
+  const [onboardingDraft, setOnboardingDraft] = useState<{ projectId: string; generation: number } | null>(null)
   const [draftHandoff, setDraftHandoff] = useState<{ entry: ProjectDraftEntry; scope: SessionScope; seed: ComposerSeed } | null>(null)
   const [createdSessionKeys, setCreatedSessionKeys] = useState<ReadonlySet<string>>(new Set())
   // Which session is active is now a property of the panes: it is whatever the
@@ -748,7 +749,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       engineSettings.settings === null
     )
       return
-    if (onboardingOutcome?.sessionId != null) {
+    if (onboardingOutcome?.sessionId != null || onboardingOutcome?.projectId != null) {
       landed.current = true
       return
     }
@@ -764,6 +765,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     providersReady,
     engineSettings.settings,
     onboardingOutcome?.sessionId,
+    onboardingOutcome?.projectId,
   ])
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
@@ -893,7 +895,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     let cancelled = false
     if (onboardingOutcome.driverKind !== null)
       rememberPick({ driverKind: onboardingOutcome.driverKind, modelId: null, effort: null })
+    if (onboardingOutcome.projectId !== null)
+      setOnboardingDraft({ projectId: onboardingOutcome.projectId, generation: navigationGeneration.current })
     refreshProjects()
+    void refreshInventory()
     void reloadSessions()
       .then(() => {
         if (!cancelled && onboardingOutcome.sessionId !== null)
@@ -910,7 +915,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => {
       cancelled = true
     }
-  }, [onboardingOutcome, reloadSessions, refreshProjects, rememberPick, toast])
+  }, [onboardingOutcome, reloadSessions, refreshProjects, refreshInventory, rememberPick, toast])
 
   // Sidebar order is the stored registry order: slot the project before
   // `beforeId` (null = last). Applied optimistically so the spring tracks the
@@ -1121,6 +1126,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     setNewSessionRequest(null)
     leaveWorkspaceTool(); setFullPage(null); setInspector(null)
   }, [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool])
+  useEffect(() => {
+    if (onboardingDraft === null) return
+    if (onboardingDraft.generation !== navigationGeneration.current) {
+      setOnboardingDraft(null)
+      return
+    }
+    const group = navigation.groups.find((entry) => entry.checkouts.some((checkout) =>
+      checkout.local && checkout.projectId === onboardingDraft.projectId))
+    if (!group) return
+    setOnboardingDraft(null)
+    openProjectDraft(group, false, 'local')
+  }, [onboardingDraft, navigation.groups, openProjectDraft])
   const createSession = useCallback((projectId: string, overrides?: Partial<SessionDefaults>) => {
     const group = navigation.groups.find((entry) => entry.id === projectId ||
       entry.checkouts.some((checkout) => checkout.local && checkout.projectId === projectId))

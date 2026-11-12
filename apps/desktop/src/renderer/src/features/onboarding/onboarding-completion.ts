@@ -17,6 +17,8 @@ export interface OnboardingChoice {
 
 export interface OnboardingOutcome {
   sessionId: string | null
+  /** The first project opens as a client draft; first Send owns durable creation. */
+  projectId: string | null
   driverKind: DriverKind | null
 }
 
@@ -33,7 +35,6 @@ export function createOnboardingCompletion(
   saveSettings: (patch: SettingsUpdate) => Promise<Settings>,
 ): (choice: OnboardingChoice, signal: AbortSignal) => Promise<Outcome> {
   const opened = new Map<string, Project>()
-  const sessions = new Map<string, string>()
   let pending: Promise<Outcome> | null = null
   let completed: OnboardingOutcome | null = null
   const cancelled = (): Outcome =>
@@ -63,34 +64,8 @@ export function createOnboardingCompletion(
         failedPaths: failed.map((p) => p.path),
       })
 
-    let sessionId: string | null = null
     const first = selected[0]
     const project = first ? opened.get(projectPathKey(first.path)) : undefined
-    if (choice.createSession && choice.driverKind !== null && project) {
-      const key = JSON.stringify([project.id, choice.driverKind, choice.permissionMode])
-      sessionId = sessions.get(key) ?? null
-      if (sessionId === null) {
-        try {
-          const created = await rpc.invoke('session.create', {
-            projectId: project.id,
-            title: 'New session',
-            driverKind: choice.driverKind,
-            modelId: null,
-            permissionMode: choice.permissionMode,
-          })
-          sessionId = created.sessionId
-          sessions.set(key, sessionId)
-        } catch (error) {
-          log.warn('first session could not be created', error)
-          return err({
-            stage: 'session',
-            message:
-              'Your projects are added, but the first session could not be created. Retry or continue without a session.',
-            failedPaths: [],
-          })
-        }
-      }
-    }
     if (signal.aborted) return cancelled()
     try {
       await saveSettings({
@@ -108,7 +83,11 @@ export function createOnboardingCompletion(
         failedPaths: [],
       })
     }
-    completed = { sessionId, driverKind: choice.driverKind }
+    completed = {
+      sessionId: null,
+      projectId: choice.createSession && choice.driverKind !== null ? project?.id ?? null : null,
+      driverKind: choice.driverKind,
+    }
     return ok(completed)
   }
 

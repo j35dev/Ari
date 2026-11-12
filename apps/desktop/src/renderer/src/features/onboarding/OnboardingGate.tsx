@@ -92,7 +92,7 @@ export function OnboardingGate({
       generation.current++
     }
   }, [load])
-  const leave = useCallback((result: OnboardingOutcome = { sessionId: null, driverKind: null }) => {
+  const leave = useCallback((result: OnboardingOutcome = { sessionId: null, projectId: null, driverKind: null }) => {
     generation.current++
     if (result.driverKind !== null)
       saveLastPick({ driverKind: result.driverKind, modelId: null, effort: null })
@@ -104,6 +104,7 @@ export function OnboardingGate({
     if (
       state.status === 'closed' &&
       outcome?.sessionId == null &&
+      outcome?.projectId == null &&
       previousFocus.current?.isConnected
     )
       previousFocus.current.focus({ preventScroll: true })
