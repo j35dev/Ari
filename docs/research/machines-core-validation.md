@@ -156,3 +156,116 @@ Integration must preserve A's current Tailscale RPC changes in `rpc.ts`: constru
 `profileDir`, enable `params`, the startup/enable `resume` calls and disable result
 preservation. Core is based on the older snapshot; those differences are not core
 edits to cherry-pick or intended reversions. Grants authorization remains B-owned.
+
+
+### Fresh verification and security disposition
+
+All commands used the current coordinator runner, with committed checkpoints,
+two resource slots only when admitted, D: temp/cache paths and one Vitest worker.
+No resource floor failure, killed process, OOM, install, live network/settings/device
+mutation, push or PR occurred.
+
+| Focused check | Result |
+| --- | --- |
+| Desktop Machines, RemoteService, host, files, terminals, fork, integration and catalog | 128 passed, 1 skipped; 66.09s |
+| Final Machines safety and real two-engine/two-gateway proof | 19 passed; 16.67s |
+| Final RemoteService including corrupt identity and first-write failure | 27 passed in the two-file run |
+| Remote gateway package, shared client, remote/Machines contracts and mobile session | 244 passed; 13.46s |
+| Shared/mobile session after lint helper cleanup | 55 passed; 6.93s |
+| Final valid-empty-history restart/one-dispatch fixture | 1 passed; 2.29s |
+| Contracts, remote-client, remote-gateway, desktop and mobile typecheck | Passed across scoped invocations |
+| Scoped lint over core/client/contracts/gateway identity and mobile adapters | Passed after correcting the three reported files |
+
+The one platform skip is the Windows short-name fixture when the temporary
+volume does not expose the required 8.3 aliases. New-test failures were a wrong
+local `session.list` argument (`{}` instead of `undefined`), the identity test's
+untyped JSON, and nullable SessionStore test assertions; all were corrected.
+Lint cleanup uses typed request URL/body helpers and mock references, preserves
+the receipt assertions, and documents why raw transport causes must not cross
+the sanitized Electron IPC rejection.
+
+S1 is covered by the anonymous copied-ID endpoint test and an additional actual
+two-engine/two-gateway case where both hosts advertise the same public machine
+id but require distinct keys and independent approvals. Revoking one device
+leaves the other host connected. Stored credentials remain sealed and scoped
+to the original independently paired origin.
+
+S6 shared reconciliation maps every nonauthoritative receipt failure to keyed
+`unreachable`, including revocation and unsupported capability, so first-send
+UI refusal handling cannot discard an originally accepted command. Tests cover
+missing/conflicting/internal/unreachable/revoked/incompatible lookup errors and
+malformed results, with exactly one mutation. The actual host fixture loses a
+successful create response, replaces history with valid `[]`, restarts its
+engine/gateway, and proves read-only reconciliation without a second dispatch.
+B owns damaged-restore/failed-persistence/capacity refusal; the fixture accepts
+legacy `not_found` or hardened `conflict` on missing status.
+
+Fresh safety fixes also make credential publication transactional, negotiate
+before token-renewal command retries, clear stale tokens/capabilities/grants on
+refusal, contain unreadable Machines registry initialization, and contain failed
+host identity loading/persistence. Local startup survives both identity boundaries,
+existing files are preserved, machine operations fail closed, and unavailable
+host identity prevents both private and managed listeners. No grant authorization
+policy was edited.
+
+The existing lifecycle proof covers pairing/confirmation/host approval, projects
+and sessions, create/deduplication, prompt/journal stream, approval option, stop,
+client and host restart, replay, revocation/removal and incompatible negotiation.
+Host/file/terminal/fork/integration/catalog suites exercise the broader validated
+allowlist and project/terminal scopes. B's all-project and signed-lease changes
+still require the coordinator's exact merged snapshot checks.
+
+### Exact integration handoff
+
+Reviewed against `feat/machines` `3be4d6fc`, with core code at `53f1320c`.
+The following 30 commits are the ordered `git cherry` plus list. Already
+integrated shared commits `fa7dd3a9`, `6ffb3874` and `b0bb6ddb` are excluded.
+This final evidence commit follows the listed code commits.
+
+```text
+bee71d794a32fff97dd38c7e1468f2544e5d9277
+f14638723de9ca7d000532e847f615cd2c4b67fa
+6e5e75040910b4d6130b59777a5acba0e66c1939
+04d6ec1638404bde4aadd864d8f1fbb3ce63f8ef
+f24a49bb966809b58fe4ebaf89ae8e5cf6df4e91
+7119a5a61cfd02b8db73fea54ea8c1b88f0c1b3c
+02158cd79be05914d57faf396690c95064c936c5
+4b8206dab6b9125b327b60695d4308fcc2cc7ec7
+bdc4f70f3acb8c683a2bd8fcecc906509937bb8b
+ad7c4240510dd5bdc1f1a973c3739cf5db264109
+51d0d807e78298266fd1d2b3a2a38191c3dd74b4
+b737d2f946bec8bbdda7d1734944f233ecfac361
+23ba62d100cc242e2ad8b1c8e7ae8b61adf6b93a
+c403f50ae85f4225dc1db1e3e43fbab96f665cba
+8471f3f30d5ab01779ce15272fc5951d5e14a4fe
+a5600bf825a418cac761d0af93543e4e9c85921a
+870022b0057cd51aba57ea02f5e45e290a2c786e
+438180bff53e39a2d9a5aa563a5a18c682964520
+7d18bb952b7f5169cc393af6637ce8d859daf902
+1c285cf4b13f241ee7f3bd67082a11267ee6d823
+2d1e62755a33767d53f0b9e4a47506522f3ae996
+d4be8dbececefc74f115b17fe5a96a4fdda397e5
+23882f50830e36c3a855b0c95faf4d196dffbc76
+1d541ade332b42efebfa6a76ff004a374b0aca41
+f6fb1fc690ef43705d9b40ccbb58d9cb025aab8c
+32ae6d34de3898f2f61919276cb5e2c0ec99253f
+1fd55aeeac9d563801e54f3b8c60c2a24ab0df67
+e24656f4c6aa79a88c646a63f95d8e5c15e9442e
+bfd720a50ae7ddb4781ed43a7f686d72fda6fe01
+53f1320c5449126210d6e62acc91085080ac23be
+```
+
+Preserve A's `rpc.ts` profileDir, enable params, resume calls and disable result.
+Union B's lifecycle/persistence changes with core's identity fields/constructor
+and start guards in `remote.ts`, and retain both test sets. Gateway identity
+`publicInfo` changes coexist with B's strict restore validation, pinned-capacity
+admission, uncertain missing-status response and grant/lease authorization.
+Use core's latest shared-client/contracts/package metadata/mobile compatibility
+adapters. Do not reintroduce anonymous route merging or receipt resubmission.
+
+No known core-specific safety issue remains from this review. Integrated wide
+checks/builds and the independent final security snapshot review belong to the
+coordinator. Hardware/service gates above remain unverified. Protocol v1 has
+bounded retained receipts: arbitrary direct replay of a very old forgotten key
+by an old cached client cannot be certified exactly-once without a new negotiated
+reservation/epoch protocol. Independent origins have no credential failover.
