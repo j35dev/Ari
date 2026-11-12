@@ -1773,10 +1773,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                               poolId={paneId}
                               sessionId={current}
                               hidden={!visible}
-                              render={(sessionId, hidden) => (
+                              render={(sessionId, hidden) => {
+                                const scope = parseSessionViewKey(sessionId)
+                                if (!scope) return <div className="p-4 text-sm text-fg-muted" role="status">This saved session scope is unavailable.</div>
+                                return (
                                 <SessionView
-                                  sessionId={parseSessionViewKey(sessionId)?.sessionId ?? sessionId}
-                                  scope={parseSessionViewKey(sessionId) ?? undefined}
+                                  sessionId={scope.sessionId}
+                                  scope={scope}
                                   onOpenAria={() => openAria()}
                                   startedByAria={ariaStartedIds.has(sessionId)}
                                   hidden={hidden}
@@ -1805,7 +1808,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   parentSession={(() => { const parent = parentOf(navigation.sessions, sessionId)
                                     return parent ? { ...parent, id: parseSessionViewKey(parent.id)?.sessionId ?? parent.id } : null })()}
                                 />
-                              )}
+                              )}}
                             />
                           )}
                           renderBlank={(paneId) => renderProjectDraft(space.id, paneId)}

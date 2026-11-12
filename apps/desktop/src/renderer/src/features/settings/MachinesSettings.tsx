@@ -267,11 +267,13 @@ function MachineRow({
           </div>
           <p className="mt-1 truncate text-xs text-fg-muted">{machine.routes[0]?.origin}</p>
           <p className="mt-1 text-xs text-fg-subtle">
-            {machine.identity?.ariVersion
-              ? `Ari ${machine.identity.ariVersion}`
+            {inventory?.version?.ariVersion || machine.identity?.ariVersion
+              ? `Ari ${inventory?.version?.ariVersion ?? machine.identity?.ariVersion}`
               : 'Version unavailable'}{' '}
             · {machine.allowTerminal ? 'Terminal granted' : 'Terminal not granted'}
           </p>
+          {inventory?.version && <p className="mt-1 text-xs text-fg-subtle">{inventory.version.hostingMode === 'headless' ? 'Headless host' : 'Desktop host'} · {inventory.version.update.guidance}</p>}
+          {machine.status === 'incompatible' && !inventory?.version && <p className="mt-1 text-xs text-fg-subtle">Update Ari in Settings on this host, then reconnect.</p>}
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
