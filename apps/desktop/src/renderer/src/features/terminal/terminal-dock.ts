@@ -226,9 +226,16 @@ export function bindRemoteTerminalTab(
 
 /** Dispose presentation on revoke/removal; original submission receipts live separately. */
 export function forgetMachineTerminals(machineId: string): void {
-  const tabs = state.tabs.filter((tab) => tab.owner?.kind !== 'remote' || tab.owner.machineId !== machineId)
+  const tabs = state.tabs.filter(
+    (tab) => tab.owner?.kind !== 'remote' || tab.owner.machineId !== machineId,
+  )
   if (tabs.length === state.tabs.length) return
-  commit({ tabs, activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : (tabs[0]?.id ?? null) })
+  commit({
+    tabs,
+    activeId: tabs.some((tab) => tab.id === state.activeId)
+      ? state.activeId
+      : (tabs[0]?.id ?? null),
+  })
 }
 
 /**

@@ -181,7 +181,10 @@ describe('terminal-dock', () => {
     const before = terminalDockState()
     bindRemoteTerminalTab(id, owner, 'host-term')
     expect(terminalDockState()).toBe(before)
-    for (const foreign of [{ ...owner, machineId: 'machine-b' }, { ...owner, sessionId: 'sess_b' }])
+    for (const foreign of [
+      { ...owner, machineId: 'machine-b' },
+      { ...owner, sessionId: 'sess_b' },
+    ])
       expect(() => bindRemoteTerminalTab(id, foreign, 'host-term')).toThrow('another host')
     expect(() => bindRemoteTerminalTab(id, owner, 'different-term')).toThrow('another host')
     expect(() => bindRemoteTerminalTab(id, owner, '')).toThrow('another host')
@@ -200,26 +203,44 @@ describe('terminal-dock', () => {
   })
 
   it('never restores a damaged remote binding as a local shell', async () => {
-    localStorage.setItem(TERMINAL_DOCK_STORAGE_KEY, JSON.stringify({
-      tabs: [
-        { id: 'term_legacy', title: 'local', cwd: '/repo' },
-        { id: 'rterm_missing', title: 'remote', cwd: '/repo' },
-        { id: 'term_bad', title: 'remote', cwd: '/repo', owner: { kind: 'remote', machineId: 'a' } },
-        { id: 'term_unknown', title: 'remote', cwd: '/repo', owner: { kind: 'other' } },
-        { id: 'term_misbound', title: 'local', cwd: '/repo', hostTerminalId: 'host-term' },
-      ], activeId: 'rterm_missing',
-    }))
+    localStorage.setItem(
+      TERMINAL_DOCK_STORAGE_KEY,
+      JSON.stringify({
+        tabs: [
+          { id: 'term_legacy', title: 'local', cwd: '/repo' },
+          { id: 'rterm_missing', title: 'remote', cwd: '/repo' },
+          {
+            id: 'term_bad',
+            title: 'remote',
+            cwd: '/repo',
+            owner: { kind: 'remote', machineId: 'a' },
+          },
+          { id: 'term_unknown', title: 'remote', cwd: '/repo', owner: { kind: 'other' } },
+          { id: 'term_misbound', title: 'local', cwd: '/repo', hostTerminalId: 'host-term' },
+        ],
+        activeId: 'rterm_missing',
+      }),
+    )
     vi.resetModules()
     const reloaded = await import('./terminal-dock')
     expect(reloaded.terminalDockState()).toEqual({
-      tabs: [{ id: 'term_legacy', title: 'local', cwd: '/repo' }], activeId: 'term_legacy',
+      tabs: [{ id: 'term_legacy', title: 'local', cwd: '/repo' }],
+      activeId: 'term_legacy',
     })
   })
 
   it('revocation removes only the affected host tabs, preserving other hosts and local shells', () => {
     const local = openTerminalTab({ title: 'local', cwd: '/repo' })
-    const b = openTerminalTab({ title: 'b', cwd: '.', owner: { kind: 'remote', machineId: 'b', sessionId: 's' } })
-    openTerminalTab({ title: 'a', cwd: '.', owner: { kind: 'remote', machineId: 'a', sessionId: 's' } })
+    const b = openTerminalTab({
+      title: 'b',
+      cwd: '.',
+      owner: { kind: 'remote', machineId: 'b', sessionId: 's' },
+    })
+    openTerminalTab({
+      title: 'a',
+      cwd: '.',
+      owner: { kind: 'remote', machineId: 'a', sessionId: 's' },
+    })
     forgetMachineTerminals('a')
     expect(terminalDockState().tabs.map((tab) => tab.id)).toEqual([local, b])
     expect(terminalDockState().activeId).toBe(local)
