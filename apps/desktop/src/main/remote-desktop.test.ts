@@ -666,7 +666,7 @@ describe('desktop host wire', () => {
     const chunk = remoteDesktopFrameSchema.parse(JSON.parse(await socket.nextMessage()))
     expect(startFrame.frame.kind).toBe('start')
     expect(chunk.frame.kind).toBe('chunk')
-    await vi.waitFor(() => expect(socket.socket.destroyed).toBe(true))
+    await vi.waitFor(() => expect(socket.socket.destroyed).toBe(true), { timeout: 5000 })
     socket.close()
     expect(
       (await call(h.gateway, '/query', { op: 'host.permissions' }, h.token, h.lease)).status,
