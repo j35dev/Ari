@@ -21,6 +21,8 @@ import { RemoteIntegration } from './remote-integration'
 import { loadMachineIdentity, type HostIdentity } from './machine-identity'
 
 const log = createLogger('desktop:remote')
+const IDENTITY_ERROR =
+  'The saved host identity could not be read or securely persisted. Its existing data has been preserved; restore it from a backup and restart Ari before enabling remote access.'
 
 /**
  * Remote access, on the desktop side (ADR §5, §9).
@@ -83,7 +85,7 @@ export interface RemoteServiceDeps {
 
 export class RemoteService {
   readonly #deps: RemoteServiceDeps
-  readonly #identity: HostIdentity
+  readonly #identity: HostIdentity | null
   #gateway: RemoteGateway | null = null
   #managedGateway: RemoteGateway | null = null
   #managedClientUrl: string | null = null
@@ -99,7 +101,15 @@ export class RemoteService {
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
-    this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
+    try {
+      this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
+    } catch {
+      // Host identity is required for remote access, not for local RPC startup.
+      // Never replace unreadable identity data or publish a temporary identity.
+      this.#identity = null
+      this.#error = IDENTITY_ERROR
+      log.warn('host machine identity unavailable; remote access disabled')
+    }
     this.#integration = new RemoteIntegration(
       new ManagedWorkspaces(join(dirname(deps.dir), 'worktrees')),
       deps.engine,
@@ -123,6 +133,10 @@ export class RemoteService {
   /** Starts the gateway and records that remote access is on. */
   async start(port?: number): Promise<RemoteState> {
     if (port !== undefined) this.#port = port
+    if (this.#identity === null) {
+      this.#error = IDENTITY_ERROR
+      return this.#changed()
+    }
     if (this.#gateway !== null) return this.state()
     this.#error = null
     try {
@@ -213,6 +227,11 @@ export class RemoteService {
     computerId: string
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
+    if (this.#identity === null) {
+      this.#error = IDENTITY_ERROR
+      this.#changed()
+      return null
+    }
     if (!this.running) await this.start()
     if (!this.running) return null
     await this.stopManaged()

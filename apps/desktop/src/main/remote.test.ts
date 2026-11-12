@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { exec } from 'node:child_process'
 import type * as ChildProcess from 'node:child_process'
+import type * as FileSystem from 'node:fs'
 import type { RemoteState } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
 import type { Engine } from './engine'
@@ -15,6 +16,11 @@ import { RemoteService, type RemoteServiceDeps } from './remote'
 import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
+
+vi.mock('node:fs', async (importOriginal) => {
+  const original = await importOriginal<typeof FileSystem>()
+  return { ...original, writeFileSync: vi.fn(original.writeFileSync) }
+})
 
 // Native terminal factories below are fakes and authorize no real PID kills.
 vi.mock('node:child_process', async (importOriginal) => ({
@@ -164,6 +170,29 @@ async function pair(
 }
 
 describe('remote service lifecycle', () => {
+  it('preserves corrupt host identity and refuses both listeners without aborting local startup', async () => {
+    const dir = tempDir('ari-identity-corrupt-')
+    const path = join(dir, 'identity.json')
+    writeFileSync(path, '{broken')
+    const { service } = makeService({ dir })
+    expect(service.state()).toMatchObject({ enabled: false, origin: null, error: expect.stringMatching(/host identity/) })
+    expect(await service.start()).toMatchObject({ enabled: false, origin: null, error: expect.stringMatching(/preserved/) })
+    expect(await service.startManaged({ port: 0, issuer: 'https://broker.test', hostname: 'host.test', computerId: 'host', verifier: () => null })).toBeNull()
+    expect(service.invite().invitation).toBeNull()
+    expect(readFileSync(path, 'utf8')).toBe('{broken')
+  })
+
+  it('refuses to host with an unpersisted first identity after a write failure', async () => {
+    const dir = tempDir('ari-identity-write-')
+    vi.mocked(writeFileSync).mockImplementationOnce(() => { throw new Error('fixture first identity write failure') })
+    const { service } = makeService({ dir })
+    expect(service.state().error).toMatch(/host identity/)
+    expect(await service.start()).toMatchObject({ enabled: false, origin: null })
+    expect(await service.startManaged({ port: 0, issuer: 'https://broker.test', hostname: 'host.test', computerId: 'host', verifier: () => null })).toBeNull()
+    expect(readdirSync(dir)).toEqual([])
+    expect(service.state().error).not.toMatch(/fixture/)
+  })
+
   it('is off until it is started, and says where it listens once it is', async () => {
     const { service } = makeService()
     expect(service.state().enabled).toBe(false)
