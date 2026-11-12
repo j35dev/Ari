@@ -157,6 +157,15 @@ include a deterministic sanitized turn diff and the actual ScopedTitlebar host
 label. Permissions captures scroll the selected tab into view and wait for its
 paint. Fixture history uses fixed November 2026 dates.
 
+Final focused UI run: **168/168 passed** across Composer, ProjectDraft,
+MachineNavigation, Auto policy, Sidebar and App first-send tests (single worker,
+no file parallelism). Earlier App navigation/first-send migration failures were
+fixed and its affected suite passed. The coordinator reports all ten package
+typechecks passed on `7b11fd89`; owned renderer source is byte-identical to that
+snapshot. Final fixture build and capture both passed. The committed evidence
+contains **16 light/dark PNGs** (14 views and two sidebar crops), visible open-menu
+assertions, no horizontal overflow, no mutation RPC and no renderer console errors.
+
 All authored code/install/build activity remains in the assigned D: worktree.
 Heavy checks use the shared below-normal lease runner, one test worker and no
 file parallelism. No installed profile, real host, Serve/Tailscale settings,
