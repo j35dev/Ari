@@ -21,7 +21,12 @@ export function MachinesSettings({
   onOpenMachine?: (machineId: string) => void
   onHosting?: () => void
 }) {
-  const { machines, error, refresh, preferences, refreshInventory, inventories } = useMachines()
+  const { machines, error, refresh, preferences, refreshInventory, inventories, localModels } = useMachines()
+  const availableCount = Number(localModels?.providers.some((provider) => provider.available !== false && provider.installed !== false &&
+    provider.authStatus !== 'unauthenticated' && provider.models.length > 0) === true) + machines.filter((machine) =>
+    machine.status === 'connected' && machine.versionReady !== false && machine.permissionsReady !== false &&
+    inventories.get(machine.id)?.permissions && inventories.get(machine.id)?.catalog?.providers.some((provider) =>
+      provider.available !== false && provider.installed !== false && provider.authStatus !== 'unauthenticated' && provider.models.length > 0)).length
   const [address, setAddress] = useState('')
   const [peers, setPeers] = useState<MachineDiscovery[]>([])
   const [busy, setBusy] = useState(false)
@@ -112,8 +117,7 @@ export function MachinesSettings({
           </div>
         ))}
       </section>
-      {machines.some((machine) => machine.status === 'connected' && machine.versionReady !== false &&
-        inventories.get(machine.id)?.catalog?.providers.some((provider) => provider.available !== false && provider.models.length > 0)) && (
+      {availableCount >= 2 && (
         <section aria-labelledby="machines-auto" className="space-y-3">
           <h2 id="machines-auto" className="text-sm font-medium">Auto and machine preferences</h2>
           <label className="flex items-center gap-2 text-sm">
