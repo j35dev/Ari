@@ -328,7 +328,7 @@ export class AriaWidget {
       this.token = this.lease.acquire()
       this.destination = ariaAction === 'down' ? 'aria' : 'dictation'
       this.deps.voice?.stop()
-      if (this.destination === 'aria') this.deps.voice?.warm()
+      if (this.destination === 'aria' && this.settings?.ariaVoice?.mode !== 'off' && this.settings?.ariaVoice?.engine !== 'groq') this.deps.voice?.warm()
       this.recoveryDelay = 1_000
       if (this.destination === 'dictation') {
         const id = this.hold.state.id

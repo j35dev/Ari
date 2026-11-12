@@ -214,6 +214,7 @@ export class SpeechService {
         if (
           this.#engine === 'ready' &&
           this.#settings.current.speech.enabled &&
+          this.#settings.current.speech.provider !== 'groq' &&
           model?.installed &&
           model.installed.path === this.#settings.current.speech.modelPath &&
           this.#validated !== model.installed.path &&

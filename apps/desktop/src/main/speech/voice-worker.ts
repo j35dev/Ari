@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { ARIA_LEXICON, lexiconWords, prepareKokoro } from './pronunciation'
 import { KOKORO_FILES } from './voice-model'
+import { acceleratedVoiceProvider, fasterVoiceProvider } from './voice-provider'
 import { verifyDownload } from './download'
 
 interface Tts {
@@ -37,17 +38,31 @@ async function load(path: string): Promise<void> {
   const sherpa = require('sherpa-onnx-node') as Sherpa
   // Published 2.0.1 binaries are CPU builds. Only offer a provider if its native entry point exists.
   // No acceleration is claimed merely because the machine has a GPU or NPU.
-  const provider = 'cpu'
-  tts = await sherpa.OfflineTts.createAsync({
-    model: { kokoro: { model: join(path, 'model.onnx'), voices: join(path, 'voices.bin'), tokens: join(path, 'tokens.txt'), lexicon: lexiconPath }, numThreads: threads, provider, debug: 0 },
+  let provider: string = 'cpu'
+  const accelerator = await acceleratedVoiceProvider()
+  if (cached?.signature === signature && cached.hardware.provider === accelerator) provider = accelerator ?? 'cpu'
+  const create = (selected: string) => sherpa.OfflineTts.createAsync({
+    model: { kokoro: { model: join(path, 'model.onnx'), voices: join(path, 'voices.bin'), tokens: join(path, 'tokens.txt'), lexicon: lexiconPath }, numThreads: threads, provider: selected, debug: 0 },
     maxNumSentences: 1,
   })
+  tts = await create(provider)
   loadedPath = path
   const start = performance.now()
-  const audio = await tts.generateAsync({ text: prepareKokoro('The changes are ready for you to review.', words).text, sid: 3, speed: 1 })
+  let audio = await tts.generateAsync({ text: prepareKokoro('The changes are ready for you to review.', words).text, sid: 3, speed: 1 })
+  let measuredMs = performance.now() - start
+  if (accelerator && cached?.signature !== signature) {
+    try {
+      const candidate = await create(accelerator)
+      await candidate.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1 })
+      const trial = performance.now()
+      const candidateAudio = await candidate.generateAsync({ text: 'The changes are ready for you to review.', sid: 3, speed: 1 })
+      const candidateMs = performance.now() - trial
+      if (fasterVoiceProvider(measuredMs, candidateMs)) { tts = candidate; provider = accelerator; measuredMs = candidateMs; audio = candidateAudio }
+    } catch { /* A provider may be compiled in but unavailable on this hardware. Keep CPU. */ }
+  }
   if (cached?.signature === signature) hardware = cached.hardware
   else {
-    const firstAudioMs = performance.now() - start
+    const firstAudioMs = measuredMs
     const rtf = firstAudioMs / (audio.samples.length / audio.sampleRate * 1000)
     hardware = { threads, ramGB: Math.round(totalmem() / 2 ** 30), logicalCores, provider, rtf, firstAudioMs, slow: rtf >= 1 }
     await writeFile(join(path, 'hardware.json'), JSON.stringify({ signature, hardware }))
