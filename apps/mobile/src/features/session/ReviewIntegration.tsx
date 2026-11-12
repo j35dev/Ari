@@ -3,7 +3,6 @@ import type { RemoteIntegrationPreview } from '@ari/contracts/remote'
 import { GitMerge } from 'lucide-react'
 import { BottomSheet } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
-import { RemoteError } from '../../lib/gateway-client'
 import { checkCommandReceipt } from '../../lib/command-receipt'
 import {
   readIntegration,
@@ -109,12 +108,12 @@ export function ReviewIntegration({
       setUncertain(false)
     } catch (error) {
       if (!alive.current) return
-      setFailure(messageOf(error))
-      if (error instanceof RemoteError && !['unreachable', 'internal_error'].includes(error.code)) {
-        setReviewed(null)
-        setUncertain(false)
-        writeIntegration(app.origin, deviceId, sessionId, null)
-      } else setUncertain(true)
+      // The host can report conflict after applying files if its journal write
+      // fails. Only a confirmed result above proves whether changes were applied.
+      setFailure(
+        `${messageOf(error)} The integration outcome is unknown. Inspect the parent workspace and check this receipt before submitting again.`,
+      )
+      setUncertain(true)
     } finally {
       if (alive.current) setBusy(false)
     }
