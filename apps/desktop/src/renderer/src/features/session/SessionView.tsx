@@ -28,7 +28,7 @@ import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/c
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
 import { resolveOfferedModel } from '@ari/providers/catalogs'
-import { rpc } from '../../lib/rpc'
+import { SessionClientProvider, createSessionClient, useSessionClient, sessionViewKey, type SessionScope } from './session-client'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
@@ -39,7 +39,6 @@ import {
   type ComposerSeed,
   type QueuedMessageView,
 } from '../composer/Composer'
-import { stageImages } from '../composer/stage-images'
 import { readSessionDraftText } from '../composer/use-drafts'
 import {
   imageIntent,
@@ -243,7 +242,27 @@ export interface SessionDefaults {
  * journal replay through the same stream live events use, so there is exactly
  * one fold path and no load/replay race.
  */
-export function SessionView({
+export function SessionView(props: Parameters<typeof SessionViewContent>[0] & { scope?: SessionScope }) {
+  const inherited = useSessionClient()
+  const scope = props.scope ?? (inherited.scope.sessionId === props.sessionId ? inherited.scope : { kind: 'local' as const, sessionId: props.sessionId })
+  if (scope.sessionId !== props.sessionId) throw new Error('SessionView requires the scoped wire session id.')
+  const client = useMemo(() => createSessionClient(scope), [scope.kind, scope.sessionId, scope.kind === 'remote' ? scope.machineId : null])
+  const keyOf = (id: string) => scope.kind === 'remote' ? sessionViewKey({ ...scope, sessionId: id }) : id
+  return <SessionClientProvider client={client}>
+    <ScopedSessionView {...props}
+      onOpenSession={props.onOpenSession ? (id) => props.onOpenSession?.(keyOf(id)) : undefined}
+      sessionTitle={props.sessionTitle ? (id) => props.sessionTitle?.(keyOf(id)) : undefined}
+      activityOf={props.activityOf ? (id) => props.activityOf?.(keyOf(id)) : undefined}
+    />
+  </SessionClientProvider>
+}
+
+function ScopedSessionView(props: Parameters<typeof SessionViewContent>[0]) {
+  const client = useSessionClient()
+  return <SessionViewContent key={`${client.viewKey}:${client.authorizationEpoch}`} {...props} />
+}
+
+function SessionViewContent({
   sessionId,
   defaults,
   onDefaultsChange,
@@ -282,7 +301,22 @@ export function SessionView({
   /** Used only by the shell's explicit session-start handoff. */
   onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
-  const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  const rpc = useSessionClient()
+  const viewKey = rpc.viewKey
+  const remote = rpc.scope.kind === 'remote'
+  const [hostCatalog, setHostCatalog] = useState<import('@ari/contracts/remote').RemoteModelCatalog | null>(null)
+  useEffect(() => {
+    if (rpc.scope.kind !== 'remote' || rpc.readOnly) return
+    let cancelled = false
+    void import('./session-client').then(({ readHostModelCatalog }) => readHostModelCatalog(rpc.scope.kind === 'remote' ? rpc.scope.machineId : '')).then((catalog) => { if (!cancelled) setHostCatalog(catalog) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [rpc, rpc.availability])
+  const [, setReceiptRevision] = useState(0)
+  let receiptPending = false
+  let receiptError: string | null = null
+  try { receiptPending = rpc.receipt() !== null } catch (error) { receiptPending = true; receiptError = error instanceof Error ? error.message : 'Submission evidence is unreadable.' }
+  const hostBlocked = remote && (rpc.readOnly || receiptPending)
+  const store = useMemo(() => transcriptStore(viewKey), [viewKey])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
@@ -321,8 +355,8 @@ export function SessionView({
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
-  const draftIntent = useSessionDraftIntent(sessionId)
-  const sendPending = draftIntent.pendingId !== undefined
+  const draftIntent = useSessionDraftIntent(viewKey)
+  const sendPending = draftIntent.pendingId !== undefined || hostBlocked
   const viewMountedRef = useRef(true)
   useEffect(() => {
     viewMountedRef.current = true
@@ -340,7 +374,7 @@ export function SessionView({
   const [planNonce, setPlanNonce] = useState(0)
   // Review notes (M21.1): inline diff comments and review ranges attached to
   // the next message. They live in session storage so a reload keeps them.
-  const reviewNotes = useReviewDrafts(sessionId)
+  const reviewNotes = useReviewDrafts(viewKey)
   const elementPicks = draftIntent.picks
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
@@ -412,7 +446,7 @@ export function SessionView({
       .invoke('providers.models')
       .then(setCatalogModels)
       .catch(() => undefined)
-  }, [sessionId])
+  }, [sessionId, rpc, rpc.availability])
 
   // Window size for the meter: what the provider measured, else the session
   // model's contextHint from the live catalog. Neither → used-count-only chip.
@@ -566,7 +600,7 @@ export function SessionView({
           const buffered = liveBufferRef.current
           liveBufferRef.current = []
           for (const event of buffered.sort((a, b) => a.seq - b.seq)) ingest(event, true)
-          history.finish(frame.replayOutcome !== 'incomplete')
+          history.finish(frame.replayOutcome !== 'incomplete', (frame as SessionEventFrame & { replayMode?: 'full' | 'resume' }).replayMode)
           const { model, telemetry, settledTurnIds } = history.controls()
           settledTurnIdsRef.current = settledTurnIds
           for (const turnId of turnsInView)
@@ -685,14 +719,15 @@ export function SessionView({
             messages?: Message[]
             lastTurn?: unknown
             providerSessionId?: string | null
+            context?: { hasMessages: boolean; hasTurns: boolean; hasProviderContext: boolean }
           }
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
           setWorkspaceInfo({ sessionId, workspace: m.session.workspace })
           setMetadataFailureSession(null)
           setProviderSwitchable(canSwitchProvider(m.session))
           setProviderContext((previous) => ({
-            hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0,
-            hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn !== undefined,
+            hasMessages: previous.hasMessages || (m.messages?.length ?? 0) > 0 || m.context?.hasMessages === true,
+            hasTurns: previous.hasTurns || m.activeTurnId !== null || m.lastTurn != null || m.context?.hasTurns === true,
             providerSessionId: m.providerSessionId ?? previous.providerSessionId,
           }))
           setMetadataReadySession(sessionId)
@@ -726,7 +761,7 @@ export function SessionView({
       unsubscribe?.()
       retiring?.stop()
     }
-  }, [sessionId, store, turnsInView])
+  }, [sessionId, store, turnsInView, rpc, rpc.availability])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
@@ -1003,15 +1038,18 @@ export function SessionView({
           return true
         })
         .catch((err: unknown) => {
-          fail(err instanceof Error ? err.message : String(err), true)
+          let uncertain = !remote
+          if (remote) { try { uncertain = rpc.receipt() !== null } catch { uncertain = true } }
+          fail(err instanceof Error ? err.message : String(err), uncertain)
           return false
         })
+        .finally(() => setReceiptRevision((value) => value + 1))
     },
-    [toast],
+    [toast, rpc, remote],
   )
 
   const rememberUnsent = useCallback((message: Omit<UnsentMessage, 'id'>) => {
-    updateSessionDraftIntent(message.sessionId, (state) => ({
+    updateSessionDraftIntent(viewKey, (state) => ({
       ...state,
       recoveries: [
         ...state.recoveries,
@@ -1023,28 +1061,29 @@ export function SessionView({
         },
       ],
     }))
-  }, [])
+  }, [viewKey])
 
   const recoverMessage = useCallback(
     (message: ComposerRecovery, current: ComposerDraft, focus: boolean): boolean => {
       if (
+        hostBlocked ||
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        readSessionDraftIntent(sessionId).pendingId
+        readSessionDraftIntent(viewKey).pendingId
       )
         return false
-      const state = readSessionDraftIntent(sessionId)
+      const state = readSessionDraftIntent(viewKey)
       const saved = state.recoveries.find((entry) => entry.id === message.id)
       if (!saved) return false
       const latest = {
         ...current,
-        text: readSessionDraftText(sessionId),
+        text: readSessionDraftText(viewKey),
         files: state.images.flatMap((image) => (image.file ? [image.file] : [])),
         images: state.images,
       }
       if (!focus && (latest.text.length > 0 || latest.images.length > 0)) return false
-      const notes = readReviewDrafts(sessionId)
-      const picks = browserPicksState(sessionId)
+      const notes = readReviewDrafts(viewKey)
+      const picks = browserPicksState(viewKey)
       const remaining = state.recoveries.filter((entry) => entry.id !== saved.id)
       if (
         latest.text.length > 0 ||
@@ -1062,7 +1101,7 @@ export function SessionView({
           reattachRequired: state.reattachRequired,
         })
       }
-      updateSessionDraftIntent(sessionId, (prev) => ({
+      updateSessionDraftIntent(viewKey, (prev) => ({
         ...prev,
         images: saved.images,
         picks: saved.picks,
@@ -1070,19 +1109,19 @@ export function SessionView({
         delivery: saved.delivery === 'uncertain' ? 'uncertain' : undefined,
         reattachRequired: saved.reattachRequired,
       }))
-      writeReviewDrafts(sessionId, saved.notes)
+      writeReviewDrafts(viewKey, saved.notes)
       setComposerSeed((prev) => ({
         text: saved.text,
         files: saved.files,
         images: saved.images,
-        sessionId,
+        sessionId: viewKey,
         nonce: (prev?.nonce ?? 0) + 1,
         replaceFiles: true,
         focus,
       }))
       return true
     },
-    [sessionId],
+    [sessionId, viewKey, hostBlocked],
   )
 
   const recoveries = useMemo(
@@ -1100,15 +1139,16 @@ export function SessionView({
     ): boolean => {
       // Reserve synchronously: repeated Enter/clicks can precede React's render.
       if (
+        hostBlocked ||
         hiddenRef.current ||
         sessionIdRef.current !== sessionId ||
-        readSessionDraftIntent(sessionId).pendingId
+        readSessionDraftIntent(viewKey).pendingId
       )
         return false
       // Snapshot context before asynchronous image preparation. New notes/picks
       // belong to the next draft, including when another session becomes active.
-      const notes = fromComposer ? readReviewDrafts(sessionId) : []
-      const picks = fromComposer ? browserPicksState(sessionId) : []
+      const notes = fromComposer ? readReviewDrafts(viewKey) : []
+      const picks = fromComposer ? browserPicksState(viewKey) : []
       const composerImages = images ?? files.map(imageIntent)
       const pickImages = picks.flatMap((pick) =>
         pick.imageIntent ? [pick.imageIntent] : pick.image ? [imageIntent(pick.image)] : [],
@@ -1123,7 +1163,7 @@ export function SessionView({
         })
         return false
       }
-      const state = readSessionDraftIntent(sessionId)
+      const state = readSessionDraftIntent(viewKey)
       if (fromComposer && state.reattachRequired) return false
       if (fromComposer && state.recoveries.length >= MAX_RECOVERIES) {
         toast({
@@ -1134,7 +1174,7 @@ export function SessionView({
         return false
       }
       const receiptId = crypto.randomUUID()
-      updateSessionDraftIntent(sessionId, (prev) => ({
+      updateSessionDraftIntent(viewKey, (prev) => ({
         ...prev,
         pendingId: receiptId,
         recoveries: fromComposer
@@ -1153,17 +1193,17 @@ export function SessionView({
             ]
           : prev.recoveries,
       }))
-      if (fromComposer) takeBrowserPicks(sessionId)
+      if (fromComposer) takeBrowserPicks(viewKey)
       const elementBlock = promptForPicks(picks)
       const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
-      if (notes.length > 0) writeReviewDrafts(sessionId, [])
+      if (notes.length > 0) writeReviewDrafts(viewKey, [])
       const restoreDraft = (_reason?: string, uncertain = false): void => {
         // Regenerate/retry already has its complete message in the transcript.
         // Recovery never merges a failed message into a newer draft.
         if (fromComposer)
-          updateSessionDraftIntent(sessionId, (prev) => ({
+          updateSessionDraftIntent(viewKey, (prev) => ({
             ...prev,
             recoveries: prev.recoveries.map((entry) =>
               entry.id === receiptId
@@ -1190,7 +1230,7 @@ export function SessionView({
         const filesToStage = checked.flatMap((image) =>
           !image.ref && image.file ? [image.file] : [],
         )
-        const refs = filesToStage.length ? await stageImages(filesToStage) : []
+        const refs = filesToStage.length ? await rpc.stageImages(filesToStage) : []
         if (refs.length !== filesToStage.length)
           throw new Error('Some images were not staged. Your message has been saved.')
         let index = 0
@@ -1199,7 +1239,7 @@ export function SessionView({
       void prepared
         .then(
           (staged) => {
-            if (readSessionDraftIntent(sessionId).pendingId !== receiptId) return false
+            if (readSessionDraftIntent(viewKey).pendingId !== receiptId) return false
             const refs = [
               ...attachments,
               ...staged.flatMap((image) => (image.ref ? [image.ref] : [])),
@@ -1208,7 +1248,7 @@ export function SessionView({
             const stagedPicks = picks.map((pick) =>
               pick.image || pick.imageIntent ? { ...pick, imageIntent: staged[pickIndex++] } : pick,
             )
-            updateSessionDraftIntent(sessionId, (prev) => ({
+            updateSessionDraftIntent(viewKey, (prev) => ({
               ...prev,
               recoveries: prev.recoveries.map((entry) =>
                 entry.id === receiptId
@@ -1243,7 +1283,7 @@ export function SessionView({
               restoreDraft,
             ).then((accepted) => {
               if (accepted)
-                updateSessionDraftIntent(sessionId, (prev) => ({
+                updateSessionDraftIntent(viewKey, (prev) => ({
                   ...prev,
                   recoveries: prev.recoveries.filter((entry) => entry.id !== receiptId),
                 }))
@@ -1258,7 +1298,7 @@ export function SessionView({
             })
           },
           (err: unknown) => {
-            restoreDraft()
+            restoreDraft(undefined, remote && rpc.receipt() !== null)
             if (
               viewMountedRef.current &&
               !hiddenRef.current &&
@@ -1274,13 +1314,14 @@ export function SessionView({
           },
         )
         .finally(() => {
-          updateSessionDraftIntent(sessionId, (prev) =>
+          setReceiptRevision((value) => value + 1)
+          updateSessionDraftIntent(viewKey, (prev) =>
             prev.pendingId === receiptId ? { ...prev, pendingId: undefined } : prev,
           )
         })
       return true
     },
-    [sessionId, running, dispatch, toast],
+    [sessionId, viewKey, hostBlocked, remote, rpc, running, dispatch, toast],
   )
 
   const handleSend = useCallback(
@@ -1338,7 +1379,7 @@ export function SessionView({
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
     (comment: { path: string; line: number | null; text: string }) => {
-      appendReviewNote(sessionId, comment)
+      appendReviewNote(viewKey, comment)
     },
     [sessionId],
   )
@@ -1384,7 +1425,7 @@ export function SessionView({
   const handleEditQueued = useCallback(
     (message: QueuedMessageView) => {
       if (message.attachments.length > 0) return
-      if (readSessionDraftIntent(sessionId).recoveries.length >= MAX_RECOVERIES) return
+      if (readSessionDraftIntent(viewKey).recoveries.length >= MAX_RECOVERIES) return
       // The draft changes only after the engine accepts the dequeue. Applying
       // it first wipes an in-progress draft when the row was already sent.
       void dispatch(
@@ -1407,7 +1448,7 @@ export function SessionView({
   // edit does; sending then starts a new turn through the normal send path.
   const handleEditMessage = useCallback(
     (text: string) => {
-      setComposerSeed((prev) => ({ text, sessionId, nonce: (prev?.nonce ?? 0) + 1 }))
+      setComposerSeed((prev) => ({ text, sessionId: viewKey, nonce: (prev?.nonce ?? 0) + 1 }))
     },
     [sessionId],
   )
@@ -1653,19 +1694,18 @@ export function SessionView({
   const stopChildren = useCallback(() => {
     if (stoppingChildren) return
     setStoppingChildren(true)
-    void rpc
-      .invoke('orchestration.stop', {
+    void (remote ? rpc.invoke('session.stopChildren', { sessionId }) : rpc.invoke('orchestration.stop', {
         sessionId,
         tree: true,
         idempotencyKey: (stopChildrenKeyRef.current ??= `work_${crypto.randomUUID()}`),
-      })
+      }))
       .then(() => {
         stopChildrenKeyRef.current = null
         refreshTasksRef.current()
       })
       .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
       .finally(() => setStoppingChildren(false))
-  }, [sessionId, toast, stoppingChildren])
+  }, [sessionId, rpc, remote, toast, stoppingChildren])
 
   useEffect(() => {
     if (childSessions.length > 0) refreshTasksRef.current()
@@ -1747,7 +1787,7 @@ export function SessionView({
         onReady={
           !hidden && centered && metadataReadySession === sessionId ? onComposerReady : undefined
         }
-        sessionId={sessionId}
+        sessionId={viewKey}
         onSend={handleSend}
         sendPending={sendPending}
         recoveries={recoveries}
@@ -1829,6 +1869,7 @@ export function SessionView({
         leading={
           <>
             <ModelSelector
+              hostCatalog={remote ? hostCatalog : undefined}
               driverKind={defaults.driverKind}
               modelId={defaults.modelId}
               onChange={changeModel}
@@ -1859,6 +1900,9 @@ export function SessionView({
     ),
     [
       centered,
+      viewKey,
+      remote,
+      hostCatalog,
       hidden,
       metadataReadySession,
       managedWorkspace,
@@ -1906,7 +1950,7 @@ export function SessionView({
   )
   const startFromStarter = useCallback(
     (text: string) => {
-      setComposerSeed({ text, sessionId, nonce: Date.now() })
+      setComposerSeed({ text, sessionId: viewKey, nonce: Date.now() })
     },
     [sessionId],
   )
@@ -1923,6 +1967,18 @@ export function SessionView({
           aria-hidden
         />
         <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+        {remote && (rpc.readOnly || receiptPending) ? (
+          <div role="status" className="mx-4 my-2 flex flex-wrap items-center gap-3 text-xs text-fg-muted">
+            <span>{receiptPending ? receiptError ?? 'Submission outcome is unknown. Check its original receipt before sending again.' : rpc.capabilityReason('events.desktop.subscribe') ?? 'Cached session. Reconnect to continue.'}</span>
+            <button type="button" className="rounded px-2 py-1 hover:bg-surface-1" onClick={() => {
+              void (receiptPending ? rpc.checkReceipt() : rpc.reconnect()).then(() => {
+                setReceiptRevision((value) => value + 1)
+                retryHistoryRef.current()
+                retryMetadataRef.current()
+              }).catch((error: unknown) => toast({ title: 'Could not confirm host state', description: error instanceof Error ? error.message : String(error), tone: 'danger' }))
+            }}>{receiptPending ? 'Check status' : 'Reconnect'}</button>
+          </div>
+        ) : null}
         {startedByAria ? (
           <button
             type="button"
@@ -1947,7 +2003,7 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
-            onUndoTurn={undoTurn}
+            onUndoTurn={remote ? undefined : undoTurn}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
             providerSwitches={providerSwitches}
@@ -2003,7 +2059,7 @@ export function SessionView({
             resume={turnResume}
           />
         ) : null}
-        <ElementChips picks={elementPicks} sessionId={sessionId} />
+        <ElementChips picks={elementPicks} sessionId={viewKey} />
         {reviewNotes.length > 0 ? (
           <div
             className="mx-4 mb-1 flex flex-wrap items-center gap-1"
@@ -2106,6 +2162,7 @@ export function EffortChip({
   effort: string | null
   onChange: (effort: string | null) => void
 }) {
+  const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [options, setOptions] = useState<EffortOption[]>([])
@@ -2321,6 +2378,7 @@ export function PermissionModeChip({
   mode: PermissionMode
   onChange: (mode: PermissionMode) => void
 }) {
+  const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
   const [discovered, setDiscovered] = useState<DiscoveredModeOption[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
