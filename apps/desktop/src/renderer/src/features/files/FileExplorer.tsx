@@ -253,7 +253,7 @@ export function FileExplorer({
     (event: React.DragEvent<HTMLButtonElement>, path: string): void => {
       setDragFilePath(event, relativeToRoot(root, path), rpc.viewKey)
     },
-    [root],
+    [root, rpc.viewKey],
   )
 
   const rootEntries = entries[root]
