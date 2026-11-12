@@ -139,7 +139,7 @@ it('Read aloud streams the written details, not only the authored automatic summ
 
 it('clears an old playback error on retry and publishes completion after successful audio', async () => {
   const { service, contents, child } = fixture()
-  const original = child.postMessage.getMockImplementation()!
+  const original = child.postMessage.getMockImplementation()! as (request: unknown) => void
   let fail = true
   child.postMessage.mockImplementation((request) => {
     if (request.kind === 'speak' && fail) {
