@@ -97,4 +97,31 @@ automatically. This wrote no branch or working files.
 `d7399052` (neutral dictation indicator) has no file overlap. Nothing was merged
 or written in the experiment worktree. The parent should run the final wide
 checks/build on the independently integrated branch; this fix stays separate
-from `feat/machines`.
+as an independent branch while the coordinator also integrates its commits into
+`feat/machines` (2026-11-12 takeover instruction supersedes the old exclusion).
+
+## Fresh independent review, 2026-11-12
+
+Starting tree: `89b22dbd`, clean; standalone base remains `6f018a75`.
+Reviewed physical folder admission, root acquisition, start races, inherited
+shared workspaces, approval/input resume, non-Git/unborn repositories, uncertain
+receipts, owned cleanup/restart retries, permission ceilings, CLI/human creation
+and the declared-worktree UI labels against source and focused regressions.
+
+Found and fixed a missing recovery case: `projects.ask` can now acquire a root
+worktree, but the durable error handler previously merged computed checkout
+identity only for `session.spawn`. A lost checkout acknowledgement on the lead
+path kept its session ID while losing the path/branch. Both methods now preserve
+that identity and permission ceiling through retries and reload; explicit cleanup
+still requires the original caller's receipt and current permission cap. The
+regression exercises both methods against real temporary Git repositories and a
+fake provider. Final focused checks pending at WIP commit.
+
+No local refs for PRs 514?516 were found; no fetch, push, PR or live Ari changes.
+The prior immutable Aria overlap review remains applicable. Registered uncertain
+human-created worktrees remain inspectable; human `session.create` lacks the
+Aria caller's durable operation receipt and does not automatically clean an
+unconfirmed registered checkout. Shared descendants resolve the inherited cwd
+correctly; current labels report declared ownership, so descendants declaring
+`project` do not get their parent's Worktree badge. Those existing UI/recovery
+limits are explicit and do not relax folder admission or cleanup ownership.
