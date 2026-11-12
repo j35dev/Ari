@@ -28,7 +28,7 @@ async function readLock(path = lockPath) {
 }
 async function acquire() {
   await mkdir(dirname(admissionPath), { recursive: true })
-  const gateStarted = Date.now()
+  let failedSince = null
   for (;;) {
     if (cancelled) throw new Error('Heavy step cancelled while waiting for its lease')
     let admission = null
@@ -41,6 +41,7 @@ async function acquire() {
         for (const path of lockPaths) await reclaim(path)
         const values = await resourceGate()
         const healthy = values.cFreeBytes >= 5 * 1024 ** 3 && values.commitHeadroomBytes >= 1.5 * 1024 ** 3
+        failedSince = healthy ? null : failedSince ?? Date.now()
         const capacity = values.commitHeadroomBytes >= 6 * 1024 ** 3 ? 2 : 1
         const occupied = await Promise.all(lockPaths.map((path) => readLock(path)))
         if (healthy && occupied.filter((value) => value !== null).length < capacity) {
@@ -50,7 +51,7 @@ async function acquire() {
           output({ heavyLock: 'acquired', slot: lockPath, capacity, ...owner })
           return
         }
-        if (!healthy && Date.now() - gateStarted >= 15 * 60_000) throw new Error('Resource gate remained below its floor for 15 minutes')
+        if (!healthy && Date.now() - failedSince >= 15 * 60_000) throw new Error('Resource gate remained below its floor for 15 minutes')
         if (healthy) output({ heavyLock: 'waiting', capacity, owners: occupied })
         else output({ resourceGate: 'waiting-thirty-seconds' })
       } finally {
@@ -65,11 +66,17 @@ async function reclaim(path) {
   const observed = await readLock(path)
   if (observed === null) return
   let alive = true
-  try { process.kill(JSON.parse(observed).pid, 0) }
+  let valid = false
+  try {
+    const previous = JSON.parse(observed)
+    valid = Number.isInteger(previous.pid) && previous.pid > 0
+    if (valid) process.kill(previous.pid, 0)
+  }
   catch (error) { if (error.code === 'ESRCH') alive = false }
   try {
     const info = await stat(path)
-    if (!alive && (path === admissionPath || Date.now() - info.mtimeMs > staleMs) && observed === await readLock(path)) {
+    const stale = Date.now() - info.mtimeMs > staleMs
+    if (((!alive && (path === admissionPath || stale)) || (!valid && stale)) && observed === await readLock(path)) {
       await unlink(path)
       output({ heavyLock: 'removed-stale', slot: path, previous: observed })
     }
