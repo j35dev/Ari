@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-12T14:59:18.278066+00:00",
-  "integrationCheckpoint": "53d4e82c3da4b00497d58b18932452e92596f62b",
+  "recordedAt": "2026-11-12T15:02:27.389245+00:00",
+  "integrationCheckpoint": "49d8cc21592477378d79ca3d76a5dd2893f5ec36",
   "finalRuntimeSource": "da40bbef99343f9dce054889cb336e7ba3977e25",
   "disposition": "Complete with documented correction reruns; not a single clean full-suite invocation.",
   "fullRun": [
@@ -381,7 +381,7 @@
     {
       "name": "desktop-app-correction",
       "artifact": "desktop-app-correction.txt",
-      "sha256": "1a0f6723a3d4a316d36933a87caad2216087e20c26dd91b066bda236fa3b3beb",
+      "sha256": "2aec80fdecd62235e3447a98126468c941a22f30b5cde4db18442b8ef1276ff3",
       "result": {
         "worker": "integrated-app-fixtures-correction",
         "executable": "node",
@@ -416,7 +416,7 @@
     {
       "name": "desktop-app-final-correction",
       "artifact": "desktop-app-final-correction.txt",
-      "sha256": "0382c8ad856b7e6da04dea54536455d0e4972d4aea09ae34fa54216453c944a8",
+      "sha256": "5ae70c458bdefb4668b9bc211704d0f02e3fdc161cacb56e4f3ae05eab33d19a",
       "result": {
         "worker": "integrated-app-final-correction",
         "executable": "node",
@@ -451,7 +451,7 @@
     {
       "name": "desktop-build",
       "artifact": "desktop-build.txt",
-      "sha256": "3eaafe843cdea69d0d608a8d8e7545e4a490c82d52342db3348a6aa3638f0116",
+      "sha256": "cdc21bf05231f5ee8ae9bb278eba3351aa6da07d9bdd5aa2764a8202a8a98ac3",
       "result": {
         "worker": "integrated-desktop-build",
         "executable": "C:\\Program Files\\nodejs\\node.exe",
@@ -477,7 +477,7 @@
     {
       "name": "desktop-host-runtime-correction",
       "artifact": "desktop-host-runtime-correction.txt",
-      "sha256": "6aa93e20a238eda21b18c6900604098b72ac727876c453dd22e75de2e6a4674a",
+      "sha256": "a91d0c9d23d866ac789a50a74a3655a36e7bf6d235b676b4a1725593a866f0df",
       "result": {
         "worker": "integrated-host-runtime-correction",
         "executable": "node",
@@ -510,7 +510,7 @@
     {
       "name": "desktop-onboarding-races-final",
       "artifact": "desktop-onboarding-races-final.txt",
-      "sha256": "8aa469c71663cbcb46e4cda2bd99bc635241fccea01d5b9be525c3a14fcc9cba",
+      "sha256": "927eed71cfaba8e1a64fb966ab9fdcbfb1905060f91053bb8e369ba4d792bab6",
       "result": {
         "worker": "integrated-onboarding-races-final",
         "executable": "node",
@@ -542,7 +542,7 @@
     {
       "name": "desktop-owner-correction",
       "artifact": "desktop-owner-correction.txt",
-      "sha256": "379bfa6cfde79e80b6100d1162aec8ca4a260b774c37be3da7f48063531258c4",
+      "sha256": "e4eeb4a89e789f226067317ab5b4723499c03a768244da89fe02961d025466b4",
       "result": {
         "worker": "integrated-onboarding-effort-correction",
         "executable": "node",
@@ -576,7 +576,7 @@
     {
       "name": "desktop-tests",
       "artifact": "desktop-tests.txt",
-      "sha256": "981e736f3e4965fb32aa411d2539ac92b2f85e8610e04e482657abd6cc65fe04",
+      "sha256": "cb0836e5fdfa02928a44bd1fd8b88aadfcb09c215f94d768744668a3c713d2e3",
       "result": {
         "worker": "integrated-desktop-tests",
         "executable": "C:\\Program Files\\nodejs\\node.exe",
@@ -605,7 +605,7 @@
     {
       "name": "engine-tests-correction",
       "artifact": "engine-tests-correction.txt",
-      "sha256": "ddadabfdaea967343cd0baf2e128207edf923f2df2ac237c66a767155df97495",
+      "sha256": "f1c076df34aeeaf16547a015e370faf16f5b42645494197b9ac7b7c23503c186",
       "result": {
         "worker": "final-engine-timing-correction",
         "executable": "node",
@@ -647,7 +647,7 @@
     {
       "name": "engine-tests",
       "artifact": "engine-tests.txt",
-      "sha256": "07624295be4016ebb6c0e8351b09b258f4c9131d7d1f8bbe42a0407a9452f060",
+      "sha256": "e39325d00e5ef837d967ef16bc5761c5f1c679e389dd1a52942e9837a9c32f73",
       "result": {
         "worker": "integrated-engine-tests",
         "executable": "C:\\Program Files\\nodejs\\node.exe",
@@ -676,7 +676,7 @@
     {
       "name": "lint-correction",
       "artifact": "lint-correction.txt",
-      "sha256": "1a6329b093786a691c367d0a8e605b573744150c04b809b00751d78f44583a75",
+      "sha256": "5977aa919687b6436ecbba0e8b3effbe458010ff19e4cc30f04dff53a36eefee",
       "result": {
         "worker": "final-lint-correction",
         "executable": "node",
@@ -774,7 +774,7 @@
     {
       "name": "lint-final",
       "artifact": "lint-final.txt",
-      "sha256": "11927c49f21d63da61b3cce723c50ce345b9e4dd079a162015c6aa6ab43bbd00",
+      "sha256": "12d33d985fe09f080110b9115dfb8f9d4cf489f0e91d0d38403b6ace3ee4150a",
       "result": {
         "worker": "final-lint-after-shell-fix",
         "executable": "node",
@@ -812,7 +812,7 @@
     {
       "name": "lint-post-onboarding",
       "artifact": "lint-post-onboarding.txt",
-      "sha256": "1e43142b6844319d27dd71ebc40792a8ccb12d8c29f4ce208078ab7739c097ac",
+      "sha256": "4aab1fbfa0b8a61ef34e86b3e9d2b2ddbb5855d4c11c1091364fb04b03f19cd3",
       "result": {
         "worker": "integrated-lint-post-onboarding",
         "executable": "node",
@@ -971,7 +971,7 @@
     {
       "name": "remote-gateway-tests-correction",
       "artifact": "remote-gateway-tests-correction.txt",
-      "sha256": "49d8bdb97cce4ffd501bf2ee1f22202cd6a2afe0f37bc60514cca6f969eae853",
+      "sha256": "814a08ad938611876a8518467ea73476435febd6acb930335fdadb7c59add3b7",
       "result": {
         "worker": "final-gateway-correction",
         "executable": "node",
@@ -1092,7 +1092,7 @@
     {
       "name": "remote-gateway-tests",
       "artifact": "remote-gateway-tests.txt",
-      "sha256": "631a6cd29531c926146bf19c2c583c6872450009653df8a11e6b919fd5e2b49b",
+      "sha256": "f23a51e749a03951732616e6fd7231ae2c29ade8827dd9bdd907b5e72db4c299",
       "result": {
         "worker": "integrated-remote-gateway-tests",
         "executable": "C:\\Program Files\\nodejs\\node.exe",
@@ -1154,7 +1154,7 @@
     {
       "name": "typecheck-final-desktop",
       "artifact": "typecheck-final-desktop.txt",
-      "sha256": "8d4cfbac948450e8e45cf5da2321cf84e8e778d9cf7afc41d44de308aa5218fc",
+      "sha256": "17aab7e9af2312afbb1f6f8f2bb3f5f344dda14ed73f8682352b436523d070aa",
       "result": {
         "worker": "final-desktop-types",
         "executable": "node",
@@ -1178,7 +1178,7 @@
     {
       "name": "typecheck-fixtures-final",
       "artifact": "typecheck-fixtures-final.txt",
-      "sha256": "67d8e367645869897c8bccad8a97a67bd9b8a8a2a09502e957bf3ecb460fe01c",
+      "sha256": "817d698b6951d08e604e8a9bdbd20bc3995f3b2be078f6125532d186f2c30138",
       "result": {
         "worker": "integrated-final-fixture-types",
         "executable": "node",
@@ -1202,7 +1202,7 @@
     {
       "name": "typecheck-onboarding-final",
       "artifact": "typecheck-onboarding-final.txt",
-      "sha256": "1cb4407ca8abbce9d15405965528b9e92de57c30c4b541589b080bb01ee796fd",
+      "sha256": "5eca61462a4dd6c6f2059f10f9c7b67488c9cf45960ffa2560a4376557bcc8be",
       "result": {
         "worker": "integrated-final-desktop-types",
         "executable": "node",

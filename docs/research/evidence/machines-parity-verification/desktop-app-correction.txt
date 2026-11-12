@@ -9,7 +9,7 @@ At line:3 char:1
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
  ❯ |dom| src/renderer/src/App.navigation.test.tsx (8 tests | 1 failed) 3414ms
    × routes normal remote session actions and file reads to their host without local dispatch 1394ms
@@ -17,7 +17,7 @@ Not implemented: HTMLCanvasElement's getContext() method: without installing the
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
- FAIL  |dom| src/renderer/src/App.navigation.test.tsx > routes normal remote session actions and file reads to their 
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > routes normal remote session actions and file reads to their
 host without local dispatch
 TestingLibraryElementError: Unable to find role="button" and name "Remote task"
 
@@ -28,7 +28,7 @@ Ignored nodes: comments, script, style
       class="ari-wallpaper-pane flex h-full flex-col"
     >
       <header
-        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
 bg-surface-0"
       >
         <div
@@ -44,8 +44,8 @@ bg-surface-0"
           <button
             aria-label="Review changes"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Review changes"
             type="button"
@@ -64,7 +64,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
               xmlns="http://www.w3.org/2000/svg"
             >
               <path
-                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0
 0 1 20 8v12a2 2 0 0 1-2 2z"
               />
               <path
@@ -81,8 +81,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
           <button
             aria-label="Files"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Files"
             type="button"
@@ -101,7 +101,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
               xmlns="http://www.w3.org/2000/svg"
             >
               <path
-                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
               />
             </svg>
@@ -109,8 +109,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
           <button
             aria-label="Usage"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Usage"
             type="button"
@@ -139,8 +139,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
           <button
             aria-label="Terminal"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Terminal"
             type="button"
@@ -177,7 +177,7 @@ Ignored nodes: comments, script, style
       class="ari-wallpaper-pane flex h-full flex-col"
     >
       <header
-        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
 bg-surface-0"
       >
         <div
@@ -193,8 +193,8 @@ bg-surface-0"
           <button
             aria-label="Review changes"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Review changes"
             type="button"
@@ -213,7 +213,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
               xmlns="http://www.w3.org/2000/svg"
             >
               <path
-                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0
 0 1 20 8v12a2 2 0 0 1-2 2z"
               />
               <path
@@ -236,8 +236,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
    Start at  22:47:16
    Duration  41.21s (transform 4.09s, setup 4.96s, import 10.19s, tests 17.37s, environment 7.55s)
 
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Files"
             type="button"
@@ -256,7 +256,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
               xmlns="http://www.w3.org/2000/svg"
             >
               <path
-                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
               />
             </svg>
@@ -264,8 +264,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
           <button
             aria-label="Usage"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Usage"
             type="button"
@@ -294,8 +294,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
           <button
             aria-label="Terminal"
             aria-pressed="false"
-            class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
             title="Terminal"
             type="button"
@@ -324,7 +324,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
                 rx="2"
                 ry="2"
                ...
- ❯ waitForWrapper 
+ ❯ waitForWrapper
 ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
  ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
  ❯ src/renderer/src/App.navigation.test.tsx:260:32

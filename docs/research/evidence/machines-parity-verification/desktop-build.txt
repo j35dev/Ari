@@ -13,7 +13,7 @@ transforming...
 Use --emptyOutDir to override.
 
 rendering chunks...
-[plugin vite:reporter] 
+[plugin vite:reporter]
 (!) D:/Projects/Ari-machines/packages/providers/src/acp/connection.ts is dynamically imported by D:/Projects/Ari-machines/apps/desktop/src/main/rpc.ts, D:/Projects/Ari-machines/apps/desktop/src/main/rpc.ts, D:/Projects/Ari-machines/apps/desktop/src/main/rpc.ts but also statically imported by D:/Projects/Ari-machines/apps/desktop/src/main/provider-allowance.ts, D:/Projects/Ari-machines/packages/providers/src/acp/acp-driver.ts, dynamic import will not move module into another chunk.
 
 ../../../.ari-cache/machines-parity-integrated/desktop-production/main/chunks/runtime-hint-C_nHyTo6.js               0.21 kB
@@ -42,7 +42,7 @@ vite v7.3.6 building client environment for production...
 transforming...
 ✓ 3365 modules transformed.
 rendering chunks...
-[plugin vite:reporter] 
+[plugin vite:reporter]
 (!) D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/session-client.tsx is dynamically imported by D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/SessionView.tsx but also statically imported by D:/Projects/Ari-machines/apps/desktop/src/renderer/src/App.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/changes/ChangedFiles.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/composer/Composer.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/files/FileExplorer.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/machines/project-draft-adapter.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/machines/use-machine-projects.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/PlanPanel.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/SessionView.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/session-draft-client.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/use-session-activity.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/session/use-turn-resume.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/terminal/tool-session-client.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/DelegatedResult.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/DelegatedResultDiff.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/TranscriptView.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/TurnDiffFiles.tsx, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/attachment-urls.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/transcript/use-delegated-result.ts, D:/Projects/Ari-machines/apps/desktop/src/renderer/src/shell/ScopedTitlebar.tsx, dynamic import will not move module into another chunk.
 
 ../../../../../.ari-cache/machines-parity-integrated/desktop-production/renderer/assets/recorder-worklet-BvxNkw4i.js                                0.51 kB
