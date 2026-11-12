@@ -1,5 +1,5 @@
 import { verify, createPublicKey } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DeviceKeyring,
   IndexedDbDeviceStore,
@@ -20,6 +20,46 @@ import {
  */
 
 describe('device key', () => {
+  it('never assigns legacy credentials to a mutable selected origin or clears the original store', async () => {
+    const legacy = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, [
+      'sign',
+      'verify',
+    ])
+    const loadKey = vi.spyOn(IndexedDbDeviceStore.prototype, 'loadKey').mockResolvedValue(legacy)
+    const loadRecord = vi
+      .spyOn(IndexedDbDeviceStore.prototype, 'loadRecord')
+      .mockResolvedValue({ deviceId: 'legacy-device', displayName: 'Phone', projectIds: [] })
+    const saveKey = vi.spyOn(IndexedDbDeviceStore.prototype, 'saveKey').mockResolvedValue()
+    const saveRecord = vi.spyOn(IndexedDbDeviceStore.prototype, 'saveRecord').mockResolvedValue()
+    const clear = vi.spyOn(IndexedDbDeviceStore.prototype, 'clear').mockResolvedValue()
+    vi.stubGlobal('localStorage', { getItem: () => 'https://new-computer.tailnet.ts.net' })
+    vi.stubGlobal('location', { origin: 'https://original-pwa.tailnet.ts.net' })
+    try {
+      const store = await defaultDeviceStore(async () => true)
+      expect(store).toBeInstanceOf(IndexedDbDeviceStore)
+      expect(legacy.privateKey.extractable).toBe(false)
+      expect(loadKey).not.toHaveBeenCalled()
+      expect(loadRecord).not.toHaveBeenCalled()
+      expect(saveKey).not.toHaveBeenCalled()
+      expect(saveRecord).not.toHaveBeenCalled()
+      expect(clear).not.toHaveBeenCalled()
+    } finally {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps separately paired origins on different non-extractable keys', async () => {
+    const store = new MemoryDeviceStore()
+    const first = new DeviceKeyring(store.forOrigin('https://one.tailnet.ts.net'))
+    const second = new DeviceKeyring(store.forOrigin('https://two.tailnet.ts.net'))
+    expect(await first.publicKey()).not.toEqual(await second.publicKey())
+    expect((await first.key()).privateKey.extractable).toBe(false)
+    const resumed = new DeviceKeyring(store.forOrigin('https://one.tailnet.ts.net/'))
+    await resumed.load()
+    expect(await resumed.publicKey()).toEqual(await first.publicKey())
+  })
+
   it('signs a nonce the gateway can verify', async () => {
     const keyring = new DeviceKeyring(new MemoryDeviceStore())
     const publicKey = await keyring.publicKey()

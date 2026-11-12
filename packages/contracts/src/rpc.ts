@@ -1132,22 +1132,23 @@ export const rpcParams = {
   'remote.invite': z.object({ method: z.enum(['tailscale', 'connect']) }).optional(),
   'remote.cancelInvite': z.undefined(),
   /**
-   * The user's decision on the device that asked, with its project grant.
+   * The user's decision on the device that asked. All current/future projects are included.
    * `confirmationCode` is the code the prompt showed when they decided, so an
    * approval cannot land on a device that replaced the request in between.
    */
   'remote.approve': z.object({
     invitationId: z.string().min(1),
     confirmationCode: z.string().min(1),
-    projectIds: z.array(z.string().min(1)),
+    /** Legacy snapshot; cannot narrow the local all-project grant. */
+    projectIds: z.array(z.string().min(1)).default([]),
     allowTerminal: z.boolean().default(false),
   }),
   'remote.deny': z.object({ invitationId: z.string().min(1) }),
   'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
-  /** Replaces a paired device's project and terminal grants; takes effect on its open connections. */
+  /** Changes explicit terminal access; all current/future projects remain included. */
   'remote.updateDeviceGrants': z.object({
     deviceId: z.string().min(1),
-    projectIds: z.array(z.string().min(1)),
+    projectIds: z.array(z.string().min(1)).default([]),
     allowTerminal: z.boolean(),
   }),
   /**
@@ -1596,8 +1597,9 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
 export interface RemoteDeviceView {
   deviceId: string
   displayName: string
-  /** Projects this device may reach. Empty reaches nothing. */
+  /** Compatibility view of the registered projects; allProjects governs local access. */
   projectIds: string[]
+  allProjects?: boolean
   pairedAt: number
   lastSeenAt: number | null
   allowTerminal?: boolean

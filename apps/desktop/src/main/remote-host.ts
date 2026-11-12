@@ -122,9 +122,7 @@ export interface RemoteHostDeps {
   /** The account allowance the desktop's own usage pill reads; never throws. */
   allowance?: (kind: DriverKind) => Promise<ProviderAllowance>
   /** Spends one banked reset of the account a provider runs as, as the usage pill's button does. */
-  redeemReset?: (
-    kind: DriverKind,
-  ) => Promise<RpcResults['providers.consumeResetCredit']>
+  redeemReset?: (kind: DriverKind) => Promise<RpcResults['providers.consumeResetCredit']>
   /** A provider's accounts and the switch between them. Signing one in is not offered remotely. */
   accounts?: {
     list: (kind: DriverKind) => Promise<ProviderAccountsResult>
@@ -136,7 +134,7 @@ export interface RemoteHostDeps {
   /** The children a session delegated to, as the desktop's own task cards read them. */
   tasks?: (sessionId: string) => Promise<ChildTask[]>
   attachments?: Pick<AttachmentStore, 'stage' | 'read'>
-  terminals?: RemoteTerminals
+  terminals?: Pick<RemoteTerminals, 'execute' | 'read'>
   integration?: RemoteIntegration
   fork?: (
     deviceId: string,
@@ -214,7 +212,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
-    return caller.projectIds.includes(projectId)
+    return caller.allProjects === true || caller.projectIds.includes(projectId)
   }
 
   /**
