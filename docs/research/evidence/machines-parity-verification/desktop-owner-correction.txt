@@ -5,13 +5,13 @@
 
  ❯ |dom| src/main/remote-host.test.ts (63 tests | 1 failed) 553ms
      × advertises only operations the contract declares 14ms
-node : 
+node :
 At line:3 char:1
 + node scripts/coordination/run-heavy.mjs integrated-onboarding-effort- ...
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  |dom| src/main/remote-host.test.ts > remote host capabilities > advertises only operations the contract declares

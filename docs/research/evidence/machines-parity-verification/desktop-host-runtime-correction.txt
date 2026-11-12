@@ -9,10 +9,10 @@ At line:6 char:1
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: ((node:27272) Wa...bage collection:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 (Use `node --trace-warnings ...` to show where the warning was created)
-(node:27272) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please 
-close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a 
+(node:27272) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please
+close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a
 file descriptor is closed during garbage collection.
 
  Test Files  2 passed (2)

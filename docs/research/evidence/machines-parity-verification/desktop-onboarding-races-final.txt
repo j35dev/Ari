@@ -9,7 +9,7 @@ At line:3 char:1
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 
  Test Files  1 passed (1)
       Tests  13 passed (13)

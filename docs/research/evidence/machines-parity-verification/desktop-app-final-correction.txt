@@ -9,10 +9,10 @@ At line:3 char:1
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (Not implemented...vas npm package:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
 Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
-stderr | src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host catalog 
+stderr | src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host catalog
 before freezing the merged setup draft
 [ari:ui:source-control] Source-control read failed { error: 'Error: Unexpected RPC: scm.summary' }
 
@@ -21,7 +21,7 @@ before freezing the merged setup draft
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
- FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host 
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > waits for the complete host
 catalog before freezing the merged setup draft
 TestingLibraryElementError: Unable to find an accessible element with the role "option" and name `/Studio computer/`
 
@@ -31,7 +31,7 @@ Here are the accessible roles:
 
   Name "":
   <header
-    class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 
+    class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
 bg-surface-0"
   />
 
@@ -62,8 +62,8 @@ bg-surface-0"
   <button
     aria-label="Review changes"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Review changes"
     type="button"
@@ -73,8 +73,8 @@ hover:text-fg border border-transparent"
   <button
     aria-label="Files"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Files"
     type="button"
@@ -84,8 +84,8 @@ hover:text-fg border border-transparent"
   <button
     aria-label="Usage"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Usage"
     type="button"
@@ -95,8 +95,8 @@ hover:text-fg border border-transparent"
   <button
     aria-label="Terminal"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Terminal"
     type="button"
@@ -106,8 +106,8 @@ hover:text-fg border border-transparent"
   <button
     aria-label="Browser"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Browser"
     type="button"
@@ -117,8 +117,8 @@ hover:text-fg border border-transparent"
   <button
     aria-label="Settings"
     aria-pressed="false"
-    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 
+    class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60
 hover:text-fg border border-transparent"
     title="Settings"
     type="button"
@@ -127,8 +127,8 @@ hover:text-fg border border-transparent"
   Name "Search sessions":
   <button
     aria-label="Search sessions"
-    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors 
-hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 
+    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2
 focus-visible:ring-accent-ring"
     title="Search sessions"
     type="button"
@@ -137,8 +137,8 @@ focus-visible:ring-accent-ring"
   Name "Collapse sidebar":
   <button
     aria-label="Collapse sidebar"
-    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors 
-hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 
+    class="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2
 focus-visible:ring-accent-ring"
     title="Collapse sidebar (Ctrl+B)"
     type="button"
@@ -147,8 +147,8 @@ focus-visible:ring-accent-ring"
   Name "Open Aria":
   <button
     aria-label="Open Aria"
-    class="flex h-7 w-full min-w-0 items-center gap-2 rounded-md pl-2 pr-1 text-left text-[13px] 
-transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-muted 
+    class="flex h-7 w-full min-w-0 items-center gap-2 rounded-md pl-2 pr-1 text-left text-[13px]
+transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-muted
 hover:bg-surface-2 hover:text-fg"
     title="Open Aria (Mod+0)"
     type="button"
@@ -159,8 +159,8 @@ hover:bg-surface-2 hover:text-fg"
     aria-expanded="false"
     aria-haspopup="menu"
     aria-label="Aria actions"
-    class="absolute right-3.5 top-1 flex size-5 items-center justify-center rounded-sm text-fg-subtle 
-opacity-0 hover:bg-surface-2 hover:text-fg group-hover/aria:opacity-100 focus-visible:opacity-100 
+    class="absolute right-3.5 top-1 flex size-5 items-center justify-center rounded-sm text-fg-subtle
+opacity-0 hover:bg-surface-2 hover:text-fg group-hover/aria:opacity-100 focus-visible:opacity-100
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     type="button"
   />
@@ -168,8 +168,8 @@ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
   Name "New session":
   <button
     aria-label="New session"
-    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 
-text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 
+    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5
+text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     data-new-session-trigger="true"
     title="New session (Mod+N)"
@@ -179,8 +179,8 @@ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
   Name "Add project":
   <button
     aria-label="Add project"
-    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 
-text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 
+    class="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5
+text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     title="Add a folder as a project"
     type="button"
@@ -189,7 +189,7 @@ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
   Name "Projects":
   <button
     aria-pressed="true"
-    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none 
+    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none
 focus-visible:ring-2 focus-visible:ring-accent-ring text-fg"
     type="button"
   />
@@ -197,7 +197,7 @@ focus-visible:ring-2 focus-visible:ring-accent-ring text-fg"
   Name "Sessions":
   <button
     aria-pressed="false"
-    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none 
+    class="rounded-sm px-1 text-2xs font-medium leading-5 transition-colors focus-visible:outline-none
 focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:text-fg-muted"
     type="button"
   />
@@ -205,8 +205,8 @@ focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:text-fg
   Name "Ari0":
   <button
     aria-expanded="true"
-    class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors 
-hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring  text-fg-muted 
+    class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors
+hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring  text-fg-muted
 hover:text-fg"
     type="button"
   />
@@ -214,8 +214,8 @@ hover:text-fg"
   Name "Project actions for Ari":
   <button
     aria-label="Project actions for Ari"
-    class="flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-surface-2 
-hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring absolute right-1.5 
+    class="flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-surface-2
+hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring absolute right-1.5
 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
     type="button"
   />
@@ -223,8 +223,8 @@ opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
   Name "New space":
   <button
     aria-label="New space"
-    class="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors 
-hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring 
+    class="flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors
+hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring
 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
     title="New space (Ctrl+Alt+T)"
     type="button"
@@ -241,8 +241,8 @@ disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
     aria-expanded="false"
     aria-haspopup="listbox"
     aria-label="Model: Claude · Claude"
-    class="flex h-7 w-full max-w-52 items-center gap-1.5 rounded-lg border border-border/80 
-bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong 
+    class="flex h-7 w-full max-w-52 items-center gap-1.5 rounded-lg border border-border/80
+bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong
 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     type="button"
   />
@@ -260,8 +260,8 @@ hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2
   <button
     aria-label="Dictate a message"
     aria-pressed="false"
-    class="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md 
-transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring 
+    class="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md
+transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring
 disabled:opacity-40 text-fg-subtle hover:text-fg"
     disabled=""
     type="button"
@@ -272,8 +272,8 @@ disabled:opacity-40 text-fg-subtle hover:text-fg"
     aria-expanded="false"
     aria-haspopup="menu"
     aria-label="Prompt stash (0)"
-    class="relative flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle 
-transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 
+    class="relative flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle
+transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2
 focus-visible:ring-accent-ring"
     title="Stash this prompt (Mod+S) or reuse a stashed one"
     type="button"
@@ -282,9 +282,9 @@ focus-visible:ring-accent-ring"
   Name "Send":
   <button
     aria-label="Send"
-    class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl 
-transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none 
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm bg-surface-3/50 
+    class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl
+transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none
+focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm bg-surface-3/50
 text-fg-subtle opacity-60"
     disabled=""
     tabindex="0"
@@ -297,7 +297,7 @@ text-fg-subtle opacity-60"
     aria-expanded="true"
     aria-haspopup="menu"
     aria-label="Execution machine"
-    class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-fg-muted hover:bg-surface-2 
+    class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-fg-muted hover:bg-surface-2
 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60"
     title="This PC runs this draft."
     type="button"
@@ -305,21 +305,21 @@ hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opaci
 
   Name "Explore this project":
   <button
-    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1 
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     type="button"
   />
 
   Name "Build something":
   <button
-    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1 
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     type="button"
   />
 
   Name "Find improvements":
   <button
-    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1 
+    class="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1
 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     type="button"
   />
@@ -329,7 +329,7 @@ hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 
   Name "":
   <aside
-    class="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden 
+    class="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden
 bg-surface-0"
     style="--ari-sidebar-motion-width: 280px; width: 280px; opacity: 1;"
   />
@@ -367,7 +367,7 @@ bg-surface-0"
   Name "Search sessions":
   <input
     aria-label="Search sessions"
-    class="h-7 w-full rounded-lg border border-border bg-surface-1 pl-7 pr-2 text-xs text-fg 
+    class="h-7 w-full rounded-lg border border-border bg-surface-1 pl-7 pr-2 text-xs text-fg
 placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
     placeholder="Search…"
     type="search"
@@ -438,7 +438,7 @@ placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
     aria-valuemax="520"
     aria-valuemin="200"
     aria-valuenow="280"
-    class="ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors 
+    class="ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors
 focus-visible:outline-none focus-visible:bg-accent bg-transparent hover:bg-accent-subtle"
     role="separator"
     tabindex="0"
@@ -459,7 +459,7 @@ focus-visible:outline-none focus-visible:bg-accent bg-transparent hover:bg-accen
   Name "Spaces":
   <div
     aria-label="Spaces"
-    class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5 [scrollbar-width:none] 
+    class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5 [scrollbar-width:none]
 [&::-webkit-scrollbar]:hidden"
     role="tablist"
   />
@@ -472,7 +472,7 @@ focus-visible:outline-none focus-visible:bg-accent bg-transparent hover:bg-accen
     aria-controls="space-panel"
     aria-label="Space 1"
     aria-selected="true"
-    class="group relative isolate flex h-7 max-w-44 min-w-24 items-center gap-1.5 rounded-md px-2 
+    class="group relative isolate flex h-7 max-w-44 min-w-24 items-center gap-1.5 rounded-md px-2
 text-xs outline-none transition-colors text-fg focus-visible:ring-2 focus-visible:ring-accent-ring "
     draggable="true"
     id="space-tab-space-q5vcps8b"
@@ -506,7 +506,7 @@ text-xs outline-none transition-colors text-fg focus-visible:ring-2 focus-visibl
   Name "Message":
   <textarea
     aria-label="Message"
-    class="block max-h-[260px] w-full resize-none bg-transparent text-sm leading-relaxed text-fg 
+    class="block max-h-[260px] w-full resize-none bg-transparent text-sm leading-relaxed text-fg
 placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable] px-4 pt-3.5 pb-2"
     data-dictation-session="project-draft:0fa007cb-69aa-486c-a292-ac59eac51d5e"
     placeholder="Describe what you want to do in this project…"
@@ -599,7 +599,7 @@ placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-
 
   Name "This PC":
   <button
-    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2 
+    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2
 disabled:opacity-45"
     role="menuitem"
     title="This PC"
@@ -608,7 +608,7 @@ disabled:opacity-45"
 
   Name "Studio computer":
   <button
-    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2 
+    class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-surface-2
 disabled:opacity-45"
     role="menuitem"
     title="Studio computer"
@@ -627,7 +627,7 @@ Ignored nodes: comments, script, style
         class="ari-wallpaper-pane flex h-full flex-col"
       >
         <header
-          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50
 bg-surface-0"
         >
           <div
@@ -643,8 +643,8 @@ bg-surface-0"
             <button
               aria-label="Review changes"
               aria-pressed="false"
-              class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
               title="Review changes"
               type="button"
@@ -663,7 +663,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
                 xmlns="http://www.w3.org/2000/svg"
               >
                 <path
-                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4
 0 0 1 20 8v12a2 2 0 0 1-2 2z"
                 />
                 <path
@@ -680,8 +680,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
             <button
               aria-label="Files"
               aria-pressed="false"
-              class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
               title="Files"
               type="button"
@@ -700,7 +700,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
                 xmlns="http://www.w3.org/2000/svg"
               >
                 <path
-                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93
 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
                 />
               </svg>
@@ -708,8 +708,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
             <button
               aria-label="Usage"
               aria-pressed="false"
-              class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
               title="Usage"
               type="button"
@@ -738,8 +738,8 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
             <button
               aria-label="Terminal"
               aria-pressed="false"
-              class="relative flex size-7 items-center justify-center rounded-lg transition-colors 
-duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle 
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors
+duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle
 hover:bg-surface-2/60 hover:text-fg border border-transparent"
               title="Terminal"
               type="button"
@@ -759,7 +759,7 @@ hover:bg-surface-2/60 hover:text-fg border border-transparent"
               >
                 <path
                   d="m7 11 ...
- ❯ Object.getElementError 
+ ❯ Object.getElementError
 ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
  ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
  ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
