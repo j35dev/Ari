@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
-import type { RemoteModelCatalog } from '@ari/contracts/remote'
+import { machinesLocalSnapshotSchema, type MachinesLocalSnapshot, type RemoteModelCatalog } from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
 import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
 import {
@@ -120,6 +120,7 @@ export interface RemoteServiceDeps {
   createGateway?: typeof createRemoteGateway
   fork?: RemoteHostDeps['fork']
   tasks?: RemoteHostDeps['tasks']
+  desktop?: RemoteHostDeps['desktop']
 }
 
 export class RemoteService {
@@ -180,6 +181,25 @@ export class RemoteService {
 
   get running(): boolean {
     return this.#gateway !== null
+  }
+
+  /** A metadata-only local RPC; no local privileged RPC is exported to a remote client. */
+  async localSnapshot(): Promise<MachinesLocalSnapshot> {
+    if (!this.#identity) throw new Error(IDENTITY_ERROR)
+    const host = createRemoteHost({
+      engine: this.#deps.engine, store: this.#deps.store, driverKinds: this.#deps.driverKinds,
+      defaultPermissionMode: this.#deps.defaultPermissionMode, defaultDriverKind: this.#deps.defaultDriverKind,
+      hasProject: this.#deps.hasProject, listProjects: this.#deps.listProjects, listModels: this.#deps.listModels,
+      pairing: this.#pairing, mintSessionId: this.#deps.mintSessionId,
+      ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
+    })
+    const caller = { deviceId: 'local', projectIds: [], allProjects: true }
+    const [catalog, resources, version, models] = await Promise.all([
+      host.query(caller, 'project.catalog', {}), host.query(caller, 'host.resources', {}),
+      host.query(caller, 'host.version', {}), host.query(caller, 'models.list', {}),
+    ])
+    return machinesLocalSnapshotSchema.parse({ identity: { machineId: this.#identity.machineId, name: this.#identity.name },
+      catalog, resources, version, models })
   }
 
   /** Starts the gateway and records that remote access is on. */
@@ -258,6 +278,7 @@ export class RemoteService {
           listModels: this.#deps.listModels,
           pairing: this.#pairing,
           mintSessionId: this.#deps.mintSessionId,
+          ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
           attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
           integration: this.#integration,
           ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
@@ -368,6 +389,7 @@ export class RemoteService {
           listModels: this.#deps.listModels,
           pairing: this.#pairing,
           mintSessionId: this.#deps.mintSessionId,
+          ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
           attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
           integration: this.#integration,
           ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),

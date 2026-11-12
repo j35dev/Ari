@@ -182,8 +182,4 @@ export const remoteDesktopQueryResultSchemas = {
   'scm.desktop.diff': remoteScmDiffSchema,
 } as const
 
-export const machinesLocalSnapshotSchema = read({
-  identity: read({ machineId: id, name: z.string().min(1).max(100) }),
-  catalog: remoteProjectCatalogSchema, resources: remoteHostResourcesSchema, version: remoteHostVersionSchema,
-})
-export type MachinesLocalSnapshot = z.infer<typeof machinesLocalSnapshotSchema>
+export const localHostIdentitySchema = read({ machineId: id, name: z.string().min(1).max(100) })
