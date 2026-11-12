@@ -192,4 +192,3 @@ f4bb8198 docs: complete final integrated Machines security review
 Standalone Tailscale tip: `9df9d9ba`. Standalone parallel-session tip: `5010f950`,
 which appends the six-line tested occupancy fixture correction to `54954bb8`.
 Aria pushed `54954bb8` as draft PR #517; the fixture follow-up remains local.
-
