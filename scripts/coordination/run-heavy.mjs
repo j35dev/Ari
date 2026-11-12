@@ -1,4 +1,4 @@
-// One shared resource lease for Machines validation on this Windows host.
+// Up to two resource leases for Machines validation on this Windows host.
 // Usage: node run-heavy.mjs WORKER WORKTREE -- node ABS_PNPM_CLI [args...]
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, stat, unlink, utimes } from 'node:fs/promises'
@@ -10,7 +10,9 @@ const [worker, cwd, separator, executable, ...args] = process.argv.slice(2)
 if (!worker || !cwd || separator !== '--' || !executable) {
   throw new Error('Expected WORKER WORKTREE -- EXECUTABLE [ARGS...]')
 }
-const lockPath = 'D:/Projects/Ari-machines-wt/.heavy.lock'
+const lockPaths = ['D:/Projects/Ari-machines-wt/.heavy.lock', 'D:/Projects/Ari-machines-wt/.heavy.2.lock']
+const admissionPath = 'D:/Projects/Ari-machines-wt/.heavy.admission.lock'
+let lockPath = null
 const owner = { worker, pid: process.pid, startedAt: new Date().toISOString(), id: randomUUID() }
 const staleMs = 30 * 60_000
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -19,33 +21,59 @@ let child = null
 let heartbeat = null
 let cancelled = false
 
-async function readLock() {
-  try { return await readFile(lockPath, 'utf8') }
+async function readLock(path = lockPath) {
+  if (path === null) return null
+  try { return await readFile(path, 'utf8') }
   catch (error) { if (error.code === 'ENOENT') return null; throw error }
 }
 async function acquire() {
-  await mkdir(dirname(lockPath), { recursive: true })
+  await mkdir(dirname(admissionPath), { recursive: true })
+  const gateStarted = Date.now()
   for (;;) {
     if (cancelled) throw new Error('Heavy step cancelled while waiting for its lease')
+    let admission = null
     try {
-      const file = await open(lockPath, 'wx')
-      try { await file.writeFile(JSON.stringify(owner)) } finally { await file.close() }
-      output({ heavyLock: 'acquired', ...owner })
-      return
+      admission = await open(admissionPath, 'wx')
+      await admission.writeFile(JSON.stringify(owner))
     } catch (error) { if (error.code !== 'EEXIST') throw error }
-    const observed = await readLock()
-    if (observed === null) continue
-    try {
-      const info = await stat(lockPath)
-      if (Date.now() - info.mtimeMs > staleMs && observed === await readLock()) {
-        await unlink(lockPath)
-        output({ heavyLock: 'removed-stale', previous: observed })
-        continue
+    if (admission !== null) {
+      try {
+        for (const path of lockPaths) await reclaim(path)
+        const values = await resourceGate()
+        const healthy = values.cFreeBytes >= 5 * 1024 ** 3 && values.commitHeadroomBytes >= 1.5 * 1024 ** 3
+        const capacity = values.commitHeadroomBytes >= 6 * 1024 ** 3 ? 2 : 1
+        const occupied = await Promise.all(lockPaths.map((path) => readLock(path)))
+        if (healthy && occupied.filter((value) => value !== null).length < capacity) {
+          lockPath = lockPaths[occupied.findIndex((value) => value === null)]
+          const file = await open(lockPath, 'wx')
+          try { await file.writeFile(JSON.stringify(owner)) } finally { await file.close() }
+          output({ heavyLock: 'acquired', slot: lockPath, capacity, ...owner })
+          return
+        }
+        if (!healthy && Date.now() - gateStarted >= 15 * 60_000) throw new Error('Resource gate remained below its floor for 15 minutes')
+        if (healthy) output({ heavyLock: 'waiting', capacity, owners: occupied })
+        else output({ resourceGate: 'waiting-thirty-seconds' })
+      } finally {
+        await admission.close()
+        if (await readLock(admissionPath) === JSON.stringify(owner)) await unlink(admissionPath)
       }
-    } catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    output({ heavyLock: 'waiting', owner: observed })
+    } else await reclaim(admissionPath)
     await delay(30_000)
   }
+}
+async function reclaim(path) {
+  const observed = await readLock(path)
+  if (observed === null) return
+  let alive = true
+  try { process.kill(JSON.parse(observed).pid, 0) }
+  catch (error) { if (error.code === 'ESRCH') alive = false }
+  try {
+    const info = await stat(path)
+    if (!alive && (path === admissionPath || Date.now() - info.mtimeMs > staleMs) && observed === await readLock(path)) {
+      await unlink(path)
+      output({ heavyLock: 'removed-stale', slot: path, previous: observed })
+    }
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
 }
 async function release() {
   clearInterval(heartbeat)
@@ -75,7 +103,7 @@ async function resourceGate() {
     throw new Error('Resource counters did not return finite values')
   }
   output({ resourceGate: values })
-  return values.cFreeBytes >= 5 * 1024 ** 3 && values.commitHeadroomBytes >= 1.5 * 1024 ** 3
+  return values
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -97,12 +125,6 @@ try {
       }
     }).catch((error) => output({ heartbeatError: error.message }))
   }, 60_000)
-  const gateStarted = Date.now()
-  while (!await resourceGate()) {
-    if (Date.now() - gateStarted >= 15 * 60_000) throw new Error('Resource gate remained below its floor for 15 minutes')
-    output({ resourceGate: 'waiting-two-minutes' })
-    await delay(120_000)
-  }
   const result = await run(executable, args)
   output({ heavyResult: { worker, executable, args, exitCode: result.code, signal: result.signal } })
   process.exitCode = cancelled ? 130 : result.code ?? 1
