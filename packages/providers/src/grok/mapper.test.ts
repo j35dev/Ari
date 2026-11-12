@@ -77,9 +77,7 @@ describe('grok mapper', () => {
     const failed = JSON.stringify({
       type: 'user',
       message: {
-        content: [
-          { type: 'tool_result', tool_use_id: 'toolu_2', content: 'boom', is_error: true },
-        ],
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_2', content: 'boom', is_error: true }],
       },
     })
     const failEvents = mapGrokLine(failed)

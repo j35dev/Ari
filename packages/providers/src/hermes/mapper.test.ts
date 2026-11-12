@@ -87,9 +87,7 @@ describe('hermes mapper', () => {
       type: 'user',
       message: {
         role: 'user',
-        content: [
-          { type: 'tool_result', tool_use_id: 't1', content: 'boom', is_error: true },
-        ],
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'boom', is_error: true }],
       },
     })
     const events = mapHermesLine(line)
