@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { projectViewSchema } from '@ari/contracts/project'
 import { sessionSummarySchema } from '@ari/contracts/rpc'
 import { MachinesProvider, useMachines } from './use-machines'
@@ -17,6 +17,13 @@ let hosts = [desktopMachineFixture()]
 let update: (raw: unknown) => void
 let projects = projectCatalogFixture()
 const select = vi.fn()
+function ResourceProbe() {
+  const metadata = useMachines()
+  return <><output data-testid="resources">{JSON.stringify([...metadata.resources])}</output>
+    <button onClick={() => void metadata.refreshInventory()}>Refresh inventory</button>
+    <button onClick={() => void metadata.refreshResources(['local', 'host-a'])}>Sample Auto resources</button></>
+}
+afterEach(() => vi.useRealTimers())
 function Sidebar() {
   const nav = useMachineProjects([localProject], [localSession])
   const metadata = useMachines()
@@ -90,4 +97,39 @@ it('purges the old public identity before accepting replacement inventory under 
   act(() => update(hosts))
   await waitFor(() => expect(screen.queryByText('Host task')).toBeNull())
   expect(screen.getByTestId('cache')).toHaveTextContent('[]')
+})
+it('does not sample resources on mount, inventory interval or manual inventory refresh; demand samples exact hosts', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  render(<MachinesProvider><Sidebar /><ResourceProbe /></MachinesProvider>)
+  await screen.findByText('Host task')
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh inventory' }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+  const resourceCalls = () => mocks.invoke.mock.calls.filter(([, params]) => params?.query?.op === 'host.resources')
+  expect(resourceCalls()).toHaveLength(0)
+  expect(mocks.invoke.mock.calls.filter(([method]) => method === 'machines.localSnapshot')
+    .every(([, params]) => params === undefined)).toBe(true)
+  expect(screen.getByTestId('resources')).toHaveTextContent('[]')
+  fireEvent.click(screen.getByRole('button', { name: 'Sample Auto resources' }))
+  await waitFor(() => expect(screen.getByTestId('resources')).toHaveTextContent('cpuUtilization'))
+  expect(resourceCalls()).toHaveLength(1)
+  expect(resourceCalls()[0]?.[1]).toMatchObject({ machineId: 'host-a' })
+  expect(mocks.invoke).toHaveBeenCalledWith('machines.localSnapshot', { sampleResources: true })
+})
+it('drops demand resource responses after disconnect and does not restore eligibility after reconnect', async () => {
+  let resolve!: (result: unknown) => void
+  const original = mocks.invoke.getMockImplementation()!
+  mocks.invoke.mockImplementation((method, params) => params?.query?.op === 'host.resources'
+    ? new Promise((done) => { resolve = done }) : original(method, params))
+  render(<MachinesProvider><Sidebar /><ResourceProbe /></MachinesProvider>)
+  await screen.findByText('Host task')
+  fireEvent.click(screen.getByRole('button', { name: 'Sample Auto resources' }))
+  await waitFor(() => expect(resolve).toBeTypeOf('function'))
+  hosts = [{ ...hosts[0]!, status: 'offline' }]
+  act(() => update(hosts))
+  await act(async () => resolve({ ok: true, result: resourcesFixture() }))
+  expect(screen.getByTestId('resources')).not.toHaveTextContent('host-a')
+  hosts = [{ ...hosts[0]!, status: 'connected' }]
+  act(() => update(hosts))
+  await waitFor(() => expect(screen.getByText('Host task')).toBeInTheDocument())
+  expect(screen.getByTestId('resources')).not.toHaveTextContent('host-a')
 })

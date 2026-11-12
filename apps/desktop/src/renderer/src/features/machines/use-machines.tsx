@@ -25,13 +25,12 @@ export interface MachineInventory {
   projects: RemoteProjectCatalogEntry[]
   sessions: SessionSummary[]
   catalog: RemoteModelCatalog | null
-  resources: RemoteHostResources | null
   permissions: RemoteHostPermissions | null
   version: RemoteHostVersion | null
   error: string | null
 }
 const emptyInventory: MachineInventory = { projects: [], sessions: [], catalog: null,
-  resources: null, permissions: null, version: null, error: null }
+  permissions: null, version: null, error: null }
 
 interface MachinesState {
   machines: MachineView[]
@@ -40,6 +39,9 @@ interface MachinesState {
   local: MachinesLocalSnapshot | null
   localModels: RemoteModelCatalog | null
   inventories: ReadonlyMap<string, MachineInventory>
+  resources: ReadonlyMap<string, RemoteHostResources | null>
+  /** Authenticated demand only: explicit Auto setup/reselection and pre-Send validation. */
+  refreshResources: (hostIds: readonly string[]) => Promise<ReadonlyMap<string, RemoteHostResources | null>>
   preferences: MachinesPreferences
   refreshInventory: () => Promise<void>
 }
@@ -48,6 +50,7 @@ const Context = createContext<MachinesState>({
   error: null,
   refresh: () => Promise.resolve(),
   local: null, localModels: null, inventories: new Map(),
+  resources: new Map(), refreshResources: async () => new Map(),
   preferences: { autoEnabled: false, hostTiers: {}, projectHosts: {} },
   refreshInventory: () => Promise.resolve(),
 })
@@ -58,6 +61,8 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const [local, setLocal] = useState<MachinesLocalSnapshot | null>(null)
   const [localModels, setLocalModels] = useState<RemoteModelCatalog | null>(null)
   const [inventories, setInventories] = useState<ReadonlyMap<string, MachineInventory>>(new Map())
+  const [resources, setResources] = useState<ReadonlyMap<string, RemoteHostResources | null>>(new Map())
+  const resourceGenerations = useRef(new Map<string, number>())
   const [preferences, setPreferences] = useState<MachinesPreferences>({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
   const machinesRef = useRef(machines)
   machinesRef.current = machines
@@ -65,6 +70,14 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const revision = useRef(0)
   const alive = useRef(true)
   const acceptMachines = useCallback((next: MachineView[]) => {
+    for (const previous of machinesRef.current) {
+      const current = next.find((machine) => machine.id === previous.id)
+      if (current?.status !== 'connected' || previous.status !== 'connected' ||
+        current.identity?.machineId !== previous.identity?.machineId) {
+        resourceGenerations.current.set(previous.id, (resourceGenerations.current.get(previous.id) ?? 0) + 1)
+        setResources((old) => { const kept = new Map(old); kept.delete(previous.id); return kept })
+      }
+    }
     inventoryRevision.current++
     machinesRef.current = next
     setMachines(next)
@@ -102,10 +115,9 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       ...currentMachines.filter((machine) => machine.status === 'connected').map(async (machine) => {
         try {
           const desktop = machine.identity?.machinesExtensions?.operations.includes('project.catalog') === true
-          const [projectRaw, sessionsRaw, catalogRaw, resourcesRaw, permissionsRaw, versionRaw] = await Promise.all([
+          const [projectRaw, sessionsRaw, catalogRaw, permissionsRaw, versionRaw] = await Promise.all([
             desktop ? queryMachineMetadata(machine.id, { op: 'project.catalog' }) : remoteQuery(machine.id, { op: 'project.list' }),
             remoteQuery(machine.id, { op: 'session.list' }), remoteQuery(machine.id, { op: 'models.list' }),
-            desktop ? queryMachineMetadata(machine.id, { op: 'host.resources' }) : Promise.resolve(null),
             desktop ? queryMachineMetadata(machine.id, { op: 'host.permissions' }) : Promise.resolve(null),
             desktop ? queryMachineMetadata(machine.id, { op: 'host.version' }) : Promise.resolve(null),
           ])
@@ -115,7 +127,6 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
               remoteProjectSchema.array().parse(projectRaw).map((project) => ({ ...project, status: 'ok', defaultAgent: null, repositoryIdentity: null })),
             sessions: sessionSummarySchema.array().parse(sessionsRaw),
             catalog: remoteModelCatalogSchema.parse(catalogRaw),
-            resources: resourcesRaw ? remoteHostResourcesSchema.parse(resourcesRaw) : null,
             permissions: permissionsRaw ? remoteHostPermissionsSchema.parse(permissionsRaw) : null,
             version: versionRaw ? remoteHostVersionSchema.parse(versionRaw) : null, error: null,
           }
@@ -128,12 +139,37 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
           const current = machinesRef.current.find((item) => item.id === machine.id)
           if (current?.status !== 'connected' || current.identity?.machineId !== machine.identity?.machineId) return
           setInventories((old) => new Map(old).set(machine.id, { ...old.get(machine.id) ?? emptyInventory,
-            identityMachineId: machine.identity?.machineId, catalog: null, permissions: null, resources: null, error: messageOf(error) }))
+            identityMachineId: machine.identity?.machineId, catalog: null, permissions: null, error: messageOf(error) }))
         }
       }),
     ])
-    // A failed local sample can never keep Auto eligible using an older sample.
+    // Inventory carries no resource authorization or sampling side effect.
     if (results[0]?.status === 'rejected' && alive.current && inventoryRevision.current === generation) setLocal(null)
+  }, [])
+  const refreshResources = useCallback(async (hostIds: readonly string[]) => {
+    const sampled = new Map<string, RemoteHostResources | null>()
+    await Promise.all([...new Set(hostIds)].map(async (id) => {
+      const machine = machinesRef.current.find((item) => item.id === id)
+      const generation = (resourceGenerations.current.get(id) ?? 0) + 1
+      resourceGenerations.current.set(id, generation)
+      const valid = () => alive.current && resourceGenerations.current.get(id) === generation &&
+        (id === 'local' || machinesRef.current.some((current) => current.id === id && current.status === 'connected' &&
+          current.identity?.machineId === machine?.identity?.machineId))
+      let result: RemoteHostResources | null = null
+      try {
+        if (id === 'local') {
+          const snapshot = machinesLocalSnapshotSchema.parse(await rpc.invoke('machines.localSnapshot', { sampleResources: true }))
+          result = snapshot.resources
+        } else if (machine?.status === 'connected' && machine.versionReady !== false &&
+          machine.identity?.machinesExtensions?.operations.includes('host.resources')) {
+          result = remoteHostResourcesSchema.parse(await queryMachineMetadata(id, { op: 'host.resources' }))
+        }
+      } catch { /* Missing/refused samples require manual selection, never stale reuse. */ }
+      if (!valid()) { sampled.set(id, null); return }
+      sampled.set(id, result)
+      setResources((old) => new Map(old).set(id, result))
+    }))
+    return sampled
   }, [])
   const machineGeneration = machines.map((machine) => `${machine.id}:${machine.status}:${machine.identity?.machineId ?? ''}`).join('|')
   useEffect(() => {
@@ -160,7 +196,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       clearInterval(timer)
     }
   }, [refresh, acceptMachines])
-  return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, preferences, refreshInventory }}>{children}</Context.Provider>
+  return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, resources, refreshResources, preferences, refreshInventory }}>{children}</Context.Provider>
 }
 
 export const useMachines = () => useContext(Context)
