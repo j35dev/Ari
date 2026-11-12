@@ -17,7 +17,7 @@ async function fixture() {
   const contents = join(dist, 'mac-universal/ari.app/Contents')
   await mkdir(join(contents, 'MacOS'), { recursive: true })
   await mkdir(join(contents, 'Resources'), { recursive: true })
-  const zip = join(dist, 'Ari-0.3.13-universal.zip')
+  const zip = join(dist, 'Ari-0.3.14-universal.zip')
   const executable = join(contents, 'MacOS/ari')
   const archive = join(contents, 'Resources/app.asar')
   await writeFile(zip, 'synthetic zip; never extracted')
@@ -26,11 +26,11 @@ async function fixture() {
   const receipt = {
     kind: 'macos-universal-transfer',
     sourceHead: head,
-    version: '0.3.13',
+    version: '0.3.14',
     platform: 'darwin',
     arch: 'x64',
     nativeExecuted: false,
-    zip: { name: 'Ari-0.3.13-universal.zip', bytes: 30, sha256: await sha256(zip) },
+    zip: { name: 'Ari-0.3.14-universal.zip', bytes: 30, sha256: await sha256(zip) },
     archiveName: 'app.asar',
     executableSha256: await sha256(executable),
     asarSha256: await sha256(archive),
@@ -102,7 +102,7 @@ test('successful ARM64 evidence cannot waive the failed translated gate', async 
     assert.equal(options.arch, 'arm64')
     return {
       kind: 'packaged-native-module-load',
-      version: '0.3.13',
+      version: '0.3.14',
       electron: '43.4.1',
       platform: 'darwin',
       arch: 'arm64',

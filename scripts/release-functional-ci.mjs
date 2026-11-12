@@ -10,7 +10,7 @@ import { launchArches } from './release-native-smoke.mjs'
 
 export function functionalPlans(receipt, context) {
   assert.equal(receipt.sourceHead, context.sourceHead, 'Package receipt differs from checkout')
-  assert.equal(receipt.version, '0.3.13', 'Unexpected package version')
+  assert.equal(receipt.version, '0.3.14', 'Unexpected package version')
   assert.equal(receipt.platform, context.platform, 'Wrong artifact platform')
   assert.ok(!receipt.nativeFailure, 'Native package gate did not pass')
   const arches = launchArches(context.platform, context.hostArch)
