@@ -55,6 +55,7 @@ export function Titlebar({
   onExpandSidebar,
   minimal = false,
   git,
+  machineLabel,
 }: {
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
@@ -66,6 +67,8 @@ export function Titlebar({
   minimal?: boolean
   /** The Git control for the active workspace; absent outside a repository. */
   git?: ReactNode
+  /** The immutable remote owner of the session/tools currently shown. */
+  machineLabel?: string
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -90,6 +93,7 @@ export function Titlebar({
             <PanelLeftOpen size={15} aria-hidden />
           </button>
         ) : null}
+        {machineLabel && <span aria-label="Session machine" title={machineLabel} className="max-w-64 truncate text-xs text-fg-muted">{machineLabel}</span>}
       </div>
 
       <div className="flex-1" />

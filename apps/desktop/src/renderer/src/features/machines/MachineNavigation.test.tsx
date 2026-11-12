@@ -57,6 +57,7 @@ it('merges local and remote rows into one repository, retains offline ownership,
   expect(screen.getAllByRole('region', { name: 'Ari' })).toHaveLength(1)
   const group = screen.getByRole('region', { name: 'Ari' })
   expect(group).toHaveTextContent('Local task'); expect(group).toHaveTextContent('Studio computer')
+  expect(group).not.toHaveTextContent('This PC')
   expect(screen.getByRole('button', { name: 'Archive Host task' })).toBeDisabled()
   await user.click(screen.getByText('Host task'))
   expect(select).toHaveBeenCalledWith(JSON.stringify(['host-a', 'sess_same']))

@@ -34,9 +34,9 @@ export function useMachineProjects(projects: Project[], localSessions: SessionSu
         { kind: 'remote', machineId: hostId, sessionId: summary.id }
       const key = sessionViewKey(scope)
       scopes.set(key, scope)
-      hosts.set(key, { name: machine?.name ?? 'This PC', status: machine?.status ?? 'connected',
-        readOnly: scope.kind === 'remote' && (machine?.status !== 'connected' || machine.versionReady === false),
-        ...(scope.kind === 'remote' ? { administrationReason: 'Session archive and deletion are unavailable on this host.' } : {}) })
+      if (scope.kind === 'remote') hosts.set(key, { name: machine?.name ?? 'Remote machine', status: machine?.status ?? 'offline',
+        readOnly: machine?.status !== 'connected' || machine.versionReady === false,
+        administrationReason: 'Session archive and deletion are unavailable on this host.' })
       const groupId = groupByCheckout.get(JSON.stringify([hostId, summary.projectId])) ??
         (scope.kind === 'local' ? summary.projectId : `checkout:${JSON.stringify([hostId, summary.projectId])}`)
       return projectSessionSummary(summary, (id) => sessionViewKey(scope.kind === 'local' ?

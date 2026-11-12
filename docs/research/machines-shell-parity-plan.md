@@ -20,7 +20,9 @@ execution; those proofs belong to the coordinator and respective owners.
   Different fork origins stay separate; missing identities remain scoped to
   exact host/project IDs. Same-host clones retain distinct checkout IDs and
   require explicit selection. Only exclusively remote projects show a host
-  label on their header; sessions show small host/status labels.
+  label on their header; remote sessions show a small host/status line below
+  the title. Local sessions have no This PC badge. ScopedTitlebar displays the
+  immutable owning remote machine for the active session/tool scope.
 - `sessionViewKey(SessionScope)` provides local keys and exact remote
   `[registryMachineId, wireSessionId]` keys. The shell never sends these remote
   presentation keys through privileged local session/workspace actions. Child
@@ -144,11 +146,16 @@ the handoff commits and coordinator's final evidence.
 
 `testing/machines.tsx` now mounts normal SessionView, normal merged Sidebar,
 ProjectDraftPane and Machines settings with strict fake metadata and desktop
-replay. `packaging/capture-machines.mjs` records light/dark draft/Auto, normal
+replay. `packaging/capture-machines.mjs` records light/dark draft/Auto/open picker, normal
 session, status-only receipt, routes/permissions and merged offline sidebar.
 It opens a hidden isolated D: profile and refuses external endpoints and
 mutations. These captures are component evidence; the final integrated app and
 actual two-host proof remain coordinator release gates.
+
+The open-picker capture asserts its menu is visible. Normal session captures
+include a deterministic sanitized turn diff and the actual ScopedTitlebar host
+label. Permissions captures scroll the selected tab into view and wait for its
+paint. Fixture history uses fixed November 2026 dates.
 
 All authored code/install/build activity remains in the assigned D: worktree.
 Heavy checks use the shared below-normal lease runner, one test worker and no
