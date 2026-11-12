@@ -3150,7 +3150,7 @@ describe('EffortChip', () => {
   it('hides when the harness advertised no thought levels', async () => {
     invokeMock.mockResolvedValue([{ kind: 'grok', source: 'live', models: [], efforts: [] }])
     render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models', undefined))
     expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
   })
 
@@ -3350,7 +3350,7 @@ describe('EffortChip', () => {
     const onChange = vi.fn()
     invokeMock.mockResolvedValue([{ kind: 'claude', source: 'cache', models: [], efforts: [] }])
     render(<EffortChip driverKind="claude" effort="xhigh" onChange={onChange} />)
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models', undefined))
     await act(async () => undefined)
     expect(onChange).not.toHaveBeenCalled()
   })
