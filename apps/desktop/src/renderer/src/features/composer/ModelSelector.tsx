@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
+import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import { modelsFor, resolveOfferedModel } from '@ari/providers/catalogs'
 import type { CatalogSource } from '@ari/providers/catalogs'
 import { Popover } from '@ari/ui/popover'
@@ -97,12 +98,17 @@ export function ModelSelector({
   modelId,
   onChange,
   lockedTo = null,
+  hostCatalog,
+  disabled = false,
 }: {
   driverKind: DriverKind
   modelId: string | null
   onChange: (next: { driverKind: DriverKind; modelId: string | null }) => void
   /** When set, only this provider's models are selectable. */
   lockedTo?: DriverKind | null
+  /** Undefined uses this PC. Null waits for host metadata without local probes. */
+  hostCatalog?: RemoteModelCatalog | null
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [activeKind, setActiveKind] = useState<DriverKind | null>(null)
@@ -125,6 +131,22 @@ export function ModelSelector({
    * late-landing ACP probes (which spawn the agent CLI) show up without a
    * restart. */
   const loadCatalogs = useCallback(() => {
+    if (hostCatalog !== undefined) {
+      const rows = hostCatalog?.providers ?? []
+      setDetections(rows.map((row) => ({
+        kind: row.driverKind, installed: row.installed ?? row.available === true,
+        authStatus: row.authStatus ?? 'unknown', enabled: row.available !== false,
+        authReason: row.reason ?? undefined,
+      })))
+      setCatalog(Object.fromEntries(rows.map((row) => [row.driverKind, row.models])))
+      setSources(Object.fromEntries(rows.map((row) => [row.driverKind, row.source ?? 'live'])))
+      setAgentDefaults(Object.fromEntries(rows.filter((row) => row.defaultModelId).map((row) => [row.driverKind, row.defaultModelId!])))
+      setEndpointModels(rows.filter((row) => row.driverKind === 'ari-core').flatMap((row) => row.models.map((model) => ({
+        id: model.id, label: model.label, group: 'Ari Core', hint: model.contextHint,
+      }))))
+      setLoaded(hostCatalog !== null)
+      return
+    }
     void Promise.allSettled([
       rpc.invoke('providers.detect').then((rows) => {
         // Stored raw: the readiness split happens in a memo, because the
@@ -175,15 +197,16 @@ export function ModelSelector({
         )
       }),
     ]).finally(() => setLoaded(true))
-  }, [])
+  }, [hostCatalog])
 
   useEffect(() => {
     loadCatalogs()
+    if (hostCatalog !== undefined) return
     return rpc.subscribe('providers.updates', {}, (payload) => {
       const frame = payload as { type?: string }
       if (frame.type === 'catalog' || frame.type === 'detections') loadCatalogs()
     })
-  }, [loadCatalogs])
+  }, [loadCatalogs, hostCatalog])
 
   /** Models for one provider — the right-hand pane. */
   const optionsFor = useMemo(() => {
@@ -192,7 +215,7 @@ export function ModelSelector({
       // The catalog is already scoped to what this CLI serves; when it is
       // genuinely empty fall back to the CLI's own default rather than nothing.
       const live = catalog[kind]
-      const list = live && live.length > 0 ? live : modelsFor(kind)
+      const list = hostCatalog !== undefined ? live ?? [] : live && live.length > 0 ? live : modelsFor(kind)
       return list.map((model) => ({
         id: `${kind}:${model.id}`,
         label: model.label,
@@ -204,7 +227,7 @@ export function ModelSelector({
       }))
     }
     return compute
-  }, [catalog, endpointModels])
+  }, [catalog, endpointModels, hostCatalog])
 
   /**
    * The row to check. No pick runs whatever the agent is set to; a pick made
@@ -216,9 +239,9 @@ export function ModelSelector({
     if (driverKind === 'ari-core') return pick ?? ''
     if (pick === null) return `${driverKind}:`
     const live = catalog[driverKind]
-    const list = live && live.length > 0 ? live : modelsFor(driverKind)
+    const list = hostCatalog !== undefined ? live ?? [] : live && live.length > 0 ? live : modelsFor(driverKind)
     return `${driverKind}:${resolveOfferedModel(pick, list) ?? pick}`
-  }, [driverKind, modelId, agentDefaults, catalog])
+  }, [driverKind, modelId, agentDefaults, catalog, hostCatalog])
   const currentKindLabel = driverLabel(driverKind)
 
   const { ready, withheld } = useMemo(() => partitionProviders(detections), [detections])
@@ -535,6 +558,7 @@ export function ModelSelector({
         }}
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
+        disabled={disabled}
         aria-expanded={open}
         className={cx(textButton, 'w-full max-w-56', open && 'bg-fg/6')}
       >

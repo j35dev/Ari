@@ -1,0 +1,66 @@
+{"resourceGate":{"commitHeadroomBytes":10608873472,"cFreeBytes":21455556608}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-mobile-build","pid":26680,"startedAt":"2026-11-12T16:06:41.079Z","id":"f1c1a168-7cd8-4442-b154-14a7db1dbe6e"}
+
+> @ari/mobile@0.1.0 build D:\Projects\Ari-machines\apps\mobile
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2694 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                       1.06 kB │ gzip:   0.54 kB
+dist/assets/fira-code-symbols2-wght-normal-CE6EOz_n.woff2             4.12 kB
+dist/assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2            5.81 kB
+dist/assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2        6.18 kB
+dist/assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2             7.42 kB
+dist/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2      7.50 kB
+dist/assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2          7.70 kB
+dist/assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2               8.00 kB
+dist/assets/manrope-vietnamese-wght-normal-usUDDRr7.woff2             8.52 kB
+dist/assets/fira-code-greek-ext-wght-normal-wWus70Ix.woff2            8.61 kB
+dist/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2           9.00 kB
+dist/assets/manrope-greek-wght-normal-DL7QRZyv.woff2                  9.44 kB
+dist/assets/source-sans-3-greek-ext-wght-normal-BXZfsJY4.woff2        9.75 kB
+dist/assets/source-sans-3-vietnamese-wght-normal-BDs68eHQ.woff2      10.36 kB
+dist/assets/source-sans-3-cyrillic-ext-wght-normal-c-5QAGAI.woff2    10.73 kB
+dist/assets/fira-code-cyrillic-wght-normal-Y3u8pIsh.woff2            11.98 kB
+dist/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2       12.11 kB
+dist/assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2           12.94 kB
+dist/assets/fira-code-latin-ext-wght-normal-Dvfvaomy.woff2           13.27 kB
+dist/assets/source-serif-4-vietnamese-wght-normal-BsaNuasd.woff2     13.51 kB
+dist/assets/fira-code-greek-wght-normal-B2SviObF.woff2               13.78 kB
+dist/assets/manrope-cyrillic-wght-normal-Dvxsihut.woff2              14.50 kB
+dist/assets/source-sans-3-greek-wght-normal-Cc-u-6OI.woff2           14.53 kB
+dist/assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2          14.70 kB
+dist/assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2                15.08 kB
+dist/assets/manrope-latin-ext-wght-normal-Ch3YOpNY.woff2             15.12 kB
+dist/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2      15.20 kB
+dist/assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2               16.51 kB
+dist/assets/source-serif-4-cyrillic-ext-wght-normal-DHTKMUil.woff2   18.11 kB
+dist/assets/source-sans-3-cyrillic-wght-normal-BMDVbyM7.woff2        18.50 kB
+dist/assets/source-serif-4-greek-wght-normal-BpXpdlRW.woff2          20.18 kB
+dist/assets/fira-code-cyrillic-ext-wght-normal-DhYMMuQd.woff2        22.13 kB
+dist/assets/geist-mono-latin-wght-normal-XN7g48iV.woff2              23.13 kB
+dist/assets/manrope-latin-wght-normal-DHIcAJRg.woff2                 24.84 kB
+dist/assets/source-sans-3-latin-wght-normal-Bo_j9asI.woff2           28.87 kB
+dist/assets/geist-latin-wght-normal-BgDaEnEv.woff2                   29.40 kB
+dist/assets/fira-code-latin-wght-normal-CHoedHDv.woff2               36.28 kB
+dist/assets/source-serif-4-cyrillic-wght-normal-B1g8a0vD.woff2       36.51 kB
+dist/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2          40.40 kB
+dist/assets/source-serif-4-latin-ext-wght-normal-BVZ5su8S.woff2      42.21 kB
+dist/assets/source-serif-4-latin-wght-normal-DMe4EKeb.woff2          50.94 kB
+dist/assets/source-sans-3-latin-ext-wght-normal-C8iNium2.woff2       60.09 kB
+dist/assets/stillwater-1tlEBJ1E.jpg                                 153.15 kB
+dist/assets/anime-city-DyNGoncj.jpg                                 422.44 kB
+dist/assets/moon-landscape-BLjQ5E2Q.jpg                             465.93 kB
+dist/assets/moon-landscape-2-Bbw8UqZO.jpg                           634.12 kB
+dist/assets/Terminal-DDGTF8rc.css                                     3.62 kB │ gzip:   0.99 kB
+dist/assets/index-CRNKEYy-.css                                       99.67 kB │ gzip:  22.27 kB
+dist/assets/SessionControls-DKTap3oW.js                               6.46 kB │ gzip:   2.72 kB
+dist/assets/NewChatScreen-CY_QrxBm.js                                 6.97 kB │ gzip:   2.85 kB
+dist/assets/Terminal-BrCsS9-9.js                                    341.34 kB │ gzip:  87.03 kB
+dist/assets/SessionScreen-B-R0gtkn.js                               426.41 kB │ gzip: 134.87 kB
+dist/assets/index-DKpbxARI.js                                       429.32 kB │ gzip: 126.30 kB
+✓ built in 9.26s
+{"heavyResult":{"worker":"publication-packaging-mobile-build","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/mobile","build"],"exitCode":0,"signal":null}}

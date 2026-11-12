@@ -231,65 +231,69 @@ export function WelcomePanel({
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={transitions.fadeUp}
-          className="mx-auto flex w-full max-w-[640px] shrink-0 flex-col items-start gap-4"
+          // One solid card: the wallpaper can be any picture, so nothing here is
+          // set straight on it.
+          className={`${card} mx-auto flex w-full max-w-[600px] shrink-0 flex-col overflow-hidden shadow-2`}
         >
-          <div>
-            <h1 className="text-[28px] font-[550] leading-9 tracking-[-0.02em] text-fg">
-              Ari
-              <span aria-hidden="true" className="text-accent">
-                .
-              </span>
-            </h1>
-            <p className="mt-2 max-w-[520px] text-sm leading-relaxed text-fg">
-              One unified surface for every coding agent on your machine — chat, steer, review
-              diffs, and drive terminals.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            disabled={startPending || saving}
-            onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-            className={primaryButton}
-          >
-            {hasProjects ? 'Start a new session' : 'Add a project to start'}
-          </button>
-
-          {checking ? (
-            <p role="status" className="flex items-center gap-2 text-[13px] text-fg-muted">
-              <span className="ari-status" data-status="working" aria-hidden="true" />
-              Checking local agents and saved model endpoints…
-            </p>
-          ) : null}
-          {failedChecks.length > 0 ? (
-            <div className={`${card} flex w-full items-center gap-3 px-4 py-3.5`}>
-              <span className="ari-status" data-status="error" aria-hidden="true" />
-              <p role="alert" className="min-w-0 flex-1 text-[13px] leading-5 text-fg">
-                Could not check {failedChecks.join(' and ')}. Retry, or review your setup in
-                Settings.
+          <div className="flex flex-col items-start gap-4 px-6 pb-6 pt-6">
+            <div>
+              <h1 className="text-[28px] font-[550] leading-9 tracking-[-0.02em] text-fg">
+                Ari
+                <span aria-hidden="true" className="text-accent">
+                  .
+                </span>
+              </h1>
+              <p className="mt-2 max-w-[480px] text-sm leading-relaxed text-fg-muted">
+                One unified surface for every coding agent on your machine — chat, steer, review
+                diffs, and drive terminals.
               </p>
-              <Button
-                size="sm"
-                className="shrink-0"
-                onClick={() => {
-                  if (providers.state.status === 'error') providers.retry()
-                  if (endpoints.state.status === 'error') endpoints.retry()
-                }}
-              >
-                Retry setup checks
-              </Button>
             </div>
-          ) : null}
+
+            <button
+              type="button"
+              disabled={startPending || saving}
+              onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
+              className={primaryButton}
+            >
+              {hasProjects ? 'Start a new session' : 'Add a project to start'}
+            </button>
+
+            {checking ? (
+              <p role="status" className="flex items-center gap-2 text-[13px] text-fg-muted">
+                <span className="ari-status" data-status="working" aria-hidden="true" />
+                Checking local agents and saved model endpoints…
+              </p>
+            ) : null}
+            {failedChecks.length > 0 ? (
+              <div className="flex w-full items-center gap-3">
+                <span className="ari-status" data-status="error" aria-hidden="true" />
+                <p role="alert" className="min-w-0 flex-1 text-[13px] leading-5 text-fg">
+                  Could not check {failedChecks.join(' and ')}. Retry, or review your setup in
+                  Settings.
+                </p>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => {
+                    if (providers.state.status === 'error') providers.retry()
+                    if (endpoints.state.status === 'error') endpoints.retry()
+                  }}
+                >
+                  Retry setup checks
+                </Button>
+              </div>
+            ) : null}
+          </div>
 
           {/* Detected agents list */}
           {clis.length > 0 ? (
-            <div className={`${card} w-full`}>
-              <p className={`px-4 pb-1.5 pt-3 ${sectionLabel}`}>Detected local agents</p>
+            <div className="w-full border-t border-border">
+              <p className={`px-6 pb-1.5 pt-3.5 ${sectionLabel}`}>Detected local agents</p>
               <ul>
                 {clis.map((cli) => (
                   <li
                     key={cli.kind}
-                    className="flex h-9 items-center gap-2.5 border-t border-border px-4 text-[13.5px]"
+                    className="flex h-9 items-center gap-2.5 border-t border-border px-6 text-[13.5px]"
                     title={
                       cli.installed
                         ? `${cli.label}${cli.version ? ` ${cli.version}` : ''}${
@@ -328,7 +332,7 @@ export function WelcomePanel({
           {needsSetup ? (
             <form
               onSubmit={(e) => void connect(e)}
-              className={`${card} flex w-full flex-col gap-3 p-4`}
+              className="flex w-full flex-col gap-3 border-t border-border px-6 py-5"
             >
               <div>
                 <h2 className="flex items-center gap-2 text-sm font-medium text-fg">
@@ -395,7 +399,7 @@ export function WelcomePanel({
           ) : null}
 
           {/* Keyboard hints */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-fg-subtle">
+          <div className="flex w-full flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-border px-6 py-3 text-xs text-fg-subtle">
             {KEYBOARD_HINTS.map(([keys, label]) => (
               <span key={keys} className="flex items-center gap-1.5">
                 <kbd className="font-mono text-[11px] text-fg-muted">{keys}</kbd>

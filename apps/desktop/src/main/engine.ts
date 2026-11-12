@@ -7,7 +7,7 @@ import {
 } from '@ari/contracts/attachments'
 import type { Command, CommandReceipt } from '@ari/contracts/commands'
 import type { DriverKind } from '@ari/contracts/common'
-import type { JournalEvent } from '@ari/contracts/events'
+import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin, MessagePart } from '@ari/contracts/message'
 import type { AgentEvent } from '@ari/contracts/agent-event'
@@ -140,6 +140,8 @@ export interface EngineDeps {
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   canRespondControlApproval?: (id: string) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** A parked turn must reacquire its folder before an answer resumes its provider. */
+  authorizeWorkspace?: (session: Session) => Promise<string | null>
   /** Detaches a parked provider connection before awaiting its shutdown. */
   releaseProviderConnection?: (sessionId: string) => Promise<void>
   /**
@@ -234,6 +236,7 @@ const PENDING_SEQ = Number.MAX_SAFE_INTEGER
  */
 export class Engine {
   readonly #commands = new Map<string, Promise<unknown>>()
+  #admission: Promise<unknown> = Promise.resolve()
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #liveTurnListeners = new Set<(sessionId: string) => void>()
@@ -507,7 +510,18 @@ export class Engine {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
-    return this.#chain(id, () => this.#dispatch(command, origin))
+    return this.#chain(id, () =>
+      ['turn.start', 'message.enqueue', 'approval.respond', 'input.respond'].includes(command.type)
+        ? this.#admit(() => this.#dispatch(command, origin))
+        : this.#dispatch(command, origin),
+    )
+  }
+
+  /** Check and persist admission atomically across roots; provider execution stays parallel. */
+  #admit<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.#admission.catch(() => undefined).then(fn)
+    this.#admission = result
+    return result
   }
 
   /** Serializes work per root session tree: commands and queue drains share one chain. */
@@ -539,6 +553,15 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
+    if (
+      (command.type === 'approval.respond' || command.type === 'input.respond') &&
+      model.session &&
+      model.activeTurnId &&
+      this.#deps.authorizeWorkspace
+    ) {
+      const reason = await this.#deps.authorizeWorkspace(model.session)
+      if (reason) return { accepted: false, reason }
+    }
     if (
       command.type === 'approval.respond' &&
       command.approvalId.startsWith('ari_delegate_') &&
@@ -630,7 +653,7 @@ export class Engine {
           this.#turnTasks.delete(command.sessionId)
           if (this.#executingTurnIds.get(command.sessionId) === ids.turnId)
             this.#executingTurnIds.delete(command.sessionId)
-          this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
+          this.#retryCapacityBlockedQueues()
         }
       })
     }
@@ -1541,7 +1564,7 @@ export class Engine {
   /** Queues a serialized queue-drain; fire-and-forget, never rejects. */
   #scheduleQueueDrain(sessionId: string, rootSessionId: string | null): void {
     const id = rootSessionId ?? sessionId
-    void this.#chain(id, () => this.#drainQueue(sessionId)).catch((e) => {
+    void this.#chain(id, () => this.#admit(() => this.#drainQueue(sessionId))).catch((e) => {
       log.error('queued-turn drain failed', { error: String(e) })
     })
   }
@@ -1558,12 +1581,12 @@ export class Engine {
     }
   }
 
-  /** Retries queues that were held only by root-level concurrency capacity. */
-  #retryCapacityBlockedQueues(rootId: string): void {
-    const blocked = this.#capacityBlockedQueues.get(rootId)
-    if (!blocked) return
-    this.#capacityBlockedQueues.delete(rootId)
-    for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
+  /** A released folder can unblock a different root's queue. */
+  #retryCapacityBlockedQueues(): void {
+    const waiting = [...this.#capacityBlockedQueues]
+    this.#capacityBlockedQueues.clear()
+    for (const [rootId, blocked] of waiting)
+      for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
   }
 
   /**
@@ -1652,7 +1675,7 @@ export class Engine {
     void task.then(() => {
       if (this.#turnTasks.get(sessionId) === task) {
         this.#turnTasks.delete(sessionId)
-        this.#retryCapacityBlockedQueues(session.rootSessionId ?? session.id)
+        this.#retryCapacityBlockedQueues()
       }
     })
 
@@ -1748,6 +1771,47 @@ export class Engine {
     for await (const chunk of journal.readByChunk()) {
       const events = chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : []))
       if (events.length > 0) onChunk(events)
+    }
+  }
+
+  /** A stable prefix reader that awaits its consumer and certifies sequence continuity. */
+  async replaySessionRangeChunks(
+    sessionId: string,
+    options: { afterSeq?: number; throughSeq: number; signal?: AbortSignal },
+    onChunk: (events: JournalEvent[]) => Promise<void>,
+  ): Promise<{ outcome: 'complete' | 'incomplete'; seq: number; reason: string | null }> {
+    let last = options.afterSeq ?? -1
+    let expected = 0
+    const fail = (reason: string) => ({ outcome: 'incomplete' as const, seq: last, reason })
+    if (last > options.throughSeq) return fail('resume sequence exceeds host history')
+    if (last === options.throughSeq) return { outcome: 'complete', seq: last, reason: null }
+    try {
+      const journal = await this.#deps.store.openJournal(sessionId)
+      for await (const chunk of journal.readStrictByChunk(options.signal)) {
+        options.signal?.throwIfAborted()
+        const events: JournalEvent[] = []
+        let reached = false
+        for (const entry of chunk) {
+          if (entry.kind !== 'value') {
+            if (events.length) await onChunk(events)
+            return fail('journal contains an unreadable record')
+          }
+          const parsed = journalEventSchema.safeParse(entry.value)
+          if (!parsed.success || parsed.data.sessionId !== sessionId || parsed.data.seq !== expected++) {
+            if (events.length) await onChunk(events)
+            return fail('journal sequence or event is invalid')
+          }
+          const event = parsed.data
+          if (event.seq > options.throughSeq) break
+          if (event.seq > last) { events.push(event); last = event.seq }
+          if (event.seq === options.throughSeq) { reached = true; break }
+        }
+        if (events.length) await onChunk(events)
+        if (reached) return { outcome: 'complete', seq: last, reason: null }
+      }
+      return fail('journal prefix is missing')
+    } catch {
+      return fail(options.signal?.aborted ? 'replay cancelled' : 'journal could not be read completely')
     }
   }
 }

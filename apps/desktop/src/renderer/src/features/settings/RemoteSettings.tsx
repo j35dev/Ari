@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Cable, Check, Cloud, Monitor, Smartphone } from 'lucide-react'
-import type { Project } from '@ari/contracts/project'
-import type { RemoteState, TailscaleState } from '@ari/contracts/rpc'
+import type { RemoteState } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Button } from '@ari/ui/button'
 import { Switch } from '@ari/ui/switch'
@@ -13,6 +12,7 @@ import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
 import { RemotePairingApproval } from './RemotePairingApproval'
 import { DeviceAccessPicker } from './DeviceAccessPicker'
 import { RemoteConnectSetup } from './RemoteConnectSetup'
+import { RemoteTailscaleSetup } from './RemoteTailscaleSetup'
 import { useRemoteAccess } from './use-remote-access'
 
 const log = createLogger('settings:remote')
@@ -23,7 +23,6 @@ export function RemoteSettings() {
     remote,
     tailscale,
     connect,
-    projects,
     error,
     busy,
     run,
@@ -38,7 +37,6 @@ export function RemoteSettings() {
   const [confirmingRevoke, setConfirmingRevoke] = useState<string | null>(null)
   const [editing, setEditing] = useState<{
     deviceId: string
-    projectIds: string[]
     allowTerminal: boolean
   } | null>(null)
   const [now, setNow] = useState(Date.now)
@@ -108,11 +106,9 @@ export function RemoteSettings() {
   const mutate = (label: string, operation: () => Promise<RemoteState>): void => {
     run(label, async () => setRemote(await operation()))
   }
-  const saveGrants = (deviceId: string, projectIds: string[], allowTerminal: boolean): void => {
+  const saveGrants = (deviceId: string, allowTerminal: boolean): void => {
     run('Save device access', async () => {
-      setRemote(
-        await rpc.invoke('remote.updateDeviceGrants', { deviceId, projectIds, allowTerminal }),
-      )
+      setRemote(await rpc.invoke('remote.updateDeviceGrants', { deviceId, allowTerminal }))
       setEditing(null)
     })
   }
@@ -128,8 +124,6 @@ export function RemoteSettings() {
       setRemote(await rpc.invoke('remote.status'))
     })
   }
-  const canServe =
-    remote?.enabled === true && tailscale?.installed === true && tailscale.origin !== null
   const status =
     remote === null
       ? 'Checking connection'
@@ -143,7 +137,7 @@ export function RemoteSettings() {
     <SettingsPage
       id="settings-remote"
       title="Mobile access"
-      description="Your Ari workspace, wherever you are."
+      description="Use this computer from your phone or another computer."
     >
       <section
         aria-label="Connection status"
@@ -155,7 +149,7 @@ export function RemoteSettings() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-fg">{status}</p>
           <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
-            Agents and projects stay on this computer. You decide which phones can access them.
+            Agents and projects run here. Each phone or computer needs your approval to connect.
           </p>
         </div>
         {reachable ? <span className="ari-status" data-status="done" aria-hidden="true" /> : null}
@@ -232,7 +226,7 @@ export function RemoteSettings() {
           </div>
           <SettingsRow
             label="Remote access"
-            hint="Starts the local gateway. Paired devices keep their grants when you turn it off."
+            hint="Paired devices can connect while this computer is awake. Turning access off disconnects them."
           >
             <Switch
               checked={remote?.enabled ?? false}
@@ -299,68 +293,40 @@ export function RemoteSettings() {
               id="remote-tailscale-heading"
               done={tailscale?.serving === true}
             />
-            <p className="text-sm leading-relaxed text-fg-muted">
-              {tailscale?.error ?? tailscaleSummary(tailscale)}
-            </p>
-            {tailscale?.installed === false ? (
-              <p className="text-[13px] leading-5 text-fg-subtle">
-                Install Tailscale on this computer and phone, then sign both into the same network.
-              </p>
-            ) : tailscale?.origin === null ? (
-              <p className="text-[13px] leading-5 text-fg-subtle">
-                Open Tailscale on this computer and sign in, then check again.
-              </p>
-            ) : (
-              <p className="text-[13px] leading-5 text-fg-subtle">
-                Your phone must be connected to the same Tailscale network. Serve exposes only
-                Ari&apos;s gateway.
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {tailscale?.serving === true ? (
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    run('Stop Tailscale Serve', async () =>
-                      setTailscale(await rpc.invoke('remote.tailscale.disable')),
-                    )
-                  }
-                >
-                  Stop serving Ari
-                </Button>
-              ) : (
-                <Button
-                  disabled={!canServe || disabled}
-                  onClick={() =>
-                    run('Start Tailscale Serve', async () => {
-                      const state = await rpc.invoke('remote.tailscale.enable')
-                      setRemote(state.remote)
-                      setTailscale(state.tailscale)
-                    })
-                  }
-                >
-                  Serve Ari over Tailscale
-                </Button>
-              )}
-              <Button variant="ghost" disabled={disabled} onClick={refresh}>
-                Check connection
-              </Button>
-            </div>
+            <RemoteTailscaleSetup
+              state={tailscale}
+              enabled={remote?.enabled === true}
+              disabled={disabled}
+              enable={(options) =>
+                run('Start Tailscale Serve', async () => {
+                  const state = await rpc.invoke('remote.tailscale.enable', options)
+                  setRemote(state.remote)
+                  setTailscale(state.tailscale)
+                })
+              }
+              disable={() =>
+                run('Stop Tailscale Serve', async () => {
+                  setTailscale(await rpc.invoke('remote.tailscale.disable'))
+                  setRemote(await rpc.invoke('remote.status'))
+                })
+              }
+              refresh={refresh}
+            />
           </section>
         )}
 
         <section aria-labelledby="remote-pairing-heading" className="space-y-3 px-4 py-3.5">
           <Step
             number="3"
-            title="Pair your phone"
+            title="Pair a phone or computer"
             id="remote-pairing-heading"
-            done={(remote?.devices.length ?? 0) > 0}
+            done={reachable && (remote?.devices.length ?? 0) > 0}
           />
           {remote?.enabled !== true ? (
-            <p className="text-sm text-fg-muted">Turn remote access on to pair a phone.</p>
+            <p className="text-sm text-fg-muted">Turn remote access on to pair a device.</p>
           ) : !reachable ? (
             <p className="text-sm leading-relaxed text-fg-muted">
-              No address a phone can reach exists yet. Complete the connection step above, then
+              No address a device can reach exists yet. Complete the connection step above, then
               create an invitation.
             </p>
           ) : invitation === null || expired || !invitationMatches ? (
@@ -368,7 +334,7 @@ export function RemoteSettings() {
               <p className="text-sm text-fg-muted">
                 {expired
                   ? 'The invitation expired. Create a new code to pair.'
-                  : 'Scan a code, then confirm your phone on this computer.'}
+                  : 'Scan the code on your phone, or open the link on another computer.'}
               </p>
               <Button
                 variant="primary"
@@ -448,15 +414,13 @@ export function RemoteSettings() {
         <RemotePairingApproval
           key={`${pending.invitationId}:${pending.confirmationCode}`}
           pending={pending}
-          projects={projects}
           disabled={disabled}
           expired={pending.expiresAt <= now}
-          approve={(projectIds, allowTerminal) =>
+          approve={(allowTerminal) =>
             mutate('Approve device', () =>
               rpc.invoke('remote.approve', {
                 invitationId: pending.invitationId,
                 confirmationCode: pending.confirmationCode,
-                projectIds,
                 allowTerminal,
               }),
             )
@@ -479,13 +443,13 @@ export function RemoteSettings() {
       >
         {(remote?.devices.length ?? 0) === 0 ? (
           <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5">
-            <Smartphone
-              size={16}
-              strokeWidth={1.7}
-              className="shrink-0 text-fg-subtle"
-              aria-hidden="true"
-            />
-            <p className="text-[13px] text-fg-subtle">No phones are paired yet.</p>
+            <Smartphone size={16} strokeWidth={1.7} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium text-fg">No paired devices</p>
+              <p className="text-[13px] text-fg-subtle">
+                Pair a phone or computer to reach all your projects.
+              </p>
+            </div>
           </div>
         ) : (
           <ul className={SETTINGS_CARD_CLASS}>
@@ -501,9 +465,7 @@ export function RemoteSettings() {
                       ? 'Never connected'
                       : `Last seen ${formatTime(device.lastSeenAt)}`}
                   </p>
-                  <p className="text-[13px] text-fg-subtle">
-                    Projects: {grantedProjects(device.projectIds, projects)}
-                  </p>
+                  <p className="text-[13px] text-fg-subtle">All projects, including future projects</p>
                   <p className="text-[13px] text-fg-subtle">
                     Terminal: {device.allowTerminal === true ? 'enabled' : 'not granted'}
                   </p>
@@ -512,25 +474,21 @@ export function RemoteSettings() {
                   <div className="w-full space-y-3 border-t border-border pt-3">
                     <p className="text-sm font-medium text-fg">Access for {device.displayName}</p>
                     <DeviceAccessPicker
-                      projects={projects}
-                      projectIds={editing.projectIds}
                       allowTerminal={editing.allowTerminal}
                       disabled={disabled}
-                      onChange={(projectIds, allowTerminal) =>
-                        setEditing({ deviceId: device.deviceId, projectIds, allowTerminal })
+                      onChange={(allowTerminal) =>
+                        setEditing({ deviceId: device.deviceId, allowTerminal })
                       }
                     />
                     <p className="text-[13px] leading-5 text-fg-subtle">
-                      Changes apply the next time this phone connects. It does not need to pair
-                      again.
+                      Changes apply to open connections. Turning terminal access off closes its
+                      shells.
                     </p>
                     <div className="flex gap-2">
                       <Button
                         variant="primary"
                         disabled={disabled}
-                        onClick={() =>
-                          saveGrants(device.deviceId, editing.projectIds, editing.allowTerminal)
-                        }
+                        onClick={() => saveGrants(device.deviceId, editing.allowTerminal)}
                         aria-label={`Save access for ${device.displayName}`}
                       >
                         Save access
@@ -548,7 +506,7 @@ export function RemoteSettings() {
                 ) : confirmingRevoke === device.deviceId ? (
                   <div className="space-y-2">
                     <p className="text-[13px] text-fg-subtle">
-                      This phone will need to pair again.
+                      This device will disconnect and need to pair again.
                     </p>
                     <div className="flex gap-2">
                       <Button
@@ -587,7 +545,6 @@ export function RemoteSettings() {
                         setConfirmingRevoke(null)
                         setEditing({
                           deviceId: device.deviceId,
-                          projectIds: [...device.projectIds],
                           allowTerminal: device.allowTerminal === true,
                         })
                       }}
@@ -629,8 +586,8 @@ export function RemoteSettings() {
           </dd>
         </dl>
         <p className="pb-3.5 leading-5">
-          A reachable address is not authorization. Each phone needs its own approved pairing. This
-          computer must stay awake for mobile access.
+          Each phone or computer needs its own approved pairing. This computer must stay awake for
+          mobile access.
         </p>
       </details>
       {busy !== null ? (
@@ -684,20 +641,4 @@ function matchesConnection(invitation: string | null, clientUrl: string | null):
   } catch {
     return false
   }
-}
-
-function grantedProjects(projectIds: readonly string[], projects: readonly Project[]): string {
-  if (projectIds.length === 0) return 'none'
-  return projectIds
-    .map((id) => projects.find((project) => project.id === id)?.name ?? id)
-    .join(', ')
-}
-
-function tailscaleSummary(state: TailscaleState | null): string {
-  if (state === null) return 'Checking Tailscale...'
-  if (!state.installed) return 'Tailscale is not installed on this computer.'
-  if (state.origin === null)
-    return 'Tailscale is installed, but this computer is not connected to a tailnet yet.'
-  if (state.serving) return `Serving Ari at ${state.origin}.`
-  return 'Tailscale is connected; Ari is not served to the tailnet yet.'
 }

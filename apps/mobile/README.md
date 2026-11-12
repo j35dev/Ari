@@ -71,7 +71,9 @@ explicit approval, records the matching public key against a device id.
   approved, verified-email invitations bound to an immutable identity.
   Desktop-approved devices additionally prove their keys to obtain signed,
   computer/device/project-bound leases lasting at most 120 seconds. A
-  separate managed gateway requires both the lease and device authorization.
+  separate managed gateway requires both the lease and device authorization. Local
+  all-project approval never bypasses signed project IDs or account restrictions.
+  A new project needs a refreshed lease before managed access can reach it.
 - Cloudflare supplies the outbound relay. Transport uses TLS; this build
   does not claim application-level end-to-end encryption through the relay.
 
@@ -105,9 +107,10 @@ adds a standalone window and an icon.
 
 On the computer, open Settings → Mobile access. Choose your own Tailscale
 connection or configure the Ari Connect broker and sign in. Review the
-phone's confirmation code, select its projects, and optionally grant terminal
-access. A terminal runs as the desktop user and is not a project sandbox.
-Removing the phone or disabling Mobile access closes its remote access.
+device's confirmation code and optionally grant terminal access. Every approved
+phone or computer can reach all existing and future projects on this host. Older
+paired devices migrate to that scope while keeping their separate terminal grant. A terminal runs as the desktop user and is not a project sandbox.
+Removing the device or disabling Mobile access closes its remote access.
 
 Provider installation, provider credentials, permission ceilings and new
 filesystem roots stay in desktop settings. Files are previews rather than a
@@ -124,3 +127,14 @@ cache behavior. Browser layout checks cover 360/390-pixel widths, dark/light
 appearance, reduced viewport height, offline drafts and lost responses.
 Physical iPhone keyboard/safe-area behavior and live hosted identity/tunnel
 operation remain release checks; fixtures do not substitute for those.
+
+The desktop refreshes current project IDs when registering managed devices and
+on its membership heartbeat. The private Connect service must accept updated
+registrations, apply account restrictions, and sign the authorized IDs into each
+renewed lease. This repository cannot verify or deploy that service; leases here
+remain signed, project-bound and limited to 120 seconds.
+
+Legacy browser keys stored before per-computer scoping have no reliable gateway
+binding. Ari retains that old IndexedDB database without copying its key to the
+currently selected computer. Pair each computer again to create its own
+non-extractable key and receive a fresh host approval.

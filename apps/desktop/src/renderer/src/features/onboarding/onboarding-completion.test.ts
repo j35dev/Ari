@@ -20,32 +20,24 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (method: string, params: { path?: string }) => {
     if (method === 'project.open') return { id: params.path, status: 'ok' }
-    if (method === 'session.create') return { sessionId: 'first-session' }
     throw new Error(`unexpected RPC: ${method}`)
   })
 })
 
 describe('onboarding completion', () => {
-  it('opens only chosen projects, creates an idle session and then saves the default and completion', async () => {
+  it('opens only chosen projects and returns a first-send draft after saving completion', async () => {
     const save = vi.fn().mockResolvedValue(defaultSettings)
     const finish = createOnboardingCompletion(save)
     const result = await finish(choice, signal())
     expect(result).toEqual({
       ok: true,
-      value: { sessionId: 'first-session', driverKind: 'claude' },
+      value: { sessionId: null, projectId: '/work/ari', driverKind: 'claude' },
     })
     expect(invoke.mock.calls.map(([method]) => method)).toEqual([
       'project.open',
       'project.open',
-      'session.create',
     ])
-    expect(invoke).toHaveBeenCalledWith('session.create', {
-      projectId: '/work/ari',
-      title: 'New session',
-      driverKind: 'claude',
-      modelId: null,
-      permissionMode: 'ask',
-    })
+    expect(invoke).not.toHaveBeenCalledWith('session.create', expect.anything())
     expect(save).toHaveBeenCalledWith({
       onboarding: { completedAt: expect.any(Number) as unknown },
       sessions: { defaultDriverKind: 'claude' },
@@ -83,16 +75,12 @@ describe('onboarding completion', () => {
       error: { stage: 'projects' },
     })
     expect(save).not.toHaveBeenCalled()
-    expect((await finish({ ...choice, projects: choice.projects.slice(1) }, signal())).ok).toBe(
-      true,
-    )
-    expect(invoke).toHaveBeenCalledWith(
-      'session.create',
-      expect.objectContaining({ projectId: '/work/docs' }),
-    )
+    expect(await finish({ ...choice, projects: choice.projects.slice(1) }, signal())).toMatchObject({
+      ok: true, value: { projectId: '/work/docs', sessionId: null },
+    })
   })
 
-  it('does not duplicate a created session when saving settings fails', async () => {
+  it('retains imported projects without creating sessions when saving settings is retried', async () => {
     const save = vi
       .fn()
       .mockRejectedValueOnce(new Error('read only'))
@@ -103,23 +91,22 @@ describe('onboarding completion', () => {
       error: { stage: 'settings' },
     })
     expect((await finish(choice, signal())).ok).toBe(true)
-    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(0)
     expect(invoke.mock.calls.filter(([method]) => method === 'project.open')).toHaveLength(2)
   })
 
-  it('can retry or omit a failed first-session creation', async () => {
+  it('allows completion without a draft even when a session creation would fail', async () => {
     const save = vi.fn().mockResolvedValue(defaultSettings)
     const base = invoke.getMockImplementation()!
     invoke.mockImplementation((method: string, params: { path?: string }) =>
       method === 'session.create' ? Promise.reject(new Error('busy')) : base(method, params),
     )
     const finish = createOnboardingCompletion(save)
-    expect(await finish(choice, signal())).toMatchObject({ ok: false, error: { stage: 'session' } })
-    expect(save).not.toHaveBeenCalled()
     expect(await finish({ ...choice, createSession: false }, signal())).toEqual({
       ok: true,
-      value: { sessionId: null, driverKind: 'claude' },
+      value: { sessionId: null, projectId: null, driverKind: 'claude' },
     })
+    expect(invoke).not.toHaveBeenCalledWith('session.create', expect.anything())
   })
 
   it('skips without adding folders, starting agents or overwriting the saved default', async () => {
@@ -127,7 +114,7 @@ describe('onboarding completion', () => {
     const finish = createOnboardingCompletion(save)
     expect(await finish({ ...choice, projects: [], driverKind: null }, signal())).toEqual({
       ok: true,
-      value: { sessionId: null, driverKind: null },
+      value: { sessionId: null, projectId: null, driverKind: null },
     })
     expect(invoke).not.toHaveBeenCalled()
     expect(save).toHaveBeenCalledWith({

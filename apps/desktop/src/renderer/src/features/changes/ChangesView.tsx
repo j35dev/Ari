@@ -4,7 +4,7 @@ import type { GitComparison, GitScope } from '@ari/contracts/rpc'
 import type { Project } from '@ari/contracts/project'
 import { createLogger } from '@ari/shared/logger'
 import { Select } from '@ari/ui/select'
-import { rpc } from '../../lib/rpc'
+import { useToolSessionClient } from '../terminal/tool-session-client'
 import { CheckpointList } from './CheckpointList'
 import { ReviewWorkspace, type ReviewWorkspaceProps } from './ReviewWorkspace'
 import { ChangeRequests } from './ChangeRequests'
@@ -40,6 +40,10 @@ export function ChangesView({
   onDock,
   onClose,
 }: ChangesViewProps) {
+  const rpc = useToolSessionClient(sessionId ?? undefined)
+  const remote = rpc.scope.kind === 'remote' || rpc.readOnly
+  const wireSessionId = rpc.scope.kind === 'remote' ? rpc.scope.sessionId : sessionId
+  const administrationReason = 'Pull requests and checkpoint changes are unavailable on remote machines.'
   const [fallback, setFallback] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -53,17 +57,17 @@ export function ChangesView({
   useEffect(() => setTab(initialTab), [initialTab, JSON.stringify(initialComparison)])
   const scope = useMemo<GitScope | null>(
     () =>
-      sessionId
-        ? { sessionId }
+      wireSessionId
+        ? { sessionId: wireSessionId }
         : projectId
           ? { projectId }
           : fallback
             ? { projectId: fallback }
             : null,
-    [sessionId, projectId, fallback],
+    [wireSessionId, projectId, fallback],
   )
   useEffect(() => {
-    if (sessionId || projectId) return
+    if (remote || sessionId || projectId) return
     let cancelled = false
     setError(null)
     void rpc
@@ -86,7 +90,7 @@ export function ChangesView({
     return () => {
       cancelled = true
     }
-  }, [sessionId, projectId, retry])
+  }, [sessionId, projectId, retry, remote, rpc])
   // Full page (it can be docked back) gets a title row; docked beside the
   // conversation, the panel's own tab row already names it.
   const page = onDock !== undefined
@@ -156,6 +160,8 @@ export function ChangesView({
               type="button"
               role="tab"
               aria-selected={tab === value}
+              disabled={remote && value === 'requests'}
+              title={remote && value === 'requests' ? administrationReason : undefined}
               tabIndex={tab === value ? 0 : -1}
               onKeyDown={(event) => {
                 if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
@@ -168,6 +174,7 @@ export function ChangesView({
                         : tab === 'changes'
                           ? 'requests'
                           : 'changes'
+                  if (remote && next === 'requests') return
                   selectTab(next)
                   document.getElementById(`scm-tab-${next}`)?.focus()
                 }
@@ -204,7 +211,8 @@ export function ChangesView({
               aria-labelledby="scm-tab-requests"
               className="min-h-0 flex-1"
             >
-              <ChangeRequests scope={scope} onCheckedOut={onCheckedOut} />
+              {remote ? <p role="status" className="p-4 text-sm text-fg-muted">{administrationReason}</p>
+                : <ChangeRequests scope={scope} onCheckedOut={onCheckedOut} />}
             </div>
           ) : (
             <div
@@ -229,6 +237,8 @@ export function ChangesView({
             type="button"
             className={textButton}
             aria-expanded={checkpoints}
+            disabled={remote}
+            title={remote ? administrationReason : undefined}
             onClick={() => setCheckpoints(!checkpoints)}
           >
             Turn checkpoints
@@ -238,7 +248,7 @@ export function ChangesView({
               className={cx('text-fg-subtle', checkpoints && 'rotate-180')}
             />
           </button>
-          {checkpoints ? (
+          {checkpoints && !remote ? (
             <div className="ari-scroll max-h-48 overflow-auto px-2 pb-2 pt-1">
               <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
             </div>

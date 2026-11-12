@@ -1,31 +1,20 @@
 import { useState } from 'react'
-import type { Project } from '@ari/contracts/project'
 import type { RemoteState } from '@ari/contracts/rpc'
 import { Button } from '@ari/ui/button'
 import { DeviceAccessPicker } from './DeviceAccessPicker'
 
 interface Props {
   pending: NonNullable<RemoteState['pending']>
-  projects: Project[]
   disabled: boolean
   expired: boolean
-  approve: (projectIds: string[], allowTerminal: boolean) => void
+  approve: (allowTerminal: boolean) => void
   deny: () => void
 }
 
-/** Requires a matching phone code and an explicit project grant for each invitation. */
-export function RemotePairingApproval({
-  pending,
-  projects,
-  disabled,
-  expired,
-  approve,
-  deny,
-}: Props) {
-  const [granted, setGranted] = useState<string[]>([])
+/** Requires a matching device code and separate terminal grant for each invitation. */
+export function RemotePairingApproval({ pending, disabled, expired, approve, deny }: Props) {
   const [verified, setVerified] = useState(false)
   const [allowTerminal, setAllowTerminal] = useState(false)
-  const projectIds = granted.filter((id) => projects.some((project) => project.id === id))
   return (
     <section
       aria-labelledby="remote-pending-heading"
@@ -39,7 +28,7 @@ export function RemotePairingApproval({
         A device wants to connect
       </h2>
       <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
-        {pending.displayName} asked to pair. This code must match the one on the phone&apos;s
+        {pending.displayName} asked to pair. This code must match the one on the device&apos;s
         screen.
       </p>
       <p aria-label="Confirmation code" className="my-4 font-mono text-2xl text-fg">
@@ -51,7 +40,7 @@ export function RemotePairingApproval({
         </p>
       ) : null}
       <fieldset disabled={disabled || expired} className="space-y-3">
-        <legend className="sr-only">Verify device and choose access</legend>
+        <legend className="sr-only">Verify device</legend>
         <label className="flex min-h-10 items-center gap-3 text-sm text-fg">
           <input
             type="checkbox"
@@ -62,25 +51,19 @@ export function RemotePairingApproval({
           The codes match
         </label>
         <DeviceAccessPicker
-          projects={projects}
-          projectIds={granted}
           allowTerminal={allowTerminal}
           disabled={false}
-          onChange={(nextProjectIds, nextAllowTerminal) => {
-            setGranted(nextProjectIds)
-            setAllowTerminal(nextAllowTerminal)
-          }}
+          onChange={setAllowTerminal}
         />
       </fieldset>
       <p className="my-3 text-[13px] leading-5 text-fg-subtle">
-        This device can direct agents and answer approvals in the selected projects. Agents use
-        their desktop permissions.
+        Approve only a phone or computer you recognize. You can revoke its access here at any time.
       </p>
       <div className="flex gap-2">
         <Button
           variant="primary"
-          disabled={disabled || expired || !verified || projectIds.length === 0}
-          onClick={() => approve(projectIds, allowTerminal)}
+          disabled={disabled || expired || !verified}
+          onClick={() => approve(allowTerminal)}
         >
           Approve
         </Button>

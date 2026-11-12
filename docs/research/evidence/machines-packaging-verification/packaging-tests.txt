@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":10772111360,"cFreeBytes":21455687680}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-packaging-tests","pid":31136,"startedAt":"2026-11-12T16:06:11.774Z","id":"4d7dbb65-6a20-4dce-8393-12710f6416e7"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines\apps\desktop
+> vitest run "packaging/after-pack.test.js" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  00:06:15
+   Duration  313ms (transform 28ms, setup 0ms, import 51ms, tests 5ms, environment 0ms)
+
+{"heavyResult":{"worker":"publication-packaging-packaging-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","packaging/after-pack.test.js","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

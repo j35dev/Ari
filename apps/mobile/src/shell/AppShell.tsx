@@ -3,6 +3,7 @@ import { HomeScreen } from '../features/home/HomeScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { readRoute, routeUrl, type MobileRoute } from '../lib/routes'
 import { UpdateBanner, applyUpdate, registerServiceWorker } from '../lib/service-worker'
+import { useApp } from '../lib/app-state'
 
 const SessionScreen = lazy(async () => {
   const module = await import('../features/session/SessionScreen')
@@ -18,13 +19,15 @@ const NewChatScreen = lazy(async () => {
  * system back gesture is the back button.
  */
 export function AppShell(): ReactNode {
+  const app = useApp()
+  const scope = `${app.origin}:${app.session?.deviceId ?? ''}`
   const [route, setRoute] = useState(() => readRoute(location.href))
   const [updateReady, setUpdateReady] = useState(false)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const navigate = (next: MobileRoute): void => {
     const url = routeUrl(next, location.href)
     if (new URL(url, location.href).href === location.href) return
-    history.pushState({ ariMobile: true }, '', url)
+    history.pushState({ ariMobile: true, scope }, '', url)
     setRoute(next)
   }
   useEffect(() => {
@@ -36,7 +39,8 @@ export function AppShell(): ReactNode {
   const onOpen = (sessionId: string): void => navigate({ ...route, sessionId })
   /** Back to where this screen was pushed from, or to home when it was opened by a link. */
   const back = (): void => {
-    if ((history.state as { ariMobile?: boolean } | null)?.ariMobile === true) history.back()
+    const state = history.state as { ariMobile?: boolean; scope?: string } | null
+    if (state?.ariMobile === true && (state.scope === undefined || state.scope === scope)) history.back()
     else {
       const home: MobileRoute =
         route.sessionId !== null
@@ -57,7 +61,7 @@ export function AppShell(): ReactNode {
           </div>
         }
       >
-        <div key={route.sessionId} className="screen-push h-full">
+        <div key={`${scope}:${route.sessionId}`} className="screen-push h-full">
           <SessionScreen sessionId={route.sessionId} onForked={onOpen} onBack={back} />
         </div>
       </Suspense>

@@ -1,0 +1,19 @@
+{
+  "name": "@ari/remote-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./gateway-client": "./src/gateway-client.ts",
+    "./session": "./src/session.ts",
+    "./credential": "./src/credential.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@ari/contracts": "workspace:*"
+  }
+}

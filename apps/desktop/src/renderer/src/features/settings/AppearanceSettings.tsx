@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Monitor } from 'lucide-react'
+import { Check, Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
@@ -70,13 +70,21 @@ function SwatchTile({
       title={description}
       onClick={onSelect}
       className={`flex w-full min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        // The chosen tile is unmistakable: a heavier ink outline, a wash, and a check.
         selected
-          ? 'border-fg text-fg'
-          : 'border-border text-fg-muted hover:border-border-strong hover:text-fg'
+          ? 'border-fg bg-fg/6 text-fg shadow-[0_0_0_1px_var(--ari-fg)]'
+          : 'border-border text-fg-muted hover:border-border-strong hover:bg-fg/4 hover:text-fg'
       }`}
     >
       {preview}
-      <span className="block truncate">{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className={`min-w-0 flex-1 truncate ${selected ? 'font-medium' : ''}`}>{label}</span>
+        {selected ? (
+          <span className="grid size-4 shrink-0 place-items-center rounded-full bg-fg text-bg">
+            <Check size={11} strokeWidth={2.5} aria-hidden />
+          </span>
+        ) : null}
+      </span>
     </button>
   )
 }

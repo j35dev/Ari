@@ -79,7 +79,7 @@ export function OnboardingReady({
           disabled={disabled}
           onChange={(e) => onCreateSessionChange(e.target.checked)}
         >
-          Open an empty session in {first.name}
+          Open a new chat in {first.name}
         </Checkbox>
       )}
       <p className="text-[13px] leading-5 text-fg-subtle">

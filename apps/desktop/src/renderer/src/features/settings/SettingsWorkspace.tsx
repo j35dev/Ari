@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft,
   Bell,
   Cpu,
   FileCog,
   GitBranch,
   Keyboard,
   Mic,
+  Monitor,
   Palette,
   Plug,
   Shield,
@@ -21,6 +21,7 @@ import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
+import { MachinesSettings } from './MachinesSettings'
 import { SpeechSettings } from './SpeechSettings'
 import { SourceControlSettings } from './SourceControlSettings'
 import { SETTINGS_COLUMN_WIDE_CLASS, SettingsPage } from './SettingsPage'
@@ -41,6 +42,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'permissions', label: 'Permissions', icon: Shield, group: 'AI' },
   { id: 'source-control', label: 'Source control', icon: GitBranch, group: 'Code' },
   { id: 'remote', label: 'Mobile access', icon: Smartphone, group: 'Connections' },
+  { id: 'machines', label: 'Machines', icon: Monitor, group: 'Connections' },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal, group: null },
 ] as const
 
@@ -72,6 +74,7 @@ export interface SettingsWorkspaceProps {
   onOpenTerminal?: () => void
   /** Active session workspace. Null inventories the home directory. */
   workspacePath?: string | null
+  onOpenMachine?: (machineId: string) => void
 }
 
 function isSettingsSection(value: string): value is SettingsSectionId {
@@ -88,9 +91,9 @@ const NAV_ROW =
 const NAV_ROW_IDLE = 'text-fg-muted hover:bg-fg/5 hover:text-fg'
 
 /**
- * Settings mode follows the frame: the section list sits on the chrome where
- * the sessions sidebar was, and the page is the stage. Chat stays mounted in
- * the parent — this view is swapped in, not overlaid.
+ * Settings as one panel: the section list on the left, the page on the right.
+ * It fills whatever holds it; the app shows it in a dialog over the workspace,
+ * so the conversation stays where it was underneath.
  */
 export function SettingsWorkspace({
   section: controlledSection,
@@ -99,6 +102,7 @@ export function SettingsWorkspace({
   onOpenSetup,
   onOpenTerminal,
   workspacePath = null,
+  onOpenMachine,
 }: SettingsWorkspaceProps) {
   const [internal, setInternal] = useState<SettingsSectionId>('appearance')
   const section = controlledSection ?? internal
@@ -118,21 +122,9 @@ export function SettingsWorkspace({
   }
 
   return (
-    <div className="ari-enter-fade flex min-h-0 flex-1">
-      <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col px-2.5 pb-2.5 pt-1">
-        {/* Back leads the list rather than sitting in a footer. The row is
-            below the titlebar, so it clears the macOS hiddenInset traffic
-            lights without needing a leading inset. */}
-        <button
-          type="button"
-          aria-label="Back"
-          title="Back to workspace"
-          onClick={onBack}
-          className={cx(NAV_ROW, NAV_ROW_IDLE, 'shrink-0')}
-        >
-          <ArrowLeft size={16} strokeWidth={1.7} className="shrink-0" aria-hidden />
-          Back
-        </button>
+    <div className="flex h-full min-h-0 flex-1 bg-surface-0">
+      <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pb-2.5 pt-3">
+        <h2 className="px-2.5 pb-1 text-sm font-semibold text-fg">Settings</h2>
         <div className="pb-2 pt-2">
           <SettingsSearch onJump={handleSearchJump} />
         </div>
@@ -175,7 +167,7 @@ export function SettingsWorkspace({
         )}
       </aside>
 
-      <div className="ari-stage mb-[var(--ari-frame-gap)] mr-[var(--ari-frame-gap)] flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
         <div
           key={section}
           className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
@@ -202,6 +194,12 @@ export function SettingsWorkspace({
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}
+          {section === 'machines' ? (
+            <MachinesSettings
+              onOpenMachine={onOpenMachine}
+              onHosting={() => setSection('remote')}
+            />
+          ) : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'speech' ? <SpeechSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}

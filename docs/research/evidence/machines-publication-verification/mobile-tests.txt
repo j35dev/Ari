@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":11792453632,"cFreeBytes":21528748032}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-mobile-tests","pid":14976,"startedAt":"2026-11-12T15:55:05.213Z","id":"adfa7d77-8f0e-4569-9a5e-6e7d16bd8462"}
+
+> @ari/mobile@0.1.0 test D:\Projects\Ari-machines\apps\mobile
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/mobile
+
+
+ Test Files  49 passed (49)
+      Tests  371 passed (371)
+   Start at  23:55:17
+   Duration  114.11s (transform 2.18s, setup 0ms, import 24.16s, tests 21.70s, environment 53.18s)
+
+{"heavyResult":{"worker":"publication-mobile-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/mobile","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

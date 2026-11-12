@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { machinesRpcParams, type MachinesRpcResults } from './machines'
 import { orchestrationParams, type OrchestrationResults } from './orchestration'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
@@ -11,7 +12,9 @@ import type { Project, ProjectDiscovery } from './project'
 import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
-import { sessionHierarchySummarySchema, sessionCreatorSchema } from './session'
+export { sessionSummarySchema } from './session'
+import type { SessionSummary } from './session'
+export type { SessionSummary } from './session'
 import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
@@ -56,25 +59,6 @@ export type {
  * The RPC surface between renderer and engine. Method names are an allowlist;
  * every payload is validated in the main process before a handler runs.
  */
-
-export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
-  createdBy: sessionCreatorSchema.nullish(),
-  id: z.string(),
-  projectId: z.string(),
-  title: z.string(),
-  updatedAt: z.number(),
-  /** Messages in the session; 0 marks a pristine, reusable session. */
-  messageCount: z.number().int().nonnegative(),
-  /**
-   * One-line preview of the session's last text. Null until the session says
-   * something; absent from older producers.
-   */
-  lastMessagePreview: z.string().nullable().optional(),
-  /** Sidebar flags; treat missing as false. The engine always reports them. */
-  archived: z.boolean().optional(),
-  pinned: z.boolean().optional(),
-})
-export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
 /** One redeemable reset. Several can be banked with different expiries. */
 export interface ProviderResetCredit {
@@ -256,6 +240,8 @@ export const sessionCreateParamsSchema = z.object({
   permissionMode: permissionModeSchema,
   effort: z.string().min(1).nullable().optional(),
   lead: z.boolean().optional(),
+  /** Auto isolates a new root when its project folder is occupied. */
+  workspaceMode: z.enum(['auto', 'isolated', 'shared']).optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
@@ -319,6 +305,8 @@ export const streamNames = [
   'app.updates',
   'browser.updated',
   'remote.updates',
+  'machines.events',
+  'machines.updates',
   'app.navigate',
   'scm.changed',
 ] as const
@@ -721,6 +709,7 @@ export interface SourceControlEnvironment {
 }
 
 export interface SourceControlContext {
+  workspace?: { kind: 'project' | 'managed-worktree'; path: string }
   status: SourceControlStatus
   refs: string[]
   commits: GitHistoryEntry[]
@@ -791,7 +780,10 @@ export const rpcParams = {
   'aria.newChat': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
-  'session.workspace': z.object({ sessionId: z.string().min(1) }),
+  'session.workspace': z.object({
+    sessionId: z.string().min(1),
+    checkOccupancy: z.boolean().optional(),
+  }),
   /** The children this session delegated to, with their state and last report. */
   'session.tasks': z.object({ sessionId: z.string().min(1) }),
   /** Stop every running session below this one; the session itself is left alone. */
@@ -1128,6 +1120,7 @@ export const rpcParams = {
   }),
   'plan.get': z.object({ sessionId: z.string().min(1) }),
   'scripts.list': gitScopeSchema,
+  ...machinesRpcParams,
   'remote.status': z.undefined(),
   /**
    * Turning remote access on is the act that starts the gateway and records
@@ -1139,22 +1132,23 @@ export const rpcParams = {
   'remote.invite': z.object({ method: z.enum(['tailscale', 'connect']) }).optional(),
   'remote.cancelInvite': z.undefined(),
   /**
-   * The user's decision on the device that asked, with its project grant.
+   * The user's decision on the device that asked. All current/future projects are included.
    * `confirmationCode` is the code the prompt showed when they decided, so an
    * approval cannot land on a device that replaced the request in between.
    */
   'remote.approve': z.object({
     invitationId: z.string().min(1),
     confirmationCode: z.string().min(1),
-    projectIds: z.array(z.string().min(1)),
+    /** Legacy snapshot; cannot narrow the local all-project grant. */
+    projectIds: z.array(z.string().min(1)).default([]),
     allowTerminal: z.boolean().default(false),
   }),
   'remote.deny': z.object({ invitationId: z.string().min(1) }),
   'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
-  /** Replaces a paired device's project and terminal grants; takes effect on its open connections. */
+  /** Changes explicit terminal access; all current/future projects remain included. */
   'remote.updateDeviceGrants': z.object({
     deviceId: z.string().min(1),
-    projectIds: z.array(z.string().min(1)),
+    projectIds: z.array(z.string().min(1)).default([]),
     allowTerminal: z.boolean(),
   }),
   /**
@@ -1162,8 +1156,26 @@ export const rpcParams = {
    * read its state and ask for it to be added or removed.
    */
   'remote.tailscale.status': z.undefined(),
-  /** Expose the running gateway on the tailnet at https://<dnsName>. */
-  'remote.tailscale.enable': z.undefined(),
+  /** Expose the gateway without replacing another application's mount implicitly. */
+  'remote.tailscale.enable': z
+    .object({
+      httpsPort: z.number().int().min(1).max(65535).optional(),
+      replace: z
+        .object({
+          origin: z.string().url().max(200),
+          mountPath: z.literal('/'),
+          target: z.string().max(4096),
+          kind: z.enum(['proxy', 'path', 'text']),
+        })
+        .strict()
+        .refine(({ kind, target }) => kind === 'text' || target.length > 0, {
+          message: 'Proxy and path targets must not be empty',
+          path: ['target'],
+        })
+        .optional(),
+    })
+    .strict()
+    .optional(),
   /** Remove Ari's Serve mapping, leaving the user's own mappings alone. */
   'remote.tailscale.disable': z.undefined(),
   'remote.connect.status': z.undefined(),
@@ -1180,7 +1192,7 @@ export const rpcParams = {
 
 export type RpcMethod = keyof typeof rpcParams
 
-export interface RpcResults extends OrchestrationResults {
+export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   ping: { pong: boolean; at: number }
   'app.navigation.consumer': { registered: boolean }
   'app.navigation.validate': z.infer<typeof appNavigationValidationSchema>
@@ -1203,7 +1215,7 @@ export interface RpcResults extends OrchestrationResults {
   'aria.newChat': { sessionId: string }
   'session.create': { sessionId: string }
   'session.load': unknown
-  'session.workspace': { path: string | null }
+  'session.workspace': { path: string | null; busyReason?: string | null }
   'session.tasks': ChildTask[]
   'session.stopChildren': { stopped: number }
   'session.resume.schedule': { at: number }
@@ -1585,8 +1597,9 @@ export interface RpcResults extends OrchestrationResults {
 export interface RemoteDeviceView {
   deviceId: string
   displayName: string
-  /** Projects this device may reach. Empty reaches nothing. */
+  /** Compatibility view of the registered projects; allProjects governs local access. */
   projectIds: string[]
+  allProjects?: boolean
   pairedAt: number
   lastSeenAt: number | null
   allowTerminal?: boolean
@@ -1668,12 +1681,32 @@ export interface TailscaleState {
   installed: boolean
   /** The tailnet DNS name this machine is reachable at, when known. */
   dnsName: string | null
-  /** https://<dnsName> — the origin a phone would open. */
+  /** Selected HTTPS origin, including a non-default port. */
   origin: string | null
   /** Whether a Serve mapping for our port already exists. */
   serving: boolean
   /** Why the last attempt failed, in a sentence a user can read. */
   error: string | null
+  /** Additive fields are optional for older IPC fixtures; current status always emits them. */
+  httpsPort?: number
+  /** Root mount's observed target at the selected port, when present. */
+  target?: string | null
+  targetListening?: boolean | null
+  /** Whether the observed root matches Ari's separate persisted ownership record. */
+  owned?: boolean
+  conflicts?: TailscaleServeMapping[]
+  /** A wholly unused HTTPS port, or null if no candidate is available. */
+  suggestedHttpsPort?: number | null
+}
+
+export interface TailscaleServeMapping {
+  origin: string
+  httpsPort: number
+  mountPath: string | null
+  target: string
+  kind: 'proxy' | 'path' | 'text' | 'tcp'
+  /** TCP connectivity to a loopback target; null for files/text/nonlocal targets. */
+  listening: boolean | null
 }
 
 /** Payload shape for events delivered on a subscribed stream. */

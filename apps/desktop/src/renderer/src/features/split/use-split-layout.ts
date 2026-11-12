@@ -3,6 +3,7 @@ import {
   assignSession,
   assignTerminal,
   closePane,
+  clearPane,
   focusPane,
   paneIdForSession,
   placeInPane,
@@ -64,6 +65,9 @@ function placedOrUnchanged(
  * applies the pane rewrite to the active space.
  */
 export const splitLayoutActions = {
+  /** A client draft uses an empty pane; durable session identity is assigned on send. */
+  clear: (paneId: string): void => spaceActions.update((store) =>
+    updateActiveLayoutOf(store, (layout) => clearPane(layout, paneId))),
   /** Focus follows the pointer, so a pane is active before its content reacts. */
   focus: (paneId: string): void =>
     spaceActions.update((store) =>

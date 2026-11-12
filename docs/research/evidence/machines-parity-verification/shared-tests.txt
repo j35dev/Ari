@@ -1,0 +1,18 @@
+{"resourceGate":{"commitHeadroomBytes":6350995456,"cFreeBytes":21936173056}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"Aria voice\",\"pid\":6804,\"startedAt\":\"2026-11-12T14:03:56.316Z\",\"id\":\"8bb8753b-d8d6-416c-9371-e2e0c7433381\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":7593529344,"cFreeBytes":21918011392}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-shared-tests","pid":28944,"startedAt":"2026-11-12T14:04:26.659Z","id":"7b92dda5-764a-4fad-a096-009ec54c0eea"}
+
+> @ari/shared@0.1.0 test D:\Projects\Ari-machines\packages\shared
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/shared
+
+
+ Test Files  5 passed (5)
+      Tests  16 passed (16)
+   Start at  22:05:03
+   Duration  3.03s (transform 147ms, setup 0ms, import 335ms, tests 61ms, environment 1ms)
+
+{"heavyResult":{"worker":"integrated-shared-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/shared","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

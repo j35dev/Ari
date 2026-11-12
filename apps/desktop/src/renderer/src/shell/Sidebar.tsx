@@ -11,6 +11,7 @@ import {
   FolderOpen,
   GitBranch,
   Import as ImportIcon,
+  Monitor,
   MoreHorizontal,
   PanelBottom,
   PanelLeftClose,
@@ -298,6 +299,7 @@ function SessionRow({
   childToggle,
   childrenShown = false,
   projectName,
+  host,
   isActive,
   activity,
   startedByAria = false,
@@ -323,6 +325,7 @@ function SessionRow({
   childrenShown?: boolean
   /** Origin project, surfaced as a tooltip in flat lists (search, archived, sessions view). */
   projectName: string | null
+  host?: { name: string; status: string; readOnly: boolean; administrationReason?: string }
   isActive: boolean
   activity?: SessionActivity
   startedByAria?: boolean
@@ -440,6 +443,19 @@ function SessionRow({
     <>
       {startedByAria ? <AriaMark size={12} className="shrink-0" title="Started by Aria" /> : null}
       {session.pinned ? <Pin size={11} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
+      {/* A session on another machine says which, in the same quiet ink as a pin. */}
+      {host ? (
+        <span
+          className={cx('flex shrink-0', host.readOnly ? 'text-warning' : 'text-fg-subtle')}
+          title={`${host.name} · ${host.status}`}
+        >
+          <Monitor size={11} aria-hidden />
+          <span className="sr-only">
+            On {host.name}
+            {host.status === 'connected' ? '' : `, ${host.status}`}
+          </span>
+        </span>
+      ) : null}
     </>
   )
 
@@ -567,9 +583,13 @@ function SessionRow({
             {/* Where it lives: the project and its branch, with the agent's
                 mark at the far end, under the age. */}
             <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-fg-subtle">
+              {host ? <span className="max-w-24 shrink-0 truncate">{host.name} /</span> : null}
               <span className="min-w-0 shrink truncate">{projectName ?? 'Unfiled'}</span>
               {session.branch ? (
-                <span className="flex min-w-0 items-center gap-1 pl-1.5" title={session.branch}>
+                <span
+                  className="flex min-w-0 items-center gap-1 pl-1.5"
+                  title={session.workspacePath ?? session.branch}
+                >
                   <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
                   <span className="min-w-0 truncate">{session.branch}</span>
                 </span>
@@ -598,6 +618,7 @@ function SessionRow({
             type="button"
             aria-label={`Archive ${session.title}`}
             title="Archive"
+            disabled={Boolean(host?.administrationReason || host?.readOnly)}
             onClick={() => onToggleArchive(session.id, true)}
             className={rowAction}
           >
@@ -640,12 +661,16 @@ function SessionRow({
               id: 'pin',
               label: session.pinned ? 'Unpin' : 'Pin to top',
               icon: session.pinned ? PinOff : Pin,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly ? 'Reconnect the owning machine to change this session.' : undefined,
               onSelect: () => onTogglePin(session.id, !session.pinned),
             },
             {
               id: 'rename',
               label: 'Rename',
               icon: Pencil,
+              disabled: host?.readOnly,
+              disabledReason: host?.readOnly ? 'Reconnect the owning machine to rename this session.' : undefined,
               onSelect: () => {
                 setDraft(session.title)
                 setEditing(true)
@@ -661,6 +686,8 @@ function SessionRow({
                   ? 'Unarchive'
                   : 'Archive',
               icon: session.archived ? ArchiveRestore : Archive,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => onToggleArchive(session.id, !session.archived),
             },
             {
@@ -668,6 +695,8 @@ function SessionRow({
               label: hasChildren ? 'Delete session and children' : 'Delete session',
               icon: Trash2,
               danger: true,
+              disabled: Boolean(host?.administrationReason || host?.readOnly),
+              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => setConfirmDelete(true),
             },
           ]}
@@ -690,6 +719,7 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
+  hostOf?: (sessionId: string) => { name: string; status: string; readOnly: boolean; administrationReason?: string } | undefined
   selecting?: boolean
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string, shiftKey: boolean) => void
@@ -760,6 +790,7 @@ function SessionList({
               childrenShown={!flat && (searching || expanded)}
               variant={rowVariant}
               projectName={projectNameOf?.(s.projectId) ?? null}
+              host={handlers.hostOf?.(s.id)}
               isActive={s.id === handlers.activeSessionId}
               activity={treeActivity(
                 handlers.activityOf?.(s.id),
@@ -911,6 +942,9 @@ export interface SidebarProject {
   name: string
   path?: string
   status?: ProjectStatus
+  hostLabel?: string
+  localProjectId?: string
+  localActions?: boolean
 }
 
 /** Per-project commands surfaced on group hover / in the degraded state. */
@@ -959,6 +993,7 @@ function ProjectGroupSection({
   canMoveUp?: boolean
   canMoveDown?: boolean
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -979,6 +1014,7 @@ function ProjectGroupSection({
   // started on it: only a press that did not travel toggles the group.
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
+  const localActions = project?.localActions !== false
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
   const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
   // An open group shows each session's own glyph, so the header stays bare
@@ -1041,6 +1077,15 @@ function ProjectGroupSection({
             </span>
             {/* min-w-11 keeps a long name clear of the hover actions. */}
             <span className="flex min-w-11 shrink-0 items-center justify-end gap-1.5 transition-opacity group-hover/head:opacity-0">
+              {project?.hostLabel ? (
+                <span
+                  className="flex max-w-24 items-center gap-1 text-xs text-fg-subtle"
+                  title={project.hostLabel}
+                >
+                  <Monitor size={11} aria-hidden className="shrink-0" />
+                  <span className="truncate">{project.hostLabel}</span>
+                </span>
+              ) : null}
               {groupActivity !== undefined ? (
                 <span className={showActivity ? 'flex' : 'sr-only'}>
                   <SessionActivityMark activity={groupActivity} />
@@ -1093,7 +1138,7 @@ function ProjectGroupSection({
                       id: 'import',
                       label: 'Import',
                       icon: ImportIcon,
-                      disabled: missing,
+                      disabled: missing || !localActions,
                       disabledReason: missing
                         ? 'Locate this project before importing sessions'
                         : undefined,
@@ -1103,13 +1148,14 @@ function ProjectGroupSection({
                       id: 'reveal',
                       label: 'Reveal in file manager',
                       icon: FolderOpen,
+                      disabled: !localActions,
                       onSelect: () => actions.onRevealProject?.(project.id),
                     },
                     {
                       id: 'move-up',
                       label: 'Move up',
                       icon: ArrowUp,
-                      disabled: !canMoveUp,
+                      disabled: !canMoveUp || !localActions,
                       disabledReason: canMoveUp ? undefined : 'Already the top project',
                       onSelect: () => actions.onMoveProject?.(project.id, -1),
                     },
@@ -1117,7 +1163,7 @@ function ProjectGroupSection({
                       id: 'move-down',
                       label: 'Move down',
                       icon: ArrowDown,
-                      disabled: !canMoveDown,
+                      disabled: !canMoveDown || !localActions,
                       disabledReason: canMoveDown ? undefined : 'Already the last project',
                       onSelect: () => actions.onMoveProject?.(project.id, 1),
                     },
@@ -1125,6 +1171,7 @@ function ProjectGroupSection({
                       id: 'close',
                       label: 'Close project',
                       icon: X,
+                      disabled: !localActions,
                       onSelect: () => actions.onCloseProject?.(project.id),
                     },
                     {
@@ -1132,6 +1179,7 @@ function ProjectGroupSection({
                       label: 'Remove project',
                       icon: Trash2,
                       danger: true,
+                      disabled: !localActions,
                       onSelect: () => setConfirmRemove(true),
                     },
                   ] as ContextMenuItem[])
@@ -1148,8 +1196,8 @@ function ProjectGroupSection({
                 id: 'archive-all',
                 label: `Archive all in ${scope}`,
                 icon: Archive,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => bulk?.onArchiveAll(),
               },
               {
@@ -1157,8 +1205,8 @@ function ProjectGroupSection({
                 label: `Delete all in ${scope}`,
                 icon: Trash2,
                 danger: true,
-                disabled: empty,
-                disabledReason: empty ? 'No sessions in this group' : undefined,
+                disabled: empty || Boolean(bulk?.administrationReason),
+                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => setConfirmDeleteAll(true),
               },
             ]}
@@ -1315,6 +1363,7 @@ function DraggableProjectGroup({
   canMoveDown: boolean
   onPressStart: () => void
   bulk?: {
+    administrationReason?: string
     selecting: boolean
     selectedCount: number
     allSelected: boolean
@@ -1394,6 +1443,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onDeleteMany,
   onOpenInSplit,
   activityOf,
+  hostOf,
   startedByAria,
   onOpenProject,
   onNewSession,
@@ -1417,6 +1467,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false)
 
   const archiveOne = (id: string, archived: boolean): void => {
+    if (hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) return
     if (!archived) {
       onToggleArchive(id, false)
       return
@@ -1436,6 +1487,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     onToggleArchive: archiveOne,
     onOpenInSplit,
     activityOf,
+    hostOf,
   }
 
   const projectNameOf = useMemo(() => {
@@ -1517,6 +1569,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const archiveIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const expanded = new Set<string>()
     for (const id of ids) for (const target of archiveTargetIds(sessions, id)) expanded.add(target)
     const list = [...expanded]
@@ -1526,6 +1579,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   }
 
   const deleteIds = (ids: string[]): void => {
+    if (ids.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)) return
     const roots = selectionRoots(sessions, new Set(ids))
     if (onDeleteMany) onDeleteMany(roots)
     else for (const id of roots) onDelete(id)
@@ -1537,6 +1591,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     const selecting = selectingGroupId === groupId
     return {
       selecting,
+      administrationReason: visible.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) ? 'Session administration is unavailable for one or more owning hosts.' : undefined,
       selectedCount: selecting ? visible.filter((id) => selectedIds.has(id)).length : 0,
       allSelected: selecting && visible.length > 0 && visible.every((id) => selectedIds.has(id)),
       onEnterSelect: () => enterSelect(groupId),
@@ -1790,7 +1845,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </span>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
                 onClick={() => archiveIds([...selectedIds])}
                 className={`${INLINE_BUTTON} text-fg-muted hover:bg-fg/9 hover:text-fg`}
               >
@@ -1798,7 +1853,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </button>
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
                 onClick={() => setConfirmDeleteSelected(true)}
                 className={`${INLINE_BUTTON} text-danger hover:bg-danger-subtle`}
               >

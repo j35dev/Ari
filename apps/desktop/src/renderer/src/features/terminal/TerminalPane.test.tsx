@@ -84,6 +84,14 @@ describe('TerminalPane', () => {
     expect(fontFamily).toMatch(/monospace$/)
   })
 
+  it('refuses a remote UI terminal ID before local create, resize, subscription or input', () => {
+    const onError = vi.fn()
+    render(<TerminalPane terminalId="rterm_1_remote" cwd="/remote" active onError={onError} />)
+    expect(invokeFn).not.toHaveBeenCalled()
+    expect(ctorOptions).toHaveLength(0)
+    expect(onError).toHaveBeenCalledWith('Reconnect this terminal to its owning machine.')
+  })
+
   it('gives rows room to breathe at a legible size', () => {
     const options = mount()
 

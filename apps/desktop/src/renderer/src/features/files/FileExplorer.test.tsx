@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -57,6 +57,35 @@ describe('FileExplorer', () => {
     expect(screen.getByText('42 B')).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledTimes(1)
     expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' })
+  })
+
+  it('discards late directory replies when the owning session changes', async () => {
+    let finishOld!: (entries: typeof SRC_ENTRIES) => void
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method !== 'fs.list') throw new Error('unexpected method')
+      const { sessionId, path } = params as { sessionId: string; path: string }
+      if (path === '.')
+        return [
+          { name: 'src', type: 'dir', size: 0 },
+          { name: sessionId === 'sess_b' ? 'new-host.txt' : 'old-host.txt', type: 'file', size: 1 },
+        ]
+      if (path === 'src' && sessionId === 'sess_a')
+        return new Promise<typeof SRC_ENTRIES>((resolve) => {
+          finishOld = resolve
+        })
+      return [{ name: 'new-host.ts', type: 'file', size: 1 }]
+    })
+    const a = { sessionId: 'sess_a' }
+    const b = { sessionId: 'sess_b' }
+    const view = render(<FileExplorer root={ROOT} scope={a} />)
+    await screen.findByRole('button', { name: 'src' })
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    view.rerender(<FileExplorer root={ROOT} scope={b} />)
+    await screen.findByRole('button', { name: /^new-host\.txt/ })
+    await act(async () => finishOld([{ name: 'old-secret.ts', type: 'file', size: 1 }]))
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    await screen.findByRole('button', { name: /^new-host\.ts/ })
+    expect(screen.queryByRole('button', { name: /^old-secret\.ts/ })).not.toBeInTheDocument()
   })
 
   it('expands a directory on click, listing its path once', async () => {

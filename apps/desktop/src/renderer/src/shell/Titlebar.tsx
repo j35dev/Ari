@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { FileDiff, Folder, Globe, ListTree, PanelLeftOpen, TerminalSquare } from 'lucide-react'
+import { FileDiff, Folder, Globe, ListTree, Monitor, PanelLeftOpen, TerminalSquare } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import { cx, iconButton, iconButtonActive } from '../lib/recipes'
@@ -69,6 +69,7 @@ export function Titlebar({
   leadingWidth,
   place = null,
   overview = false,
+  machineLabel,
 }: {
   activeTool?: TitlebarToolId | null
   onSelectTool?: (id: TitlebarToolId) => void
@@ -88,6 +89,8 @@ export function Titlebar({
   place?: TitlebarPlace | null
   /** Offer Aria's overview panel beside the workspace panels. */
   overview?: boolean
+  /** The immutable remote owner of the session/tools currently shown. */
+  machineLabel?: string
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -123,9 +126,27 @@ export function Titlebar({
         </div>
       )}
 
-      {place !== null && !minimal ? (
+      {(place !== null || machineLabel) && !minimal ? (
         <div className="flex min-w-0 items-center gap-2 pl-3 text-sm text-fg-subtle">
-          {place.context !== null ? (
+          {/* A remote session names the machine it runs on before anything else. */}
+          {machineLabel ? (
+            <>
+              <span
+                aria-label="Session machine"
+                title={machineLabel}
+                className="flex max-w-56 items-center gap-1.5"
+              >
+                <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
+                <span className="truncate">{machineLabel}</span>
+              </span>
+              {place !== null ? (
+                <span aria-hidden className="opacity-50">
+                  /
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          {place?.context != null ? (
             <>
               <span className="max-w-48 truncate">{place.context}</span>
               <span aria-hidden className="opacity-50">
@@ -133,7 +154,9 @@ export function Titlebar({
               </span>
             </>
           ) : null}
-          <span className="min-w-0 truncate font-medium text-fg">{place.title}</span>
+          {place !== null ? (
+            <span className="min-w-0 truncate font-medium text-fg">{place.title}</span>
+          ) : null}
         </div>
       ) : null}
 

@@ -1,0 +1,37 @@
+{
+  "source": "8b2d0dcb14af5cc841f92fdf339388df4d026fbf",
+  "identityBlob": "b884aff7ef9aa420ab0a28e3362fc0382e62a68c",
+  "signingIdentityBlob": "5dacb26cd96e2d6bfee3e35c1513774b7478e60f",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-final-identity-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-identity-proof.mjs 8b2d0dcb14af5cc841f92fdf339388df4d026fbf",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 7709446144,
+    "cFreeBytes": 21944107008,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "source": "8b2d0dcb14af5cc841f92fdf339388df4d026fbf",
+    "stableWinner": true,
+    "separateRecovery": true,
+    "missingAndEmptyRecovery": true,
+    "legacyIDAndSealedKeyContinuity": true,
+    "noSigningKeyReset": true,
+    "invalidFilesPreserved": true,
+    "concurrentCases": ["fresh", "legacy", "missing-primary", "empty-primary"],
+    "cleanupFailureRetainsWinner": true,
+    "cleanupFailurePreservesPublicationError": true,
+    "realIndependentProcesses": true,
+    "fixtureSealedStorage": true,
+    "success": true
+  },
+  "limits": [
+    "Actual immutable Git machine-ID/signing source with real disposable Windows files and two independent Node processes per concurrent case.",
+    "AES-GCM substitutes for OS sealed storage; cleanup/publication failures are native-fs error injections restricted to the checked fixture paths and restored in finally.",
+    "Injection verifies authoritative primary/recovery files remain readable despite leftover unique public-ID temporaries, and failed link publication surfaces original EACCES instead of cleanup EBUSY.",
+    "No actual power-loss/crash, OS keyring or arbitrary external/profile-owner race certification.",
+    "Original c537a8e2 evidence and pre-cleanup harness are retained at security commit ec5b05c29e178d274947daf258a512961f4e10c9, document blob ad3b3c85c50bba16b55fb4a20f0e0fb8ce379d27."
+  ]
+}

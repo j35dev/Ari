@@ -100,6 +100,10 @@ export function createMainWindow(): BrowserWindow {
       spellcheck: false,
     },
   })
+  // Keep named dev instances distinguishable in the taskbar/window switcher.
+  if (!app.isPackaged && process.env.ARI_DEV_INSTANCE) {
+    win.on('page-title-updated', (event) => event.preventDefault())
+  }
 
   nativeTheme.themeSource = theme.scheme
 

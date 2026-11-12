@@ -1,0 +1,7 @@
+{"resourceGate":{"commitHeadroomBytes":10079121408,"cFreeBytes":21461262336}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"publication-packaging-lint","pid":23944,"startedAt":"2026-11-12T16:03:52.254Z","id":"6295325d-9c3e-4118-972c-31bc58018d7f"}
+
+> ari@ lint D:\Projects\Ari-machines
+> eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway packages/remote-client && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop/electron.vite.config.ts apps/desktop/vitest.config.ts apps/desktop/postcss.config.js apps/desktop/packaging apps/desktop/src/main apps/desktop/src/preload apps/desktop/src/shared apps/desktop/src/test-setup.dom.ts && eslint apps/desktop/src/renderer apps/desktop/src/assets.d.ts apps/desktop/src/test-env.dom.test.ts apps/desktop/src/test-env.node.test.ts
+
+{"heavyResult":{"worker":"publication-packaging-lint","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","lint"],"exitCode":0,"signal":null}}

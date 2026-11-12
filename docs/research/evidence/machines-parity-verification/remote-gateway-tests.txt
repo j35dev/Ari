@@ -1,0 +1,133 @@
+{"resourceGate":{"commitHeadroomBytes":8041873408,"cFreeBytes":22020063232}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-remote-gateway-tests","pid":25192,"startedAt":"2026-11-12T13:39:07.292Z","id":"55770c95-0ec3-458e-82a7-13c0008abe89"}
+
+> @ari/remote-gateway@0.1.0 test D:\Projects\Ari-machines\packages\remote-gateway
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/remote-gateway
+
+ ❯ src/gateway.test.ts (76 tests | 4 failed) 1964ms
+     × answers an anonymous client with a version and its capabilities 64ms
+     × keeps discovery content-free 19ms
+     × answers the same question as a query, with no credential either 25ms
+     × exposes only public identity without Origin and still rejects disallowed browser origins 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/gateway.test.ts > remote gateway discovery > answers an anonymous client with a version and its capabilities
+AssertionError: expected { ok: true, result: { …(2) } } to deeply equal { ok: true, result: { …(3) } }
+
+- Expected
++ Received
+
+@@ -11,12 +11,8 @@
+        "device.authorize",
+        "session.list",
+        "session.prompt",
+        "events.subscribe",
+      ],
+-     "machinesExtensions": {
+-       "operations": [],
+-       "version": 1,
+-     },
+      "protocolVersion": 1,
+    },
+  }
+
+ ❯ src/gateway.test.ts:172:18
+    170|     expect(status).toBe(200)
+    171|     // The same envelope every route uses, so a client parses one shap…
+    172|     expect(body).toEqual({
+       |                  ^
+    173|       ok: true,
+    174|       result: {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/gateway.test.ts > remote gateway discovery > keeps discovery content-free
+AssertionError: expected [ 'capabilities', 'protocolVersion' ] to deeply equal [ 'capabilities', …(2) ]
+
+- Expected
++ Received
+
+  [
+    "capabilities",
+-   "machinesExtensions",
+    "protocolVersion",
+  ]
+
+ ❯ src/gateway.test.ts:190:58
+    188|     // a path or a provider — those leak what the desktop is working o…
+    189|     expect(Object.keys(body).sort()).toEqual(['ok', 'result'])
+    190|     expect(Object.keys(body['result'] as object).sort()).toEqual([
+       |                                                          ^
+    191|       'capabilities',
+    192|       'machinesExtensions',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/gateway.test.ts > remote gateway discovery > answers the same question as a query, with no credential either
+AssertionError: expected { protocolVersion: 1, …(1) } to deeply equal { protocolVersion: 1, …(2) }
+
+- Expected
++ Received
+
+@@ -9,11 +9,7 @@
+      "device.authorize",
+      "session.list",
+      "session.prompt",
+      "events.subscribe",
+    ],
+-   "machinesExtensions": {
+-     "operations": [],
+-     "version": 1,
+-   },
+    "protocolVersion": 1,
+  }
+
+ ❯ src/gateway.test.ts:201:28
+    199|     const { status, body } = await call(gateway, '/query', { op: 'gate…
+    200|     expect(status).toBe(200)
+    201|     expect(body['result']).toEqual({
+       |                            ^
+    202|       protocolVersion: REMOTE_PROTOCOL_VERSION,
+    203|       capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OP…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/gateway.test.ts > remote gateway discovery > exposes only public identity without Origin and still rejects disallowed browser origins
+AssertionError: expected [ 'ariVersion', 'capabilities', …(3) ] to deeply equal [ 'ariVersion', 'capabilities', …(4) ]
+
+- Expected
++ Received
+
+  [
+    "ariVersion",
+    "capabilities",
+    "machineId",
+-   "machinesExtensions",
+    "name",
+    "protocolVersion",
+  ]
+
+ ❯ src/gateway.test.ts:219:49
+    217|     const envelope = (await response.json()) as { ok: boolean; result:…
+    218|     expect(response.status).toBe(200)
+    219|     expect(Object.keys(envelope.result).sort()).toEqual([
+       |                                                 ^
+    220|       'ariVersion',
+    221|       'capabilities',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  4 failed | 178 passed (182)
+   Start at  21:39:10
+   Duration  4.97s (transform 390ms, setup 0ms, import 1.25s, tests 2.14s, environment 1ms)
+
+D:\Projects\Ari-machines\packages\remote-gateway:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ari/remote-gateway@0.1.0 test: `vitest run "--maxWorkers=1" "--no-file-parallelism"`
+Exit status 1
+{"heavyResult":{"worker":"integrated-remote-gateway-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/remote-gateway","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

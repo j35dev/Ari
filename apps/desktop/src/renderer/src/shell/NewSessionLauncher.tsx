@@ -5,7 +5,6 @@ import { FolderPlus, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
 import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
-import type { Project } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { visibleProjects } from '../features/aria/visibility'
 import { cx, menu, outlineButton, primaryButton } from '../lib/recipes'
@@ -30,6 +29,15 @@ function openedLabel(timestamp: number, now = Date.now()): string | null {
 const ITEM_HEIGHT = 44
 /** The list scrolls past this; the search field stays what carries scale. */
 const LIST_MAX_HEIGHT = 320
+export interface LauncherProject {
+  id: string
+  name: string
+  path: string
+  createdAt: number
+  lastOpenedAt: number
+  status?: 'ok' | 'missing'
+  hostLabel?: string
+}
 
 /**
  * The "New session" launcher: a centered, dimmed project chooser (same modal
@@ -50,7 +58,7 @@ export function NewSessionLauncher({
 }: {
   /** Whether the overlay is currently shown. */
   open: boolean
-  projects: Project[]
+  projects: LauncherProject[]
   /** The live session list, for per-project open counts and recency. */
   sessions: SessionSummary[]
   /** The project of the focused session, offered first when set. */
@@ -204,6 +212,9 @@ export function NewSessionLauncher({
             </div>
             <div aria-hidden className="mx-1.5 my-1 h-px bg-border" />
 
+            <p className="px-4 py-2 text-2xs text-fg-subtle">
+              Busy Git folders open in a separate worktree.
+            </p>
             {visible.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
                 <p className="text-[13px] text-fg-subtle">
@@ -266,6 +277,7 @@ export function NewSessionLauncher({
                           {project.name}
                           {missing ? ' (folder missing)' : ''}
                         </span>
+                        {project.hostLabel && <span className="truncate text-2xs text-fg-subtle">{project.hostLabel}</span>}
                         {/* Reversed text with left ellipsis keeps the tail —
                             the distinguishing part of a path — visible. */}
                         <span className="truncate text-left font-mono text-xs text-fg-subtle [direction:rtl]">

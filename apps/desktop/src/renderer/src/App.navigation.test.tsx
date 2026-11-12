@@ -11,8 +11,23 @@ import type {
 import type { OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import { App } from './App'
 import { Composer } from './features/composer/Composer'
+import {
+  SessionClientProvider,
+  sessionViewKey,
+  useSessionClient,
+  type SessionScope,
+} from './features/session/session-client'
+import { keepAliveActions } from './features/session/session-keep-alive'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { activeSessionOf } from './features/split/split-layout'
+import {
+  desktopMachineFixture,
+  snapshotFixture,
+  localSnapshotFixture,
+  projectCatalogFixture,
+  versionFixture,
+  catalogFixture,
+} from './features/machines/fixtures.test-support'
 import { dropDraftTextMemory } from './features/composer/use-drafts'
 import {
   dropDraftIntentMemory,
@@ -26,18 +41,49 @@ vi.mock('./features/onboarding/OnboardingGate', () => ({
     children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null }),
 }))
 vi.mock('./features/session/SessionView', () => ({
-  SessionView: ({ sessionId, hidden }: { sessionId: string; hidden: boolean }) => (
-    <div hidden={hidden} data-testid={`chat-${sessionId}`}>
-      <span>Chat {sessionId}</span>
+  SessionView: ({ scope, hidden }: { scope: SessionScope; hidden: boolean }) => (
+    <SessionClientProvider scope={scope}>
+      <NavigationSessionView hidden={hidden} />
+    </SessionClientProvider>
+  ),
+}))
+function NavigationSessionView({ hidden }: { hidden: boolean }) {
+  const client = useSessionClient()
+  return (
+    <div hidden={hidden} data-testid={`chat-${client.viewKey}`}>
+      <span>Chat {client.viewKey}</span>
       <Composer
-        sessionId={sessionId}
+        sessionId={client.viewKey}
         onSend={() => {
           throw new Error('navigation submitted draft')
         }}
       />
+      {client.scope.kind === 'remote' && (
+        <>
+          <button
+            onClick={() =>
+              void client.invoke('command.dispatch', {
+                command: { type: 'turn.interrupt', sessionId: client.scope.sessionId },
+              })
+            }
+          >
+            Stop
+          </button>
+          <button
+            onClick={() =>
+              void client.invoke('fs.readTextFile', {
+                sessionId: client.scope.sessionId,
+                path: 'README.md',
+              })
+            }
+          >
+            Read host file
+          </button>
+        </>
+      )}
     </div>
-  ),
-}))
+  )
+}
 vi.mock('./features/focus', () => ({ FocusPill: () => null }))
 vi.mock('./features/usage/ProviderUsagePill', () => ({ ProviderUsagePill: () => null }))
 vi.mock('./features/changes', () => ({
@@ -67,13 +113,14 @@ const project = { id: 'p', name: 'P', path: '/project', status: 'ok', open: true
 beforeEach(() => {
   localStorage.clear()
   splitLayoutActions.reset()
+  keepAliveActions.reset()
   dropDraftTextMemory()
   dropDraftIntentMemory()
-  splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'a')
-  sessions = ['a', 'b', 'aria'].map((id) => ({
+  splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess_a')
+  sessions = ['sess_a', 'sess_b', 'sess_aria'].map((id) => ({
     id,
-    projectId: id === 'aria' ? 'helm' : 'p',
-    title: id,
+    projectId: id === 'sess_aria' ? 'helm' : 'p',
+    title: id.replace('sess_', ''),
     messageCount: 1,
     updatedAt: 1,
   }))
@@ -110,10 +157,35 @@ beforeEach(() => {
         return sessions
       case 'project.list':
         return [project]
+      case 'machines.list':
+        return []
+      case 'machines.preferences':
+        return { autoEnabled: false, hostTiers: {}, projectHosts: {} }
+      case 'machines.localSnapshot': {
+        const snapshot = localSnapshotFixture()
+        snapshot.catalog.projects = [
+          {
+            id: project.id,
+            name: project.name,
+            sessionCount: sessions.filter((session) => session.projectId === project.id).length,
+            status: 'ok',
+            defaultAgent: null,
+            repositoryIdentity: null,
+          },
+        ]
+        snapshot.models.defaults = {
+          ...snapshot.models.defaults,
+          driverKind: settings.sessions.defaultDriverKind,
+          configuredDriverKind: settings.sessions.defaultDriverKind,
+          modelId: null,
+          permissionMode: settings.sessions.defaultPermissionMode,
+        }
+        return snapshot
+      }
       case 'session.workspace':
         return { path: '/project' }
       case 'aria.open':
-        return { sessionId: 'aria' }
+        return { sessionId: 'sess_aria' }
       case 'app.navigation.consumer':
         return { registered: true }
       case 'app.navigation.ack':
@@ -132,9 +204,102 @@ beforeEach(() => {
   })
 })
 afterEach(cleanup)
+it('routes normal remote session actions and file reads to their host without local dispatch', async () => {
+  const base = invoke.getMockImplementation()!
+  const host = desktopMachineFixture()
+  const remote = snapshotFixture('sess_a')
+  const remoteKey = sessionViewKey({
+    kind: 'remote',
+    machineId: host.id,
+    sessionId: remote.summary.id,
+  })
+  invoke.mockImplementation(async (method: string, params?: unknown) => {
+    if (method === 'machines.list') return [host]
+    if (method === 'machines.command') return { ok: true, result: { accepted: true } }
+    if (method === 'machines.query') {
+      const request = params as { machineId: string; query: { op: string } }
+      expect(request.machineId).toBe(host.id)
+      switch (request.query.op) {
+        case 'project.catalog':
+          return { ok: true, result: projectCatalogFixture() }
+        case 'session.list':
+          return { ok: true, result: [remote.summary] }
+        case 'models.list':
+          return { ok: true, result: catalogFixture }
+        case 'host.permissions':
+          return {
+            ok: true,
+            result: {
+              deviceId: 'device',
+              projectScope: { kind: 'all' },
+              allowTerminal: false,
+              managedLeaseExpiresAt: null,
+            },
+          }
+        case 'host.version':
+          return { ok: true, result: versionFixture }
+        case 'files.read':
+          return {
+            ok: true,
+            result: {
+              path: 'README.md',
+              kind: 'text',
+              size: 11,
+              content: 'Host README',
+              error: null,
+            },
+          }
+      }
+    }
+    return base(method, params)
+  })
+  await shell()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+    target: { value: 'Local unsent draft' },
+  })
+  fireEvent.click(await screen.findByRole('button', { name: /^Remote task/ }))
+  expect(await screen.findByTestId(`chat-${remoteKey}`)).toBeVisible()
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe(remoteKey)
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+    target: { value: 'Host unsent draft' },
+  })
+  const previous = invoke.mock.calls.length
+  fireEvent.keyDown(window, { ctrlKey: true, key: '`' })
+  fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Read host file' }))
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith(
+      'machines.command',
+      expect.objectContaining({
+        machineId: host.id,
+        command: expect.objectContaining({ op: 'session.interrupt', sessionId: remote.summary.id }),
+      }),
+    )
+    expect(invoke).toHaveBeenCalledWith('machines.query', {
+      machineId: host.id,
+      query: { op: 'files.read', sessionId: remote.summary.id, path: 'README.md' },
+    })
+  })
+  expect(
+    invoke.mock.calls
+      .slice(previous)
+      .some(
+        ([method]) =>
+          method === 'command.dispatch' ||
+          method.startsWith('fs.') ||
+          method.startsWith('terminal.'),
+      ),
+  ).toBe(false)
+  const frame = send({ view: 'session', sessionId: 'sess_a' })
+  expect(await acknowledged(frame)).toMatchObject({ status: 'applied' })
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Local unsent draft')
+  fireEvent.click(screen.getByRole('button', { name: /^Remote task/ }))
+  expect(await screen.findByTestId(`chat-${remoteKey}`)).toBeVisible()
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Host unsent draft')
+})
 async function shell() {
   const view = render(<App />)
-  await screen.findByText('Chat a')
+  await screen.findByText('Chat sess_a')
   await waitFor(() =>
     expect(callbacks.get('app.navigate')?.some((entry) => entry.params.navigationConsumerId)).toBe(
       true,
@@ -193,23 +358,23 @@ it('accepts navigation after earlier composer input when fresh list state commit
     await gate
     return { allowed: true }
   }
-  const frame = send({ view: 'session', sessionId: 'b' })
+  const frame = send({ view: 'session', sessionId: 'sess_b' })
   await act(async () => {
     await started
   })
   await act(async () => release())
   expect(await acknowledged(frame)).toMatchObject({ status: 'applied' })
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('b')
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_b')
 })
 
 it('observes exact session/Aria selection and repeated reveal without discovery or submissions', async () => {
   await shell()
   const discoveryCount = invoke.mock.calls.filter(([name]) => name === 'providers.detect').length
   for (const target of [
-    { view: 'session', sessionId: 'b' },
-    { view: 'aria', sessionId: 'aria' },
-    { view: 'session', sessionId: 'a' },
-    { view: 'session', sessionId: 'a' },
+    { view: 'session', sessionId: 'sess_b' },
+    { view: 'aria', sessionId: 'sess_aria' },
+    { view: 'session', sessionId: 'sess_a' },
+    { view: 'session', sessionId: 'sess_a' },
   ] as const) {
     const frame = send(target)
     expect(await acknowledged(frame)).toMatchObject({
@@ -238,25 +403,25 @@ it('keeps real composer text, selection, pending attachment identity and chat th
   fireEvent.paste(input, {
     clipboardData: { files: [new File(['image'], 'draft.png', { type: 'image/png' })] },
   })
-  const before = readSessionDraftIntent('a')
+  const before = readSessionDraftIntent('sess_a')
   const opened = send({ view: 'settings' })
   expect(await acknowledged(opened)).toMatchObject({
     status: 'applied',
     observed: { mode: 'settings' },
   })
-  expect(await screen.findByRole('button', { name: 'Back' })).toBeVisible()
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('a')
-  const changes = send({ view: 'changes', projectId: 'p', sessionId: 'b' })
+  expect(await screen.findByRole('button', { name: 'Close settings' })).toBeVisible()
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
+  const changes = send({ view: 'changes', projectId: 'p', sessionId: 'sess_b' })
   expect(await acknowledged(changes)).toMatchObject({
     status: 'applied',
     observed: { mode: 'page' },
   })
-  expect(screen.getByTestId('changes')).toHaveTextContent('Changes p/b range:false')
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('a')
-  const back = send({ view: 'session', sessionId: 'a' })
+  expect(screen.getByTestId('changes')).toHaveTextContent('Changes p/sess_b range:false')
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
+  const back = send({ view: 'session', sessionId: 'sess_a' })
   expect(await acknowledged(back)).toMatchObject({ status: 'applied' })
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('unsent original draft')
-  expect(readSessionDraftIntent('a').images).toEqual(before.images)
+  expect(readSessionDraftIntent('sess_a').images).toEqual(before.images)
   expect(
     (screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement).selectionStart,
   ).toBe(3)
@@ -274,11 +439,11 @@ it('honors Changes sidebar mode and exact project context without changing the c
     observed: { mode: 'sidebar' },
   })
   expect(screen.getByTestId('changes')).toHaveTextContent('Changes p/project range:false')
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('a')
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
 })
 
 it('keeps a newer app action above an older manual Aria lookup', async () => {
-  sessions = sessions.filter((session) => session.id !== 'aria')
+  sessions = sessions.filter((session) => session.id !== 'sess_aria')
   await shell()
   let complete!: (value: unknown) => void
   let entered!: () => void
@@ -302,12 +467,12 @@ it('keeps a newer app action above an older manual Aria lookup', async () => {
   await act(async () => {
     sessions = [
       ...sessions,
-      { id: 'manual-aria', projectId: 'helm', title: 'Aria', messageCount: 0, updatedAt: 2 },
+      { id: 'sess_manual_aria', projectId: 'helm', title: 'Aria', messageCount: 0, updatedAt: 2 },
     ]
-    complete({ sessionId: 'manual-aria' })
+    complete({ sessionId: 'sess_manual_aria' })
   })
   expect(screen.getByRole('navigation', { name: 'Settings sections' })).toBeVisible()
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('a')
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
 })
 
 it('refuses failed, disconnected, missing or archived loads without redirecting', async () => {
@@ -318,19 +483,19 @@ it('refuses failed, disconnected, missing or archived loads without redirecting'
       ? Promise.reject(new Error('load disconnected'))
       : original(method, params),
   )
-  expect(await acknowledged(send({ view: 'session', sessionId: 'b' }))).toMatchObject({
+  expect(await acknowledged(send({ view: 'session', sessionId: 'sess_b' }))).toMatchObject({
     status: 'failed',
     reason: 'load_failed',
   })
   invoke.mockImplementation(original)
   sessions = sessions.map((session) =>
-    session.id === 'b' ? { ...session, archived: true } : session,
+    session.id === 'sess_b' ? { ...session, archived: true } : session,
   )
-  expect(await acknowledged(send({ view: 'session', sessionId: 'b' }))).toMatchObject({
+  expect(await acknowledged(send({ view: 'session', sessionId: 'sess_b' }))).toMatchObject({
     status: 'stale',
     reason: 'target_changed',
   })
-  expect(await acknowledged(send({ view: 'session', sessionId: 'missing' }))).toMatchObject({
+  expect(await acknowledged(send({ view: 'session', sessionId: 'sess_missing' }))).toMatchObject({
     status: 'stale',
   })
   validate = async () => {
@@ -340,7 +505,7 @@ it('refuses failed, disconnected, missing or archived loads without redirecting'
     status: 'failed',
     reason: 'load_failed',
   })
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('a')
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_a')
 })
 
 it('lets newer user navigation win over delayed validation and cancels duplicate/wrong/late frames', async () => {
@@ -356,7 +521,7 @@ it('lets newer user navigation win over delayed validation and cancels duplicate
       release = done
     })
   }
-  const pending = send({ view: 'session', sessionId: 'b' })
+  const pending = send({ view: 'session', sessionId: 'sess_b' })
   await act(async () => {
     await start
   })
@@ -368,8 +533,8 @@ it('lets newer user navigation win over delayed validation and cancels duplicate
   await act(async () => {
     release({ allowed: true })
   })
-  expect(await screen.findByText('Chat aria')).toBeVisible()
-  expect(activeSessionOf(splitLayoutSnapshot())).toBe('aria')
+  expect(await screen.findByText('Chat sess_aria')).toBeVisible()
+  expect(activeSessionOf(splitLayoutSnapshot())).toBe('sess_aria')
   const entry = callbacks.get('app.navigate')!.find((entry) => entry.params.navigationConsumerId)!
   act(() => {
     entry.callback(pending)
@@ -386,7 +551,7 @@ it('lets newer user navigation win over delayed validation and cancels duplicate
     status: 'stale',
     reason: 'expired',
   })
-  const cancel = send({ view: 'session', sessionId: 'b' })
+  const cancel = send({ view: 'session', sessionId: 'sess_b' })
   act(() =>
     entry.callback({
       kind: 'app.open.cancel',

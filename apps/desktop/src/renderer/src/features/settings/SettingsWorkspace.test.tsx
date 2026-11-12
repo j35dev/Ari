@@ -94,12 +94,12 @@ describe('SettingsWorkspace', () => {
     expect(screen.queryByRole('radiogroup', { name: 'Dark' })).not.toBeInTheDocument()
   })
 
-  it('returns to the session via Back', async () => {
+  it('closes from the close button', async () => {
     const onBack = vi.fn()
     const user = userEvent.setup()
     renderWorkspace(onBack)
 
-    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Close settings' }))
     expect(onBack).toHaveBeenCalledOnce()
   })
 })

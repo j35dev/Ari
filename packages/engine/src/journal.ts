@@ -164,6 +164,61 @@ export class Journal<T> {
     if (chunk.length > 0) yield take()
   }
 
+  /** Security-sensitive replay: bounded line streaming, no skipped segments or I/O errors. */
+  async *readStrictByChunk(signal?: AbortSignal): AsyncGenerator<ParsedLine<T>[]> {
+    const segments = await this.#listSegments()
+    let chunk: ParsedLine<T>[] = []
+    let bytes = 0
+    for (let index = 0; index < segments.length; index++) {
+      signal?.throwIfAborted()
+      const segment = segments[index]!
+      if (segment.index !== index) throw new Error('journal segment gap')
+      const handle = await open(segment.path, 'r')
+      try {
+        const { size } = await handle.stat()
+        if (size === 0) continue
+        let tail = Buffer.alloc(0)
+        let lineNumber = 0
+        const buffer = Buffer.alloc(64 * 1024)
+        let position = 0
+        while (position < size) {
+          signal?.throwIfAborted()
+          const { bytesRead } = await handle.read(
+            buffer,
+            0,
+            Math.min(buffer.length, size - position),
+            position,
+          )
+          if (bytesRead === 0) throw new Error('journal segment changed during replay')
+          position += bytesRead
+          tail = Buffer.concat([tail, buffer.subarray(0, bytesRead)])
+          let newline = tail.indexOf(10)
+          while (newline >= 0) {
+            if (newline > 256 * 1024) throw new Error('journal line exceeds replay bound')
+            const raw = new TextDecoder('utf-8', { fatal: true }).decode(tail.subarray(0, newline))
+            tail = tail.subarray(newline + 1)
+            lineNumber++
+            const entry = parseJsonLines<T>(raw)[0]
+            if (!entry) throw new Error('empty journal record')
+            if (chunk.length >= 128 || bytes + newline > 256 * 1024) {
+              yield chunk
+              chunk = []
+              bytes = 0
+            }
+            chunk.push({ ...entry, line: lineNumber })
+            bytes += newline
+            newline = tail.indexOf(10)
+          }
+          if (tail.length > 256 * 1024) throw new Error('journal line exceeds replay bound')
+        }
+        if (tail.length > 0) throw new Error('incomplete journal tail')
+      } finally {
+        await handle.close()
+      }
+    }
+    if (chunk.length) yield chunk
+  }
+
   /**
    * Drops a corrupt trailing partial line or terminates a valid final record
    * so future appends stay parseable. Returns the number of bytes truncated.

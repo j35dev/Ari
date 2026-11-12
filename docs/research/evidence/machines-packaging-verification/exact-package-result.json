@@ -1,0 +1,11 @@
+{
+  "source": "d8c812ee",
+  "passed": true,
+  "exactArchivedWs": true,
+  "cliSkill": true,
+  "mobilePwa": true,
+  "nativePty": true,
+  "platform": "win32",
+  "arch": "x64",
+  "appOutDir": "D:/Projects/.ari-cache/machines-directory-package/win-unpacked"
+}

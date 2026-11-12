@@ -23,10 +23,16 @@ import type {
  */
 export interface RemoteCaller {
   deviceId: string
-  /** Projects the user granted at pairing. Empty grants nothing. */
+  /** Effective project IDs; managed callers are limited to the signed lease's IDs. */
   projectIds: readonly string[]
+  /** Local all-project approval. Managed gateway callers always clear this flag. */
+  allProjects?: boolean
   /** Explicit desktop approval; shells run as the host user, not inside a filesystem sandbox. */
   allowTerminal?: boolean
+  /** Set only by gateway verification of a signed Connect lease. Never supplied by a client. */
+  managedLeaseExpiresAt?: number
+  /** Gateway-owned live admission guard; never accepted from wire parameters. */
+  revalidate?: () => RemoteCaller | undefined
 }
 
 /**
@@ -44,6 +50,8 @@ export interface RemoteCaller {
  * control socket (ADR §19).
  */
 export interface RemoteHost {
+  /** Authorization only; does not require a transcript or an extant terminal handle. */
+  sessionVisible?(caller: RemoteCaller, sessionId: string): Promise<boolean>
   /**
    * Which operations this host can actually serve right now. Operations tied
    * to a provider or to a session's state are absent when unavailable, so a
@@ -103,6 +111,14 @@ export interface RemoteHost {
     sessionId: string,
     fromSeq: number,
   ): Promise<JournalEvent[] | undefined>
+
+  /** Desktop negotiation is optional so legacy/fake hosts remain compatible. */
+  desktopReplayState?(caller: RemoteCaller, sessionId: string): Promise<{ projectId: string; seq: number; liveTurnId: string | null; incomplete?: boolean } | undefined>
+  replayRange?(caller: RemoteCaller, sessionId: string,
+    options: { afterSeq?: number; throughSeq: number; signal: AbortSignal },
+    onChunk: (events: JournalEvent[]) => Promise<void>,
+  ): Promise<{ outcome: 'complete' | 'incomplete'; seq: number; reason: string | null }>
+  desktopEvent?(event: JournalEvent): JournalEvent
 
   /**
    * Runs a validated command. The gateway has already checked the operation is

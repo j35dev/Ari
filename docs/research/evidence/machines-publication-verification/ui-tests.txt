@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":11177574400,"cFreeBytes":21530382336}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-ui-tests","pid":14012,"startedAt":"2026-11-12T15:52:48.151Z","id":"e64def4b-e09a-498b-92a9-a9550e872a85"}
+
+> @ari/ui@0.1.0 test D:\Projects\Ari-machines\packages\ui
+> vitest run --passWithNoTests "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/packages/ui
+
+
+ Test Files  38 passed (38)
+      Tests  323 passed (323)
+   Start at  23:52:50
+   Duration  134.01s (transform 856ms, setup 18.65s, import 12.38s, tests 18.77s, environment 73.35s)
+
+{"heavyResult":{"worker":"publication-ui-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/ui","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}

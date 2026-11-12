@@ -311,9 +311,16 @@ with `ari session prompt`. Sessions report back to Aria, which reports outcomes
 to the user.
 
 Only one session may work in a project folder at a time, including human sessions
-running there and Aria's running workers. A new spawn or restart of a different
-session is refused: prompt the working session or wait for it to finish.
-Research happens inside that session or after it. Only turns the host is actually
+running there and Aria's running workers. New top-level sessions automatically acquire a separate managed Git worktree
+when the folder is busy. Use `session spawn --project ID --workspace isolated`
+to request isolation explicitly; `--workspace shared` requires the project folder
+and refuses when occupied. Separate worktrees can run concurrently, including
+human sessions and descendant workers. The receipt includes `workspace.kind`,
+`workspace.path` and the branch; tell the user where the session runs. A busy
+non-Git folder (or repository without a commit) refuses clearly: prompt the
+working session or wait. Restarting an existing session preserves its workspace
+and refuses if another live session occupies that effective folder. Research
+happens inside that session or its separate worktree. Only turns the host is actually
 running count; stale journal turns, queued messages and pending reports do not.
 A turn waiting on human approval or a question for three minutes stops blocking
 new work, even if its provider remains connected.

@@ -129,6 +129,7 @@ describe('SettingsStore', () => {
         version: 1,
         aria: { driverKind: 'codex', modelId: 'gpt-6' },
         sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'allow-edits' },
+        fullAutoMigrated: true,
       }),
     )
     const store = new SettingsStore({ dir })
@@ -446,5 +447,26 @@ describe('SettingsStore', () => {
     const settings = await store.load()
     expect(settings.appearance.themeId).toBe('verdant')
     expect(JSON.stringify(settings)).not.toContain('bogus')
+  })
+
+  it('moves a saved Ask or Edits default to full auto once, then keeps a later choice', async () => {
+    const path = join(dir, 'settings.json')
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        sessions: { defaultDriverKind: 'claude', defaultPermissionMode: 'ask' },
+      }),
+    )
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).sessions).toEqual({
+      defaultDriverKind: 'claude',
+      defaultPermissionMode: 'full',
+    })
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ fullAutoMigrated: true })
+
+    // Choosing Ask again afterwards is the user's own choice and survives a restart.
+    await store.update({ sessions: { defaultPermissionMode: 'ask' } })
+    expect((await new SettingsStore({ dir }).load()).sessions.defaultPermissionMode).toBe('ask')
   })
 })

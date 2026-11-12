@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FsScope, RpcResults } from '@ari/contracts/rpc'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
-import { rpc } from '../../lib/rpc'
 import { iconButton } from '../../lib/recipes'
+import { SessionClientProvider } from '../session/session-client'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { setDragFilePath } from '../composer/drag-file'
 import { FileEditor } from './FileEditor'
 
@@ -153,7 +154,16 @@ export type FsTreeScope = Omit<FsScope, 'path'>
  * time they expand and cached until refresh. Opening a file swaps the tree
  * for the editor; closing it brings the tree back as it was.
  */
-export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: FsTreeScope }) {
+export function FileExplorer({
+  root,
+  scope: scopeProp,
+  readOnlyReason,
+}: {
+  root: string
+  scope: FsTreeScope
+  /** Why the open file cannot be saved here; it still previews. */
+  readOnlyReason?: string | null
+}) {
   // Keyed on its ids: a caller handing over an equal but new object (one per
   // render) must not reset the tree and close the open file.
   const { projectId, sessionId } = scopeProp
@@ -161,6 +171,9 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
     () => (projectId !== undefined ? { projectId } : { sessionId }),
     [projectId, sessionId],
   )
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
+  const generation = useRef(0)
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
@@ -174,6 +187,7 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
   )
 
   useEffect(() => {
+    const epoch = ++generation.current
     let cancelled = false
     setEntries({})
     setExpanded(new Set())
@@ -181,7 +195,7 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
     setEditingPath(null)
     setError(null)
     void rpc
-      .invoke('fs.list', { ...scope, path: '.' })
+      .invoke('fs.list', { ...wireScope, path: '.' })
       .then((result) => {
         if (!cancelled) setEntries((prev) => ({ ...prev, [root]: result }))
       })
@@ -192,23 +206,27 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
       })
     return () => {
       cancelled = true
+      if (generation.current === epoch) generation.current += 1
     }
-  }, [root, scope])
+  }, [root, wireScope, rpc, rpc.authorizationEpoch, rpc.availability])
 
   /** Lists a directory and caches it; surfaces failures in `error`. */
   const listDir = useCallback(
     (dir: string): void => {
+      const epoch = generation.current
       void rpc
-        .invoke('fs.list', { ...scope, path: scopedDir(dir) })
+        .invoke('fs.list', { ...wireScope, path: scopedDir(dir) })
         .then((result) => {
+          if (generation.current !== epoch) return
           setEntries((prev) => ({ ...prev, [dir]: result }))
           setError(null)
         })
         .catch((cause: unknown) => {
+          if (generation.current !== epoch) return
           setError(cause instanceof Error ? cause.message : String(cause))
         })
     },
-    [scope, scopedDir],
+    [wireScope, scopedDir, rpc],
   )
 
   const toggleDir = useCallback(
@@ -242,9 +260,9 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
   /** File rows drag as mention sources carrying the workspace-relative path. */
   const dragFile = useCallback(
     (event: React.DragEvent<HTMLButtonElement>, path: string): void => {
-      setDragFilePath(event, relativeToRoot(root, path))
+      setDragFilePath(event, relativeToRoot(root, path), rpc.viewKey)
     },
-    [root],
+    [root, rpc.viewKey],
   )
 
   const rootEntries = entries[root]
@@ -252,12 +270,15 @@ export function FileExplorer({ root, scope: scopeProp }: { root: string; scope: 
   if (editingPath !== null) {
     // The editor takes the explorer's place; the tree keeps its state behind it.
     return (
-      <FileEditor
-        scope={scope}
-        path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
-        onClose={() => setEditingPath(null)}
-        onSaved={refresh}
-      />
+      <SessionClientProvider client={rpc}>
+        <FileEditor
+          scope={wireScope}
+          path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
+          onClose={() => setEditingPath(null)}
+          onSaved={refresh}
+          readOnlyReason={readOnlyReason}
+        />
+      </SessionClientProvider>
     )
   }
 

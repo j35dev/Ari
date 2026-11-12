@@ -8,8 +8,9 @@ import { OptionSheet } from '../../components/OptionSheet'
 import { SessionControls } from '../../components/SessionControls'
 import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
-import { writeDraft, writePending, type PendingSubmission } from '../../lib/draft'
+import { readDraft, writeDraft, writePending, type PendingSubmission } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { readCreation, writeCreation, type NewSessionRequest } from '../../lib/new-session'
 
 /** Failures after which the desktop may still have acted, so the same receipt is kept. */
@@ -40,16 +41,27 @@ export function NewChatScreen({
   const [model, setModel] = useState(restored?.modelId ?? '')
   const [effort, setEffort] = useState<string | null>(restored?.effort ?? null)
   const [mode, setMode] = useState<PermissionMode | null>(restored?.permissionMode ?? null)
-  const [text, setText] = useState(restored?.draft ?? '')
+  const [text, setText] = useState(restored?.draft ?? readDraft(app.origin, '$new', deviceId))
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [failure, setFailure] = useState<string | null>(
     restored === null
       ? null
-      : 'The last new chat was not confirmed by your computer. Retry checks the same request, so it cannot create a second session.',
+      : 'The last new chat was not confirmed by your computer. Check its receipt to find the original session.',
   )
   const [pending, setPending] = useState<NewSessionRequest | null>(restored)
   const [picking, setPicking] = useState<'model' | 'project' | null>(null)
   const area = useRef<HTMLTextAreaElement>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+  useEffect(() => {
+    writeDraft(app.origin, '$new', text, deviceId)
+  }, [app.origin, deviceId, text])
   useEffect(() => {
     if (area.current !== null) {
       area.current.style.height = 'auto'
@@ -77,38 +89,49 @@ export function NewChatScreen({
     }
     setPending(command)
     setBusy(true)
+    setChecking(pending !== null)
     setFailure(null)
     let id: string | null
     try {
       id = sessionIdOf(
-        await session.send(
-          {
-            op: 'session.create',
-            projectId: command.projectId,
-            ...(command.driverKind === '' ? {} : { driverKind: command.driverKind }),
-            ...(command.modelId === '' ? {} : { modelId: command.modelId }),
-            ...(command.permissionMode === null ? {} : { permissionMode: command.permissionMode }),
-            ...(command.effort === null ? {} : { effort: command.effort }),
-          },
-          command.key,
-        ),
+        pending !== null
+          ? await checkCommandReceipt(session, command.key)
+          : await session.send(
+              {
+                op: 'session.create',
+                projectId: command.projectId,
+                ...(command.driverKind === '' ? {} : { driverKind: command.driverKind }),
+                ...(command.modelId === '' ? {} : { modelId: command.modelId }),
+                ...(command.permissionMode === null
+                  ? {}
+                  : { permissionMode: command.permissionMode }),
+                ...(command.effort === null ? {} : { effort: command.effort }),
+              },
+              command.key,
+            ),
       )
-      if (id === null) throw new Error('Your computer did not return a session. Retry to check.')
+      if (!alive.current) return
+      if (id === null)
+        throw new Error('Your computer did not return a session. Check its original receipt.')
     } catch (error) {
+      if (!alive.current) return
       setFailure(error instanceof Error ? error.message : 'Could not start this chat.')
       if (!uncertain(error)) {
         setPending(null)
         writeCreation(app.origin, deviceId, null)
       }
       setBusy(false)
+      setChecking(false)
       return
     }
     writeCreation(app.origin, deviceId, null)
+    writeDraft(app.origin, '$new', '', deviceId)
     await sendFirst(id, command.draft)
+    if (!alive.current) return
     await app
       .refresh()
       .catch((error: unknown) => console.warn('Started a chat; refreshing the list failed', error))
-    onOpen(id)
+    if (alive.current) onOpen(id)
   }
 
   /** Whatever happens to the first message, the session exists, so it opens holding the message. */
@@ -126,8 +149,10 @@ export function NewChatScreen({
     }
     try {
       await app.session.send({ op: 'session.prompt', sessionId, text: message }, receipt.key)
+      if (!alive.current) return
       writePending(app.origin, deviceId, sessionId, null)
     } catch (error) {
+      if (!alive.current) return
       if (uncertain(error)) return
       writePending(app.origin, deviceId, sessionId, null)
       writeDraft(app.origin, sessionId, message, deviceId)
@@ -162,8 +187,8 @@ export function NewChatScreen({
       <div className="mobile-shell">
         {header}
         <EmptyState
-          title="Share a project first"
-          detail="Choose the projects this phone can use in Mobile access settings on your computer."
+          title="Add a project on your computer"
+          detail="Approved phones can use all available projects. Add a project in Ari on this computer, then refresh."
         />
       </div>
     )
@@ -174,7 +199,9 @@ export function NewChatScreen({
         <p className="text-[26px] font-semibold leading-tight tracking-[-0.04em]">
           What should we work on?
         </p>
-        <p className="mt-2 text-sm text-fg-muted">The agent works on your computer, in {projectName}.</p>
+        <p className="mt-2 text-sm text-fg-muted">
+          The agent works on your computer, in {projectName}.
+        </p>
       </div>
       {failure !== null && (
         <p role="alert" className="error-banner mx-4">
@@ -222,13 +249,29 @@ export function NewChatScreen({
             </div>
             <button
               type="submit"
-              className="icon-button rounded-full bg-accent text-fg-on-accent"
-              aria-label={pending !== null && !busy ? 'Retry' : 'Send'}
+              className={
+                pending !== null
+                  ? 'inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-accent px-3 text-xs font-medium text-fg-on-accent disabled:opacity-50'
+                  : 'icon-button rounded-full bg-accent text-fg-on-accent'
+              }
+              aria-label={
+                checking && busy
+                  ? 'Checking receipt'
+                  : pending !== null
+                    ? 'Check request receipt'
+                    : 'Send'
+              }
               disabled={
                 busy || app.connection !== 'connected' || (pending === null && !text.trim())
               }
             >
-              {busy ? <LoaderCircle size={18} className="animate-spin" /> : <ArrowUp size={20} />}
+              {busy ? (
+                <LoaderCircle size={18} className="animate-spin" />
+              ) : pending !== null ? (
+                'Check receipt'
+              ) : (
+                <ArrowUp size={20} />
+              )}
             </button>
           </div>
         </div>

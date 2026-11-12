@@ -1,0 +1,5 @@
+{"resourceGate":{"commitHeadroomBytes":9697193984,"cFreeBytes":21411004416}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"publication-screenshots","pid":3188,"startedAt":"2026-11-12T16:26:04.628Z","id":"37577cd1-6110-4da3-8e51-77a8876a4c50"}
+
+{"evidence":"D:\\Projects\\Ari-machines\\docs\\research\\evidence\\desktop-machines-parity","screenshots":16,"success":true}
+{"heavyResult":{"worker":"publication-screenshots","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","electron","packaging/capture-machines.mjs"],"exitCode":0,"signal":null}}

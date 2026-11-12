@@ -1,0 +1,39 @@
+{
+  "reviewedSource": "dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9",
+  "machinesBlob": "f12b34a18848743326aa77b3bf14cd7251c611f1",
+  "registryBlob": "093f6a3d56bfb87e2ea28c54f414fc487b275b37",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-route-closure D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-route-closure-proof.mjs dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9 fixed",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 14651736064,
+    "cFreeBytes": 22101835776,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "profile": "D:/Projects/Ari-machines-wt/security/.review-temp/t3-proof-Kke0pm",
+    "oldReportRejected": false,
+    "restoredDisappearedRoute": false,
+    "publishedRemovedRoute": false,
+    "proofToRemovedRoute": false,
+    "walkError": null,
+    "ignoredStaleHighWater": true,
+    "equalTimeRemovalPreserved": true,
+    "credentialSlotPreserved": true,
+    "routeTokenAudience": true,
+    "singleUseChallenge": true,
+    "revocation": true,
+    "noReverseGrant": true,
+    "unownedAudienceDenied": true,
+    "proofBeforeCredentials": true,
+    "success": true
+  },
+  "limitations": [
+    "Actual immutable MachinesService, registry, client, cryptography and PairingService; network is a deterministic transport fixture and sealed storage is fixture AES-GCM.",
+    "oldReportRejected means exception thrown and is false; ignoredStaleHighWater proves the valid durable no-op rejection.",
+    "Independent regression closure for T1/T2 at the named integrated snapshot; parent has not yet designated its final target.",
+    "This is not two-engine signed fallback/move-back, real DNS/TCP/TLS, Tailscale, OS keyring or hardware proof."
+  ]
+}

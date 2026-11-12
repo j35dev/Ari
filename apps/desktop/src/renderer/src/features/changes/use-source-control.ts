@@ -7,7 +7,7 @@ import type {
   SourceControlContext,
 } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
-import { rpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 
 const log = createLogger('ui:source-control')
 interface State {
@@ -34,14 +34,16 @@ export function useSourceControl(
   scope: GitScope | null,
   comparison: GitComparison | 'summary' | null,
 ) {
+  const rpc = useToolSessionClient(scope?.sessionId)
+  const wireScope = scope ? toolWireScope(rpc, scope) : null
   const scopeKey = JSON.stringify(scope)
   const comparisonKey = JSON.stringify(comparison)
-  const key = `${scopeKey}:${comparisonKey}`
+  const key = `${rpc.viewKey}:${rpc.authorizationEpoch}:${rpc.availability}:${scopeKey}:${comparisonKey}`
   const [state, setState] = useState<State>(() => empty(key))
   const reload = useRef<() => void>(() => undefined)
   const refresh = useCallback(() => reload.current(), [])
   useEffect(() => {
-    if (!scope) return
+    if (!wireScope) return
     let closed = false
     let pending = false
     let dirty = false
@@ -65,7 +67,7 @@ export function useSourceControl(
           : [crypto.randomUUID(), crypto.randomUUID()]
       try {
         if (comparison === 'summary') {
-          const result = await rpc.invoke('scm.summary', { ...scope, requestId: ids[0] })
+          const result = await rpc.invoke('scm.summary', { ...wireScope, requestId: ids[0] })
           update({
             summary: result.ok ? result.value : null,
             error: result.ok ? null : result.error.message,
@@ -73,9 +75,9 @@ export function useSourceControl(
           })
         } else {
           const [context, manifest] = await Promise.all([
-            rpc.invoke('scm.status', { ...scope, requestId: ids[0] }),
+            rpc.invoke('scm.status', { ...wireScope, requestId: ids[0] }),
             comparison
-              ? rpc.invoke('scm.review', { ...scope, comparison, requestId: ids[1] })
+              ? rpc.invoke('scm.review', { ...wireScope, comparison, requestId: ids[1] })
               : Promise.resolve(null),
           ])
           update({
@@ -118,7 +120,7 @@ export function useSourceControl(
       }, 300)
     }
     const subscribe = () =>
-      rpc.subscribe('scm.changed', scope, (payload) => {
+      rpc.subscribe('scm.changed', wireScope, (payload) => {
         const error =
           typeof payload === 'object' && payload !== null && 'error' in payload
             ? payload.error
@@ -149,6 +151,6 @@ export function useSourceControl(
           .invoke('scm.cancel', { requestId })
           .catch((error: unknown) => log.warn('Read cancellation failed', { error: String(error) }))
     }
-  }, [scopeKey, comparisonKey])
+  }, [scopeKey, comparisonKey, key, rpc])
   return { ...(scope && state.key === key ? state : { ...empty(key), loading: !!scope }), refresh }
 }

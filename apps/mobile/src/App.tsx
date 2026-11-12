@@ -44,5 +44,6 @@ export function App(): ReactNode {
   ) {
     return <PairScreen key={invitation} invitationId={invitation} onInvitation={setInvitation} />
   }
-  return <AppShell />
+  // All transient view state and subscriptions belong to this computer/device pair.
+  return <AppShell key={`${app.origin}:${app.session?.deviceId ?? ''}`} />
 }
