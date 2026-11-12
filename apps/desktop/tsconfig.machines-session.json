@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/assets.d.ts",
+    "src/test-setup.dom.ts",
+    "src/renderer/src/features/session/session-client.tsx",
+    "src/renderer/src/features/session/session-draft-client.ts",
+    "src/renderer/src/features/session/session-scope.ts",
+    "src/renderer/src/features/session/session-machine-access.ts",
+    "src/renderer/src/features/session/SessionView.tsx",
+    "src/renderer/src/features/session/history-journal.ts",
+    "src/renderer/src/features/session/transcript-store.ts",
+    "src/renderer/src/features/session/session-keep-alive.ts",
+    "src/renderer/src/features/session/use-turn-resume.ts",
+    "src/renderer/src/features/session/useSessionTitle.ts",
+    "src/renderer/src/features/session/PlanPanel.tsx",
+    "src/renderer/src/features/transcript/DelegatedResult.tsx",
+    "src/renderer/src/features/transcript/DelegatedResultDiff.tsx",
+    "src/renderer/src/features/transcript/TranscriptView.tsx",
+    "src/renderer/src/features/transcript/TurnDiffFiles.tsx",
+    "src/renderer/src/features/transcript/attachment-urls.ts",
+    "src/renderer/src/features/transcript/use-delegated-result.ts",
+    "src/renderer/src/features/session/session-client.test.tsx",
+    "src/renderer/src/features/session/session-draft-client.test.ts",
+    "src/renderer/src/features/session/SessionView.remote.test.tsx"
+  ]
+}
