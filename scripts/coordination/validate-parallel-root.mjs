@@ -28,13 +28,18 @@ const checks = [
     '--no-file-parallelism',
   ],
   [
-    '--filter', '@ari/engine', 'exec', 'vitest', 'run',
+    '--filter',
+    '@ari/engine',
+    'exec',
+    'vitest',
+    'run',
     'src/workspace.test.ts',
     'src/git/managed-workspaces.test.ts',
     'src/git/orchestration-branch.test.ts',
     'src/helm.test.ts',
     'src/agent-control.test.ts',
-    '--maxWorkers=1', '--no-file-parallelism',
+    '--maxWorkers=1',
+    '--no-file-parallelism',
   ],
 ]
 for (const args of checks) {

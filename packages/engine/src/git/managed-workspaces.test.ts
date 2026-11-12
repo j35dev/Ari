@@ -355,9 +355,8 @@ it.each(['current', 'legacy-short'] as const)(
     const workspace = await manager.isolate(root, repo, one, 'Work')
     if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
     const otherPath = join(manager.rootDir, root.projectId, two)
-    const otherBranch = format === 'current'
-      ? `${orchestrationBranch('Work', two)}-2`
-      : 'ari/work-mabcd123-2'
+    const otherBranch =
+      format === 'current' ? `${orchestrationBranch('Work', two)}-2` : 'ari/work-mabcd123-2'
     git(repo, 'worktree', 'add', '-b', otherBranch, otherPath)
     await writeFile(join(otherPath, 'other.txt'), 'Unintegrated other root work\n')
     git(otherPath, 'add', '.')
