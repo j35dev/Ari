@@ -73,7 +73,7 @@ export function SpeechSettings() {
       if (bindingLease.current === token) bindingLease.current = null
     }
   }, [recordingShortcut])
-  const loadModels = useCallback(async () => setModels(await rpc.invoke('speech.models')), [])
+  const loadModels = useCallback(async () => setModels((await rpc.invoke('speech.models')).filter(model => model.kind !== 'tts')), [])
   useEffect(() => {
     void loadModels().catch((reason: unknown) => setError(String(reason)))
   }, [loadModels])
@@ -268,7 +268,7 @@ export function SpeechSettings() {
           <Switch
             aria-label="Enable speech to text"
             checked={status.ready || (settings?.speech.enabled ?? false)}
-            disabled={!status.model}
+            disabled={!status.model && !(ariaEnabled && settings?.speech.provider === 'groq')}
             onCheckedChange={(enabled) =>
               void run('enabled', () => update({ speech: { enabled } }))
             }
