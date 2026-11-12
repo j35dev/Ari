@@ -42,7 +42,7 @@ export function ExperimentalSettings() {
           />
         </SettingsRow>
       </SettingsSection>
-      {settings?.experimental.ariaEnabled && <AriaVoiceSettings/>}
+      {settings?.experimental.ariaEnabled && <AriaVoiceSettings />}
     </SettingsPage>
   )
 }

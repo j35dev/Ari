@@ -11,9 +11,18 @@ export async function acceleratedVoiceProvider(): Promise<'dml' | 'coreml' | nul
     const directory = dirname(require.resolve(`sherpa-onnx-${platform}-${process.arch}`))
     const file = process.platform === 'win32' ? 'onnxruntime.dll' : 'libonnxruntime.dylib'
     const bytes = await readFile(join(directory, file))
-    const symbol = process.platform === 'win32' ? 'OrtSessionOptionsAppendExecutionProvider_DML' : 'OrtSessionOptionsAppendExecutionProvider_CoreML'
-    return bytes.includes(Buffer.from(symbol)) ? (process.platform === 'win32' ? 'dml' : 'coreml') : null
-  } catch { return null }
+    const symbol =
+      process.platform === 'win32'
+        ? 'OrtSessionOptionsAppendExecutionProvider_DML'
+        : 'OrtSessionOptionsAppendExecutionProvider_CoreML'
+    return bytes.includes(Buffer.from(symbol))
+      ? process.platform === 'win32'
+        ? 'dml'
+        : 'coreml'
+      : null
+  } catch {
+    return null
+  }
 }
 
 /** Require a meaningful win; measurement noise must not select a fallback labelled GPU. */
