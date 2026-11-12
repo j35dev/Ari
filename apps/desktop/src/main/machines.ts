@@ -52,6 +52,9 @@ interface Connection {
 interface Subscription {
   machineId: string
   close: () => void
+  params: { machineId: string; sessionId: string; fromSeq?: number; desktop?: true }
+  emit: (frame: MachineEventsFrame) => void
+  cursor?: number
 }
 export interface MachinesServiceDeps {
   dir: string
@@ -326,7 +329,7 @@ export class MachinesService {
   async #walk(machineId: string): Promise<MachineView> {
     const row = this.#registry.get(machineId)
     const prior = this.#connections.get(machineId)
-    if (prior !== undefined) this.#drop(machineId, prior)
+    if (prior !== undefined) this.#drop(machineId, prior, true)
     let lastFailure: unknown = new RemoteError(
       'unreachable',
       'No saved computer route is reachable.',
@@ -361,17 +364,19 @@ export class MachinesService {
         if (state === 'connected') {
           this.#lastSwitch.set(machineId, this.#now())
           await this.#refreshManifest(machineId, connection)
+          await this.#resumeSubscriptions(machineId)
         }
         return this.#view(this.#registry.get(machineId))
       } catch (error) {
         lastFailure = error
-        if (connection !== undefined) this.#drop(machineId, connection)
+        if (connection !== undefined) this.#drop(machineId, connection, true)
         if (this.#disposed || !this.#registry.list().some((record) => record.id === machineId))
           throw error
         if (error instanceof RemoteError && error.code === 'unsupported_version') break
       }
     }
     this.#failed(machineId, lastFailure)
+    this.#failSubscriptions(machineId)
     return this.#view(this.#registry.get(machineId))
   }
 
@@ -506,14 +511,20 @@ export class MachinesService {
           !this.#registry.get(machineId).routes.some((item) => item.origin === route.origin)
         )
           throw new Error('Stale route precheck.')
-        this.#drop(machineId, active)
+        this.#drop(machineId, active, true)
         this.#connections.set(machineId, candidate)
         this.#pendingConnections.delete(candidate)
         this.#lastSwitch.set(machineId, this.#now())
         this.#set(machineId, 'connected', null, candidate.session.allowTerminal)
         await this.#refreshManifest(machineId, candidate)
+        await this.#resumeSubscriptions(machineId)
         return this.#view(this.#registry.get(machineId))
-      } catch {
+      } catch (error) {
+        if (candidate !== undefined && this.#connections.get(machineId) === candidate) {
+          this.#drop(machineId, candidate)
+          this.#failed(machineId, error)
+          return this.#view(this.#registry.get(machineId))
+        }
         candidate?.controller.abort()
         candidate?.session.disconnect()
         if (candidate !== undefined) this.#pendingConnections.delete(candidate)
@@ -524,10 +535,12 @@ export class MachinesService {
   #now(): number {
     return (this.#deps.now ?? Date.now)()
   }
-  #drop(machineId: string, connection: Connection): void {
+  #drop(machineId: string, connection: Connection, keepSubscriptions = false): void {
     this.#pendingConnections.delete(connection)
     if (this.#connections.get(machineId) === connection) this.#connections.delete(machineId)
-    this.#closeSubscriptions(machineId)
+    if (keepSubscriptions) {
+      for (const sub of this.#subscriptions.values()) if (sub.machineId === machineId) sub.close()
+    } else this.#closeSubscriptions(machineId)
     connection.controller.abort()
     connection.session.disconnect()
   }
@@ -685,6 +698,9 @@ export class MachinesService {
     let cancelled = false
     const pending: Subscription = {
       machineId: params.machineId,
+      params: { ...params },
+      emit,
+      cursor: params.fromSeq,
       close: () => {
         cancelled = true
       },
@@ -708,6 +724,23 @@ export class MachinesService {
           )
             return
           emit({ machineId: params.machineId, message: parsed.data })
+          const message = parsed.data
+          const events =
+            message.type === 'events.frame'
+              ? message.events
+              : message.type === 'events.desktop.frame' && message.frame.kind === 'chunk'
+                ? message.frame.events
+                : message.type === 'events.desktop.frame' && message.frame.kind === 'live'
+                  ? [message.frame.event]
+                  : []
+          for (const event of events) pending.cursor = Math.max(pending.cursor ?? -1, event.seq)
+          if (
+            message.type === 'events.desktop.frame' &&
+            message.frame.kind === 'terminal' &&
+            message.frame.replayOutcome === 'complete' &&
+            message.frame.seq >= 0
+          )
+            pending.cursor = Math.max(pending.cursor ?? -1, message.frame.seq)
         },
         onClose: () => {
           if (!cancelled && this.#active(params.machineId, connection))
@@ -1071,6 +1104,45 @@ export class MachinesService {
   }
   #closeSubscriptions(id: string): void {
     for (const [key, sub] of this.#subscriptions) if (sub.machineId === id) this.unsubscribe(key)
+  }
+  async #resumeSubscriptions(machineId: string): Promise<void> {
+    for (const [id, sub] of [...this.#subscriptions]) {
+      if (sub.machineId !== machineId || this.#subscriptions.get(id) !== sub) continue
+      try {
+        await this.subscribe(
+          id,
+          { ...sub.params, ...(sub.cursor === undefined ? {} : { fromSeq: sub.cursor }) },
+          sub.emit,
+        )
+      } catch {
+        sub.emit({
+          machineId,
+          message: {
+            type: 'error',
+            error: {
+              code: 'internal_error',
+              message: 'The computer route changed. Reconnect the activity stream to resume.',
+            },
+          },
+        })
+      }
+    }
+  }
+  #failSubscriptions(machineId: string): void {
+    for (const [id, sub] of [...this.#subscriptions])
+      if (sub.machineId === machineId) {
+        sub.emit({
+          machineId,
+          message: {
+            type: 'error',
+            error: {
+              code: 'internal_error',
+              message: 'No saved computer route is available. Reconnect to resume activity.',
+            },
+          },
+        })
+        this.unsubscribe(id)
+      }
   }
   #changed(): void {
     if (!this.#disposed) this.#deps.onChange?.(this.list())
