@@ -29,6 +29,8 @@ const path = z
             part.length > 0 &&
             part !== '.' &&
             part !== '..' &&
+            // Path segments deliberately reject ASCII control characters.
+            // eslint-disable-next-line no-control-regex
             !/[\\:\u0000-\u001f]/.test(part) &&
             !/[. ]$/.test(part) &&
             !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
