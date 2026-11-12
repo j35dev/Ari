@@ -94,4 +94,13 @@ describe('Aria spoken replies', () => {
     expect(spoken).not.toContain('aria:speak')
     expect(condenseReply(reply)).toBe('I coordinate your projects.')
   })
+
+  it('preserves the direct question when a long fallback explanation reaches its speech limit', () => {
+    const question = 'Would you like me to explain the remaining details?'
+    const reply = `${'The project has several useful features and choices '.repeat(100)}. ${question}`
+    const spoken = condenseReply(reply)
+    expect(spoken.length).toBeLessThanOrEqual(1800)
+    expect(spoken).toContain('More details are in the chat.')
+    expect(spoken.endsWith(question)).toBe(true)
+  })
 })
