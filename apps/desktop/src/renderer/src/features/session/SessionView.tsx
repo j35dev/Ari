@@ -28,7 +28,7 @@ import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/c
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
 import { resolveOfferedModel } from '@ari/providers/catalogs'
-import { SessionClientProvider, createSessionClient, useSessionClient, sessionViewKey, type SessionScope } from './session-client'
+import { SessionClientProvider, createSessionClient, useSessionClient, sessionViewKey, parseSessionViewKey, type SessionScope } from './session-client'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
@@ -244,12 +244,15 @@ export interface SessionDefaults {
  */
 export function SessionView(props: Parameters<typeof SessionViewContent>[0] & { scope?: SessionScope }) {
   const inherited = useSessionClient()
-  const scope = props.scope ?? (inherited.scope.sessionId === props.sessionId ? inherited.scope : { kind: 'local' as const, sessionId: props.sessionId })
-  if (scope.sessionId !== props.sessionId) throw new Error('SessionView requires the scoped wire session id.')
+  const scope = props.scope ?? (inherited.scope.kind === 'remote'
+    ? { ...inherited.scope, sessionId: props.sessionId }
+    : parseSessionViewKey(props.sessionId))
+  if (!scope) throw new Error('SessionView requires a recognized session scope.')
+  if (props.scope && scope.sessionId !== props.sessionId) throw new Error('SessionView requires the scoped wire session id.')
   const client = useMemo(() => createSessionClient(scope), [scope.kind, scope.sessionId, scope.kind === 'remote' ? scope.machineId : null])
   const keyOf = (id: string) => scope.kind === 'remote' ? sessionViewKey({ ...scope, sessionId: id }) : id
   return <SessionClientProvider client={client}>
-    <ScopedSessionView {...props}
+    <ScopedSessionView {...props} sessionId={scope.sessionId}
       onOpenSession={props.onOpenSession ? (id) => props.onOpenSession?.(keyOf(id)) : undefined}
       sessionTitle={props.sessionTitle ? (id) => props.sessionTitle?.(keyOf(id)) : undefined}
       activityOf={props.activityOf ? (id) => props.activityOf?.(keyOf(id)) : undefined}
@@ -316,6 +319,10 @@ function SessionViewContent({
   let receiptError: string | null = null
   try { receiptPending = rpc.receipt() !== null } catch (error) { receiptPending = true; receiptError = error instanceof Error ? error.message : 'Submission evidence is unreadable.' }
   const hostBlocked = remote && (rpc.readOnly || receiptPending)
+  const actionReason = (operation: string): string | null => remote
+    ? receiptPending ? 'Check the original submission receipt before another action.' : rpc.capabilityReason(operation)
+    : null
+  const updateReason = actionReason('session.update')
   const store = useMemo(() => transcriptStore(viewKey), [viewKey])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
@@ -340,6 +347,7 @@ function SessionViewContent({
   const historyJournalRef = useRef<HistoryJournal | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
+  const sendReason = actionReason(running ? 'session.queue' : 'session.prompt')
   const [providerSwitchable, setProviderSwitchable] = useState(false)
   const [providerSwitches, setProviderSwitches] = useState<ProviderSwitch[]>([])
   const [providerContext, setProviderContext] = useState(EMPTY_PROVIDER_CONTEXT)
@@ -356,7 +364,7 @@ function SessionViewContent({
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
   const draftIntent = useSessionDraftIntent(viewKey)
-  const sendPending = draftIntent.pendingId !== undefined || hostBlocked
+  const sendPending = draftIntent.pendingId !== undefined || hostBlocked || sendReason !== null
   const viewMountedRef = useRef(true)
   useEffect(() => {
     viewMountedRef.current = true
@@ -438,14 +446,16 @@ function SessionViewContent({
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
   useEffect(() => {
+    let cancelled = false
     void rpc
       .invoke('files.index', { sessionId })
-      .then((r) => setFileSuggestions(r.paths))
+      .then((r) => { if (!cancelled) setFileSuggestions(r.paths) })
       .catch(() => undefined)
     void rpc
       .invoke('providers.models')
-      .then(setCatalogModels)
+      .then((models) => { if (!cancelled) setCatalogModels(models) })
       .catch(() => undefined)
+    return () => { cancelled = true }
   }, [sessionId, rpc, rpc.availability])
 
   // Window size for the meter: what the provider measured, else the session
@@ -527,6 +537,7 @@ function SessionViewContent({
           })
           // Without a snapshot the cards still show, from live activity alone.
           .catch(() => {
+            if (remote) return
             if (!cancelled && request === taskRequest) setTasks((prev) => prev ?? [])
           })
       }, 200)
@@ -599,7 +610,9 @@ function SessionViewContent({
           setHistoryFailureSession(frame.replayOutcome === 'incomplete' ? sessionId : null)
           const buffered = liveBufferRef.current
           liveBufferRef.current = []
-          for (const event of buffered.sort((a, b) => a.seq - b.seq)) ingest(event, true)
+          const ordered = buffered.sort((a, b) => a.seq - b.seq)
+          const afterBarrier = remote && frame.seq !== undefined ? ordered.filter((event) => event.seq > frame.seq!) : []
+          for (const event of ordered) if (!afterBarrier.includes(event)) ingest(event, true)
           history.finish(frame.replayOutcome !== 'incomplete', (frame as SessionEventFrame & { replayMode?: 'full' | 'resume' }).replayMode)
           const { model, telemetry, settledTurnIds } = history.controls()
           settledTurnIdsRef.current = settledTurnIds
@@ -637,6 +650,8 @@ function SessionViewContent({
               setTelemetry((prev) => ({ ...prev, startedAt: null }))
             }
           }
+          // Events newer than the host's replay barrier own the current runtime.
+          for (const event of afterBarrier) ingest(event, true)
           publishMessages()
           lastPartRef.current = history.lastPart
           return
@@ -1460,7 +1475,7 @@ function SessionViewContent({
         text: quote,
         nonce: (prev?.nonce ?? 0) + 1,
         mode: 'insert',
-        sessionId,
+        sessionId: viewKey,
       }))
     },
     [sessionId],
@@ -1503,13 +1518,9 @@ function SessionViewContent({
 
   const respondApproval = useCallback(
     (approvalId: string, answer: ApprovalAnswer) => {
-      void rpc
-        .invoke('command.dispatch', {
-          command: { type: 'approval.respond', sessionId, approvalId, ...answer },
-        })
-        .catch(() => undefined)
+      void dispatch({ type: 'approval.respond', sessionId, approvalId, ...answer }, 'Could not send approval')
     },
-    [sessionId],
+    [sessionId, dispatch],
   )
 
   const respondQuestion = useCallback(
@@ -1523,17 +1534,14 @@ function SessionViewContent({
       // Drop the overlay immediately so Submit cannot leave a locked card
       // sitting on screen while the engine journals the answer.
       setPendingQuestion(null)
-      void rpc
-        .invoke('command.dispatch', {
-          command: {
+      void dispatch({
             type: 'input.respond',
             sessionId,
             inputId: current.inputId,
             value,
-          },
-        })
-        .then((result) => {
-          if (result.accepted) return
+          }, 'Could not send answer')
+        .then((accepted) => {
+          if (accepted) return
           if (turnAlive) setPendingQuestion(current)
           toast({
             title: 'Couldn’t send answer',
@@ -1554,7 +1562,7 @@ function SessionViewContent({
           })
         })
     },
-    [sessionId, pendingQuestion, running, toast],
+    [sessionId, pendingQuestion, running, toast, dispatch],
   )
 
   /**
@@ -1568,10 +1576,11 @@ function SessionViewContent({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
+      if (hostBlocked) return
       const switched = next.driverKind !== defaults.driverKind
       if (switched && providerLocked) return
-      const switchProvider = providerSwitchable && switched && hasProviderContext(providerContext)
-      const effort = providerSwitchable && switched ? { effort: null } : {}
+      const switchProvider = switched && (remote || (providerSwitchable && hasProviderContext(providerContext)))
+      const effort = switched && (remote || providerSwitchable) ? { effort: null } : {}
       const before = {
         driverKind: defaultsRef.current.driverKind,
         modelId: defaultsRef.current.modelId,
@@ -1591,7 +1600,7 @@ function SessionViewContent({
         }
       const sequence = ++picks.sequence
       picks.pending++
-      if (!switchProvider) {
+      if (!switchProvider && !remote) {
         onDefaultsChange({ ...defaultsRef.current, ...next, ...effort })
       }
       void dispatch(
@@ -1603,6 +1612,13 @@ function SessionViewContent({
         if (modelPicksRef.current !== picks) return
         picks.pending--
         const current = defaultsRef.current
+        if (remote) {
+          if (accepted && sequence === picks.sequence && viewMountedRef.current) {
+            onDefaultsChange({ ...current, ...next, ...effort })
+            onPick?.({ ...next, ...effort })
+          }
+          return
+        }
         const acceptedEffort =
           effortRevision === effortRevisionRef.current &&
           (current.effort === pick.effort || (switchProvider && current.effort === before.effort))
@@ -1614,7 +1630,7 @@ function SessionViewContent({
         }
         // An older rejection must not overwrite a more recent optimistic pick.
         if (sequence !== picks.sequence) return
-        if (!accepted || switchProvider) {
+        if (!accepted || switchProvider || remote) {
           const patch = Object.fromEntries(
             changedFields
               .filter(
@@ -1638,11 +1654,24 @@ function SessionViewContent({
       providerContext,
       providerLocked,
       dispatch,
+      hostBlocked,
+      remote,
     ],
   )
 
   const changeEffort = useCallback(
     (effort: string | null) => {
+      if (hostBlocked) return
+      if (remote) {
+        void dispatch({ type: 'session.update', sessionId, effort }, 'Could not change effort').then((accepted) => {
+          if (!accepted || !viewMountedRef.current) return
+          effortRevisionRef.current++
+          modelPicksRef.current.confirmed.effort = effort
+          onDefaultsChange({ ...defaultsRef.current, effort })
+          onPick?.({ effort })
+        })
+        return
+      }
       effortRevisionRef.current++
       modelPicksRef.current.confirmed.effort = effort
       onDefaultsChange({ ...defaults, effort })
@@ -1653,11 +1682,18 @@ function SessionViewContent({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, onPick, defaults],
+    [sessionId, onDefaultsChange, onPick, defaults, hostBlocked, remote, dispatch],
   )
 
   const changePermissionMode = useCallback(
     (permissionMode: PermissionMode) => {
+      if (hostBlocked) return
+      if (remote) {
+        void dispatch({ type: 'session.update', sessionId, permissionMode }, 'Could not change permission mode').then((accepted) => {
+          if (accepted && viewMountedRef.current) onDefaultsChange({ ...defaultsRef.current, permissionMode })
+        })
+        return
+      }
       // `defaults` must stay in the dep list: omitting it retained a closure
       // over the pre-model-change defaults, so switching modes wrote the stale
       // driverKind/modelId back and the model chip snapped to the CLI default.
@@ -1668,7 +1704,7 @@ function SessionViewContent({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, defaults],
+    [sessionId, onDefaultsChange, defaults, hostBlocked, remote, dispatch],
   )
 
   const delegations = useMemo(
@@ -1692,7 +1728,7 @@ function SessionViewContent({
       return phase === 'working' || phase === 'paused'
     })
   const stopChildren = useCallback(() => {
-    if (stoppingChildren) return
+    if (stoppingChildren || hostBlocked) return
     setStoppingChildren(true)
     void (remote ? rpc.invoke('session.stopChildren', { sessionId }) : rpc.invoke('orchestration.stop', {
         sessionId,
@@ -1704,8 +1740,8 @@ function SessionViewContent({
         refreshTasksRef.current()
       })
       .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
-      .finally(() => setStoppingChildren(false))
-  }, [sessionId, rpc, remote, toast, stoppingChildren])
+      .finally(() => { setStoppingChildren(false); setReceiptRevision((value) => value + 1) })
+  }, [sessionId, rpc, remote, toast, stoppingChildren, hostBlocked])
 
   useEffect(() => {
     if (childSessions.length > 0) refreshTasksRef.current()
@@ -1807,7 +1843,7 @@ function SessionViewContent({
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
           composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
-            <>
+            <fieldset disabled={hostBlocked} className="min-w-0" title={hostBlocked ? actionReason('session.prompt') ?? 'This session is read-only.' : undefined}>
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
                   is not asked here — it has the side panel. */}
@@ -1863,11 +1899,12 @@ function SessionViewContent({
                   />
                 </>
               ) : null}
-            </>
+            </fieldset>
           ) : null
         }
         leading={
           <>
+            <fieldset disabled={updateReason !== null} title={updateReason ?? undefined} className="contents">
             <ModelSelector
               hostCatalog={remote ? hostCatalog : undefined}
               driverKind={defaults.driverKind}
@@ -1880,12 +1917,15 @@ function SessionViewContent({
               modelId={defaults.modelId}
               effort={defaults.effort}
               onChange={changeEffort}
+              disabledReason={updateReason}
             />
             <PermissionModeChip
               driverKind={defaults.driverKind}
               mode={defaults.permissionMode}
               onChange={changePermissionMode}
+              disabledReason={updateReason}
             />
+            </fieldset>
             {managedWorkspace ? (
               <span
                 className="max-w-40 truncate text-2xs text-fg-subtle"
@@ -1903,6 +1943,9 @@ function SessionViewContent({
       viewKey,
       remote,
       hostCatalog,
+      hostBlocked,
+      updateReason,
+      sendReason,
       hidden,
       metadataReadySession,
       managedWorkspace,
@@ -1979,6 +2022,15 @@ function SessionViewContent({
             }}>{receiptPending ? 'Check status' : 'Reconnect'}</button>
           </div>
         ) : null}
+        {remote && !hostBlocked && sendReason ? <p role="status" className="mx-4 my-2 text-xs text-fg-muted">{sendReason}</p> : null}
+        {remote ? <p className="mx-4 my-1 text-2xs text-fg-subtle">{[
+          ['files.index', 'File suggestions'], ['message.dequeue', 'Queue editing'],
+          ['message.steer', 'Steering'], ['session.stopChildren', 'Stopping child sessions'],
+          ['approval.respond', 'Approvals'], ['input.respond', 'Answers'],
+        ].flatMap(([operation, label]) => {
+          const reason = rpc.capabilityReason(operation!)
+          return reason ? [`${label}: ${reason}`] : []
+        }).join(' ')}</p> : null}
         {startedByAria ? (
           <button
             type="button"
@@ -2156,11 +2208,13 @@ export function EffortChip({
   modelId,
   effort,
   onChange,
+  disabledReason = null,
 }: {
   driverKind: DriverKind
   modelId?: string | null
   effort: string | null
   onChange: (effort: string | null) => void
+  disabledReason?: string | null
 }) {
   const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
@@ -2243,21 +2297,22 @@ export function EffortChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind, modelId])
+  }, [driverKind, modelId, rpc, rpc.availability])
 
   useEffect(() => {
     // No list is not a verdict: an agent that has not answered yet (or a
     // probe that failed) would otherwise wipe the level the user saved.
-    if (!loaded || effort === null || options.length === 0) return
+    if (rpc.scope.kind === 'remote' || !loaded || effort === null || options.length === 0) return
     if (!options.some((o) => o.id === effort)) onChange(null)
   }, [loaded, options, effort, onChange])
 
-  if (options.length === 0) return null
+  if (options.length === 0) return rpc.scope.kind === 'remote' ? <button type="button" disabled title={disabledReason ?? 'The host has not reported effort choices.'} className="h-7 px-2 text-xs text-fg-muted">Effort: {effort ?? 'Host default'}</button> : null
 
   const selectedId =
     (effort !== null && options.some((o) => o.id === effort) ? effort : null) ??
     options.find((o) => o.current)?.id ??
     options[0]?.id
+  const unknownEffort = rpc.scope.kind === 'remote' && effort !== null && !options.some((option) => option.id === effort)
   const current = options.find((o) => o.id === selectedId) ?? options[0]
   if (current === undefined) return null
 
@@ -2265,14 +2320,15 @@ export function EffortChip({
     <div ref={setAnchor} className="relative">
       <button
         type="button"
+        disabled={disabledReason !== null || unknownEffort}
         onClick={() => setOpen((o) => !o)}
-        title={current.description ?? `Effort: ${current.label}`}
-        aria-label={`Effort: ${current.label}`}
+        title={disabledReason ?? (unknownEffort ? 'The host has not confirmed this saved effort.' : current.description ?? `Effort: ${current.label}`)}
+        aria-label={`Effort: ${unknownEffort ? effort : current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <span>{current.label}</span>
+        <span>{unknownEffort ? effort : current.label}</span>
         <ChevronDown
           size={11}
           aria-hidden
@@ -2373,10 +2429,12 @@ export function PermissionModeChip({
   driverKind,
   mode,
   onChange,
+  disabledReason = null,
 }: {
   driverKind: DriverKind
   mode: PermissionMode
   onChange: (mode: PermissionMode) => void
+  disabledReason?: string | null
 }) {
   const rpc = useSessionClient()
   const [open, setOpen] = useState(false)
@@ -2407,13 +2465,14 @@ export function PermissionModeChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind])
+  }, [driverKind, rpc, rpc.availability])
 
-  const entries = modeEntries(discovered)
+  const entries = rpc.scope.kind === 'remote' ? modeEntries(discovered).filter((entry) => discovered.some((option) => option.ariMode === entry.value)) : modeEntries(discovered)
+  const reason = disabledReason ?? (rpc.scope.kind === 'remote' && discovered.length === 0 ? 'The host has not reported permission choices.' : null)
   const current =
     entries.find((e) => e.value === mode && e.nativeCurrent === true) ??
     entries.find((e) => e.value === mode) ??
-    DEFAULT_MODE
+    PERMISSION_MODES.find((entry) => entry.value === mode) ?? DEFAULT_MODE
 
   useEffect(() => {
     if (!open) return
@@ -2444,8 +2503,9 @@ export function PermissionModeChip({
     <div ref={setAnchor} className="relative">
       <button
         type="button"
+        disabled={reason !== null}
         onClick={() => setOpen((o) => !o)}
-        title={`Permission mode: ${current.hint}`}
+        title={reason ?? `Permission mode: ${current.hint}`}
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}

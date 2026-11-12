@@ -48,7 +48,7 @@ const OPERATIONS: Partial<Record<RpcMethod, string>> = {
   'scm.diff': 'scm.desktop.diff',
 }
 const COMMAND_OPERATIONS: Record<string, string> = {
-  'turn.start': 'session.prompt', 'message.enqueue': 'session.queue', 'message.steer': 'session.steer.attachments',
+  'turn.start': 'session.prompt', 'message.enqueue': 'session.queue', 'message.steer': 'session.steer',
   'message.dequeue': 'session.dequeue', 'turn.interrupt': 'session.interrupt',
   'session.update': 'session.update', 'session.provider.switch': 'session.provider.switch',
   'approval.respond': 'approval.respond', 'input.respond': 'input.respond',
@@ -84,8 +84,11 @@ export function createSessionClient(requested: SessionScope): SessionClient {
   }
   const act = async (action: RemoteAction): Promise<unknown> => {
     if (client.readOnly) throw new Error('This remote session is read-only. Reconnect to a compatible host to continue.')
-    await assertMachineOperation(machineId, action.op)
-    return sendRemote(machineId, 'sessionId' in action ? action.sessionId : sessionId, action)
+    const epoch = await assertMachineOperation(machineId, action.op)
+    if (client.readOnly) throw new Error('Access changed before dispatching this session action.')
+    const result = await sendRemote(machineId, 'sessionId' in action ? action.sessionId : sessionId, action)
+    if (epoch !== machineEpoch(machineId)) throw new Error('Access changed while confirming this session action.')
+    return result
   }
   const assertSession = (params: Record<string, unknown>): void => {
     if ('sessionId' in params && params.sessionId !== sessionId) throw new Error('This action belongs to another session.')
@@ -105,9 +108,11 @@ export function createSessionClient(requested: SessionScope): SessionClient {
         const attachmentIds = 'attachments' in fields ? fields.attachments.map((ref) => ref.id) : undefined
         let action: unknown
         if (command.type === 'turn.start' || command.type === 'message.enqueue' || command.type === 'message.dequeue' || command.type === 'message.steer') {
-          if (command.type === 'message.enqueue' && (command.hold || (command.priority && command.priority !== 'normal')))
+          if (command.type === 'message.enqueue' && (command.hold || (command.priority && command.priority !== 'human')))
             throw new Error('Remote delegated queue policy is unavailable.')
-          action = { op, sessionId, text: command.text, attachmentIds }
+          action = command.type === 'message.steer' && attachmentIds?.length === 0
+            ? { op: 'session.steer', sessionId, text: command.text }
+            : { op: command.type === 'message.steer' ? 'session.steer.attachments' : op, sessionId, text: command.text, attachmentIds }
         } else {
           if (command.type === 'session.update' && (command.driverKind !== undefined || command.archived !== undefined))
             throw new Error('Use the supported provider switch; remote session administration is unavailable.')
@@ -167,7 +172,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
         result = { paths }; break
       }
       case 'fs.list': {
-        const files = remoteFilesSchema.parse(await query({ op: 'files.list', sessionId, path: p.path ?? '', limit: 200 }))
+        const files = remoteFilesSchema.parse(await query({ op: 'files.list', sessionId, path: p.path === '.' ? '' : p.path ?? '', limit: 200 }))
         if (files.error || files.nextCursor) throw new Error(files.error ?? 'This directory is too large to list completely.')
         result = files.entries.map((entry) => ({ name: entry.name, type: entry.kind === 'directory' ? 'dir' : 'file', size: entry.size ?? 0 })); break
       }
@@ -282,6 +287,8 @@ export function useSessionClient(): SessionClient {
   return client
 }
 export async function readHostModelCatalog(machineId: string): Promise<RemoteModelCatalog> {
-  await assertMachineOperation(machineId, 'models.list')
-  return remoteModelCatalogSchema.parse(await remoteQuery(machineId, { op: 'models.list' } satisfies RemoteQuery))
+  const epoch = await assertMachineOperation(machineId, 'models.list')
+  const catalog = remoteModelCatalogSchema.parse(await remoteQuery(machineId, { op: 'models.list' } satisfies RemoteQuery))
+  if (epoch !== machineEpoch(machineId)) throw new Error('Access changed while reading host models.')
+  return catalog
 }
