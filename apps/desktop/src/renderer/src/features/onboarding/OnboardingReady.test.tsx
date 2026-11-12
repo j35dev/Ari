@@ -17,7 +17,7 @@ describe('onboarding review surface', () => {
     render(<OnboardingReady choice={choice} disabled={false} onCreateSessionChange={onChange} />)
     expect(screen.getByText('Claude Code')).toBeInTheDocument()
     expect(screen.getByText('/work/Ari')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Open an empty session in Ari' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Open a new chat in Ari' }))
     expect(onChange).toHaveBeenCalledWith(false)
   })
   it('explains a skipped agent and project without offering a session that cannot be created', () => {
