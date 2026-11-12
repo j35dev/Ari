@@ -44,7 +44,7 @@ export function normalizeSpeech(text: string): string {
   return text
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, '$1')
+    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (_, domain: string) => domain.replace(/\./g, ' dot '))
     .replace(/\b([A-Z]{2,5})\b/g, (value) =>
       ['PR', 'ACP', 'CLI'].includes(value) ? value.toLowerCase() : value.split('').join(' '),
     )
@@ -53,7 +53,13 @@ export function normalizeSpeech(text: string): string {
         ? `${numberWords(Number(value.replace(/,/g, '')) * 100)} cents`
         : `${numberWords(Number(value.replace(/,/g, '')))} dollars`,
     )
-    .replace(/-?\d+(?:,\d{3})*(?:\.\d+)?/g, (value) => numberWords(Number(value.replace(/,/g, ''))))
+    .replace(/-?\d+(?:,\d{3})*(?:\.\d+)?/g, (value) => {
+      const n = Number(value.replace(/,/g, ''))
+      if (Number.isInteger(n)) return numberWords(n)
+      const rounded = Math.abs(n).toFixed(Math.abs(n) < 1 ? 2 : 1).replace(/0+$/, '').replace(/\.$/, '')
+      const [whole, fraction] = rounded.split('.')
+      return `${n < 0 ? 'minus ' : ''}${numberWords(Number(whole))}${fraction ? ` point ${fraction.split('').map(d => numberWords(Number(d))).join(' ')}` : ''}`
+    })
     .replace(/%/g, ' percent')
     .replace(/&/g, ' and ')
     .replace(/@/g, ' at ')
@@ -61,6 +67,16 @@ export function normalizeSpeech(text: string): string {
     .replace(/[’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/** Groq has no pronunciation dictionary API; use simple spoken respellings. */
+export function normalizeCloudSpeech(text: string): string {
+  return normalizeSpeech(text)
+    .replace(/\bAria\b/gi, 'Ah ree uh')
+    .replace(/\bAri\b/gi, 'Ah ree')
+    .replace(/\bpr\b/gi, 'P R')
+    .replace(/\bacp\b/gi, 'A C P')
+    .replace(/\bcli\b/gi, 'C L I')
 }
 
 export function lexiconWords(lexicon: string): Set<string> {
