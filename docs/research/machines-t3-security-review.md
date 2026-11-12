@@ -488,3 +488,31 @@ deletions of both primary and recovery, OS keyring and cross-runtime profile
 ownership remain outside the disposable-file proof. No headless runtime was added.
 The combined loopback reviewer execution is waiting for the shared resource lease;
 no certification is issued before that result, identity evidence and final SHA.
+
+## Independently executed combined normal-client proof
+
+After correcting the evidence loader's importing-package dependency resolution,
+the exact combined test at `1c2398a4177bdc97741bbbe0d8304f6640176d04`, blob
+`59da59108dc2b8c7a8e54c8553f34b32a2e35707`, exited 0. Exact command/resource
+admission/results are in `evidence/machines-t3-security/combined-result.json`;
+the initial pre-assertion import failure is separately retained. This was one
+below-normal worker with shared capacity 2, admitted with 6,983,888,896 bytes
+commit headroom and 22,043,332,608 bytes C: free. Assertions ran for 1,582ms after
+source imports. No authored/root run is substituted for this reviewer execution.
+
+All authored assertions passed: 2,406 initial journal rows including seq zero;
+2,405 messages complete; actual normal SessionClient full/resume/live history;
+signed two-listener fallback and cooldown move-back; stable owner tuple and
+exactly one B turn with A untouched; distinct backup token and no legacy
+authorize at backup; independent approval/no reverse grant; redacted repository
+grouping; authenticated fixture resources with Auto and Manual only; revoked B
+becomes read-only and clears its watched transcript while A retains access.
+
+The proof gap for these covered runtime paths is independently closed. The
+runner replaces only Vitest assertions/spy helpers; the authored preload,
+localStorage, AES-GCM, provider, counters and route-reachability fixtures remain.
+Actual Engines/stores, HTTP/WS, DNS/TCP, MachinesService/RPC, normal SessionClient,
+inventory epochs and transcript/history are used. TLS/Tailscale, real providers,
+OS keyring/counters, React DOM, every spontaneous network failure and a real
+incompatible binary remain outside this proof. Final identity correction and
+source designation remain pending.
