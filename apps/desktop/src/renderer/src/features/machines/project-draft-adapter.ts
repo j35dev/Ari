@@ -2,7 +2,7 @@ import { createHostDraftClient } from '../session/session-draft-client'
 import type { ProjectDraftClient } from './ProjectDraft'
 import { createSessionClient } from '../session/session-client'
 import type { AttachmentRef } from '@ari/contracts/attachments'
-import type { RemoteModelCatalog } from '@ari/contracts/remote'
+import type { RemoteModelCatalog, RemoteProjectWorkspaces } from '@ari/contracts/remote'
 import type { ProjectAgent } from '@ari/contracts/project'
 import { rpc } from '../../lib/rpc'
 
@@ -10,7 +10,7 @@ import { rpc } from '../../lib/rpc'
 export function remoteProjectDraftClient(machineId: string, draftId: string): ProjectDraftClient {
   const client = createHostDraftClient(machineId, draftId)
   return {
-    catalog: client.catalog, workspaces: client.workspaces,
+    catalog: () => client.catalog(), workspaces: (projectId) => client.workspaces(projectId),
     create: ({ projectId, title, pick, workspaceToken, workspaceMode }) => client.create({
       projectId, title, ...pick, ...(workspaceToken ? { workspaceToken } : {}), workspaceMode: workspaceMode ?? 'auto',
     }),
@@ -29,7 +29,7 @@ export function localProjectDraftClient(options: {
   const attachments = new Map<string, AttachmentRef[]>()
   return {
     catalog: options.catalog,
-    workspaces: async (projectId) => ({ projectId, truncated: false, options: [
+    workspaces: (projectId) => Promise.resolve<RemoteProjectWorkspaces>({ projectId, truncated: false, options: [
       { token: 'isolated', label: 'New isolated worktree', kind: 'worktree', branch: null, workspaceMode: 'isolated' },
     ] }),
     create: async ({ projectId, pick, workspaceMode }) => ({ kind: 'local',
