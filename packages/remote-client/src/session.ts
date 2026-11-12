@@ -393,9 +393,17 @@ export class RemoteSession {
       if (disposed || signal.aborted) return
       if (message.type === 'events.frame')
         for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
-      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId && message.frame.kind === 'chunk')
+      if (
+        message.type === 'events.desktop.frame' &&
+        message.sessionId === sessionId &&
+        message.frame.kind === 'chunk'
+      )
         for (const event of message.frame.events) cursor = Math.max(cursor ?? -1, event.seq)
-      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId && message.frame.kind === 'live')
+      if (
+        message.type === 'events.desktop.frame' &&
+        message.sessionId === sessionId &&
+        message.frame.kind === 'live'
+      )
         cursor = Math.max(cursor ?? -1, message.frame.event.seq)
       options.onFrame(message)
     }
@@ -406,7 +414,8 @@ export class RemoteSession {
       renewal = null
       // A private gateway policy close is a refusal. Other unexpected closes
       // (including a managed lease expiring) need a fresh authorization cycle.
-      if (info.code === 1008 && this.#managed === null) this.#set('revoked')
+      if (info.code === 1008 && this.#managed === null && this.#routeAuthorize === undefined)
+        this.#set('revoked')
       else if (
         info.code !== 1000 &&
         !['revoked', 'unknown-device', 'version-mismatch', 'unpaired'].includes(this.#state)
@@ -422,10 +431,14 @@ export class RemoteSession {
         onFrame,
         onClose,
       })
-      if (this.#managed !== null)
+      if (this.#managed !== null || this.#routeAuthorize !== undefined)
         renewal = setTimeout(() => {
           renewal = null
-          void this.#renewLease(true, signal)
+          void (
+            this.#routeAuthorize === undefined
+              ? this.#renewLease(true, signal)
+              : this.#reauth(signal)
+          )
             .then(() => {
               if (!disposed && !signal.aborted) {
                 close?.()
@@ -478,9 +491,10 @@ export class RemoteSession {
   async #authorize(deviceId: string, signal?: AbortSignal): Promise<void> {
     signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
-    const authorized = this.#routeAuthorize === undefined
-      ? await this.#legacyAuthorize(deviceId, signal)
-      : await this.#routeAuthorize(deviceId, signal)
+    const authorized =
+      this.#routeAuthorize === undefined
+        ? await this.#legacyAuthorize(deviceId, signal)
+        : await this.#routeAuthorize(deviceId, signal)
     signal?.throwIfAborted()
     await this.#renewLease(false, signal)
     signal?.throwIfAborted()
@@ -494,7 +508,7 @@ export class RemoteSession {
     signal.throwIfAborted()
     const signature = await this.#keyring.sign(nonce)
     signal.throwIfAborted()
-    return this.#client.deviceAuthorize(deviceId, {nonce, signature})
+    return this.#client.deviceAuthorize(deviceId, { nonce, signature })
   }
 
   async #renewLease(force = false, signal?: AbortSignal): Promise<void> {

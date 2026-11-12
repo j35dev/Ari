@@ -1,6 +1,11 @@
 import type { GatewayInfo, PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
 import type { RemoteClientMessage, RemoteServerMessage } from '@ari/contracts/remote'
-import type { SignedHostRouteManifest, SignedRouteProof, SignedRouteChallenge } from '@ari/contracts/route-auth'
+import { remoteServerMessageSchema } from '@ari/contracts/remote'
+import type {
+  SignedHostRouteManifest,
+  SignedRouteProof,
+  SignedRouteChallenge,
+} from '@ari/contracts/route-auth'
 import type { DeviceAuthorization } from './route-auth'
 
 /**
@@ -119,7 +124,11 @@ export class GatewayClient {
   async routeChallenge(deviceId: string, clientNonce: string): Promise<SignedRouteChallenge> {
     return this.#post('/routes/challenge', { audience: this.origin, deviceId, clientNonce })
   }
-  async routeAuthorize(deviceId: string, nonce: string, signature: string): Promise<DeviceAuthorization> {
+  async routeAuthorize(
+    deviceId: string,
+    nonce: string,
+    signature: string,
+  ): Promise<DeviceAuthorization> {
     return this.#post('/routes/authorize', { audience: this.origin, deviceId, nonce, signature })
   }
 
@@ -201,6 +210,7 @@ export class GatewayClient {
     let closed = false
 
     socket.addEventListener('open', () => {
+      if (closed) return
       const subscribe: RemoteClientMessage = {
         type: options.desktop === true ? 'events.desktop.subscribe' : 'events.subscribe',
         sessionId,
@@ -209,9 +219,23 @@ export class GatewayClient {
       socket.send(JSON.stringify(subscribe))
     })
     socket.addEventListener('message', (event) => {
+      if (closed) return
       const data = typeof event.data === 'string' ? event.data : ''
       try {
-        options.onFrame(JSON.parse(data) as RemoteServerMessage)
+        const parsed = remoteServerMessageSchema.safeParse(JSON.parse(data))
+        if (!parsed.success || ('sessionId' in parsed.data && parsed.data.sessionId !== sessionId))
+          return
+        const message = parsed.data
+        const events =
+          message.type === 'events.frame'
+            ? message.events
+            : message.type === 'events.desktop.frame' && message.frame.kind === 'chunk'
+              ? message.frame.events
+              : message.type === 'events.desktop.frame' && message.frame.kind === 'live'
+                ? [message.frame.event]
+                : []
+        if (events.some((entry) => entry.sessionId !== sessionId)) return
+        options.onFrame(message)
       } catch (error) {
         console.warn('Ari received an unreadable activity frame', error)
       }

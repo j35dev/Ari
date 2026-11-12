@@ -6,7 +6,18 @@ import {
   sign,
   type KeyObject,
 } from 'node:crypto'
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import {
@@ -20,7 +31,10 @@ import {
   type MachineAutoPreference,
   type MachinesPreferences,
 } from '@ari/contracts/machines'
-import { signedHostRouteManifestSchema, type SignedHostRouteManifest } from '@ari/contracts/route-auth'
+import {
+  signedHostRouteManifestSchema,
+  type SignedHostRouteManifest,
+} from '@ari/contracts/route-auth'
 import { pairingKeySchema, type PairingPublicKey } from '@ari/contracts/remote'
 import type { DeviceCredential } from '@ari/remote-client'
 import type { SecretBox } from '@ari/ari-core/endpoints'
@@ -34,15 +48,33 @@ const recordSchema = z
     lastSeenAt: z.number().nullable(),
     credentialCipher: z.string().min(1).max(16384).nullable(),
     credentialOrigin: z.string().url().max(2048),
-    hostKey: z.object({ hostId: z.string().min(1).max(200), publicKey: pairingKeySchema }).strict().nullable(),
+    hostKey: z
+      .object({ hostId: z.string().min(1).max(200), publicKey: pairingKeySchema })
+      .strict()
+      .nullable(),
     manifest: signedHostRouteManifestSchema.nullable(),
   })
   .strict()
 const registrySchema = z
-  .object({ version: z.literal(2), machines: z.array(recordSchema).max(100), preferences: machinesPreferencesSchema })
+  .object({
+    version: z.literal(2),
+    machines: z.array(recordSchema).max(100),
+    preferences: machinesPreferencesSchema,
+  })
   .strict()
-const legacyRegistrySchema = z.object({ version: z.literal(1), machines: z.array(recordSchema.omit({credentialOrigin: true, hostKey: true, manifest: true})).max(100) }).strict()
-const defaultPreferences = (): MachinesPreferences => ({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
+const legacyRegistrySchema = z
+  .object({
+    version: z.literal(1),
+    machines: z
+      .array(recordSchema.omit({ credentialOrigin: true, hostKey: true, manifest: true }))
+      .max(100),
+  })
+  .strict()
+const defaultPreferences = (): MachinesPreferences => ({
+  autoEnabled: false,
+  hostTiers: {},
+  projectHosts: {},
+})
 export type MachineRecord = z.infer<typeof recordSchema>
 
 /** Only ciphertext reaches disk. Corrupt records fail closed rather than being replaced. */
@@ -60,9 +92,13 @@ export class MachinesRegistry {
       const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
       const legacy = legacyRegistrySchema.safeParse(raw)
       if (legacy.success) {
-        this.#records = legacy.data.machines.map((record) => ({ ...record,
-          routes: record.routes.map((route) => ({...route, source: 'manual' as const})),
-          credentialOrigin: record.routes[0]!.origin, hostKey: null, manifest: null }))
+        this.#records = legacy.data.machines.map((record) => ({
+          ...record,
+          routes: record.routes.map((route) => ({ ...route, source: 'manual' as const })),
+          credentialOrigin: record.routes[0]!.origin,
+          hostKey: null,
+          manifest: null,
+        }))
       } else {
         const data = registrySchema.parse(raw)
         this.#records = data.machines
@@ -95,7 +131,7 @@ export class MachinesRegistry {
     const record: MachineRecord = {
       id: `machine_${randomUUID()}`,
       name,
-      routes: [{...route, source: 'manual'}],
+      routes: [{ ...route, source: 'manual' }],
       identity,
       lastSeenAt: identity === null ? null : Date.now(),
       credentialCipher: null,
@@ -108,7 +144,12 @@ export class MachinesRegistry {
   }
   update(
     id: string,
-    patch: Partial<Pick<MachineRecord, 'name' | 'identity' | 'lastSeenAt' | 'credentialCipher' | 'routes' | 'hostKey' | 'manifest'>>,
+    patch: Partial<
+      Pick<
+        MachineRecord,
+        'name' | 'identity' | 'lastSeenAt' | 'credentialCipher' | 'routes' | 'hostKey' | 'manifest'
+      >
+    >,
   ): MachineRecord {
     const record = recordSchema.parse({ ...this.get(id), ...patch })
     this.#validateRoutes(record)
@@ -119,13 +160,19 @@ export class MachinesRegistry {
     if (!this.#records.some((row) => row.id === id)) return false
     const preferences = this.preferences()
     delete preferences.hostTiers[id]
-    for (const [key, host] of Object.entries(preferences.projectHosts)) if (host === id) delete preferences.projectHosts[key]
-    this.#save(this.#records.filter((row) => row.id !== id), preferences)
+    for (const [key, host] of Object.entries(preferences.projectHosts))
+      if (host === id) delete preferences.projectHosts[key]
+    this.#save(
+      this.#records.filter((row) => row.id !== id),
+      preferences,
+    )
     return true
   }
-  preferences(): MachinesPreferences { return structuredClone(this.#preferences) }
+  preferences(): MachinesPreferences {
+    return structuredClone(this.#preferences)
+  }
   setAuto(enabled: boolean): MachinesPreferences {
-    this.#save(this.#records, {...this.preferences(), autoEnabled: enabled})
+    this.#save(this.#records, { ...this.preferences(), autoEnabled: enabled })
     return this.preferences()
   }
   setPreference(id: string, tier: MachineAutoPreference): MachinesPreferences {
@@ -145,20 +192,40 @@ export class MachinesRegistry {
   learn(id: string, manifest: SignedHostRouteManifest, routes: MachineRoute[]): MachineRecord {
     const row = this.get(id)
     const reported = new Set(routes.map((route) => route.origin))
-    const next = row.routes.filter((route) => route.source !== 'learned' || reported.has(route.origin))
-    for (const route of routes) if (!next.some((item) => item.origin === route.origin))
-      next.push({...route, source: 'learned', credentialOrigin: row.credentialOrigin})
-    return this.update(id, { routes: next.slice(0, 16), manifest,
-      hostKey: {hostId: manifest.payload.hostId, publicKey: manifest.payload.publicKey} })
+    const next = row.routes.filter(
+      (route) => route.source !== 'learned' || reported.has(route.origin),
+    )
+    for (const route of routes)
+      if (!next.some((item) => item.origin === route.origin))
+        next.push({ ...route, source: 'learned', credentialOrigin: row.credentialOrigin })
+    return this.update(id, {
+      routes: next.slice(0, 16),
+      manifest,
+      hostKey: { hostId: manifest.payload.hostId, publicKey: manifest.payload.publicKey },
+    })
   }
   #validateRoutes(row: MachineRecord): void {
-    if (new Set(row.routes.map((route) => route.origin)).size !== row.routes.length ||
-      !row.routes.some((route) => route.origin === row.credentialOrigin && route.source !== 'learned') ||
-      row.routes.some((route) => route.credentialOrigin !== undefined && route.credentialOrigin !== row.credentialOrigin) ||
-      (row.hostKey !== null && row.identity?.machineId !== undefined && row.hostKey.hostId !== row.identity.machineId))
+    if (
+      new Set(row.routes.map((route) => route.origin)).size !== row.routes.length ||
+      !row.routes.some(
+        (route) => route.origin === row.credentialOrigin && route.source !== 'learned',
+      ) ||
+      row.routes.some(
+        (route) =>
+          route.credentialOrigin !== undefined && route.credentialOrigin !== row.credentialOrigin,
+      ) ||
+      (row.hostKey !== null &&
+        row.identity?.machineId !== undefined &&
+        row.hostKey.hostId !== row.identity.machineId)
+    )
       throw new Error('The saved computer routes have invalid credential bindings.')
-    if (row.manifest !== null && (row.hostKey === null || row.hostKey.hostId !== row.manifest.payload.hostId ||
-      row.hostKey.publicKey.x !== row.manifest.payload.publicKey.x || row.hostKey.publicKey.y !== row.manifest.payload.publicKey.y))
+    if (
+      row.manifest !== null &&
+      (row.hostKey === null ||
+        row.hostKey.hostId !== row.manifest.payload.hostId ||
+        row.hostKey.publicKey.x !== row.manifest.payload.publicKey.x ||
+        row.hostKey.publicKey.y !== row.manifest.payload.publicKey.y)
+    )
       throw new Error('The saved computer route manifest does not match its pinned identity.')
   }
   #save(records: MachineRecord[], preferences = this.#preferences): void {
@@ -166,8 +233,18 @@ export class MachinesRegistry {
     mkdirSync(dirname(this.#path), { recursive: true })
     const temporary = `${this.#path}.${randomUUID()}.tmp`
     const fd = openSync(temporary, 'wx', 0o600)
-    try { writeFileSync(fd, JSON.stringify(data)); fsyncSync(fd) } finally { closeSync(fd) }
-    try { renameSync(temporary, this.#path) } catch (error) { unlinkSync(temporary); throw error }
+    try {
+      writeFileSync(fd, JSON.stringify(data))
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    try {
+      renameSync(temporary, this.#path)
+    } catch (error) {
+      unlinkSync(temporary)
+      throw error
+    }
     this.#records = data.machines
     this.#preferences = data.preferences
   }
