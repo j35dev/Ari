@@ -12,6 +12,7 @@ interface Tts {
     text: string
     sid: number
     speed: number
+    enableExternalBuffer: boolean
     onProgress?: () => number
   }): Promise<{ samples: Float32Array; sampleRate: number }>
 }
@@ -95,17 +96,19 @@ async function load(path: string): Promise<void> {
     text: prepareKokoro('The changes are ready for you to review.', words).text,
     sid: 3,
     speed: 1,
+    enableExternalBuffer: false,
   })
   let measuredMs = performance.now() - start
   if (accelerator && cached?.signature !== signature) {
     try {
       const candidate = await create(accelerator)
-      await candidate.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1 })
+      await candidate.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
       const trial = performance.now()
       const candidateAudio = await candidate.generateAsync({
         text: 'The changes are ready for you to review.',
         sid: 3,
         speed: 1,
+    enableExternalBuffer: false,
       })
       const candidateMs = performance.now() - trial
       if (fasterVoiceProvider(measuredMs, candidateMs)) {
@@ -161,6 +164,8 @@ process.parentPort?.on('message', (event: { data: Request }) => {
         text: prepared.text,
         sid: request.voice === 'am_michael' ? 16 : 3,
         speed: request.speed ?? 1,
+        // Electron disallows native external ArrayBuffers. Ask sherpa to copy PCM.
+        enableExternalBuffer: false,
         onProgress: () => (request.generation === generation ? 1 : 0),
       })
       process.parentPort?.postMessage(

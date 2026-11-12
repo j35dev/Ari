@@ -92,7 +92,7 @@ const tts = await sherpa.OfflineTts.createAsync({
 result.loadMs = performance.now() - loadStart
 result.rssAfterLoadMB = process.memoryUsage().rss / 2 ** 20
 const warmStart = performance.now()
-await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1 })
+await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
 result.warmupMs = performance.now() - warmStart
 const replies = {
   ready:
