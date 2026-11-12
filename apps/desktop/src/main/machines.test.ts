@@ -356,7 +356,7 @@ describe('persistent Machines safety', () => {
     expect(await registry.invoke('machines.query', { machineId: 'saved', query: { op: 'project.list' } })).toMatchObject({
       ok: false, error: { code: 'internal_error', message: expect.stringMatching(/registry has been preserved/) },
     })
-    expect(() => subscribeMachineStream(registry, machines, { id: 'updates', name: 'machines.updates' })).toThrow(/Saved computers/)
+    expect(() => subscribeMachineStream(registry, machines, { id: 'updates', name: 'machines.updates', params: {} })).toThrow(/Saved computers/)
     expect(registry.subscriberCount()).toBe(0)
     expect(transport).not.toHaveBeenCalled()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
