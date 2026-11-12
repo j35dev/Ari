@@ -1,0 +1,52 @@
+{"resourceGate":{"commitHeadroomBytes":9482321920,"cFreeBytes":21742977024}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"publication-lint\",\"pid\":33712,\"startedAt\":\"2026-11-12T15:39:45.087Z\",\"id\":\"f4eb78e9-ce60-47b5-a153-8d5cf1d1331a\"}","{\"worker\":\"Aria voice replacement\",\"pid\":34348,\"startedAt\":\"2026-11-12T15:39:27.364Z\",\"id\":\"8e3ce8c0-9377-4610-83b8-b9a81db31539\"}"]}
+{"resourceGate":{"commitHeadroomBytes":9281576960,"cFreeBytes":21606481920}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"publication-engine-tests\",\"pid\":30012,\"startedAt\":\"2026-11-12T15:42:41.820Z\",\"id\":\"53a0f868-70ed-493b-aa78-700d6a7cb5f0\"}","{\"worker\":\"Aria voice replacement\",\"pid\":34348,\"startedAt\":\"2026-11-12T15:39:27.364Z\",\"id\":\"8e3ce8c0-9377-4610-83b8-b9a81db31539\"}"]}
+{"resourceGate":{"commitHeadroomBytes":9875722240,"cFreeBytes":21604577280}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"tailscale-publication-install","pid":24240,"startedAt":"2026-11-12T15:41:42.794Z","id":"debb140c-fd82-4e06-b488-2426ee944718"}
+Scope: all 10 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +677
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 677, reused 226, downloaded 0, added 0
+Progress: resolved 677, reused 677, downloaded 0, added 30
+Progress: resolved 677, reused 677, downloaded 0, added 101
+Progress: resolved 677, reused 677, downloaded 0, added 178
+Progress: resolved 677, reused 677, downloaded 0, added 241
+Progress: resolved 677, reused 677, downloaded 0, added 279
+Progress: resolved 677, reused 677, downloaded 0, added 371
+Progress: resolved 677, reused 677, downloaded 0, added 463
+Progress: resolved 677, reused 677, downloaded 0, added 557
+Progress: resolved 677, reused 677, downloaded 0, added 652
+Progress: resolved 677, reused 677, downloaded 0, added 673
+Progress: resolved 677, reused 677, downloaded 0, added 676
+Progress: resolved 677, reused 677, downloaded 0, added 677
+Progress: resolved 677, reused 677, downloaded 0, added 677, done
+
+dependencies:
++ zod 4.4.3
+
+devDependencies:
++ @eslint/js 10.0.1
++ @testing-library/jest-dom 7.0.1
++ @testing-library/react 16.3.2
++ @testing-library/user-event 14.6.5
++ @types/node 26.2.0
++ eslint 10.8.1
++ eslint-config-prettier 10.1.8
++ jsdom 30.0.1
++ prettier 3.9.6
++ typescript 5.9.3
++ typescript-eslint 8.67.0
++ vitest 4.1.11
+
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Ignored build scripts: uiohook-napi@1.5.5.                                 │
+│   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+│   to run scripts.                                                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Done in 15.5s using pnpm v10.29.3
+{"heavyResult":{"worker":"tailscale-publication-install","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","install","--frozen-lockfile","--offline","--store-dir","D:/Projects/.ari-cache/pnpm-store"],"exitCode":0,"signal":null}}

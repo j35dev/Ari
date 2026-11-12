@@ -1,0 +1,16 @@
+{"resourceGate":{"commitHeadroomBytes":9037819904,"cFreeBytes":21561974784}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"tailscale-publication-tailscale-tests","pid":31364,"startedAt":"2026-11-12T15:45:24.511Z","id":"e6b60c0e-1173-41bb-8c55-ed7d6b95f4c8"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines-wt\tailscale-publication\apps\desktop
+> vitest run "src/main/tailscale.test.ts" "src/main/remote-origins.test.ts" "src/main/tailscale-pairing.test.ts" "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines-wt/tailscale-publication/apps/desktop
+
+
+ Test Files  3 passed (3)
+      Tests  69 passed (69)
+   Start at  23:45:28
+   Duration  2.50s (transform 590ms, setup 0ms, import 1.20s, tests 390ms, environment 0ms)
+
+{"heavyResult":{"worker":"tailscale-publication-tailscale-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","src/main/tailscale.test.ts","src/main/remote-origins.test.ts","src/main/tailscale-pairing.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":0,"signal":null}}
