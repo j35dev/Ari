@@ -128,3 +128,64 @@ Completed validation under run-heavy gate, below-normal, D caches, one worker:
 Focused final reruns/lint follow. Fresh independent integrated security review,
 real tailnet/hardware and production rpc.ts served-exposure registration are
 still required. No UI, app/profile/Serve mutation, push or PR occurred here.
+
+## Final route-owner handoff
+
+Final source/test head before this report: `630e0892`, branch
+`machines/parity-rework`, worktree `D:/Projects/Ari-machines-wt/parity-rework`.
+All authored source and tests are committed; no additional agents were launched.
+
+Further accepted route slices:
+
+- `833376ae`: removing a manual original address preserves the sealed original
+  credential slot and pinned key. At least one route remains. Legacy unpinned
+  hosts cannot transfer a credential slot. A host-reported removed manual address
+  can subsequently return as a learned route; learned routes remain nonremovable.
+  View readiness and terminal/project grants are false without a usable current
+  connection. Self-revocation over a remaining pinned route uses route proof and
+  a route-specific token, never the original bearer.
+- `379ef67b`: only a fresh proof from the pinned host can stop fallback for
+  protocol mismatch. A copied public ID/unsigned incompatible descriptor cannot.
+- `3643b57d`: two-engine proof has a 90s bound for gated below-normal Windows
+  execution; the successful final run completed in 15.28s.
+- `630e0892`: legacy anonymous assertions retain exact minimal metadata keys,
+  adding only the optional capability extension descriptor. No inventory is
+  accepted. Gateway source publicInfo/replay remains the host owner's hunk.
+
+The published MachineView also has `allProjects?:boolean`; it is current direct
+caller metadata, not a public capability or authorization shortcut. Local Auto
+preference uses the literal `local`, tiers remain ordered and Auto defaults off.
+
+Final checks (all under run-heavy gate, D caches, below normal, one test worker,
+no file parallelism):
+
+| Check | Final result |
+| --- | --- |
+| Frozen pnpm install | Pass; no lockfile change |
+| Contracts, remote-client, remote-gateway types | Pass |
+| `tsconfig.machines-routes.json` service/signing/RPC/network/test types | Pass |
+| Route-owned source lint (13 files) | Pass, zero warnings |
+| Machines route proof + existing two-engine Machines tests | 36/36 pass (17 route + 19 existing) |
+| Contracts suite | 224/224 pass |
+| Shared remote-client suite | 24/24 pass |
+| Remote-gateway suite | 182/182 pass |
+| `git diff --check` | Pass |
+
+These are focused checks, not the fresh independent security certification.
+The wider wiring typecheck including host `remote.ts` remains blocked on
+host-owned `remote-desktop-reads.ts:88` (ParsedDiff/files-array union). The earlier
+combined `remote.test.ts` run had 3 terminal cases returning 409 after the host's
+new post-effect visibility recheck; retain receipts and fix/verify the host
+reader/test fixtures rather than weakening that recheck. Neither unresolved
+host issue occurs in the successful two-real-engine Machines proof.
+
+Host integration still must supply `RemoteServiceDeps.routeSigning` in rpc.ts
+from OS-backed safeStorage and **owned verified serving exposure** state. No
+fallback to allowedOrigins/clientOrigin/request headers is permitted. Direct
+signer wiring is `00b3f6f7`; managed Connect omits route authority. Shell must call
+`machines.precheck({})` on focus/network restoration; the main service already
+runs minute prechecks and a 60-second move-back cooldown. Fresh independent
+security review and real Tailscale/hardware verification remain coordinator work.
+
+No installed app, real profile/settings/Serve, C: launcher, user UI worktree,
+protected fix branch, push or PR was changed. Worktree and evidence are retained.
