@@ -1,9 +1,11 @@
 // Run with the coordinator runner and `pnpm --filter @ari/desktop exec electron
 // packaging/capture-machines.mjs` after building machines-fixture.config.ts.
 // This starts only a hidden Chromium fixture, with an isolated temporary profile.
+// Add --composer-only to refresh workspace/receipt images and preserve approved
+// settings/sidebar captures and their metadata.
 /* global process, setTimeout, clearTimeout */
 import { app, BrowserWindow } from 'electron'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
@@ -15,6 +17,7 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1')
 app.commandLine.appendSwitch('lang', 'en-US')
 
 const evidence = resolve('../../docs/research/evidence/desktop-machines')
+const composerOnly = process.argv.includes('--composer-only')
 const errors = []
 let window
 const watchdog = setTimeout(() => app.exit(1), 60_000)
@@ -78,8 +81,11 @@ app
       if (details.level === 'error') errors.push(details.message)
     })
     const captures = []
+    const previous = composerOnly
+      ? JSON.parse(await readFile(join(evidence, 'capture.json'), 'utf8'))
+      : null
     for (const theme of ['light', 'dark']) {
-      for (const view of ['settings', 'workspace', 'receipt']) {
+      for (const view of composerOnly ? ['workspace', 'receipt'] : ['settings', 'workspace', 'receipt']) {
         await window.loadFile(resolve('out/machines-fixture/testing/machines.html'), {
           query: { theme, view },
         })
@@ -107,11 +113,32 @@ app
         buttons: [...document.querySelectorAll('button')].map(e => e.textContent.trim()),
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
         text: document.body.innerText,
+        attachmentPicker: (() => {
+          const input = document.querySelector('input[type="file"]');
+          const button = [...document.querySelectorAll('button')]
+            .find(button => button.textContent.trim() === 'Attach image');
+          return input && button ? {
+            label: input.getAttribute('aria-label'),
+            hidden: getComputedStyle(input).display === 'none',
+            inputDisabled: input.disabled,
+            buttonDisabled: button.disabled,
+            iconHidden: button.querySelector('svg')?.getAttribute('aria-hidden') === 'true'
+          } : null;
+        })(),
         sidebar: (() => {
           const r = document.querySelector('[aria-label="Remote computers"]')?.getBoundingClientRect();
           return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
         })()
       })`)
+        if (
+          view !== 'settings' &&
+          (!state.attachmentPicker?.hidden ||
+            state.attachmentPicker.label !== 'Attach image to host session' ||
+            !state.attachmentPicker.iconHidden ||
+            state.attachmentPicker.inputDisabled !== (view === 'receipt') ||
+            state.attachmentPicker.buttonDisabled !== (view === 'receipt'))
+        )
+          throw new Error('The attachment control is visible natively or has incorrect accessibility/availability')
         if (state.activeTheme !== (theme === 'light' ? 'porcelain' : 'obsidian'))
           throw new Error(`Wrong theme: ${state.activeTheme}`)
         if (
@@ -140,7 +167,7 @@ app
         )
         const bitmap = await paintedFrame()
         await writeFile(join(evidence, filename), bitmap.toPNG())
-        if (view === 'workspace') {
+        if (view === 'workspace' && !composerOnly) {
           const rect = Object.fromEntries(
             Object.entries(state.sidebar).map(([key, value]) => [key, Math.round(value)]),
           )
@@ -177,14 +204,20 @@ app
           browser: `Electron ${process.versions.electron} / Chromium ${process.versions.chrome}`,
           profile: 'temporary D worktree profile, nonpersistent browser partition',
           dimensions: { requestedWidth: 1440, requestedHeight: 1100, scale: 1 },
-          captures,
+          captures: previous
+            ? previous.captures.map(
+                (capture) => captures.find((fresh) => fresh.filename === capture.filename) ?? capture,
+              )
+            : captures,
           errors,
         },
         null,
         2,
       ) + '\n',
     )
-    process.stdout.write(JSON.stringify({ evidence, screenshots: 10, success: true }) + '\n')
+    process.stdout.write(
+      JSON.stringify({ evidence, screenshots: composerOnly ? 4 : 10, success: true }) + '\n',
+    )
     clearTimeout(watchdog)
     window.destroy()
     app.quit()

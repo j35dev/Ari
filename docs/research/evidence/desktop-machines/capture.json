@@ -1,0 +1,389 @@
+{
+  "fixture": "real renderer components with fake RPC only",
+  "browser": "Electron 43.4.1 / Chromium 150.0.7871.224",
+  "profile": "temporary D worktree profile, nonpersistent browser partition",
+  "dimensions": {
+    "requestedWidth": 1440,
+    "requestedHeight": 1100,
+    "scale": 1
+  },
+  "captures": [
+    {
+      "filename": "machines-settings-light.png",
+      "fixture": "desktop-machines",
+      "view": "settings",
+      "theme": "porcelain",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.pairStatus"
+      ],
+      "activeTheme": "porcelain",
+      "title": "Machines",
+      "alerts": [],
+      "buttons": [
+        "",
+        "Appearance",
+        "Notifications",
+        "Keybindings",
+        "Speech to text",
+        "Providers",
+        "Agents",
+        "Endpoints",
+        "Permissions",
+        "Source control",
+        "Mobile access",
+        "Machines",
+        "Advanced",
+        "",
+        "Add computer",
+        "Discover computers",
+        "Refresh",
+        "Open workspace",
+        "Reconnect",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Reconnect",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Rename",
+        "Remove",
+        "Open Mobile access"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nSettings\n/\n\nAppearance\nNotifications\nKeybindings\nSpeech to text\n\nAI\n\nProviders\nAgents\nEndpoints\nPermissions\n\nCode\n\nSource control\n\nConnections\n\nMobile access\nMachines\nAdvanced\nSettings\n/\nMachines\nMachines\n\nWork on another computer over your private Tailscale network. Projects, agents, and terminals run on that computer.\n\nAdd a computer\nTailnet URL or pairing link\nAdd computer\nDiscover computers\nDiscovery never pairs automatically.\nYour computers\nRefresh\nStudio workstation\nconnected\n\nhttps://host-a.example.ts.net\n\nAri 0.3.13 · Terminal granted\n\nOpen workspace\nReconnect\nRename\nRemove\nBuild computer\noffline\n\nhttps://host-b.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nReconnect\nRename\nRemove\nTravel laptop\npairing\n\nhttps://host-c.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nRename\nRemove\n\nWaiting for host approval\n\nK7MV-4AX9\n\nCompare this code on the host, then approve this computer in Mobile access.\n\nExpires 7:00:00 PM\n\nArchive computer\nincompatible\n\nhttps://host-d.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nRename\nRemove\n\nUpdate Ari on the host before pairing or sending commands.\n\nHost this computer\n\nApprove phones and computers in Mobile access. Compare the confirmation code on both screens. Terminal access needs a separate host grant.\n\nOpen Mobile access",
+      "sidebar": null,
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-settings-bottom-light.png",
+      "view": "settings-bottom",
+      "theme": "light",
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-workspace-light.png",
+      "fixture": "desktop-machines",
+      "view": "workspace",
+      "theme": "porcelain",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.query",
+        "machines.query",
+        "machines.query",
+        "stream.subscribe"
+      ],
+      "activeTheme": "porcelain",
+      "title": "Resource gate and Machines UI",
+      "alerts": [],
+      "buttons": [
+        "This computer",
+        "Manage",
+        "Studio workstationconnected",
+        "",
+        "Resource gate and Machines UI",
+        "Improve the release pipeline",
+        "Build computeroffline",
+        "",
+        "Travel laptoppairing",
+        "",
+        "Archive computerincompatible",
+        "",
+        "New session",
+        "Refresh",
+        "Stop",
+        "Conversation",
+        "Changes",
+        "Files",
+        "Terminal",
+        "Details",
+        "Steer",
+        "Queue",
+        "Send"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "sidebar": {
+        "x": 0,
+        "y": 98,
+        "width": 280,
+        "height": 281.5
+      },
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-receipt-light.png",
+      "fixture": "desktop-machines",
+      "view": "receipt",
+      "theme": "porcelain",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.query",
+        "machines.query",
+        "machines.query",
+        "stream.subscribe",
+        "machines.query"
+      ],
+      "activeTheme": "porcelain",
+      "title": "Resource gate and Machines UI",
+      "alerts": [
+        "The host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again."
+      ],
+      "buttons": [
+        "This computer",
+        "Manage",
+        "Studio workstationconnected",
+        "",
+        "Resource gate and Machines UI",
+        "Improve the release pipeline",
+        "Build computeroffline",
+        "",
+        "Travel laptoppairing",
+        "",
+        "Archive computerincompatible",
+        "",
+        "New session",
+        "Refresh",
+        "Stop",
+        "Conversation",
+        "Changes",
+        "Files",
+        "Terminal",
+        "Details",
+        "Check receipt",
+        "Steer",
+        "Queue",
+        "Send"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "sidebar": {
+        "x": 0,
+        "y": 98,
+        "width": 280,
+        "height": 281.5
+      },
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-settings-dark.png",
+      "fixture": "desktop-machines",
+      "view": "settings",
+      "theme": "obsidian",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.pairStatus"
+      ],
+      "activeTheme": "obsidian",
+      "title": "Machines",
+      "alerts": [],
+      "buttons": [
+        "",
+        "Appearance",
+        "Notifications",
+        "Keybindings",
+        "Speech to text",
+        "Providers",
+        "Agents",
+        "Endpoints",
+        "Permissions",
+        "Source control",
+        "Mobile access",
+        "Machines",
+        "Advanced",
+        "",
+        "Add computer",
+        "Discover computers",
+        "Refresh",
+        "Open workspace",
+        "Reconnect",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Reconnect",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Rename",
+        "Remove",
+        "Open workspace",
+        "Rename",
+        "Remove",
+        "Open Mobile access"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nSettings\n/\n\nAppearance\nNotifications\nKeybindings\nSpeech to text\n\nAI\n\nProviders\nAgents\nEndpoints\nPermissions\n\nCode\n\nSource control\n\nConnections\n\nMobile access\nMachines\nAdvanced\nSettings\n/\nMachines\nMachines\n\nWork on another computer over your private Tailscale network. Projects, agents, and terminals run on that computer.\n\nAdd a computer\nTailnet URL or pairing link\nAdd computer\nDiscover computers\nDiscovery never pairs automatically.\nYour computers\nRefresh\nStudio workstation\nconnected\n\nhttps://host-a.example.ts.net\n\nAri 0.3.13 · Terminal granted\n\nOpen workspace\nReconnect\nRename\nRemove\nBuild computer\noffline\n\nhttps://host-b.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nReconnect\nRename\nRemove\nTravel laptop\npairing\n\nhttps://host-c.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nRename\nRemove\n\nWaiting for host approval\n\nK7MV-4AX9\n\nCompare this code on the host, then approve this computer in Mobile access.\n\nExpires 7:00:00 PM\n\nArchive computer\nincompatible\n\nhttps://host-d.example.ts.net\n\nAri 0.3.13 · Terminal not granted\n\nOpen workspace\nRename\nRemove\n\nUpdate Ari on the host before pairing or sending commands.\n\nHost this computer\n\nApprove phones and computers in Mobile access. Compare the confirmation code on both screens. Terminal access needs a separate host grant.\n\nOpen Mobile access",
+      "sidebar": null,
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-settings-bottom-dark.png",
+      "view": "settings-bottom",
+      "theme": "dark",
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-workspace-dark.png",
+      "fixture": "desktop-machines",
+      "view": "workspace",
+      "theme": "obsidian",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.query",
+        "machines.query",
+        "machines.query",
+        "stream.subscribe"
+      ],
+      "activeTheme": "obsidian",
+      "title": "Resource gate and Machines UI",
+      "alerts": [],
+      "buttons": [
+        "This computer",
+        "Manage",
+        "Studio workstationconnected",
+        "",
+        "Resource gate and Machines UI",
+        "Improve the release pipeline",
+        "Build computeroffline",
+        "",
+        "Travel laptoppairing",
+        "",
+        "Archive computerincompatible",
+        "",
+        "New session",
+        "Refresh",
+        "Stop",
+        "Conversation",
+        "Changes",
+        "Files",
+        "Terminal",
+        "Details",
+        "Steer",
+        "Queue",
+        "Send"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "sidebar": {
+        "x": 0,
+        "y": 98,
+        "width": 280,
+        "height": 281.5
+      },
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    },
+    {
+      "filename": "machines-receipt-dark.png",
+      "fixture": "desktop-machines",
+      "view": "receipt",
+      "theme": "obsidian",
+      "viewport": {
+        "width": 1440,
+        "height": 1020
+      },
+      "trace": [
+        "stream.subscribe",
+        "machines.list",
+        "machines.query",
+        "machines.query",
+        "machines.query",
+        "stream.subscribe",
+        "machines.query"
+      ],
+      "activeTheme": "obsidian",
+      "title": "Resource gate and Machines UI",
+      "alerts": [
+        "The host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again."
+      ],
+      "buttons": [
+        "This computer",
+        "Manage",
+        "Studio workstationconnected",
+        "",
+        "Resource gate and Machines UI",
+        "Improve the release pipeline",
+        "Build computeroffline",
+        "",
+        "Travel laptoppairing",
+        "",
+        "Archive computerincompatible",
+        "",
+        "New session",
+        "Refresh",
+        "Stop",
+        "Conversation",
+        "Changes",
+        "Files",
+        "Terminal",
+        "Details",
+        "Check receipt",
+        "Steer",
+        "Queue",
+        "Send"
+      ],
+      "horizontalOverflow": false,
+      "text": "Ari\nMachines fixture\nThis computer\nRemote computers\nManage\nStudio workstation\nconnected\n\nAri desktop\n\nResource gate and Machines UI\nImprove the release pipeline\nBuild computer\noffline\nTravel laptop\npairing\nArchive computer\nincompatible\nRemote work runs on the selected computer. Its files and credentials stay there.\nStudio workstation\nRemote · connected\nNew session\nResource gate and Machines UI\n\ncodex · idle\n\nRefresh\nStop\nConversation\nChanges\nFiles\nTerminal\nDetails\n\nThe host has no retained result for this action. Its outcome is unknown. Inspect the host before submitting again.\n\nUnconfirmed session.prompt on Studio workstation. The exact action and receipt are saved.\n\nCheck receipt\n\nYou\n\nMake the desktop workspace work across my computers.\n\ncodex\n\nThe test runner now checks commit headroom before starting a build. The host keeps the workspace and provider credentials here.\n\nawait runHeavy(\"Build desktop\", workspace)\n\nStudio workstation · Host workspace\nSteer\nQueue\nSend",
+      "sidebar": {
+        "x": 0,
+        "y": 98,
+        "width": 280,
+        "height": 281.5
+      },
+      "imageSize": {
+        "width": 1440,
+        "height": 1020
+      }
+    }
+  ],
+  "errors": []
+}

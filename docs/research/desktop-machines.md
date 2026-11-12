@@ -93,3 +93,19 @@ The coordinator's S6 follow-up removes receipt resubmission entirely. All saved
 action, creation and terminal controls perform read-only status checks. Missing
 results retain the exact receipt and explain that the outcome is unknown;
 the legacy `retry=true` call cannot invoke `machines.command`.
+
+## Composer correction takeover, 2026-11-12
+
+The sole replacement worker resumes `5a3a71e7`; `ari env` confirms
+codex / gpt-6.1-sol, **high** effort, **full** permissions. This supersedes the
+earlier worker's xhigh runtime only for this final correction. No workers were
+delegated. The existing untracked painted captures are preserved in this WIP
+before coordinated validation. Prior focused test/type/lint successes were
+reported by the coordinator; their raw logs are absent from this worktree's
+`out` directories, so fresh affected checks are recorded separately below.
+
+The composer replaces native Choose File/No File Chosen chrome with the Ari
+**Attach image** Button and ImagePlus icon. It opens the hidden file input with
+the existing accessible label and retains its validation, limits, host/session
+scope and pending-action disablement. Only workspace and receipt captures will
+be refreshed in light/dark; approved settings and sidebar evidence is preserved.
