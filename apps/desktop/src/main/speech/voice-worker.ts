@@ -63,7 +63,7 @@ async function load(path: string): Promise<void> {
   words = lexiconWords(extra + '\n' + lexicon)
   const logicalCores = cpus().length
   const threads = Math.max(1, Math.min(4, Math.floor(logicalCores / 2)))
-  const signature = `${cpus()[0]?.model}:${logicalCores}:${totalmem()}:kokoro-2.0.1`
+  const signature = `${cpus()[0]?.model}:${logicalCores}:${totalmem()}:kokoro-2.0.1-warm-v2`
   const cached = await readFile(join(path, 'hardware.json'), 'utf8')
     .then((s) => JSON.parse(s) as { signature: string; hardware: Hardware })
     .catch(() => null)
@@ -90,7 +90,12 @@ async function load(path: string): Promise<void> {
       maxNumSentences: 1,
     })
   tts = await create(provider)
-  loadedPath = path
+  await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1, enableExternalBuffer: false })
+  if (cached?.signature === signature && cached.hardware.provider === provider) {
+    hardware = cached.hardware
+    loadedPath = path
+    return
+  }
   const start = performance.now()
   let audio = await tts.generateAsync({
     text: prepareKokoro('The changes are ready for you to review.', words).text,
@@ -121,21 +126,19 @@ async function load(path: string): Promise<void> {
       /* A provider may be compiled in but unavailable on this hardware. Keep CPU. */
     }
   }
-  if (cached?.signature === signature) hardware = cached.hardware
-  else {
-    const firstAudioMs = measuredMs
-    const rtf = firstAudioMs / ((audio.samples.length / audio.sampleRate) * 1000)
-    hardware = {
-      threads,
-      ramGB: Math.round(totalmem() / 2 ** 30),
-      logicalCores,
-      provider,
-      rtf,
-      firstAudioMs,
-      slow: rtf >= 1,
-    }
-    await writeFile(join(path, 'hardware.json'), JSON.stringify({ signature, hardware }))
+  const firstAudioMs = measuredMs
+  const rtf = firstAudioMs / ((audio.samples.length / audio.sampleRate) * 1000)
+  hardware = {
+    threads,
+    ramGB: Math.round(totalmem() / 2 ** 30),
+    logicalCores,
+    provider,
+    rtf,
+    firstAudioMs,
+    slow: rtf >= 1,
   }
+  await writeFile(join(path, 'hardware.json'), JSON.stringify({ signature, hardware }))
+  loadedPath = path
 }
 
 process.parentPort?.on('message', (event: { data: Request }) => {

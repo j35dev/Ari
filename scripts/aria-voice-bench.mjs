@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks'
 import { createRequire } from 'node:module'
 import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { cpus, totalmem, setPriority, constants } from 'node:os'
 import { condenseReply, speechChunks } from '../packages/contracts/src/aria-voice.ts'
@@ -55,6 +56,7 @@ const onnx = await readFile(join(runtime, 'onnxruntime.dll'))
 const directML = onnx.includes(Buffer.from('OrtSessionOptionsAppendExecutionProvider_DML'))
 const result = {
   at: new Date().toISOString(),
+  sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   cpu: cpus()[0].model,
   cores: cpus().length,
   ramGB: totalmem() / 2 ** 30,
@@ -141,6 +143,13 @@ for (const [name, written] of Object.entries(replies)) {
   }
   if (threads === 4) await writeFile(join(out, `${name}.wav`), pcmWav(samples, tts.sampleRate))
   const audioMs = measurements.reduce((n, m) => n + m.audioMs, 0)
+  let peak = 0
+  let squared = 0
+  for (const sample of samples) {
+    peak = Math.max(peak, Math.abs(sample))
+    squared += sample * sample
+  }
+  if (peak < 0.0001) throw new Error('Kokoro returned silent PCM')
   result.replies.push({
     name,
     written,
@@ -151,6 +160,8 @@ for (const [name, written] of Object.entries(replies)) {
     rtf: wallMs / audioMs,
     avgCoresBusy: (cpu.user + cpu.system) / 1000 / wallMs,
     rssMB: process.memoryUsage().rss / 2 ** 20,
+    peak,
+    rms: Math.sqrt(squared / samples.length),
     chunks: measurements,
   })
 }

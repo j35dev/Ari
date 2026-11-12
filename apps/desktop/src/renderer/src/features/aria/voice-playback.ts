@@ -16,13 +16,19 @@ export class VoicePlayback {
     private readonly create = () => new AudioContext(),
   ) {}
   stop(): void {
-    this.current?.stop()
+    // Invalidate pending decode/resume work immediately, before the main IPC stop returns.
+    this.generation++
+    this.halt()
+  }
+  private halt(): void {
+    const source = this.current
     this.current = null
+    source?.stop()
   }
   async observe(frame: VoiceAudio): Promise<void> {
     if (frame.generation < this.generation) return
     if (frame.generation > this.generation || frame.stop) {
-      this.stop()
+      this.halt()
       this.generation = frame.generation
     }
     if (frame.stop || !frame.audio || frame.id === undefined) return
@@ -54,7 +60,6 @@ export class VoicePlayback {
     }
   }
   dispose(): void {
-    this.generation++
     this.stop()
     void this.context?.close()
   }

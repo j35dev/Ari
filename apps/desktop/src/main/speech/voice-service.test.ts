@@ -46,7 +46,7 @@ function fixture(cloud = false) {
     models: vi.fn(async () => [{ id: 'kokoro-82m-v1.0', installed: { path: '/models/kokoro' } }]),
   }
   const groq = {
-    speak: vi.fn(async () => {
+    speak: vi.fn(async (): Promise<Uint8Array> => {
       throw new Error('Groq has no API key. Using local speech.')
     }),
   }
@@ -103,4 +103,16 @@ it('stops speech and unloads the worker when Aria is disabled', async () => {
   service.configure()
   expect(child.kill).toHaveBeenCalledOnce()
   expect((await service.status()).loaded).toBe(false)
+})
+it('keeps pronunciation-expanded Groq requests under its limit and streams without local fallback', async () => {
+  const { service, contents, groq, child } = fixture(true)
+  groq.speak.mockImplementation(async () => new Uint8Array([1]))
+  contents.send.mockImplementation((_channel, frame) => {
+    if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
+  })
+  const line = 'Aria checked 1234567890 tests and 1234567890 files, and the PR and CLI are ready.'
+  await service.speak(`<!-- aria:speak ${JSON.stringify({ text: line })} -->`)
+  expect(groq.speak.mock.calls.length).toBeGreaterThan(1)
+  for (const call of groq.speak.mock.calls as unknown as [string][]) expect(call[0].length).toBeLessThanOrEqual(200)
+  expect(child.postMessage.mock.calls.some(([request]) => request.kind === 'speak')).toBe(false)
 })

@@ -182,7 +182,14 @@ export class VoiceService {
     if (!this.enabled()) return
     const generation = this.generation
     const signal = this.abort.signal
-    const chunks = speechChunks(condenseReply(reply), this.settings.current.ariaVoice.engine === 'groq' ? 120 : 200)
+    let chunks: string[]
+    try {
+      chunks = speechChunks(condenseReply(reply), 200,
+        this.settings.current.ariaVoice.engine === 'groq' ? (text) => normalizeCloudSpeech(text).length : undefined)
+    } catch {
+      this.report('This spoken line is too long. Shorten it and try Read aloud again.')
+      return
+    }
     if (!chunks.length) return
     this.state.error = null
     let engine = this.settings.current.ariaVoice.engine

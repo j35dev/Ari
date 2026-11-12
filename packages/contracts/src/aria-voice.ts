@@ -24,14 +24,17 @@ export function writtenReply(reply: string): string {
 }
 
 function sentences(text: string): string[] {
-  return (text.match(/[^.!?]+(?:[.!?]+|$)/g) ?? []).map((s) => s.trim()).filter(Boolean)
+  // Decimal points and domains are part of the sentence, not sentence boundaries.
+  return (text.match(/[\s\S]+?(?:[.!?]+(?=\s|$)|$)/g) ?? []).map((s) => s.trim()).filter(Boolean)
 }
 
 function plain(text: string): string {
   return text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, 'the chat')
     .replace(/\[[^\]]*\]\([^)]*\)/g, 'the chat')
-    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, '$1')
+    .replace(/https?:\/\/([^/\s?#]+)[^\s]*/g, (url, domain: string) =>
+      domain.replace(/[.,!?]+$/, '').replace(/\./g, ' dot ') + (url.match(/[.,!?]+$/)?.[0] ?? ''),
+    )
     .replace(/\b[A-Za-z]:[\\/][^\s]+|\b(?:apps|packages|src|docs)\/[\w./-]+/g, 'the file')
     .replace(/\b(?:PR\s*)?#\d+\b/g, 'the change')
     .replace(/\b[0-9a-f]{8,}\b/gi, 'the item')
@@ -52,7 +55,7 @@ export function condenseReply(reply: string): string {
     })
     .split(/\r?\n/)
     .filter((line) => {
-      if (/^\s*(?:\||[-*+]\s|\d+[.)]\s|#{1,6}\s|>)/.test(line)) {
+      if (/^\s*(?:\||[-*+]\s|\d+[.)]\s|#{1,6}\s|>)/.test(line) || /\|.*\|/.test(line)) {
         structured = true
         return false
       }
@@ -81,8 +84,22 @@ export function condenseReply(reply: string): string {
 }
 
 /** Start with a short clause; later requests remain sentence-sized and provider-bounded. */
-export function speechChunks(text: string, limit = 200): string[] {
+export function speechChunks(text: string, limit = 200, length = (value: string) => value.length): string[] {
   const result: string[] = []
+  const append = (part: string) => {
+    while (length(part) > limit) {
+      let chunk = ''
+      for (const word of part.split(/\s+/)) {
+        const candidate = chunk ? `${chunk} ${word}` : word
+        if (length(candidate) > limit) break
+        chunk = candidate
+      }
+      if (!chunk) throw new Error('A spoken word is too long.')
+      result.push(chunk)
+      part = part.slice(chunk.length).trim()
+    }
+    if (part) result.push(part)
+  }
   for (const sentence of sentences(text)) {
     let rest = sentence
     if (!result.length) {
@@ -95,17 +112,11 @@ export function speechChunks(text: string, limit = 200): string[] {
             ? words.slice(0, 4).join(' ').length
             : 0
       if (split) {
-        result.push(rest.slice(0, split).trim())
+        append(rest.slice(0, split).trim())
         rest = rest.slice(split).trim()
       }
     }
-    while (rest.length > limit) {
-      const split = rest.lastIndexOf(' ', limit)
-      if (split < 1) throw new Error('A spoken word is too long.')
-      result.push(rest.slice(0, split).trim())
-      rest = rest.slice(split).trim()
-    }
-    if (rest) result.push(rest)
+    append(rest)
   }
   return result
 }
