@@ -13,7 +13,11 @@ const steps = process.argv.includes('--format')
   ? [['format', process.execPath, ['node_modules/prettier/bin/prettier.cjs', '--write', ...files]]]
   : [
       ['typecheck', process.execPath, [pnpm, '--workspace-concurrency=1', '-r', 'typecheck']],
-      ['native-diagnostics-tests', process.execPath, ['--test', 'scripts/aria-voice-diagnostics.test.mjs']],
+      [
+        'native-diagnostics-tests',
+        process.execPath,
+        ['--test', 'scripts/aria-voice-diagnostics.test.mjs'],
+      ],
       [
         'lint',
         process.execPath,
@@ -83,7 +87,7 @@ for (const [name, executable, args] of steps) {
     const child = spawn(executable, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     child.stdout.on('data', (data) => {
       log += data
-      process.stdout.write(data)
+      if (name !== 'desktop-build') process.stdout.write(data)
     })
     child.stderr.on('data', (data) => {
       log += data

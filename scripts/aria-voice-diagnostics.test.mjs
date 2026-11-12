@@ -7,10 +7,17 @@ test('rejects the exact missing-word warning found in the original spike', () =>
   assert.equal(missingNativeWords("OOV word skipped: 'Ari'"), true)
 })
 test('rejects other native missing-word diagnostics', () => {
-  for (const line of ['Skipped unknown word Quuxwidget', 'word not found: PR', 'missing from lexicon: CLI'])
+  for (const line of [
+    'Skipped unknown word Quuxwidget',
+    'word not found: PR',
+    'missing from lexicon: CLI',
+  ])
     assert.equal(missingNativeWords(line), true)
 })
 test('accepts successful native inference', () => {
   assert.equal(missingNativeWords(''), false)
-  assert.equal(missingNativeWords('Model initialized. Language is determined by the lexicon files.'), false)
+  assert.equal(
+    missingNativeWords('Model initialized. Language is determined by the lexicon files.'),
+    false,
+  )
 })

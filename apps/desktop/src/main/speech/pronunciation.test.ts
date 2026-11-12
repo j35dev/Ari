@@ -40,6 +40,7 @@ it('covers every source word including unknown words with a spell-out fallback',
   expect(result.words).toBe(7)
   expect(result.spelled).toEqual(['Quuxwidget'])
   expect(result.text).toContain('q u u x w i d g e t')
+  expect(prepareKokoro('details', words).spelled).toEqual([])
   for (const word of result.text.match(/[a-z]+/g) ?? [])
     expect(words.has(word), `missing word: ${word}`).toBe(true)
 })
