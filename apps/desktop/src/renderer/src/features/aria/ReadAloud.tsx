@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Volume2, Square } from 'lucide-react'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { rpc } from '../../lib/rpc'
+import { iconButton } from '../../lib/recipes'
 
 export function ReadAloud({ sessionId, messageId }: { sessionId: string; messageId: string }) {
   const { settings } = useEngineSettings()
@@ -14,7 +15,8 @@ export function ReadAloud({ sessionId, messageId }: { sessionId: string; message
         type="button"
         aria-label={speaking ? 'Stop reading' : 'Read aloud'}
         title={speaking ? 'Stop reading' : 'Read aloud'}
-        className="inline-flex items-center rounded-sm p-1 text-fg-subtle hover:bg-surface-1 hover:text-fg-muted"
+        aria-pressed={speaking}
+        className={iconButton}
         onClick={() => {
           setError('')
           if (speaking) {
@@ -29,9 +31,17 @@ export function ReadAloud({ sessionId, messageId }: { sessionId: string; message
             .finally(() => setSpeaking(false))
         }}
       >
-        {speaking ? <Square size={12} /> : <Volume2 size={12} />}
+        {speaking ? (
+          <Square size={13} strokeWidth={1.7} aria-hidden />
+        ) : (
+          <Volume2 size={14} strokeWidth={1.7} aria-hidden />
+        )}
       </button>
-      {error && <span role="alert">{error}</span>}
+      {error && (
+        <span role="alert" className="max-w-56 truncate px-1 text-xs text-danger" title={error}>
+          {error}
+        </span>
+      )}
     </>
   )
 }
