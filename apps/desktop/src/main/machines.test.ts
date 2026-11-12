@@ -241,7 +241,10 @@ async function pair(
   expect(
     host.gateway.pairing.approve(invite.invitationId, code, [`project_${saved.name}`], terminal),
   ).toEqual({ ok: true })
-  await vi.waitFor(() => expect(machines.pairStatus(saved.id).status).toBe('connected'))
+  // Below-normal Windows runs may defer the approved pairing poll beyond one second.
+  await vi.waitFor(() => expect(machines.pairStatus(saved.id).status).toBe('connected'), {
+    timeout: 5000,
+  })
   return saved.id
 }
 
