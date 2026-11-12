@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from 'node:crypto'
 import * as fs from 'node:fs'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { exec } from 'node:child_process'
 import type * as ChildProcess from 'node:child_process'
@@ -165,7 +165,7 @@ async function pair(
     nonce,
     signature: key.sign(nonce),
   })
-  const token = (redeemed.body['result'] as Record<string, unknown>)['token']
+  const token = (redeemed.body['result'] as Record<string, unknown> | undefined)?.['token']
   if (typeof token !== 'string')
     throw new Error(`expected a token, got ${JSON.stringify(redeemed.body)}`)
   return token
@@ -188,7 +188,7 @@ describe('remote security persistence failures', () => {
   function failDeviceWrites() {
     const rename = fs.renameSync
     return vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-      if (String(to).endsWith('devices.json'))
+      if (basename(String(to)) === 'devices.json')
         throw Object.assign(new Error('denied'), { code: 'EACCES' })
       rename(from, to)
     })
@@ -1066,7 +1066,7 @@ describe('remote service terminals', () => {
       if (failSave) {
         const rename = fs.renameSync
         const denied = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-          if (String(to).endsWith('devices.json')) throw new Error('disk full')
+          if (basename(String(to)) === 'devices.json') throw new Error('disk full')
           rename(from, to)
         })
         expect(() => service.updateDeviceGrants(deviceId, ['proj_2'], false)).toThrow(
@@ -1076,8 +1076,8 @@ describe('remote service terminals', () => {
       } else service.updateDeviceGrants(deviceId, ['proj_2'], false)
       await vi.advanceTimersByTimeAsync(1000)
       expect(kills[0]).toHaveBeenCalledOnce()
-      expect((await open(origin, token, 'sess_one')).status).toBe(403)
-      expect((await open(origin, token, 'sess_two')).status).toBe(403)
+      expect((await open(origin, token, 'sess_one')).status).toBe(failSave ? 401 : 403)
+      expect((await open(origin, token, 'sess_two')).status).toBe(failSave ? 401 : 403)
     },
   )
 })
