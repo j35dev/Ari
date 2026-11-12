@@ -42,7 +42,7 @@ const OPERATIONS: Partial<Record<RpcMethod, string>> = {
   'session.resume.cancel': 'session.resume.cancel', 'session.stopChildren': 'session.stopChildren',
   'providers.models': 'models.list', 'providers.efforts': 'models.efforts', 'providers.allowance': 'usage.allowance',
   'attachments.stage': 'attachments.stage', 'attachments.read': 'attachments.read',
-  'files.index': 'files.index', 'fs.list': 'files.list', 'fs.readTextFile': 'files.read',
+  'files.index': 'files.index', 'fs.list': 'files.list', 'fs.readTextFile': 'files.read', 'fs.writeTextFile': 'pastes.stage',
   'plan.get': 'plan.get', 'git.turnDiff': 'changes.turn', 'git.turnDiffFile': 'changes.turnFile',
   'scm.summary': 'scm.desktop.summary', 'scm.status': 'scm.desktop.status', 'scm.review': 'scm.desktop.review',
   'scm.diff': 'scm.desktop.diff',
@@ -181,6 +181,9 @@ export function createSessionClient(requested: SessionScope): SessionClient {
         if (file.error || file.kind !== 'text' || file.content === null) throw new Error(file.error ?? 'This host file cannot be displayed as text.')
         result = { content: file.content, truncated: false }; break
       }
+      case 'fs.writeTextFile':
+        // Paste staging chooses its destination on the host; a generated client path grants no write authority.
+        result = await act({ op: 'pastes.stage', sessionId, text: p.content } as RemoteAction); break
       case 'git.turnDiff': {
         result = await query({ op: 'changes.turn', sessionId, turnId: p.turnId })
         const summary = (result as { summary?: { baseOid: string; headOid: string } }).summary
@@ -228,26 +231,45 @@ export function createSessionClient(requested: SessionScope): SessionClient {
       let stopStream: (() => void) | null = null
       let mode: 'full' | 'resume' = 'full'
       let started = false
-      const finishUnavailable = () => onEvent({ sessionId, replayDone: true, replayOutcome: 'incomplete', liveTurnId: null } satisfies SessionEventFrame)
+      let failed = false
+      let nextSeq = 0
+      let throughSeq = -1
+      const finishUnavailable = () => {
+        if (closed || failed) return
+        failed = true
+        onEvent({ sessionId, replayDone: true, replayOutcome: 'incomplete', liveTurnId: null } satisfies SessionEventFrame)
+      }
       void assertMachineOperation(machineId, 'events.desktop.subscribe').then((epoch) => {
         if (closed) return
         stopStream = localRpc.subscribe('machines.events', { machineId, sessionId, desktop: true, ...('fromSeq' in params ? { fromSeq: params.fromSeq } : {}) }, (raw) => {
-          if (closed || epoch !== machineEpoch(machineId)) return
+          if (closed || failed || epoch !== machineEpoch(machineId)) return
           const envelope = machineEventsFrameSchema.safeParse(raw)
-          if (!envelope.success || envelope.data.machineId !== machineId) return
+          if (!envelope.success) { finishUnavailable(); return }
+          if (envelope.data.machineId !== machineId) return
           const message = envelope.data.message
           if (message.type === 'error' || message.type === 'events.desync') { finishUnavailable(); return }
           const parsed = remoteDesktopFrameSchema.safeParse(message)
-          if (!parsed.success || parsed.data.sessionId !== sessionId) return
+          if (!parsed.success) { finishUnavailable(); return }
+          if (parsed.data.sessionId !== sessionId) return
           const frame = parsed.data.frame
           switch (frame.kind) {
-            case 'start': mode = frame.replayMode; started = true; break
+            case 'start':
+              if (started) { finishUnavailable(); return }
+              mode = frame.replayMode; started = true
+              nextSeq = (frame.fromSeq ?? -1) + 1; throughSeq = frame.throughSeq
+              break
             case 'chunk':
-              if (started && frame.events.every((event) => event.sessionId === sessionId))
-                onEvent({ sessionId, events: frame.events, replay: true, replayMode: mode })
+              if (!started || !frame.events.every((event, index) => event.sessionId === sessionId && event.seq === nextSeq + index && event.seq <= throughSeq)) {
+                finishUnavailable(); return
+              }
+              nextSeq += frame.events.length
+              onEvent({ sessionId, events: frame.events, replay: true, replayMode: mode })
               break
             case 'terminal':
-              if (started) onEvent({ sessionId, replayDone: true, replayOutcome: frame.replayOutcome, liveTurnId: frame.liveTurnId, replayMode: mode, seq: frame.seq })
+              if (!started || (frame.replayOutcome === 'complete' && (frame.seq !== throughSeq || nextSeq !== throughSeq + 1))) {
+                finishUnavailable(); return
+              }
+              onEvent({ sessionId, replayDone: true, replayOutcome: frame.replayOutcome, liveTurnId: frame.liveTurnId, replayMode: mode, seq: frame.seq })
               break
             case 'live':
               if (frame.event.sessionId === sessionId) onEvent({ sessionId, event: frame.event })
