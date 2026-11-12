@@ -579,7 +579,7 @@ describe('remote gateway idempotency', () => {
           { token: second },
         )
       ).status,
-    ).toBe(404)
+    ).toBe(409)
     expect((await call(gateway, '/command', COMMAND, { token: second })).status).toBe(200)
     expect(host.executed).toHaveLength(2)
   })

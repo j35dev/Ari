@@ -895,7 +895,7 @@ describe('remote service terminals', () => {
     expect(kills).toHaveLength(2)
   })
 
-  it('kills an open terminal once terminal access is withdrawn', async () => {
+  it.each([false, true])('kills an open terminal once terminal access is withdrawn, including failed persistence=%s', async (failSave) => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     onTestFinished(() => {
       vi.useRealTimers()
@@ -912,7 +912,15 @@ describe('remote service terminals', () => {
     vi.advanceTimersByTime(1000)
     expect(kills[0]).not.toHaveBeenCalled()
 
-    service.updateDeviceGrants(deviceId, ['proj_2'], false)
+    if (failSave) {
+      const rename = fs.renameSync
+      const denied = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+        if (String(to).endsWith('devices.json')) throw new Error('disk full')
+        rename(from, to)
+      })
+      expect(() => service.updateDeviceGrants(deviceId, ['proj_2'], false)).toThrow('Could not save')
+      denied.mockRestore()
+    } else service.updateDeviceGrants(deviceId, ['proj_2'], false)
     await vi.advanceTimersByTimeAsync(1000)
     expect(kills[0]).toHaveBeenCalledOnce()
     expect((await open(origin, token, 'sess_one')).status).toBe(403)

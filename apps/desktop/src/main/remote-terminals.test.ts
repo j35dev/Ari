@@ -122,7 +122,7 @@ describe('remote terminals', () => {
     const { manager, shells, create } = setup()
     create({ ...caller, managedLeaseExpiresAt: 10000 })
     create()
-    manager.closeManaged()
+    await manager.closeManaged()
     await vi.advanceTimersByTimeAsync(0)
     expect(shells[0]?.kill).toHaveBeenCalledOnce()
     expect(shells[1]?.kill).not.toHaveBeenCalled()

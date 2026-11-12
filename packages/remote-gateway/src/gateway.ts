@@ -562,7 +562,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       // a bodyless 200 would read as success to a client that lost the first
       // response, which is the only client that asks.
       if (outcome.result === undefined) {
-        return reply(409, fail('conflict', 'that command already failed; retry under a new key'))
+        return reply(409, fail('conflict', 'That command failed with an uncertain outcome; inspect the host before submitting again.'))
       }
       if (!(await outcomeVisible(caller, outcome.result))) {
         return reply(404, fail('not_found', 'no such command'))
