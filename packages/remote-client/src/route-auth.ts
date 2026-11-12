@@ -64,7 +64,7 @@ export async function verifyHostManifest(raw: unknown, origin: string, expectedH
   fresh(manifest.payload, 5 * 60_000, now)
   if (!manifest.payload.routes.includes(origin) ||
     (expectedHostId !== undefined && manifest.payload.hostId !== expectedHostId) ||
-    (pin !== null && (pin.hostId !== manifest.payload.hostId || pin.credentialOrigin !== origin ||
+    (pin !== null && (pin.hostId !== manifest.payload.hostId ||
       !sameHostKey(pin.publicKey, manifest.payload.publicKey)))) reject()
   await verifyPayload(manifest.payload, manifest.signature, pin?.publicKey ?? manifest.payload.publicKey)
   return manifest
