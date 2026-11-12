@@ -152,8 +152,14 @@ export type FsTreeScope = Omit<FsScope, 'path'>
  * listed on mount; directories are listed via the `fs.list` RPC the first
  * time they expand and cached until refresh.
  */
-export function FileExplorer({ root, scope, readOnlyReason }: {
-  root: string; scope: FsTreeScope; readOnlyReason?: string | null
+export function FileExplorer({
+  root,
+  scope,
+  readOnlyReason,
+}: {
+  root: string
+  scope: FsTreeScope
+  readOnlyReason?: string | null
 }) {
   const generation = useRef(0)
   const [entries, setEntries] = useState<EntriesByDir>({})

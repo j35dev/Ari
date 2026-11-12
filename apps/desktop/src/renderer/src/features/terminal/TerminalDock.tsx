@@ -70,8 +70,9 @@ export function TerminalDock({
   const tabs = dock.tabs.filter(
     (tab) => terminalOwnerOf(tab).kind === 'local' && !paneHosted.has(tab.id),
   )
-  const activeId =
-    tabs.some((tab) => tab.id === dock.activeId) ? dock.activeId : (tabs[0]?.id ?? null)
+  const activeId = tabs.some((tab) => tab.id === dock.activeId)
+    ? dock.activeId
+    : (tabs[0]?.id ?? null)
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
   // `terminal.create` rejections used to leave a blank blinking cursor; each

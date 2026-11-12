@@ -77,9 +77,15 @@ describe('TerminalDock', () => {
 
   it('never mounts a remote-owned stored shell in the local rail', async () => {
     installRpc()
-    const id = openTerminalTab({ title: 'remote-only', cwd: '/remote', owner: {
-      kind: 'remote', machineId: 'host', sessionId: 'sess_remote',
-    } })
+    const id = openTerminalTab({
+      title: 'remote-only',
+      cwd: '/remote',
+      owner: {
+        kind: 'remote',
+        machineId: 'host',
+        sessionId: 'sess_remote',
+      },
+    })
     render(<TerminalDock cwd="/local" />)
     await waitFor(() => expect(panes()).toHaveLength(1))
     expect(panes()[0]).toHaveAttribute('data-cwd', '/local')

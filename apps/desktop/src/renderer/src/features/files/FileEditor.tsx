@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@ari/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '@ari/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@ari/ui/dialog'
 import { rpc } from '../../lib/rpc'
 import type { FsTreeScope } from './FileExplorer'
 
@@ -102,9 +97,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
         <header className="flex items-center gap-2 border-b border-border px-5 py-3">
           <div className="min-w-0 flex-1">
             <DialogTitle className="truncate font-mono text-sm">{fileName(path)}</DialogTitle>
-            <DialogDescription className="truncate font-mono text-xs">
-              {path}
-            </DialogDescription>
+            <DialogDescription className="truncate font-mono text-xs">{path}</DialogDescription>
           </div>
           {dirty && (
             <span className="shrink-0 font-mono text-xs text-warning">unsaved changes</span>
@@ -112,14 +105,18 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
         </header>
         <div className="flex min-h-0 flex-1 flex-col px-5 py-3">
           {readOnlyReason != null && (
-            <p role="status" className="mb-2 text-xs text-fg-muted">{readOnlyReason}</p>
+            <p role="status" className="mb-2 text-xs text-fg-muted">
+              {readOnlyReason}
+            </p>
           )}
           {loaded ? (
             <textarea
               aria-label="File contents"
               value={draft}
               readOnly={readOnly}
-              onChange={(event) => { if (!readOnly) setDraft(event.target.value) }}
+              onChange={(event) => {
+                if (!readOnly) setDraft(event.target.value)
+              }}
               spellCheck={false}
               className="h-full min-h-0 w-full flex-1 resize-none rounded-md border border-border bg-surface-1 p-2 font-mono text-xs text-fg outline-none focus:ring-2 focus:ring-accent-ring"
             />
@@ -141,7 +138,13 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
           <Button variant="ghost" onClick={onClose}>
             {readOnly ? 'Close' : 'Cancel'}
           </Button>
-          <Button variant="primary" loading={saving} disabled={readOnly || !dirty} title={readOnlyReason ?? undefined} onClick={save}>
+          <Button
+            variant="primary"
+            loading={saving}
+            disabled={readOnly || !dirty}
+            title={readOnlyReason ?? undefined}
+            onClick={save}
+          >
             Save
           </Button>
         </footer>

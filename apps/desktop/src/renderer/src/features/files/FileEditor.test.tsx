@@ -74,10 +74,7 @@ describe('FileEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(onClose).toHaveBeenCalledOnce()
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      'fs.writeTextFile',
-      expect.anything(),
-    )
+    expect(invokeMock).not.toHaveBeenCalledWith('fs.writeTextFile', expect.anything())
   })
 
   it('surfaces read failures (binary or over-cap files) as an alert', async () => {
@@ -118,8 +115,14 @@ describe('FileEditor', () => {
   it('shows a host file in the normal preview and refuses edits or save', async () => {
     const user = userEvent.setup()
     invokeMock.mockResolvedValue({ content: 'host content', truncated: false })
-    render(<FileEditor scope={{ sessionId: 'sess_host' }} path={PATH} onClose={() => undefined}
-      readOnlyReason="File editing is unavailable on this machine." />)
+    render(
+      <FileEditor
+        scope={{ sessionId: 'sess_host' }}
+        path={PATH}
+        onClose={() => undefined}
+        readOnlyReason="File editing is unavailable on this machine."
+      />,
+    )
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('host content'))
     expect(buffer).toHaveAttribute('readonly')
@@ -136,18 +139,28 @@ describe('FileEditor', () => {
     const user = userEvent.setup()
     let finishSave!: () => void
     invokeMock.mockImplementation(async (method: string, params: unknown) => {
-      if (method === 'fs.readTextFile') return { content: (params as { path: string }).path, truncated: false }
-      if (method === 'fs.writeTextFile') return new Promise<void>((resolve) => { finishSave = resolve })
+      if (method === 'fs.readTextFile')
+        return { content: (params as { path: string }).path, truncated: false }
+      if (method === 'fs.writeTextFile')
+        return new Promise<void>((resolve) => {
+          finishSave = resolve
+        })
       throw new Error('unexpected method')
     })
     const onSaved = vi.fn()
-    const view = render(<FileEditor scope={SCOPE} path="first.ts" onClose={() => undefined} onSaved={onSaved} />)
+    const view = render(
+      <FileEditor scope={SCOPE} path="first.ts" onClose={() => undefined} onSaved={onSaved} />,
+    )
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('first.ts'))
     await user.type(buffer, '!')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    view.rerender(<FileEditor scope={SCOPE} path="second.ts" onClose={() => undefined} onSaved={onSaved} />)
-    await waitFor(() => expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('second.ts'))
+    view.rerender(
+      <FileEditor scope={SCOPE} path="second.ts" onClose={() => undefined} onSaved={onSaved} />,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('second.ts'),
+    )
     await act(async () => finishSave())
     expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('second.ts')
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
