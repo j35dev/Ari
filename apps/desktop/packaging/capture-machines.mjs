@@ -85,7 +85,9 @@ app
       ? JSON.parse(await readFile(join(evidence, 'capture.json'), 'utf8'))
       : null
     for (const theme of ['light', 'dark']) {
-      for (const view of composerOnly ? ['workspace', 'receipt'] : ['settings', 'workspace', 'receipt']) {
+      for (const view of composerOnly
+        ? ['workspace', 'receipt']
+        : ['settings', 'workspace', 'receipt']) {
         await window.loadFile(resolve('out/machines-fixture/testing/machines.html'), {
           query: { theme, view },
         })
@@ -138,7 +140,9 @@ app
             state.attachmentPicker.inputDisabled !== (view === 'receipt') ||
             state.attachmentPicker.buttonDisabled !== (view === 'receipt'))
         )
-          throw new Error('The attachment control is visible natively or has incorrect accessibility/availability')
+          throw new Error(
+            'The attachment control is visible natively or has incorrect accessibility/availability',
+          )
         if (state.activeTheme !== (theme === 'light' ? 'porcelain' : 'obsidian'))
           throw new Error(`Wrong theme: ${state.activeTheme}`)
         if (
@@ -206,7 +210,8 @@ app
           dimensions: { requestedWidth: 1440, requestedHeight: 1100, scale: 1 },
           captures: previous
             ? previous.captures.map(
-                (capture) => captures.find((fresh) => fresh.filename === capture.filename) ?? capture,
+                (capture) =>
+                  captures.find((fresh) => fresh.filename === capture.filename) ?? capture,
               )
             : captures,
           errors,
