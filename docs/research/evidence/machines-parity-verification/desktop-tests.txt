@@ -1,0 +1,4415 @@
+{"resourceGate":{"commitHeadroomBytes":7876907008,"cFreeBytes":21815922688}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"integrated-desktop-tests","pid":23624,"startedAt":"2026-11-12T14:13:26.894Z","id":"17f80dac-e019-4599-9749-389eeec51b87"}
+
+> @ari/desktop@0.3.13 test D:\Projects\Ari-machines\apps\desktop
+> vitest run "--maxWorkers=1" "--no-file-parallelism"
+
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+ ❯ |dom| src/renderer/src/features/session/SessionView.test.tsx (107 tests | 2 failed) 27399ms
+     × hides when the harness advertised no thought levels 1020ms
+     × keeps a saved effort while the agent has reported no levels yet 1004ms
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+(node:26144) Warning: Closing file descriptor 12 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:26144) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:26144) Warning: Closing file descriptor 10 on garbage collection
+(node:26144) Warning: Closing file descriptor 11 on garbage collection
+(node:26144) Warning: Closing file descriptor 14 on garbage collection
+(node:26144) Warning: Closing file descriptor 15 on garbage collection
+(node:26144) Warning: Closing file descriptor 16 on garbage collection
+(node:26144) Warning: Closing file descriptor 17 on garbage collection
+(node:26144) Warning: Closing file descriptor 27 on garbage collection
+(node:26144) Warning: Closing file descriptor 28 on garbage collection
+(node:26144) Warning: Closing file descriptor 29 on garbage collection
+(node:26144) Warning: Closing file descriptor 30 on garbage collection
+(node:26144) Warning: Closing file descriptor 31 on garbage collection
+(node:26144) Warning: Closing file descriptor 32 on garbage collection
+(node:26144) Warning: Closing file descriptor 34 on garbage collection
+(node:26144) Warning: Closing file descriptor 33 on garbage collection
+(node:26144) Warning: Closing file descriptor 35 on garbage collection
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+stderr | src/renderer/src/App.onboarding.test.tsx > App onboarding integration > opens a fresh Aria chat only after its sidebar confirmation
+[ari:ui:source-control] Source-control read failed { error: 'Error: Unexpected RPC: scm.summary' }
+
+stderr | src/renderer/src/App.onboarding.test.tsx > App onboarding integration > opens a fresh Aria chat only after its sidebar confirmation
+[ari:ui:source-control] Source-control read failed { error: 'Error: Unexpected RPC: scm.summary' }
+
+ ❯ |dom| src/renderer/src/App.onboarding.test.tsx (11 tests | 7 failed) 18166ms
+     × opens a fresh Aria chat only after its sidebar confirmation 1362ms
+     × keeps a restored session and opens Aria with its pinned row and Mod+0 1031ms
+     × selects the known Aria chat by pointer and shortcut without waiting for discovery 1114ms
+     × does not let a late Aria open replace a newer session selection 1020ms
+     × can retry a failed aria.open without losing the selected chat 1037ms
+     × can retry a failed session.list without losing the selected chat 1041ms
+     × finishes first run into the selected agent’s empty session, then reopens setup without losing it 10255ms
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+ ❯ |dom| src/renderer/src/App.navigation.test.tsx (8 tests | 8 failed) 8224ms
+   × keeps remote workspace actions and keyboard shortcuts away from local dispatch and filesystem tools 1067ms
+   × accepts navigation after earlier composer input when fresh list state commits 1015ms
+   × observes exact session/Aria selection and repeated reveal without discovery or submissions 1016ms
+   × keeps real composer text, selection, pending attachment identity and chat through Settings and Changes 1017ms
+   × honors Changes sidebar mode and exact project context without changing the chat 1024ms
+   × keeps a newer app action above an older manual Aria lookup 1036ms
+   × refuses failed, disconnected, missing or archived loads without redirecting 1020ms
+   × lets newer user navigation win over delayed validation and cancels duplicate/wrong/late frames 1025ms
+ ❯ |dom| src/main/remote-host.test.ts (63 tests | 1 failed) 604ms
+     × advertises only operations the contract declares 15ms
+Not implemented: navigation to another Document
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > opens only chosen projects and returns a first-send draft after saving completion
+[ari:onboarding:finish] first session could not be created Error: unexpected RPC: session.create
+    at Object.<anonymous> (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:23:11)
+    at Object.Mock [as invoke] (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+    at finish (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:74:37)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:31:20
+    at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+ ❯ |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts (9 tests | 7 failed) 41ms
+     × opens only chosen projects and returns a first-send draft after saving completion 19ms
+     × retains successful projects and retries only failures without prematurely saving completion 6ms
+     × treats missing folders as retryable and permits continuing with the successful subset 4ms
+     × retains imported projects without creating sessions when saving settings is retried 3ms
+     × allows completion without a draft even when a session creation would fail 2ms
+     × skips without adding folders, starting agents or overwriting the saved default 1ms
+     × deduplicates Windows spellings and coalesces double clicks 2ms
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > retains successful projects and retries only failures without prematurely saving completion
+[ari:onboarding:finish] selected project could not be opened {
+  path: '/work/ari',
+  error: Error: disk unavailable
+      at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:54:34
+      at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+      at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+      at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+      at new Promise (<anonymous>)
+      at runWithCancel (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+      at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+      at new Promise (<anonymous>)
+      at runWithTimeout (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+      at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64
+}
+
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > retains successful projects and retries only failures without prematurely saving completion
+[ari:onboarding:finish] first session could not be created Error: unexpected RPC: session.create
+    at Object.<anonymous> (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:23:11)
+    at Object.Mock [as invoke] (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+    at finish (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:74:37)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:63:13
+    at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > treats missing folders as retryable and permits continuing with the successful subset
+[ari:onboarding:finish] first session could not be created Error: unexpected RPC: session.create
+    at Object.<anonymous> (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:23:11)
+    at Object.Mock [as invoke] (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+    at finish (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:74:37)
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:118:17
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:78:18
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > retains imported projects without creating sessions when saving settings is retried
+[ari:onboarding:finish] first session could not be created Error: unexpected RPC: session.create
+    at Object.<anonymous> (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:23:11)
+    at Object.Mock [as invoke] (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+    at finish (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:74:37)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:89:12
+    at file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+stderr | src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > deduplicates Windows spellings and coalesces double clicks
+[ari:onboarding:finish] first session could not be created Error: unexpected RPC: session.create
+    at Object.<anonymous> (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:23:11)
+    at Object.Mock [as invoke] (file:///D:/Projects/Ari-machines/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+    at finish (D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.ts:74:37)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at D:/Projects/Ari-machines/apps/desktop/src/renderer/src/features/onboarding/onboarding-completion.test.ts:146:5
+
+(node:3188) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3188) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+(node:3188) Warning: Closing file descriptor 4 on garbage collection
+(node:3188) Warning: Closing file descriptor 5 on garbage collection
+(node:31488) Warning: Closing file descriptor 5 on garbage collection
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31488) [DEP0137] DeprecationWarning: Closing a FileHandle object on garbage collection is deprecated. Please close FileHandle objects explicitly using FileHandle.prototype.close(). In the future, an error will be thrown if a file descriptor is closed during garbage collection.
+ ❯ |node| src/main/agent-runtime.test.ts (13 tests | 1 failed) 13901ms
+     × stays within it when bound in a short root 8ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 26 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |dom| src/main/remote-host.test.ts > remote host capabilities > advertises only operations the contract declares
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/main/remote-host.test.ts:206:39
+    204|
+    205|   it('advertises only operations the contract declares', async () => {
+    206|     const host = hostFor(await tempStore(), fakeEngine())
+       |                                       ^
+    207|     for (const op of host.capabilities()) {
+    208|       expect(commandOrReadExists(op)).toBe(true)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > keeps remote workspace actions and keyboard shortcuts away from local dispatch and filesystem tools
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:157:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > accepts navigation after earlier composer input when fresh list state commits
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:227:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > observes exact session/Aria selection and repeated reveal without discovery or submissions
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:259:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > keeps real composer text, selection, pending attachment identity and chat through Settings and Changes
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:287:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > honors Changes sidebar mode and exact project context without changing the chat
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:324:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > keeps a newer app action above an older manual Aria lookup
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:335:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > refuses failed, disconnected, missing or archived loads without redirecting
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:367:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.navigation.test.tsx > lets newer user navigation win over delayed validation and cancels duplicate/wrong/late frames
+TestingLibraryElementError: Unable to find an element with the text: Chat a. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="ari-wallpaper-pane flex h-full flex-col"
+    >
+      <header
+        class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+      >
+        <div
+          class="flex items-center gap-2 pl-3"
+        />
+        <div
+          class="flex-1"
+        />
+        <nav
+          aria-label="Workspace"
+          class="flex items-center gap-1 pr-2"
+        >
+          <button
+            aria-label="Review changes"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Review changes"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-file-diff"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path
+                d="M9 10h6"
+              />
+              <path
+                d="M12 13V7"
+              />
+              <path
+                d="M9 17h6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Files"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Files"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-folder"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Usage"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Usage"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-gauge"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m12 14 4-4"
+              />
+              <path
+                d="M3.34 19a10 10 0 1 1 17.32 0"
+              />
+            </svg>
+          </button>
+          <button
+            aria-label="Terminal"
+            aria-pressed="false"
+            class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+            title="Terminal"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-square-terminal"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m7 11 2-2-2-2"
+              />
+              <path
+                d="M11 13h4"
+              />
+              <rect
+                height="18"
+                rx="2"
+                ry="2"
+               ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ shell src/renderer/src/App.navigation.test.tsx:190:16
+    188| async function shell() {
+    189|   const view = render(<App />)
+    190|   await screen.findByText('Chat a')
+       |                ^
+    191|   await waitFor(() =>
+    192|     expect(callbacks.get('app.navigate')?.some((entry) => entry.params…
+ ❯ src/renderer/src/App.navigation.test.tsx:400:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > opens a fresh Aria chat only after its sidebar confirmation
+TestingLibraryElementError: Unable to find an element with the text: Opened session fresh-aria. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:157:25
+    155|     expect(invoke.mock.calls.some(([method]) => method === 'aria.newCh…
+    156|     fireEvent.click(screen.getByRole('button', { name: 'Confirm new Ar…
+    157|     expect(await screen.findByText('Opened session fresh-aria')).toBeV…
+       |                         ^
+    158|     expect(invoke).toHaveBeenCalledWith('aria.newChat')
+    159|     expect(sessions.filter((session) => session.projectId === 'helm'))…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > keeps a restored session and opens Aria with its pinned row and Mod+0
+TestingLibraryElementError: Unable to find an element with the text: Opened session restored. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:177:25
+    175|     splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 're…
+    176|     render(<App />)
+    177|     expect(await screen.findByText('Opened session restored')).toBeVis…
+       |                         ^
+    178|     expect(invoke.mock.calls.some(([method]) => method === 'aria.open'…
+    179|     fireEvent.click(screen.getByRole('button', { name: 'Open Aria' }))
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > selects the known Aria chat by pointer and shortcut without waiting for discovery
+TestingLibraryElementError: Unable to find an element with the text: Opened session restored. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:227:18
+    225|     await waitFor(() => expect(invoke).toHaveBeenCalledWith('session.l…
+    226|     await act(async () => finishList())
+    227|     await screen.findByText('Opened session restored')
+       |                  ^
+    228|     // Establish loaded sidebar state before holding subsequent discov…
+    229|     // DOM observations await React's commit, while the unresolved RPC…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > does not let a late Aria open replace a newer session selection
+TestingLibraryElementError: Unable to find an element with the text: Opened session restored. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:280:18
+    278|     })
+    279|     render(<App />)
+    280|     await screen.findByText('Opened session restored')
+       |                  ^
+    281|     await user.click(screen.getByRole('button', { name: 'Open Aria' }))
+    282|     await user.click(screen.getByRole('button', { name: /^Other sessio…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > can retry a failed aria.open without losing the selected chat
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > can retry a failed session.list without losing the selected chat
+TestingLibraryElementError: Unable to find an element with the text: Opened session restored. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:338:20
+    336|       })
+    337|       render(<App />)
+    338|       await screen.findByText('Opened session restored')
+       |                    ^
+    339|       await user.click(screen.getByRole('button', { name: 'Open Aria' …
+    340|       // Fail this click's discovery after userEvent finishes. Initial…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/26]⎯
+
+ FAIL  |dom| src/renderer/src/App.onboarding.test.tsx > App onboarding integration > finishes first run into the selected agent’s empty session, then reopens setup without losing it
+TestingLibraryElementError: Unable to find an element with the text: Opened session onboarded. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="h-full"
+    >
+      <div
+        class="ari-wallpaper-pane flex h-full flex-col"
+      >
+        <header
+          class="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
+        >
+          <div
+            class="flex items-center gap-2 pl-3"
+          />
+          <div
+            class="flex-1"
+          />
+          <nav
+            aria-label="Workspace"
+            class="flex items-center gap-1 pr-2"
+          >
+            <button
+              aria-label="Review changes"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Review changes"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-file-diff"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+                />
+                <path
+                  d="M9 10h6"
+                />
+                <path
+                  d="M12 13V7"
+                />
+                <path
+                  d="M9 17h6"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Files"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Files"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-folder"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Usage"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Usage"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-gauge"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 14 4-4"
+                />
+                <path
+                  d="M3.34 19a10 10 0 1 1 17.32 0"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="Terminal"
+              aria-pressed="false"
+              class="relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent"
+              title="Terminal"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-square-terminal"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.7"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m7 11 ...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/renderer/src/App.onboarding.test.tsx:361:20
+    359|     fireEvent.click(screen.getByRole('button', { name: 'Open workspace…
+    360|     expect(
+    361|       await screen.findByText('Opened session onboarded', {}, { timeou…
+       |                    ^
+    362|     ).toBeVisible()
+    363|     expect(settings.onboarding?.completedAt).toBeGreaterThan(0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > opens only chosen projects and returns a first-send draft after saving completion
+AssertionError: expected { ok: false, error: { …(3) } } to deeply equal { ok: true, value: { …(3) } }
+
+- Expected
++ Received
+
+  {
+-   "ok": true,
+-   "value": {
+-     "driverKind": "claude",
+-     "projectId": "/work/ari",
+-     "sessionId": null,
++   "error": {
++     "failedPaths": [],
++     "message": "Your projects are added, but the first session could not be created. Retry or continue without a session.",
++     "stage": "session",
+    },
++   "ok": false,
+  }
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:32:20
+     30|     const finish = createOnboardingCompletion(save)
+     31|     const result = await finish(choice, signal())
+     32|     expect(result).toEqual({
+       |                    ^
+     33|       ok: true,
+     34|       value: { sessionId: null, projectId: '/work/ari', driverKind: 'c…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > retains successful projects and retries only failures without prematurely saving completion
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:63:49
+     61|     expect(invoke).not.toHaveBeenCalledWith('session.create', expect.a…
+     62|     invoke.mockClear()
+     63|     expect((await finish(choice, signal())).ok).toBe(true)
+       |                                                 ^
+     64|     expect(invoke.mock.calls.filter(([method]) => method === 'project.…
+     65|       ['project.open', { path: '/work/ari' }],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > treats missing folders as retryable and permits continuing with the successful subset
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "ok": true,
+-   "value": {
+-     "projectId": "/work/docs",
+-     "sessionId": null,
+-   },
++   "ok": false,
+  }
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:78:87
+     76|     })
+     77|     expect(save).not.toHaveBeenCalled()
+     78|     expect(await finish({ ...choice, projects: choice.projects.slice(1…
+       |                                                                                       ^
+     79|       ok: true, value: { projectId: '/work/docs', sessionId: null },
+     80|     })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > retains imported projects without creating sessions when saving settings is retried
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "error": {
+-     "stage": "settings",
++     "stage": "session",
+    },
+    "ok": false,
+  }
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:89:44
+     87|       .mockResolvedValue(defaultSettings)
+     88|     const finish = createOnboardingCompletion(save)
+     89|     expect(await finish(choice, signal())).toMatchObject({
+       |                                            ^
+     90|       ok: false,
+     91|       error: { stage: 'settings' },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > allows completion without a draft even when a session creation would fail
+AssertionError: expected { ok: true, value: { …(2) } } to deeply equal { ok: true, value: { …(3) } }
+
+- Expected
++ Received
+
+  {
+    "ok": true,
+    "value": {
+      "driverKind": "claude",
+-     "projectId": null,
+      "sessionId": null,
+    },
+  }
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:105:73
+    103|     )
+    104|     const finish = createOnboardingCompletion(save)
+    105|     expect(await finish({ ...choice, createSession: false }, signal())…
+       |                                                                         ^
+    106|       ok: true,
+    107|       value: { sessionId: null, projectId: null, driverKind: 'claude' …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > skips without adding folders, starting agents or overwriting the saved default
+AssertionError: expected { ok: true, value: { …(2) } } to deeply equal { ok: true, value: { …(3) } }
+
+- Expected
++ Received
+
+  {
+    "ok": true,
+    "value": {
+      "driverKind": null,
+-     "projectId": null,
+      "sessionId": null,
+    },
+  }
+
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:115:83
+    113|     const save = vi.fn().mockResolvedValue(defaultSettings)
+    114|     const finish = createOnboardingCompletion(save)
+    115|     expect(await finish({ ...choice, projects: [], driverKind: null },…
+       |                                                                                   ^
+    116|       ok: true,
+    117|       value: { sessionId: null, projectId: null, driverKind: null },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/onboarding/onboarding-completion.test.ts > onboarding completion > deduplicates Windows spellings and coalesces double clicks
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ src/renderer/src/features/onboarding/onboarding-completion.test.ts:148:18
+    146|     await first
+    147|     expect(invoke.mock.calls.filter(([method]) => method === 'project.…
+    148|     expect(save).toHaveBeenCalledTimes(1)
+       |                  ^
+    149|   })
+    150|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/session/SessionView.test.tsx > EffortChip > hides when the harness advertised no thought levels
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'providers.models' ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+    "providers.models",
++   undefined,
+  ]
+
+
+Number of calls: 1
+
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div />
+  </body>
+</html>
+ ❯ src/renderer/src/features/session/SessionView.test.tsx:3153:44
+    3151|     invokeMock.mockResolvedValue([{ kind: 'grok', source: 'live', mode…
+    3152|     render(<EffortChip driverKind="grok" effort={null} onChange={() =>…
+    3153|     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('provi…
+       |                                            ^
+    3154|     expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBe…
+    3155|   })
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/26]⎯
+
+ FAIL  |dom| src/renderer/src/features/session/SessionView.test.tsx > EffortChip > keeps a saved effort while the agent has reported no levels yet
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'providers.models' ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+    "providers.models",
++   undefined,
+  ]
+
+
+Number of calls: 1
+
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div />
+  </body>
+</html>
+ ❯ src/renderer/src/features/session/SessionView.test.tsx:3353:44
+    3351|     invokeMock.mockResolvedValue([{ kind: 'claude', source: 'cache', m…
+    3352|     render(<EffortChip driverKind="claude" effort="xhigh" onChange={on…
+    3353|     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('provi…
+       |                                            ^
+    3354|     await act(async () => undefined)
+    3355|     expect(onChange).not.toHaveBeenCalled()
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/26]⎯
+
+ FAIL  |node| src/main/agent-runtime.test.ts > control endpoint > stays within it when bound in a short root
+AssertionError: expected 104 to be less than 104
+ ❯ src/main/agent-runtime.test.ts:50:41
+     48|   it('stays within it when bound in a short root', async () => {
+     49|     const { endpoint } = await controlEndpoint('darwin', tmpdir())
+     50|     expect(Buffer.byteLength(endpoint)).toBeLessThan(MACOS_SUN_PATH_BY…
+       |                                         ^
+     51|     await rm(dirname(endpoint), { recursive: true, force: true })
+     52|   })
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/26]⎯
+
+ Test Files  6 failed | 342 passed | 3 skipped (351)
+      Tests  26 failed | 3740 passed | 4 skipped (3770)
+   Start at  22:13:31
+   Duration  1934.42s (transform 16.21s, setup 398.52s, import 129.54s, tests 593.35s, environment 664.18s)
+
+D:\Projects\Ari-machines\apps\desktop:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ari/desktop@0.3.13 test: `vitest run "--maxWorkers=1" "--no-file-parallelism"`
+Exit status 1
+{"heavyResult":{"worker":"integrated-desktop-tests","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","test","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

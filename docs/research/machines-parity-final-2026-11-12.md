@@ -1,7 +1,8 @@
 # Machines desktop parity, 2026-11-12
 
-Integration: `feat/machines`, `D:/Projects/Ari-machines`. Final verification is
-in progress; this report becomes the completion record after the checks below.
+Integration: `feat/machines`, `D:/Projects/Ari-machines`. Desktop core parity is
+complete. Final runtime source is `da40bbef99343f9dce054889cb336e7ba3977e25`;
+later commits contain fixtures, security reports and verification evidence.
 
 The normal project draft now selects its execution machine under the composer.
 The selected host supplies providers, models, effort, permission choices and
@@ -60,6 +61,11 @@ T3 correlation rule: unusual case-sensitive or multi-port Git hosting can group
 distinct repositories visually. Correlation grants no authority, chooses no
 host and moves no files or sessions. Unknown host aliases can instead produce
 separate groups. These edge cases are a product policy to confirm.
+
+First-run setup also opens this normal project draft. It imports the chosen
+projects and saves setup/defaults, then shows the machine selector before any
+session exists. Durable session creation and first prompt remain owned by the
+same first-Send facade; reopening setup preserves an established draft/session.
 
 ## One-way pairing, routes and Auto
 
@@ -147,8 +153,50 @@ All ten focused identity tests passed; independent review additionally ran real
 Node processes for fresh, legacy, missing and empty primary races, and verified
 legacy ID/sealed-key byte/public-key continuity plus refusal to reset a missing
 signing key. Independent stale-manifest, pending-route-removal and 2,100-row
-reconnect reproductions passed. Final review disposition and full-suite results
-are pending completion of the integrated verification run.
+reconnect reproductions passed.
+
+Fresh [bounded security certification](machines-t3-security-final.md) found no
+open actionable core finding at `8b2d0dcb`. The
+[final delta review](machines-final-delta-security.md) confirmed unchanged
+boundaries through `e97d3a7a`. A fresh
+[first-run review](machines-onboarding-final-review.md) identified two setup
+ordering/ownership defects; both were corrected and independently closed in
+source through `da40bbef`. The corresponding integrated regressions passed.
+These reviews distinguish source inspection, executed disposable proofs and
+unverified hardware.
+
+| Check | Result |
+| --- | --- |
+| All ten package typechecks | Passed; final desktop runtime/fixture typecheck also passed |
+| Full repository lint | Passed after final corrections |
+| Contracts | 224 passed |
+| Remote gateway | 182 passed on full corrected rerun |
+| Remote client | 24 passed |
+| Engine | 801 passed in full run; both named failing cases passed on bounded rerun |
+| Ari Core | 282 passed |
+| Providers | 702 passed, one skipped |
+| Shared | 16 passed |
+| UI | 323 passed |
+| Mobile | 371 passed |
+| Desktop full suite | 3,740 passed, 26 failed, four skipped; all failing files covered by passing correction reruns |
+| Desktop correction coverage | 219 owner tests passed; host/runtime 76/76; navigation/first-send/sidebar passed; final onboarding 13/13 including both new races |
+| Desktop and mobile production builds | Both passed after final runtime correction |
+| Normal-client signed loopback | Passed in author and independent reviewer executions |
+| Normal desktop captures | 16 light/dark images and painted-menu assertions passed |
+
+The long full-suite invocation overlapped reviewed fixture/runtime corrections;
+this is a completion record with scoped reruns, not a claim of one clean full
+invocation. Gateway's four failures were legacy extension-omission fixtures.
+Engine's two loaded Windows timeout/late-cleanup cases passed with 60-second
+test/hook bounds and unchanged runtime. Desktop's six failing files comprised
+old scoped mock arity/IDs and capability assumptions, setup completion tests
+transformed against cached pre-correction runtime, and a short socket-path
+test run under the long private TEMP. A protected shorter D: TEMP passed that
+unchanged test. Intermediate wrong sidebar/menu role expectations were corrected
+without weakening host, scope or filesystem guards. The complete owner suites,
+host/runtime files and App/normal sidebar deltas were then rerun. Original
+failures, exact commands, resource admission and final outcomes remain in the
+[UTF-8 verification artifacts](evidence/machines-parity-verification/verification.json).
 
 Every heavy check uses the resource lease, below-normal priority and one test
 worker. C: must have at least 5 GiB free, commit headroom at least 1.5 GiB; two
@@ -165,9 +213,22 @@ No push or PR was created. Standalone `fix/tailscale-serve-recovery` and
 `5010f950` (PR #517). The user's checkout, installed Ari, other UI dev profile
 and real Tailscale Serve configuration were not changed. The Machines preview
 uses its own identity/AppUserModelID/lock, D: profile and renderer 5197, gateway
-8797 configured with hosting off, speech/Discord off. It must be restarted after
-the approved verification pause; its tray Quit stops it, while window Close hides
-it. Do not use global Serve replacement or machine-wide updater controls in it.
+8797 configured with hosting off, speech/Discord off. Preview readiness after
+the approved verification pause is recorded in
+[machines-dev-preview.md](machines-dev-preview.md). Its tray Quit stops it,
+while window Close hides it. Do not use global Serve replacement or
+machine-wide updater controls in it.
+
+Worker results were reviewed before integration: **Verified machine routes**
+supplied signed route supervision and removal fences; **Normal session parity**
+supplied the scoped facade and replay/reconnect handling; **Unified composer
+machines** supplied the draft selector, grouping, Auto and screenshots;
+**Host parity validation** supplied narrow host operations and the combined
+proof; **Machines security proof**, **Machines final source delta review** and
+**First-run draft review** supplied independent dispositions; **Desktop fixture
+parity** migrated navigation/onboarding fixtures. Their finished Machines
+worktrees are cleaned after verification. The user's separate voice and
+permission side sessions remain untouched.
 
 The phone remains unchanged. A matching phone new-chat selector would reuse the
 authenticated repository/catalog/permission extensions and shared transport,

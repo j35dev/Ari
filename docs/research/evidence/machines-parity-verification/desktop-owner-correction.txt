@@ -1,0 +1,45 @@
+{"resourceGate":{"commitHeadroomBytes":8627744768,"cFreeBytes":21728071680}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"integrated-onboarding-effort-correction","pid":25172,"startedAt":"2026-11-12T14:35:49.624Z","id":"51688047-8f35-46e0-825d-519bc5d7e455"}
+
+ RUN  v4.1.11 D:/Projects/Ari-machines/apps/desktop
+
+ ❯ |dom| src/main/remote-host.test.ts (63 tests | 1 failed) 553ms
+     × advertises only operations the contract declares 14ms
+node : 
+At line:3 char:1
++ node scripts/coordination/run-heavy.mjs integrated-onboarding-effort- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |dom| src/main/remote-host.test.ts > remote host capabilities > advertises only operations the contract declares
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/main/remote-host.test.ts:207:39
+    205|     const host = hostFor(await tempStore(), fakeEngine())
+    206|     for (const op of host.capabilities()) {
+    207|       expect(commandOrReadExists(op)).toBe(true)
+       |                                       ^
+    208|     }
+    209|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  1 failed | 219 passed (220)
+   Start at  22:35:54
+   Duration  86.40s (transform 3.16s, setup 13.88s, import 8.18s, tests 37.78s, environment 23.09s)
+
+undefined
+D:\Projects\Ari-machines\apps\desktop:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/renderer/src/features/onboarding src/renderer/src/features/session/SessionView.test.tsx src/main/remote-host.test.ts --maxWorkers=1 --no-file-parallelism
+{"heavyResult":{"worker":"integrated-onboarding-effort-correction","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","vitest","run","src/renderer/src/features/onboarding","src/renderer/src/features/session/SessionView.test.tsx","src/main/remote-host.test.ts","--maxWorkers=1","--no-file-parallelism"],"exitCode":1,"signal":null}}

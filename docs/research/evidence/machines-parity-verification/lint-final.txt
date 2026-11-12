@@ -1,0 +1,15 @@
+{"resourceGate":{"commitHeadroomBytes":6756810752,"cFreeBytes":21721821184}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"integrated-ui-tests\",\"pid\":23420,\"startedAt\":\"2026-11-12T14:05:06.399Z\",\"id\":\"17e413cc-c5be-4db7-b5d5-a432fb5cee74\"}","{\"worker\":\"final-desktop-types\",\"pid\":19004,\"startedAt\":\"2026-11-12T14:06:16.555Z\",\"id\":\"47c14910-534b-45e3-99dd-44ad00df5d30\"}"]}
+{"resourceGate":{"commitHeadroomBytes":7147368448,"cFreeBytes":21824860160}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"integrated-ui-tests\",\"pid\":23420,\"startedAt\":\"2026-11-12T14:05:06.399Z\",\"id\":\"17e413cc-c5be-4db7-b5d5-a432fb5cee74\"}","{\"worker\":\"final-desktop-types\",\"pid\":19004,\"startedAt\":\"2026-11-12T14:06:16.555Z\",\"id\":\"47c14910-534b-45e3-99dd-44ad00df5d30\"}"]}
+{"resourceGate":{"commitHeadroomBytes":6313644032,"cFreeBytes":21813383168}}
+{"heavyLock":"waiting","capacity":1,"owners":["{\"worker\":\"integrated-ui-tests\",\"pid\":23420,\"startedAt\":\"2026-11-12T14:05:06.399Z\",\"id\":\"17e413cc-c5be-4db7-b5d5-a432fb5cee74\"}",null]}
+{"resourceGate":{"commitHeadroomBytes":7060381696,"cFreeBytes":21823086592}}
+{"heavyLock":"waiting","capacity":2,"owners":["{\"worker\":\"integrated-ui-tests\",\"pid\":23420,\"startedAt\":\"2026-11-12T14:05:06.399Z\",\"id\":\"17e413cc-c5be-4db7-b5d5-a432fb5cee74\"}","{\"worker\":\"Aria voice\",\"pid\":7208,\"startedAt\":\"2026-11-12T14:08:55.455Z\",\"id\":\"96afe1ec-e816-44ba-a3dc-69c0238bed1f\"}"]}
+{"resourceGate":{"commitHeadroomBytes":9056423936,"cFreeBytes":21821702144}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"final-lint-after-shell-fix","pid":29008,"startedAt":"2026-11-12T14:06:26.075Z","id":"40909d3d-1d3a-449d-a5a9-6e520fda6041"}
+
+> ari@ lint D:\Projects\Ari-machines
+> eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway packages/remote-client && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop/electron.vite.config.ts apps/desktop/vitest.config.ts apps/desktop/postcss.config.js apps/desktop/packaging apps/desktop/src/main apps/desktop/src/preload apps/desktop/src/shared apps/desktop/src/test-setup.dom.ts && eslint apps/desktop/src/renderer apps/desktop/src/assets.d.ts apps/desktop/src/test-env.dom.test.ts apps/desktop/src/test-env.node.test.ts
+
+{"heavyResult":{"worker":"final-lint-after-shell-fix","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","lint"],"exitCode":0,"signal":null}}
