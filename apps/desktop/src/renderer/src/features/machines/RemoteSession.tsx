@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { z } from 'zod'
+import { ImagePlus } from 'lucide-react'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { Textarea } from '@ari/ui/textarea'
@@ -575,6 +576,9 @@ function RemoteComposer({
 }) {
   const [draft, setDraft] = useState<RemoteDraft>(() => readRemoteDraft(machine.id, sessionId))
   const [error, setError] = useState<string | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const attachmentsDisabled =
+    !can('attachments.stage') || draft.attachments.length >= MAX_ATTACHMENTS
   const update = (next: RemoteDraft) => {
     setDraft(next)
     try {
@@ -664,21 +668,31 @@ function RemoteComposer({
           </p>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="mr-auto text-xs text-fg-muted">
-            {machine.name} · Host workspace
+          <div className="mr-auto flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              type="button"
+              disabled={attachmentsDisabled}
+              onClick={() => fileInput.current?.click()}
+            >
+              <ImagePlus className="size-3.5" aria-hidden="true" />
+              Attach image
+            </Button>
+            <span className="text-xs text-fg-muted">{machine.name} · Host workspace</span>
             <input
+              ref={fileInput}
               type="file"
               aria-label="Attach image to host session"
               accept="image/png,image/jpeg,image/gif,image/webp"
-              className="mt-1 block max-w-48 text-xs"
-              disabled={!can('attachments.stage') || draft.attachments.length >= MAX_ATTACHMENTS}
+              className="hidden"
+              disabled={attachmentsDisabled}
               onChange={(event) => {
                 const file = event.target.files?.[0]
                 event.target.value = ''
                 if (file) void stage(file).catch((error: unknown) => setError(messageOf(error)))
               }}
             />
-          </label>
+          </div>
           <Button
             size="sm"
             disabled={
