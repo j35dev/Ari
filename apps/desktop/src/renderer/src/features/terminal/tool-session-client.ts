@@ -16,9 +16,7 @@ import {
 registerSessionCacheInvalidator(forgetMachineTerminals)
 
 function refuse(client: SessionClient, reason: string): SessionClient {
-  const reject = async (): Promise<never> => {
-    throw new Error(reason)
-  }
+  const reject = (): Promise<never> => Promise.reject(new Error(reason))
   return {
     ...client,
     availability: 'unavailable',
