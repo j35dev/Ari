@@ -39,6 +39,7 @@ interface MachinesState {
   local: MachinesLocalSnapshot | null
   localModels: RemoteModelCatalog | null
   inventories: ReadonlyMap<string, MachineInventory>
+  inventoryReady: boolean
   resources: ReadonlyMap<string, RemoteHostResources | null>
   /** Authenticated demand only: explicit Auto setup/reselection and pre-Send validation. */
   refreshResources: (hostIds: readonly string[]) => Promise<ReadonlyMap<string, RemoteHostResources | null>>
@@ -50,6 +51,7 @@ const Context = createContext<MachinesState>({
   error: null,
   refresh: () => Promise.resolve(),
   local: null, localModels: null, inventories: new Map(),
+  inventoryReady: false,
   resources: new Map(), refreshResources: async () => new Map(),
   preferences: { autoEnabled: false, hostTiers: {}, projectHosts: {} },
   refreshInventory: () => Promise.resolve(),
@@ -61,6 +63,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const [local, setLocal] = useState<MachinesLocalSnapshot | null>(null)
   const [localModels, setLocalModels] = useState<RemoteModelCatalog | null>(null)
   const [inventories, setInventories] = useState<ReadonlyMap<string, MachineInventory>>(new Map())
+  const [inventoryReady, setInventoryReady] = useState(false)
   const [resources, setResources] = useState<ReadonlyMap<string, RemoteHostResources | null>>(new Map())
   const resourceGenerations = useRef(new Map<string, number>())
   const [preferences, setPreferences] = useState<MachinesPreferences>({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
@@ -145,6 +148,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
     ])
     // Inventory carries no resource authorization or sampling side effect.
     if (results[0]?.status === 'rejected' && alive.current && inventoryRevision.current === generation) setLocal(null)
+    if (alive.current && inventoryRevision.current === generation) setInventoryReady(true)
   }, [])
   const refreshResources = useCallback(async (hostIds: readonly string[]) => {
     const sampled = new Map<string, RemoteHostResources | null>()
@@ -173,6 +177,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   }, [])
   const machineGeneration = machines.map((machine) => `${machine.id}:${machine.status}:${machine.identity?.machineId ?? ''}`).join('|')
   useEffect(() => {
+    setInventoryReady(false)
     const allowed = new Set(machines.filter((machine) => !['revoked', 'unpaired'].includes(machine.status)).map((machine) => machine.id))
     setInventories((old) => new Map([...old].filter(([id]) => allowed.has(id))))
     void refreshInventory()
@@ -196,7 +201,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       clearInterval(timer)
     }
   }, [refresh, acceptMachines])
-  return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, resources, refreshResources, preferences, refreshInventory }}>{children}</Context.Provider>
+  return <Context.Provider value={{ machines, error, refresh, local, localModels, inventories, inventoryReady, resources, refreshResources, preferences, refreshInventory }}>{children}</Context.Provider>
 }
 
 export const useMachines = () => useContext(Context)

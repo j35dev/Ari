@@ -620,7 +620,7 @@ export function Composer({
         .then(
           (result) => {
             // Remote paste paths are issued by the owning host, never chosen locally.
-            const hostPath = (result as { path?: string }).path
+            const hostPath = (result as { path?: string } | undefined)?.path
             if (remote && !hostPath) return
             const mention = `@${hostPath ?? decision.path} `
             // Only compact an untouched draft. A captured selection no longer

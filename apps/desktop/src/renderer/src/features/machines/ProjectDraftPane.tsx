@@ -78,9 +78,7 @@ export function ProjectDraftPane({ entry, projects, defaults, createLocal, onCre
     const samples = await latest.current.metadata.refreshResources(hostIds)
     return selectionHosts(entry, latest.current.projects, latest.current.metadata, samples)
   }, [entry])
-  const autoReady = metadata.local !== null && metadata.machines.every((machine) =>
-    machine.status !== 'connected' || !entry.group.checkouts.some((checkout) => checkout.hostId === machine.id) ||
-    metadata.inventories.has(machine.id))
+  const autoReady = metadata.inventoryReady
   return <ProjectDraft draftId={entry.id} group={entry.group} hosts={hosts} initialHostId={entry.initialHostId}
     autoEnabled={metadata.preferences.autoEnabled} autoReady={autoReady} lastManualHostId={metadata.preferences.projectHosts[entry.groupId]}
     clientFor={clientFor} defaultFor={defaultFor} refreshHosts={refreshHosts} onCreated={onCreated} onClose={onClose}
