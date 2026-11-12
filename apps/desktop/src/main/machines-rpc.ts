@@ -68,7 +68,8 @@ export function subscribeMachineStream(
         })
       })
   } else if (params.name === 'machines.updates') {
+    const views = machines.list()
     registry.subscribe({ id: params.id, name: params.name, params: {} })
-    registry.sendTo(params.id, machines.list())
+    registry.sendTo(params.id, views)
   }
 }

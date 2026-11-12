@@ -442,7 +442,9 @@ export class RemoteSession {
   }
 
   #set(state: ConnectionState): ConnectionState {
-    if (['unpaired', 'revoked', 'unknown-device', 'version-mismatch', 'unreachable'].includes(state)) {
+    if (
+      ['unpaired', 'revoked', 'unknown-device', 'version-mismatch', 'unreachable'].includes(state)
+    ) {
       this.#token = null
       this.#client.token = null
       this.#client.lease = null
