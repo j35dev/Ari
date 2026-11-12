@@ -165,7 +165,7 @@ export interface SessionDefaults {
 }
 
 function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
-  const { machines, refreshInventory } = useMachines()
+  const { machines, local, inventoryReady, refreshInventory } = useMachines()
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
@@ -193,7 +193,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const [projectDrafts, setProjectDrafts] = useState<ProjectDraftEntry[]>(draftRegistry.entries)
   const projectDraftsRef = useRef(projectDrafts)
   projectDraftsRef.current = projectDrafts
-  const [onboardingDraft, setOnboardingDraft] = useState<{ projectId: string; generation: number } | null>(null)
+  const [onboardingDraft, setOnboardingDraft] = useState<{
+    projectId: string; generation: number; spaceId: string; paneId: string; sessionId: string | null
+  } | null>(null)
   const [draftHandoff, setDraftHandoff] = useState<{ entry: ProjectDraftEntry; scope: SessionScope; seed: ComposerSeed } | null>(null)
   const [createdSessionKeys, setCreatedSessionKeys] = useState<ReadonlySet<string>>(new Set())
   // Which session is active is now a property of the panes: it is whatever the
@@ -895,8 +897,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     let cancelled = false
     if (onboardingOutcome.driverKind !== null)
       rememberPick({ driverKind: onboardingOutcome.driverKind, modelId: null, effort: null })
-    if (onboardingOutcome.projectId !== null)
-      setOnboardingDraft({ projectId: onboardingOutcome.projectId, generation: navigationGeneration.current })
+    if (onboardingOutcome.projectId !== null) {
+      const owner = splitLayoutSnapshot()
+      setOnboardingDraft({ projectId: onboardingOutcome.projectId, generation: navigationGeneration.current,
+        spaceId: spaceStoreSnapshot().activeSpaceId, paneId: activePaneOf(owner), sessionId: activeSessionOf(owner) })
+    } else setOnboardingDraft(null)
     refreshProjects()
     void refreshInventory()
     void reloadSessions()
@@ -1128,16 +1133,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   }, [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool])
   useEffect(() => {
     if (onboardingDraft === null) return
-    if (onboardingDraft.generation !== navigationGeneration.current) {
+    if (onboardingDraft.generation !== navigationGeneration.current ||
+      onboardingDraft.spaceId !== spaceStore.activeSpaceId || onboardingDraft.paneId !== activePaneOf(layout) ||
+      onboardingDraft.sessionId !== activeSessionOf(layout)) {
       setOnboardingDraft(null)
       return
     }
+    // project.list can win the parallel refresh before repository identity.
+    // Freeze the draft group only after the selected local checkout is catalogued.
+    if (!inventoryReady || !local?.catalog.projects.some((project) => project.id === onboardingDraft.projectId)) return
     const group = navigation.groups.find((entry) => entry.checkouts.some((checkout) =>
       checkout.local && checkout.projectId === onboardingDraft.projectId))
     if (!group) return
     setOnboardingDraft(null)
     openProjectDraft(group, false, 'local')
-  }, [onboardingDraft, navigation.groups, openProjectDraft])
+  }, [onboardingDraft, navigation.groups, openProjectDraft, spaceStore.activeSpaceId, layout, inventoryReady, local])
   const createSession = useCallback((projectId: string, overrides?: Partial<SessionDefaults>) => {
     const group = navigation.groups.find((entry) => entry.id === projectId ||
       entry.checkouts.some((checkout) => checkout.local && checkout.projectId === projectId))

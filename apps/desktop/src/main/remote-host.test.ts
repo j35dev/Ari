@@ -18,6 +18,7 @@ import {
   remoteQuerySchema,
   remoteModelCatalogSchema,
   remoteOperationSchema,
+  machinesExtensionOperationSchema,
   type RemoteCommand,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
@@ -211,7 +212,7 @@ describe('remote host capabilities', () => {
 
 /** Mirrors the contract's own lists, so a typo in a capability is caught here. */
 function commandOrReadExists(op: string): boolean {
-  return remoteOperationSchema.safeParse(op).success
+  return remoteOperationSchema.safeParse(op).success || machinesExtensionOperationSchema.safeParse(op).success
 }
 
 describe('reading sessions', () => {
