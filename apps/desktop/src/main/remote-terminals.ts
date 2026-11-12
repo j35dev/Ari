@@ -56,7 +56,7 @@ export class RemoteTerminals {
     )
     this.#watchdog = setInterval(() => {
       for (const [id, entry] of this.#entries)
-        if (!allowed(entry.deviceId, entry.projectId) || this.#expired(entry)) this.#kill(id)
+        if (!allowed(entry.deviceId, entry.projectId) || this.#expired(entry)) void this.#kill(id)
     }, 1000)
     this.#watchdog.unref()
   }
@@ -117,7 +117,7 @@ export class RemoteTerminals {
       )
         return { ok: false, code: 'not_found', message: 'no such terminal' }
       if (command.op === 'terminal.kill') {
-        this.#kill(command.terminalId)
+        void this.#kill(command.terminalId)
         return { ok: true, result: { killed: true } }
       }
       if (entry.exited)
@@ -184,7 +184,7 @@ export class RemoteTerminals {
 
   #authorizeEntry(caller: RemoteCaller, id: string, entry: Entry): boolean {
     if (this.#expired(entry)) {
-      this.#kill(id)
+      void this.#kill(id)
       return false
     }
     if (
