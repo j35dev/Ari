@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { z } from 'zod'
-import { rpcParams, type RpcMethod, type RpcResults, type SessionEventFrame } from '@ari/contracts/rpc'
+import { rpcParams, type RpcMethod, type SessionEventFrame } from '@ari/contracts/rpc'
 import { attachmentRefSchema } from '@ari/contracts/attachments'
 import { commandSchema } from '@ari/contracts/commands'
 import { machineEventsFrameSchema } from '@ari/contracts/machines'
@@ -94,7 +94,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
     if ('sessionId' in params && params.sessionId !== sessionId) throw new Error('This action belongs to another session.')
     if ('projectId' in params && params.projectId !== undefined) throw new Error('Remote session tools cannot use a client project root.')
   }
-  const invoke = async <M extends RpcMethod>(method: M, raw?: unknown): Promise<RpcResults[M]> => {
+  const invoke = async (method: RpcMethod, raw?: unknown): Promise<unknown> => {
     const p = (rpcParams[method].parse(raw) ?? {}) as Record<string, unknown>
     assertSession(p)
     let result: unknown
@@ -206,8 +206,10 @@ export function createSessionClient(requested: SessionScope): SessionClient {
     }
     return result
   }
+  // Each branch validates its wire DTO; bind the finite normal RPC vocabulary once at this seam.
+  const typedInvoke = invoke as SessionClient['invoke']
   const client: SessionClient = {
-    scope, viewKey, invoke,
+    scope, viewKey, invoke: typedInvoke,
     get authorizationEpoch() { return machineEpoch(machineId) },
     get availability() {
       const machine = sessionMachine(machineId)
@@ -223,7 +225,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
       return resolveReceipt(machineId, receiptScope)
     },
     async reconnect() { await localRpc.invoke('machines.connect', { machineId }); await refreshMachineInventory() },
-    async stageImages(files) { return (await invoke('attachments.stage', { files: await encodeImages(files) })).attachments },
+    async stageImages(files) { return (await typedInvoke('attachments.stage', { files: await encodeImages(files) })).attachments },
     subscribe(name, params, onEvent) {
       if (name !== 'session.events') return () => {}
       assertSession(params)
