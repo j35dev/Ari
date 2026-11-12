@@ -1,0 +1,248 @@
+{
+  "stage": "recovery",
+  "profile": "D:/Projects/.ari-cache/tmp/mobile-review-AJgy6E",
+  "sourceCommit": "679e0bd3004717aa3881f3faedb11538277f7dc8",
+  "source": "local read-only component fixtures",
+  "results": [
+    {
+      "filename": "360-light-session-uncertain.png",
+      "width": 360,
+      "theme": "light",
+      "view": "session-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-light-new-uncertain.png",
+      "width": 360,
+      "theme": "light",
+      "view": "new-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-light-fork-uncertain.png",
+      "width": 360,
+      "theme": "light",
+      "view": "fork-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-light-integration-uncertain.png",
+      "width": 360,
+      "theme": "light",
+      "view": "integration-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-light-terminal-uncertain.png",
+      "width": 360,
+      "theme": "light",
+      "view": "terminal-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 2
+    },
+    {
+      "filename": "360-light-new-empty.png",
+      "width": 360,
+      "theme": "light",
+      "view": "new-empty",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 0
+    },
+    {
+      "filename": "360-dark-session-uncertain.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "session-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-dark-new-uncertain.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "new-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-dark-fork-uncertain.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "fork-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-dark-integration-uncertain.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "integration-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "360-dark-terminal-uncertain.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "terminal-uncertain",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 2
+    },
+    {
+      "filename": "360-dark-new-empty.png",
+      "width": 360,
+      "theme": "dark",
+      "view": "new-empty",
+      "scrollWidth": 360,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 0
+    },
+    {
+      "filename": "390-light-session-uncertain.png",
+      "width": 390,
+      "theme": "light",
+      "view": "session-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-light-new-uncertain.png",
+      "width": 390,
+      "theme": "light",
+      "view": "new-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-light-fork-uncertain.png",
+      "width": 390,
+      "theme": "light",
+      "view": "fork-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-light-integration-uncertain.png",
+      "width": 390,
+      "theme": "light",
+      "view": "integration-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-light-terminal-uncertain.png",
+      "width": 390,
+      "theme": "light",
+      "view": "terminal-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 2
+    },
+    {
+      "filename": "390-light-new-empty.png",
+      "width": 390,
+      "theme": "light",
+      "view": "new-empty",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 0
+    },
+    {
+      "filename": "390-dark-session-uncertain.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "session-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-dark-new-uncertain.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "new-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-dark-fork-uncertain.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "fork-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-dark-integration-uncertain.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "integration-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 1
+    },
+    {
+      "filename": "390-dark-terminal-uncertain.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "terminal-uncertain",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 2
+    },
+    {
+      "filename": "390-dark-new-empty.png",
+      "width": 390,
+      "theme": "dark",
+      "view": "new-empty",
+      "scrollWidth": 390,
+      "sheetOverflow": 0,
+      "commandCalls": 0,
+      "receiptQueries": 0
+    }
+  ]
+}

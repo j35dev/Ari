@@ -4,6 +4,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import { BottomSheet } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { routeUrl } from '../../lib/routes'
 import { ForkRequestStore, type ForkRequest } from './fork-request'
 
@@ -71,14 +72,15 @@ export function ForkSheet({
       store.write(request)
       setPending(request)
       const { key, ...fields } = request
-      const result = await session.send(
-        { op: 'session.fork', sessionId: parent.id, ...fields },
-        key,
-      )
+      const result =
+        pending !== null
+          ? await checkCommandReceipt(session, key)
+          : await session.send({ op: 'session.fork', sessionId: parent.id, ...fields }, key)
+      if (!alive.current) return
       const id = sessionIdOf(result)
       if (id === null)
         throw new Error(
-          'The desktop did not confirm the child session. Inspect the parent or retry this same fork.',
+          'The desktop did not confirm the child session. Inspect the parent or check its receipt.',
         )
       await app
         .refresh()
@@ -91,9 +93,7 @@ export function ForkSheet({
     } catch (error) {
       if (alive.current)
         setFailure(
-          error instanceof Error
-            ? error.message
-            : 'Could not confirm the fork. Retry checks the same request.',
+          error instanceof Error ? error.message : 'Could not confirm the fork. Check its receipt.',
         )
     } finally {
       inFlight.current = false
@@ -103,7 +103,7 @@ export function ForkSheet({
   return (
     <BottomSheet title="Fork session" onClose={onClose}>
       <form
-        className="space-y-4 py-3"
+        className="min-w-0 space-y-4 py-3"
         onSubmit={(event) => {
           event.preventDefault()
           void fork()
@@ -125,7 +125,7 @@ export function ForkSheet({
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="block text-xs text-fg-muted">
+          <label className="block min-w-0 text-xs text-fg-muted">
             Agent
             <select
               value={provider}
@@ -135,7 +135,7 @@ export function ForkSheet({
                 setModel(next === parent.driverKind ? (parent.modelId ?? '') : '')
               }}
               disabled={locked}
-              className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
+              className="mt-2 min-h-12 w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 text-fg"
             >
               {!app.catalog?.providers.some((entry) => entry.driverKind === provider) && (
                 <option value={provider}>{provider}</option>
@@ -151,13 +151,13 @@ export function ForkSheet({
               ))}
             </select>
           </label>
-          <label className="block text-xs text-fg-muted">
+          <label className="block min-w-0 text-xs text-fg-muted">
             Model
             <select
               value={model}
               onChange={(event) => setModel(event.target.value)}
               disabled={locked || models.length === 0}
-              className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
+              className="mt-2 min-h-12 w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 text-fg"
             >
               <option value="">
                 {provider === parent.driverKind && parent.modelId !== null
@@ -183,7 +183,7 @@ export function ForkSheet({
             <p>
               {busy
                 ? 'Waiting for your computer to confirm the child task.'
-                : 'This fork has an outstanding receipt. Retry checks the same request.'}
+                : 'This fork has an outstanding receipt. Check the original request.'}
             </p>
             <p className="mt-2">
               Your agent may need native approval. Creation can wait up to five minutes; you can
@@ -212,7 +212,7 @@ export function ForkSheet({
           className="primary-button w-full"
           disabled={busy || !connected || !title.trim() || title.trim().length > 120}
         >
-          {busy ? 'Waiting for desktop…' : pending !== null ? 'Retry same fork' : 'Create fork'}
+          {busy ? 'Waiting for desktop…' : pending !== null ? 'Check fork receipt' : 'Create fork'}
         </button>
       </form>
     </BottomSheet>
