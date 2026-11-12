@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { cpus, freemem, totalmem } from 'node:os'
-import { realpath } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { cpus, freemem, totalmem, type CpuInfo } from 'node:os'
+import { open, realpath } from 'node:fs/promises'
+import { setTimeout as pause } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import { GitService, RepositoryGit } from '@ari/engine/git'
 import type { Project } from '@ari/contracts/project'
 import type { RemoteHostResources, RemoteProjectWorkspaces, RemoteRepositoryIdentity } from '@ari/contracts/remote'
@@ -62,33 +65,79 @@ export async function readRepositoryIdentity(path: string): Promise<RemoteReposi
   return repositoryIdentityFromRemotes(remotes)
 }
 
-type CpuSample = { at: number; idle: number; total: number; count: number }
-export class HostResourceSampler {
-  #last: CpuSample | null = null
-  #value: RemoteHostResources | null = null
-  constructor(readonly now: () => number = Date.now) {}
-  read(): RemoteHostResources {
-    const at = this.now()
-    if (this.#value && at - (this.#value.sampledAt ?? 0) < 1000) return this.#value
-    const unavailable = (reason: string): RemoteHostResources => ({ status: 'unavailable', sampledAt: at,
-      cpuUtilization: null, cpuCount: null, availableMemoryBytes: null, totalMemoryBytes: null, reason })
+const run = promisify(execFile)
+export interface HostResourceSources {
+  now(): number
+  cpus(): Pick<CpuInfo, 'times'>[]
+  memory(): Promise<{ available: number; total: number }>
+  pause(ms: number): Promise<unknown>
+}
+
+async function hostMemory(): Promise<{ available: number; total: number }> {
+  const total = totalmem()
+  if (process.platform === 'win32') return { available: freemem(), total }
+  if (process.platform === 'linux') {
+    const handle = await open('/proc/meminfo', 'r')
     try {
-      const values = cpus()
-      const sample = values.reduce((sum, cpu) => ({ ...sum, idle: sum.idle + cpu.times.idle,
-        total: sum.total + Object.values(cpu.times).reduce((a, b) => a + b, 0) }),
-        { at, idle: 0, total: 0, count: values.length })
-      const previous = this.#last
-      this.#last = sample
-      const memory = totalmem()
-      const available = freemem()
-      if (!previous || at - previous.at < 250 || sample.count !== previous.count || sample.total <= previous.total || memory <= 0)
-        return this.#value = unavailable('Waiting for a CPU sample.')
-      const delta = sample.total - previous.total
-      const idle = sample.idle - previous.idle
-      if (idle < 0 || idle > delta || available < 0 || available > memory) return this.#value = unavailable('Resource counters are unavailable.')
-      return this.#value = { status: 'available', sampledAt: at, cpuUtilization: 1 - idle / delta,
-        cpuCount: sample.count, availableMemoryBytes: available, totalMemoryBytes: memory, reason: null }
-    } catch { return this.#value = unavailable('Resource counters are unavailable.') }
+      const buffer = Buffer.alloc(16 * 1024 + 1)
+      const { bytesRead } = await handle.read(buffer)
+      if (bytesRead > 16 * 1024) throw new Error('memory report exceeds bound')
+      const available = /^MemAvailable:\s+(\d+) kB$/m.exec(buffer.subarray(0, bytesRead).toString('utf8'))
+      if (!available) throw new Error('available memory is unknown')
+      return { available: Number(available[1]) * 1024, total }
+    } finally { await handle.close() }
+  }
+  if (process.platform === 'darwin') {
+    const { stdout } = await run('/usr/bin/vm_stat', [], { timeout: 2000, maxBuffer: 16 * 1024, windowsHide: true })
+    const pageSize = /page size of (\d+) bytes/.exec(stdout)
+    const pages = ['free', 'inactive', 'speculative'].map((kind) =>
+      new RegExp(`^Pages ${kind}:\\s+(\\d+)\\.$`, 'm').exec(stdout)?.[1])
+    if (!pageSize || pages.some((value) => value === undefined)) throw new Error('available memory is unknown')
+    return { available: pages.reduce((sum, value) => sum + Number(value), 0) * Number(pageSize[1]), total }
+  }
+  throw new Error('available memory is unsupported')
+}
+
+/** Demand-only, one in-flight measurement shared by local/direct/managed reads. */
+export class HostResourceSampler {
+  #value: RemoteHostResources | null = null
+  #pending: Promise<RemoteHostResources> | null = null
+  constructor(readonly sources: HostResourceSources = { now: Date.now, cpus, memory: hostMemory, pause }) {}
+  read(): Promise<RemoteHostResources> {
+    const age = this.sources.now() - (this.#value?.sampledAt ?? 0)
+    if (this.#value && age >= 0 && age < 5000) return Promise.resolve(this.#value)
+    if (this.#pending) return this.#pending
+    this.#pending = this.#sample().then((value) => { this.#value = value; return value }).finally(() => { this.#pending = null })
+    return this.#pending
+  }
+  async #sample(): Promise<RemoteHostResources> {
+    const unavailable = (): RemoteHostResources => ({ status: 'unavailable', sampledAt: this.sources.now(),
+      cpuUtilization: null, cpuCount: null, availableMemoryBytes: null, totalMemoryBytes: null, reason })
+    const reason = 'Resource counters are unavailable.'
+    try {
+      const before = this.sources.cpus().map((cpu) => ({ ...cpu.times }))
+      await this.sources.pause(250)
+      const after = this.sources.cpus()
+      if (!before.length || before.length > 4096 || after.length !== before.length) return unavailable()
+      let totalDelta = 0
+      let idleDelta = 0
+      for (let index = 0; index < before.length; index++) {
+        for (const key of ['user', 'nice', 'sys', 'idle', 'irq'] as const) {
+          const previous = before[index]![key]
+          const current = after[index]!.times[key]
+          if (!Number.isFinite(current) || !Number.isFinite(previous) || previous < 0 || current < previous) return unavailable()
+          const delta = current - previous
+          totalDelta += delta
+          if (key === 'idle') idleDelta += delta
+        }
+      }
+      const memory = await this.sources.memory()
+      if (!Number.isFinite(totalDelta) || totalDelta <= 0 ||
+        !Number.isSafeInteger(memory.total) || !Number.isSafeInteger(memory.available) ||
+        memory.total <= 0 || memory.available < 0 || memory.available > memory.total) return unavailable()
+      return { status: 'available', sampledAt: this.sources.now(), cpuUtilization: 1 - idleDelta / totalDelta,
+        cpuCount: after.length, availableMemoryBytes: memory.available, totalMemoryBytes: memory.total, reason: null }
+    } catch { return unavailable() }
   }
 }
 

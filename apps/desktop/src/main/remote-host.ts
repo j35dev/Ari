@@ -58,7 +58,6 @@ function desktopEvent(event: JournalEvent): JournalEvent {
 }
 
 const defaultResources = new HostResourceSampler()
-defaultResources.read()
 
 export interface RemoteDesktopDeps {
   projects: () => Promise<Project[]>
@@ -614,6 +613,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     listSessions,
     listProjects,
     getSession,
+    sessionVisible: async (caller, sessionId) => (await visible(caller, sessionId)) !== undefined,
     desktopEvent,
     desktopReplayState: async (caller, sessionId) => {
       const state = await store.readReplayState(sessionId, () => engine.liveTurnId(sessionId))

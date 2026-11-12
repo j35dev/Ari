@@ -43,11 +43,17 @@ export function TerminalPane({
   onError?: (message: string) => void
 }) {
   const owner = findTerminalTab(terminalId)?.owner
-  const scopeKey = owner?.kind === 'remote' ? JSON.stringify([owner.machineId, owner.sessionId])
-    : terminalId.startsWith('rterm_') ? '["invalid"]' : undefined
+  const scopeKey =
+    owner?.kind === 'remote'
+      ? JSON.stringify([owner.machineId, owner.sessionId])
+      : terminalId.startsWith('rterm_')
+        ? '["invalid"]'
+        : undefined
   const sessionClient = useToolSessionClient(scopeKey)
-  const rpc = useMemo(() => createTerminalSessionAdapter(sessionClient),
-    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability])
+  const rpc = useMemo(
+    () => createTerminalSessionAdapter(sessionClient),
+    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability],
+  )
   const remote = sessionClient.scope.kind === 'remote' || terminalId.startsWith('rterm_')
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -165,7 +171,12 @@ export function TerminalPane({
           if (!remote && initialCommand !== undefined && initialCommand.length > 0) {
             await rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
           }
-          if (remote) await rpc.invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
+          if (remote)
+            await rpc.invoke('terminal.resize', {
+              id: terminalId,
+              cols: term.cols,
+              rows: term.rows,
+            })
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
@@ -174,7 +185,13 @@ export function TerminalPane({
         })
 
     const dataSub = rpc.subscribe('terminal.data', { id: terminalId }, (payload) => {
-      const frame = payload as { id: string; data: string; reset?: boolean; exited?: boolean; error?: string }
+      const frame = payload as {
+        id: string
+        data: string
+        reset?: boolean
+        exited?: boolean
+        error?: string
+      }
       if (frame.id !== terminalId) return
       if (frame.reset) term.reset()
       if (frame.error || frame.exited) {
@@ -189,7 +206,8 @@ export function TerminalPane({
       void rpc.invoke('terminal.write', { id: terminalId, data }).catch((error: unknown) => {
         if (!remote) return
         term.options.disableStdin = true
-        const message = error instanceof Error ? error.message : 'The terminal action could not be confirmed.'
+        const message =
+          error instanceof Error ? error.message : 'The terminal action could not be confirmed.'
         term.writeln(`\r\n[${message}]`)
         onErrorRef.current?.(message)
       })

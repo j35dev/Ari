@@ -50,6 +50,8 @@ export interface RemoteCaller {
  * control socket (ADR §19).
  */
 export interface RemoteHost {
+  /** Authorization only; does not require a transcript or an extant terminal handle. */
+  sessionVisible?(caller: RemoteCaller, sessionId: string): Promise<boolean>
   /**
    * Which operations this host can actually serve right now. Operations tied
    * to a provider or to a session's state are absent when unavailable, so a
