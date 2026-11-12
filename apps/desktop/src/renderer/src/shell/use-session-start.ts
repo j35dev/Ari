@@ -161,13 +161,27 @@ export function useSessionStart(options: {
         attempt.intent.dispose()
         return
       }
-      const reusable =
+      let reusable =
         attempt.reusableId ??
         (attempt.allowReuse && !attempt.effective.lead
           ? latest.current.sessions.find(
               (session) => session.projectId === attempt.projectId && session.messageCount === 0,
             )?.id
           : undefined)
+      if (reusable) {
+        const workspace = await rpc.invoke('session.workspace', {
+          sessionId: reusable,
+          checkOccupancy: true,
+        })
+        if (workspace.busyReason) {
+          reusable = undefined
+          attempt.reusableId = undefined
+        }
+        if (!attempt.intent.isCurrent() || !mounted.current) {
+          attempt.intent.dispose()
+          return
+        }
+      }
       let sessionId: string
       let reseeded = false
       if (reusable) {

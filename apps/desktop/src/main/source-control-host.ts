@@ -192,6 +192,7 @@ export class SourceControlHost {
         const model = scope.sessionId ? await this.deps.session(scope.sessionId) : null
         return ok({
           status: status.value,
+          workspace: { kind: model?.session?.workspace?.kind ?? 'project', path: review.git.cwd },
           refs: refs.value,
           ...history.value,
           turns:

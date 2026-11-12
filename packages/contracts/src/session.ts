@@ -102,6 +102,7 @@ export const sessionHierarchySummarySchema = sessionSchema
   .extend({
     lead: z.boolean().optional(),
     workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
+    workspacePath: z.string().nullable().optional(),
     branch: z.string().nullable().optional(),
   })
 export type SessionHierarchySummary = z.infer<typeof sessionHierarchySummarySchema>

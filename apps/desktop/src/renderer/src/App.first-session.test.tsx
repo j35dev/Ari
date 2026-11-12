@@ -689,6 +689,34 @@ describe('explicit first-session focus handoff', () => {
     expect(calls('session.create')).toHaveLength(0)
   })
 
+  it('creates through the root acquisition path when an empty session folder is occupied', async () => {
+    projects = [PROJECT]
+    recordSession({
+      projectId: PROJECT.id,
+      title: 'Empty session',
+      driverKind: 'ari-core',
+      modelId: null,
+      permissionMode: 'ask',
+    })
+    const original = rpcMocks.invoke.getMockImplementation()!
+    rpcMocks.invoke.mockImplementation(async (method: string, params?: unknown) => {
+      if (
+        method === 'session.workspace' &&
+        (params as { checkOccupancy?: boolean } | undefined)?.checkOccupancy
+      )
+        return { path: PROJECT.path, busyReason: 'Working folder is busy with another session.' }
+      return original(method, params)
+    })
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('button', { name: 'Start a new session' })
+    await user.keyboard('{Control>}n{/Control}')
+    await screen.findByRole('textbox', { name: 'Search projects' })
+    await user.keyboard('{Enter}')
+    await vi.waitFor(() => expect(calls('session.create')).toHaveLength(1))
+    expect(paramsOf('session.create')).toMatchObject({ projectId: PROJECT.id })
+  })
+
   it('does not revive a handoff after deliberate focus elsewhere returns to the body', async () => {
     replayAutomatically = false
     await welcome()

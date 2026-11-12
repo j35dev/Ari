@@ -1190,6 +1190,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    authorizeWorkspace: async (session) => (await controlReady).service.authorizeWorkspace(session),
     turnContext: async (session) => {
       if (!isHelmSession(session)) return null
       const rows = await getSessionStore().listSessions()
@@ -1246,6 +1247,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const sessionDeps: SessionCreateDeps = {
     loadProject,
     createSession: (session) => engine.createSession(session),
+    prepareRootWorkspace: async (session, mode) =>
+      (await controlReady).prepareRootWorkspace(session, mode),
   }
   // An archive follows a session's delegated children, and archived runs lose
   // their control grants.
@@ -1905,12 +1908,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return model.session ? model : null
   })
 
-  r.register('session.workspace', async ({ sessionId }) => {
+  r.register('session.workspace', async ({ sessionId, checkOccupancy }) => {
     const viewedAt = Date.now()
     const { session } = await getSessionStore().load(sessionId)
     // The shell requests this when its selected session changes, including restored panes.
     if (session) projectSelection.record(session.projectId, viewedAt)
-    return { path: session ? await engine.workspace(session) : null }
+    return {
+      path: session ? await engine.workspace(session) : null,
+      ...(checkOccupancy
+        ? {
+            busyReason: session
+              ? await (await controlReady).service.authorizeWorkspace(session)
+              : null,
+          }
+        : {}),
+    }
   })
 
   r.register('session.tasks', async ({ sessionId }) =>
