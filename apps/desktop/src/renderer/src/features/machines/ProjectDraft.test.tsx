@@ -37,6 +37,7 @@ beforeEach(() => {
     checkCreate: vi.fn(async () => null), checkPrompt: vi.fn(async () => false),
   }
   props = { draftId: 'draft-one', group, hosts: [host('local'), host('host-a'), host('host-b')],
+    refreshHosts: vi.fn(async () => props.hosts),
     autoEnabled: false, clientFor: () => client, defaultFor: () => pick, onRememberHost: vi.fn(),
     onCreated: vi.fn(), onClose: vi.fn() }
 })
@@ -64,22 +65,26 @@ describe('project draft with normal Composer', () => {
   })
   it('leaves Auto stable through resource refresh and recomputes only when reselected', async () => {
     const user = userEvent.setup()
-    const view = render(<ProjectDraft {...props} autoEnabled hosts={[host('host-a', 0.1), host('host-b', 0.5)]} />)
+    props.hosts = [host('host-a', 0.1), host('host-b', 0.5)]
+    const view = render(<ProjectDraft {...props} autoEnabled />)
     await screen.findByRole('option', { name: 'Main branch' })
     const originalReason = screen.getByText(/10% CPU/).textContent
-    view.rerender(<ProjectDraft {...props} autoEnabled hosts={[host('host-a', 0.6), host('host-b', 0.05)]} />)
+    expect(props.refreshHosts).toHaveBeenCalledOnce()
+    props.hosts = [host('host-a', 0.6), host('host-b', 0.05)]
+    view.rerender(<ProjectDraft {...props} autoEnabled />)
     expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('Auto · host-a')
     expect(screen.getByText(/10% CPU/).textContent).toBe(originalReason)
     await user.click(screen.getByRole('button', { name: 'Execution machine' }))
     await user.click(screen.getByRole('menuitem', { name: /Auto/ }))
-    expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('Auto · host-b')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('Auto · host-b'))
+    expect(props.refreshHosts).toHaveBeenCalledTimes(2)
     expect(client.create).not.toHaveBeenCalled()
   })
   it('requires manual selection when Auto resources are busy or stale, while keeping a busy manual host usable', async () => {
     const user = userEvent.setup()
     props.hosts = [host('host-a', 0.9), { ...host('host-b'), resources: { ...host('host-b').resources!, sampledAt: Date.now() - 60_000 } }]
     render(<ProjectDraft {...props} autoEnabled />)
-    expect(screen.getByText(/Select a machine manually/)).toBeInTheDocument()
+    await screen.findByText(/Select a machine manually/)
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Do this')
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(client.create).not.toHaveBeenCalled()
@@ -99,6 +104,49 @@ describe('project draft with normal Composer', () => {
     expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('host-a')
     expect(screen.getByRole('button', { name: 'Execution machine' })).toBeDisabled()
     expect(client.create).not.toHaveBeenCalled()
+  })
+  it('samples only eligible Auto candidates and waits for default-Auto metadata once', async () => {
+    props.hosts = [host('host-a'), { ...host('host-b'), preference: 'manual-only' },
+      { ...host('local'), connected: false }]
+    const view = render(<ProjectDraft {...props} autoEnabled autoReady={false} />)
+    expect(props.refreshHosts).not.toHaveBeenCalled()
+    view.rerender(<ProjectDraft {...props} autoEnabled autoReady />)
+    await screen.findByRole('option', { name: 'Main branch' })
+    expect(props.refreshHosts).toHaveBeenCalledWith(['host-a'])
+    view.rerender(<ProjectDraft {...props} autoEnabled autoReady />)
+    expect(props.refreshHosts).toHaveBeenCalledOnce()
+  })
+  it('samples only the fixed Auto host before Send, refuses busy without a receipt, and allows a manual send', async () => {
+    const user = userEvent.setup()
+    props.hosts = [host('host-a', 0.1), host('host-b', 0.2)]
+    render(<ProjectDraft {...props} autoEnabled />)
+    await screen.findByRole('option', { name: 'Main branch' })
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Original Auto prompt')
+    vi.mocked(props.refreshHosts).mockResolvedValue([host('host-a', 0.95), host('host-b', 0.01)])
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await screen.findByText(/Busy — select a machine manually/)
+    expect(props.refreshHosts).toHaveBeenLastCalledWith(['host-a'])
+    expect(client.create).not.toHaveBeenCalled()
+    expect(localStorage.getItem('ari.machines.projectDraft.attempt.v1:draft-one')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('Auto · host-a')
+    await user.click(screen.getByRole('button', { name: 'Execution machine' }))
+    await user.click(screen.getByRole('menuitem', { name: 'host-a' }))
+    await screen.findByRole('option', { name: 'Main branch' })
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledOnce())
+    expect(props.refreshHosts).toHaveBeenCalledTimes(2)
+    expect(client.create).toHaveBeenCalledOnce()
+  })
+  it('does not reselect a restored Auto choice from cached resources', async () => {
+    localStorage.setItem('ari.machines.projectDraft.choice.v1:draft-one', JSON.stringify({ groupId: group.id,
+      selection: { mode: 'auto', hostId: 'host-a', reason: 'Original choice' }, checkoutId: 'project-host-a',
+      workspaceLocked: false, pick }))
+    props.hosts = [host('host-a', 0.8), host('host-b', 0.01)]
+    render(<ProjectDraft {...props} autoEnabled />)
+    await screen.findByRole('option', { name: 'Main branch' })
+    expect(props.refreshHosts).not.toHaveBeenCalled()
+    expect(screen.getByText('Original choice')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Execution machine' })).toHaveTextContent('host-a')
   })
   it('retains the original receipt and text through repeated unknown creation checks without retry', async () => {
     vi.mocked(client.create).mockRejectedValue(new Error('Acknowledgement lost'))

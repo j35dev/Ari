@@ -89,5 +89,6 @@ export function selectAutoHost(hosts: readonly SelectionHost[], now = Date.now()
 /** Auto dispatch checks the original host; it never substitutes or queues. */
 export function validateSelection(host: SelectionHost | undefined, auto: boolean, now = Date.now()): string | null {
   if (!host) return 'The selected machine is no longer available.'
+  if (auto && host.preference === 'manual-only') return 'This machine requires manual selection.'
   return manualEligibility(host) ?? (auto ? resourceEligibility(host, now) : null)
 }

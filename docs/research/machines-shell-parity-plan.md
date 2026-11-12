@@ -107,6 +107,25 @@ eligibility loss retains that selection and reports the reason. Resources are
 memory-only and not restored from storage, so an app restart cannot make old
 samples fresh. Restored Auto choices still require a fresh sample before Send.
 
+Background inventory/catalog refreshes never sample CPU or memory. The separate
+`useMachines().refreshResources(hostIds)` reads only requested authenticated hosts;
+local demand uses `machines.localSnapshot({sampleResources:true})`, while omitted
+params return metadata without sampling. Explicit Auto or default-Auto draft setup
+waits for catalogs/permission metadata and samples eligible candidates once.
+Pre-Send re-samples only the fixed Auto host. Busy/missing/refused resources stop
+before receipt persistence or creation, retain text and allow manual selection.
+Disconnect/revoke/removal/identity change invalidates in-flight samples and cache.
+
+## Composer input ownership
+
+Normal session paste writes go through the owning SessionClient with wire IDs.
+Remote `pastes.stage` supplies the resulting path; unknown writes retain inline
+text and never call a local filesystem fallback or retry. Remote/unresolved drafts
+retain text and image bytes until their first-send facade stages on the fixed host.
+Remote drafts/sessions do not mount SpeechButton or resolve OS file paths from
+paste/drop. In-app drags include `FILE_SCOPE_MIME`; only the owning view key can
+insert a remote file reference. Legacy unscoped local drags remain supported.
+
 Inventories are bounded by host schemas. Offline/incompatible presentation may
 retain last-known projects/sessions, while catalog/permissions/resources failures
 block new work. Explicit revoke/removal/public-identity mismatch purges the

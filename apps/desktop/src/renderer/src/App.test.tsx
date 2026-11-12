@@ -90,11 +90,12 @@ const rpcMocks = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => undefined),
 }))
 
-vi.mock('./lib/rpc', () => ({ rpc: { ...rpcMocks, invoke: (method: string, params?: unknown) => {
+vi.mock('./lib/rpc', () => ({ rpc: { ...rpcMocks, invoke: (...args: [string, unknown?]) => {
+  const [method] = args
   if (method === 'machines.list') return Promise.resolve([])
   if (method === 'machines.preferences') return Promise.resolve({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
   if (method === 'machines.localSnapshot') return Promise.resolve(appSnapshot())
-  return rpcMocks.invoke(method, params)
+  return rpcMocks.invoke(...args)
 } } }))
 function appSnapshot() {
   const snapshot = localSnapshotFixture()
@@ -1304,6 +1305,8 @@ describe('Shell live sidebar feed', () => {
               ]
         case 'session.create':
           return { sessionId: 'sess_new' }
+        case 'command.dispatch':
+          return { accepted: true }
         case 'project.list':
           return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
         case 'providers.detect':

@@ -19,7 +19,7 @@ import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
-import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
+import { FILE_MIME, FILE_SCOPE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { promptHistory, stepPromptHistory } from './prompt-history'
@@ -33,7 +33,7 @@ import {
   type DraftImage,
   type DraftDelivery,
 } from './draft-recovery-store'
-import { rpc } from '../../lib/rpc'
+import { parseSessionViewKey, useSessionClient } from '../session/session-client'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -116,6 +116,8 @@ export interface ComposerProps {
   belowControls?: React.ReactNode
   /** Drafts retain large pasted text locally until the host session exists. */
   draftOnly?: boolean
+  /** A remote or unresolved project draft cannot use this PC's input services. */
+  remoteInput?: boolean
   placeholder?: string
   disabled?: boolean
   /** Draft injection from outside (edit a transcript message); see {@link ComposerSeed}. */
@@ -181,6 +183,7 @@ export function Composer({
   leading,
   belowControls,
   draftOnly = false,
+  remoteInput = false,
   placeholder = 'Ask anything, @ for files, / for commands…',
   disabled = false,
   seed,
@@ -194,6 +197,13 @@ export function Composer({
   recoveries = NO_RECOVERIES,
   onRecover,
 }: ComposerProps) {
+  const client = useSessionClient()
+  const inputScope = sessionId ? parseSessionViewKey(sessionId) : null
+  const remote = remoteInput || client.scope.kind === 'remote' || inputScope?.kind === 'remote'
+  const scopedRemote = client.scope.kind === 'remote' &&
+    (sessionId === client.viewKey || sessionId === client.scope.sessionId)
+  const [inputIssue, setInputIssue] = useState<string | null>(null)
+  useEffect(() => setInputIssue(null), [sessionId, remote])
   const {
     draft: text,
     setDraft: setText,
@@ -550,18 +560,20 @@ export function Composer({
     () => () => {
       pasteGenerationRef.current += 1
     },
-    [sessionId],
+    [sessionId, client.viewKey],
   )
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (e.clipboardData.files.length > 0) {
+        e.preventDefault()
         const files = Array.from(e.clipboardData.files)
         const images = files.filter((file) => file.type.startsWith('image/'))
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
-        if (others.length > 0) {
+        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
         }
@@ -590,7 +602,7 @@ export function Composer({
       if (decision.action === 'inline') return
       e.preventDefault()
       // No session means no workspace to write into, so the text stays inline.
-      if (sessionId === undefined || draftOnly) {
+      if (sessionId === undefined || draftOnly || (remote && !scopedRemote)) {
         insertRange(start, end, pasted)
         return
       }
@@ -599,15 +611,18 @@ export function Composer({
       const inlineDraft = text.slice(0, start) + pasted + text.slice(end)
       insertRange(start, end, pasted)
       const generation = pasteGenerationRef.current
-      const mention = `@${decision.path} `
-      void rpc
+      void client
         .invoke('fs.writeTextFile', {
-          sessionId,
+          sessionId: scopedRemote ? client.scope.sessionId : sessionId,
           path: decision.path,
           content: decision.content,
         })
         .then(
-          () => {
+          (result) => {
+            // Remote paste paths are issued by the owning host, never chosen locally.
+            const hostPath = (result as { path?: string }).path
+            if (remote && !hostPath) return
+            const mention = `@${hostPath ?? decision.path} `
             // Only compact an untouched draft. A captured selection no longer
             // names the same text after an edit, send, or replacement seed.
             if (pasteGenerationRef.current !== generation) return
@@ -630,7 +645,7 @@ export function Composer({
           },
         )
     },
-    [addFiles, caret, insertAtCaret, insertRange, sessionId, setText, text],
+    [addFiles, caret, client, draftOnly, insertAtCaret, insertRange, remote, scopedRemote, sessionId, setText, text],
   )
 
   const handleDrop = useCallback(
@@ -639,6 +654,11 @@ export function Composer({
       const path = readDragFilePath(e)
       if (path !== null) {
         e.preventDefault()
+        const owner = e.dataTransfer.getData(FILE_SCOPE_MIME)
+        if (remote ? !scopedRemote || owner !== client.viewKey : owner.length > 0 && owner !== client.viewKey) {
+          setInputIssue('This file reference belongs to another workspace. Choose a file on the owning machine.')
+          return
+        }
         const insert = `@${path} `
         const nextCaret = caret + insert.length
         setText((prev) => prev.slice(0, caret) + insert + prev.slice(caret))
@@ -653,13 +673,14 @@ export function Composer({
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file drops outside the image path land as prompt paths.
-        if (others.length > 0) {
+        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
         }
       }
     },
-    [addFiles, caret, insertAtCaret],
+    [addFiles, caret, client, insertAtCaret, remote, scopedRemote],
   )
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
@@ -964,7 +985,7 @@ export function Composer({
               resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
             }
           >
-            <SpeechButton
+            {!remote && <SpeechButton
               key={sessionId ?? ''}
               captureTarget={() => {
                 const input = textareaRef.current
@@ -972,7 +993,7 @@ export function Composer({
                 return captureTextTarget(input)
               }}
               disabled={disabled}
-            />
+            />}
             <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
@@ -1121,6 +1142,7 @@ export function Composer({
         </div>
       </div>
       {belowControls && <div className="pt-2">{belowControls}</div>}
+      {inputIssue && <p role="status" className="pt-2 text-xs text-fg-subtle">{inputIssue}</p>}
     </div>
   )
 }

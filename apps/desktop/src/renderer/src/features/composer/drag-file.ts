@@ -6,10 +6,12 @@ import type { DragEvent } from 'react'
  * `Files` instead, so the two never collide.
  */
 export const FILE_MIME = 'application/x-ari-file-path'
+export const FILE_SCOPE_MIME = 'application/x-ari-file-scope'
 
 /** Stamps a drag event with the workspace-relative path being dragged. */
-export function setDragFilePath(event: DragEvent<HTMLElement>, path: string): void {
+export function setDragFilePath(event: DragEvent<HTMLElement>, path: string, ownerViewKey?: string): void {
   event.dataTransfer.setData(FILE_MIME, path)
+  if (ownerViewKey) event.dataTransfer.setData(FILE_SCOPE_MIME, ownerViewKey)
   event.dataTransfer.effectAllowed = 'copy'
 }
 
