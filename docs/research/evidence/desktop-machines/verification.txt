@@ -368,16 +368,16 @@ computing gzip size...
 ../../out/machines-fixture/assets/mojo-DJz3ZmWd.js                                           69.52 kB │ gzip:   9.27 kB
 ../../out/machines-fixture/assets/python-B6aJPvgy.js                                         69.95 kB │ gzip:   9.13 kB
 ../../out/machines-fixture/assets/c-BIGW1oBm.js                                              72.11 kB │ gzip:  10.51 kB
-node.exe : 
+node.exe :
 At line:2 char:1
 + & node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs de ...
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
- 
+
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
-- Use build.rollupOptions.output.manualChunks to improve chunking: 
+- Use build.rollupOptions.output.manualChunks to improve chunking:
 https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
 ../../out/machines-fixture/assets/latex-D5pSuvFb.js                                          72.90 kB │ gzip:   6.78 kB
