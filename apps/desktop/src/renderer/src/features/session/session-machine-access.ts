@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 import { machineViewSchema, type MachineView } from '@ari/contracts/machines'
 import { machinesExtensionsSchema, machinesExtensionOperationSchema } from '@ari/contracts/remote'
 import { rpc } from '../../lib/rpc'
@@ -67,7 +67,7 @@ export function machineCapabilityReason(machine: SessionMachine | MachineView | 
       machine.status === 'revoked' ? 'Access to this machine was revoked.' : 'Reconnect to this machine to continue.')
   const extension = machinesExtensionOperationSchema.safeParse(operation)
   if (extension.success) {
-    const identity = machine.identity as SessionMachine['identity']
+    const identity = machine.identity
     return identity?.machinesExtensions?.version === 1 &&
       identity.machinesExtensions.operations.includes(extension.data) ? null :
       'This host does not support this desktop operation. Update the host to enable it.'

@@ -27,6 +27,7 @@ import type { ProviderSwitch } from '../transcript/types'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
+import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import { resolveOfferedModel } from '@ari/providers/catalogs'
 import { SessionClientProvider, createSessionClient, useSessionClient, sessionViewKey, parseSessionViewKey, type SessionScope } from './session-client'
 import { useToast } from '@ari/ui/toast'
@@ -307,7 +308,7 @@ function SessionViewContent({
   const rpc = useSessionClient()
   const viewKey = rpc.viewKey
   const remote = rpc.scope.kind === 'remote'
-  const [hostCatalog, setHostCatalog] = useState<import('@ari/contracts/remote').RemoteModelCatalog | null>(null)
+  const [hostCatalog, setHostCatalog] = useState<RemoteModelCatalog | null>(null)
   useEffect(() => {
     if (rpc.scope.kind !== 'remote' || rpc.readOnly) return
     let cancelled = false

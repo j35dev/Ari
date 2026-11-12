@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  remoteDesktopCommandSchema, remoteDesktopCommandResultSchemas, remoteDesktopQueryResultSchemas,
+  type remoteDesktopCommandSchema, remoteDesktopCommandResultSchemas, remoteDesktopQueryResultSchemas,
   remoteModelCatalogSchema, type RemoteModelCatalog, type RemoteProjectCatalog, type RemoteProjectWorkspaces,
 } from '@ari/contracts/remote'
 import { remoteQuery, sendRemote, readReceipt, resolveReceipt, type RemoteReceipt } from '../machines/remote-client'

@@ -64,8 +64,8 @@ export function createSessionClient(requested: SessionScope): SessionClient {
   if (scope.kind === 'local') {
     return {
       scope, viewKey, availability: 'available', readOnly: false, authorizationEpoch: 0,
-      invoke: localRpc.invoke, subscribe: localRpc.subscribe, capabilityReason: () => null,
-      receipt: () => null, checkReceipt: async () => { throw new Error('Local actions have no remote receipt.') },
+      invoke: (method, params) => localRpc.invoke(method, params), subscribe: (name, params, onEvent) => localRpc.subscribe(name, params, onEvent), capabilityReason: () => null,
+      receipt: () => null, checkReceipt: () => Promise.reject(new Error('Local actions have no remote receipt.')),
       reconnect: async () => {},
       stageImages: async (files) => (await localRpc.invoke('attachments.stage', { files: await encodeImages(files) })).attachments,
     }
@@ -204,7 +204,7 @@ export function createSessionClient(requested: SessionScope): SessionClient {
       case 'scm.cancel': result = { cancelled: true }; break
       default: throw new Error(`This host does not support ${method}.`)
     }
-    return result as RpcResults[M]
+    return result
   }
   const client: SessionClient = {
     scope, viewKey, invoke,

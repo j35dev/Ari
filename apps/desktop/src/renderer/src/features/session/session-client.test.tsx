@@ -90,7 +90,7 @@ describe('normal session host boundary', () => {
   })
 
   it('translates normal root dot to the gateway root and refuses unsafe host paths', async () => {
-    bridge.invoke.mockImplementation(async (method, params) => method === 'machines.list' ? machines : success({
+    bridge.invoke.mockImplementation(async (method) => method === 'machines.list' ? machines : success({
       path: '', entries: [{ name: 'host.ts', path: 'host.ts', kind: 'file', size: 12 }], nextCursor: null, error: null,
     }))
     const client = createSessionClient(scope)
