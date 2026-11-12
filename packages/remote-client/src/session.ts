@@ -393,9 +393,10 @@ export class RemoteSession {
       if (disposed || signal.aborted) return
       if (message.type === 'events.frame')
         for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
-      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId &&
-        (message.frame.kind === 'chunk' || message.frame.kind === 'live'))
+      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId && message.frame.kind === 'chunk')
         for (const event of message.frame.events) cursor = Math.max(cursor ?? -1, event.seq)
+      if (message.type === 'events.desktop.frame' && message.sessionId === sessionId && message.frame.kind === 'live')
+        cursor = Math.max(cursor ?? -1, message.frame.event.seq)
       options.onFrame(message)
     }
     const onClose = (info: { code: number; reason: string }): void => {
