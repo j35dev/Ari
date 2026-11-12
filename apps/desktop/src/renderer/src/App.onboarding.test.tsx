@@ -10,7 +10,8 @@ import { loadLastPick } from './features/composer/last-pick'
 import { activeSessionOf } from './features/split/split-layout'
 import type { SessionScope } from './features/session/session-client'
 import { readProjectDrafts } from './features/machines/project-draft-registry'
-import { localSnapshotFixture } from './features/machines/fixtures.test-support'
+import { localSnapshotFixture, desktopMachineFixture, projectCatalogFixture, catalogFixture, versionFixture } from './features/machines/fixtures.test-support'
+import { spaceActions, spaceStoreSnapshot } from './features/spaces'
 import { keepAliveActions } from './features/session/session-keep-alive'
 import { dropDraftIntentMemory } from './features/composer/draft-recovery-store'
 import { dropDraftTextMemory } from './features/composer/use-drafts'
@@ -196,7 +197,79 @@ beforeEach(() => {
   })
 })
 
+async function finishFirstRun() {
+  await screen.findByRole('heading', { name: 'Meet your coding agents.' })
+  await screen.findByText('Sign-in found')
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
+}
+
 describe('App onboarding integration', () => {
+  it('waits for the complete host catalog before freezing the merged setup draft', async () => {
+    const base = invoke.getMockImplementation()!
+    const host = desktopMachineFixture()
+    const remote = projectCatalogFixture()
+    let release!: () => void
+    const gate = new Promise<void>((done) => { release = done })
+    let localArrived = false
+    invoke.mockImplementation(async (method, params) => {
+      if (method === 'machines.list') return [host]
+      if (method === 'machines.localSnapshot') {
+        const snapshot = await base(method, params) as ReturnType<typeof localSnapshotFixture>
+        snapshot.catalog.projects = snapshot.catalog.projects.map((entry) => ({ ...entry,
+          repositoryIdentity: remote.projects[0]!.repositoryIdentity }))
+        if (snapshot.catalog.projects.some((entry) => entry.id === project.id)) localArrived = true
+        return snapshot
+      }
+      if (method === 'machines.query') {
+        const op = (params as { query: { op: string } }).query.op
+        if (op === 'project.catalog') { await gate; return { ok: true, result: remote } }
+        if (op === 'session.list') return { ok: true, result: [] }
+        if (op === 'models.list') return { ok: true, result: catalogFixture }
+        if (op === 'host.version') return { ok: true, result: versionFixture }
+        if (op === 'host.permissions') return { ok: true, result: { deviceId: 'device',
+          projectScope: { kind: 'all' }, allowTerminal: false, managedLeaseExpiresAt: null } }
+      }
+      return base(method, params)
+    })
+    render(<App />)
+    await finishFirstRun()
+    await waitFor(() => expect(localArrived).toBe(true))
+    expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
+    expect(readProjectDrafts()).toHaveLength(0)
+    await act(async () => release())
+    fireEvent.click(await screen.findByRole('button', { name: 'Execution machine' }))
+    expect(screen.getByRole('option', { name: /Studio computer/ })).toBeEnabled()
+    expect(readProjectDrafts()[0]?.group.checkouts.map((entry) => entry.hostId)).toEqual(['local', host.id])
+    expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
+  })
+
+  it('drops a delayed setup handoff after space navigation without a pointer or key event', async () => {
+    const base = invoke.getMockImplementation()!
+    let release!: () => void
+    const gate = new Promise<void>((done) => { release = done })
+    let waiting = false
+    invoke.mockImplementation(async (method, params) => {
+      if (method === 'machines.localSnapshot' && projects.length > 0) {
+        waiting = true
+        await gate
+      }
+      return base(method, params)
+    })
+    render(<App />)
+    await finishFirstRun()
+    await waitFor(() => expect(waiting).toBe(true))
+    act(() => spaceActions.create())
+    const newerSpace = spaceStoreSnapshot().activeSpaceId
+    await act(async () => release())
+    await waitFor(() => expect(invoke.mock.calls.some(([method]) => method === 'project.list')).toBe(true))
+    expect(spaceStoreSnapshot().activeSpaceId).toBe(newerSpace)
+    expect(readProjectDrafts()).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
+    expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
+  })
   it('opens Aria on startup when there is no session to restore', async () => {
     settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: 1 } })
     projects = [project]
