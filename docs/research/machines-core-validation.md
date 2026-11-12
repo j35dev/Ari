@@ -157,7 +157,6 @@ Integration must preserve A's current Tailscale RPC changes in `rpc.ts`: constru
 preservation. Core is based on the older snapshot; those differences are not core
 edits to cherry-pick or intended reversions. Grants authorization remains B-owned.
 
-
 ### Fresh verification and security disposition
 
 All commands used the current coordinator runner, with committed checkpoints,
@@ -165,16 +164,16 @@ two resource slots only when admitted, D: temp/cache paths and one Vitest worker
 No resource floor failure, killed process, OOM, install, live network/settings/device
 mutation, push or PR occurred.
 
-| Focused check | Result |
-| --- | --- |
-| Desktop Machines, RemoteService, host, files, terminals, fork, integration and catalog | 128 passed, 1 skipped; 66.09s |
-| Final Machines safety and real two-engine/two-gateway proof | 19 passed; 16.67s |
-| Final RemoteService including corrupt identity and first-write failure | 27 passed in the two-file run |
-| Remote gateway package, shared client, remote/Machines contracts and mobile session | 244 passed; 13.46s |
-| Shared/mobile session after lint helper cleanup | 55 passed; 6.93s |
-| Final valid-empty-history restart/one-dispatch fixture | 1 passed; 2.29s |
-| Contracts, remote-client, remote-gateway, desktop and mobile typecheck | Passed across scoped invocations |
-| Scoped lint over core/client/contracts/gateway identity and mobile adapters | Passed after correcting the three reported files |
+| Focused check                                                                          | Result                                           |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Desktop Machines, RemoteService, host, files, terminals, fork, integration and catalog | 128 passed, 1 skipped; 66.09s                    |
+| Final Machines safety and real two-engine/two-gateway proof                            | 19 passed; 16.67s                                |
+| Final RemoteService including corrupt identity and first-write failure                 | 27 passed in the two-file run                    |
+| Remote gateway package, shared client, remote/Machines contracts and mobile session    | 244 passed; 13.46s                               |
+| Shared/mobile session after lint helper cleanup                                        | 55 passed; 6.93s                                 |
+| Final valid-empty-history restart/one-dispatch fixture                                 | 1 passed; 2.29s                                  |
+| Contracts, remote-client, remote-gateway, desktop and mobile typecheck                 | Passed across scoped invocations                 |
+| Scoped lint over core/client/contracts/gateway identity and mobile adapters            | Passed after correcting the three reported files |
 
 The one platform skip is the Windows short-name fixture when the temporary
 volume does not expose the required 8.3 aliases. New-test failures were a wrong
