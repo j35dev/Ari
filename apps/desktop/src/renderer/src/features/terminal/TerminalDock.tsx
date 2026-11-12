@@ -69,16 +69,23 @@ export function TerminalDock({
   paneTerminalIds?: ReadonlySet<string>
 }) {
   const sessionClient = useToolSessionClient()
-  const rpc = useMemo(() => createTerminalSessionAdapter(sessionClient),
-    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability])
+  const rpc = useMemo(
+    () => createTerminalSessionAdapter(sessionClient),
+    [sessionClient, sessionClient.authorizationEpoch, sessionClient.availability],
+  )
   const remote = rpc.scope.kind === 'remote'
-  const owner: TerminalOwner = remote && rpc.scope.kind === 'remote'
-    ? { kind: 'remote', machineId: rpc.scope.machineId, sessionId: rpc.scope.sessionId } : { kind: 'local' }
+  const owner: TerminalOwner =
+    remote && rpc.scope.kind === 'remote'
+      ? { kind: 'remote', machineId: rpc.scope.machineId, sessionId: rpc.scope.sessionId }
+      : { kind: 'local' }
   const ownerKey = terminalOwnerKey(owner)
-  const unavailableReason = remote ? rpc.readOnly ? 'Reconnect to the owning machine to use its terminal.'
-    : rpc.scope.kind === 'remote' && !sessionMachine(rpc.scope.machineId)?.allowTerminal
-      ? 'Grant terminal access on the owning machine to open a shell.'
-      : rpc.capabilityReason('terminal.create') : null
+  const unavailableReason = remote
+    ? rpc.readOnly
+      ? 'Reconnect to the owning machine to use its terminal.'
+      : rpc.scope.kind === 'remote' && !sessionMachine(rpc.scope.machineId)?.allowTerminal
+        ? 'Grant terminal access on the owning machine to open a shell.'
+        : rpc.capabilityReason('terminal.create')
+    : null
   const canOpen = !unavailableReason && (remote || cwd !== null)
   const dock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
   const paneHosted = paneTerminalIds ?? new Set<string>()
@@ -99,7 +106,10 @@ export function TerminalDock({
   // Agent presets are only offered for CLIs actually installed; the plain
   // shell preset is always available.
   useEffect(() => {
-    if (remote) { setInstalledKinds(new Set()); return }
+    if (remote) {
+      setInstalledKinds(new Set())
+      return
+    }
     void rpc
       .invoke('providers.detect')
       .then((detections) => {
@@ -113,18 +123,23 @@ export function TerminalDock({
   const spawnPreset = useCallback(
     (preset: TabPreset) => {
       if (!canOpen) return
-      openTerminalTab({ title: preset.label, cwd: remote ? '.' : cwd!,
-        ...(remote ? { owner } : { command: preset.command }) })
+      openTerminalTab({
+        title: preset.label,
+        cwd: remote ? '.' : cwd!,
+        ...(remote ? { owner } : { command: preset.command }),
+      })
     },
     [cwd, remote, canOpen, ownerKey],
   )
 
   // Run-script requests (M21.3) and CLI sign-in (M22.1) open their own tab.
   useEffect(
-    () => remote ? undefined :
-      subscribeTerminalRequests((request: TerminalTabRequest) => {
-        openTerminalTab({ title: request.title, cwd: request.cwd, command: request.command })
-      }),
+    () =>
+      remote
+        ? undefined
+        : subscribeTerminalRequests((request: TerminalTabRequest) => {
+            openTerminalTab({ title: request.title, cwd: request.cwd, command: request.command })
+          }),
     [remote],
   )
 
@@ -135,25 +150,38 @@ export function TerminalDock({
   useEffect(() => {
     if (autoOpened.current.has(ownerKey) || !canOpen || tabs.length > 0) return
     autoOpened.current.add(ownerKey)
-    openTerminalTab({ title: SHELL_PRESET.label, cwd: remote ? '.' : cwd!, ...(remote ? { owner } : {}) })
+    openTerminalTab({
+      title: SHELL_PRESET.label,
+      cwd: remote ? '.' : cwd!,
+      ...(remote ? { owner } : {}),
+    })
   }, [cwd, tabs.length, canOpen, remote, ownerKey])
 
-  const closeTab = useCallback((id: string) => {
-    if (remote) {
-      void rpc.invoke('terminal.kill', { id }).then(() => closeTerminalTab(id)).catch((error: unknown) => {
-        setErrorByTab((prev) => ({ ...prev, [id]: error instanceof Error ? error.message : 'The close could not be confirmed.' }))
+  const closeTab = useCallback(
+    (id: string) => {
+      if (remote) {
+        void rpc
+          .invoke('terminal.kill', { id })
+          .then(() => closeTerminalTab(id))
+          .catch((error: unknown) => {
+            setErrorByTab((prev) => ({
+              ...prev,
+              [id]: error instanceof Error ? error.message : 'The close could not be confirmed.',
+            }))
+          })
+      } else {
+        void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
+        closeTerminalTab(id)
+      }
+      setErrorByTab((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
       })
-    } else {
-      void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
-      closeTerminalTab(id)
-    }
-    setErrorByTab((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-  }, [rpc, remote])
+    },
+    [rpc, remote],
+  )
 
   const handlePaneError = useCallback(
     (id: string) => (message: string) => {
@@ -164,24 +192,34 @@ export function TerminalDock({
 
   // Clearing the error and bumping the nonce remounts just that pane, which
   // re-runs `terminal.create` (idempotent per id: a live pty is re-adopted).
-  const retryTab = useCallback(async (id: string) => {
-    if (remote) {
-      try { await rpc.checkTerminal(id) }
-      catch (error) {
-        setErrorByTab((prev) => ({ ...prev, [id]: error instanceof Error ? error.message : 'The original action is still unconfirmed.' }))
-        return
+  const retryTab = useCallback(
+    async (id: string) => {
+      if (remote) {
+        try {
+          await rpc.checkTerminal(id)
+        } catch (error) {
+          setErrorByTab((prev) => ({
+            ...prev,
+            [id]:
+              error instanceof Error ? error.message : 'The original action is still unconfirmed.',
+          }))
+          return
+        }
       }
-    }
-    setErrorByTab((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    setRetryNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
-  }, [remote, rpc])
+      setErrorByTab((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setRetryNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+    },
+    [remote, rpc],
+  )
 
-  const availablePresets = remote ? [SHELL_PRESET] : PRESETS.filter((p) => p.kind === undefined || installedKinds.has(p.kind))
+  const availablePresets = remote
+    ? [SHELL_PRESET]
+    : PRESETS.filter((p) => p.kind === undefined || installedKinds.has(p.kind))
   const activeTitle = tabs.find((tab) => tab.id === activeId)?.title ?? 'none'
   const activeError = activeId !== null ? (errorByTab[activeId] ?? null) : null
 
@@ -260,7 +298,11 @@ export function TerminalDock({
       ) : null}
 
       <TerminalA11y title={activeTitle} />
-      {unavailableReason ? <p role="status" className="border-b border-border px-3 py-2 text-xs text-fg-muted">{unavailableReason}</p> : null}
+      {unavailableReason ? (
+        <p role="status" className="border-b border-border px-3 py-2 text-xs text-fg-muted">
+          {unavailableReason}
+        </p>
+      ) : null}
 
       {activeError !== null && activeId !== null ? (
         <div
@@ -316,11 +358,13 @@ export function TerminalDock({
           </EmptyRail>
         ) : (
           <EmptyRail message="No terminal open.">
-            {canOpen ? <RailAction
-              label="Open a terminal"
-              icon={<Plus size={12} />}
-              onClick={() => spawnPreset(SHELL_PRESET)}
-            /> : null}
+            {canOpen ? (
+              <RailAction
+                label="Open a terminal"
+                icon={<Plus size={12} />}
+                onClick={() => spawnPreset(SHELL_PRESET)}
+              />
+            ) : null}
           </EmptyRail>
         )}
       </div>

@@ -13,6 +13,7 @@ import {
   remoteDesktopCommandSchema, remoteDesktopQuerySchema, machinesExtensionsSchema,
   remoteDesktopClientMessageSchema, remoteDesktopFrameSchema,
   type MachinesExtensionOperation,
+  localHostIdentitySchema, remoteProjectCatalogSchema, remoteHostResourcesSchema, remoteHostVersionSchema,
 } from './remote-desktop'
 export * from './remote-desktop'
 
@@ -528,6 +529,14 @@ export const remoteModelCatalogSchema = z.object({
   ),
 })
 export type RemoteModelCatalog = z.infer<typeof remoteModelCatalogSchema>
+
+/** This PC uses the same safe catalog/readers as authenticated remote hosts. */
+export const machinesLocalSnapshotSchema = z.object({
+  identity: localHostIdentitySchema,
+  catalog: remoteProjectCatalogSchema, resources: remoteHostResourcesSchema, version: remoteHostVersionSchema,
+  models: remoteModelCatalogSchema,
+}).strict()
+export type MachinesLocalSnapshot = z.infer<typeof machinesLocalSnapshotSchema>
 
 /**
  * One provider's subscription allowance as the desktop last read it. The count
