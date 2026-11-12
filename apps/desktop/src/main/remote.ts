@@ -265,6 +265,7 @@ export class RemoteService {
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
     if (this.#startingManaged !== null) return this.#startingManaged
+    this.#managedGeneration++
     const generation = this.#generation
     const managedGeneration = this.#managedGeneration
     const pending = this.#serialize(async () => {
@@ -274,6 +275,7 @@ export class RemoteService {
       if (!this.running || !current()) return null
       await this.#stopManaged()
       if (!current()) return null
+      const terminals = this.#terminals
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
       host: createRemoteHost({
         engine: this.#deps.engine,
@@ -296,7 +298,12 @@ export class RemoteService {
         ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
         ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
         ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
-        ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
+        ...(terminals === undefined ? {} : { terminals: {
+          execute: (...args: Parameters<RemoteTerminals['execute']>) => current()
+            ? terminals.execute(...args)
+            : { ok: false as const, code: 'access_revoked', message: 'Managed remote access stopped.' },
+          read: (...args: Parameters<RemoteTerminals['read']>) => current() ? terminals.read(...args) : null,
+        } }),
       }),
       allowedOrigins: [options.issuer, `https://${options.hostname}`],
       port: options.port,
@@ -334,8 +341,11 @@ export class RemoteService {
     const gateway = this.#managedGateway
     this.#managedGateway = null
     this.#managedClientUrl = null
-    await this.#terminals?.closeManaged()
-    if (gateway !== null) await gateway.close()
+    try {
+      if (gateway !== null) await gateway.close()
+    } finally {
+      await this.#terminals?.closeManaged()
+    }
     this.#changed()
   }
 
@@ -571,7 +581,7 @@ export class RemoteService {
     try {
       mkdirSync(dirname(path), { recursive: true })
       const tmp = `${path}.tmp`
-      writeFileSync(tmp, contents, 'utf8')
+      writeFileSync(tmp, contents, { encoding: 'utf8', flush: true })
       renameSync(tmp, path)
     } catch (error) {
       log.error('could not write remote record', { name, error: String(error) })

@@ -18,6 +18,11 @@ import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
 
+// Configurable wrappers allow failure injection without mutating native ESM exports.
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof fs>()),
+}))
+
 // Native terminal factories below are fakes and authorize no real PID kills.
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof ChildProcess>()),
@@ -831,7 +836,7 @@ describe('remote service host wiring', () => {
 })
 
 describe('remote service terminals', () => {
-  function terminalService() {
+  function terminalService(overrides: Partial<RemoteServiceDeps> = {}) {
     const root = mkdtempSync(join(tmpdir(), 'ari-remote-terminal-'))
     onTestFinished(() => rmSync(root, { recursive: true, force: true }))
     const sessions: Record<string, string> = { sess_one: 'proj_1', sess_two: 'proj_2' }
@@ -857,8 +862,41 @@ describe('remote service terminals', () => {
         onExit: () => undefined,
       }
     }
-    return { ...makeService({ dir: join(root, 'remote'), store, engine, terminalFactory }), kills }
+    return { ...makeService({ dir: join(root, 'remote'), store, engine, terminalFactory, ...overrides }), kills }
   }
+
+  it('rejects a managed terminal delayed past stop and keeps the old host fenced after restart', async () => {
+    let managedHost: Parameters<typeof createRemoteGateway>[0]['host'] | undefined
+    let release!: (workspace: string) => void
+    let entered!: () => void
+    const workspace = new Promise<string>((resolve) => { release = resolve })
+    const loading = new Promise<void>((resolve) => { entered = resolve })
+    const { service, kills } = terminalService({
+      engine: { ...fakeEngine(), workspace: () => { entered(); return workspace } } as unknown as Engine,
+      createGateway: async (options) => {
+        if (options.managedAccess !== undefined) managedHost = options.host
+        return createRemoteGateway(options)
+      },
+    })
+    await service.start()
+    await pair(service, deviceKey())
+    const id = service.state().devices[0]!.deviceId
+    service.updateDeviceGrants(id, ['proj_1'], true)
+    const options = { port: 0, issuer: 'https://connect.example', hostname: 'computer.tunnel.example', computerId: 'computer', verifier: () => null }
+    await service.startManaged(options)
+    if (managedHost === undefined) throw new Error('expected managed host')
+    const oldHost = managedHost
+    const caller = { deviceId: id, projectIds: ['proj_1'], allowTerminal: true, managedLeaseExpiresAt: Date.now() + 60000 }
+    const command = { op: 'terminal.create' as const, sessionId: 'sess_one', cols: 80, rows: 24, clientCommandId: 'delayed', idempotencyKey: 'delayed-managed-terminal' }
+    const pending = oldHost.execute(caller, command)
+    await loading
+    await service.stopManaged()
+    release('.')
+    expect(await pending).toMatchObject({ ok: false, code: 'access_revoked' })
+    await service.startManaged(options)
+    expect(await oldHost.execute(caller, command)).toMatchObject({ ok: false, code: 'access_revoked' })
+    expect(kills).toHaveLength(0)
+  })
 
   let key = 0
   function open(origin: string, token: string, sessionId: string) {
