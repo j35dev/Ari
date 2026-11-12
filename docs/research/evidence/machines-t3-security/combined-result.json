@@ -1,0 +1,38 @@
+{
+  "source": "1c2398a4177bdc97741bbbe0d8304f6640176d04",
+  "testBlob": "59da59108dc2b8c7a8e54c8553f34b32a2e35707",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-combined-proof D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-combined-proof.mjs 1c2398a4177bdc97741bbbe0d8304f6640176d04",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 6983888896,
+    "cFreeBytes": 22043332608,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "source": "1c2398a4177bdc97741bbbe0d8304f6640176d04",
+    "exactAuthoredTest": "keeps normal session history and execution on the signed host across fallback, move-back and revoke",
+    "runtimeMs": 1582,
+    "initialJournalRows": 2406,
+    "initialMessageRows": 2405,
+    "normalClientFullResumeLive": true,
+    "signedRouteFallbackAndMoveBack": true,
+    "immutableOwnerAndSingleTurnDispatch": true,
+    "distinctRouteToken": true,
+    "noReverseAuthorization": true,
+    "repositoryGrouping": true,
+    "autoAndManualOnly": true,
+    "revokePurgesWatchedTranscript": true,
+    "otherHostRetainsAccess": true,
+    "preloadAndStorageAreFixtures": true,
+    "success": true
+  },
+  "limits": [
+    "Exact authored combined source assertions executed with reviewer assertion/spy runner, not a Vitest-suite execution claim.",
+    "Actual two Engines, stores, signed loopback HTTP/WebSocket listeners, DNS/TCP, MachinesService, RpcRegistry, preload facade and normal SessionClient.",
+    "Fixture preload, localStorage, AES-GCM, provider runner, CPU/memory and controlled HTTP reachability with explicit reconnect; no TLS/Tailscale, OS keyring/counters, React DOM or hardware claim.",
+    "Final candidate reopened for identity correction; this independently closes the combined proof gap for unchanged covered runtime, not final integrated certification."
+  ]
+}

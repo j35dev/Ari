@@ -1,0 +1,29 @@
+{
+  "reviewedSource": "dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9",
+  "sessionClientBlob": "548933015c1804e8b35eac68d6c87fc7a4860f07",
+  "command": "node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-t3-replay-closure D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/t3-replay-proof.mjs dbbe9f6d0de3dddcb016e7b8f371d1c2b02b53d9 fixed",
+  "runner": {
+    "priority": "below-normal",
+    "workers": 1,
+    "leaseCapacity": 2,
+    "commitHeadroomBytes": 14951211008,
+    "cFreeBytes": 22100873216,
+    "exitCode": 0,
+    "signal": null
+  },
+  "result": {
+    "initialRows": 2100,
+    "seqZero": true,
+    "initialComplete": true,
+    "resumeRejected": false,
+    "resumeDelivered": true,
+    "liveDelivered": true,
+    "epochFenced": true,
+    "success": true
+  },
+  "limitations": [
+    "Actual immutable SessionClient and contracts with fixture IPC/inventory/action transport; no React DOM or real engine/gateway is claimed.",
+    "This independently closes the original T3 exact-cursor replay reproduction at the named merged snapshot, not every possible transport failure.",
+    "Parent has not yet designated its final integrated target; no hardware or whole-product certification."
+  ]
+}
