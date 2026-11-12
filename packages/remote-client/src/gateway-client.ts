@@ -234,7 +234,7 @@ export class GatewayClient {
               : message.type === 'events.desktop.frame' && message.frame.kind === 'live'
                 ? [message.frame.event]
                 : []
-        if (events.some((entry) => entry.sessionId !== sessionId)) return
+        if (events.some((entry) => 'sessionId' in entry && entry.sessionId !== sessionId)) return
         options.onFrame(message)
       } catch (error) {
         console.warn('Ari received an unreadable activity frame', error)
