@@ -129,7 +129,7 @@ describe('normal session host boundary', () => {
       emit({ kind: 'chunk', events: Array.from({ length: Math.min(128, 2100 - start) }, (_, i) => event(start + i)) })
     emit({ kind: 'terminal', replayOutcome: 'complete', seq: 2099, liveTurnId: null, reason: null })
     expect(received.flatMap((frame) => frame.events ?? [])).toHaveLength(2100)
-    expect(received[0]?.events?.[0]?.seq).toBe(0)
+    expect((received[0]?.events?.[0] as JournalEvent).seq).toBe(0)
     expect(received.at(-1)).toMatchObject({ replayDone: true, replayMode: 'full', replayOutcome: 'complete', liveTurnId: null })
     dispose()
     received.length = 0
@@ -141,7 +141,7 @@ describe('normal session host boundary', () => {
     resume()
   })
 
-  it('clears watched host caches and rejects late stream and attachment delivery after removal', async () => {
+  it('clears watched host caches and rejects late stream delivery after removal', async () => {
     const client = createSessionClient(scope)
     const store = transcriptStore(client.viewKey)
     const history = historyJournal(store)
