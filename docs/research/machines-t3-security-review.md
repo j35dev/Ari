@@ -201,3 +201,71 @@ continued live rows and epoch fencing using actual SessionClient/contracts.
 
 No final integrated certification is issued. T1/T2 are open at the named source
 and their independent reproductions; the coordinator has been notified.
+
+## Independent replay proof: T3 confirmed, authored fix awaiting closure run
+
+### T3 — Medium / P2: normal SessionClient rejects a valid reconnect replay
+
+Source: session `47d32aba0a705b9738fcbafcb9c8f62585df2f0a`,
+`apps/desktop/src/renderer/src/features/session/session-client.tsx`, blob
+`abcdc6887798e68f14b914190fbc02362eba0949`. The subscription's `started` flag
+survives a complete terminal, so a second valid start invokes incomplete and
+permanently drops later frames. `MachinesService.#resumeSubscriptions` deliberately
+retains the renderer callback across fallback/move-back, and RemoteSession uses
+the same callback on its 45-second route-token stream renewal. Ordinary reconnect
+therefore breaks the normal session transcript, independently of authorization.
+
+Executed proof: `evidence/machines-t3-security/replay-result.json`; exact harness:
+`evidence/machines-t3-security/replay-proof.md`. The shared runner exited 0,
+below-normal, one worker after waiting for its lease. It delivered seq 0 and
+2,100 initial rows with complete outcome, then rejected an exact-cursor resume,
+dropped resumed seq 2100 and live seq 2101. Epoch advancement continued to fence
+late frames. This is actual SessionClient/contracts execution with fixture IPC,
+not a two-engine or React DOM proof.
+
+Authored session fix `1c7cc31974feee4e6befd3f05707a4553210b4c3` resets `started`
+on terminal, tracks the cursor and requires exact-cursor resumed starts; overlapping
+starts still fail. SessionView now receives a replayStart marker to begin a new
+history fold. Read this at intermediate `c395fad9da11eac6368ad0c022ab4965e2dea2ac`.
+This is a source-closure candidate only until the final integrated target and
+independent closure execution.
+
+## Follow-up source checkpoint 3
+
+Routes `5fe6f67f362caf5ee883f7be036acc98f23f7a31` adds durable report ordering in
+MachinesRegistry.learn. It compares against the current saved report, ignores
+lower issuedAt values, and intersects equal-time reports with the saved accepted
+origin set. The latter set is persisted and validated across registry reloads;
+an equal-time wider signed report cannot undo removal. This is a source-closure
+candidate for T1. It does not introduce a host revision: clock rollback can delay
+new reports until the saved timestamp is exceeded. That fails closed for route
+learning but needs a documented operational/recovery policy and a reload/equal-time
+regression. A silently ignored stale report is a valid rejection for this check;
+the closure harness must check durable nonmutation rather than require an exception.
+
+T2 remains unchanged in `c395fad9` and routes `5fe6f67f`: asynchronous route setup
+precedes pending registration, and the walk checks machine existence without
+current route membership before authority/publication. No tested/source closure
+is recorded for T2 at this checkpoint.
+
+The `77c07e60..c395fad9` production changes were audited: owned Serve state supplies
+routeSigning, localSnapshot samples resources only on explicit demand, Auto
+samples eligible hosts at selection and the original chosen host before first Send,
+and the Composer uses the owning SessionClient for paste staging. Remote file
+references require a matching session view key; OS nonimage paths are refused,
+image bytes remain staged through the selected host, and local speech services
+are absent from remote/unresolved drafts. Model/effort/mode controls use host
+catalogs and finite command mappings. These observations are source review,
+not independent UI execution.
+
+At `c395fad9`, mobile, Tailscale Serve and RemoteTerminals are byte-identical to
+prior reviewed `3f55df73` (empty source diffs). Strict journal replay now uses a
+64 KiB FileHandle read buffer with the same 128-row/256 KiB chunks, strict UTF-8,
+segment/line/tail diagnostics and guaranteed handle close. The new headless
+design explicitly ships no executable/service, defines profile locks and sealed
+OS identities, denies transitive/reverse grants, and defers update execution to
+a separate approved launcher transaction. No runtime-host certification is claimed.
+
+Final integrated SHA, independent fix reruns, combined two-engine signed route
+fallback/move-back plus normal SessionClient proof, and real-hardware gates
+remain outstanding. Existing untracked `.review-temp/` is preserved.
