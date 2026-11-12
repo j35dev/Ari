@@ -13,7 +13,8 @@ const app = vi.hoisted(() => ({
   catalog: null,
   refresh: vi.fn(),
   session: {
-    deviceId: 'phone-1', supports: vi.fn(() => true),
+    deviceId: 'phone-1',
+    supports: vi.fn(() => true),
     send: vi.fn<(command: Record<string, unknown>, key?: string) => Promise<unknown>>(),
     query: vi.fn<(op: string, params?: Record<string, unknown>) => Promise<unknown>>(),
   },
