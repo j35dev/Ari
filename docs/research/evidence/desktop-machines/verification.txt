@@ -416,3 +416,9 @@ desktop-composer-capture.log
 {"evidence":"D:\\Projects\\Ari-machines-wt\\desktop\\docs\\research\\evidence\\desktop-machines","screenshots":4,"success":true}
 {"heavyResult":{"worker":"desktop-composer-capture","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","exec","electron","packaging/capture-machines.mjs","--composer-only"],"exitCode":0,"signal":null}}
 
+
+desktop-composer-final-format.log
+{"resourceGate":{"commitHeadroomBytes":8652443648,"cFreeBytes":22574432256}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.lock","capacity":2,"worker":"desktop-composer-final-format","pid":22904,"startedAt":"2026-11-12T08:24:30.620Z","id":"220f96a7-425d-48d3-aae2-9f264206835a"}
+docs/research/desktop-machines.md 93ms
+{"heavyResult":{"worker":"desktop-composer-final-format","executable":"node","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","exec","prettier","--write","docs/research/desktop-machines.md"],"exitCode":0,"signal":null}}
