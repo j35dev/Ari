@@ -19,8 +19,11 @@ import { RemoteTerminals } from './remote-terminals'
 import type { PtyFactory } from './terminal-service'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import { RemoteIntegration } from './remote-integration'
+import { loadMachineIdentity, type HostIdentity } from './machine-identity'
 
 const log = createLogger('desktop:remote')
+const IDENTITY_ERROR =
+  'The host identity could not be loaded or saved. Existing data has been preserved; check the remote profile permissions or restore its identity from a backup, then restart Ari before enabling remote access.'
 
 const persistedPairingSchema = z
   .object({
@@ -73,6 +76,8 @@ export interface RemoteServiceDeps {
   store: SessionStore
   /** Directory holding the desktop's remote records (device + idempotency). */
   dir: string
+  /** Running app version, reported alongside the persistent public host id. */
+  ariVersion?: string
   /** Providers this desktop can drive right now. */
   driverKinds: () => readonly DriverKind[]
   /** The mode a session created from a phone takes when the phone does not choose. */
@@ -114,6 +119,7 @@ export interface RemoteServiceDeps {
 
 export class RemoteService {
   readonly #deps: RemoteServiceDeps
+  readonly #identity: HostIdentity | null
   #gateway: RemoteGateway | null = null
   #managedGateway: RemoteGateway | null = null
   #managedClientUrl: string | null = null
@@ -136,6 +142,15 @@ export class RemoteService {
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
+    try {
+      this.#identity = loadMachineIdentity(deps.dir, deps.ariVersion ?? 'unknown')
+    } catch {
+      // Host identity is required for remote access, not for local RPC startup.
+      // Never replace unreadable identity data or publish a temporary identity.
+      this.#identity = null
+      this.#error = IDENTITY_ERROR
+      log.warn('host machine identity unavailable; remote access disabled')
+    }
     this.#integration = new RemoteIntegration(
       new ManagedWorkspaces(join(dirname(deps.dir), 'worktrees')),
       deps.engine,
@@ -173,6 +188,10 @@ export class RemoteService {
   async #start(generation: number, port?: number): Promise<RemoteState> {
     if (generation !== this.#generation) return this.state()
     if (port !== undefined) this.#port = port
+    if (this.#identity === null) {
+      this.#error = IDENTITY_ERROR
+      return this.#changed()
+    }
     if (this.#gateway !== null) return this.state()
     if (this.#persistenceError !== null) {
       this.#error = this.#persistenceError.message
@@ -204,6 +223,7 @@ export class RemoteService {
         )
       const webRoot = this.#deps.webRoot?.()
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
+        identity: this.#identity,
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
@@ -293,6 +313,11 @@ export class RemoteService {
     computerId: string
     verifier: () => ConnectLeaseVerifier | null
   }): Promise<number | null> {
+    if (this.#identity === null) {
+      this.#error = IDENTITY_ERROR
+      this.#changed()
+      return Promise.resolve(null)
+    }
     if (this.#startingManaged !== null) return this.#startingManaged
     this.#managedGeneration++
     const generation = this.#generation
@@ -307,6 +332,7 @@ export class RemoteService {
       if (!current()) return null
       const terminals = this.#terminals
       const gateway = await (this.#deps.createGateway ?? createRemoteGateway)({
+        identity: this.#identity,
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,

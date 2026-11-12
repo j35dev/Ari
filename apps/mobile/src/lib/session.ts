@@ -10,6 +10,11 @@ export interface SessionDeps extends Omit<SharedSessionDeps, 'keyring' | 'lease'
 /** Browser storage and broker coordination remain mobile adapters. */
 export class MobileSession extends RemoteSession {
   constructor(deps: SessionDeps) {
-    super({ ...deps, ...(deps.managedComputerId === undefined ? {} : { lease: new ManagedLeaseClient(deps.managedComputerId, deps.keyring) }) })
+    super({
+      ...deps,
+      ...(deps.managedComputerId === undefined
+        ? {}
+        : { lease: new ManagedLeaseClient(deps.managedComputerId, deps.keyring) }),
+    })
   }
 }

@@ -3,8 +3,8 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
-import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
+import type { GatewayInfo, RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
+import { REMOTE_PROTOCOL_VERSION, REMOTE_ANONYMOUS_OPERATIONS } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
 import { deviceKey } from './testing/device-key'
 import { RawWebSocket, handshake } from './testing/ws-client'
@@ -171,7 +171,10 @@ describe('remote gateway discovery', () => {
     // The same envelope every route uses, so a client parses one shape.
     expect(body).toEqual({
       ok: true,
-      result: { protocolVersion: REMOTE_PROTOCOL_VERSION, capabilities: OPERATIONS },
+      result: {
+        protocolVersion: REMOTE_PROTOCOL_VERSION,
+        capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
+      },
     })
   })
 
@@ -195,8 +198,45 @@ describe('remote gateway discovery', () => {
     expect(status).toBe(200)
     expect(body['result']).toEqual({
       protocolVersion: REMOTE_PROTOCOL_VERSION,
-      capabilities: OPERATIONS,
+      capabilities: [...new Set([...REMOTE_ANONYMOUS_OPERATIONS, ...OPERATIONS])],
     })
+  })
+
+  it('exposes only public identity without Origin and still rejects disallowed browser origins', async () => {
+    const gateway = await createRemoteGateway({
+      host: fakeHost(),
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      identity: { machineId: 'machine_public', name: 'Office', ariVersion: 'test' },
+    })
+    running.push(gateway)
+    const response = await fetch(`${gateway.origin}/api/identity`)
+    const envelope = (await response.json()) as { ok: boolean; result: GatewayInfo }
+    expect(response.status).toBe(200)
+    expect(Object.keys(envelope.result).sort()).toEqual([
+      'ariVersion',
+      'capabilities',
+      'machineId',
+      'name',
+      'protocolVersion',
+    ])
+    expect(envelope.result).toMatchObject({
+      machineId: 'machine_public',
+      name: 'Office',
+      ariVersion: 'test',
+    })
+    expect(envelope.result.capabilities.filter((op: string) => op === 'gateway.info')).toHaveLength(
+      1,
+    )
+    expect(
+      (
+        await fetch(`${gateway.origin}/api/identity`, {
+          headers: { origin: 'https://untrusted.example' },
+        })
+      ).status,
+    ).toBe(403)
+    const queryInfo = await call(gateway, '/query', { op: 'gateway.info' })
+    expect(queryInfo.body['result']).toEqual(envelope.result)
   })
 })
 

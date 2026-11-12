@@ -27,16 +27,20 @@ export type RemoteFailure = RemoteErrorCode | 'unreachable' | 'pairing_denied'
 export class RemoteError extends Error {
   readonly code: RemoteFailure
   readonly status: number
+  /** Present for a mutation whose outcome needs explicit inspection. Never a bearer credential. */
+  readonly idempotencyKey: string | undefined
 
-  constructor(code: RemoteFailure, message: string, status = 0) {
+  constructor(code: RemoteFailure, message: string, status = 0, idempotencyKey?: string) {
     super(message)
     this.name = 'RemoteError'
     this.code = code
     this.status = status
+    this.idempotencyKey = idempotencyKey
   }
 
   /** Whether asking again could work: the request never reached a decision. */
   get retryable(): boolean {
+    if (this.idempotencyKey !== undefined) return false
     return (
       this.code === 'unreachable' || this.code === 'internal_error' || this.code === 'rate_limited'
     )
