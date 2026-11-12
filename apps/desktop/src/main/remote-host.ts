@@ -394,7 +394,8 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       if (!result.ok) return result
       const files = []
       for (const file of result.value.status.files) {
-        if (await safeSnapshotPath(workspace, file.path, [])) files.push(file)
+        if (await safeSnapshotPath(workspace, file.path, []) &&
+          (!file.oldPath || await safeSnapshotPath(workspace, file.oldPath, []))) files.push(file)
       }
       return {
         ok: true,
