@@ -11,6 +11,7 @@ import {
   openTerminalTab,
   subscribeTerminalDock,
   terminalDockState,
+  terminalOwnerOf,
 } from './terminal-dock'
 import { subscribeTerminalRequests, type TerminalTabRequest } from './terminal-requests'
 
@@ -65,9 +66,12 @@ export function TerminalDock({
 }) {
   const dock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
   const paneHosted = paneTerminalIds ?? new Set<string>()
-  const tabs = dock.tabs.filter((tab) => !paneHosted.has(tab.id))
+  // The local rail must never mount a stored remote tab through local pty RPC.
+  const tabs = dock.tabs.filter(
+    (tab) => terminalOwnerOf(tab).kind === 'local' && !paneHosted.has(tab.id),
+  )
   const activeId =
-    dock.activeId !== null && paneHosted.has(dock.activeId) ? (tabs[0]?.id ?? null) : dock.activeId
+    tabs.some((tab) => tab.id === dock.activeId) ? dock.activeId : (tabs[0]?.id ?? null)
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
   // `terminal.create` rejections used to leave a blank blinking cursor; each
