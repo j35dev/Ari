@@ -220,8 +220,9 @@ export class MachinesRegistry {
             .filter((origin) => offered.has(origin))
             .sort()
         : [...offered].sort()
-    const reported = new Set(manifestOrigins)
-    const acceptedRoutes = routes.filter((route) => reported.has(route.origin))
+    const acceptedOrigins = new Set(manifestOrigins)
+    const acceptedRoutes = routes.filter((route) => acceptedOrigins.has(route.origin))
+    const reported = new Set(acceptedRoutes.map((route) => route.origin))
     const next = row.routes.filter(
       (route) => route.source !== 'learned' || reported.has(route.origin),
     )
