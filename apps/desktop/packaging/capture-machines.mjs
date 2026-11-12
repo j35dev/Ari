@@ -65,7 +65,9 @@ app.whenReady().then(async () => {
       text: document.body.innerText,
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       selector: !!document.querySelector('[aria-label="Execution machine"]'),
-      pickerOpen: !!document.querySelector('[role="menu"][aria-label="Execution machines"]'),
+      pickerOpen: (() => { const menu = document.querySelector('[role="menu"][aria-label="Execution machines"]');
+        const rect = menu?.getBoundingClientRect(); return !!(rect?.width && rect?.height && getComputedStyle(menu).visibility !== 'hidden' &&
+          document.querySelector('[aria-label="Execution machine"]')?.getAttribute('aria-expanded') === 'true'); })(),
       sidebar: (() => { const r = document.querySelector('[aria-label="Projects and sessions"]')?.getBoundingClientRect();
         return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null })()
     })`)
