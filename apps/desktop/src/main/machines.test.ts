@@ -841,7 +841,7 @@ describe('Machines with two real gateways and engines', () => {
     expect((await machines.connect(idB)).status).toBe('connected')
   })
 
-  it('does not resend an executed command after a lost answer and corrupt receipt history on host restart', async () => {
+  it('does not resend an executed command after a lost answer and absent receipt history on host restart', async () => {
     const host = await realHost('A')
     const network = new MachineNetwork({ allowLoopback: true })
     const clientOptions = network.clientOptions.bind(network)
@@ -877,7 +877,9 @@ describe('Machines with two real gateways and engines', () => {
       error: { code: 'unreachable' },
     })
     expect((await host.store.load('sess_same')).session?.projectId).toBe('project_A')
-    writeFileSync(join(host.dir, 'remote', 'receipts.json'), '{corrupt')
+    // A valid empty file models retention loss on old and hardened gateways.
+    // Damaged restore is separately refused by B's gateway persistence tests.
+    writeFileSync(join(host.dir, 'remote', 'receipts.json'), '[]')
     await host.restart()
     expect((await machines.connect(id)).status).toBe('connected')
     expect(

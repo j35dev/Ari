@@ -221,7 +221,8 @@ describe('RemoteSession disposal boundary', () => {
     }
     const request = vi.fn<typeof fetch>(async (input) => {
       if (requestUrl(input).endsWith('/info')) return success(info)
-      if (requestUrl(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (requestUrl(input).endsWith('/device/challenge'))
+        return success({ nonce: 'fixture_nonce' })
       if (requestUrl(input).endsWith('/device/authorize')) return success(authorized)
       return success([])
     })
@@ -259,7 +260,8 @@ describe('RemoteSession disposal boundary', () => {
     }
     const request: typeof fetch = async (input) => {
       if (requestUrl(input).endsWith('/info')) return success(info)
-      if (requestUrl(input).endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+      if (requestUrl(input).endsWith('/device/challenge'))
+        return success({ nonce: 'fixture_nonce' })
       return success(authorized)
     }
     const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
@@ -362,7 +364,10 @@ describe('RemoteSession uncertain mutation receipts', () => {
       keyring: keyring(),
     })
     await session.connect()
-    const sending = session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt')
+    const sending = session.send(
+      { op: 'session.prompt', sessionId: 'same', text: 'one' },
+      'original_receipt',
+    )
     await expect(sending).rejects.toMatchObject({
       code: 'unreachable',
       idempotencyKey: 'original_receipt',

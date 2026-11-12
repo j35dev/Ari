@@ -764,7 +764,11 @@ describe('mobile commands', () => {
     const browser = browserFetch({ loseFirstMutation: true })
     const missingReceipt: typeof fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (url.endsWith('/query') && typeof init?.body === 'string' && init.body.includes('command.status'))
+      if (
+        url.endsWith('/query') &&
+        typeof init?.body === 'string' &&
+        init.body.includes('command.status')
+      )
         return Response.json(
           { ok: false, error: { code: 'not_found', message: 'receipt history was evicted' } },
           { status: 404 },
