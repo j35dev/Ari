@@ -56,9 +56,19 @@ export function normalizeSpeech(text: string): string {
     .replace(/-?\d+(?:,\d{3})*(?:\.\d+)?/g, (value) => {
       const n = Number(value.replace(/,/g, ''))
       if (Number.isInteger(n)) return numberWords(n)
-      const rounded = Math.abs(n).toFixed(Math.abs(n) < 1 ? 2 : 1).replace(/0+$/, '').replace(/\.$/, '')
+      const rounded = Math.abs(n)
+        .toFixed(Math.abs(n) < 1 ? 2 : 1)
+        .replace(/0+$/, '')
+        .replace(/\.$/, '')
       const [whole, fraction] = rounded.split('.')
-      return `${n < 0 ? 'minus ' : ''}${numberWords(Number(whole))}${fraction ? ` point ${fraction.split('').map(d => numberWords(Number(d))).join(' ')}` : ''}`
+      return `${n < 0 ? 'minus ' : ''}${numberWords(Number(whole))}${
+        fraction
+          ? ` point ${fraction
+              .split('')
+              .map((d) => numberWords(Number(d)))
+              .join(' ')}`
+          : ''
+      }`
     })
     .replace(/%/g, ' percent')
     .replace(/&/g, ' and ')

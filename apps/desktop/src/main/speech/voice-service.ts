@@ -184,8 +184,13 @@ export class VoiceService {
     const signal = this.abort.signal
     let chunks: string[]
     try {
-      chunks = speechChunks(condenseReply(reply), 200,
-        this.settings.current.ariaVoice.engine === 'groq' ? (text) => normalizeCloudSpeech(text).length : undefined)
+      chunks = speechChunks(
+        condenseReply(reply),
+        200,
+        this.settings.current.ariaVoice.engine === 'groq'
+          ? (text) => normalizeCloudSpeech(text).length
+          : undefined,
+      )
     } catch {
       this.report('This spoken line is too long. Shorten it and try Read aloud again.')
       return
@@ -205,7 +210,11 @@ export class VoiceService {
       if (engine === 'kokoro') return local()
       return withLocalFallback(
         () =>
-          this.groq.speak(normalizeCloudSpeech(text), this.settings.current.ariaVoice.groqVoice, signal),
+          this.groq.speak(
+            normalizeCloudSpeech(text),
+            this.settings.current.ariaVoice.groqVoice,
+            signal,
+          ),
         local,
         (message) => {
           engine = 'kokoro'

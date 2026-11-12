@@ -49,7 +49,12 @@ it('stops an active source when new speech replaces it', async () => {
 it('drops a pending decode immediately when Esc stops playback locally', async () => {
   let decode!: (value: AudioBuffer) => void
   const context = {
-    decodeAudioData: vi.fn(() => new Promise<AudioBuffer>(resolve => { decode = resolve })),
+    decodeAudioData: vi.fn(
+      () =>
+        new Promise<AudioBuffer>((resolve) => {
+          decode = resolve
+        }),
+    ),
     resume: vi.fn(async () => undefined),
     createBufferSource: vi.fn(),
   }

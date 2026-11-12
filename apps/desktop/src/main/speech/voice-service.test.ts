@@ -113,6 +113,7 @@ it('keeps pronunciation-expanded Groq requests under its limit and streams witho
   const line = 'Aria checked 1234567890 tests and 1234567890 files, and the PR and CLI are ready.'
   await service.speak(`<!-- aria:speak ${JSON.stringify({ text: line })} -->`)
   expect(groq.speak.mock.calls.length).toBeGreaterThan(1)
-  for (const call of groq.speak.mock.calls as unknown as [string][]) expect(call[0].length).toBeLessThanOrEqual(200)
+  for (const call of groq.speak.mock.calls as unknown as [string][])
+    expect(call[0].length).toBeLessThanOrEqual(200)
   expect(child.postMessage.mock.calls.some(([request]) => request.kind === 'speak')).toBe(false)
 })

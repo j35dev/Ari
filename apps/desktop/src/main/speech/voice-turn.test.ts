@@ -65,8 +65,18 @@ it('condenses the final message without reading earlier commentary', () => {
   const turn = new VoiceTurn(speak, () => true)
   turn.arm('aria', 'Run checks')
   turn.observe(request)
-  turn.observe(event('assistant.parts.appended', { messageId: 'progress', parts: [{ type: 'text', text: 'Running the checks.' }] }))
-  turn.observe(event('assistant.parts.appended', { messageId: 'final', parts: [{ type: 'text', text: 'The checks passed.' }] }))
+  turn.observe(
+    event('assistant.parts.appended', {
+      messageId: 'progress',
+      parts: [{ type: 'text', text: 'Running the checks.' }],
+    }),
+  )
+  turn.observe(
+    event('assistant.parts.appended', {
+      messageId: 'final',
+      parts: [{ type: 'text', text: 'The checks passed.' }],
+    }),
+  )
   turn.observe(event('turn.settled', { turnId: 'turn', stopReason: 'completed' }))
   expect(speak).toHaveBeenCalledWith('The checks passed.')
 })
