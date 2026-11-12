@@ -626,8 +626,10 @@ export class SpeechService {
       for (const file of KOKORO_FILES) {
         const target = join(path, file.name)
         if ((await stat(target).catch(() => null))?.size === file.size) {
-          await verifyDownload(target, file.sha256)
-        } else await downloadFile({
+          try { await verifyDownload(target, file.sha256); completed += file.size; continue }
+          catch { await rm(target, { force: true }) }
+        }
+        await downloadFile({
           id: KOKORO_ID, url: `https://huggingface.co/${KOKORO_MODEL.repository}/resolve/${KOKORO_MODEL.revision}/${file.name}`,
           path: target, size: file.size, sha256: file.sha256, signal,
           progress: frame => this.#emit({ ...frame, received: completed + frame.received, total: KOKORO_MODEL.size }),

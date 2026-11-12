@@ -48,6 +48,9 @@ const loadStart = performance.now()
 const tts = await sherpa.OfflineTts.createAsync({ model: { kokoro: { model: join(model, 'model.onnx'), voices: join(model, 'voices.bin'), tokens: join(model, 'tokens.txt'), lexicon: lexiconPath }, numThreads: threads, provider, debug: 0 }, maxNumSentences: 1 })
 result.loadMs = performance.now() - loadStart
 result.rssAfterLoadMB = process.memoryUsage().rss / 2 ** 20
+const warmStart = performance.now()
+await tts.generateAsync({ text: 'The voice is ready.', sid: 3, speed: 1 })
+result.warmupMs = performance.now() - warmStart
 const replies = {
   ready: '<!-- aria:speak {"text":"The checks passed, and the changes are ready for your review."} -->\nAll 28 tests passed. The code and table are below.',
   question: '<!-- aria:speak {"text":"Codex finished the pairing screen. Would you like Pi to handle the mobile polish?"} -->\n| Agent | State |\n|---|---|\n|Codex|Done|\n```ts\nconst status = 42\n```',

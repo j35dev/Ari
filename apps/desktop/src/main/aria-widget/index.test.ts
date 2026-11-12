@@ -961,3 +961,15 @@ it.each(['complete', 'transcription-error', 'cancel', 'stale-target', 'dispose']
     }
   },
 )
+
+
+it('preloads the local voice on an Aria hold and interrupts on hold or Esc', async () => {
+  const voice = { stop: vi.fn(), warm: vi.fn(), arm: vi.fn(async () => undefined) }
+  widget = new AriaWidget({ voice, invoke: async () => ({ ready: true }), openSettings: vi.fn() })
+  await widget.configure(configured)
+  mock.keys.get('keydown')?.(key(57))
+  expect(voice.stop).toHaveBeenCalledOnce()
+  expect(voice.warm).toHaveBeenCalledOnce()
+  mock.keys.get('keydown')?.(key(1))
+  expect(voice.stop).toHaveBeenCalledTimes(2)
+})
