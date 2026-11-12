@@ -133,6 +133,9 @@ importers:
       uiohook-napi:
         specifier: 1.5.5
         version: 1.5.5
+      ws:
+        specifier: ^8.22.2
+        version: 8.22.2
     devDependencies:
       '@ari/ari-core':
         specifier: workspace:*
@@ -224,9 +227,6 @@ importers:
       vite:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)
-      ws:
-        specifier: ^8.22.2
-        version: 8.22.2
 
   apps/mobile:
     dependencies:
