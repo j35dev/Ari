@@ -593,7 +593,7 @@ function SessionViewContent({
       setHistoryRetrying(true)
       unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
         if (cancelled) return
-        const frame = payload as SessionEventFrame
+        const frame = payload as SessionEventFrame & { seq?: number }
         if (frame.sessionId !== sessionId) return
         if (
           attempt !== generation &&

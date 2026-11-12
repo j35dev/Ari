@@ -43,7 +43,7 @@ describe('first-send host draft facade', () => {
   it('retains creation evidence after reference storage fails and checks without recreating', async () => {
     const draft = createHostDraftClient('host-a', 'storage-draft')
     const write = Storage.prototype.setItem
-    const fail = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+    const fail = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
       if (key.startsWith('ari.machines.draft-session.v1:')) throw new Error('reference storage full')
       return write.call(this, key, value)
     })

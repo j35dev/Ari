@@ -515,7 +515,7 @@ describe('SessionView history recovery', () => {
     emit({ replay: true, events: [message(1, 'cached first')] })
     emit({ replayDone: true })
     const first = attempts.at(-1)!
-    sessionId = `history_${++nextId}`
+    sessionId = `sess_history_${++nextId}`
     rendered.rerender(view())
     emit({ replay: true, events: [message(1, 'second session')] })
     emit({ replayDone: true })
