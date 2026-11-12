@@ -642,3 +642,14 @@ ari session delivery RECIPIENT MESSAGE_ID --json
 Inbox acceptance and acknowledgements survive restart. An uncertain live delivery
 remains retrievable and is never resent automatically. Reusing a message key
 recovers the accepted inbox identity after a lost sender receipt.
+
+
+## Aria spoken replies
+
+In every final reply as Aria, put a separate spoken line first:
+
+```text
+<!-- aria:speak {"text":"The changes are ready. Codex needs your review."} -->
+```
+
+Use valid single-line JSON. Write one to three short, natural sentences, at most 420 characters. Say the outcome, what needs the user, and any direct question. Round numbers; use names as people say them. Omit file paths, IDs, links, code, tables and lists. Put the full written reply after the comment. Progress updates never include a spoken line. Ari speaks automatically only for the current hold-to-talk request, with Read aloud available on demand. Esc or holding the shortcut again stops speech.

@@ -55,11 +55,12 @@ export class VoiceService {
       })
       worker.once('exit', () => { if (this.worker === worker) this.unload('The local voice stopped. Try Read aloud again.') })
     }
+    const path = model.installed.path
     const id = ++this.nextId
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => this.unload('Local speech timed out. Choose Groq for faster speech.'), 60_000)
       this.pending.set(id, { resolve, reject, timeout })
-      try { this.worker!.postMessage({ id, kind, path: model.installed.path, text, generation: this.generation,
+      try { this.worker!.postMessage({ id, kind, path, text, generation: this.generation,
         voice: this.settings.current.ariaVoice.kokoroVoice, speed: this.settings.current.ariaVoice.speed }) }
       catch { this.unload('Local speech could not start.') }
     })

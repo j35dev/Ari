@@ -1,6 +1,7 @@
 import type { Command } from '@ari/contracts/commands'
 
 export interface HandoffDeps {
+  arm?(sessionId: string, text: string): Promise<unknown>
   current(): boolean
   open(): Promise<{ sessionId: string }>
   dispatch(command: Command): Promise<{ accepted: boolean; reason?: string }>
@@ -18,6 +19,8 @@ export async function sendToAria(deps: HandoffDeps, text: string): Promise<void>
     text: body,
     attachments: [],
   }
+  await deps.arm?.(sessionId, body)
+  if (!deps.current()) return
   const result = await deps.dispatch(command)
   if (!result.accepted) throw new Error(result.reason ?? 'Aria could not receive the message.')
 }

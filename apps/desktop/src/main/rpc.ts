@@ -69,6 +69,11 @@ import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
+import { VoiceService } from './speech/voice-service'
+import { VoiceTurn } from './speech/voice-turn'
+import { GroqKeyStore } from './speech/groq-key'
+import { GroqSpeech } from './speech/groq'
+import { KOKORO_ID } from './speech/voice-model'
 import { SpeechService } from './speech/service'
 import { grantSpeechMicrophone } from './speech/permissions'
 import { createPullRequest } from './gh-pr'
@@ -970,6 +975,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       options.onSettingsChanged?.(getSettingsStore().current)
     }
   }
+  const groqKey = new GroqKeyStore(join(app.getPath('userData'), 'speech', 'groq-key.enc'))
+  const groq = new GroqSpeech(() => groqKey.read())
+  speech.groq = groq
+  const voice = new VoiceService(getSettingsStore(), speech, groq, contents)
+  voice.publish = frame => rpcRegistryRef?.publish('speech.progress', frame)
+  const voiceTurn = new VoiceTurn(text => void voice.speak(text), () => getSettingsStore().current.experimental.ariaEnabled && getSettingsStore().current.ariaVoice.mode === 'voice-replies')
+  const played = (event: import('electron').IpcMainEvent, params: { id?: unknown; generation?: unknown; error?: unknown }) => {
+    if (event.sender !== contents || !Number.isInteger(params?.id) || !Number.isInteger(params?.generation)) return
+    voice.played(params.id as number, params.generation as number, typeof params.error === 'string' ? params.error : undefined)
+  }
+  ipcMain.on('ari:ariaVoice.played', played)
+  shutdownTasks.push(() => { voice.dispose(); ipcMain.removeListener('ari:ariaVoice.played', played) })
   grantSpeechMicrophone(contents.session)
   app.once('will-quit', () => speech.dispose())
   appUpdaterRef ??= createAppUpdater((frame) => rpcRegistryRef?.publish('app.updates', frame))
@@ -1094,6 +1111,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
+    voiceTurn.observe(event)
     const payload: SessionEventFrame = { sessionId, event }
     // A pane subscribes to one session; the shell's feeds name none and get
     // them all. Without the filter every pane received every running
@@ -1601,6 +1619,25 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return store.current
   })
 
+  r.register('speech.groq.status', () => groqKey.status())
+  r.register('speech.groq.key', async ({ key }) => { await groqKey.set(key); return { saved: true } })
+  r.register('aria.voice.status', () => voice.status())
+  r.register('aria.voice.warm', () => { void voice.warm(); return { warming: true } })
+  r.register('aria.voice.stop', () => { voiceTurn.clear(); voice.stop(); return { stopped: true } })
+  r.register('aria.voice.arm', async ({ sessionId, text }) => {
+    const model = await getSessionStore().loadExisting(sessionId)
+    if (!isHelmSession(model?.session) || model?.activeTurnId || !getSettingsStore().current.experimental.ariaEnabled) return { armed: false }
+    voiceTurn.arm(sessionId, text); return { armed: true }
+  })
+  r.register('aria.voice.read', async ({ sessionId, messageId }) => {
+    const model = await getSessionStore().loadExisting(sessionId)
+    if (!isHelmSession(model?.session) || !getSettingsStore().current.experimental.ariaEnabled) throw new Error('Read aloud is available for Aria while the experiment is enabled.')
+    const message = model?.messages.find(m => m.id === messageId && m.role === 'assistant')
+    if (!message) throw new Error('This reply is no longer available.')
+    let text = ''
+    for (const part of message.parts) { if (part.type === 'text') text += part.text; else if (part.type === 'tool-call' || part.type === 'tool-result') text = '' }
+    await voice.speak(text); return { speaking: true }
+  })
   r.register('speech.status', () => speech.status())
   r.register('speech.models', () => speech.models())
   r.register('speech.engine.download', () => speech.install())
@@ -1610,7 +1647,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('speech.download', ({ modelId }) => speech.download(modelId))
   r.register('speech.cancel', ({ modelId }) => speech.cancel(modelId))
   r.register('speech.select', (choice) => speech.select(choice))
-  r.register('speech.remove', ({ modelId }) => speech.remove(modelId))
+  r.register('speech.remove', ({ modelId }) => { if (modelId === KOKORO_ID) { voice.stop(); voice.unload() }; return speech.remove(modelId) })
   r.register('speech.discard', ({ modelId }) => speech.discard(modelId))
   r.register('speech.transcribe', ({ pcm, language }) =>
     speech.transcribe(new Float32Array(pcm), language),
@@ -1618,6 +1655,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('settings.update', async (params) => {
     const settings = await getSettingsStore().update(params)
+    if (params.ariaVoice || params.experimental || params.speech) { voiceTurn.clear(); voice.configure() }
     if (params.experimental?.ariaEnabled !== undefined)
       await (await controlReady).refreshAriaExperiment()
     if (params.providers !== undefined) {

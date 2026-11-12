@@ -1,3 +1,4 @@
+import { isHelmSession } from '@ari/contracts/helm'
 import {
   Activity,
   useCallback,
@@ -282,6 +283,7 @@ export function SessionView({
   /** Used only by the shell's explicit session-start handoff. */
   onComposerReady?: (input: HTMLTextAreaElement) => void
 }) {
+  const [readAloud, setReadAloud] = useState(false)
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
@@ -678,6 +680,7 @@ export function SessionView({
             lastTurn?: unknown
             providerSessionId?: string | null
           }
+          setReadAloud(isHelmSession(m.session))
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
           setMetadataFailureSession(null)
           setProviderSwitchable(canSwitchProvider(m.session))
@@ -1915,6 +1918,7 @@ export function SessionView({
         ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
+            readAloud={readAloud}
             sessionId={sessionId}
             store={store}
             loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}
