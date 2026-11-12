@@ -186,7 +186,11 @@ async function realHost(label: string, copiedMachineId?: string): Promise<Runnin
         // Both hosts deliberately reuse this id: route and machine scope must carry ownership.
         mintSessionId: () => 'sess_same',
       }),
-      identity: { ...identity, ...(copiedMachineId === undefined ? {} : { machineId: copiedMachineId }), name: label },
+      identity: {
+        ...identity,
+        ...(copiedMachineId === undefined ? {} : { machineId: copiedMachineId }),
+        name: label,
+      },
       port,
       allowedOrigins: () => [`http://localhost:${gateway.port}`],
       pairing,
@@ -335,6 +339,28 @@ describe('persistent Machines safety', () => {
     writeFileSync(path, '{broken')
     expect(() => new MachinesRegistry(path)).toThrow()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
+  })
+  it('contains unreadable Machines registry startup while local RPC remains available', async () => {
+    const dir = temporary()
+    const path = join(dir, 'machines.json')
+    writeFileSync(path, '{broken')
+    const network = new MachineNetwork({ allowLoopback: true })
+    const transport = vi.spyOn(network, 'clientOptions')
+    const machines = client(dir, { network })
+    const registry = new RpcRegistry({ send: vi.fn() })
+    registry.register('session.list', () => [])
+    registerMachinesRpc(registry, machines)
+    await expect(registry.invoke('session.list', {})).resolves.toEqual([])
+    await expect(registry.invoke('machines.list', undefined)).rejects.toThrow(/Saved computers could not be loaded/)
+    await expect(registry.invoke('machines.add', { address: 'http://127.0.0.1:8787' })).rejects.toThrow(/registry has been preserved/)
+    expect(await registry.invoke('machines.query', { machineId: 'saved', query: { op: 'project.list' } })).toMatchObject({
+      ok: false, error: { code: 'internal_error', message: expect.stringMatching(/registry has been preserved/) },
+    })
+    expect(() => subscribeMachineStream(registry, machines, { id: 'updates', name: 'machines.updates' })).toThrow(/Saved computers/)
+    expect(registry.subscriberCount()).toBe(0)
+    expect(transport).not.toHaveBeenCalled()
+    expect(readFileSync(path, 'utf8')).toBe('{broken')
+    await expect(registry.invoke('session.list', {})).resolves.toEqual([])
   })
   it.each(['seal', 'write'] as const)(
     'does not activate an unsaved key or device identity after a failed %s',
@@ -819,16 +845,30 @@ describe('Machines with two real gateways and engines', () => {
     const id = await pair(machines, host)
     const registry = new RpcRegistry({ send: vi.fn() })
     registerMachinesRpc(registry, machines)
-    const create = command({ op: 'session.create', projectId: 'project_A', driverKind: 'codex', modelId: 'mock-model' })
-    expect(await registry.invoke('machines.command', { machineId: id, command: create })).toMatchObject({
-      ok: false, error: { code: 'unreachable' },
+    const create = command({
+      op: 'session.create',
+      projectId: 'project_A',
+      driverKind: 'codex',
+      modelId: 'mock-model',
+    })
+    expect(
+      await registry.invoke('machines.command', { machineId: id, command: create }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'unreachable' },
     })
     expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
     writeFileSync(join(host.dir, 'remote', 'receipts.json'), '{corrupt')
     await host.restart()
     expect((await machines.connect(id)).status).toBe('connected')
-    expect(await registry.invoke('machines.query', { machineId: id, query: { op: 'command.status', idempotencyKey: create.idempotencyKey } })).toMatchObject({
-      ok: false, error: { code: 'not_found' },
+    expect(
+      await registry.invoke('machines.query', {
+        machineId: id,
+        query: { op: 'command.status', idempotencyKey: create.idempotencyKey },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'not_found' },
     })
     expect(commands).toBe(1)
     expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')

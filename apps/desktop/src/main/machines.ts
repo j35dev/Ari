@@ -55,7 +55,7 @@ export interface MachinesServiceDeps {
 /** A desktop client of other hosts. This service has no local Engine or filesystem RPC. */
 export class MachinesService {
   readonly #deps: MachinesServiceDeps
-  readonly #registry: MachinesRegistry
+  readonly #storedRegistry: MachinesRegistry | null
   readonly #network: MachineNetwork
   readonly #connections = new Map<string, Connection>()
   readonly #views = new Map<string, Pick<MachineView, 'status' | 'error' | 'allowTerminal'>>()
@@ -67,8 +67,18 @@ export class MachinesService {
 
   constructor(deps: MachinesServiceDeps) {
     this.#deps = deps
-    this.#registry = new MachinesRegistry(join(deps.dir, 'machines.json'))
+    try {
+      this.#storedRegistry = new MachinesRegistry(join(deps.dir, 'machines.json'))
+    } catch {
+      // Machines is optional to local startup. Keep unreadable data intact and
+      // refuse machine operations rather than aborting registration of local RPC.
+      this.#storedRegistry = null
+    }
     this.#network = deps.network ?? new MachineNetwork({ allowLoopback: deps.allowLoopback })
+  }
+  get #registry(): MachinesRegistry {
+    if (this.#storedRegistry === null) throw registryUnavailable()
+    return this.#storedRegistry
   }
   list(): MachineView[] {
     return this.#registry.list().map((row) => this.#view(row))
@@ -679,7 +689,15 @@ export class MachinesService {
   }
   #assertOpen(): void {
     if (this.#disposed) throw new Error('The machines service has shut down.')
+    if (this.#storedRegistry === null) throw registryUnavailable()
   }
+}
+
+function registryUnavailable(): RemoteError {
+  return new RemoteError(
+    'internal_error',
+    'Saved computers could not be loaded. The registry has been preserved; restore it from a backup and restart Ari.',
+  )
 }
 
 function publicFailure(error: unknown): string {
