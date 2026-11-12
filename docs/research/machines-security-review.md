@@ -433,3 +433,53 @@ Physical-folder fixtures additionally verified junction aliases, nested
 folders and Windows case identify overlapping workspaces; siblings do not.
 These focused reproductions are independent review evidence, not the final
 integrated suite, real-Git branch regression, hardware or managed-service proof.
+
+The extended corrected-snapshot reproduction also exited 0 with `success:true`:
+
+```text
+node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs security-corrections D:/Projects/Ari-machines-wt/security -- node C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs exec node .review-temp/reproduce-takeover.mjs 77f9422de5840072351295fcd8042fdb5e807a80
+```
+
+| Boundary | Earlier snapshot result | Corrected snapshot result |
+| --- | --- | --- |
+| F same-timestamp branch cleanup | `89b22dbd`: foreign branch selected | `77f9422d`: foreign branch preserved |
+| F legacy ownership | short prefix authorizes deletion | ambiguous short names retained; exact own full ID selected; foreign full ID retained |
+| Failed approved-device save | `52f98b3a`: the unsaved device can still authorize | `21e6e091`: authorization refused with `access_revoked` |
+| Unbound legacy phone keys | `63b602af`: 3 legacy reads, 2 writes under mutable origin, 1 legacy clear | `21e6e091`: zero reads, writes or clears |
+
+The pairing fixture used actual P-256 key generation, signature verification,
+PairingService and the actual pairing-code helpers extracted from contracts.
+Only the persistence callback was injected. It additionally verified that an
+explicit successful grant save followed by reconstruction from persisted pairing
+records retains terminal withdrawal. This is a pairing-state restoration test,
+not a power-loss or full RemoteService filesystem restart test. Legacy migration
+used actual DeviceStore selection with instrumented database methods; it verifies
+ownership policy without opening a production IndexedDB database.
+
+F final authored snapshot `54954bb8885d963b5db3c4d5d850b660bf88015e` has
+byte-identical branch and cleanup implementation to the independently tested
+correction. Git object checks match branch helper
+`662fa94ccfe7492fd989b0ddd2f71aaedfac5f19` and cleanup
+`071856452a2d94118128b91a37957fa13bc209c7` at both snapshots. Physical workspace
+source is unchanged. S8 is closed in authored F source; final integration must
+retain that correction. The authored `projects.ask` recovery handler also remains
+corrected. No additional concrete F boundary finding remains in the reviewed
+authored diff.
+
+Core `2d1e6275`, present at `d4be8dbececefc74f115b17fe5a96a4fdda397e5`, now
+maps every nonauthoritative command-status lookup failure to `unreachable` with
+the original receipt key. Mobile `3dd2c461`, present at
+`172137350f7d26d4d84166b0b7c0d40774043171`, uses read-only status checking for
+saved prompt/create/fork/integration receipts, terminal creation and input.
+Its helper retains keyed uncertainty on absence, denied history and malformed
+results. These source corrections were inspected; final desktop legacy-status
+retry correction, branch execution evidence and integrated trust review remain
+pending. No release certification is made at this report commit.
+
+Temporary profiles created by the reproduction were removed after its checks.
+Automatic approval review rejected the subsequent PowerShell removal of
+`.review-temp/reproduce-takeover.mjs` with `blocked by policy`; the untracked
+source is retained for coordinator cleanup without an alternative deletion
+attempt. Only this report is committed. No dependency install, live service/account/profile change,
+push or PR occurred. The reviewer is now awaiting the parent's exact integrated
+commit before reviewing the final merged diff, including F.
