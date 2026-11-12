@@ -1,8 +1,8 @@
 # Aria voice implementation handoff
 
-Kokoro speech, independent local/Groq input and output choices, short Aria-authored spoken replies, Read aloud, interruption and local fallback are implemented on the existing `feat/aria-voice` branch. The final functional source checkpoint is `1d602e77dbafa978ad45667867ad5a746048a474`. Subsequent commits record measurements and this handoff without changing runtime behavior.
+Kokoro speech, independent local/Groq input and output choices, fuller Aria-authored spoken replies, Read aloud, interruption and local fallback are implemented on `feat/aria-voice`, published as [PR #518](https://github.com/j35dev/Ari/pull/518) over `feat/aria-experiment`. The current feedback correction runtime is `276a2365`; the original implementation checkpoint was `1d602e77dbafa978ad45667867ad5a746048a474`. Measurements below distinguish the original implementation from the later user-feedback fixes.
 
-This takeover continued from `a5f5b7f3`. The inherited changes were preserved in `dcd2ca21`, rather than discarded. The prior worker session, the user's main checkout, other worktrees, the installed application/profile and Tailscale Serve were not changed. No agents or sessions were launched, and nothing was pushed or submitted as a PR.
+This takeover continued from `a5f5b7f3`. The inherited changes were preserved in `dcd2ca21`. The user's main checkout, other worktrees, the installed application/profile and Tailscale Serve were not changed. No agents or sessions were launched during that takeover. The original handoff preceded publication; PR #518 was subsequently opened and remains unmerged.
 
 ## What works
 
@@ -56,7 +56,7 @@ The Aria prompt and bundled CLI protocol ask Aria to put a valid single-line com
 <!-- aria:speak {"text":"The checks passed. Would you like Pi to handle the mobile polish?"} -->
 ```
 
-The spoken line is separate from the visible written reply. It has one to three short natural sentences, at most 420 characters, with outcomes, anything needing the user and any direct question. Paths, IDs, lists, code and tables are omitted; numbers are rounded and names use human pronunciations. A complete authored line can start speech while the rest of the written reply is still streaming. Routine progress never carries this marker. The comment is hidden from rendering, copying and quoting.
+The spoken line is separate from the visible written reply. The prompt asks for three to six natural sentences, usually up to about 1,200 characters, covering the main explanation, outcome, anything needing the user and any direct question. Simple answers can be shorter; a request to hear all the details can use up to 6,000 characters. There is no three-sentence clipping. Useful list details become conversational prose; raw paths, IDs, code and tables stay in chat. Numbers are rounded and names use human pronunciations. A complete authored line can start speech while the rest of the written reply is still streaming. Routine progress never carries this marker. The comment is hidden from rendering, copying and quoting.
 
 | Written reply | Spoken reply |
 | --- | --- |
@@ -64,9 +64,9 @@ The spoken line is separate from the visible written reply. It has one to three 
 | Codex finished the pairing screen; full implementation details follow. | “Codex finished the pairing screen. Would you like Pi to handle the mobile polish?” |
 | No authored line: Ari Connect needs the user; a table and chart follow; “Should I run the checks?” | “Ari Connect is the only project that needs you. I put the details in the chat. Should I run the checks?” |
 
-The fallback condenser uses the outcome and a direct question, leaves structured content in the chat and never reads table cells, code, charts or list entries. Final-message tracking prevents earlier commentary from becoming the fallback outcome. Decimal points and domain names survive sentence splitting.
+Without an authored line, the fallback includes up to six useful prose/list sentences and a direct question, bounded to 1,800 characters. It reserves space for that question before shortening a long explanation. Read aloud instead reads useful written prose and list details up to 6,000 characters, even if the message has a shorter authored speech summary. Code, tables, raw paths and IDs remain excluded. Final-message tracking prevents earlier commentary from becoming the fallback outcome. Decimal points and domain names survive sentence splitting.
 
-The local lexicon covers Ari (“AH-ree”), Aria (“AH-ree-uh”), agent names, PR, ACP, CLI and the stock dictionary's missing plural “details.” Numbers, currency, percentages, initialisms and URL domains are normalized. Each emitted English token must exist in the dictionary. Unknown words are spelled out; unsupported scripts or an incomplete letter dictionary fail clearly instead of being silently skipped. Both native harnesses reject sherpa's actual `OOV word skipped` warning, with a negative regression test based on the original spike. Groq receives normalized text with simple pronunciation respellings, and clause limits are enforced after that expansion.
+The local lexicon covers Ari (“AH-ree”), Aria (“AH-ree-uh”), agent names, PR, ACP, CLI and dictionary gaps such as “details,” “completed,” “reviewed,” “verified” and “unloaded.” Numbers, currency, percentages, explicit technical initialisms and URL domains are normalized. Capitalization alone does not make a word an initialism: READY, DONE and APPROVED remain normal words. Smart quotes, dashes, ellipses and numeric ranges are converted into native-safe punctuation. Each emitted English token must exist in the dictionary. Truly unknown terms still use the explicit spell-out fallback; unsupported scripts or an incomplete letter dictionary fail clearly instead of being silently skipped. Both native harnesses reject sherpa's actual `OOV word skipped` warning, with a negative regression test based on the original spike. Groq receives normalized text with simple pronunciation respellings, and clause limits are enforced after that expansion.
 
 ## Groq setup and privacy
 
@@ -75,7 +75,7 @@ The user pastes their own key in Aria settings. `GroqKeyStore` stores only Elect
 Official Groq documentation was checked in the browser on 2026-11-12:
 
 - Input: `whisper-large-v3-turbo`, $0.04 per audio hour; or `whisper-large-v3`, $0.111 per hour. Both support multilingual transcription. Requests upload only the mono 16 kHz WAV recording to `/openai/v1/audio/transcriptions`, with the chosen model and optional language. The documented attachment cap is 25 MB; minimum audio length is 0.01 s and minimum billed length is ten seconds.
-- Output: preview model `canopylabs/orpheus-v1-english`, $22 per million characters, through `/openai/v1/audio/speech`. Voices are `autumn`, `diana`, `hannah`, `austin`, `daniel`, `troy`; default is Troy. WAV is the supported output format and input is limited to 200 characters per request. Only Aria's short spoken clause is sent, with no chat history. The current Arabic model also exists but is not implemented in this English voice UI.
+- Output: preview model `canopylabs/orpheus-v1-english`, $22 per million characters, through `/openai/v1/audio/speech`. Voices are `autumn`, `diana`, `hannah`, `austin`, `daniel`, `troy`; default is Troy. WAV is the supported output format and input is limited to 200 characters per request. Only the spoken reply or the message chosen for Read aloud is sent in bounded clauses; no other chat history is sent. The current Arabic model also exists but is not implemented in this English voice UI.
 - Groq always retains usage metadata. Inference content is not retained by default, but reliability/abuse logs may retain input/output for up to thirty days or longer when legally required. All customers may enable Zero Data Retention in Data Controls. The documentation places retained customer data in US GCP storage. Settings disclose that recordings/short spoken text leave the computer and explain the retention controls.
 
 Sources: [speech input](https://console.groq.com/docs/speech-to-text), [Orpheus API, voices and pricing](https://console.groq.com/docs/text-to-speech/orpheus), [preview model status](https://console.groq.com/docs/model/canopylabs/orpheus-v1-english), [data policy](https://console.groq.com/docs/your-data).
@@ -84,7 +84,7 @@ Sources: [speech input](https://console.groq.com/docs/speech-to-text), [Orpheus 
 
 Open `D:/Projects/Ari-aria-voice-spike/samples-v2/index.html`. New Heart WAVs are `ready.wav`, `question.wav`, `fallback.wav`, `names.wav` and `unknown.wav`. They contain 3.35–6.39 seconds of finite, non-silent 24 kHz mono PCM. Measured peaks are 0.387–0.494 and RMS is 0.061–0.064 before WAV encoding. There are no native missing-word warnings. Audio quality and pronunciation were not judged by ear.
 
-Static checks passed against the final functional source checkpoint: workspace typecheck, lint on every changed JS/TS file, 7 contracts tests, 50 engine tests, 449 tests across 36 affected desktop suites, 3 native-diagnostic tests, and the desktop production build. Total: **509 tests passed**. The test coverage includes authored/fallback text, structured replies, normalization and dictionary coverage, interruption/replacement, disabling Aria, provider switching, missing credentials, HTTP errors and local fallback. Full commands and exit codes are in `aria-voice-measurements/verification.json`; full author logs remain in `aria-voice-checks/`.
+At the original implementation checkpoint, workspace typecheck, lint on every changed JS/TS file, 7 contracts tests, 50 engine tests, 449 tests across 36 affected desktop suites, 3 native-diagnostic tests, and the desktop production build passed. Total: **509 tests passed**. The test coverage includes authored/fallback text, structured replies, normalization and dictionary coverage, interruption/replacement, disabling Aria, provider switching, missing credentials, HTTP errors and local fallback. Full original commands and exit codes are in `aria-voice-measurements/verification.json`; full author logs remain in `aria-voice-checks/`. Feedback correction checks are recorded separately below, without summing overlapping reruns.
 
 The exact repeatable commands, each run through the shared lease, are:
 
@@ -99,6 +99,14 @@ node D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs "Aria voice" "D
 
 
 The isolated Electron utility smoke was repeated successfully on 2026-11-12 at source `86d1cc3e` with Electron 43.4.1. Under the shared lease and below-normal priority, four-thread CPU synthesis returned valid 24 kHz PCM; warmed first audio took **0.886 s**, initial preload/benchmark took **7.92 s**, and peak utility working set was **742 MiB**. Stale-generation cancellation, cancellation during synthesis, dictionary coverage and unknown-word spell-out all passed. `utility-smoke.json` records the complete receipt. This run changed only documentation/evidence, so the previously passing source checks remain applicable.
+
+## User-feedback corrections
+
+The current runtime `276a2365e80ee2d6ac799e174dbf0d5f40a76b19` fixes the user's rejected English punctuation, overly short speech, letter-by-letter status words and raw error presentation. Automatic speech now includes the main explanation; Read aloud retains useful written prose/list details. The compact notice is dismissible, and retry/stop clears stale error progress.
+
+Feedback verification covers **86 affected tests** (10 contracts, 20 engine prompt, 56 desktop), all-ten workspace types plus contracts/desktop delta rechecks, changed-file lint and the desktop production build. The native Electron utility synthesized the exact failing English reply and READY/APPROVED/completed/reviewed/verified/DONE with no native skips or status-word spell-out. Warmed first clause: 0.843 s; preload: 6.67 s. These checks generated audio without auditioning it.
+
+[Source-specific logs, failures and corrected reruns](aria-voice-feedback-verification/README.md) preserve the complete evidence. [Light](../screenshots/aria-voice-feedback/voice-notice-light.png) and [dark](../screenshots/aria-voice-feedback/voice-notice-dark.png) notice screenshots were visually inspected after style/containment/dismissal assertions. They are isolated component evidence, not live-app audio evidence. The preview uses its own Ari Dev Voice identity and D: profile; the installed Ari and Machines remain separate.
 
 ## Files and merge boundaries
 

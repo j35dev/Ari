@@ -1,0 +1,413 @@
+{
+  "recordedAt": "2026-11-12T17:37:00.884Z",
+  "source": "276a2365e80ee2d6ac799e174dbf0d5f40a76b19",
+  "collectionCheckpoint": "276a2365e80ee2d6ac799e174dbf0d5f40a76b19",
+  "allPassed": false,
+  "fixtureEnvironment": {
+    "temp": "D:/Projects/.ari-cache/mvp",
+    "testWorkers": 1,
+    "fileParallelism": false,
+    "priority": "BelowNormal",
+    "lease": "scripts/coordination/run-heavy.mjs"
+  },
+  "checks": [
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "types",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-types",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "-r",
+        "--workspace-concurrency=1",
+        "typecheck"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:08:15.326Z",
+      "finishedAt": "2026-11-12T17:10:13.709Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\types.log",
+      "exitCode": 2,
+      "signal": null,
+      "artifact": "types.txt",
+      "sha256": "61ec388e3c8933464dffe4c63b215d46fbd1915225fec63ae81a6e4b667f4de8",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-types",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "-r",
+            "--workspace-concurrency=1",
+            "typecheck"
+          ],
+          "exitCode": 2,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "lint",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-lint",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "exec",
+        "eslint",
+        "apps/desktop/src/main/rpc.ts",
+        "apps/desktop/src/main/speech/pronunciation.test.ts",
+        "apps/desktop/src/main/speech/pronunciation.ts",
+        "apps/desktop/src/main/speech/voice-service.test.ts",
+        "apps/desktop/src/main/speech/voice-service.ts",
+        "apps/desktop/src/renderer/src/features/aria/VoiceNotice.test.tsx",
+        "apps/desktop/src/renderer/src/features/aria/VoiceNotice.tsx",
+        "apps/desktop/src/renderer/src/features/settings/AriaVoiceSettings.tsx",
+        "packages/contracts/src/aria-voice.test.ts",
+        "packages/contracts/src/aria-voice.ts",
+        "packages/engine/src/control-preamble.ts",
+        "scripts/aria-voice-utility-smoke.mjs"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:10:13.712Z",
+      "finishedAt": "2026-11-12T17:10:49.065Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\lint.log",
+      "exitCode": 1,
+      "signal": null,
+      "artifact": "lint.txt",
+      "sha256": "764d6a8aaca8777cbdcc56ec486a4e15d86b0295de563e39f29ab2c015845452",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-lint",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "exec",
+            "eslint",
+            "apps/desktop/src/main/rpc.ts",
+            "apps/desktop/src/main/speech/pronunciation.test.ts",
+            "apps/desktop/src/main/speech/pronunciation.ts",
+            "apps/desktop/src/main/speech/voice-service.test.ts",
+            "apps/desktop/src/main/speech/voice-service.ts",
+            "apps/desktop/src/renderer/src/features/aria/VoiceNotice.test.tsx",
+            "apps/desktop/src/renderer/src/features/aria/VoiceNotice.tsx",
+            "apps/desktop/src/renderer/src/features/settings/AriaVoiceSettings.tsx",
+            "packages/contracts/src/aria-voice.test.ts",
+            "packages/contracts/src/aria-voice.ts",
+            "packages/engine/src/control-preamble.ts",
+            "scripts/aria-voice-utility-smoke.mjs"
+          ],
+          "exitCode": 1,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "contracts",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-contracts",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/contracts",
+        "test",
+        "src/aria-voice.test.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:10:49.066Z",
+      "finishedAt": "2026-11-12T17:10:53.287Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\contracts.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "contracts.txt",
+      "sha256": "19318c791cf626a10690345a35d998c504f62292fa07f118a854fab2c0e3f3a5",
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  9 passed (9)"
+      ],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-contracts",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/contracts",
+            "test",
+            "src/aria-voice.test.ts",
+            "--maxWorkers=1",
+            "--no-file-parallelism"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "engine-prompt",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-engine-prompt",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/engine",
+        "test",
+        "src/control-preamble.test.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:10:53.288Z",
+      "finishedAt": "2026-11-12T17:10:57.726Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\engine-prompt.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "engine-prompt.txt",
+      "sha256": "6d60fc1b7736370a5d8a237da59fd918597ee62b46221a90c0675d75368dc3ae",
+      "testSummary": [
+        "Test Files  1 passed (1)",
+        "Tests  20 passed (20)"
+      ],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-engine-prompt",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/engine",
+            "test",
+            "src/control-preamble.test.ts",
+            "--maxWorkers=1",
+            "--no-file-parallelism"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "desktop",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-desktop",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "test",
+        "src/main/speech/pronunciation.test.ts",
+        "src/main/speech/voice-service.test.ts",
+        "src/main/speech/voice-turn.test.ts",
+        "src/main/speech/voice-provider.test.ts",
+        "src/renderer/src/features/aria/voice-playback.test.ts",
+        "src/renderer/src/features/aria/VoiceNotice.test.tsx",
+        "src/renderer/src/features/settings/SpeechSettings.test.tsx",
+        "src/renderer/src/features/transcript/MessageFooter.test.tsx",
+        "src/renderer/src/App.aria-runtime.test.tsx",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:10:57.727Z",
+      "finishedAt": "2026-11-12T17:12:02.187Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\desktop.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "desktop.txt",
+      "sha256": "a44263f12d5e89d1980c43bd6927c5a193e20320a1dda3823bc1d8ba6412c012",
+      "testSummary": [
+        "Test Files  9 passed (9)",
+        "Tests  55 passed (55)"
+      ],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-desktop",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "test",
+            "src/main/speech/pronunciation.test.ts",
+            "src/main/speech/voice-service.test.ts",
+            "src/main/speech/voice-turn.test.ts",
+            "src/main/speech/voice-provider.test.ts",
+            "src/renderer/src/features/aria/voice-playback.test.ts",
+            "src/renderer/src/features/aria/VoiceNotice.test.tsx",
+            "src/renderer/src/features/settings/SpeechSettings.test.tsx",
+            "src/renderer/src/features/transcript/MessageFooter.test.tsx",
+            "src/renderer/src/App.aria-runtime.test.tsx",
+            "--maxWorkers=1",
+            "--no-file-parallelism"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "desktop-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-desktop-build",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+        "--filter",
+        "@ari/desktop",
+        "build"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:12:02.188Z",
+      "finishedAt": "2026-11-12T17:12:33.845Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\desktop-build.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "desktop-build.txt",
+      "sha256": "bfd7dff83c3cb2cbe4651e1862ecaf751ddfefc92ec562a2c570add1a1119fba",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-desktop-build",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs",
+            "--filter",
+            "@ari/desktop",
+            "build"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "native-utility",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-native-utility",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe",
+        "D:\\Projects\\Ari-aria-voice\\scripts\\aria-voice-utility-smoke.mjs"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:12:33.846Z",
+      "finishedAt": "2026-11-12T17:13:10.002Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\native-utility.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "native-utility.txt",
+      "sha256": "81331e7be8ade57dce897e42735140c77bca14907cc14fb8d7b662701d7a2cfd",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-native-utility",
+          "executable": "D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe",
+          "args": [
+            "D:\\Projects\\Ari-aria-voice\\scripts\\aria-voice-utility-smoke.mjs"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "ui-build",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-ui-build",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/.ari-cache/voice-feedback-ui-build.mjs"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:13:10.003Z",
+      "finishedAt": "2026-11-12T17:13:24.352Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\ui-build.log",
+      "exitCode": 0,
+      "signal": null,
+      "artifact": "ui-build.txt",
+      "sha256": "a54ce08b0e94759707cba7bf414693e8945a225fc479a23bc860aaf18e9be712",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-ui-build",
+          "executable": "C:\\Program Files\\nodejs\\node.exe",
+          "args": [
+            "D:/Projects/.ari-cache/voice-feedback-ui-build.mjs"
+          ],
+          "exitCode": 0,
+          "signal": null
+        }
+      ]
+    },
+    {
+      "source": "9fcb420b85647e4fba6e5ae5206941e4d7482d99",
+      "name": "ui-capture",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:/Projects/Ari-machines/scripts/coordination/run-heavy.mjs",
+        "voice-feedback-ui-capture",
+        "D:/Projects/Ari-aria-voice",
+        "--",
+        "D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe",
+        "D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs"
+      ],
+      "cwd": "D:/Projects/Ari-aria-voice",
+      "startedAt": "2026-11-12T17:13:24.353Z",
+      "finishedAt": "2026-11-12T17:17:29.482Z",
+      "logPath": "D:\\Projects\\.ari-cache\\voice-feedback-verification\\ui-capture.log",
+      "exitCode": 1,
+      "signal": null,
+      "artifact": "ui-capture.txt",
+      "sha256": "7b53f16930b1a1b60e94879c3d451172dcad431fa14d591f3e5000f0d4edcaad",
+      "testSummary": [],
+      "heavyResults": [
+        {
+          "worker": "voice-feedback-ui-capture",
+          "executable": "D:\\Projects\\Ari-aria-voice\\apps\\desktop\\node_modules\\electron\\dist\\electron.exe",
+          "args": [
+            "D:/Projects/.ari-cache/voice-feedback-ui-capture.mjs"
+          ],
+          "exitCode": 1,
+          "signal": null
+        }
+      ]
+    }
+  ]
+}

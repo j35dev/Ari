@@ -1,0 +1,7 @@
+{"resourceGate":{"commitHeadroomBytes":8533491712,"cFreeBytes":21262462976}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-types","pid":31436,"startedAt":"2026-11-12T17:30:52.112Z","id":"e21b27c9-7e64-4190-86a4-4785bea2a751"}
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-aria-voice\apps\desktop
+> tsc --noEmit
+
+{"heavyResult":{"worker":"voice-feedback-types","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","--filter","@ari/desktop","typecheck"],"exitCode":0,"signal":null}}

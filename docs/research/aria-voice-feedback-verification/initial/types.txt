@@ -1,0 +1,46 @@
+{"resourceGate":{"commitHeadroomBytes":9722449920,"cFreeBytes":21357436928}}
+{"heavyLock":"acquired","slot":"D:/Projects/Ari-machines-wt/.heavy.2.lock","capacity":2,"worker":"voice-feedback-types","pid":33272,"startedAt":"2026-11-12T17:08:15.412Z","id":"c30b9f28-023b-4f8b-8127-ad07c0bb7c99"}
+Scope: 9 of 10 workspace projects
+
+> @ari/contracts@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\contracts
+> tsc --noEmit
+
+
+> @ari/shared@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\shared
+> tsc --noEmit
+
+
+> @ari/engine@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\engine
+> tsc --noEmit
+
+
+> @ari/providers@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\providers
+> tsc --noEmit
+
+
+> @ari/remote-gateway@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\remote-gateway
+> tsc --noEmit
+
+
+> @ari/ui@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\ui
+> tsc --noEmit
+
+
+> @ari/mobile@0.1.0 typecheck D:\Projects\Ari-aria-voice\apps\mobile
+> tsc --noEmit
+
+
+> @ari/ari-core@0.1.0 typecheck D:\Projects\Ari-aria-voice\packages\ari-core
+> tsc --noEmit
+
+
+> @ari/desktop@0.3.13 typecheck D:\Projects\Ari-aria-voice\apps\desktop
+> tsc --noEmit
+
+src/main/speech/voice-service.test.ts(150,12): error TS2349: This expression is not callable.
+  Not all constituents of type '((...args: any[]) => any) | (new (...args: any[]) => any) | ((this: any, ...args: any[]) => void)' are callable.
+    Type 'new (...args: any[]) => any' has no call signatures.
+D:\Projects\Ari-aria-voice\apps\desktop:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ari/desktop@0.3.13 typecheck: `tsc --noEmit`
+Exit status 2
+{"heavyResult":{"worker":"voice-feedback-types","executable":"C:\\Program Files\\nodejs\\node.exe","args":["C:/Users/user/AppData/Roaming/npm/node_modules/pnpm/bin/pnpm.cjs","-r","--workspace-concurrency=1","typecheck"],"exitCode":2,"signal":null}}
