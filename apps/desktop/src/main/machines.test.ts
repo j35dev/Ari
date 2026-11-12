@@ -81,7 +81,7 @@ interface RunningHost {
 }
 
 /** Actual Engine, SessionStore, RemoteHost, gateway HTTP/WebSocket and git repository. */
-async function realHost(label: string): Promise<RunningHost> {
+async function realHost(label: string, copiedMachineId?: string): Promise<RunningHost> {
   const dir = temporary()
   const project = join(dir, 'project')
   mkdirSync(project)
@@ -186,7 +186,7 @@ async function realHost(label: string): Promise<RunningHost> {
         // Both hosts deliberately reuse this id: route and machine scope must carry ownership.
         mintSessionId: () => 'sess_same',
       }),
-      identity: { ...identity, name: label },
+      identity: { ...identity, ...(copiedMachineId === undefined ? {} : { machineId: copiedMachineId }), name: label },
       port,
       allowedOrigins: () => [`http://localhost:${gateway.port}`],
       pairing,
@@ -768,6 +768,70 @@ describe('Machines with two real gateways and engines', () => {
       cipher,
     )
     expect(host.gateway.pairing.devices()).toHaveLength(1)
+  })
+
+  it('independently approves different keys at two actual hosts with matching public ids', async () => {
+    const a = await realHost('A')
+    const identity = loadMachineIdentity(join(a.dir, 'remote'), 'test-1')
+    const b = await realHost('B', identity.machineId)
+    const profile = temporary()
+    const box = aesGcmSecretBox(randomBytes(32))
+    const machines = client(profile, { secretBox: () => box })
+    const idA = await pair(machines, a)
+    const savedB = await machines.add(b.gateway.origin)
+    expect(savedB.identity?.machineId).toBe(identity.machineId)
+    expect(savedB.id).not.toBe(idA)
+    expect((await machines.connect(savedB.id)).status).toBe('unpaired')
+    expect(b.gateway.pairing.devices()).toHaveLength(0)
+    const idB = await pair(machines, b)
+    expect(idB).toBe(savedB.id)
+    const registry = new MachinesRegistry(join(profile, 'machines.json'))
+    const keyA = await new DesktopMachineCredential(idA, registry, () => box).publicKey()
+    const keyB = await new DesktopMachineCredential(idB, registry, () => box).publicKey()
+    expect(keyB).not.toEqual(keyA)
+    expect(await machines.query(idA, { op: 'project.list' })).toMatchObject([{ id: 'project_A' }])
+    expect(await machines.query(idB, { op: 'project.list' })).toMatchObject([{ id: 'project_B' }])
+    a.gateway.pairing.revoke(a.gateway.pairing.devices()[0]!.deviceId)
+    expect((await machines.connect(idA)).status).toBe('revoked')
+    expect((await machines.connect(idB)).status).toBe('connected')
+  })
+
+  it('does not resend an executed command after a lost answer and corrupt receipt history on host restart', async () => {
+    const host = await realHost('A')
+    const network = new MachineNetwork({ allowLoopback: true })
+    const clientOptions = network.clientOptions.bind(network)
+    let commands = 0
+    vi.spyOn(network, 'clientOptions').mockImplementation(async (route) => {
+      const options = await clientOptions(route)
+      return {
+        ...options,
+        fetch: async (input, init) => {
+          const response = await options.fetch!(input, init)
+          if (String(input).endsWith('/command')) {
+            commands++
+            throw new TypeError('fixture answer lost after dispatch')
+          }
+          return response
+        },
+      }
+    })
+    const machines = client(temporary(), { network })
+    const id = await pair(machines, host)
+    const registry = new RpcRegistry({ send: vi.fn() })
+    registerMachinesRpc(registry, machines)
+    const create = command({ op: 'session.create', projectId: 'project_A', driverKind: 'codex', modelId: 'mock-model' })
+    expect(await registry.invoke('machines.command', { machineId: id, command: create })).toMatchObject({
+      ok: false, error: { code: 'unreachable' },
+    })
+    expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
+    writeFileSync(join(host.dir, 'remote', 'receipts.json'), '{corrupt')
+    await host.restart()
+    expect((await machines.connect(id)).status).toBe('connected')
+    expect(await registry.invoke('machines.query', { machineId: id, query: { op: 'command.status', idempotencyKey: create.idempotencyKey } })).toMatchObject({
+      ok: false, error: { code: 'not_found' },
+    })
+    expect(commands).toBe(1)
+    expect((await host.store.load('sess_same')).session.projectId).toBe('project_A')
   })
 
   it('recovers a failed OS-keyring unlock using the original paired key', async () => {
