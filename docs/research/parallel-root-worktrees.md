@@ -117,11 +117,26 @@ still requires the original caller's receipt and current permission cap. The
 regression exercises both methods against real temporary Git repositories and a
 fake provider. Final focused checks pending at WIP commit.
 
-No local refs for PRs 514?516 were found; no fetch, push, PR or live Ari changes.
-The prior immutable Aria overlap review remains applicable. Registered uncertain
+The coordinator supplied PR refs after this review started: 514 is
+`df66c4ed`, 515 is `64050689`, 516 is `d7399052` (including `f2591c40`).
+Read-only file comparison finds no overlap with 514/515; 516 overlaps engine,
+runtime, rpc and control service as in the prior immutable review. Preserve
+its off-by-default experiment guards. No fetch, push, PR or live Ari changes. Registered uncertain
 human-created worktrees remain inspectable; human `session.create` lacks the
 Aria caller's durable operation receipt and does not automatically clean an
 unconfirmed registered checkout. Shared descendants resolve the inherited cwd
 correctly; current labels report declared ownership, so descendants declaring
 `project` do not get their parent's Worktree badge. Those existing UI/recovery
 limits are explicit and do not relax folder admission or cleanup ownership.
+
+The security reviewer also identified unsafe legacy cleanup ownership: short
+eight-character keys collide between human roots sharing a timestamp prefix.
+New branches use the SHA-256 digest of the full exact session ID, including a
+marker that distinguishes the new key from legacy title slugs. Cleanup accepts
+that complete key (and numbered collisions), or legacy branches whose full
+final path component equals the exact session ID. Ambiguous legacy short-key
+branches are preserved for inspection, never deleted by a guessed owner. This
+can leave legacy branches behind after directory/ref cleanup. A real Git
+regression creates another root's unique, unintegrated commit, unregisters its
+checkout, and proves both current and legacy-short branches survive cleanup
+and a fresh manager while exact legacy full-ID cleanup still succeeds.

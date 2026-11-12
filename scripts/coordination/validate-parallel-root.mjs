@@ -27,6 +27,15 @@ const checks = [
     '--maxWorkers=1',
     '--no-file-parallelism',
   ],
+  [
+    '--filter', '@ari/engine', 'exec', 'vitest', 'run',
+    'src/workspace.test.ts',
+    'src/git/managed-workspaces.test.ts',
+    'src/git/orchestration-branch.test.ts',
+    'src/helm.test.ts',
+    'src/agent-control.test.ts',
+    '--maxWorkers=1', '--no-file-parallelism',
+  ],
 ]
 for (const args of checks) {
   process.stdout.write(`${JSON.stringify({ focusedCheck: args })}\n`)
