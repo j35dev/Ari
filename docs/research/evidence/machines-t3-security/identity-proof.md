@@ -16,6 +16,12 @@ Extract this builder to `.review-temp/t3-identity-builder.mjs`, run it to prepar
 the wrapper, commit WIP, and execute the generated `.review-temp/t3-identity-proof.mjs`
 through run-heavy only. It removes only its checked absolute fixture roots.
 
+The pre-cleanup harness used for `identity-result.json` is retained in security
+commit `ec5b05c29e178d274947daf258a512961f4e10c9` at this same document path,
+blob `ad3b3c85c50bba16b55fb4a20f0e0fb8ce379d27`. Reconstruct that version for the
+original `c537a8e2` command. This final variant adds failure-injection assertions
+for `8b2d0dcb`; it does not replace the original source/result evidence.
+
 ```javascript
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
