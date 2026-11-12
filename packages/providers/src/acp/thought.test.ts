@@ -23,17 +23,24 @@ describe('findThoughtOption', () => {
 
   it('matches id/name aliases when category is missing (Claude effort, Codex reasoning_effort)', () => {
     expect(
-      findThoughtOption([{ id: 'effort', name: 'Effort', type: 'select', options: [{ value: 'low' }] }])
-        ?.id,
+      findThoughtOption([
+        { id: 'effort', name: 'Effort', type: 'select', options: [{ value: 'low' }] },
+      ])?.id,
     ).toBe('effort')
     expect(
       findThoughtOption([
-        { id: 'reasoning_effort', name: 'Reasoning', type: 'select', options: [{ value: 'xhigh' }] },
+        {
+          id: 'reasoning_effort',
+          name: 'Reasoning',
+          type: 'select',
+          options: [{ value: 'xhigh' }],
+        },
       ])?.id,
     ).toBe('reasoning_effort')
     expect(
-      findThoughtOption([{ id: 'thinking', name: 'Thinking', type: 'select', options: [{ value: 'max' }] }])
-        ?.id,
+      findThoughtOption([
+        { id: 'thinking', name: 'Thinking', type: 'select', options: [{ value: 'max' }] },
+      ])?.id,
     ).toBe('thinking')
   })
 
@@ -52,8 +59,20 @@ describe('findThoughtOption', () => {
   it('never steals the model or permission-mode selectors', () => {
     expect(
       findThoughtOption([
-        { id: 'mode', category: 'mode', name: 'Mode', type: 'select', options: [{ value: 'plan' }] },
-        { id: 'model', category: 'model', name: 'Model', type: 'select', options: [{ value: 'm' }] },
+        {
+          id: 'mode',
+          category: 'mode',
+          name: 'Mode',
+          type: 'select',
+          options: [{ value: 'plan' }],
+        },
+        {
+          id: 'model',
+          category: 'model',
+          name: 'Model',
+          type: 'select',
+          options: [{ value: 'm' }],
+        },
       ]),
     ).toBeNull()
   })
@@ -65,7 +84,9 @@ describe('looksLikeThoughtAxis', () => {
   })
 
   it('rejects permission vocabularies (claude, opencode)', () => {
-    expect(looksLikeThoughtAxis(['default', 'acceptEdits', 'bypassPermissions', 'plan'])).toBe(false)
+    expect(looksLikeThoughtAxis(['default', 'acceptEdits', 'bypassPermissions', 'plan'])).toBe(
+      false,
+    )
     expect(looksLikeThoughtAxis(['build', 'plan'])).toBe(false)
   })
 })
@@ -138,7 +159,13 @@ describe('mergeEffortCatalogs', () => {
   it('unions options and keeps the first current id', () => {
     const merged = mergeEffortCatalogs(
       { currentId: 'high', options: [{ id: 'high', label: 'High' }] },
-      { currentId: 'low', options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }] },
+      {
+        currentId: 'low',
+        options: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High' },
+        ],
+      },
     )
     expect(merged.currentId).toBe('high')
     expect(merged.options.map((o) => o.id)).toEqual(['high', 'low'])

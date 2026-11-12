@@ -20,7 +20,13 @@ import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
-import { FILE_MIME, FILE_SCOPE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
+import {
+  FILE_MIME,
+  FILE_SCOPE_MIME,
+  osFilePath,
+  quotePathForPrompt,
+  readDragFilePath,
+} from './drag-file'
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { promptHistory, stepPromptHistory } from './prompt-history'
@@ -216,7 +222,8 @@ export function Composer({
   const client = useSessionClient()
   const inputScope = sessionId ? parseSessionViewKey(sessionId) : null
   const remote = remoteInput || client.scope.kind === 'remote' || inputScope?.kind === 'remote'
-  const scopedRemote = client.scope.kind === 'remote' &&
+  const scopedRemote =
+    client.scope.kind === 'remote' &&
     (sessionId === client.viewKey || sessionId === client.scope.sessionId)
   const [inputIssue, setInputIssue] = useState<string | null>(null)
   useEffect(() => setInputIssue(null), [sessionId, remote])
@@ -595,7 +602,10 @@ export function Composer({
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
-        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        if (others.length > 0 && remote)
+          setInputIssue(
+            'Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.',
+          )
         else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
@@ -625,7 +635,12 @@ export function Composer({
       if (decision.action === 'inline') return
       e.preventDefault()
       // No session means no workspace to write into, so the text stays inline.
-      if (sessionId === undefined || draftOnly || inputScope === null || (remote && !scopedRemote)) {
+      if (
+        sessionId === undefined ||
+        draftOnly ||
+        inputScope === null ||
+        (remote && !scopedRemote)
+      ) {
         insertRange(start, end, pasted)
         return
       }
@@ -668,7 +683,20 @@ export function Composer({
           },
         )
     },
-    [addFiles, caret, client, draftOnly, inputScope, insertAtCaret, insertRange, remote, scopedRemote, sessionId, setText, text],
+    [
+      addFiles,
+      caret,
+      client,
+      draftOnly,
+      inputScope,
+      insertAtCaret,
+      insertRange,
+      remote,
+      scopedRemote,
+      sessionId,
+      setText,
+      text,
+    ],
   )
 
   const handleDrop = useCallback(
@@ -678,8 +706,14 @@ export function Composer({
       if (path !== null) {
         e.preventDefault()
         const owner = e.dataTransfer.getData(FILE_SCOPE_MIME)
-        if (remote ? !scopedRemote || owner !== client.viewKey : owner.length > 0 && owner !== client.viewKey) {
-          setInputIssue('This file reference belongs to another workspace. Choose a file on the owning machine.')
+        if (
+          remote
+            ? !scopedRemote || owner !== client.viewKey
+            : owner.length > 0 && owner !== client.viewKey
+        ) {
+          setInputIssue(
+            'This file reference belongs to another workspace. Choose a file on the owning machine.',
+          )
           return
         }
         const insert = `@${path} `
@@ -696,7 +730,10 @@ export function Composer({
         const others = files.filter((file) => !file.type.startsWith('image/'))
         if (images.length > 0) addFiles(images)
         // OS file drops outside the image path land as prompt paths.
-        if (others.length > 0 && remote) setInputIssue('Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.')
+        if (others.length > 0 && remote)
+          setInputIssue(
+            'Files from this PC cannot be referenced on a remote machine. Paste image bytes or text instead.',
+          )
         else if (others.length > 0) {
           const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
           insertAtCaret(e.currentTarget, caret, insert)
@@ -818,11 +855,7 @@ export function Composer({
                       {message.attachments.length > 1 ? 's' : ''}
                     </span>
                   ) : null}
-                  {/* Steering rides the provider's text channel, so an imaged
-                      message can only ever run as the follow-up turn. */}
-                  {onSteerQueued &&
-                  message.attachments.length === 0 &&
-                  (!message.origin || message.origin.kind === 'human') ? (
+                  {onSteerQueued && (!message.origin || message.origin.kind === 'human') ? (
                     <button
                       type="button"
                       aria-label={`Steer queued message ${index + 1} into the current turn`}
@@ -1193,7 +1226,11 @@ export function Composer({
         </div>
       </div>
       {belowControls && <div className="pt-2">{belowControls}</div>}
-      {inputIssue && <p role="status" className="pt-2 text-xs text-fg-subtle">{inputIssue}</p>}
+      {inputIssue && (
+        <p role="status" className="pt-2 text-xs text-fg-subtle">
+          {inputIssue}
+        </p>
+      )}
     </div>
   )
 }

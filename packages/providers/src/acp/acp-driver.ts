@@ -28,7 +28,12 @@ import { findThoughtOption, looksLikeThoughtAxis, thoughtEffortsFromSession } fr
 import type { EffortCatalog } from './thought'
 import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
-import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
+import {
+  loadImageData,
+  missingImagesNote,
+  stagedImagesOf,
+  textWithAttachments,
+} from '../attachments'
 import type { CatalogModel } from '../catalogs'
 import {
   liveCatalogOf,
@@ -674,7 +679,10 @@ export async function createAcpAdapter(
       releasePending()
       connection.cancel(sessionId)
     },
-    steer: (text) => {
+    steer: (message, attachments = []) => {
+      // A steered message names its staged images in text; the image blocks
+      // belong to the prompt that opens a turn.
+      const text = textWithAttachments(message, attachments)
       // A steer belongs to the prompt that is running right now. Once the
       // last prompt has settled nothing would deliver a buffered text, so the
       // caller must keep the message queued and run it as the next turn.

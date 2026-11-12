@@ -94,7 +94,10 @@ async function snapshotLoginShellPath(timeoutMs: number): Promise<string | null>
   const script = `echo ${PATH_BEGIN}; printf '%s' "$PATH"; echo; echo ${PATH_END}`
   // Login+interactive first so profile/rc PATH edits run; plain login shell
   // as fallback for shells that reject -i without a tty.
-  for (const args of [['-lic', script], ['-lc', script]]) {
+  for (const args of [
+    ['-lic', script],
+    ['-lc', script],
+  ]) {
     const result = await readPathFromShell(shell, args, timeoutMs)
     if (result !== null) return result
   }

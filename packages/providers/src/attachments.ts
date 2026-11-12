@@ -32,15 +32,19 @@ export function missingImagesNote(missing: SessionAttachment[]): string {
  * with its own file tools. Returns the prompt untouched when imageless.
  */
 export function promptWithAttachments(session: AdapterSession): string {
-  const images = stagedImagesOf(session)
-  if (images.length === 0) return session.prompt
+  return textWithAttachments(session.prompt, stagedImagesOf(session))
+}
+
+/** {@linkcode promptWithAttachments} for any text, such as a mid-turn steer. */
+export function textWithAttachments(text: string, images: readonly SessionAttachment[]): string {
+  if (images.length === 0) return text
   const lines = images.map((img) =>
     img.path !== null
       ? `- ${img.name} (${img.mimeType}): ${img.path}`
       : `- ${img.name} (${img.mimeType}): staged file missing`,
   )
   const note = `[attached images — open these files to see them:]\n${lines.join('\n')}`
-  return session.prompt.length > 0 ? `${session.prompt}\n\n${note}` : note
+  return text.length > 0 ? `${text}\n\n${note}` : note
 }
 
 export interface LoadedImages {

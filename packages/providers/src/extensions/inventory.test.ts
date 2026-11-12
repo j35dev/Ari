@@ -23,15 +23,23 @@ describe('projectDirs', () => {
       await mkdir(join(nested, '.claude', 'skills', 'inside'), { recursive: true })
       await mkdir(join(root, '.claude', 'skills', 'outside'), { recursive: true })
       await mkdir(join(repo, '.git'))
-      await writeFile(join(nested, '.claude', 'skills', 'inside', 'SKILL.md'), '---\nname: inside\n---\n')
-      await writeFile(join(root, '.claude', 'skills', 'outside', 'SKILL.md'), '---\nname: outside\n---\n')
+      await writeFile(
+        join(nested, '.claude', 'skills', 'inside', 'SKILL.md'),
+        '---\nname: inside\n---\n',
+      )
+      await writeFile(
+        join(root, '.claude', 'skills', 'outside', 'SKILL.md'),
+        '---\nname: outside\n---\n',
+      )
       expect(projectDirs(nested)).toEqual([nested, repo])
       const listed = await discoverExtensions({
         provider: 'claude',
         workspacePath: nested,
         env: env(join(root, 'home')),
       })
-      expect(listed.records.filter((row) => row.kind === 'skill').map((row) => row.name)).toEqual(['inside'])
+      expect(listed.records.filter((row) => row.kind === 'skill').map((row) => row.name)).toEqual([
+        'inside',
+      ])
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -81,7 +89,12 @@ describe('discoverExtensions', () => {
         env: env(home),
       })
       const skill = listed.records.find((row) => row.name === 'hello')
-      expect(skill).toMatchObject({ kind: 'skill', scope: 'user', summary: 'Says hello', delivery: 'delegated' })
+      expect(skill).toMatchObject({
+        kind: 'skill',
+        scope: 'user',
+        summary: 'Says hello',
+        delivery: 'delegated',
+      })
       const server = listed.records.find((row) => row.name === 'filesystem')
       expect(server).toMatchObject({
         kind: 'mcp',
@@ -91,7 +104,9 @@ describe('discoverExtensions', () => {
       })
       expect(JSON.stringify(server)).not.toContain('secret')
       expect(JSON.stringify(server)).not.toContain('srv')
-      expect(listed.records.find((row) => row.name === 'ari-browser')?.problem).toBe('duplicate-name')
+      expect(listed.records.find((row) => row.name === 'ari-browser')?.problem).toBe(
+        'duplicate-name',
+      )
       expect(listed.records.find((row) => row.name === '.claude.json')?.problem).toBe('unreadable')
       expect(listed.records.find((row) => row.name === 'demo')?.kind).toBe('plugin')
       expect(listed.records.filter((row) => row.name === 'filesystem')).toHaveLength(1)
@@ -162,9 +177,15 @@ describe('discoverExtensions', () => {
         env: env(home),
       })
       const demo = listed.records.find((row) => row.name === 'demo')
-      expect(demo).toMatchObject({ disabled: true, problem: 'missing-binary', command: 'missing-bin' })
+      expect(demo).toMatchObject({
+        disabled: true,
+        problem: 'missing-binary',
+        command: 'missing-bin',
+      })
       expect(JSON.stringify(demo)).not.toContain('secret')
-      expect(listed.records.some((row) => row.name === 'inline' || row.command === 'nope')).toBe(false)
+      expect(listed.records.some((row) => row.name === 'inline' || row.command === 'nope')).toBe(
+        false,
+      )
       expect(listed.records.find((row) => row.name === 'ship')?.disabled).toBe(true)
       expect(scanTomlMcp('mcp_servers.demo = { command = "x" }\n', 'x', 'user')).toEqual([])
     } finally {

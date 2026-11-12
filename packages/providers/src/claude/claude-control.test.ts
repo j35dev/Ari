@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { Readable, Writable } from 'node:stream'
@@ -87,10 +90,12 @@ describe('claude stdin control frames', () => {
   it('steer frame shape snapshot (exact stream-json input schema varies across claude versions)', () => {
     const { child, adapter } = harness()
 
-    adapter.steer('focus on the parser module now')
+    void adapter.steer('focus on the parser module now')
 
     expect(child.lines).toHaveLength(1)
-    expect(JSON.parse(child.lines.join(''))).toEqual(buildUserFrame('focus on the parser module now'))
+    expect(JSON.parse(child.lines.join(''))).toEqual(
+      buildUserFrame('focus on the parser module now'),
+    )
     expect(child.lines.join('')).toMatchSnapshot()
   })
 
@@ -111,6 +116,29 @@ describe('claude stdin control frames', () => {
     expect(child.lines).toHaveLength(1)
   })
 
+  it('steers with images as image blocks, naming any file it could not read', async () => {
+    const { child, adapter } = harness()
+    const dir = await mkdtemp(join(tmpdir(), 'ari-steer-'))
+    const path = join(dir, 'shot.png')
+    await writeFile(path, Buffer.from('png-bytes'))
+
+    const delivered = await adapter.steer('see this', [
+      { id: 'a1', name: 'shot.png', mimeType: 'image/png', path },
+      { id: 'a2', name: 'gone.png', mimeType: 'image/png', path: null },
+    ])
+
+    expect(delivered).toBe(true)
+    expect(child.lines).toHaveLength(1)
+    const frame = JSON.parse(child.lines[0]!) as {
+      message: { content: { type: string; text?: string; source?: { data: string } }[] }
+    }
+    expect(frame.message.content.map((part) => part.type)).toEqual(['text', 'image'])
+    expect(frame.message.content[0]?.text).toContain('see this')
+    expect(frame.message.content[0]?.text).toContain('gone.png')
+    expect(frame.message.content[1]?.source?.data).toBe(Buffer.from('png-bytes').toString('base64'))
+    await rm(dir, { recursive: true, force: true })
+  })
+
   it('respondApproval answers can_use_tool requests with real control_response frames', () => {
     const { child, adapter } = harness()
 
@@ -124,7 +152,9 @@ describe('claude stdin control frames', () => {
     // Give the pump a tick to consume the line before answering.
     return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
       adapter.respondApproval('req_1', 'allow')
-      expect(child.lines.at(-1)).toEqual(`${JSON.stringify(buildApprovalResponseFrame('req_1', 'allow'))}\n`)
+      expect(child.lines.at(-1)).toEqual(
+        `${JSON.stringify(buildApprovalResponseFrame('req_1', 'allow'))}\n`,
+      )
 
       // always-allow upgrades to a session-scoped allow rule for the seen tool.
       emitStdout(child, {
@@ -163,7 +193,9 @@ describe('claude stdin control frames', () => {
     const { child, adapter } = harness()
 
     adapter.respondApproval('ghost', 'allow')
-    expect(child.lines).toEqual([`${JSON.stringify(buildApprovalResponseFrame('ghost', 'allow'))}\n`])
+    expect(child.lines).toEqual([
+      `${JSON.stringify(buildApprovalResponseFrame('ghost', 'allow'))}\n`,
+    ])
   })
 
   it('answers unsupported control subtypes with an error control_response so the CLI cannot stall', () => {
