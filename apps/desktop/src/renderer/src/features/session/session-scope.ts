@@ -9,7 +9,7 @@ export function sessionViewKey(scope: SessionScope): string {
 
 /** Only engine-issued local ids and canonical remote tuples are accepted for navigation. */
 export function parseSessionViewKey(key: string): SessionScope | null {
-  if (/^sess_[A-Za-z0-9_-]+$/.test(key)) return { kind: 'local', sessionId: key }
+  if (key === 'aria' || /^sess_[A-Za-z0-9_-]+$/.test(key)) return { kind: 'local', sessionId: key }
   try {
     const value: unknown = JSON.parse(key)
     if (!Array.isArray(value) || value.length !== 2 ||
