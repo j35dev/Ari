@@ -155,13 +155,13 @@ it('keeps remote workspace actions and keyboard shortcuts away from local dispat
     return base(method, params)
   })
   await shell()
-  fireEvent.click(await screen.findByRole('button', { name: 'Remote task', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Remote task' }))
   await screen.findByRole('textbox', { name: 'Prompt on Studio computer' })
   const previous = invoke.mock.calls.length
   fireEvent.keyDown(window, { ctrlKey: true, key: '`' })
   fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
   expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
   await waitFor(() =>
     expect(
       invoke.mock.calls.some(

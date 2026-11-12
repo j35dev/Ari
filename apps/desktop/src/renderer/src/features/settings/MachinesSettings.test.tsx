@@ -98,7 +98,7 @@ describe('Machines settings', () => {
     const name = await screen.findByRole('textbox', { name: `Name for ${host.name}` })
     await user.clear(name)
     await user.type(name, 'Build workstation')
-    await user.click(screen.getByRole('button', { name: 'Rename', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Rename' }))
     expect(mocks.invoke).toHaveBeenCalledWith('machines.rename', {
       machineId: 'host-a',
       name: 'Build workstation',
@@ -110,9 +110,9 @@ describe('Machines settings', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Open workspace' }))
     expect(onOpen).toHaveBeenCalledWith('host-a')
-    await user.click(screen.getByRole('button', { name: 'Remove', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(mocks.invoke.mock.calls.some(([method]) => method === 'machines.remove')).toBe(false)
-    await user.click(screen.getByRole('button', { name: 'Remove computer', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Remove computer' }))
     expect(mocks.invoke).toHaveBeenCalledWith('machines.remove', { machineId: 'host-a' })
   })
 })
