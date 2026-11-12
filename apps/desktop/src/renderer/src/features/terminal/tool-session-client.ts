@@ -1,11 +1,16 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { observeMachineInventory, machineInventoryRevision } from '../session/session-machine-access'
+import { registerSessionCacheInvalidator } from '../session/session-scope'
+import { forgetMachineTerminals } from './terminal-dock'
 import {
   createSessionClient,
   parseSessionViewKey,
   useSessionClient,
   type SessionClient,
 } from '../session/session-client'
+
+// Explicit revocation removes host-derived terminal presentation, preserving receipts.
+registerSessionCacheInvalidator(forgetMachineTerminals)
 
 function refuse(client: SessionClient, reason: string): SessionClient {
   const reject = async (): Promise<never> => { throw new Error(reason) }
