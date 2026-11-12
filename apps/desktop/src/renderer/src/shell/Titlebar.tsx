@@ -1,5 +1,13 @@
 import { useState, type ReactNode } from 'react'
-import { FileDiff, Folder, Globe, ListTree, Monitor, PanelLeftOpen, TerminalSquare } from 'lucide-react'
+import {
+  FileDiff,
+  Folder,
+  Globe,
+  ListTree,
+  Monitor,
+  PanelLeftOpen,
+  TerminalSquare,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import { cx, iconButton, iconButtonActive } from '../lib/recipes'
@@ -56,6 +64,11 @@ export interface TitlebarPlace {
  * collapse) and is exactly as wide as the sidebar; after it comes the place,
  * and at the trailing edge the provider's usage, the Git control and the
  * panel toggles.
+ *
+ * The bar is a size container. As the window narrows its pieces give up their
+ * words in order (provider name, project, branch, Git action label) and keep
+ * their icons, so nothing is squeezed to a letter or pushed under the window
+ * buttons.
  */
 export function Titlebar({
   activeTool,
@@ -97,7 +110,7 @@ export function Titlebar({
 
   return (
     <header
-      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
+      className="@container flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {leading !== undefined && !minimal ? (
@@ -148,8 +161,10 @@ export function Titlebar({
           ) : null}
           {place?.context != null ? (
             <>
-              <span className="max-w-48 truncate">{place.context}</span>
-              <span aria-hidden className="opacity-50">
+              <span className="hidden max-w-48 shrink-0 truncate @[76rem]:inline">
+                {place.context}
+              </span>
+              <span aria-hidden className="hidden opacity-50 @[76rem]:inline">
                 /
               </span>
             </>
@@ -162,7 +177,7 @@ export function Titlebar({
 
       <div className="min-w-4 flex-1" />
       {usage && !minimal ? (
-        <div className="mr-1 min-w-0 shrink" style={NO_DRAG}>
+        <div className="mr-1 shrink-0" style={NO_DRAG}>
           {usage}
         </div>
       ) : null}
@@ -243,7 +258,7 @@ export function Titlebar({
         </div>
       ) : // Reserve space for native Windows overlay buttons.
       platform === 'win32' ? (
-        <div style={{ width: 138 }} />
+        <div className="shrink-0" style={{ width: 138 }} />
       ) : (
         <div className="w-2" />
       )}

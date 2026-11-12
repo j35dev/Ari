@@ -300,7 +300,7 @@ export function ProviderUsagePill({
               transform="rotate(-90 8 8)"
             />
           </svg>
-          <span className="truncate">{label}</span>
+          <span className="hidden truncate @[84rem]:inline">{label}</span>
           <span className={`tabular-nums ${outdated ? 'opacity-60' : ''}`}>
             {primary ? `${used}%` : refreshing && !selected?.checkedAt ? '…' : '—'}
           </span>
