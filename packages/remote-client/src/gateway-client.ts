@@ -1,5 +1,12 @@
 import type { GatewayInfo, PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
 import type { RemoteClientMessage, RemoteServerMessage } from '@ari/contracts/remote'
+import { remoteServerMessageSchema } from '@ari/contracts/remote'
+import type {
+  SignedHostRouteManifest,
+  SignedRouteProof,
+  SignedRouteChallenge,
+} from '@ari/contracts/route-auth'
+import type { DeviceAuthorization } from './route-auth'
 
 /**
  * The client half of the remote protocol.
@@ -108,6 +115,23 @@ export class GatewayClient {
     return this.#post<GatewayInfo>('/info', {})
   }
 
+  async routeManifest(): Promise<SignedHostRouteManifest> {
+    return this.#post('/routes/manifest', {}, true)
+  }
+  async routeProof(nonce: string): Promise<SignedRouteProof> {
+    return this.#post('/routes/proof', { audience: this.origin, nonce })
+  }
+  async routeChallenge(deviceId: string, clientNonce: string): Promise<SignedRouteChallenge> {
+    return this.#post('/routes/challenge', { audience: this.origin, deviceId, clientNonce })
+  }
+  async routeAuthorize(
+    deviceId: string,
+    nonce: string,
+    signature: string,
+  ): Promise<DeviceAuthorization> {
+    return this.#post('/routes/authorize', { audience: this.origin, deviceId, nonce, signature })
+  }
+
   async pairRequest(
     invitationId: string,
     displayName: string,
@@ -142,7 +166,7 @@ export class GatewayClient {
   async deviceAuthorize(
     deviceId: string,
     proof: { nonce: string; signature: string },
-  ): Promise<{ deviceId: string; token: string; projectIds: string[]; allowTerminal?: boolean }> {
+  ): Promise<DeviceAuthorization> {
     return this.#post('/device/authorize', { deviceId, ...proof })
   }
 
@@ -173,6 +197,7 @@ export class GatewayClient {
     sessionId: string,
     options: {
       fromSeq?: number
+      desktop?: true
       onFrame: (message: RemoteServerMessage) => void
       onClose?: (event: { code: number; reason: string }) => void
     },
@@ -185,17 +210,32 @@ export class GatewayClient {
     let closed = false
 
     socket.addEventListener('open', () => {
+      if (closed) return
       const subscribe: RemoteClientMessage = {
-        type: 'events.subscribe',
+        type: options.desktop === true ? 'events.desktop.subscribe' : 'events.subscribe',
         sessionId,
         ...(options.fromSeq === undefined ? {} : { fromSeq: options.fromSeq }),
       }
       socket.send(JSON.stringify(subscribe))
     })
     socket.addEventListener('message', (event) => {
+      if (closed) return
       const data = typeof event.data === 'string' ? event.data : ''
       try {
-        options.onFrame(JSON.parse(data) as RemoteServerMessage)
+        const parsed = remoteServerMessageSchema.safeParse(JSON.parse(data))
+        if (!parsed.success || ('sessionId' in parsed.data && parsed.data.sessionId !== sessionId))
+          return
+        const message = parsed.data
+        const events =
+          message.type === 'events.frame'
+            ? message.events
+            : message.type === 'events.desktop.frame' && message.frame.kind === 'chunk'
+              ? message.frame.events
+              : message.type === 'events.desktop.frame' && message.frame.kind === 'live'
+                ? [message.frame.event]
+                : []
+        if (events.some((entry) => 'sessionId' in entry && entry.sessionId !== sessionId)) return
+        options.onFrame(message)
       } catch (error) {
         console.warn('Ari received an unreadable activity frame', error)
       }
@@ -226,6 +266,7 @@ export class GatewayClient {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        redirect: 'error',
       })
     } catch (error) {
       // No response at all: the phone cannot tell a sleeping desktop from a

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { rpcParams, type RpcMethod, type RpcResults } from '@ari/contracts/rpc'
+import { rpcParams, type RpcMethod } from '@ari/contracts/rpc'
 import { remoteTerminalSchema, type RemoteQuery } from '@ari/contracts/remote'
 import type { SessionClient } from '../session/session-client'
 import {
@@ -28,7 +28,7 @@ const queues = new Map<string, Promise<unknown>>()
 /** Adds host-owned pty operations to the same typed client used by normal tools. */
 export function createTerminalSessionAdapter(client: SessionClient) {
   if (client.scope.kind === 'local')
-    return { ...client, checkTerminal: async (_id: string) => undefined }
+    return { ...client, checkTerminal: (_id: string) => Promise.resolve(undefined) }
   const { machineId, sessionId } = client.scope
   const owner: Extract<TerminalOwner, { kind: 'remote' }> = { kind: 'remote', machineId, sessionId }
   const receiptScope = (id: string) => `terminal:${sessionId}:${id}`
@@ -119,10 +119,10 @@ export function createTerminalSessionAdapter(client: SessionClient) {
     await sendRemote(machineId, receiptScope(id), action as RemoteAction)
     return undefined
   }
-  const invoke: SessionClient['invoke'] = async <M extends RpcMethod>(
-    method: M,
+  const invoke = async (
+    method: RpcMethod,
     raw?: unknown,
-  ): Promise<RpcResults[M]> => {
+  ): Promise<unknown> => {
     if (!['terminal.create', 'terminal.write', 'terminal.resize', 'terminal.kill'].includes(method))
       return client.invoke(method, raw)
     const p = rpcParams[method].parse(raw) as Record<string, unknown>
@@ -137,7 +137,7 @@ export function createTerminalSessionAdapter(client: SessionClient) {
         if (queues.get(key) === result) queues.delete(key)
       })
       .catch(() => undefined)
-    return (await result) as RpcResults[M]
+    return await result
   }
   const subscribe: SessionClient['subscribe'] = (name, params, onEvent) => {
     if (name !== 'terminal.data') return client.subscribe(name, params, onEvent)
@@ -198,5 +198,7 @@ export function createTerminalSessionAdapter(client: SessionClient) {
       clearInterval(timer)
     }
   }
-  return { ...client, invoke, subscribe, checkTerminal }
+  // The four validated terminal mutations return void; all other methods keep
+  // their existing typed client implementation. Erase the large RPC union here.
+  return { ...client, invoke: invoke as SessionClient['invoke'], subscribe, checkTerminal }
 }
