@@ -136,7 +136,7 @@ export function RemoteSession({
         JSON.stringify(draft.attachments.map((item) => item.id)) === JSON.stringify(sentIds)
       )
         writeRemoteDraft(machine.id, sessionId, { text: '', attachments: [] })
-      setComposerEpoch((value) => value + 1)
+      if (alive.current) setComposerEpoch((value) => value + 1)
     }
     if (action.op === 'attachments.stage') {
       const draft = readRemoteDraft(machine.id, sessionId)
@@ -147,9 +147,10 @@ export function RemoteSession({
           MAX_ATTACHMENTS,
         ),
       })
-      setComposerEpoch((value) => value + 1)
+      if (alive.current) setComposerEpoch((value) => value + 1)
     }
-    if (action.op === 'session.fork') onOpenSession(forkedSchema.parse(result).sessionId)
+    if (alive.current && action.op === 'session.fork')
+      onOpenSession(forkedSchema.parse(result).sessionId)
   }
   async function act(action: RemoteAction): Promise<void> {
     if (!alive.current || busy || !machineCan(machineRef.current, action.op))
@@ -159,8 +160,8 @@ export function RemoteSession({
     const actionScope = 'sessionId' in action ? action.sessionId : sessionId
     try {
       const result = await sendRemote(machine.id, actionScope, action)
-      if (!alive.current) return
       finish(action, result)
+      if (!alive.current) return
       await load()
     } catch (error) {
       if (alive.current) setError(messageOf(error))
@@ -180,8 +181,8 @@ export function RemoteSession({
     setBusy(true)
     try {
       const result = await resolveReceipt(machine.id, pending.scope, retry)
-      if (!alive.current) return
       finish(pending.command, result)
+      if (!alive.current) return
       setError(null)
       await load()
     } catch (error) {
