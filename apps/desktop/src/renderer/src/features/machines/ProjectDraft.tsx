@@ -4,6 +4,7 @@ import type { ProjectAgent } from '@ari/contracts/project'
 import type { RemoteModelCatalog, RemoteProjectWorkspaces } from '@ari/contracts/remote'
 import type { SessionScope } from '../session/session-client'
 import { Composer, type ComposerSeed } from '../composer/Composer'
+import { readSessionDraftIntent } from '../composer/draft-recovery-store'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ComposerDock } from '../session/ComposerDock'
 import { MachinePicker, type DraftMachineSelection } from './MachinePicker'
@@ -69,6 +70,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
     return { mode: 'manual', hostId, reason: `${hosts.find((host) => host.id === hostId)?.name ?? 'This PC'} runs this draft.` }
   })
   const selectedHost = hosts.find((host) => host.id === selection.hostId)
+  const hostsRef = useRef(hosts)
+  hostsRef.current = hosts
   const choices = checkoutChoices(group, selection.hostId ?? '')
   const [checkoutId, setCheckoutId] = useState<string | null>(restored.attempt?.projectId ?? null)
   const projectId = checkoutId && choices.some((checkout) => checkout.projectId === checkoutId)
@@ -139,6 +142,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
         verifyScope(scope, hostId)
         rememberAttempt({ ...started, scope, phase: 'stage' })
         const attachmentIds = files.length > 0 ? await client.stage(scope, files) : []
+        const dispatchReason = validateSelection(hostsRef.current.find((host) => host.id === hostId), selection.mode === 'auto')
+        if (dispatchReason) throw new Error(dispatchReason)
         rememberAttempt({ ...started, scope, phase: 'prompt' })
         await client.prompt(scope, { draftId, text, attachmentIds })
         localStorage.removeItem(attemptKey(draftId))
@@ -159,7 +164,8 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
         if (!scope) { setFailure('The creation outcome is still unknown. Reconnect and check again.'); return }
         verifyScope(scope, original.hostId)
         rememberAttempt({ ...original, scope, phase: 'stage' })
-        onCreated(scope, { text: original.text, nonce: Date.now(), sessionId: scope.sessionId })
+        onCreated(scope, { text: original.text, nonce: Date.now(),
+          images: readSessionDraftIntent(`project-draft:${draftId}`).images })
       } else if (original.phase === 'prompt' && original.scope) {
         if (await client.checkPrompt(draftId, original.scope)) {
           localStorage.removeItem(attemptKey(draftId)); onCreated(original.scope)
@@ -184,12 +190,12 @@ export function ProjectDraft({ draftId, group, hosts, initialHostId, autoEnabled
         sendPending={pending} onSend={send} placeholder="Describe what you want to do in this project…"
         leading={<>
           <ModelSelector driverKind={pick?.driverKind ?? 'ari-core'} modelId={pick?.modelId ?? null} hostCatalog={catalog}
-            onChange={(next) => { if (!locked) setPick({ ...next, effort: null, permissionMode: catalog?.defaults?.permissionMode ?? 'ask' }) }} />
-          {pick && <select aria-label="Reasoning effort" disabled={locked} value={pick.effort ?? ''}
+            disabled={attempt !== null || pending} onChange={(next) => { if (!attemptRef.current) setPick({ ...next, effort: null, permissionMode: catalog?.defaults?.permissionMode ?? 'ask' }) }} />
+          {pick && <select aria-label="Reasoning effort" disabled={attempt !== null || pending} value={pick.effort ?? ''}
             onChange={(event) => setPick({ ...pick, effort: event.target.value || null })} className="bg-transparent text-xs text-fg-muted">
             <option value="">Agent default</option>{efforts.map((effort) => <option key={effort.id} value={effort.id}>{effort.label}</option>)}
           </select>}
-          {pick && <select aria-label="Permission mode" disabled={locked} value={pick.permissionMode}
+          {pick && <select aria-label="Permission mode" disabled={attempt !== null || pending} value={pick.permissionMode}
             onChange={(event) => setPick({ ...pick, permissionMode: event.target.value as ProjectAgent['permissionMode'] })}
             className="bg-transparent text-xs text-fg-muted">
             {modes.length > 0 ? modes.map((mode) => <option key={mode.id} value={mode.ariMode}>{mode.label}</option>) :

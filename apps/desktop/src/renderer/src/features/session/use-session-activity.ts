@@ -217,7 +217,7 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
       const scope = parseSessionViewKey(key)
       if (scope?.kind !== 'remote') return () => undefined
       const client = createSessionClient(scope)
-      return client.rpc.subscribe('session.events', { sessionId: scope.sessionId }, (payload) => {
+      return client.subscribe('session.events', { sessionId: scope.sessionId }, (payload) => {
         const frame = payload as SessionEventFrame
         consumeRef.current({ ...frame, sessionId: key })
       })

@@ -39,7 +39,7 @@ export interface SplitViewProps {
   renderTerminal?: (terminalId: string, paneId: string) => ReactNode
   terminalTitleOf?: (terminalId: string) => string | null
   onOpenTerminal?: (paneId: string) => void
-  canOpenTerminal?: boolean
+  canOpenTerminal?: boolean | ((paneId: string) => boolean)
 }
 
 /**
@@ -85,10 +85,11 @@ export function SplitView({
     const { paneId, sessionId } = leaf
     const terminalId = terminalIdOf(leaf)
     const blank = isBlankLeaf(leaf)
+    const terminalAvailable = typeof canOpenTerminal === 'function' ? canOpenTerminal(paneId) : canOpenTerminal
     const content = blank ? renderBlank?.(paneId) ?? (
       <BlankPane
         onOpenTerminal={onOpenTerminal !== undefined ? () => onOpenTerminal(paneId) : undefined}
-        canOpenTerminal={canOpenTerminal}
+        canOpenTerminal={terminalAvailable}
       />
     ) : sessionId !== null ? (
       renderSession(sessionId, paneId)
@@ -111,7 +112,7 @@ export function SplitView({
           onDropSession={onDropSession}
           onDropPane={onDropPane}
           onOpenTerminal={blank ? onOpenTerminal : undefined}
-          canOpenTerminal={canOpenTerminal}
+          canOpenTerminal={terminalAvailable}
         >
           {content}
         </SoloDropSurface>
@@ -132,7 +133,7 @@ export function SplitView({
         onDropSession={onDropSession}
         onDropPane={onDropPane}
         onOpenTerminal={blank ? onOpenTerminal : undefined}
-        canOpenTerminal={canOpenTerminal}
+        canOpenTerminal={terminalAvailable}
       >
         {content}
       </PaneFrame>
