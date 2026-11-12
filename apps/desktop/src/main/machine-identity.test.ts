@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { constants, setPriority, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -16,7 +24,8 @@ function profile() {
 }
 afterEach(() => {
   for (const root of roots.splice(0)) {
-    if (!resolve(root).startsWith(parent + sep)) throw new Error('Identity fixture escaped its parent.')
+    if (!resolve(root).startsWith(parent + sep))
+      throw new Error('Identity fixture escaped its parent.')
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
@@ -46,16 +55,21 @@ it('anchors a valid legacy identity without changing its bytes or ID', () => {
   writeFileSync(join(dir, 'identity.json'), original)
   expect(loadMachineIdentity(dir, '2').machineId).toBe('machine_legacy')
   expect(readFileSync(join(dir, 'identity.json'), 'utf8')).toBe(original)
-  expect(JSON.parse(readFileSync(join(dir, 'identity.json.recovery'), 'utf8'))).toEqual(JSON.parse(original))
+  expect(JSON.parse(readFileSync(join(dir, 'identity.json.recovery'), 'utf8'))).toEqual(
+    JSON.parse(original),
+  )
 })
 
-it.each(['', ' ', '{broken', '{"machineId":"machine_old"}'])('preserves unanchored invalid identity %j', (raw) => {
-  const dir = profile()
-  writeFileSync(join(dir, 'identity.json'), raw)
-  expect(() => loadMachineIdentity(dir, '1')).toThrow()
-  expect(readFileSync(join(dir, 'identity.json'), 'utf8')).toBe(raw)
-  expect(existsSync(join(dir, 'identity.json.recovery'))).toBe(false)
-})
+it.each(['', ' ', '{broken', '{"machineId":"machine_old"}'])(
+  'preserves unanchored invalid identity %j',
+  (raw) => {
+    const dir = profile()
+    writeFileSync(join(dir, 'identity.json'), raw)
+    expect(() => loadMachineIdentity(dir, '1')).toThrow()
+    expect(readFileSync(join(dir, 'identity.json'), 'utf8')).toBe(raw)
+    expect(existsSync(join(dir, 'identity.json.recovery'))).toBe(false)
+  },
+)
 
 it('rejects mismatched and corrupt recovery records without modifying the primary', () => {
   const dir = profile()
@@ -89,17 +103,34 @@ it('publishes the same complete winner for simultaneous independent processes', 
     process.stdout.write(JSON.stringify(loadMachineIdentity(${JSON.stringify(dir)}, 'child'))+'\\n');`
   const children = Array.from({ length: 2 }, () => {
     let ready!: () => void
-    const started = new Promise<void>((done) => { ready = done })
-    const child = spawn(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], {
-      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    const started = new Promise<void>((done) => {
+      ready = done
     })
+    const child = spawn(
+      process.execPath,
+      ['--experimental-strip-types', '--input-type=module', '-e', script],
+      {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
     if (child.pid) setPriority(child.pid, constants.priority.PRIORITY_BELOW_NORMAL)
-    let output = ''; let errors = ''
-    child.stdout.on('data', (data: Buffer) => { output += data.toString(); if (output.includes('ready\n')) ready() })
-    child.stderr.on('data', (data: Buffer) => { errors += data.toString() })
+    let output = ''
+    let errors = ''
+    child.stdout.on('data', (data: Buffer) => {
+      output += data.toString()
+      if (output.includes('ready\n')) ready()
+    })
+    child.stderr.on('data', (data: Buffer) => {
+      errors += data.toString()
+    })
     const completed = new Promise<string>((done, reject) => {
       child.once('error', reject)
-      child.once('exit', (code) => { ready(); if (code === 0) done(output); else reject(new Error(errors || `Child exit ${code}`)) })
+      child.once('exit', (code) => {
+        ready()
+        if (code === 0) done(output)
+        else reject(new Error(errors || `Child exit ${code}`))
+      })
     })
     return { child, started, completed }
   })
@@ -110,5 +141,7 @@ it('publishes the same complete winner for simultaneous independent processes', 
     const identities = outputs.map((output) => JSON.parse(output.trim().split('\n').at(-1)!))
     expect(identities[0]).toEqual(identities[1])
     expect(loadMachineIdentity(dir, 'child')).toEqual(identities[0])
-  } finally { for (const { child } of children) if (child.exitCode === null) child.kill() }
+  } finally {
+    for (const { child } of children) if (child.exitCode === null) child.kill()
+  }
 }, 30_000)
