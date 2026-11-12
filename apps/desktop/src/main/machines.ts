@@ -488,8 +488,17 @@ export class MachinesService {
   }
   async #precheck(machineId: string): Promise<MachineView> {
     const active = this.#connections.get(machineId)
-    if (active === undefined || !active.session.usable)
-      return this.#view(this.#registry.get(machineId))
+    if (active === undefined || !active.session.usable) {
+      const saved = this.#registry.get(machineId)
+      const view = this.#view(saved)
+      if (
+        saved.credentialCipher !== null &&
+        view.status !== 'revoked' &&
+        view.status !== 'incompatible'
+      )
+        return this.connect(machineId)
+      return view
+    }
     const row = this.#registry.get(machineId)
     const index = row.routes.findIndex((route) => route.origin === active.route.origin)
     if (
@@ -1099,8 +1108,13 @@ export class MachinesService {
         'unauthenticated',
       ].includes(error.code)
     ) {
-      this.#closeSubscriptions(id)
-      connection.session.disconnect()
+      this.#drop(
+        id,
+        connection,
+        error.code === 'unreachable' ||
+          error.code === 'authentication_expired' ||
+          error.code === 'unauthenticated',
+      )
       this.#failed(id, error)
     }
   }
