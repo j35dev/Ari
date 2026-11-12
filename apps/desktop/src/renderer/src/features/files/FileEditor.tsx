@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@ari/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@ari/ui/dialog'
-import { rpc } from '../../lib/rpc'
+import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import type { FsTreeScope } from './FileExplorer'
 
 function fileName(path: string): string {
@@ -30,7 +30,11 @@ interface FileEditorProps {
  * the edit cap or binary ones render an error instead of an editable buffer.
  */
 export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: FileEditorProps) {
-  const readOnly = readOnlyReason != null
+  const rpc = useToolSessionClient(scope.sessionId)
+  const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
+  const editingReason = readOnlyReason ?? (rpc.scope.kind === 'remote' || rpc.readOnly
+    ? rpc.capabilityReason('fs.writeTextFile') ?? 'File editing is unavailable on this machine.' : null)
+  const readOnly = editingReason != null
   const generation = useRef(0)
   const [original, setOriginal] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -45,7 +49,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
     setError(null)
     setSaving(false)
     void rpc
-      .invoke('fs.readTextFile', { ...scope, path })
+      .invoke('fs.readTextFile', { ...wireScope, path })
       .then((result) => {
         if (cancelled) return
         // A truncated read means the file is larger than we hold in memory;
@@ -64,7 +68,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
       cancelled = true
       if (generation.current === epoch) generation.current += 1
     }
-  }, [path, scope])
+  }, [path, wireScope, rpc, rpc.authorizationEpoch, rpc.availability])
 
   const dirty = original !== null && draft !== original
 
@@ -74,7 +78,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
     setSaving(true)
     setError(null)
     void rpc
-      .invoke('fs.writeTextFile', { ...scope, path, content: draft })
+      .invoke('fs.writeTextFile', { ...wireScope, path, content: draft })
       .then(() => {
         if (generation.current !== epoch) return
         setOriginal(draft)
@@ -87,7 +91,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
       .finally(() => {
         if (generation.current === epoch) setSaving(false)
       })
-  }, [dirty, draft, onSaved, path, readOnly, saving, scope])
+  }, [dirty, draft, onSaved, path, readOnly, saving, wireScope, rpc])
 
   const loaded = original !== null
 
@@ -104,9 +108,9 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
           )}
         </header>
         <div className="flex min-h-0 flex-1 flex-col px-5 py-3">
-          {readOnlyReason != null && (
+          {editingReason != null && (
             <p role="status" className="mb-2 text-xs text-fg-muted">
-              {readOnlyReason}
+              {editingReason}
             </p>
           )}
           {loaded ? (
@@ -142,7 +146,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
             variant="primary"
             loading={saving}
             disabled={readOnly || !dirty}
-            title={readOnlyReason ?? undefined}
+            title={editingReason ?? undefined}
             onClick={save}
           >
             Save
