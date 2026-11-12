@@ -7,6 +7,7 @@ import { useApp } from '../../lib/app-state'
 import { TerminalWriter } from '../../lib/terminal-writer'
 import { closeRemoteTerminal } from '../../lib/terminal-close'
 import { readTerminalState, writeTerminalState } from '../../lib/terminal-state'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 
 interface TerminalPage {
   terminalId: string
@@ -58,6 +59,11 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
       throw new Error('Reconnect before sending terminal input.')
     await session.send({ op: 'terminal.write', sessionId, terminalId: id.current, data }, key)
   })
+  const checkInput = useEffectEvent(async (key: string): Promise<void> => {
+    if (app.session === null || !app.session.usable || !app.session.allowTerminal)
+      throw new Error('Reconnect before checking terminal input.')
+    await checkCommandReceipt(app.session, key)
+  })
   const write = useEffectEvent(async (data: string): Promise<void> => {
     if (writer.current === null) throw new Error('The terminal input connection is not ready.')
     await writer.current.write(data)
@@ -90,7 +96,7 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
       setInputBlocked(true)
       xterm.options.disableStdin = true
       setFailure(error instanceof Error ? error.message : 'Terminal input was not acknowledged.')
-    })
+    }, checkInput)
     const input = xterm.onData((data) => {
       void write(data).catch((error: unknown) =>
         setFailure(error instanceof Error ? error.message : 'Could not write to the terminal.'),
@@ -127,13 +133,14 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
       if (cancelled) return
       try {
         if (id.current === null) {
+          const checking = creating.current !== null
           creating.current ??= crypto.randomUUID()
           writeTerminalState(app.origin, deviceId, sessionId, {
             terminalId: null,
             creationKey: creating.current,
             closed: false,
           })
-          const result = (await session.send(
+          const result = (checking ? await checkCommandReceipt(session, creating.current) : await session.send(
             {
               op: 'terminal.create',
               sessionId,
@@ -142,6 +149,7 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
             },
             creating.current,
           )) as { result?: { terminalId?: string }; terminalId?: string }
+          if (cancelled) return
           const nextId = result.result?.terminalId ?? result.terminalId
           if (nextId === undefined)
             throw new Error(
@@ -241,7 +249,7 @@ export function Terminal({ sessionId, active }: { sessionId: string; active: boo
         setInputBlocked(true)
         if (terminal.current !== null) terminal.current.options.disableStdin = true
         setFailure(error instanceof Error ? error.message : 'Terminal input was not acknowledged.')
-      })
+      }, checkInput)
       id.current = null
       cursor.current = 0
       setExited(false)

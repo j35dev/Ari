@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { RemoteIntegrationPreview } from '@ari/contracts/remote'
 import { GitMerge } from 'lucide-react'
 import { BottomSheet } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { RemoteError } from '../../lib/gateway-client'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import {
   readIntegration,
   writeIntegration,
@@ -27,6 +28,11 @@ export function ReviewIntegration({
   const [failure, setFailure] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<string | null>(null)
   const [uncertain, setUncertain] = useState(restored !== null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
   const supported =
     app.session?.supports('changes.preview') === true && app.session.supports('changes.integrate')
   if (!supported) return null
@@ -43,14 +49,15 @@ export function ReviewIntegration({
         preview: RemoteIntegrationPreview | null
         error: string | null
       } | null>('changes.preview', { sessionId })
+      if (!alive.current) return
       if (result === null || result.preview === null)
         throw new Error(result?.error ?? 'Integration is unavailable for this workspace.')
       setReviewed({ preview: result.preview, key: crypto.randomUUID() })
       setUncertain(false)
     } catch (error) {
-      setFailure(messageOf(error))
+      if (alive.current) setFailure(messageOf(error))
     } finally {
-      setBusy(false)
+      if (alive.current) setBusy(false)
     }
   }
   async function integrate(): Promise<void> {
@@ -64,7 +71,7 @@ export function ReviewIntegration({
     setBusy(true)
     setFailure(null)
     try {
-      const outcome = (await app.session.send(
+      const outcome = (uncertain ? await checkCommandReceipt(app.session, reviewed.key) : await app.session.send(
         {
           op: 'changes.integrate',
           sessionId,
@@ -73,6 +80,7 @@ export function ReviewIntegration({
         },
         reviewed.key,
       )) as { result?: { status: string; files?: string[] }; status?: string; files?: string[] }
+      if (!alive.current) return
       const result = outcome.result ?? outcome
       if (result.status === 'conflict') {
         setFailure(
@@ -95,6 +103,7 @@ export function ReviewIntegration({
         throw new Error('The computer did not confirm integration. Retry checks the same request.')
       setUncertain(false)
     } catch (error) {
+      if (!alive.current) return
       setFailure(messageOf(error))
       if (error instanceof RemoteError && !['unreachable', 'internal_error'].includes(error.code)) {
         setReviewed(null)
@@ -102,7 +111,7 @@ export function ReviewIntegration({
         writeIntegration(app.origin, deviceId, sessionId, null)
       } else setUncertain(true)
     } finally {
-      setBusy(false)
+      if (alive.current) setBusy(false)
     }
   }
   return (

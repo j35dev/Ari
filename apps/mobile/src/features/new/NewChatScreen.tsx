@@ -10,6 +10,7 @@ import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
 import { readDraft, writeDraft, writePending, type PendingSubmission } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
+import { checkCommandReceipt } from '../../lib/command-receipt'
 import { readCreation, writeCreation, type NewSessionRequest } from '../../lib/new-session'
 
 /** Failures after which the desktop may still have acted, so the same receipt is kept. */
@@ -50,6 +51,11 @@ export function NewChatScreen({
   const [pending, setPending] = useState<NewSessionRequest | null>(restored)
   const [picking, setPicking] = useState<'model' | 'project' | null>(null)
   const area = useRef<HTMLTextAreaElement>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
   useEffect(() => { writeDraft(app.origin, '$new', text, deviceId) }, [app.origin, deviceId, text])
   useEffect(() => {
     if (area.current !== null) {
@@ -82,7 +88,7 @@ export function NewChatScreen({
     let id: string | null
     try {
       id = sessionIdOf(
-        await session.send(
+        pending !== null ? await checkCommandReceipt(session, command.key) : await session.send(
           {
             op: 'session.create',
             projectId: command.projectId,
@@ -94,8 +100,10 @@ export function NewChatScreen({
           command.key,
         ),
       )
+      if (!alive.current) return
       if (id === null) throw new Error('Your computer did not return a session. Retry to check.')
     } catch (error) {
+      if (!alive.current) return
       setFailure(error instanceof Error ? error.message : 'Could not start this chat.')
       if (!uncertain(error)) {
         setPending(null)
@@ -107,10 +115,11 @@ export function NewChatScreen({
     writeCreation(app.origin, deviceId, null)
     writeDraft(app.origin, '$new', '', deviceId)
     await sendFirst(id, command.draft)
+    if (!alive.current) return
     await app
       .refresh()
       .catch((error: unknown) => console.warn('Started a chat; refreshing the list failed', error))
-    onOpen(id)
+    if (alive.current) onOpen(id)
   }
 
   /** Whatever happens to the first message, the session exists, so it opens holding the message. */
@@ -128,8 +137,10 @@ export function NewChatScreen({
     }
     try {
       await app.session.send({ op: 'session.prompt', sessionId, text: message }, receipt.key)
+      if (!alive.current) return
       writePending(app.origin, deviceId, sessionId, null)
     } catch (error) {
+      if (!alive.current) return
       if (uncertain(error)) return
       writePending(app.origin, deviceId, sessionId, null)
       writeDraft(app.origin, sessionId, message, deviceId)

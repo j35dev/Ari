@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider, useApp } from './app-state'
 import { MemoryDeviceStore, type DeviceStore } from './device-key'
@@ -27,6 +27,10 @@ function Probe() {
     <p>{app.connection}</p>
     <button onClick={() => void app.pair('host-invitation', 'Review phone').catch(transport.failure)}>Pair</button>
     <button onClick={() => void app.forget().then(transport.forgotten)}>Forget</button>
+    <button onClick={() => {
+      try { app.addComputer(`${location.origin}/`) } catch (error) { transport.failure(error) }
+    }}>Choose again</button>
+    <button onClick={() => app.addComputer('https://travel.tailnet.ts.net:8443/')}>Switch</button>
   </>
 }
 function deferred() {
@@ -37,6 +41,39 @@ function deferred() {
 beforeEach(() => { vi.stubGlobal('crypto', webcrypto); localStorage.clear(); transport.token = null; transport.redeem.mockReset() })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 describe('forget during host-approved pairing', () => {
+  it('rejects selection until local forget finishes, so a new generation cannot load a retiring key', async () => {
+    const clearing = deferred()
+    const store = new MemoryDeviceStore()
+    const selected = store.forOrigin(location.origin)
+    const clear = vi.spyOn(selected, 'clear').mockImplementation(async () => { await clearing.promise })
+    const navigate = vi.fn()
+    render(<AppProvider store={store} navigateTo={navigate}><Probe /></AppProvider>)
+    await screen.findByText('unpaired')
+    fireEvent.click(screen.getByRole('button', { name: 'Forget' }))
+    await waitFor(() => expect(clear).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
+    expect(transport.failure).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Wait') }))
+    expect(navigate).not.toHaveBeenCalled()
+    clearing.release()
+    await waitFor(() => expect(transport.forgotten).toHaveBeenCalledOnce())
+  })
+
+  it('cancels a pairing when navigating to another private computer without saving its late redemption', async () => {
+    const gate = deferred()
+    transport.redeem.mockImplementation(async () => { await gate.promise; return { token: 'late-token', deviceId: 'late-device' } })
+    const store = new MemoryDeviceStore()
+    const navigate = vi.fn()
+    render(<AppProvider store={store} navigateTo={navigate}><Probe /></AppProvider>)
+    await screen.findByText('unpaired')
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+    await waitFor(() => expect(transport.redeem).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    expect(new URL(navigate.mock.calls[0]![0] as string).origin).toBe('https://travel.tailnet.ts.net:8443')
+    await act(async () => gate.release())
+    await waitFor(() => expect(transport.failure).toHaveBeenCalledOnce())
+    expect(await store.forOrigin(location.origin).loadRecord()).toBeNull()
+    expect(transport.token).toBeNull()
+  })
   it('aborts a delayed redemption and never restores the forgotten key or record', async () => {
     const gate = deferred()
     transport.redeem.mockImplementation(async () => { await gate.promise; return { token: 'late-token', deviceId: 'late-device' } })

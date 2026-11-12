@@ -13,6 +13,7 @@ interface Pending {
 export class TerminalWriter {
   readonly #send: (data: string, key: string) => Promise<void>
   readonly #onError: (error: unknown) => void
+  readonly #check: (key: string) => Promise<void>
   readonly #queue: Chunk[] = []
   #pending: Pending | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
@@ -22,9 +23,11 @@ export class TerminalWriter {
   constructor(
     send: (data: string, key: string) => Promise<void>,
     onError: (error: unknown) => void,
+    check: (key: string) => Promise<void>,
   ) {
     this.#send = send
     this.#onError = onError
+    this.#check = check
   }
 
   write(data: string): Promise<void> {
@@ -77,6 +80,7 @@ export class TerminalWriter {
     this.#running = true
     try {
       while (!this.#closed && (this.#pending !== null || this.#queue.length > 0)) {
+        const checking = this.#pending !== null
         if (this.#pending === null) {
           const chunks: Chunk[] = []
           let data = ''
@@ -93,7 +97,8 @@ export class TerminalWriter {
         }
         const pending = this.#pending
         try {
-          await this.#send(pending.data, pending.key)
+          if (checking) await this.#check(pending.key)
+          else await this.#send(pending.data, pending.key)
           for (const chunk of pending.chunks) chunk.resolve()
           if (this.#pending === pending) this.#pending = null
         } catch (error) {

@@ -7,6 +7,7 @@ import { useApp, type AppValue } from '../../lib/app-state'
 import { ForkSheet } from './ForkSheet'
 import { ForkRequestStore } from './fork-request'
 import { SessionDetails } from './SessionDetails'
+import { RemoteError } from '../../lib/gateway-client'
 
 vi.mock('../../lib/app-state', () => ({ useApp: vi.fn() }))
 const parent: Session = {
@@ -26,11 +27,12 @@ function setup(overrides: Partial<AppValue> = {}) {
     .fn<(command: Record<string, unknown>, key: string) => Promise<unknown>>()
     .mockResolvedValue({ ok: true, result: { sessionId: 'sess_child' } })
   const supports = vi.fn(() => true)
+  const query = vi.fn().mockResolvedValue({ ok: true, result: { sessionId: 'sess_child' } })
   const refresh = vi.fn().mockResolvedValue(undefined)
   const value = {
     origin: 'https://ari.example.com',
     connection: 'connected',
-    session: { deviceId: 'device_test', supports, send },
+    session: { deviceId: 'device_test', supports, send, query },
     catalog: {
       providers: [
         { driverKind: 'claude', models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet' }] },
@@ -45,6 +47,7 @@ function setup(overrides: Partial<AppValue> = {}) {
   const onForked = vi.fn()
   return {
     send,
+    query,
     supports,
     refresh,
     value,
@@ -66,6 +69,23 @@ afterEach(() => {
 })
 
 describe('ForkSheet', () => {
+  it.each([null, { ok: true, result: {} }, new RemoteError('not_found', 'History absent')])(
+    'keeps a saved fork without resending missing or corrupt history: %j', async (outcome) => {
+      const test = setup()
+      const store = new ForkRequestStore(test.value.origin, 'device_test', parent.id)
+      const request = { key: 'original-receipt', title: 'Only one child', driverKind: 'claude' as const }
+      store.write(request)
+      if (outcome instanceof Error) test.query.mockRejectedValue(outcome)
+      else test.query.mockResolvedValue(outcome)
+      render(<ForkSheet {...test.props} />)
+      await test.user.click(screen.getByRole('button', { name: 'Retry same fork' }))
+      await screen.findByRole('alert')
+      expect(test.send).not.toHaveBeenCalled()
+      expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: request.key })
+      expect(store.read()).toEqual(request)
+      expect(test.onForked).not.toHaveBeenCalled()
+    },
+  )
   it('defaults to the parent provider and model, sending only fork fields', async () => {
     const test = setup()
     render(<ForkSheet {...test.props} />)
@@ -154,14 +174,15 @@ describe('ForkSheet', () => {
     const first = render(<ForkSheet {...test.props} />)
     await test.user.click(screen.getByRole<HTMLButtonElement>('button', { name: 'Create fork' }))
     await screen.findByRole('alert')
-    const [command, key] = test.send.mock.calls[0]!
+    const [, key] = test.send.mock.calls[0]!
     first.unmount()
     render(<ForkSheet {...test.props} />)
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Fork name' }).disabled).toBe(true)
     await test.user.click(
       screen.getByRole<HTMLButtonElement>('button', { name: 'Retry same fork' }),
     )
-    expect(test.send).toHaveBeenLastCalledWith(command, key)
+    expect(test.send).toHaveBeenCalledOnce()
+    expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: key })
     expect(test.onForked).toHaveBeenCalledWith('sess_child')
   })
 
@@ -193,7 +214,8 @@ describe('ForkSheet', () => {
     await test.user.click(
       screen.getByRole<HTMLButtonElement>('button', { name: 'Retry same fork' }),
     )
-    expect(test.send.mock.calls[1]?.[1]).toEqual(test.send.mock.calls[0]?.[1])
+    expect(test.send).toHaveBeenCalledOnce()
+    expect(test.query).toHaveBeenCalledExactlyOnceWith('command.status', { idempotencyKey: test.send.mock.calls[0]?.[1] })
   })
 
   it('refuses network creation when a durable receipt cannot be saved', async () => {
