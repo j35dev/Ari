@@ -20,6 +20,7 @@ import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gat
 import { createHostRouteSigner } from '@ari/remote-gateway/route-auth'
 import { Engine } from './engine'
 import { MachinesService } from './machines'
+import { DesktopMachineCredential, MachinesRegistry } from './machines-registry'
 import { MachineNetwork } from './machines-network'
 import { createRemoteHost, type RemoteDesktopDeps } from './remote-host'
 import { HostResourceSampler } from './remote-host-metadata'
@@ -175,7 +176,13 @@ it('keeps normal session history and execution on the signed host across fallbac
   const aDevice = a.pairing.devices()[0]!.deviceId
   const reverse = await fetch(primary.origin + '/device/challenge', { method: 'POST',
     headers: { origin: primary.origin, 'content-type': 'application/json' }, body: JSON.stringify({ deviceId: aDevice }) })
-  expect(reverse.status).toBe(404)
+  expect(reverse.status).toBe(200)
+  const nonce = (await reverse.json() as { result: { nonce: string } }).result.nonce
+  const credentialA = new DesktopMachineCredential(savedA.id, new MachinesRegistry(join(root, 'client', 'machines.json')), () => box)
+  const reverseAuthorization = await fetch(primary.origin + '/device/authorize', { method: 'POST',
+    headers: { origin: primary.origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId: aDevice, nonce, signature: await credentialA.sign(nonce) }) })
+  expect(reverseAuthorization.status).toBe(404)
   const savedB = await pair(b, primary)
   await vi.waitFor(() => expect(machines.list().find((row) => row.id === savedB.id)?.routes).toHaveLength(2))
   await refreshMachineInventory()
