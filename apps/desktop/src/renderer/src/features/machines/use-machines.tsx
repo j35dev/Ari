@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { machineViewSchema, type MachineView } from '@ari/contracts/machines'
-import { machinePreferencesSchema, type MachinePreferences } from '@ari/contracts/machines'
+import { machinesPreferencesSchema, type MachinesPreferences } from '@ari/contracts/machines'
 import {
   machinesLocalSnapshotSchema, remoteProjectCatalogSchema, remoteModelCatalogSchema,
   remoteHostResourcesSchema, remoteHostPermissionsSchema, remoteHostVersionSchema,
@@ -38,7 +38,7 @@ interface MachinesState {
   refresh: () => Promise<void>
   local: MachinesLocalSnapshot | null
   inventories: ReadonlyMap<string, MachineInventory>
-  preferences: MachinePreferences
+  preferences: MachinesPreferences
   refreshInventory: () => Promise<void>
 }
 const Context = createContext<MachinesState>({
@@ -55,7 +55,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [local, setLocal] = useState<MachinesLocalSnapshot | null>(null)
   const [inventories, setInventories] = useState<ReadonlyMap<string, MachineInventory>>(new Map())
-  const [preferences, setPreferences] = useState<MachinePreferences>({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
+  const [preferences, setPreferences] = useState<MachinesPreferences>({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
   const machinesRef = useRef(machines)
   machinesRef.current = machines
   const inventoryRevision = useRef(0)
@@ -80,7 +80,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
         if (alive.current && inventoryRevision.current === generation) setLocal(machinesLocalSnapshotSchema.parse(raw))
       }),
       rpc.invoke('machines.preferences').then((raw) => {
-        if (alive.current && inventoryRevision.current === generation) setPreferences(machinePreferencesSchema.parse(raw))
+        if (alive.current && inventoryRevision.current === generation) setPreferences(machinesPreferencesSchema.parse(raw))
       }),
       ...currentMachines.filter((machine) => machine.status === 'connected').map(async (machine) => {
         try {
