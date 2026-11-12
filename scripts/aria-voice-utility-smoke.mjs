@@ -123,6 +123,21 @@ async function smoke() {
       punctuation.audio.samples.some((value) => !Number.isFinite(value))
     )
       throw new Error('The actual English punctuation reply failed synthesis')
+    const ordinaryWords = await request({
+      id: 7,
+      kind: 'speak',
+      path: model,
+      generation: 2,
+      text: 'READY. The work is APPROVED, completed, reviewed and verified. DONE.',
+      voice: 'af_heart',
+      speed: 1,
+    })
+    if (
+      !ordinaryWords.audio?.samples.length ||
+      ordinaryWords.audio.samples.some((value) => !Number.isFinite(value)) ||
+      ordinaryWords.spelled.length
+    )
+      throw new Error('Ordinary status words were spelled out or failed synthesis')
     if (missingNativeWords(diagnostics)) throw new Error('Native engine dropped a word')
     const result = {
       ok: true,
@@ -141,6 +156,9 @@ async function smoke() {
       spelled: names.spelled,
       punctuation: 'passed',
       punctuationAudioSeconds: punctuation.audio.samples.length / punctuation.audio.sampleRate,
+      ordinaryWords: 'passed; no letter-by-letter fallback',
+      ordinaryWordsAudioSeconds:
+        ordinaryWords.audio.samples.length / ordinaryWords.audio.sampleRate,
     }
     await writeFile(
       join(root, 'docs', 'research', 'aria-voice-measurements', 'utility-smoke.json'),

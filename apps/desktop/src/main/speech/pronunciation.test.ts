@@ -74,3 +74,20 @@ it('rounds decimals usefully and says cloud initialisms and Ari names naturally'
     'Ah ree and Ah ree uh checked the P R and C L I.',
   )
 })
+
+it('speaks emphasized English and common status words naturally while retaining genuine initials', () => {
+  const words = lexiconWords(
+    'ready ɹ ɛ d i\ndone d ʌ n\napproved ə p ɹ u v d\nthe ð ə\nwork w ɜ ɹ k\nis ɪ z\nand æ n d\n' +
+      Object.entries(ARIA_LEXICON)
+        .map(([word, phonemes]) => `${word} ${phonemes}`)
+        .join('\n'),
+  )
+  const prepared = prepareKokoro(
+    'READY. The work is APPROVED, completed, reviewed and verified. DONE.',
+    words,
+  )
+  expect(prepared.spelled).toEqual([])
+  expect(prepared.text).toBe('ready. the work is approved, completed, reviewed and verified. done.')
+  expect(normalizeSpeech('READY DONE HELLO APPROVED')).toBe('READY DONE HELLO APPROVED')
+  expect(normalizeSpeech('API CPU GPU PR ACP CLI')).toBe('A P I C P U G P U pr acp cli')
+})
