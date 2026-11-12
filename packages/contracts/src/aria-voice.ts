@@ -77,15 +77,23 @@ function speechContent(reply: string): { text: string; structured: boolean } {
 function boundedSpeech(text: string, limit: number): string {
   if (text.length <= limit) return text
   const prefix = text.slice(0, limit - 35)
-  const boundary = Math.max(prefix.lastIndexOf('. '), prefix.lastIndexOf('? '), prefix.lastIndexOf('! '))
-  const cut = boundary >= 0 ? prefix.slice(0, boundary + 1) : prefix.slice(0, prefix.lastIndexOf(' ')) + '.'
+  const boundary = Math.max(
+    prefix.lastIndexOf('. '),
+    prefix.lastIndexOf('? '),
+    prefix.lastIndexOf('! '),
+  )
+  const cut =
+    boundary >= 0 ? prefix.slice(0, boundary + 1) : prefix.slice(0, prefix.lastIndexOf(' ')) + '.'
   return `${cut} More details are in the chat.`
 }
 
 /** Read aloud includes useful prose and list details, rather than the automatic summary. */
 export function readableReply(reply: string): string {
   const { text, structured } = speechContent(reply)
-  return boundedSpeech([text, structured ? 'I put the code and tables in the chat.' : ''].filter(Boolean).join(' '), MAX_SPOKEN_CHARACTERS)
+  return boundedSpeech(
+    [text, structured ? 'I put the code and tables in the chat.' : ''].filter(Boolean).join(' '),
+    MAX_SPOKEN_CHARACTERS,
+  )
 }
 
 /** A useful conversational summary, including the explanation and a direct question. */
