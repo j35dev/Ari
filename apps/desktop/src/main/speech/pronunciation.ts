@@ -48,9 +48,8 @@ export function normalizeSpeech(text: string): string {
     .replace(/\b([A-Z]{2,5})\b/g, (value) =>
       ['PR', 'ACP', 'CLI'].includes(value) ? value.toLowerCase() : value.split('').join(' '),
     )
-    .replace(
-      /\$(\d+(?:,\d{3})*(?:\.\d+)?)/g,
-      (_, value: string) => Number(value.replace(/,/g, '')) < 1
+    .replace(/\$(\d+(?:,\d{3})*(?:\.\d+)?)/g, (_, value: string) =>
+      Number(value.replace(/,/g, '')) < 1
         ? `${numberWords(Number(value.replace(/,/g, '')) * 100)} cents`
         : `${numberWords(Number(value.replace(/,/g, '')))} dollars`,
     )
@@ -79,7 +78,7 @@ export function prepareKokoro(
 ): { text: string; spelled: string[]; words: number } {
   const normalized = normalizeSpeech(text)
   // Refuse unsupported scripts rather than allowing the native engine to omit them.
-  if ([...normalized].some(character => character.charCodeAt(0) > 127))
+  if ([...normalized].some((character) => character.charCodeAt(0) > 127))
     throw new Error(
       'Kokoro’s English voice cannot pronounce this text. Try Groq or edit the spoken line.',
     )
