@@ -8,7 +8,16 @@ import { trackBounds, type Bounds } from './bounds-sync'
 import { useCovered } from './use-covered'
 import { watchOverlays } from './overlay-cover'
 
-const TAB_ID = 'inspector'
+/** The page shown when no session is open: the app's own shared tab. */
+const SHARED_TAB = 'inspector'
+
+/**
+ * A session's page is the one its agent drives through the browser tools, so
+ * the panel shows what the agent is doing and the user can steer the same page.
+ */
+export function browserTabFor(sessionId: string | undefined): string {
+  return sessionId === undefined ? SHARED_TAB : `agent:${sessionId}`
+}
 const STILL_AFTER_LOAD_MS = 300
 const STILL_REFRESH_MS = 2000
 
@@ -35,7 +44,7 @@ function avoidForToasts(bounds: Bounds | null): void {
 }
 
 const EMPTY: BrowserTabState = {
-  id: TAB_ID,
+  id: SHARED_TAB,
   url: 'about:blank',
   title: '',
   canGoBack: false,
@@ -58,7 +67,10 @@ const EMPTY: BrowserTabState = {
  */
 export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const tabId = browserTabFor(sessionId)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
+  /** Whether the page on screen is still blank, read when the panel leaves it. */
+  const blankRef = useRef(true)
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
   const [still, setStill] = useState<string | null>(null)
@@ -84,37 +96,55 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
     visibleRef.current = visible
     // Keyed to the page being up at all, so a menu opening over it does not shuffle the toasts.
     avoidForToasts(showGuest && placed ? bounds : null)
-    void rpc.invoke('browser.layout', { id: TAB_ID, visible, ...bounds }).catch(() => undefined)
-  }, [])
+    void rpc.invoke('browser.layout', { id: tabId, visible, ...bounds }).catch(() => undefined)
+  }, [tabId])
 
   useEffect(() => {
+    // Another session's page: start from nothing and place it afresh.
+    let live = true
+    blankRef.current = true
+    sentRef.current = ''
+    setTab({ ...EMPTY, id: tabId })
+    setDraft('')
+    setStill(null)
+    setPicking(false)
+    const show = (next: BrowserTabState): void => {
+      blankRef.current = next.url === 'about:blank' && !next.loading
+      setTab(next)
+    }
     void rpc
-      .invoke('browser.open', { id: TAB_ID })
+      .invoke('browser.open', { id: tabId })
       .then((next) => {
-        setTab(next)
+        if (!live) return
+        show(next)
         if (next.url !== 'about:blank') setDraft(next.url)
       })
       .catch(() => undefined)
-    const unsub = rpc.subscribe('browser.updated', { id: TAB_ID }, (payload) => {
+    const unsub = rpc.subscribe('browser.updated', { id: tabId }, (payload) => {
       const next = payload as BrowserTabState
-      if (next.id !== TAB_ID) return
-      setTab(next)
+      if (next.id !== tabId) return
+      show(next)
       if (!next.loading) setDraft(next.url === 'about:blank' ? '' : next.url)
     })
     return () => {
+      live = false
       unsub()
       avoidForToasts(null)
-      void rpc.invoke('browser.cancelPick', { id: TAB_ID })
+      void rpc.invoke('browser.cancelPick', { id: tabId })
       void rpc.invoke('browser.layout', {
-        id: TAB_ID,
+        id: tabId,
         visible: false,
         x: 0,
         y: 0,
         width: 0,
         height: 0,
       })
+      // A session page nobody loaded anything into is not worth keeping; the
+      // agent's tools open it again the moment they need it.
+      if (tabId !== SHARED_TAB && blankRef.current)
+        void rpc.invoke('browser.close', { id: tabId }).catch(() => undefined)
     }
-  }, [])
+  }, [tabId])
 
   const showGuest = tab.url !== 'about:blank' || tab.loading
   // Fallback for app UI that does not register as an overlay: hit-testing
@@ -153,7 +183,7 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
     const refresh = (): void => {
       if (!visibleRef.current || document.visibilityState !== 'visible') return
       void rpc
-        .invoke('browser.capture', { id: TAB_ID })
+        .invoke('browser.capture', { id: tabId })
         .then(async ({ dataUrl }) => {
           if (dataUrl === null) return
           await decoded(dataUrl)
@@ -172,7 +202,7 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
 
   const submit = (): void => {
     void rpc
-      .invoke('browser.navigate', { id: TAB_ID, url: draft })
+      .invoke('browser.navigate', { id: tabId, url: draft })
       .then((result) => {
         if (!result.ok) setTab((prev) => ({ ...prev, error: result.error }))
       })
@@ -180,7 +210,7 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
   }
 
   const go = (action: 'back' | 'forward' | 'reload'): void => {
-    void rpc.invoke('browser.go', { id: TAB_ID, action }).catch(() => undefined)
+    void rpc.invoke('browser.go', { id: tabId, action }).catch(() => undefined)
   }
 
   const blank = !showGuest
@@ -194,7 +224,7 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
     if (blank || picking) return
     setPicking(true)
     void rpc
-      .invoke('browser.pick', { id: TAB_ID })
+      .invoke('browser.pick', { id: tabId })
       .then((result) => {
         if (result.ok) {
           const image =

@@ -61,7 +61,7 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds, parentOf } from './features/session/session-tree'
-import { BrowserPanel } from './features/browser/BrowserPanel'
+import { BrowserPanel, browserTabFor } from './features/browser/BrowserPanel'
 import { deleteSessionDraftIntent } from './features/composer/draft-recovery-store'
 import { deleteSessionDraftText } from './features/composer/use-drafts'
 import { writeReviewDrafts } from './features/changes/review-drafts'
@@ -265,6 +265,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const activeSessionId = activeSessionOf(layout)
   const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
   const remoteActive = activeSessionScope?.kind === 'remote'
+  // The session whose browser page the panel shows; read when an agent navigates.
+  const revealSessionRef = useRef<string | undefined>(undefined)
+  revealSessionRef.current = remoteActive ? undefined : (activeSessionId ?? undefined)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, attentionCountOf, acknowledge, forget } = useSessionActivity(
     visibleSessionIds,
@@ -466,6 +469,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return rpc.subscribe('browser.updated', {}, (payload) => {
       const next = payload as BrowserTabState
       if (next.reveal !== true) return
+      // An agent browsing in a session that is not on screen stays out of the
+      // way; its page is there when the user opens that session's browser.
+      if (next.id !== browserTabFor(revealSessionRef.current)) return
       leaveWorkspaceTool()
       setFullPage(null)
       setInspector('browser')
