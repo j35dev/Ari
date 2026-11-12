@@ -15,7 +15,7 @@ async function check(args) {
   })
   if (result.code !== 0) throw new Error(`Final check stopped: ${JSON.stringify(result)}`)
 }
-await check([
+if (!process.argv.includes('--skip-tests')) await check([
   '--filter',
   '@ari/mobile',
   'exec',
