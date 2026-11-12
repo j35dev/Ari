@@ -54,7 +54,10 @@ export function TurnErrorBanner({
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const { title, hint } = classifyTurnError(message)
-  const friendly = friendlyErrorText(message)
+  // Old journals can contain adapter labels and stderr timing dumps. A
+  // timeout's short hint is sufficient; keep its raw text in Details only.
+  const timeout = title === 'Agent timed out'
+  const friendly = timeout ? hint : friendlyErrorText(message)
   // An unclassified failure has no family to name, so the headline stays bare
   // rather than repeating itself before the raw message.
   const headline = title === UNCLASSIFIED_TITLE ? 'Turn failed —' : `Turn failed — ${title}.`
@@ -67,7 +70,7 @@ export function TurnErrorBanner({
           <p className="break-words text-[13.5px] leading-relaxed text-fg">
             <span className="font-medium">{headline}</span> {friendly}
           </p>
-          {hint !== null ? (
+          {hint !== null && !timeout ? (
             <p className="mt-0.5 break-words text-[12.5px] leading-relaxed text-fg-muted">{hint}</p>
           ) : null}
           {resume ? (

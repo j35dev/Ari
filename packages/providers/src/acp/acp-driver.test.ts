@@ -33,6 +33,65 @@ const SESSION: AdapterSession = {
   resumeOf: null,
 }
 
+describe('ACP turn retirement', () => {
+  it.each(['interrupt', 'dispose'] as const)(
+    'retires a stale prompt on %s instead of parking it',
+    async (action) => {
+      const pool = new AcpSessionPool()
+      const child = fakeChild()
+      script(child, (method, params, id) =>
+        method === 'session/prompt' ? undefined : standardAgent()(method, params, id),
+      )
+      const adapter = await createAcpAdapter(
+        LAUNCH,
+        SESSION,
+        () => child,
+        undefined,
+        [],
+        null,
+        pool,
+      )
+      const events: AgentEvent[] = []
+      const stream = (async () => {
+        for await (const event of adapter.start()) events.push(event)
+      })()
+      await vi.waitFor(() =>
+        expect(child.sent.some((m) => m['method'] === 'session/prompt')).toBe(true),
+      )
+      if (action === 'interrupt') adapter.interrupt()
+      await adapter.dispose()
+      await stream
+      expect(events.some((event) => event.type === 'error')).toBe(false)
+      expect(pool.size).toBe(0)
+      expect(adapter.keepsBackgroundWork?.()).toBe(false)
+      expect(child.killed).toBe(true)
+    },
+  )
+
+  it('ends a fatal error update without waiting for an unclosed prompt RPC', async () => {
+    const pool = new AcpSessionPool()
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'sess_acp_1', update: { sessionUpdate: 'error', content: { type: 'text', text: 'Provider failed' } } } })}\n`,
+        )
+        return undefined
+      }
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
+    const events: AgentEvent[] = []
+    for await (const event of adapter.start()) events.push(event)
+    expect(events.filter((event) => event.type === 'error')).toEqual([
+      expect.objectContaining({ message: 'Provider failed' }),
+    ])
+    await adapter.dispose()
+    expect(pool.size).toBe(0)
+    expect(child.killed).toBe(true)
+  })
+})
+
 type FakeChild = {
   stdin: PassThrough
   stdout: PassThrough
