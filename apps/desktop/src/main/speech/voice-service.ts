@@ -34,6 +34,8 @@ export class VoiceService {
   private generation = 0
   private abort = new AbortController()
   private idle: ReturnType<typeof setTimeout> | undefined
+  /** Settles when everything queued so far has been said. */
+  private tail: Promise<void> = Promise.resolve()
   private loading: Promise<void> | null = null
   private owner = randomUUID()
   private state: Status = { installed: false, loaded: false, error: null, hardware: null }
@@ -179,11 +181,30 @@ export class VoiceService {
       })
     })
   }
-  async speak(reply: string, options: { readAll?: boolean } = {}): Promise<void> {
-    this.stop()
-    if (!this.enabled()) return
+  /**
+   * Says a reply. On its own it replaces whatever is being said. With
+   * `follow` it waits its turn behind what is already playing, which is how
+   * the passages of one turn are heard in order as they are written.
+   */
+  speak(reply: string, options: { readAll?: boolean; follow?: boolean } = {}): Promise<void> {
+    if (!options.follow) this.stop()
+    if (!this.enabled()) return Promise.resolve()
     const generation = this.generation
     const signal = this.abort.signal
+    const before = options.follow ? this.tail : Promise.resolve()
+    // Anything that stops speech moves the generation on, and what was queued is dropped.
+    const done = before.then(() =>
+      generation === this.generation ? this.say(reply, options, generation, signal) : undefined,
+    )
+    this.tail = done.catch(() => undefined)
+    return done
+  }
+  private async say(
+    reply: string,
+    options: { readAll?: boolean },
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     let chunks: string[]
     try {
       chunks = speechChunks(
