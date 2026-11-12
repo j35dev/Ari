@@ -89,6 +89,10 @@ Visible changes, final evidence, checks and limitations will be appended here.
     upload is disabled offline and cannot dispatch after leaving the workspace.
 15. Fork provider/model selectors are constrained to their columns, preventing
     native select contents from widening and clipping the phone sheet.
+16. A failed integration keeps its exact receipt even when the host reports
+    `conflict`, because files may already have been applied before recording
+    failed. The error asks users to inspect the parent workspace and check the
+    receipt; remounting never permits automatic resubmission.
 
 ## Screenshot evidence
 
@@ -228,3 +232,19 @@ settings/Tailscale mutation, push, PR or worker delegation occurred.
 Fresh-worker commits before this evidence commit, in authoring order:
 `3dd2c461`, `17213735`, `3fa3efae`, `c03d78c6`, `80378275`, `a6a92c20`,
 `62395705`, `679e0bd3`. Starting snapshot was bd182168.
+
+## Coordinator integrated evidence, 2026-11-12
+
+The integrated mobile suite passed all 49 files / 371 tests in 95.30 seconds,
+including the newly found applied-then-conflict receipt boundary and remount/
+read-only recovery. S9's correction is `9b98cbb4`, with test formatting at
+`3f55df73`; the independent security reviewer confirmed source closure.
+
+All 24 recovery captures were refreshed against `3adf6212` (runtime source
+unchanged from `3f55df73`), using the temporary profile and exact source in
+`docs/screenshots/mobile/recovery/evidence.json`. Every capture has zero mutation
+calls, no page/sheet overflow, and uncertain views have receipt queries. The nine
+changed PNGs were visually inspected at full size: the four integration images
+show the final unknown-outcome guidance; session and terminal changes retain the
+read-only controls and readable contained layout. Fifteen other PNGs are unchanged.
+No live Ari, Tailscale, settings, devices or accounts were touched.
