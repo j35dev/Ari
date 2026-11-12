@@ -336,6 +336,44 @@ describe('persistent Machines safety', () => {
     expect(() => new MachinesRegistry(path)).toThrow()
     expect(readFileSync(path, 'utf8')).toBe('{broken')
   })
+  it.each(['seal', 'write'] as const)(
+    'does not activate an unsaved key or device identity after a failed %s',
+    async (failure) => {
+      const registry = new MachinesRegistry(join(temporary(), 'machines.json'))
+      const row = registry.add('A', { kind: 'tailscale', origin: 'https://a.tailnet.ts.net' }, null)
+      const box = aesGcmSecretBox(randomBytes(32))
+      let failing = true
+      const update = registry.update.bind(registry)
+      vi.spyOn(registry, 'update').mockImplementation((id, patch) => {
+        if (failing && failure === 'write') throw new Error('fixture write failure')
+        return update(id, patch)
+      })
+      const credential = new DesktopMachineCredential(row.id, registry, () => ({
+        decrypt: box.decrypt,
+        encrypt: (plain) => {
+          if (failing && failure === 'seal') throw new Error('fixture seal failure')
+          return box.encrypt(plain)
+        },
+      }))
+      await expect(credential.publicKey()).rejects.toThrow(/fixture/)
+      await expect(credential.sign('nonce')).rejects.toThrow(/Pair this computer/)
+      expect(registry.get(row.id).credentialCipher).toBeNull()
+      failing = false
+      const publicKey = await credential.publicKey()
+      await credential.remember({ deviceId: 'original', displayName: 'A', projectIds: [] })
+      const cipher = registry.get(row.id).credentialCipher
+      failing = true
+      await expect(
+        credential.remember({ deviceId: 'unsaved', displayName: 'B', projectIds: [] }),
+      ).rejects.toThrow(/fixture/)
+      expect(credential.deviceId).toBe('original')
+      expect(registry.get(row.id).credentialCipher).toBe(cipher)
+      const restored = new DesktopMachineCredential(row.id, registry, () => box)
+      await restored.load()
+      expect(restored.deviceId).toBe('original')
+      expect(await restored.publicKey()).toEqual(publicKey)
+    },
+  )
   it('discovers bounded explicit online peers without scans or pairing', async () => {
     const runner = vi.fn(async () => ({
       code: 0,

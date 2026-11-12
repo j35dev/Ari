@@ -220,7 +220,7 @@ describe('RemoteSession disposal boundary', () => {
 })
 
 describe('RemoteSession uncertain mutation receipts', () => {
-  it.each(['not_found', 'conflict', 'internal_error'] as const)(
+  it.each(['not_found', 'conflict', 'internal_error', 'unreachable'] as const)(
     'never resends a mutation when receipt lookup returns %s',
     async (code) => {
       let mutations = 0
@@ -256,6 +256,32 @@ describe('RemoteSession uncertain mutation receipts', () => {
       })
       expect(mutations).toBe(1)
       expect(keys).toEqual(['original_receipt', 'original_receipt'])
+    },
+  )
+  it.each([null, {}, { ok: true }, { ok: false, error: { code: 'not_found' } }])(
+    'keeps a malformed or nonauthoritative receipt uncertain: %j',
+    async (receipt) => {
+      let mutations = 0
+      const request: typeof fetch = async (input) => {
+        const path = String(input)
+        if (path.endsWith('/info')) return success(info)
+        if (path.endsWith('/device/challenge')) return success({ nonce: 'fixture_nonce' })
+        if (path.endsWith('/device/authorize')) return success(authorized)
+        if (path.endsWith('/command')) {
+          mutations++
+          throw new TypeError('answer lost after execution')
+        }
+        return success(receipt)
+      }
+      const session = new RemoteSession({
+        client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+        keyring: keyring(),
+      })
+      await session.connect()
+      await expect(
+        session.send({ op: 'session.prompt', sessionId: 'same', text: 'one' }, 'original_receipt'),
+      ).rejects.toMatchObject({ code: 'unreachable', idempotencyKey: 'original_receipt', retryable: false })
+      expect(mutations).toBe(1)
     },
   )
   it('preserves authentication renewal only after an explicit refusal before dispatch', async () => {
