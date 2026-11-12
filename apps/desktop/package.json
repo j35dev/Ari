@@ -40,7 +40,8 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "transcribe-cpp": "0.4.1",
-    "uiohook-napi": "1.5.5"
+    "uiohook-napi": "1.5.5",
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",
@@ -72,7 +73,6 @@
     "tailwindcss": "^4.3.3",
     "tar": "^7.5.7",
     "unified": "^11.0.5",
-    "vite": "^7.3.6",
-    "ws": "^8.22.2"
+    "vite": "^7.3.6"
   }
 }
