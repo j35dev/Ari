@@ -1,10 +1,8 @@
-/** Short stable key so a later release can find this session's branch. */
+import { createHash } from 'node:crypto'
+
+/** Full session identity; legacy truncated keys are never cleanup authority. */
 export function branchKey(sessionId: string): string {
-  const body = sessionId.startsWith('sess_') ? sessionId.slice('sess_'.length) : sessionId
-  const compact = body.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-  if (compact.length >= 4) return compact.slice(0, 8)
-  const fallback = sessionId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-  return (fallback.length > 0 ? fallback : 'child').slice(0, 12)
+  return `s_${createHash('sha256').update(sessionId).digest('hex')}`
 }
 
 /** Git-safe words from a child title. Empty when the title has none. */
@@ -18,7 +16,7 @@ export function branchSlug(title: string): string {
   return slug.slice(0, 40).replace(/-+$/g, '')
 }
 
-/** `ari/edit-queued-message-c2825b69`, or `ari/<key>` when the title has no words. */
+/** A readable title followed by the full identity key, or just the key. */
 export function orchestrationBranch(title: string, sessionId: string): string {
   const key = branchKey(sessionId)
   const slug = branchSlug(title)
@@ -28,7 +26,7 @@ export function orchestrationBranch(title: string, sessionId: string): string {
 
 /**
  * True for this session's branch, a numbered collision of it, and the older
- * `ari/<parent>/<sessionId>` form.
+ * `ari/<parent>/<sessionId>` form. Ambiguous legacy short-key branches are retained.
  */
 export function branchBelongsToSession(branch: string, sessionId: string): boolean {
   if (!branch.startsWith('ari/') || branch.includes('..') || branch.includes('\\')) return false
