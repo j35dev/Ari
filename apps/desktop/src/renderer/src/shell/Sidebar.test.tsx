@@ -496,19 +496,19 @@ describe('SessionsUnderProjects', () => {
     expect(within(active).getByTitle('Claude')).toBeInTheDocument()
   })
 
-  it('leads a session card with its title, then says where it lives', async () => {
+  it('says where a session card lives and when, then gives the title its own line', async () => {
     const user = userEvent.setup()
     renderSidebar([session('card', 0, 'proj-1', { branch: 'feat/x', driverKind: 'claude' })])
     await user.click(screen.getByRole('button', { name: 'Sessions' }))
 
     const card = screen.getByText('Session card').closest('button') as HTMLElement
     const [first, second] = Array.from(card.children) as HTMLElement[]
-    // First line: the title and its age. Second: agent, project, branch.
-    expect(first).toHaveTextContent('Session card')
-    expect(first).not.toHaveTextContent('Ari')
-    expect(second).toHaveTextContent('Ari')
-    expect(second).toHaveTextContent('feat/x')
-    expect(within(second!).getByTitle('Claude')).toBeInTheDocument()
+    // First line: project, agent, branch and age. Second: the title alone.
+    expect(first).toHaveTextContent('Ari')
+    expect(first).toHaveTextContent('feat/x')
+    expect(within(first!).getByTitle('Claude')).toBeInTheDocument()
+    expect(first).not.toHaveTextContent('Session card')
+    expect(second).toHaveTextContent('Session card')
     // A card names its project in words; it carries no project mark of its own.
     expect(card.querySelector('[data-context-mark]')).toBeNull()
   })

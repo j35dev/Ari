@@ -141,8 +141,8 @@ const BUCKET_ROW = `flex h-[34px] min-w-0 flex-1 items-center gap-2.5 rounded-md
 /** 32px session row; its left padding carries the indent. */
 const COMPACT_ROW = `flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md pr-2.5 text-left text-[13.5px] transition-colors ${FOCUS_RING}`
 
-/** Cards read title first, then one quiet line saying where the session lives. */
-const CARD_ROW = `flex min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors ${FOCUS_RING}`
+/** Cards read as two lines: where the session lives and when, then its title. */
+const CARD_ROW = `flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-lg px-2.5 py-2 text-left transition-colors ${FOCUS_RING}`
 
 /** Ink for a row that is neither selected nor current; the wash follows the whole row. */
 const ROW_IDLE = 'text-fg-muted group-hover/row:bg-fg/5 group-hover/row:text-fg'
@@ -563,44 +563,55 @@ function SessionRow({
           </>
         ) : (
           <>
-            {/* The title leads; the age, or what the session is doing, ends the line. */}
-            <span className="flex w-full min-w-0 items-center gap-2">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13.5px]">
-                <span className="min-w-0 truncate">{session.title}</span>
-                {titleMarks}
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-fg-subtle transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
+            {/* Where and who first, quietly: the state or Aria's mark, the
+                project, the agent, then the age. The title gets its own line. */}
+            <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-fg-subtle">
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
                 {activity !== undefined ? (
-                  <>
-                    <ActivityStatus activity={activity} />
-                    <SessionActivityMark activity={activity} />
-                  </>
+                  <SessionActivityMark activity={activity} />
+                ) : startedByAria ? (
+                  <AriaMark size={12} title="Started by Aria" />
                 ) : (
-                  formatRelativeTime(session.updatedAt)
+                  <span aria-hidden className="ari-status" data-status="idle" />
                 )}
               </span>
-            </span>
-            {/* Where it lives: the project and its branch, with the agent's
-                mark at the far end, under the age. */}
-            <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-fg-subtle">
-              {host ? <span className="max-w-24 shrink-0 truncate">{host.name} /</span> : null}
+              {host ? <span className="max-w-20 shrink-0 truncate">{host.name} /</span> : null}
               <span className="min-w-0 shrink truncate">{projectName ?? 'Unfiled'}</span>
+              {session.driverKind ? (
+                <span
+                  className="flex shrink-0 opacity-70 [&>span]:bg-transparent"
+                  title={driverLabel(session.driverKind)}
+                >
+                  <ProviderLogo kind={session.driverKind} size={12} />
+                </span>
+              ) : null}
               {session.branch ? (
                 <span
-                  className="flex min-w-0 items-center gap-1 pl-1.5"
+                  className="flex min-w-0 shrink-[2] items-center gap-1"
                   title={session.workspacePath ?? session.branch}
                 >
                   <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
                   <span className="min-w-0 truncate">{session.branch}</span>
                 </span>
               ) : null}
-              <span className="min-w-2 flex-1" />
-              {session.driverKind ? (
-                <span
-                  className="flex shrink-0 opacity-60 [&>span]:bg-transparent"
-                  title={driverLabel(session.driverKind)}
-                >
-                  <ProviderLogo kind={session.driverKind} size={12} />
+              <span className="min-w-1 flex-1" />
+              <span className="flex shrink-0 items-center gap-1.5 tabular-nums transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
+                {activity !== undefined ? (
+                  <ActivityStatus activity={activity} />
+                ) : (
+                  formatRelativeTime(session.updatedAt)
+                )}
+              </span>
+            </span>
+            <span className="flex w-full min-w-0 items-center gap-1.5 text-[13.5px] font-medium text-fg">
+              <span className="min-w-0 truncate">{session.title}</span>
+              {session.pinned ? (
+                <Pin size={11} aria-hidden className="shrink-0 text-fg-subtle" />
+              ) : null}
+              {host ? (
+                <span className="sr-only">
+                  On {host.name}
+                  {host.status === 'connected' ? '' : `, ${host.status}`}
                 </span>
               ) : null}
             </span>
@@ -662,7 +673,9 @@ function SessionRow({
               label: session.pinned ? 'Unpin' : 'Pin to top',
               icon: session.pinned ? PinOff : Pin,
               disabled: host?.readOnly,
-              disabledReason: host?.readOnly ? 'Reconnect the owning machine to change this session.' : undefined,
+              disabledReason: host?.readOnly
+                ? 'Reconnect the owning machine to change this session.'
+                : undefined,
               onSelect: () => onTogglePin(session.id, !session.pinned),
             },
             {
@@ -670,7 +683,9 @@ function SessionRow({
               label: 'Rename',
               icon: Pencil,
               disabled: host?.readOnly,
-              disabledReason: host?.readOnly ? 'Reconnect the owning machine to rename this session.' : undefined,
+              disabledReason: host?.readOnly
+                ? 'Reconnect the owning machine to rename this session.'
+                : undefined,
               onSelect: () => {
                 setDraft(session.title)
                 setEditing(true)
@@ -687,7 +702,9 @@ function SessionRow({
                   : 'Archive',
               icon: session.archived ? ArchiveRestore : Archive,
               disabled: Boolean(host?.administrationReason || host?.readOnly),
-              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
+              disabledReason:
+                host?.administrationReason ??
+                (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => onToggleArchive(session.id, !session.archived),
             },
             {
@@ -696,7 +713,9 @@ function SessionRow({
               icon: Trash2,
               danger: true,
               disabled: Boolean(host?.administrationReason || host?.readOnly),
-              disabledReason: host?.administrationReason ?? (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
+              disabledReason:
+                host?.administrationReason ??
+                (host?.readOnly ? 'Reconnect the owning machine.' : undefined),
               onSelect: () => setConfirmDelete(true),
             },
           ]}
@@ -719,7 +738,10 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
-  hostOf?: (sessionId: string) => { name: string; status: string; readOnly: boolean; administrationReason?: string } | undefined
+  hostOf?: (
+    sessionId: string,
+  ) =>
+    { name: string; status: string; readOnly: boolean; administrationReason?: string } | undefined
   selecting?: boolean
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string, shiftKey: boolean) => void
@@ -1197,7 +1219,8 @@ function ProjectGroupSection({
                 label: `Archive all in ${scope}`,
                 icon: Archive,
                 disabled: empty || Boolean(bulk?.administrationReason),
-                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
+                disabledReason:
+                  bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => bulk?.onArchiveAll(),
               },
               {
@@ -1206,7 +1229,8 @@ function ProjectGroupSection({
                 icon: Trash2,
                 danger: true,
                 disabled: empty || Boolean(bulk?.administrationReason),
-                disabledReason: bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
+                disabledReason:
+                  bulk?.administrationReason ?? (empty ? 'No sessions in this group' : undefined),
                 onSelect: () => setConfirmDeleteAll(true),
               },
             ]}
@@ -1591,7 +1615,11 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     const selecting = selectingGroupId === groupId
     return {
       selecting,
-      administrationReason: visible.some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly) ? 'Session administration is unavailable for one or more owning hosts.' : undefined,
+      administrationReason: visible.some(
+        (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+      )
+        ? 'Session administration is unavailable for one or more owning hosts.'
+        : undefined,
       selectedCount: selecting ? visible.filter((id) => selectedIds.has(id)).length : 0,
       allSelected: selecting && visible.length > 0 && visible.every((id) => selectedIds.has(id)),
       onEnterSelect: () => enterSelect(groupId),
@@ -1845,7 +1873,12 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </span>
               <button
                 type="button"
-                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
+                disabled={
+                  selectedIds.size === 0 ||
+                  [...selectedIds].some(
+                    (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+                  )
+                }
                 onClick={() => archiveIds([...selectedIds])}
                 className={`${INLINE_BUTTON} text-fg-muted hover:bg-fg/9 hover:text-fg`}
               >
@@ -1853,7 +1886,12 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
               </button>
               <button
                 type="button"
-                disabled={selectedIds.size === 0 || [...selectedIds].some((id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly)}
+                disabled={
+                  selectedIds.size === 0 ||
+                  [...selectedIds].some(
+                    (id) => hostOf?.(id)?.administrationReason || hostOf?.(id)?.readOnly,
+                  )
+                }
                 onClick={() => setConfirmDeleteSelected(true)}
                 className={`${INLINE_BUTTON} text-danger hover:bg-danger-subtle`}
               >
