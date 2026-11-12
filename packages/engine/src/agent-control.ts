@@ -807,7 +807,7 @@ export class AgentControlService {
           ? projectCreationFailureDetailsSchema.safeParse(error.details)
           : null
       const workerFailure =
-        method === 'session.spawn' &&
+        (method === 'session.spawn' || method === 'projects.ask') &&
         error instanceof ControlFailure &&
         error.code === 'uncertain_outcome'
           ? workerRecoveryReceiptSchema.safeParse({ recovery: error.details })
