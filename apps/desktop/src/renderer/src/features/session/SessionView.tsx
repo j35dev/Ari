@@ -286,6 +286,14 @@ export function SessionView({
   const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
+  const [workspaceInfo, setWorkspaceInfo] = useState<{
+    sessionId: string
+    workspace: Session['workspace']
+  } | null>(null)
+  const managedWorkspace =
+    workspaceInfo?.sessionId === sessionId && workspaceInfo.workspace?.kind === 'managed-worktree'
+      ? workspaceInfo.workspace
+      : null
   const [historyFailureSession, setHistoryFailureSession] = useState<string | null>(null)
   const [historyRetrying, setHistoryRetrying] = useState(false)
   const [metadataFailureSession, setMetadataFailureSession] = useState<string | null>(null)
@@ -679,6 +687,7 @@ export function SessionView({
             providerSessionId?: string | null
           }
           if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+          setWorkspaceInfo({ sessionId, workspace: m.session.workspace })
           setMetadataFailureSession(null)
           setProviderSwitchable(canSwitchProvider(m.session))
           setProviderContext((previous) => ({
@@ -722,6 +731,7 @@ export function SessionView({
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
       case 'session.created':
+        setWorkspaceInfo({ sessionId, workspace: event.session.workspace })
         setProviderSwitchable(canSwitchProvider(event.session))
         break
       case 'session.provider.switched':
@@ -1835,6 +1845,14 @@ export function SessionView({
               mode={defaults.permissionMode}
               onChange={changePermissionMode}
             />
+            {managedWorkspace ? (
+              <span
+                className="max-w-40 truncate text-2xs text-fg-subtle"
+                title={managedWorkspace.path}
+              >
+                Worktree · {managedWorkspace.branch}
+              </span>
+            ) : null}
           </>
         }
       />
@@ -1843,6 +1861,7 @@ export function SessionView({
       centered,
       hidden,
       metadataReadySession,
+      managedWorkspace,
       onComposerReady,
       sessionId,
       handleSend,
