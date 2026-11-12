@@ -40,7 +40,8 @@ under the shared runner on 2026-11-11. Shared contracts/client commits consumed:
   creation project/title/provider/model/mode/effort drafts persist per machine.
   Actions save exact commands and receipt keys before IPC. Unknown transport,
   IPC, internal-error, conflict and malformed-success outcomes remain blocked
-  until explicitly checked/retried on the originating host. Child stop receipts
+  until checked on the originating host. Saved actions are never resent, even
+  when an old host returns `not_found` after receipt loss. Child stop receipts
   belong to the child and link back to its workspace for reconciliation.
 
 ## Dedicated workspace differences
@@ -87,3 +88,8 @@ The assigned caller resolves to codex / gpt-6.1-sol, xhigh, full permissions.
 No additional workers, live profile changes, push or PR will be used.
 
 This WIP preserves the review checkpoint before coordinated heavy validation.
+
+The coordinator's S6 follow-up removes receipt resubmission entirely. All saved
+action, creation and terminal controls perform read-only status checks. Missing
+results retain the exact receipt and explain that the outcome is unknown;
+the legacy `retry=true` call cannot invoke `machines.command`.

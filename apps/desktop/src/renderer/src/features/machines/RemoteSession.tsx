@@ -176,11 +176,11 @@ export function RemoteSession({
   function run(action: RemoteAction): void {
     void act(action).catch(() => undefined)
   }
-  async function reconcile(retry: boolean): Promise<void> {
+  async function reconcile(): Promise<void> {
     if (!pending || busy || machine.status !== 'connected') return
     setBusy(true)
     try {
-      const result = await resolveReceipt(machine.id, pending.scope, retry)
+      const result = await resolveReceipt(machine.id, pending.scope)
       finish(pending.command, result)
       if (!alive.current) return
       setError(null)
@@ -286,16 +286,9 @@ export function RemoteSession({
             <Button
               size="sm"
               disabled={busy || machine.status !== 'connected'}
-              onClick={() => void reconcile(false)}
+              onClick={() => void reconcile()}
             >
               Check receipt
-            </Button>
-            <Button
-              size="sm"
-              disabled={busy || machine.status !== 'connected'}
-              onClick={() => void reconcile(true)}
-            >
-              Retry saved action
             </Button>
           </div>
         </section>
