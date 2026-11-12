@@ -167,6 +167,11 @@ if (!gotLock) {
         backgroundReady: firstPaint,
       })
       widget = new AriaWidget({
+        voice: {
+          stop: () => { void runtime!.invoke('aria.voice.stop').catch(() => undefined) },
+          warm: () => { void runtime!.invoke('aria.voice.warm').catch(() => undefined) },
+          arm: (sessionId, text) => runtime!.invoke('aria.voice.arm', { sessionId, text }),
+        },
         mainWindow: () => mainWindow,
         invoke: runtime.invoke,
         openSettings: () => {
