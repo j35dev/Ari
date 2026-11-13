@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Monitor, PanelLeftOpen, PanelRight } from 'lucide-react'
+import { FolderOpen, Monitor, PanelLeftOpen, PanelRight } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import { cx, iconButton, iconButtonActive } from '../lib/recipes'
 
@@ -21,9 +21,9 @@ function detectPlatform(): TitlebarPlatform {
 /**
  * The window's top edge: a drag strip on the chrome, with no fill or border of
  * its own. The leading zone is the sidebar's header (wordmark, search,
- * collapse) and is exactly as wide as the sidebar. The sidebar already marks
- * the open session, so the bar does not repeat its name; a remote session
- * names its machine. At the trailing edge are the provider's usage, the Git
+ * collapse) and is exactly as wide as the sidebar. After it comes the open
+ * session's project, so the window says where you are; the session's own name
+ * stays in the sidebar. A remote session also names its machine. At the trailing edge are the provider's usage, the Git
  * control and one toggle for the panel docked beside the session; the panel's
  * own tabs choose between changes, files, the terminal and the browser.
  *
@@ -42,6 +42,7 @@ export function Titlebar({
   leading,
   leadingWidth,
   machineLabel,
+  projectLabel,
 }: {
   /** The panel beside the session is showing. */
   panelOpen?: boolean
@@ -60,6 +61,8 @@ export function Titlebar({
   leadingWidth?: number
   /** The immutable remote owner of the session/tools currently shown. */
   machineLabel?: string
+  /** The project of the session currently shown. */
+  projectLabel?: string
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -94,6 +97,17 @@ export function Titlebar({
           ) : null}
         </div>
       )}
+
+      {projectLabel && !minimal ? (
+        <span
+          aria-label="Session project"
+          title={projectLabel}
+          className="flex min-w-0 max-w-64 items-center gap-1.5 pl-3 text-[13px] text-fg-subtle"
+        >
+          <FolderOpen size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
+          <span className="truncate">{projectLabel}</span>
+        </span>
+      ) : null}
 
       {machineLabel && !minimal ? (
         <span

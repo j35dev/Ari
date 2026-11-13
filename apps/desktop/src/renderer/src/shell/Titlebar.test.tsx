@@ -93,6 +93,15 @@ describe('Titlebar workspace tools', () => {
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
   })
 
+  it('names the open session’s project after the sidebar zone, but not during setup', () => {
+    const { rerender } = render(
+      <Titlebar leading={<span>sidebar header</span>} projectLabel="Ari" />,
+    )
+    expect(screen.getByLabelText('Session project')).toHaveTextContent('Ari')
+    rerender(<Titlebar minimal projectLabel="Ari" />)
+    expect(screen.queryByLabelText('Session project')).not.toBeInTheDocument()
+  })
+
   it('insets the leading cluster under macOS traffic lights', () => {
     stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15')
     const { container } = render(<Titlebar />)
