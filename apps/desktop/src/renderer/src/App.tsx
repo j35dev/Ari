@@ -1814,6 +1814,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           )
         }
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
+        projectLabel={
+          // Aria's page names her itself; a workspace tool fills the window.
+          ariaActive || workspaceToolOpen
+            ? undefined
+            : navigation.sidebarProjects.find(
+                (group) =>
+                  group.id ===
+                  navigation.sessions.find((session) => session.id === activeSessionId)?.projectId,
+              )?.name
+        }
       />
       {/* Settings opens as a dialog over the workspace, which stays visible
           and mounted underneath. */}
