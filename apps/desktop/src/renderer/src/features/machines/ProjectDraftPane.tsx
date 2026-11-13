@@ -71,10 +71,18 @@ export function ProjectDraftPane({ entry, projects, defaults, createLocal, onPic
     clients.set(hostId, client)
     return client
   }, [clients, entry.id, entry.lead])
-  const defaultFor = useCallback((hostId: string, projectId: string) => hostId === 'local'
-    ? latest.current.projects.find((project) => project.id === projectId)?.defaultAgent ?? latest.current.defaults
-    : latest.current.metadata.inventories.get(hostId)?.projects.find((project) => project.id === projectId)?.defaultAgent ?? null,
-  [])
+  const defaultFor = useCallback((hostId: string, projectId: string) => {
+    if (hostId !== 'local')
+      return latest.current.metadata.inventories.get(hostId)?.projects.find((project) => project.id === projectId)?.defaultAgent ?? null
+    const { defaults } = latest.current
+    const saved = latest.current.projects.find((project) => project.id === projectId)?.defaultAgent
+    if (!saved) return defaults
+    // A project default saved without a level leaves it unset, not "agent
+    // default" by choice: the user's own level for that same model fills it.
+    return saved.effort === null && saved.driverKind === defaults.driverKind && saved.modelId === defaults.modelId
+      ? { ...saved, effort: defaults.effort }
+      : saved
+  }, [])
   const hosts = useMemo(() => selectionHosts(entry, projects, metadata), [entry, projects, metadata])
   const refreshHosts = useCallback(async (hostIds: readonly string[]) => {
     const samples = await latest.current.metadata.refreshResources(hostIds)

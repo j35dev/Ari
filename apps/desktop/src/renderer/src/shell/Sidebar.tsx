@@ -856,10 +856,14 @@ function CollapsibleSessions({
   const contentRef = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
 
-  // Auto-open when the active session moves into this bucket.
+  // Auto-open when the user goes to a session on this shelf, not when the
+  // session they are on is put here: archiving it popped the shelf open
+  // every time. The caret below still marks the active session inside.
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
   useEffect(() => {
-    if (sessions.some((s) => s.id === handlers.activeSessionId)) setOpen(true)
-  }, [handlers.activeSessionId, sessions])
+    if (sessionsRef.current.some((s) => s.id === handlers.activeSessionId)) setOpen(true)
+  }, [handlers.activeSessionId])
 
   // The shelf sits at the bottom of the scroll pane, so opening it would push
   // its rows past the fold; pull them back into view.
