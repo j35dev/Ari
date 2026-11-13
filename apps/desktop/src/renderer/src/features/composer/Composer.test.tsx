@@ -101,6 +101,39 @@ describe('Composer', () => {
     expect(onStop).toHaveBeenCalledOnce()
   })
 
+  it('drops the queued tab the moment its message leaves the queue', () => {
+    const onRemoveQueued = vi.fn()
+    const { rerender } = render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[{ text: 'Release after merging', attachments: [] }]}
+        onRemoveQueued={onRemoveQueued}
+      />,
+    )
+    expect(screen.getByRole('list', { name: 'Queued messages' })).toBeInTheDocument()
+    // The engine dequeued it into a turn: no exit animation may keep a stale,
+    // removable copy on screen.
+    rerender(<Composer onSend={vi.fn()} running queued={[]} onRemoveQueued={onRemoveQueued} />)
+    expect(screen.queryByRole('list', { name: 'Queued messages' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Release after merging')).not.toBeInTheDocument()
+  })
+
+  it('shows exactly one glyph on the round button through quick start/stop flips', () => {
+    const { rerender } = render(<Composer onSend={vi.fn()} onStop={vi.fn()} running={false} />)
+    const shown = () => {
+      const button = screen.getByRole('button', { name: /^(Send|Stop)$/ })
+      return [...button.querySelectorAll('[data-glyph]')]
+        .filter((glyph) => glyph.classList.contains('opacity-100'))
+        .map((glyph) => glyph.getAttribute('data-glyph'))
+    }
+    expect(shown()).toEqual(['send'])
+    for (const running of [true, false, true, true, false, true]) {
+      rerender(<Composer onSend={vi.fn()} onStop={vi.fn()} running={running} />)
+      expect(shown()).toEqual([running ? 'stop' : 'send'])
+    }
+  })
+
   it('announces queued messages behind the active turn', () => {
     render(
       <Composer

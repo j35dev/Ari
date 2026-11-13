@@ -593,6 +593,43 @@ describe('SessionsUnderProjects', () => {
     expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).not.toBeNull()
   })
 
+  it('keeps the shelf shut when the open session is archived, and opens it on navigation', () => {
+    localStorage.clear()
+    const props = {
+      projects,
+      onSelect: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+      onTogglePin: () => {},
+      onToggleArchive: () => {},
+    }
+    const old = { ...session('old', 2, 'proj-1'), archived: true }
+    const { rerender } = render(
+      <SessionsUnderProjects {...props} sessions={[session('live', 1, 'proj-1'), old]} activeSessionId="live" />,
+    )
+    const shelf = () => screen.getByRole('button', { name: 'Archived' })
+    expect(shelf()).toHaveAttribute('aria-expanded', 'false')
+    // Archive the session the user is on: it moves to the shelf, which stays shut.
+    rerender(
+      <SessionsUnderProjects
+        {...props}
+        sessions={[{ ...session('live', 1, 'proj-1'), archived: true }, old]}
+        activeSessionId="live"
+      />,
+    )
+    expect(shelf()).toHaveAttribute('aria-expanded', 'false')
+    expect(shelf().querySelector('[data-context-mark="archived"][data-active]')).not.toBeNull()
+    // Going to an archived session still opens it.
+    rerender(
+      <SessionsUnderProjects
+        {...props}
+        sessions={[{ ...session('live', 1, 'proj-1'), archived: true }, old]}
+        activeSessionId="old"
+      />,
+    )
+    expect(shelf()).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('leaves the archived caret neutral when nothing archived is active', () => {
     renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], null)
     const shelf = screen.getByRole('button', { name: 'Archived' })

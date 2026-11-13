@@ -421,9 +421,40 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
    * happened to load last.
    */
   const [defaultsBySession, setDefaultsBySession] = useState<Record<string, SessionDefaults>>({})
+  // Until a session's own load lands, its listed summary already names its
+  // agent, model and level. Falling back to the app-wide pick instead showed
+  // another agent's model in the composer for the first second.
+  const listedCache = useRef(new Map<string, SessionDefaults>())
+  const listedDefaults = useMemo(() => {
+    const byId = new Map<string, SessionDefaults>()
+    for (const session of navigation.sessions) {
+      if (!session.driverKind) continue
+      const next: SessionDefaults = {
+        driverKind: session.driverKind,
+        modelId: session.modelId ?? null,
+        permissionMode: session.permissionMode ?? defaults.permissionMode,
+        effort: session.effort ?? null,
+      }
+      // The list refreshes often; an unchanged session keeps the same object.
+      const previous = listedCache.current.get(session.id)
+      byId.set(
+        session.id,
+        previous &&
+          previous.driverKind === next.driverKind &&
+          previous.modelId === next.modelId &&
+          previous.permissionMode === next.permissionMode &&
+          previous.effort === next.effort
+          ? previous
+          : next,
+      )
+    }
+    listedCache.current = byId
+    return byId
+  }, [navigation.sessions, defaults.permissionMode])
   const defaultsFor = useCallback(
-    (sessionId: string): SessionDefaults => defaultsBySession[sessionId] ?? defaults,
-    [defaultsBySession, defaults],
+    (sessionId: string): SessionDefaults =>
+      defaultsBySession[sessionId] ?? listedDefaults.get(sessionId) ?? defaults,
+    [defaultsBySession, listedDefaults, defaults],
   )
   const writeDefaults = useCallback((sessionId: string, next: SessionDefaults): void => {
     setDefaultsBySession((prev) =>

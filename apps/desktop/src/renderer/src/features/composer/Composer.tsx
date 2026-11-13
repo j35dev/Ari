@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { ArrowUp, Bookmark, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { MessageOrigin } from '@ari/contracts/message'
@@ -821,81 +821,81 @@ export function Composer({
 
   return (
     <div className="ari-composer-content px-4 pb-4 pt-2">
-      <AnimatePresence>
-        {queued.length > 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={transitions.fadeUp}
-            className={cx(TOP_TAB, 'rounded-t-[14px] px-2 pb-1.5 pt-2')}
-          >
-            <div className="flex items-center gap-2 px-1.5 text-xs text-fg-subtle">
-              <span aria-hidden className="ari-status" data-status="queued" />
-              <span>
-                {queued.length} queued message{queued.length > 1 ? 's' : ''} ·{' '}
-                {running ? 'waiting for the current turn' : 'waiting to start'}
-              </span>
-            </div>
-            <ul className="mt-1" aria-label="Queued messages">
-              {queued.map((message, index) => (
-                <li
-                  key={`${index}:${message.text}`}
-                  className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[13px] text-fg-muted transition-colors hover:bg-fg/5"
-                >
-                  <span className="min-w-0 flex-1 truncate" title={message.text}>
-                    {message.senderLabel ? (
-                      <span className="mr-2 text-xs text-fg-subtle">{message.senderLabel}</span>
-                    ) : null}
-                    {message.text}
+      {/* Enter-only: an exit animation kept the removed tab painted with its
+          last messages, and a stalled one (a backgrounded window) left a sent
+          message looking queued, whose remove then failed in the engine. */}
+      {queued.length > 0 ? (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={transitions.fadeUp}
+          className={cx(TOP_TAB, 'rounded-t-[14px] px-2 pb-1.5 pt-2')}
+        >
+          <div className="flex items-center gap-2 px-1.5 text-xs text-fg-subtle">
+            <span aria-hidden className="ari-status" data-status="queued" />
+            <span>
+              {queued.length} queued message{queued.length > 1 ? 's' : ''} ·{' '}
+              {running ? 'waiting for the current turn' : 'waiting to start'}
+            </span>
+          </div>
+          <ul className="mt-1" aria-label="Queued messages">
+            {queued.map((message, index) => (
+              <li
+                key={`${index}:${message.text}`}
+                className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[13px] text-fg-muted transition-colors hover:bg-fg/5"
+              >
+                <span className="min-w-0 flex-1 truncate" title={message.text}>
+                  {message.senderLabel ? (
+                    <span className="mr-2 text-xs text-fg-subtle">{message.senderLabel}</span>
+                  ) : null}
+                  {message.text}
+                </span>
+                {message.attachments.length > 0 ? (
+                  <span className="shrink-0 px-1 text-xs text-fg-subtle">
+                    {message.attachments.length} image
+                    {message.attachments.length > 1 ? 's' : ''}
                   </span>
-                  {message.attachments.length > 0 ? (
-                    <span className="shrink-0 px-1 text-xs text-fg-subtle">
-                      {message.attachments.length} image
-                      {message.attachments.length > 1 ? 's' : ''}
-                    </span>
-                  ) : null}
-                  {onSteerQueued && (!message.origin || message.origin.kind === 'human') ? (
-                    <button
-                      type="button"
-                      aria-label={`Steer queued message ${index + 1} into the current turn`}
-                      title="Steer into the current turn"
-                      onClick={() => onSteerQueued(message)}
-                      className={rowAction}
-                    >
-                      <CornerUpRight size={14} strokeWidth={1.75} aria-hidden />
-                    </button>
-                  ) : null}
-                  {onEditQueued &&
-                  message.attachments.length === 0 &&
-                  (!message.origin || message.origin.kind === 'human') ? (
-                    <button
-                      type="button"
-                      aria-label={`Edit queued message ${index + 1}`}
-                      title="Edit in composer"
-                      onClick={() => onEditQueued(message)}
-                      className={rowAction}
-                    >
-                      <Pencil size={14} strokeWidth={1.75} aria-hidden />
-                    </button>
-                  ) : null}
-                  {onRemoveQueued && (!message.origin || message.origin.kind === 'human') ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove queued message ${index + 1}`}
-                      title="Remove from queue"
-                      onClick={() => onRemoveQueued(message)}
-                      className={rowAction}
-                    >
-                      <X size={14} strokeWidth={1.75} aria-hidden />
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                ) : null}
+                {onSteerQueued && (!message.origin || message.origin.kind === 'human') ? (
+                  <button
+                    type="button"
+                    aria-label={`Steer queued message ${index + 1} into the current turn`}
+                    title="Steer into the current turn"
+                    onClick={() => onSteerQueued(message)}
+                    className={rowAction}
+                  >
+                    <CornerUpRight size={14} strokeWidth={1.75} aria-hidden />
+                  </button>
+                ) : null}
+                {onEditQueued &&
+                message.attachments.length === 0 &&
+                (!message.origin || message.origin.kind === 'human') ? (
+                  <button
+                    type="button"
+                    aria-label={`Edit queued message ${index + 1}`}
+                    title="Edit in composer"
+                    onClick={() => onEditQueued(message)}
+                    className={rowAction}
+                  >
+                    <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                  </button>
+                ) : null}
+                {onRemoveQueued && (!message.origin || message.origin.kind === 'human') ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove queued message ${index + 1}`}
+                    title="Remove from queue"
+                    onClick={() => onRemoveQueued(message)}
+                    className={rowAction}
+                  >
+                    <X size={14} strokeWidth={1.75} aria-hidden />
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      ) : null}
 
       {above ? (
         // Under the queued tab this one drops its own round corners and takes
@@ -1279,6 +1279,10 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function Men
   )
 })
 
+/** One of the round button's two stacked glyphs. */
+const swapGlyph =
+  'absolute inset-0 flex items-center justify-center transition-[opacity,transform] duration-[var(--ari-dur-fast)] ease-out motion-reduce:transition-none'
+
 /**
  * The round button at the end of the control row. Idle it sends; while a turn
  * runs it stops, and a second circle appears beside it to queue the draft.
@@ -1331,31 +1335,23 @@ function SendStopButton({
         transition={transitions.morph}
         className={roundButton(running ? (queueable ? 'wash' : 'ink') : canSend ? 'ink' : 'idle')}
       >
-        <AnimatePresence initial={false}>
-          {running ? (
-            <motion.span
-              key="stop"
-              initial={{ opacity: 0, scale: 0.7 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              transition={transitions.micro}
-              className="absolute inset-0 flex items-center justify-center"
-            >
-              <Square size={11} fill="currentColor" aria-hidden />
-            </motion.span>
-          ) : (
-            <motion.span
-              key="send"
-              initial={{ opacity: 0, scale: 0.7 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              transition={transitions.micro}
-              className="absolute inset-0 flex items-center justify-center"
-            >
-              <ArrowUp size={17} strokeWidth={2} aria-hidden />
-            </motion.span>
-          )}
-        </AnimatePresence>
+        {/* Both glyphs stay mounted and crossfade in CSS. An exit animation
+            interrupted by a quick start/stop (or a backgrounded window) used
+            to leave the square and the arrow stuck half-drawn on each other. */}
+        <span
+          aria-hidden
+          data-glyph="stop"
+          className={cx(swapGlyph, running ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
+        >
+          <Square size={11} fill="currentColor" />
+        </span>
+        <span
+          aria-hidden
+          data-glyph="send"
+          className={cx(swapGlyph, running ? 'scale-75 opacity-0' : 'scale-100 opacity-100')}
+        >
+          <ArrowUp size={17} strokeWidth={2} />
+        </span>
       </motion.button>
     </span>
   )
