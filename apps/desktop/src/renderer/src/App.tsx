@@ -1631,6 +1631,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         projects={projects}
         defaults={defaults}
         createLocal={sessionStart.createDraft}
+        onPick={rememberPick}
         onCreated={(scope, seed) => {
           if (seed) setDraftHandoff({ entry, scope, seed })
           else finishProjectDraft(entry, scope)
