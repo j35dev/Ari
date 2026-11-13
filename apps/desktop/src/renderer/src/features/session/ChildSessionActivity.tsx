@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ChevronRight } from 'lucide-react'
+import { Bot, ChevronRight } from 'lucide-react'
+import { driverLabel } from '../composer/agent-mark'
+import { hasProviderLogo, ProviderLogo } from '../composer/provider-logo'
 import { transitions } from '@ari/ui/motion'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { cx, primaryButton, quietButton } from '../../lib/recipes'
@@ -146,13 +148,15 @@ export function ChildSessionActivity({
           onClick={() => setOpen((value) => !value)}
           className={composerTabRail}
         >
-          <span aria-hidden className="flex shrink-0">
-            {sessions.slice(0, MAX_TILES).map((session, index) => (
+          {/* Side by side, not stacked: an overlap would clip each logo. */}
+          <span aria-hidden className="flex shrink-0 gap-1">
+            {sessions.slice(0, MAX_TILES).map((session) => (
               <span
                 key={session.id}
-                className={`grid size-[22px] place-items-center rounded-full bg-surface-2 text-[11px] font-semibold leading-none text-fg-muted ring-2 ring-bg ${index > 0 ? '-ms-1.5' : ''}`}
+                title={session.driverKind ? driverLabel(session.driverKind) : undefined}
+                className="grid size-[22px] place-items-center rounded-full bg-surface-2 text-fg-muted"
               >
-                {tileLetter(session.title)}
+                <AgentGlyph kind={session.driverKind} />
               </span>
             ))}
           </span>
@@ -206,7 +210,11 @@ export function ChildSessionActivity({
   )
 }
 
-/** The first letter or digit of a title, for a child's tile. */
-function tileLetter(title: string): string {
-  return (title.match(/[\p{L}\p{N}]/u)?.[0] ?? '·').toUpperCase()
+/** A child's tile: the logo of the agent it runs, or a plain bot glyph. */
+function AgentGlyph({ kind }: { kind: string | undefined }) {
+  return kind && hasProviderLogo(kind) ? (
+    <ProviderLogo kind={kind} size={12} />
+  ) : (
+    <Bot size={13} strokeWidth={1.8} aria-hidden />
+  )
 }

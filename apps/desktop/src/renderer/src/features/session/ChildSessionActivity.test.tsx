@@ -22,6 +22,19 @@ it('hides when no live children remain', () => {
   expect(screen.queryByRole('button', { name: 'Child sessions' })).not.toBeInTheDocument()
 })
 
+it('marks each child with its agent, not a letter from its title', () => {
+  render(
+    <ChildSessionActivity
+      sessions={[{ ...child('a', 'Audit A'), driverKind: 'claude' }, child('b', 'Build B')]}
+    />,
+  )
+  const rail = screen.getByRole('button', { name: 'Child sessions' })
+  expect(rail.querySelector('[title="Claude"] svg')).not.toBeNull()
+  // No agent known: a plain glyph, still no initial.
+  expect(rail).not.toHaveTextContent(/^[AB]/)
+  expect(rail.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
+})
+
 it('expands live children in the composer cap and navigates on click', async () => {
   const open = vi.fn()
   render(
