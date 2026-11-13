@@ -8,6 +8,7 @@ import { ProjectDraft, type ProjectDraftClient } from './ProjectDraft'
 import { localProjectDraftClient, remoteProjectDraftClient } from './project-draft-adapter'
 import type { ProjectDraftEntry } from './project-draft-registry'
 import type { ComposerSeed } from '../composer/Composer'
+import type { LastPick } from '../composer/last-pick'
 import type { SessionScope } from '../session/session-client'
 import type { SelectionHost } from './machine-policy'
 
@@ -39,11 +40,12 @@ function selectionHosts(entry: ProjectDraftEntry, projects: Project[], metadata:
   ].filter((host) => !entry.lead || host.id === 'local')
 }
 
-export function ProjectDraftPane({ entry, projects, defaults, createLocal, onCreated, onClose }: {
+export function ProjectDraftPane({ entry, projects, defaults, createLocal, onPick, onCreated, onClose }: {
   entry: ProjectDraftEntry
   projects: Project[]
   defaults: SessionDefaults
   createLocal: (projectId: string, defaults: Partial<SessionDefaults>) => Promise<string>
+  onPick?: (change: Partial<LastPick>) => void
   onCreated: (scope: SessionScope, seed?: ComposerSeed) => void
   onClose: () => void
 }) {
@@ -81,7 +83,7 @@ export function ProjectDraftPane({ entry, projects, defaults, createLocal, onCre
   const autoReady = metadata.inventoryReady
   return <ProjectDraft draftId={entry.id} group={entry.group} hosts={hosts} initialHostId={entry.initialHostId}
     autoEnabled={metadata.preferences.autoEnabled} autoReady={autoReady} lastManualHostId={metadata.preferences.projectHosts[entry.groupId]}
-    clientFor={clientFor} defaultFor={defaultFor} refreshHosts={refreshHosts} onCreated={onCreated} onClose={onClose}
+    clientFor={clientFor} defaultFor={defaultFor} refreshHosts={refreshHosts} onPick={onPick} onCreated={onCreated} onClose={onClose}
     onRememberHost={(hostId) => { void rpc.invoke('machines.rememberProjectHost', { projectKey: entry.groupId, machineId: hostId })
       .then(() => metadata.refreshInventory()).catch(() => undefined) }} />
 }
