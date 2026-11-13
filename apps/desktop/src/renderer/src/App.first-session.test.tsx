@@ -104,6 +104,14 @@ describe('first-send shell draft ownership', () => {
     } }]])
     expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
   })
+  it('opens the session after sending from a draft that replaced an earlier draft in the same pane', async () => {
+    render(<App />)
+    await chooseDraft()
+    const user = await chooseDraft()
+    await sendDraft(user)
+    expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
+    expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
+  })
   it('checks root occupancy only on Send before reusing and reseeding an empty local session', async () => {
     record({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' })
     render(<App />)
