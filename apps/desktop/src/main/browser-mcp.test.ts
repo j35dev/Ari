@@ -610,7 +610,7 @@ describe('startBrowserMcpServer', () => {
     }
   })
 
-  it('reveals the pane only for inspector navigation, never for an agent tab', async () => {
+  it('asks the shell to show the tab an agent navigated, naming whose it is', async () => {
     const onUpdated = vi.fn()
     const service = new BrowserService(() => guest(), onUpdated)
     const handle = await startBrowserMcpServer(service)
@@ -618,7 +618,9 @@ describe('startBrowserMcpServer', () => {
       await callTool(handle.url, handle.tokenFor('sess-a'), 'browser_navigate', {
         url: 'a.example',
       })
-      expect(onUpdated).not.toHaveBeenCalledWith(expect.objectContaining({ reveal: true }))
+      expect(onUpdated).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'agent:sess-a', reveal: true }),
+      )
       await callTool(handle.url, handle.token, 'browser_navigate', { url: 'b.example' })
       expect(onUpdated).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'inspector', reveal: true }),

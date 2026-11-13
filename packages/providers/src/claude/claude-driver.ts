@@ -5,7 +5,13 @@ import { createLogger } from '@ari/shared/logger'
 import { mapClaudeLine, type NativeLine } from './mapper'
 import { ClaudeBackgroundTasks } from './background-tasks'
 import { claudeSessionPool, type ClaudeSessionPool } from './session-pool'
-import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  Driver,
+  ProviderAdapter,
+  SessionAttachment,
+} from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { PumpableProcess } from '../process-stream'
@@ -92,7 +98,7 @@ function permissionModeFlag(mode: PermissionMode): string {
 /**
  * Stream-json input user frame — the initial turn prompt and mid-session
  * steering messages ride stdin in this shape. Staged images ride as
- * Anthropic-style base64 image blocks; steering frames stay text-only.
+ * Anthropic-style base64 image blocks, on the prompt and on steering frames.
  */
 export function buildUserFrame(
   text: string,
@@ -180,7 +186,7 @@ export interface ClaudeControlAdapter extends ProviderAdapter {
   /** Writes one control frame as a JSON line to the CLI stdin. */
   send(frame: unknown): void
   /** Steers a running turn by appending a user message; false when stdin is gone. */
-  steer(text: string): boolean
+  steer(text: string, attachments?: readonly SessionAttachment[]): boolean | Promise<boolean>
   /** Answers a pending can_use_tool permission prompt via control_response. */
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
 }
@@ -453,11 +459,17 @@ export function wireClaudeProcess(child: ControlProcessLike): ClaudeControlProce
         start: () => ({ [Symbol.asyncIterator]: () => iterator }),
         continuesBackgroundWork: () => continuing,
         keepsBackgroundWork: () => parked,
-        steer: (text) =>
-          active === turn &&
-          !turn.interrupted &&
-          text.length > 0 &&
-          writeLine(buildUserFrame(text)),
+        steer: (text, attachments = []) => {
+          const live = (): boolean => active === turn && !turn.interrupted
+          if (attachments.length === 0)
+            return live() && text.length > 0 && writeLine(buildUserFrame(text))
+          if (!live()) return false
+          // Reading the staged bytes takes a moment; the turn may end meanwhile.
+          return loadImageData([...attachments]).then(
+            ({ loaded, missing }) =>
+              live() && writeLine(buildUserFrame(text + missingImagesNote(missing), loaded)),
+          )
+        },
         interrupt: () => {
           turn.interrupted = true
           if (child.killed || killFallback !== null) return

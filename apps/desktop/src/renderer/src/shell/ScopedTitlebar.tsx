@@ -5,7 +5,7 @@ import { useSourceControl } from '../features/changes/use-source-control'
 import { GitControl } from '../features/changes/GitControl'
 import { Titlebar } from './Titlebar'
 import { useMachines } from '../features/machines/use-machines'
-type Props = Omit<ComponentProps<typeof Titlebar>, 'git' | 'changeCount'> & {
+type Props = Omit<ComponentProps<typeof Titlebar>, 'git'> & {
   scope: SessionScope | null
   gitScope: GitScope | null
   onReview: () => void
@@ -24,7 +24,7 @@ function ScopedTitlebarContent({ scope, gitScope, onReview, onRequests, hideGit 
   const { machines } = useMachines()
   const machine = scope?.kind === 'remote' ? machines.find((item) => item.id === scope.machineId) : null
   const machineLabel = scope?.kind === 'remote' ? `${machine?.name ?? 'Remote machine'}${machine?.status === 'connected' ? '' : ` · ${machine?.status ?? 'unavailable'}`}` : undefined
-  return <Titlebar {...props} machineLabel={machineLabel} changeCount={changes.summary?.changedFiles ?? null}
+  return <Titlebar {...props} machineLabel={machineLabel}
     git={!hideGit && gitScope && changes.summary ? <GitControl scope={gitScope} summary={changes.summary}
       refresh={changes.refresh} onReview={onReview} onPullRequests={onRequests} /> : undefined} />
 }

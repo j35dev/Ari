@@ -88,7 +88,7 @@ export function realDetectEnvironment(): DetectEnvironment {
   return {
     platform: process.platform,
     pathEnv: process.env['PATH'] ?? '',
-    homeDir: process.env[(process.platform === 'win32' ? 'USERPROFILE' : 'HOME')] ?? '',
+    homeDir: process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] ?? '',
     localAppData: process.env['LOCALAPPDATA'] ?? '',
     appData: process.env['APPDATA'] ?? '',
     vars: process.env,

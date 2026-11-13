@@ -43,7 +43,7 @@ describe('teardownChild', () => {
     const child = new FakeChild()
     child.exitCode = 0
     await expect(teardownChild(child)).resolves.toBeUndefined()
-    expect((child.stdin.end as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(child.stdin.end as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
 
   it('stops at rung 1 when the process exits on stdin EOF', async () => {
@@ -92,9 +92,7 @@ describe('teardownChild', () => {
     const child = new FakeChild()
     child.stdin.writableEnded = true
     child.exitsAfter(5)
-    await expect(
-      teardownChild(child, { eofGraceMs: 500 }),
-    ).resolves.toBeUndefined()
+    await expect(teardownChild(child, { eofGraceMs: 500 })).resolves.toBeUndefined()
   })
 
   it('takes down a real node child that exits on stdin EOF', async () => {

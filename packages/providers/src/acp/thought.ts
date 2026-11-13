@@ -60,8 +60,7 @@ function optionsOf(option: AcpConfigOption): CatalogEffort[] {
   const out: CatalogEffort[] = []
   for (const value of option.options ?? []) {
     if (typeof value.value !== 'string' || value.value.length === 0) continue
-    const label =
-      typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value
+    const label = typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value
     const description =
       typeof value.description === 'string' && value.description.length > 0
         ? value.description

@@ -77,7 +77,11 @@ function capture(
     }, timeoutMs)
     let child: ReturnType<typeof spawnCli> | null = null
     try {
-      child = spawnCli(binaryPath, args, { env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      child = spawnCli(binaryPath, args, {
+        env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      })
     } catch (error) {
       log.debug('identity command could not start', { binaryPath, error: String(error) })
       done()

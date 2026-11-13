@@ -102,7 +102,13 @@ export function providerConfigFiles(
           'Always-on context sent with every session.',
         ),
         file('models', 'models.json', 'models.json', 'json', 'Custom providers and models.'),
-        file('keybindings', 'keybindings.json', 'keybindings.json', 'json', "pi's own key bindings."),
+        file(
+          'keybindings',
+          'keybindings.json',
+          'keybindings.json',
+          'json',
+          "pi's own key bindings.",
+        ),
       ]
     case 'claude':
       return [
@@ -113,7 +119,13 @@ export function providerConfigFiles(
           'json',
           'Model, permission allow/deny rules, hooks, plugins, environment.',
         ),
-        file('memory', 'CLAUDE.md', 'CLAUDE.md', 'markdown', 'Standing instructions for every project.'),
+        file(
+          'memory',
+          'CLAUDE.md',
+          'CLAUDE.md',
+          'markdown',
+          'Standing instructions for every project.',
+        ),
       ]
     case 'codex':
       return [
@@ -124,7 +136,13 @@ export function providerConfigFiles(
           'toml',
           'Model and reasoning effort, approval policy, sandbox mode, MCP servers.',
         ),
-        file('agents', 'AGENTS.md', 'AGENTS.md', 'markdown', 'Standing instructions for every project.'),
+        file(
+          'agents',
+          'AGENTS.md',
+          'AGENTS.md',
+          'markdown',
+          'Standing instructions for every project.',
+        ),
       ]
     case 'opencode':
       return [

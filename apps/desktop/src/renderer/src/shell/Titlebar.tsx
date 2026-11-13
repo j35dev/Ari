@@ -1,32 +1,7 @@
 import { useState, type ReactNode } from 'react'
-import { FileDiff, Folder, Globe, ListTree, Monitor, PanelLeftOpen, TerminalSquare } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Monitor, PanelLeftOpen, PanelRight } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import { cx, iconButton, iconButtonActive } from '../lib/recipes'
-import type { SidebarNavId } from './Sidebar'
-
-/**
- * The panels a session can dock beside itself. Usage and settings are app
- * destinations, not panels, and live in the sidebar footer.
- */
-/** A tool the titlebar can toggle: a workspace panel, or Aria's overview. */
-export type TitlebarToolId = SidebarNavId | 'overview'
-
-interface TitlebarTool {
-  id: Exclude<TitlebarToolId, 'session'>
-  label: string
-  icon: LucideIcon
-}
-
-/** Offered only beside Aria's chat: the sessions she is leading. */
-const OVERVIEW_TOOL: TitlebarTool = { id: 'overview', label: 'Overview', icon: ListTree }
-
-const TITLEBAR_TOOLS: TitlebarTool[] = [
-  { id: 'changes', label: 'Review changes', icon: FileDiff },
-  { id: 'files', label: 'Files', icon: Folder },
-  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
-  { id: 'browser', label: 'Browser', icon: Globe },
-]
 
 type TitlebarPlatform = 'win32' | 'darwin' | 'linux' | 'other'
 
@@ -43,38 +18,35 @@ function detectPlatform(): TitlebarPlatform {
   return 'other'
 }
 
-/** Where the user is: the project, then the thing open in it. */
-export interface TitlebarPlace {
-  /** The project or section the title belongs to; null when there is none. */
-  context: string | null
-  title: string
-}
-
 /**
  * The window's top edge: a drag strip on the chrome, with no fill or border of
  * its own. The leading zone is the sidebar's header (wordmark, search,
- * collapse) and is exactly as wide as the sidebar; after it comes the place,
- * and at the trailing edge the provider's usage, the Git control and the
- * panel toggles.
+ * collapse) and is exactly as wide as the sidebar. The sidebar already marks
+ * the open session, so the bar does not repeat its name; a remote session
+ * names its machine. At the trailing edge are the provider's usage, the Git
+ * control and one toggle for the panel docked beside the session; the panel's
+ * own tabs choose between changes, files, the terminal and the browser.
+ *
+ * The bar is a size container. As the window narrows its pieces give up their
+ * words in order (provider name, branch, Git action label) and keep
+ * their icons, so nothing is squeezed to a letter or pushed under the window
+ * buttons.
  */
 export function Titlebar({
-  activeTool,
-  onSelectTool,
-  changeCount = null,
+  panelOpen = false,
+  onTogglePanel,
   onExpandSidebar,
   minimal = false,
   git,
   usage,
   leading,
   leadingWidth,
-  place = null,
-  overview = false,
   machineLabel,
 }: {
-  activeTool?: TitlebarToolId | null
-  onSelectTool?: (id: TitlebarToolId) => void
-  /** Working-tree file count for the Review changes tool. Null hides the badge. */
-  changeCount?: number | null
+  /** The panel beside the session is showing. */
+  panelOpen?: boolean
+  /** Opens the panel on the tab last used, or closes it. Absent hides the toggle. */
+  onTogglePanel?: () => void
   onExpandSidebar?: () => void
   /** Setup keeps only the native window controls. */
   minimal?: boolean
@@ -86,9 +58,6 @@ export function Titlebar({
   leading?: ReactNode
   /** Width of the leading zone in pixels; follows the sidebar as it resizes. */
   leadingWidth?: number
-  place?: TitlebarPlace | null
-  /** Offer Aria's overview panel beside the workspace panels. */
-  overview?: boolean
   /** The immutable remote owner of the session/tools currently shown. */
   machineLabel?: string
 }) {
@@ -97,7 +66,7 @@ export function Titlebar({
 
   return (
     <header
-      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
+      className="@container flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {leading !== undefined && !minimal ? (
@@ -126,43 +95,20 @@ export function Titlebar({
         </div>
       )}
 
-      {(place !== null || machineLabel) && !minimal ? (
-        <div className="flex min-w-0 items-center gap-2 pl-3 text-sm text-fg-subtle">
-          {/* A remote session names the machine it runs on before anything else. */}
-          {machineLabel ? (
-            <>
-              <span
-                aria-label="Session machine"
-                title={machineLabel}
-                className="flex max-w-56 items-center gap-1.5"
-              >
-                <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
-                <span className="truncate">{machineLabel}</span>
-              </span>
-              {place !== null ? (
-                <span aria-hidden className="opacity-50">
-                  /
-                </span>
-              ) : null}
-            </>
-          ) : null}
-          {place?.context != null ? (
-            <>
-              <span className="max-w-48 truncate">{place.context}</span>
-              <span aria-hidden className="opacity-50">
-                /
-              </span>
-            </>
-          ) : null}
-          {place !== null ? (
-            <span className="min-w-0 truncate font-medium text-fg">{place.title}</span>
-          ) : null}
-        </div>
+      {machineLabel && !minimal ? (
+        <span
+          aria-label="Session machine"
+          title={machineLabel}
+          className="flex min-w-0 max-w-56 items-center gap-1.5 pl-3 text-sm text-fg-subtle"
+        >
+          <Monitor size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
+          <span className="truncate">{machineLabel}</span>
+        </span>
       ) : null}
 
       <div className="min-w-4 flex-1" />
       {usage && !minimal ? (
-        <div className="mr-1 min-w-0 shrink" style={NO_DRAG}>
+        <div className="mr-1 shrink-0" style={NO_DRAG}>
           {usage}
         </div>
       ) : null}
@@ -172,41 +118,18 @@ export function Titlebar({
         </div>
       ) : null}
 
-      {onSelectTool ? (
-        <nav
-          aria-label="Workspace"
-          className="flex shrink-0 items-center gap-0.5 pr-2"
-          style={NO_DRAG}
-        >
-          {(overview ? [OVERVIEW_TOOL, ...TITLEBAR_TOOLS] : TITLEBAR_TOOLS).map((item) => {
-            const Icon = item.icon
-            const selected = item.id === activeTool
-            const count =
-              item.id === 'changes' && changeCount !== null && changeCount > 0 ? changeCount : null
-            const label = count === null ? item.label : `${item.label}, ${count} files changed`
-            return (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={label}
-                aria-pressed={selected}
-                title={label}
-                onClick={() => onSelectTool(item.id)}
-                className={cx(
-                  iconButton,
-                  count !== null && 'w-auto gap-1.5 px-2',
-                  selected && iconButtonActive,
-                )}
-              >
-                <Icon size={16} strokeWidth={1.7} aria-hidden />
-                {count !== null ? (
-                  <span className="text-xs tabular-nums text-fg-muted">
-                    {count > 99 ? '99+' : count}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
+      {onTogglePanel ? (
+        <nav aria-label="Workspace" className="flex shrink-0 items-center pr-2" style={NO_DRAG}>
+          <button
+            type="button"
+            aria-label={panelOpen ? 'Close panel' : 'Open panel'}
+            aria-pressed={panelOpen}
+            title={panelOpen ? 'Close panel' : 'Open panel: changes, files, terminal, browser'}
+            onClick={onTogglePanel}
+            className={cx(iconButton, panelOpen && iconButtonActive)}
+          >
+            <PanelRight size={16} strokeWidth={1.7} aria-hidden />
+          </button>
         </nav>
       ) : null}
 
@@ -243,7 +166,7 @@ export function Titlebar({
         </div>
       ) : // Reserve space for native Windows overlay buttons.
       platform === 'win32' ? (
-        <div style={{ width: 138 }} />
+        <div className="shrink-0" style={{ width: 138 }} />
       ) : (
         <div className="w-2" />
       )}

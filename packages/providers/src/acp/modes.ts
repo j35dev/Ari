@@ -145,8 +145,7 @@ export function agentModesFromSession(created: AcpNewSessionResult): AgentModeCa
       if (typeof value.value !== 'string' || value.value.length === 0) continue
       options.push({
         id: value.value,
-        label:
-          typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value,
+        label: typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value,
         ...(typeof value.description === 'string' && value.description.length > 0
           ? { description: value.description }
           : {}),
@@ -181,7 +180,8 @@ export function agentModesFromSession(created: AcpNewSessionResult): AgentModeCa
   }
   if (!options.some((o) => o.ariMode !== null)) return EMPTY_MODE_CATALOG
   return {
-    currentId: typeof created.modes?.currentModeId === 'string' ? created.modes.currentModeId : null,
+    currentId:
+      typeof created.modes?.currentModeId === 'string' ? created.modes.currentModeId : null,
     options,
   }
 }
