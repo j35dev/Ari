@@ -132,6 +132,8 @@ describe('modelsFor fallback chain', () => {
       'gpt-5.6-terra',
       'gpt-6-astra',
       'gpt-6-luna',
+      'gpt-6-sol',
+      'gpt-6.1-sol',
     ])
     expect(codex.some((id) => id.startsWith('gpt-4'))).toBe(false)
     expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)

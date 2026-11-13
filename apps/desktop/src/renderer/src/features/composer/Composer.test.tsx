@@ -101,6 +101,21 @@ describe('Composer', () => {
     expect(onStop).toHaveBeenCalledOnce()
   })
 
+  it('shows exactly one glyph on the round button through quick start/stop flips', () => {
+    const { rerender } = render(<Composer onSend={vi.fn()} onStop={vi.fn()} running={false} />)
+    const shown = () => {
+      const button = screen.getByRole('button', { name: /^(Send|Stop)$/ })
+      return [...button.querySelectorAll('[data-glyph]')]
+        .filter((glyph) => glyph.classList.contains('opacity-100'))
+        .map((glyph) => glyph.getAttribute('data-glyph'))
+    }
+    expect(shown()).toEqual(['send'])
+    for (const running of [true, false, true, true, false, true]) {
+      rerender(<Composer onSend={vi.fn()} onStop={vi.fn()} running={running} />)
+      expect(shown()).toEqual([running ? 'stop' : 'send'])
+    }
+  })
+
   it('announces queued messages behind the active turn', () => {
     render(
       <Composer

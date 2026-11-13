@@ -1279,6 +1279,10 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function Men
   )
 })
 
+/** One of the round button's two stacked glyphs. */
+const swapGlyph =
+  'absolute inset-0 flex items-center justify-center transition-[opacity,transform] duration-[var(--ari-dur-fast)] ease-out motion-reduce:transition-none'
+
 /**
  * The round button at the end of the control row. Idle it sends; while a turn
  * runs it stops, and a second circle appears beside it to queue the draft.
@@ -1331,31 +1335,23 @@ function SendStopButton({
         transition={transitions.morph}
         className={roundButton(running ? (queueable ? 'wash' : 'ink') : canSend ? 'ink' : 'idle')}
       >
-        <AnimatePresence initial={false}>
-          {running ? (
-            <motion.span
-              key="stop"
-              initial={{ opacity: 0, scale: 0.7 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              transition={transitions.micro}
-              className="absolute inset-0 flex items-center justify-center"
-            >
-              <Square size={11} fill="currentColor" aria-hidden />
-            </motion.span>
-          ) : (
-            <motion.span
-              key="send"
-              initial={{ opacity: 0, scale: 0.7 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              transition={transitions.micro}
-              className="absolute inset-0 flex items-center justify-center"
-            >
-              <ArrowUp size={17} strokeWidth={2} aria-hidden />
-            </motion.span>
-          )}
-        </AnimatePresence>
+        {/* Both glyphs stay mounted and crossfade in CSS. An exit animation
+            interrupted by a quick start/stop (or a backgrounded window) used
+            to leave the square and the arrow stuck half-drawn on each other. */}
+        <span
+          aria-hidden
+          data-glyph="stop"
+          className={cx(swapGlyph, running ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
+        >
+          <Square size={11} fill="currentColor" />
+        </span>
+        <span
+          aria-hidden
+          data-glyph="send"
+          className={cx(swapGlyph, running ? 'scale-75 opacity-0' : 'scale-100 opacity-100')}
+        >
+          <ArrowUp size={17} strokeWidth={2} />
+        </span>
       </motion.button>
     </span>
   )

@@ -304,8 +304,17 @@ const CURRENT_MODEL_IDS: Partial<Record<DriverKind, string[]>> = {
     'claude-opus-4-8',
     'claude-sonnet-4-6',
   ],
-  codex: ['gpt-6-luna', 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
-  grok: ['grok-4.6', 'grok-4.5', 'grok-build-0.1'],
+  codex: [
+    'gpt-6.1-sol',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.5',
+  ],
+  grok: ['grok-4.7', 'grok-4.6', 'grok-4.5', 'grok-build-0.1'],
 }
 
 function snapshotFor(kind: DriverKind): CatalogModel[] | null {

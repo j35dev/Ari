@@ -57,6 +57,13 @@ describe('ModelSelector', () => {
     expect(rpcMocks.invoke).not.toHaveBeenCalled()
     expect(rpcMocks.subscribe).not.toHaveBeenCalled()
   })
+  it('names a known model on the chip while a host catalog is still loading', () => {
+    render(<ModelSelector driverKind="codex" modelId="gpt-6.1-sol" onChange={vi.fn()} hostCatalog={null} />)
+    const chip = screen.getByRole('button', { name: /^Model:/ })
+    expect(chip).toHaveTextContent('GPT-6.1 Sol')
+    expect(chip).not.toHaveTextContent('gpt-6.1-sol')
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     rpcMocks.subscribe.mockClear()
     rpcMocks.invoke.mockReset()
