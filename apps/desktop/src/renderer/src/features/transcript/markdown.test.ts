@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown'
+import { LOCAL_HTML_PREFIX, localHtmlHref, renderMarkdown } from './markdown'
 
 /** Collapses the newlines remark inserts between block siblings. */
 function flat(html: string): string {
@@ -103,5 +103,39 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('~~gone~~ *em* __strong__ ***both***')).toBe(
       '<p><del>gone</del> <em>em</em> <strong>strong</strong> <em><strong>both</strong></em></p>',
     )
+  })
+})
+
+describe('HTML files an agent names', () => {
+  const marker = (path: string): string => LOCAL_HTML_PREFIX + encodeURIComponent(path)
+
+  it('links a markdown link to a local HTML file, whatever form the path takes', () => {
+    for (const path of ['out/report.html', 'C:/tmp/report.htm', 'file:///tmp/report.html']) {
+      const html = renderMarkdown(`[the report](${path})`)
+      expect(html).toContain(`href="${marker(path)}"`)
+      expect(html).toContain('title="Open in your browser"')
+      expect(html).toContain('the report</a>')
+    }
+  })
+
+  it('links a path written as inline code, but not a bare file name or a code block', () => {
+    expect(renderMarkdown('Open `D:\\site\\dist\\index.html` to see it.')).toContain(
+      `<a href="${marker('D:\\site\\dist\\index.html')}" title="Open in your browser"><code>`,
+    )
+    expect(renderMarkdown('Open `dist/index.html`.')).toContain(marker('dist/index.html'))
+    // A bare name is usually a mention, and a fenced block is code to read.
+    expect(renderMarkdown('I edited `index.html`.')).not.toContain(LOCAL_HTML_PREFIX)
+    expect(renderMarkdown('```\ndist/index.html\n```')).not.toContain(LOCAL_HTML_PREFIX)
+  })
+
+  it('leaves web links and other files alone', () => {
+    expect(localHtmlHref('https://example.com/page.html')).toBeNull()
+    expect(localHtmlHref('tools/setup.exe')).toBeNull()
+    expect(localHtmlHref('javascript:alert(1).html')).toBeNull()
+    expect(renderMarkdown('[page](https://example.com/a.html)')).toContain(
+      'href="https://example.com/a.html" target="_blank"',
+    )
+    // A file link that is not HTML stays stripped by the sanitizer.
+    expect(renderMarkdown('[run](file:///C:/tools/setup.exe)')).not.toContain('href')
   })
 })

@@ -961,6 +961,11 @@ export const rpcParams = {
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
   'shell.openUrl': z.object({ url: z.string().min(1).max(2048) }),
+  /** An HTML file an agent named in the chat; relative paths resolve in the session's folder. */
+  'shell.openHtmlFile': z.object({
+    path: z.string().min(1).max(4096),
+    sessionId: z.string().min(1).optional(),
+  }),
   'files.index': z
     .object({ projectId: z.string().min(1).optional(), sessionId: z.string().min(1).optional() })
     .refine(
@@ -1492,6 +1497,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'dialog.pickFile': { path: string | null }
   'shell.revealPath': { revealed: boolean }
   'shell.openUrl': { opened: boolean }
+  'shell.openHtmlFile': { opened: boolean }
   'files.index': { paths: string[] }
   'search.content': ContentSearchMatch[]
   'endpoints.list': {
