@@ -25,23 +25,33 @@ describe('runInstall', () => {
     // node -e printing two lines then exiting 0 — cross-platform.
     const child = spawn(process.execPath, ['-e', 'console.log("line-1"); console.log("line-2")'])
     void child
-    const handle = runInstall([process.execPath, '-e', 'console.log("line-1"); console.log("line-2")'], onEvent)
+    const handle = runInstall(
+      [process.execPath, '-e', 'console.log("line-1"); console.log("line-2")'],
+      onEvent,
+    )
     await handle.done
 
     const progress = events.filter((event) => event.type === 'progress')
-    expect(progress.map((event) => (event.type === 'progress' ? event.line.text : ''))).toEqual(['line-1', 'line-2'])
+    expect(progress.map((event) => (event.type === 'progress' ? event.line.text : ''))).toEqual([
+      'line-1',
+      'line-2',
+    ])
     const exit = events.at(-1)
     expect(exit).toMatchObject({ type: 'exit', code: 0, timedOut: false, truncated: false })
   }, 15000)
 
   it('captures stderr lines too', async () => {
     const { events, onEvent } = collect()
-    const handle = runInstall(
-      [process.execPath, '-e', 'console.error("to-stderr")'],
-      onEvent,
-    )
+    const handle = runInstall([process.execPath, '-e', 'console.error("to-stderr")'], onEvent)
     await handle.done
-    expect(events.some((event) => event.type === 'progress' && event.line.stream === 'stderr' && event.line.text === 'to-stderr')).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'progress' &&
+          event.line.stream === 'stderr' &&
+          event.line.text === 'to-stderr',
+      ),
+    ).toBe(true)
   }, 15000)
 
   it('reports a non-zero exit without inventing a failure reason', async () => {
@@ -55,16 +65,17 @@ describe('runInstall', () => {
     vi.useFakeTimers()
     const { events, onEvent } = collect()
     // Real child that never exits; the timeout ladder must reap it.
-    const handle = runInstall(
-      [process.execPath, '-e', 'setInterval(() => {}, 1000)'],
-      onEvent,
-      { timeoutMs: 50 },
-    )
+    const handle = runInstall([process.execPath, '-e', 'setInterval(() => {}, 1000)'], onEvent, {
+      timeoutMs: 50,
+    })
     await vi.advanceTimersByTimeAsync(5_000)
     await handle.done
     const exit = events.at(-1)
     expect(exit).toMatchObject({ type: 'exit', timedOut: true })
-    expect((exit as Extract<InstallEvent, { type: 'exit' }>).code !== 0 || (exit as Extract<InstallEvent, { type: 'exit' }>).signal !== null).toBe(true)
+    expect(
+      (exit as Extract<InstallEvent, { type: 'exit' }>).code !== 0 ||
+        (exit as Extract<InstallEvent, { type: 'exit' }>).signal !== null,
+    ).toBe(true)
   }, 15000)
 
   it('cancel() ends a running operation early', async () => {
@@ -80,11 +91,7 @@ describe('runInstall', () => {
   it('marks output as truncated when the tail cap is exceeded', async () => {
     const { events, onEvent } = collect()
     const handle = runInstall(
-      [
-        process.execPath,
-        '-e',
-        'for (let i = 0; i < 2000; i++) console.log("x".repeat(40))',
-      ],
+      [process.execPath, '-e', 'for (let i = 0; i < 2000; i++) console.log("x".repeat(40))'],
       onEvent,
       { outputTailBytes: 512 },
     )

@@ -81,7 +81,10 @@ export interface InstallSettleInput {
  * the same binary on disk. Upgrades must move the detected version (or reach
  * latest); installs must make the CLI resolvable.
  */
-export function evaluateInstallSettle(input: InstallSettleInput): { ok: boolean; reason: string | null } {
+export function evaluateInstallSettle(input: InstallSettleInput): {
+  ok: boolean
+  reason: string | null
+} {
   if (input.failure) return { ok: false, reason: input.failure }
   if (input.exitCode !== 0) {
     return {
@@ -127,7 +130,8 @@ export function evaluateInstallSettle(input: InstallSettleInput): { ok: boolean;
  */
 export function createUpdateChecker(options: UpdateCheckerOptions = {}): UpdateChecker {
   const doFetch = options.fetchImpl ?? ((url, init) => fetch(url, init))
-  const registry = options.registryUrl ?? process.env['ARI_NPM_REGISTRY'] ?? 'https://registry.npmjs.org'
+  const registry =
+    options.registryUrl ?? process.env['ARI_NPM_REGISTRY'] ?? 'https://registry.npmjs.org'
   const ttlMs = options.ttlMs ?? 60 * 60 * 1000
   const timeoutMs = options.timeoutMs ?? 6000
   const cache = new Map<string, { at: number; version: string | null }>()
@@ -163,8 +167,7 @@ export function createUpdateChecker(options: UpdateCheckerOptions = {}): UpdateC
           if (latest === null) {
             return { ...detection, latestVersion: null, updateAvailable: null }
           }
-          const updateAvailable =
-            installed !== null ? compareSemver(installed, latest) < 0 : null
+          const updateAvailable = installed !== null ? compareSemver(installed, latest) < 0 : null
           return { ...detection, latestVersion: latest, updateAvailable }
         }),
       )

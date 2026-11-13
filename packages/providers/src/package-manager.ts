@@ -57,7 +57,10 @@ export function inferManager(binaryPath: string | null, kind: DriverKind): Packa
   return NPM_PACKAGES[kind] ? 'npm' : 'native'
 }
 
-function globalCommands(manager: PackageManager, pkg: string): { install: string[]; upgrade: string[] } | null {
+function globalCommands(
+  manager: PackageManager,
+  pkg: string,
+): { install: string[]; upgrade: string[] } | null {
   switch (manager) {
     case 'npm':
       // npm 10+ can skip lifecycle scripts by default and still exit 0, which
@@ -68,7 +71,10 @@ function globalCommands(manager: PackageManager, pkg: string): { install: string
         upgrade: ['npm', 'install', '-g', `--allow-scripts=${pkg}`, `${pkg}@latest`],
       }
     case 'pnpm':
-      return { install: ['pnpm', 'add', '-g', pkg], upgrade: ['pnpm', 'add', '-g', `${pkg}@latest`] }
+      return {
+        install: ['pnpm', 'add', '-g', pkg],
+        upgrade: ['pnpm', 'add', '-g', `${pkg}@latest`],
+      }
     case 'bun':
       return { install: ['bun', 'add', '-g', pkg], upgrade: ['bun', 'add', '-g', `${pkg}@latest`] }
     case 'brew':
@@ -113,5 +119,10 @@ export function planFor(kind: DriverKind, binaryPath: string | null): InstallPla
   const install = NATIVE_INSTALL[kind]
   const upgrade = NATIVE_SELF_UPGRADE[kind]
   if (!install || !upgrade) return null
-  return { manager: 'native', installCommand: install, upgradeCommand: upgrade, display: upgrade.join(' ') }
+  return {
+    manager: 'native',
+    installCommand: install,
+    upgradeCommand: upgrade,
+    display: upgrade.join(' '),
+  }
 }

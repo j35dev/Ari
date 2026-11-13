@@ -71,6 +71,54 @@ describe('BrowserPanel', () => {
     )
   })
 
+  it("shows a session's own page, the one its agent drives", async () => {
+    const page = (id: string, url: string) => ({
+      id,
+      url,
+      title: '',
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+      error: null,
+    })
+    const pages: Record<string, string> = {
+      'agent:sess_a': 'https://agent.example/',
+      'agent:sess_b': 'about:blank',
+    }
+    invokeFn.mockImplementation(async (method: string, params: { id: string }) => {
+      if (method === 'browser.open') return page(params.id, pages[params.id] ?? 'about:blank')
+      if (method === 'browser.capture') return { dataUrl: STILL }
+      return {}
+    })
+
+    const { rerender, unmount } = render(<BrowserPanel sessionId="sess_a" />)
+    // The agent's page is already there when the panel opens.
+    await waitFor(() => expect(screen.getByLabelText('Address')).toHaveValue(pages['agent:sess_a']))
+    expect(invokeFn).toHaveBeenCalledWith('browser.open', { id: 'agent:sess_a' })
+    expect(invokeFn).not.toHaveBeenCalledWith('browser.open', { id: 'inspector' })
+    expect(subscribeFn).toHaveBeenCalledWith(
+      'browser.updated',
+      { id: 'agent:sess_a' },
+      expect.anything(),
+    )
+
+    // Another session: the first page is hidden and kept, the new one opens blank.
+    rerender(<BrowserPanel sessionId="sess_b" />)
+    await waitFor(() =>
+      expect(invokeFn).toHaveBeenCalledWith('browser.open', { id: 'agent:sess_b' }),
+    )
+    expect(invokeFn).toHaveBeenCalledWith(
+      'browser.layout',
+      expect.objectContaining({ id: 'agent:sess_a', visible: false }),
+    )
+    expect(invokeFn).not.toHaveBeenCalledWith('browser.close', { id: 'agent:sess_a' })
+    await waitFor(() => expect(screen.getByLabelText('Address')).toHaveValue(''))
+
+    // A page nothing was loaded into is not kept around.
+    unmount()
+    expect(invokeFn).toHaveBeenCalledWith('browser.close', { id: 'agent:sess_b' })
+  })
+
   describe('with a page loaded', () => {
     const layouts = (): boolean[] =>
       invokeFn.mock.calls

@@ -5,15 +5,17 @@ import {
   evaluateInstallSettle,
   parseVersionToken,
 } from './updates'
-import type { FetchLike ,
-  NPM_PACKAGES} from './updates'
+import type { FetchLike, NPM_PACKAGES } from './updates'
 import type { Detection } from './types'
 
 function jsonFetcher(body: unknown): FetchLike {
-  return (async () => new Response(JSON.stringify(body), { status: 200 }))
+  return async () => new Response(JSON.stringify(body), { status: 200 })
 }
 
-const detection = (kind: keyof typeof NPM_PACKAGES | 'grok', version: string | null): Detection => ({
+const detection = (
+  kind: keyof typeof NPM_PACKAGES | 'grok',
+  version: string | null,
+): Detection => ({
   kind: kind,
   installed: true,
   binaryPath: `/usr/bin/${kind}`,
@@ -104,7 +106,13 @@ describe('createUpdateChecker', () => {
     const checker = createUpdateChecker({ fetchImpl: fetchImpl as never })
     const enriched = first(
       await checker.enrich([
-        { kind: 'claude', installed: false, binaryPath: null, version: null, authStatus: 'unknown' },
+        {
+          kind: 'claude',
+          installed: false,
+          binaryPath: null,
+          version: null,
+          authStatus: 'unknown',
+        },
       ]),
     )
     expect(fetchImpl).not.toHaveBeenCalled()

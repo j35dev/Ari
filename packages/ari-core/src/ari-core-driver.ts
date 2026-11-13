@@ -32,7 +32,7 @@ import type { McpServerConfig } from './mcp-servers'
 import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
 import { BUILT_IN_TOOLS, type Tool } from './tools'
-import { loadImageData, missingImagesNote } from '@ari/providers/attachments'
+import { loadImageData, missingImagesNote, textWithAttachments } from '@ari/providers/attachments'
 import { buildSystemPrompt } from './system-prompt'
 import {
   activeSkillSets,
@@ -701,7 +701,8 @@ export class AriCoreDriver implements Driver {
         pendingInputs.delete(inputId)
         resolve(value)
       },
-      steer: (text) => {
+      steer: (message, attachments = []) => {
+        const text = textWithAttachments(message, attachments)
         if (!acceptingSteer || text.length === 0) return false
         steeredTexts.push(text)
         // Drop the in-flight model call and any command still running so the

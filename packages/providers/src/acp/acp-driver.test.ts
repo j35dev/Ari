@@ -418,12 +418,17 @@ describe('createAcpAdapter', () => {
       { ...SESSION, modelId: 'm2', permissionMode: 'full' },
       () => child,
     )
-    const configRequests = child.sent.filter((m) => m['method'] === 'session/set_config_option') as {
+    const configRequests = child.sent.filter(
+      (m) => m['method'] === 'session/set_config_option',
+    ) as {
       params?: { configId?: string; value?: string }
     }[]
     expect(configRequests.map((r) => r.params?.configId)).toEqual(['model', 'mode'])
     expect(configRequests[0]?.params).toMatchObject({ configId: 'model', value: 'm2' })
-    expect(configRequests[1]?.params).toMatchObject({ configId: 'mode', value: 'bypassPermissions' })
+    expect(configRequests[1]?.params).toMatchObject({
+      configId: 'mode',
+      value: 'bypassPermissions',
+    })
 
     await collectTypes(adapter)
     await adapter.dispose()
@@ -628,7 +633,9 @@ describe('createAcpAdapter', () => {
     )
     // No model change may be sent; the mode mapping still applies its match.
     const modelRequests = child.sent.filter(
-      (m) => m['method'] === 'session/set_config_option' && (m['params'] as { configId?: string })?.configId === 'model',
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'model',
     )
     expect(modelRequests).toEqual([])
     await collectTypes(adapter)
@@ -820,24 +827,22 @@ describe('createAcpAdapter', () => {
         ],
       },
     ]
-    const setConfigOption = vi.fn(
-      async (_sessionId: string, _configId: string, value: string) => {
-        if (value !== 'm2') return configOptions
-        return [
-          configOptions[0],
-          {
-            id: 'thought_level',
-            category: 'thought_level',
-            type: 'select',
-            currentValue: 'max',
-            options: [
-              { value: 'low', name: 'Low' },
-              { value: 'max', name: 'Max' },
-            ],
-          },
-        ]
-      },
-    )
+    const setConfigOption = vi.fn(async (_sessionId: string, _configId: string, value: string) => {
+      if (value !== 'm2') return configOptions
+      return [
+        configOptions[0],
+        {
+          id: 'thought_level',
+          category: 'thought_level',
+          type: 'select',
+          currentValue: 'max',
+          options: [
+            { value: 'low', name: 'Low' },
+            { value: 'max', name: 'Max' },
+          ],
+        },
+      ]
+    })
     const models: CatalogModel[] = [
       { id: 'm1', label: 'Model One' },
       { id: 'm2', label: 'Model Two' },
@@ -962,7 +967,10 @@ describe('createAcpAdapter', () => {
             method: 'session/update',
             params: {
               sessionId: (params as { sessionId?: string }).sessionId,
-              update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi there' } },
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: 'hi there' },
+              },
             },
           })}\n`,
         )
@@ -979,7 +987,8 @@ describe('createAcpAdapter', () => {
 
   it('hides the pi-acp startup prelude but keeps the real reply', async () => {
     const child = fakeChild()
-    const startupInfo = '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
+    const startupInfo =
+      '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
     script(child, (method, params, id) => {
       if (method === 'session/new') {
         return { sessionId: 'sess_acp_1', _meta: { piAcp: { startupInfo } } }
@@ -1147,9 +1156,7 @@ describe('createAcpAdapter', () => {
     // text off the buffer before checking `closed` dropped it without a word.
     const events = await collected
     expect(
-      events.some(
-        (e) => e.type === 'notice' && e.message.includes('actually focus on the tests'),
-      ),
+      events.some((e) => e.type === 'notice' && e.message.includes('actually focus on the tests')),
     ).toBe(true)
   }, 15000)
 
@@ -1411,8 +1418,16 @@ describe('createAcpAdapter', () => {
               // Claude's plan exit: the persistent kind names a mode to leave
               // plan for, not a grant covering every later tool.
               options: [
-                { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
-                { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
+                {
+                  optionId: 'acceptEdits',
+                  name: 'Yes, and auto-accept edits',
+                  kind: 'allow_always',
+                },
+                {
+                  optionId: 'default',
+                  name: 'Yes, and manually approve edits',
+                  kind: 'allow_once',
+                },
                 { optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' },
               ],
             },
@@ -1562,7 +1577,9 @@ describe('createAcpAdapter', () => {
       }
       return undefined
     })
-    await expect(createAcpAdapter(LAUNCH, SESSION, () => child)).rejects.toThrow(/not authenticated/)
+    await expect(createAcpAdapter(LAUNCH, SESSION, () => child)).rejects.toThrow(
+      /not authenticated/,
+    )
   }, 15000)
 
   it('reports the agent-advertised logins for an auth wall on the handshake', async () => {
@@ -1575,7 +1592,9 @@ describe('createAcpAdapter', () => {
             {
               id: 'claude-ai-login',
               name: 'Claude Subscription',
-              _meta: { 'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] } },
+              _meta: {
+                'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] },
+              },
             },
           ],
         }
@@ -1589,8 +1608,11 @@ describe('createAcpAdapter', () => {
       return undefined
     })
     const walls: { label: string; logins: { methodId: string }[] }[] = []
-    const failure = await createAcpAdapter(LAUNCH, SESSION, () => child, (wall) =>
-      walls.push(wall),
+    const failure = await createAcpAdapter(
+      LAUNCH,
+      SESSION,
+      () => child,
+      (wall) => walls.push(wall),
     ).catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(AcpAuthRequiredError)
@@ -1618,7 +1640,12 @@ describe('createAcpAdapter', () => {
       return undefined
     })
     const walls: { logins: { methodId: string }[] }[] = []
-    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, (wall) => walls.push(wall))
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      SESSION,
+      () => child,
+      (wall) => walls.push(wall),
+    )
 
     const events: string[] = []
     for await (const event of adapter.start()) events.push(event.type)
@@ -1639,11 +1666,14 @@ describe('createAcpAdapter', () => {
       if (method === 'session/new') throw new Error('must not create a fresh session')
       return undefined
     })
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, resumeOf: 'sess_old' },
+      () => child,
+    )
 
     const load = child.sent.find((m) => m['method'] === 'session/load') as
-      | { params?: { sessionId?: string; cwd?: string } }
-      | undefined
+      { params?: { sessionId?: string; cwd?: string } } | undefined
     expect(load?.params).toEqual({ sessionId: 'sess_old', cwd: '/w', mcpServers: [] })
 
     // The resumed id is published so Ari can keep resuming on later turns.
@@ -1669,7 +1699,11 @@ describe('createAcpAdapter', () => {
       if (method === 'session/prompt') return { stopReason: 'end_turn' }
       return undefined
     })
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_gone' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, resumeOf: 'sess_gone' },
+      () => child,
+    )
 
     expect(child.sent.some((m) => m['method'] === 'session/load')).toBe(true)
     expect(child.sent.some((m) => m['method'] === 'session/new')).toBe(true)
@@ -1707,7 +1741,10 @@ describe('createAcpAdapter', () => {
             method: 'session/update',
             params: {
               sessionId: (params as { sessionId?: string }).sessionId,
-              update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'four' } },
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: 'four' },
+              },
             },
           })}\n`,
         )
@@ -1716,7 +1753,11 @@ describe('createAcpAdapter', () => {
       if (method === 'session/new') throw new Error('must not create a fresh session')
       return undefined
     })
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, resumeOf: 'sess_old' },
+      () => child,
+    )
     const events = await collectEvents(adapter)
     const texts = events.filter((e) => e.type === 'text-delta').map((e) => e.text)
     expect(texts).toEqual(['four'])
@@ -1738,7 +1779,11 @@ describe('createAcpAdapter', () => {
       if (method === 'session/prompt') return { stopReason: 'end_turn' }
       return undefined
     })
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, resumeOf: 'sess_old' },
+      () => child,
+    )
     expect(child.sent.some((m) => m['method'] === 'session/resume')).toBe(true)
     expect(child.sent.some((m) => m['method'] === 'session/load')).toBe(false)
     await adapter.dispose()
@@ -2045,7 +2090,11 @@ describe('createAcpAdapter', () => {
       if (method === 'session/prompt') return { stopReason: 'end_turn' }
       return undefined
     })
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, resumeOf: 'sess_old' },
+      () => child,
+    )
 
     expect(sawLoad).toBe(false)
     await adapter.dispose()
@@ -2069,7 +2118,11 @@ describe('createAcpAdapter', () => {
       __resetLearnedAcpSelectors()
       const child = fakeChild()
       script(child, LEGACY_MODES_AGENT)
-      const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: mode }, () => child)
+      const adapter = await createAcpAdapter(
+        LAUNCH,
+        { ...SESSION, permissionMode: mode },
+        () => child,
+      )
       expect(modeCalls(child)).toEqual(['build'])
       await adapter.dispose()
     }
@@ -2078,7 +2131,11 @@ describe('createAcpAdapter', () => {
   it('selects the planning mode for ask', async () => {
     const child = fakeChild()
     script(child, LEGACY_MODES_AGENT)
-    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'ask' }, () => child)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'ask' },
+      () => child,
+    )
     expect(modeCalls(child)).toEqual(['plan'])
     await adapter.dispose()
   }, 15000)
@@ -2092,7 +2149,11 @@ describe('createAcpAdapter', () => {
   it('re-applies the mode on a resumed session whose load body is empty', async () => {
     const first = fakeChild()
     script(first, LEGACY_MODES_AGENT)
-    const askTurn = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'ask' }, () => first)
+    const askTurn = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'ask' },
+      () => first,
+    )
     expect(modeCalls(first)).toEqual(['plan'])
     await askTurn.dispose()
 
@@ -2236,7 +2297,10 @@ describe('publishAdvertisedModels', () => {
 describe('launchWithEffort', () => {
   it('prepends --effort on a grok native ACP launch', () => {
     expect(
-      launchWithEffort({ label: 'grok (native ACP)', command: 'grok', args: ['agent', 'stdio'] }, 'high'),
+      launchWithEffort(
+        { label: 'grok (native ACP)', command: 'grok', args: ['agent', 'stdio'] },
+        'high',
+      ),
     ).toEqual({
       label: 'grok (native ACP)',
       command: 'grok',

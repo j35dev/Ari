@@ -132,8 +132,11 @@ export interface ProviderAdapter {
    * Throws/rejects when submission may have happened but its acknowledgement
    * is unavailable. Preserve that uncertain outcome; do not automatically
    * resubmit it or turn a steering error into a terminal stream error.
+   *
+   * `attachments` are the message's staged images. A transport with an image
+   * channel sends the bytes; the others name the staged files in the text.
    */
-  steer?(text: string): boolean | Promise<boolean>
+  steer?(text: string, attachments?: readonly SessionAttachment[]): boolean | Promise<boolean>
   /**
    * Answers a pending `input-requested` question. Optional: one-shot CLIs
    * without an input channel cannot act on the answer.

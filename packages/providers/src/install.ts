@@ -108,7 +108,9 @@ export function runInstall(
   const timer = setTimeout(() => {
     timedOut = true
     log.warn('install timeout exceeded; tearing down', { program, args, timeoutMs })
-    void teardownChild(child, { termGraceMs: 1000 }).catch((error) => log.warn('teardown failed', error))
+    void teardownChild(child, { termGraceMs: 1000 }).catch((error) =>
+      log.warn('teardown failed', error),
+    )
   }, timeoutMs)
 
   const done = new Promise<void>((resolveDone) => {

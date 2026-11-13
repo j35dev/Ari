@@ -9,9 +9,15 @@ import { CodexNativeChildren } from './native-children'
 import { AppServerConnection, AppServerRequestError } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
 import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
-import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  Driver,
+  ProviderAdapter,
+  SessionAttachment,
+} from '../driver'
 import { UNKNOWN_PROVIDER_CAPABILITIES, ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
-import { promptWithAttachments } from '../attachments'
+import { promptWithAttachments, textWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli, writeCliPrompt } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -168,7 +174,7 @@ export function threadOptions(mode: PermissionMode): {
 export interface CodexAppServerAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
   /** False when there is no live turn or the server refused the steer. */
-  steer(text: string): Promise<boolean>
+  steer(text: string, attachments?: readonly SessionAttachment[]): Promise<boolean>
   /** Bounded, transient wire evidence; child output never becomes root prose. */
   diagnostics(): CodexFrameDiagnostic[]
 }
@@ -617,7 +623,9 @@ export async function createCodexAppServerAdapter(
       pendingApprovals.delete(approvalId)
       connection.respond(pending.requestId, { decision: serverDecision(decision) })
     },
-    steer: async (text) => {
+    steer: async (message, attachments = []) => {
+      // Same image path as the turn's prompt: the staged files, named in text.
+      const text = textWithAttachments(message, attachments)
       if (activeTurnId === null || terminal || disposed || connection.closed) {
         log.debug('codex steer ignored: no active turn')
         return false

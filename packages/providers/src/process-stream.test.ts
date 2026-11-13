@@ -9,7 +9,9 @@ interface FakeChild {
   close(code: number | null): void
 }
 
-function fakeChild(): FakeChild & { on: (event: string, cb: (code: number | null) => void) => void } {
+function fakeChild(): FakeChild & {
+  on: (event: string, cb: (code: number | null) => void) => void
+} {
   const stdout = new PassThrough()
   const stderr = new PassThrough()
   let closeCb: ((code: number | null) => void) | null = null
@@ -34,7 +36,9 @@ async function collect(iterable: AsyncIterable<AgentEvent>): Promise<AgentEvent[
 describe('streamProcessEvents', () => {
   it('maps stdout lines and guarantees one terminal done', async () => {
     const child = fakeChild()
-    const events = collect(streamProcessEvents(child, (line) => [{ type: 'text-delta', text: line }]))
+    const events = collect(
+      streamProcessEvents(child, (line) => [{ type: 'text-delta', text: line }]),
+    )
     child.stdout.write('hello\nworld\n')
     child.close(0)
     const out = await events
@@ -100,11 +104,9 @@ describe('streamProcessEvents', () => {
     vi.useFakeTimers()
     try {
       const child = fakeChild()
-      const iterator = streamProcessEvents(
-        child,
-        (line) => [{ type: 'text-delta', text: line }],
-        { handshakeTimeoutMs: 5_000 },
-      )[Symbol.asyncIterator]()
+      const iterator = streamProcessEvents(child, (line) => [{ type: 'text-delta', text: line }], {
+        handshakeTimeoutMs: 5_000,
+      })[Symbol.asyncIterator]()
       child.stdout.write('alive\n')
       const first = await Promise.race([
         iterator.next(),

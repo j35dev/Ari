@@ -32,10 +32,7 @@ describe('parseAskUserQuestions', () => {
         {
           question: 'Which approach?',
           header: 'Approach',
-          options: [
-            { label: 'Conservative', description: 'Small diffs' },
-            { label: 'Rewrite' },
-          ],
+          options: [{ label: 'Conservative', description: 'Small diffs' }, { label: 'Rewrite' }],
         },
       ],
     })
@@ -219,18 +216,18 @@ function askUserQuestionForm(): unknown {
 
 describe('parsePlanExit', () => {
   it('reads the flat Grok planContent field', () => {
-    expect(parsePlanExit({ sessionId: 's', planContent: '# Plan\n\nDo the thing.' }).planContent).toBe(
-      '# Plan\n\nDo the thing.',
-    )
+    expect(
+      parsePlanExit({ sessionId: 's', planContent: '# Plan\n\nDo the thing.' }).planContent,
+    ).toBe('# Plan\n\nDo the thing.')
   })
 })
 
 describe('permission-as-question', () => {
   it('treats custom option kinds as a question, not allow/deny', () => {
     expect(isQuestionPermission([{ kind: 'select', optionId: 'a', name: 'A' }])).toBe(true)
-    expect(isQuestionPermission([{ kind: 'allow_once', optionId: 'allow_once', name: 'Allow' }])).toBe(
-      false,
-    )
+    expect(
+      isQuestionPermission([{ kind: 'allow_once', optionId: 'allow_once', name: 'Allow' }]),
+    ).toBe(false)
   })
 
   it('maps a chosen label back onto the option id', () => {
@@ -263,7 +260,9 @@ describe('reply builders', () => {
       message: 'pick',
       requestedSchema: { properties: { strategy: { enum: ['balanced'] } } },
     })
-    expect(replyElicitation(questions, JSON.stringify({ answers: { strategy: 'balanced' } }))).toEqual({
+    expect(
+      replyElicitation(questions, JSON.stringify({ answers: { strategy: 'balanced' } })),
+    ).toEqual({
       action: 'accept',
       content: { strategy: 'balanced' },
     })
@@ -309,9 +308,9 @@ describe('reply builders', () => {
     expect(questions[0]?.multiSelect).toBe(true)
     // The array is the answer the schema asked for; flattening it to one
     // joined string is what the agent then rejects.
-    expect(replyElicitation(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } }))).toEqual(
-      { action: 'accept', content: { files: ['a.ts', 'b.ts'] } },
-    )
+    expect(
+      replyElicitation(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } })),
+    ).toEqual({ action: 'accept', content: { files: ['a.ts', 'b.ts'] } })
   })
 
   it('keys a Grok multi select by question text, still as an array', () => {
@@ -320,7 +319,9 @@ describe('reply builders', () => {
         { id: 'files', question: 'Which files?', multiSelect: true, options: [{ label: 'a.ts' }] },
       ],
     })
-    expect(replyAskUser(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } }))).toEqual({
+    expect(
+      replyAskUser(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } })),
+    ).toEqual({
       outcome: 'accepted',
       answers: { 'Which files?': ['a.ts', 'b.ts'] },
       partial_answers: {},
@@ -330,7 +331,9 @@ describe('reply builders', () => {
   it('maps plan verdicts, including request-changes feedback', () => {
     expect(replyPlanExit('approved')).toEqual({ outcome: 'approved' })
     expect(replyPlanExit('abandoned')).toEqual({ outcome: 'abandoned' })
-    expect(replyPlanExit(JSON.stringify({ outcome: 'cancelled', feedback: 'smaller scope' }))).toEqual({
+    expect(
+      replyPlanExit(JSON.stringify({ outcome: 'cancelled', feedback: 'smaller scope' })),
+    ).toEqual({
       outcome: 'cancelled',
       feedback: 'smaller scope',
     })

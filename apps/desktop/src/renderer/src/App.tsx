@@ -24,7 +24,6 @@ import { DEFAULT_PERMISSION_MODE } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
-import type { TitlebarPlace } from './shell/Titlebar'
 import { SidebarFooter } from './shell/SidebarFooter'
 import { PanelTabs, type PanelTab } from './shell/PanelTabs'
 import { outlineButton } from './lib/recipes'
@@ -62,7 +61,7 @@ import {
 } from './features/session/session-nav'
 import { descendantIds, parentOf } from './features/session/session-tree'
 import { LINK_FAILED_EVENT } from './lib/external-links'
-import { BrowserPanel } from './features/browser/BrowserPanel'
+import { BrowserPanel, browserTabFor } from './features/browser/BrowserPanel'
 import { deleteSessionDraftIntent } from './features/composer/draft-recovery-store'
 import { deleteSessionDraftText } from './features/composer/use-drafts'
 import { writeReviewDrafts } from './features/changes/review-drafts'
@@ -266,6 +265,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const activeSessionId = activeSessionOf(layout)
   const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
   const remoteActive = activeSessionScope?.kind === 'remote'
+  // The session whose browser page the panel shows; read when an agent navigates.
+  const revealSessionRef = useRef<string | undefined>(undefined)
+  revealSessionRef.current = remoteActive ? undefined : (activeSessionId ?? undefined)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, attentionCountOf, acknowledge, forget } = useSessionActivity(
     visibleSessionIds,
@@ -467,11 +469,19 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return rpc.subscribe('browser.updated', {}, (payload) => {
       const next = payload as BrowserTabState
       if (next.reveal !== true) return
+      // An agent browsing in a session that is not on screen stays out of the
+      // way; its page is there when the user opens that session's browser.
+      if (next.id !== browserTabFor(revealSessionRef.current)) return
       leaveWorkspaceTool()
       setFullPage(null)
       setInspector('browser')
     })
   }, [leaveWorkspaceTool])
+
+  // The titlebar has one toggle for the docked panel. It reopens on the tab
+  // last used, so closing the panel and opening it again loses nothing.
+  const lastPanelRef = useRef<InspectorId>('changes')
+  if (inspector !== null) lastPanelRef.current = inspector
 
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
@@ -1743,21 +1753,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   }
 
   const activeTool = settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)
-  const activeProjectName =
-    activeSession === undefined || activeSession.projectId === UNFILED_GROUP_ID
-      ? null
-      : (projects.find((project) => project.id === activeSession.projectId)?.name ?? null)
-  const titlebarPlace: TitlebarPlace | null = hubOpen
-    ? { context: null, title: 'Pull requests and issues' }
-    : fullPage === 'usage'
-      ? { context: null, title: 'Usage' }
-      : fullPage !== null
-        ? { context: activeProjectName, title: 'Changes' }
-        : activeSession === undefined
-          ? null
-          : isHelmSession(activeSession)
-            ? { context: null, title: 'Aria' }
-            : { context: activeProjectName, title: activeSession.title || 'New session' }
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
@@ -1771,8 +1766,28 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         hideGit={workspaceToolOpen}
         onReview={() => openSourceControl('changes')}
         onRequests={() => openSourceControl('requests')}
-        activeTool={activeTool}
-        onSelectTool={selectWorkspaceTool}
+        panelOpen={inspector !== null}
+        onTogglePanel={() => {
+          if (inspector !== null) {
+            // Closing her overview is a choice; it stays closed.
+            if (inspector === 'overview') overviewDismissedRef.current = true
+            setInspector(null)
+            return
+          }
+          const last = lastPanelRef.current
+          const next: InspectorId =
+            last === 'overview'
+              ? ariaActive
+                ? 'overview'
+                : 'changes'
+              : last === 'browser' && remoteActive
+                ? 'changes'
+                : last
+          leaveWorkspaceTool()
+          setFullPage(null)
+          if (next === 'changes') setSourceControlTab('changes')
+          setInspector(next)
+        }}
         leading={
           sidebarOpen && !workspaceToolOpen ? (
             <SidebarHeader
@@ -1782,8 +1797,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           ) : undefined
         }
         leadingWidth={sidebar.width}
-        place={titlebarPlace}
-        overview={ariaActive}
         usage={
           remoteActive ? undefined : (
             <ProviderUsagePill sessionId={activeSessionId} kind={activeDriverKind} />
