@@ -27,6 +27,7 @@ import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-cl
 import { menuActions, pushesToDefault, quickAction, type MenuAction } from './git-quick-action'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { branchLabel } from '../session/branch-label'
+import { BranchesDialog } from './BranchesDialog'
 
 const log = createLogger('ui:git-control')
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
@@ -118,6 +119,7 @@ export function GitControl({
   const primary = quickAction(summary, pr)
   const items = menuActions(summary, pr)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [branches, setBranches] = useState(false)
   const [commit, setCommit] = useState<GitShipAction | null>(null)
   const [confirm, setConfirm] = useState<{
     action: GitShipAction
@@ -336,10 +338,27 @@ export function GitControl({
                 <GitPullRequest size={14} aria-hidden className="text-fg-subtle" />
                 Pull requests
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={unavailableReason !== null}
+                title={unavailableReason ?? undefined}
+                onClick={() => {
+                  setMenuOpen(false)
+                  setBranches(true)
+                }}
+                className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-fg transition-colors hover:bg-fg/6"
+              >
+                <GitBranch size={14} aria-hidden className="text-fg-subtle" />
+                Branches and stashes
+              </button>
             </div>
           </Popover.Content>
         </Popover>
       </div>
+      {branches ? (
+        <BranchesDialog scope={scope} refresh={refresh} onClose={() => setBranches(false)} />
+      ) : null}
       {commit !== null ? (
         <CommitDialog
           scope={scope}

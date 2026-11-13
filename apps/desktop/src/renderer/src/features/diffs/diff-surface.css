@@ -1,0 +1,5 @@
+/* Shiki paints its dark palette by default; light schemes take the light one
+   it ships alongside, as the file editor does. */
+[data-ari-scheme='light'] .ari-diff-code span {
+  color: var(--shiki-light) !important;
+}

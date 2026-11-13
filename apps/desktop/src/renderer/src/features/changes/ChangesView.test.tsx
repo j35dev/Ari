@@ -1,6 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ToastProvider } from '@ari/ui/toast'
 import userEvent from '@testing-library/user-event'
 import type { ReviewWorkspaceProps } from './ReviewWorkspace'
 import { ChangesView } from './ChangesView'
@@ -9,22 +8,26 @@ const mocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn(() => () => 
 vi.mock('../../lib/rpc', () => ({ rpc: mocks }))
 vi.mock('./ReviewWorkspace', () => ({
   ReviewWorkspace: (props: ReviewWorkspaceProps) => (
-    <pre data-testid="review">
-      {JSON.stringify({ scope: props.scope, comparison: props.initialComparison })}
-    </pre>
-  ),
-}))
-vi.mock('./ChangeRequests', () => ({
-  ChangeRequests: (props: { scope: unknown }) => (
-    <pre data-testid="requests">{JSON.stringify(props.scope)}</pre>
+    <div>
+      <pre data-testid="review">
+        {JSON.stringify({
+          scope: props.scope,
+          comparison: props.initialComparison,
+          view: props.view,
+          reason: props.administrationReason,
+        })}
+      </pre>
+      <button type="button" onClick={() => props.onViewChange?.('requests')}>
+        Show requests
+      </button>
+      {props.tools}
+    </div>
   ),
 }))
 beforeEach(() => {
   mocks.invoke.mockReset()
   mocks.invoke.mockImplementation(async (method) =>
-    method === 'project.list'
-      ? [{ id: 'p', name: 'Demo', path: 'C:\\repos\\demo' }]
-      : { checkpoints: [{ turnId: 't1', gitRef: 'refs/ari/s1/t1' }] },
+    method === 'project.list' ? [{ id: 'p', name: 'Demo', path: 'C:\\repos\\demo' }] : null,
   )
 })
 afterEach(() => vi.clearAllMocks())
@@ -54,7 +57,7 @@ describe('Changes route', () => {
     )
   })
 
-  it('lets standalone source control choose a project for both changes and requests', async () => {
+  it('lets standalone source control choose a project from the header tools', async () => {
     mocks.invoke.mockResolvedValue([
       { id: 'self-hosted', name: 'Company repo', path: 'C:\\repos\\company' },
       { id: 'github', name: 'Ari', path: 'C:\\repos\\ari' },
@@ -63,43 +66,32 @@ describe('Changes route', () => {
     render(<ChangesView initialTab="requests" />)
     const picker = await screen.findByRole('button', { name: 'Source control project' })
     expect(picker).toHaveTextContent('Company repo')
-    expect(screen.getByTestId('requests')).toHaveTextContent('"projectId":"self-hosted"')
+    expect(screen.getByTestId('review')).toHaveTextContent('"view":"requests"')
     await user.click(picker)
     await user.click(screen.getByRole('option', { name: 'Ari' }))
-    expect(screen.getByTestId('requests')).toHaveTextContent('"projectId":"github"')
-    await user.click(screen.getByRole('tab', { name: 'Changes' }))
     expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"github"')
   })
 
-  it('keeps checkpoint history lazy while preserving existing revert actions', async () => {
-    render(
-      <ToastProvider>
-        <ChangesView sessionId="s" />
-      </ToastProvider>,
-    )
-    expect(mocks.invoke).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Turn checkpoints' }))
-    expect(await screen.findByRole('button', { name: 'Revert turn t1' })).toBeInTheDocument()
-    expect(mocks.invoke).toHaveBeenCalledWith('session.load', { sessionId: 's' })
-  })
-
-  it('keeps requests lazy and separate from local review', () => {
-    render(<ChangesView sessionId="s" />)
-    expect(screen.queryByTestId('requests')).not.toBeInTheDocument()
-    expect(screen.getByTestId('review')).toHaveTextContent('"sessionId":"s"')
-    fireEvent.click(screen.getByRole('tab', { name: 'Pull requests' }))
-    expect(screen.getByTestId('requests')).toHaveTextContent('"sessionId":"s"')
-    expect(screen.queryByTestId('review')).not.toBeInTheDocument()
-  })
-
-  it('moves tab focus with arrow keys and reports selection for expand/dock', () => {
+  it('reports a switch to pull requests so expand and dock keep it', () => {
     const onTabChange = vi.fn()
     render(<ChangesView sessionId="s" onTabChange={onTabChange} />)
-    const changes = screen.getByRole('tab', { name: 'Changes' })
-    changes.focus()
-    fireEvent.keyDown(changes, { key: 'ArrowRight' })
-    expect(screen.getByRole('tab', { name: 'Pull requests' })).toHaveFocus()
+    expect(screen.getByTestId('review')).toHaveTextContent('"view":"changes"')
+    expect(screen.getByTestId('review')).toHaveTextContent('"reason":null')
+    fireEvent.click(screen.getByRole('button', { name: 'Show requests' }))
+    expect(screen.getByTestId('review')).toHaveTextContent('"view":"requests"')
     expect(onTabChange).toHaveBeenCalledWith('requests')
+  })
+
+  it('puts expand, dock and close in the review header', () => {
+    const onExpand = vi.fn()
+    const { rerender } = render(<ChangesView sessionId="s" onExpand={onExpand} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand source control' }))
+    expect(onExpand).toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Changes' })).not.toBeInTheDocument()
+    rerender(<ChangesView sessionId="s" onDock={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Changes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Dock source control' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close source control' })).toBeInTheDocument()
   })
 
   it('surfaces fallback scope failures and permits retry', async () => {
