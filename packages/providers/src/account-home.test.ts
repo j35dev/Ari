@@ -207,7 +207,9 @@ describe('removeAccountHome', () => {
       'conversation',
     )
     expect(readFileSync(join(base, 'settings.json'), 'utf8')).toBe('{"model":"opus"}')
-    expect(readFileSync(join(base, '.credentials.json'), 'utf8')).toBe('the default account sign-in')
+    expect(readFileSync(join(base, '.credentials.json'), 'utf8')).toBe(
+      'the default account sign-in',
+    )
   })
 
   it('does not follow a link the CLI itself left deeper inside the account', async () => {

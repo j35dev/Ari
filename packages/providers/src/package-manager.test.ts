@@ -7,12 +7,16 @@ describe('inferManager', () => {
   })
 
   it('infers pnpm and bun global dirs', () => {
-    expect(inferManager('C:\\Users\\u\\AppData\\Local\\pnpm\\opencode.exe', 'opencode')).toBe('pnpm')
+    expect(inferManager('C:\\Users\\u\\AppData\\Local\\pnpm\\opencode.exe', 'opencode')).toBe(
+      'pnpm',
+    )
     expect(inferManager('/Users/u/.bun/bin/opencode', 'opencode')).toBe('bun')
   })
 
   it('infers homebrew from a Cellar path on darwin', () => {
-    expect(inferManager('/opt/homebrew/Cellar/opencode/1.2.0/bin/opencode', 'opencode')).toBe('brew')
+    expect(inferManager('/opt/homebrew/Cellar/opencode/1.2.0/bin/opencode', 'opencode')).toBe(
+      'brew',
+    )
   })
 
   it('infers npm from a linux nvm path', () => {
@@ -68,11 +72,9 @@ describe('planFor', () => {
   })
 
   it('strips the npm scope for homebrew formulae', () => {
-    expect(planFor('claude', '/opt/homebrew/Cellar/claude-code/1.0/bin/claude')?.upgradeCommand).toEqual([
-      'brew',
-      'upgrade',
-      'claude-code',
-    ])
+    expect(
+      planFor('claude', '/opt/homebrew/Cellar/claude-code/1.0/bin/claude')?.upgradeCommand,
+    ).toEqual(['brew', 'upgrade', 'claude-code'])
   })
 
   it('uses vendor self-upgrade for grok and hermes', () => {

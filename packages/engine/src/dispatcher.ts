@@ -103,11 +103,6 @@ export function decideCommand(
     case 'message.steer': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!model.activeTurnId) return reject('no active turn to steer into')
-      // Steering rides the provider's text control channel; there is no image
-      // channel on that path, so an imaged message can only run as a turn.
-      if ((command.attachments ?? []).length > 0) {
-        return reject('a message with images cannot steer mid-turn')
-      }
       if (findQueued(model, command.text, command.attachments ?? []) === undefined) {
         return reject('message is no longer queued')
       }

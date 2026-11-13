@@ -149,9 +149,7 @@ describe('buildUserFrame', () => {
   })
 
   it('sends staged images as base64 image blocks after the text', () => {
-    expect(
-      buildUserFrame('look', [{ dataBase64: 'aGk=', mimeType: 'image/png' }]),
-    ).toEqual({
+    expect(buildUserFrame('look', [{ dataBase64: 'aGk=', mimeType: 'image/png' }])).toEqual({
       type: 'user',
       message: {
         role: 'user',

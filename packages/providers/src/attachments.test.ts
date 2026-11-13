@@ -5,6 +5,7 @@ import {
   missingImagesNote,
   promptWithAttachments,
   stagedImagesOf,
+  textWithAttachments,
 } from './attachments'
 import type { AdapterSession } from './driver'
 
@@ -41,6 +42,16 @@ describe('provider attachments', () => {
     expect(prompt).toContain('shot.png')
     expect(prompt).toContain('/stage/a1.png')
     expect(prompt).not.toContain('\n\n\n')
+  })
+
+  it('names staged files after any text, such as a mid-turn steer', () => {
+    const image = { id: 'a1', name: 'shot.png', mimeType: 'image/png', path: '/stage/a1.png' }
+    expect(textWithAttachments('see this', [])).toBe('see this')
+    const text = textWithAttachments('see this', [image])
+    expect(text.startsWith('see this\n\n')).toBe(true)
+    expect(text).toContain('/stage/a1.png')
+    // An image-only message still says something.
+    expect(textWithAttachments('', [image])).toContain('shot.png')
   })
 
   it('names missing files instead of inventing paths', () => {

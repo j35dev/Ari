@@ -125,7 +125,9 @@ export async function readSkillDirectory(
   return { ...parsed, sourcePath: skillFile }
 }
 
-export async function discoverExtensions(input: DiscoverExtensionsInput): Promise<ExtensionInventory> {
+export async function discoverExtensions(
+  input: DiscoverExtensionsInput,
+): Promise<ExtensionInventory> {
   const skills: SkillHit[] = []
   const mcps: McpHit[] = []
   const plugins: { name: string; sourcePath: string }[] = []
@@ -217,7 +219,8 @@ function capRecords(
   mcps: McpHit[],
   plugins: { name: string; sourcePath: string }[],
 ): ExtensionInventory {
-  const truncated = skills.length > SKILL_CAP || mcps.length > MCP_CAP || plugins.length > PLUGIN_CAP
+  const truncated =
+    skills.length > SKILL_CAP || mcps.length > MCP_CAP || plugins.length > PLUGIN_CAP
   const records: ExtensionRecord[] = []
   for (const skill of skills.slice(0, SKILL_CAP)) {
     records.push({
@@ -307,7 +310,11 @@ async function collectSkills(root: string, scope: ExtensionScope, into: SkillHit
   }
 }
 
-async function collectClaudeMcpFile(file: string, scope: ExtensionScope, into: McpHit[]): Promise<void> {
+async function collectClaudeMcpFile(
+  file: string,
+  scope: ExtensionScope,
+  into: McpHit[],
+): Promise<void> {
   const parsed = await readJson(file)
   if (parsed === 'missing') return
   if (parsed === 'bad') {
@@ -330,7 +337,8 @@ async function collectClaudePlugins(
   const plugins = parsed['plugins']
   if (Array.isArray(plugins)) {
     for (const entry of plugins) {
-      if (typeof entry === 'string' && entry.length > 0) into.push({ name: entry, sourcePath: file })
+      if (typeof entry === 'string' && entry.length > 0)
+        into.push({ name: entry, sourcePath: file })
     }
     return
   }
@@ -370,7 +378,11 @@ async function applySkillConfig(file: string, skills: SkillHit[]): Promise<void>
   }
 }
 
-async function collectOpenCodeMcp(file: string, scope: ExtensionScope, into: McpHit[]): Promise<void> {
+async function collectOpenCodeMcp(
+  file: string,
+  scope: ExtensionScope,
+  into: McpHit[],
+): Promise<void> {
   const parsed = await readJson(file, true)
   if (parsed === 'missing') return
   if (parsed === 'bad') {
@@ -384,7 +396,11 @@ async function collectOpenCodeMcp(file: string, scope: ExtensionScope, into: Mcp
   }
 }
 
-async function collectPiSkillNames(file: string, scope: ExtensionScope, into: SkillHit[]): Promise<void> {
+async function collectPiSkillNames(
+  file: string,
+  scope: ExtensionScope,
+  into: SkillHit[],
+): Promise<void> {
   const parsed = await readJson(file)
   if (parsed === 'missing' || parsed === 'bad') return
   const skills = parsed['skills']
@@ -516,7 +532,10 @@ export function scanSkillConfig(text: string): { path: string; enabled: boolean 
   return rows
 }
 
-async function readJson(file: string, jsonc = false): Promise<Record<string, unknown> | 'missing' | 'bad'> {
+async function readJson(
+  file: string,
+  jsonc = false,
+): Promise<Record<string, unknown> | 'missing' | 'bad'> {
   let text: string
   try {
     text = await readFile(file, 'utf8')
@@ -555,5 +574,9 @@ function unquote(value: string): string {
 function isInside(target: string, root: string): boolean {
   const t = process.platform === 'win32' ? target.toLowerCase() : target
   const r = process.platform === 'win32' ? root.toLowerCase() : root
-  return t === r || t.startsWith(`${r}${process.platform === 'win32' ? '\\' : '/'}`) || t.startsWith(`${r}/`)
+  return (
+    t === r ||
+    t.startsWith(`${r}${process.platform === 'win32' ? '\\' : '/'}`) ||
+    t.startsWith(`${r}/`)
+  )
 }

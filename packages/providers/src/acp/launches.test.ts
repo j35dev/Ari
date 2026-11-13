@@ -70,14 +70,22 @@ describe('resolveAcpLaunch', () => {
     // Pinned to a win32 env with no PATH and no home: well-known global
     // dirs cannot rescue npx there, so this holds on Linux CI too (where
     // /usr/local/bin/npx exists and an empty pathEnv alone would still hit).
-    const noNpx: DetectEnvironment = { platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }
+    const noNpx: DetectEnvironment = {
+      platform: 'win32',
+      pathEnv: '',
+      homeDir: '/nonexistent-home',
+    }
     expect(resolveAcpLaunch('claude', { cliBinaryPath: '/usr/bin/claude' }, noNpx)).toBeNull()
   })
 
   it('launches npx adapters at a pinned version for kinds that need one', async () => {
     const npxPath = await makeFakeNpx()
     const env: DetectEnvironment = { ...ENV, pathEnv: dirname(npxPath) }
-    const launch = resolveAcpLaunch('claude', { cliBinaryPath: join(dirname(npxPath), 'claude') }, env)
+    const launch = resolveAcpLaunch(
+      'claude',
+      { cliBinaryPath: join(dirname(npxPath), 'claude') },
+      env,
+    )
     expect(launch).not.toBeNull()
     expect(launch?.command).toContain('npx')
     // Pinned, not bare: two users on one Ari build must run the same adapter.
@@ -124,7 +132,11 @@ describe('resolveAcpLaunch', () => {
 
   it('launches native ACP servers with their own binary', () => {
     const opencode = resolveAcpLaunch('opencode', { cliBinaryPath: '/usr/bin/opencode' }, ENV)
-    expect(opencode).toEqual({ label: 'opencode (native ACP)', command: '/usr/bin/opencode', args: ['acp'] })
+    expect(opencode).toEqual({
+      label: 'opencode (native ACP)',
+      command: '/usr/bin/opencode',
+      args: ['acp'],
+    })
     const hermes = resolveAcpLaunch('hermes', { cliBinaryPath: '/usr/bin/hermes' }, ENV)
     expect(hermes?.args).toEqual(['acp'])
     const grok = resolveAcpLaunch('grok', { cliBinaryPath: '/usr/bin/grok' }, ENV)
@@ -134,11 +146,19 @@ describe('resolveAcpLaunch', () => {
   it('uses the detected Codex for both ACP sessions and background probes', async () => {
     const npxPath = await makeFakeNpx()
     const cliBinaryPath = join(dirname(npxPath), 'CLI with spaces', 'codex.cmd')
-    const launch = resolveAcpLaunch('codex', { cliBinaryPath }, { ...ENV, pathEnv: dirname(npxPath) })
+    const launch = resolveAcpLaunch(
+      'codex',
+      { cliBinaryPath },
+      { ...ENV, pathEnv: dirname(npxPath) },
+    )
     expect(launch?.env).toEqual({ CODEX_PATH: cliBinaryPath })
     expect(probeLaunch(launch!).env).toEqual({ CODEX_PATH: cliBinaryPath })
     // A native executable on every platform, so the adapter can spawn it directly.
-    const claude = resolveAcpLaunch('claude', { cliBinaryPath: '/bin/claude.exe' }, { ...ENV, pathEnv: dirname(npxPath) })
+    const claude = resolveAcpLaunch(
+      'claude',
+      { cliBinaryPath: '/bin/claude.exe' },
+      { ...ENV, pathEnv: dirname(npxPath) },
+    )
     expect(claude?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude.exe' })
     expect(probeLaunch(claude!).env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude.exe' })
   })
@@ -194,7 +214,11 @@ describe('describeTransport', () => {
   })
 
   it('says why a kind with an adapter is on the plain command line', () => {
-    const noNpx: DetectEnvironment = { platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }
+    const noNpx: DetectEnvironment = {
+      platform: 'win32',
+      pathEnv: '',
+      homeDir: '/nonexistent-home',
+    }
     const transport = describeTransport('claude', '/usr/bin/claude', noNpx)
     expect(transport.mode).toBe('cli')
     expect(transport.note).toMatch(/npx was not found/)
@@ -285,7 +309,10 @@ describe('an adapter npx has already installed', () => {
     )
     await writeFile(join(pkgDir, 'dist', 'index.js'), '')
     if (opts.manifest !== false) {
-      await writeFile(join(entry, 'package.json'), JSON.stringify({ dependencies: { [pkg]: version } }))
+      await writeFile(
+        join(entry, 'package.json'),
+        JSON.stringify({ dependencies: { [pkg]: version } }),
+      )
     }
     return join(pkgDir, 'dist', 'index.js')
   }

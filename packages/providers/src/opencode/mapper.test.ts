@@ -13,7 +13,8 @@ describe('opencode mapper', () => {
     const events = mapOpencodeStream(fixture('live-run.jsonl'))
     const types = events.map((e) => e.type)
     expect(types).toEqual(['session-ref', 'text-delta', 'usage', 'context-usage', 'done'])
-    if (events[0]?.type === 'session-ref') expect(events[0].ref).toBe('ses_fdce38260ffeZPFcxwzIXfDyU2')
+    if (events[0]?.type === 'session-ref')
+      expect(events[0].ref).toBe('ses_fdce38260ffeZPFcxwzIXfDyU2')
     if (events[1]?.type === 'text-delta') expect(events[1].text).toBe('hello')
     // input 9371 + cache read 128; output 15 + reasoning 5.
     expect(events[2]).toEqual({

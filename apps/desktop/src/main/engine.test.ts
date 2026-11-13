@@ -2508,8 +2508,8 @@ describe('engine end-to-end with scripted driver', () => {
     ).toEqual(['first message'])
   }, 10000)
 
-  it('never steers an imaged message; it stays queued with its images', async () => {
-    const steered: string[] = []
+  it('steers a queued message together with its images', async () => {
+    const steered: { text: string; attachments: unknown }[] = []
     const releaseRef: { current: (() => void) | null } = { current: null }
     const steerableDriver: Driver = {
       kind: 'claude',
@@ -2531,9 +2531,8 @@ describe('engine end-to-end with scripted driver', () => {
           }),
           interrupt: () => undefined,
           dispose: () => Promise.resolve(),
-          steer: (text) => {
-            steered.push(text)
-            releaseRef.current?.()
+          steer: (text, attachments) => {
+            steered.push({ text, attachments })
             return true
           },
         }),
@@ -2545,6 +2544,7 @@ describe('engine end-to-end with scripted driver', () => {
       registry,
       publish: (sessionId, event) => published.push({ sessionId, event }),
       git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveAttachmentPath: (id) => Promise.resolve(`/staged/${id}.png`),
     })
     const sessionId = 'sess_steer_images'
     await seedSession(store, sessionId)
@@ -2559,10 +2559,31 @@ describe('engine end-to-end with scripted driver', () => {
       attachments: [ref],
     })
     expect(queued.accepted).toBe(true)
+    // Queueing alone never steers.
     expect(steered).toEqual([])
 
+    const result = await engine.dispatch({
+      type: 'message.steer',
+      sessionId,
+      text: 'see this',
+      attachments: [ref],
+    })
+    expect(result.accepted).toBe(true)
+    // The adapter gets the text and the staged files, resolved to paths.
+    expect(steered).toEqual([
+      {
+        text: 'see this',
+        attachments: [
+          { id: 'att_1', name: 'shot.png', mimeType: 'image/png', path: '/staged/att_1.png' },
+        ],
+      },
+    ])
+    // It left the queue and became a transcript message that keeps its image.
     const model = await store.load(sessionId)
-    expect(model.queuedMessages).toEqual([{ text: 'see this', attachments: [ref] }])
+    expect(model.queuedMessages).toEqual([])
+    const row = model.messages.filter((m) => m.role === 'user').at(-1)
+    expect(row?.parts.some((p) => p.type === 'text' && p.text === 'see this')).toBe(true)
+    expect(JSON.stringify(row)).toContain('att_1')
     releaseRef.current?.()
   }, 10000)
 
