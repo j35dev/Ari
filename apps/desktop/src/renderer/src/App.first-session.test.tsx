@@ -22,9 +22,9 @@ vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
     children({ onOpenSetup: () => {}, setupCovered: false, onboardingOutcome: null }),
 }))
-vi.mock('./features/session/SessionView', () => ({ SessionView: ({ sessionId, scope }: {
-  sessionId: string; scope?: { kind: string }
-}) => <output data-testid="normal-session">{scope?.kind}:{sessionId}</output> }))
+vi.mock('./features/session/SessionView', () => ({ SessionView: ({ sessionId, scope, defaults }: {
+  sessionId: string; scope?: { kind: string }; defaults?: { driverKind: string; modelId: string | null }
+}) => <output data-testid="normal-session" data-model={`${defaults?.driverKind}:${defaults?.modelId}`}>{scope?.kind}:{sessionId}</output> }))
 vi.mock('./features/speech/useSpeech', () => ({ useSpeech: () => ({ status: { ready: false } }) }))
 
 const PROJECT: Project = { id: 'project-first', name: 'First project', path: 'D:/fixture/project',
@@ -103,6 +103,13 @@ describe('first-send shell draft ownership', () => {
       type: 'turn.start', sessionId: 'sess_first', text: 'First prompt', attachments: [],
     } }]])
     expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
+  })
+  it('opens a listed session on its own agent and model, not the app-wide pick', async () => {
+    sessions.push({ id: 'sess_listed', projectId: PROJECT.id, title: 'Listed session', messageCount: 2,
+      updatedAt: 1, driverKind: 'codex', modelId: 'gpt-6.1-sol', effort: 'high', permissionMode: 'full' })
+    render(<App />)
+    await userEvent.setup().click(await screen.findByText('Listed session'))
+    expect(await screen.findByTestId('normal-session')).toHaveAttribute('data-model', 'codex:gpt-6.1-sol')
   })
   it('checks root occupancy only on Send before reusing and reseeding an empty local session', async () => {
     record({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' })

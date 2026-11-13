@@ -456,7 +456,17 @@ export function ModelSelector({
       return current?.label ?? modelId ?? 'Ari Core'
     }
     const current = optionsFor(driverKind).find((o) => matchesCurrent(o, currentId))
-    if (current === undefined) return modelId ?? currentKindLabel
+    if (current === undefined) {
+      // While a host's catalog is still loading, the bundled list names the
+      // model, so the chip reads "GPT-6.1-Sol" rather than its raw id.
+      const known =
+        modelId === null
+          ? undefined
+          : modelsFor(driverKind).find(
+              (model) => model.id === modelId || (model.aliases?.includes(modelId) ?? false),
+            )
+      return known ? splitRecommended(known.label).name : (modelId ?? currentKindLabel)
+    }
     const { name } = splitRecommended(current.label)
     if (current.id !== `${driverKind}:default`) return name
     // The agent's default row says which model it resolves to, and that model

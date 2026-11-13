@@ -589,6 +589,17 @@ export function ProjectDraft({
                         />
                       ),
                     })),
+                    // Until the host's catalog lands, the saved level still reads
+                    // by name instead of the picker's "Choose" placeholder.
+                    ...(catalog === null && pick.effort
+                      ? [
+                          {
+                            value: pick.effort,
+                            label: sentenceCase(pick.effort),
+                            mark: <span className="size-[15px]" />,
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               )}
