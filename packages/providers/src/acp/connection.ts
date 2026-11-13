@@ -7,6 +7,7 @@ import { AUTH_REQUIRED_ERROR, describeAcpFailure, terminalLoginsFrom } from './p
 import { isInteractiveClientMethod } from './client-requests'
 import { removeBrokenNpxInstall } from './npx-cache'
 import { BackgroundTaskTracker } from './background-tasks'
+import { fatalAgentError } from './fatal-stderr'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
@@ -295,9 +296,15 @@ export class AcpConnection {
       closeWaiter,
     )
 
+    let stderrLine = ''
     child.stderr.on('data', (chunk: string) => {
       if (connection.#stderrTail.length > 6) connection.#stderrTail.shift()
       connection.#stderrTail.push(chunk)
+      // Whole lines only: a provider's error can arrive split across chunks.
+      const lines = (stderrLine + chunk).split('\n')
+      stderrLine = lines.pop() ?? ''
+      if (stderrLine.length > 16_384) stderrLine = ''
+      for (const line of lines) connection.#onStderrLine(line)
     })
 
     // Exit codes feed npm errno decoding in failure messages (comet #95).
@@ -393,6 +400,44 @@ export class AcpConnection {
         throw new AcpAuthRequiredError(detail, error.logins)
       throw new AcpConnectionError(detail, error instanceof AcpConnectionError ? error.code : null)
     }
+  }
+
+  /**
+   * A model-call error retrying cannot fix (out of usage, quota, credits, a
+   * rejected key) ends the prompt now with the provider's own words, and
+   * cancels it in the agent so it stops retrying in the background.
+   */
+  #onStderrLine(line: string): void {
+    const message = fatalAgentError(line)
+    if (message === null) return
+    for (const [id, pending] of this.#pending) {
+      if (pending.prompt === null) continue
+      log.warn('acp: agent reported a fatal model error', {
+        label: this.launch.label,
+        sessionId: pending.prompt.sessionId,
+        message,
+      })
+      try {
+        this.#notify('session/cancel', { sessionId: pending.prompt.sessionId })
+      } catch {
+        /* The prompt still fails below; a dead stdin is reported by the exit path. */
+      }
+      this.#abandonedPrompt = true
+      this.#pending.delete(id)
+      if (pending.timer !== null) clearTimeout(pending.timer)
+      if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
+      pending.reject(new AcpConnectionError(message, null, 'refused'))
+    }
+  }
+
+  /** The newest stderr line that reads as an error, trimmed for a banner. */
+  #lastStderrError(): string | null {
+    const lines = this.#stderrTail.join('').split('\n').reverse()
+    const line = lines.find((entry) => /\b(?:error|failed|fatal)\b|level=ERROR/i.test(entry))
+    if (line === undefined) return null
+    const quoted = /\berror(?:\.error|\.message)?="((?:[^"\\]|\\.)*)"/.exec(line)?.[1]
+    const text = (quoted ?? line).trim()
+    return text.length > 0 ? text.slice(0, 300) : null
   }
 
   #tailReport(): string {
@@ -635,9 +680,15 @@ export class AcpConnection {
               silence: quiet,
               stderr: this.#tailReport().trim(),
             })
+            // The agent's last error line is usually the reason (a provider
+            // outage, a bad config); say it rather than leave the user to
+            // reproduce the run in a terminal to find out.
+            const said = this.#lastStderrError()
             reject(
               new AcpConnectionError(
-                'The agent stopped responding. Retry to reconnect.',
+                said === null
+                  ? 'The agent stopped responding. Retry to reconnect.'
+                  : `The agent stopped responding. Its last error: ${said}`,
                 null,
                 'uncertain',
               ),
