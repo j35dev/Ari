@@ -7,7 +7,9 @@ const diff =
   'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n-const old = 1\n+const fresh = 2\n tail'
 const props = { diffText: diff, path: 'a.ts', comparisonId: 'a'.repeat(64) }
 beforeEach(() => {
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
     return this.hasAttribute('data-index') ? 24 : 240
   })
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(900)
@@ -86,6 +88,55 @@ describe('DiffSurface', () => {
     expect(container.querySelectorAll('[data-index]').length).toBeGreaterThan(0)
     expect(container.querySelectorAll('[data-index]').length).toBeLessThan(50)
     expect(screen.queryByText('line 9999')).not.toBeInTheDocument()
+  })
+
+  it('renders inline with no toolbar, footer or scroll of its own, keeping gutter ranges', async () => {
+    const user = userEvent.setup()
+    const onRange = vi.fn()
+    const scroller = document.createElement('div')
+    document.body.appendChild(scroller)
+    const { container } = render(
+      <DiffSurface
+        {...props}
+        onRange={onRange}
+        inline={{ scrollElement: scroller, split: true, wrap: true, layoutVersion: 0 }}
+      />,
+    )
+    expect(await screen.findByText('const old = 1')).toBeInTheDocument()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Split diff' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Before')).not.toBeInTheDocument()
+    expect(screen.queryByText(/hunks/)).not.toBeInTheDocument()
+    expect(screen.getByText('@@ -1,2 +1,2 @@')).toBeInTheDocument()
+    // Split comes from the stack: two columns, one number each.
+    const deleted = container.querySelector('[data-line-type="del"]')!
+    expect(deleted.querySelectorAll('button')).toHaveLength(1)
+    expect(container.querySelector('code')).toHaveClass('whitespace-pre-wrap')
+    await user.click(screen.getByRole('button', { name: 'Select new line 1' }))
+    expect(onRange).toHaveBeenLastCalledWith({
+      side: 'new',
+      startLine: 1,
+      endLine: 1,
+      context: 'const fresh = 2',
+    })
+    scroller.remove()
+  })
+
+  it('shows one number column per line in inline unified view', () => {
+    const scroller = document.createElement('div')
+    document.body.appendChild(scroller)
+    const { container } = render(
+      <DiffSurface
+        {...props}
+        inline={{ scrollElement: scroller, split: false, wrap: false, layoutVersion: 0 }}
+      />,
+    )
+    const deleted = container.querySelector('[data-line-type="del"]')!
+    expect(deleted.querySelectorAll('button')).toHaveLength(1)
+    expect(deleted.querySelector('button')).toHaveAccessibleName('Select old line 1')
+    const added = container.querySelector('[data-line-type="add"]')!
+    expect(added.querySelector('button')).toHaveAccessibleName('Select new line 1')
+    scroller.remove()
   })
 
   it('shows explicit binary and empty-content states', () => {
