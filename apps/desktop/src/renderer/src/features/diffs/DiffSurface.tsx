@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown, ArrowUp, Columns2, MoreHorizontal, Rows3, Search, TextWrap } from 'lucide-react'
 import { Popover } from '@ari/ui/popover'
@@ -9,8 +9,21 @@ import { reviewRows } from './review-rows'
 import { useDiffHighlight } from './use-diff-highlight'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { iconButton, menuItem } from '../../lib/recipes'
+import './diff-surface.css'
 
 export type DiffRange = Pick<GitReviewNote, 'side' | 'startLine' | 'endLine' | 'context'>
+/**
+ * A diff that sits inside a longer scrolling stack: no toolbar, footer or
+ * scroll of its own. Its rows virtualize against the stack's scroller, and the
+ * stack decides split and wrap for every file at once.
+ */
+export interface InlineDiff {
+  scrollElement: HTMLElement | null
+  split: boolean
+  wrap: boolean
+  /** Bumped whenever content above this diff may have moved it. */
+  layoutVersion: number
+}
 export interface DiffSurfaceProps {
   diffText: string
   path: string
@@ -18,6 +31,7 @@ export interface DiffSurfaceProps {
   onRange?: (range: DiffRange) => void
   scrollOffset?: number
   onScrollOffset?: (offset: number) => void
+  inline?: InlineDiff
 }
 const control = `${iconButton} aria-pressed:bg-fg/9 aria-pressed:text-fg`
 /** A text toggle in the toolbar: quiet until hovered, washed while on. */
@@ -25,6 +39,9 @@ const toggleText =
   'inline-flex h-7 items-center rounded-md px-2 text-xs text-fg-muted transition-colors hover:bg-fg/6 hover:text-fg aria-pressed:bg-fg/9 aria-pressed:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 /** One diff line: 12.5px mono on a 21px row (about 1.65). Keep in step with the row classes. */
 const ROW_HEIGHT = 21
+/** Inline rows are a step denser: 12px mono on 20px, hunk headers on 24px. */
+const INLINE_ROW = 20
+const INLINE_HUNK = 24
 
 /** Shared, virtualized split/unified review with bounded syntax, search and side-aware ranges. */
 export function DiffSurface({
@@ -34,6 +51,7 @@ export function DiffSurface({
   onRange,
   scrollOffset = 0,
   onScrollOffset,
+  inline,
 }: DiffSurfaceProps) {
   // Null until the user picks; until then Settings → Source control decides.
   const [preferSplit, setSplit] = useState<boolean | null>(null)
@@ -73,12 +91,28 @@ export function DiffSurface({
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
-  const wrap = wrapPref ?? defaults?.wrapDiffLines ?? false
-  const split = (preferSplit ?? (defaults?.diffView !== 'unified' && !narrow)) && !oneSided
+  const wrap = inline ? inline.wrap : (wrapPref ?? defaults?.wrapDiffLines ?? false)
+  const split =
+    (inline ? inline.split : (preferSplit ?? (defaults?.diffView !== 'unified' && !narrow))) &&
+    !oneSided
   const rows = useMemo(
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
     [file, split, ignoreWhitespace],
   )
+  // Inline, the rows start somewhere down the stack's scroller; the
+  // virtualizer needs that offset to know which of them are on screen.
+  const body = useRef<HTMLDivElement>(null)
+  const [margin, setMargin] = useState(0)
+  const scroller = inline?.scrollElement ?? null
+  useLayoutEffect(() => {
+    const element = body.current
+    if (!element || !scroller) return
+    const next =
+      element.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop
+    setMargin((current) => (Math.abs(current - next) < 1 ? current : next))
+  }, [scroller, inline?.layoutVersion])
   const maxChars = useMemo(
     () =>
       rows.reduce(
@@ -90,10 +124,12 @@ export function DiffSurface({
   const highlights = useDiffHighlight(rows, path)
   const virtual = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => scroll.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
-    initialOffset: scrollOffset,
+    getScrollElement: () => (inline ? scroller : scroll.current),
+    estimateSize: (index) =>
+      inline ? (rows[index]?.header ? INLINE_HUNK : INLINE_ROW) : ROW_HEIGHT,
+    overscan: inline ? 24 : 12,
+    scrollMargin: inline ? margin : 0,
+    initialOffset: inline ? () => scroller?.scrollTop ?? 0 : scrollOffset,
   })
   const matches = useMemo(
     () =>
@@ -147,13 +183,22 @@ export function DiffSurface({
   }
   const gutter = (line: DiffLine | undefined, side: 'old' | 'new') => {
     const number = side === 'old' ? line?.oldLineNo : line?.newLineNo
+    // Inline, the number column carries a stronger wash of the line's tint
+    // and its colour, so a change reads at a glance down the gutter.
+    const tone = !inline
+      ? 'text-fg-subtle/70'
+      : line?.type === 'add'
+        ? 'bg-success-subtle text-success'
+        : line?.type === 'del'
+          ? 'bg-danger-subtle text-danger'
+          : 'text-fg-subtle/70'
     return (
       <button
         type="button"
         disabled={!onRange || number === undefined}
         aria-label={`Select ${side} line ${number ?? ''}`}
         onClick={(event) => number !== undefined && select(side, number, event.shiftKey)}
-        className="w-12 shrink-0 select-none px-2 text-right font-mono text-[12.5px] tabular-nums text-fg-subtle/70 enabled:hover:text-fg focus-visible:bg-fg/9 focus-visible:text-fg focus-visible:outline-none"
+        className={`shrink-0 select-none text-right font-mono tabular-nums ${tone} enabled:hover:text-fg focus-visible:bg-fg/9 focus-visible:text-fg focus-visible:outline-none ${inline ? 'w-10 pr-1.5 text-[11px]' : 'w-12 px-2 text-[12.5px]'}`}
       >
         {number}
       </button>
@@ -174,13 +219,20 @@ export function DiffSurface({
         className={`flex min-w-0 text-fg ${tint} ${selected ? 'ring-1 ring-inset ring-accent/40' : ''}`}
         data-line-type={line?.type}
       >
-        {!split ? gutter(line, 'old') : null}
-        {gutter(line, split ? side : 'new')}
-        <span aria-hidden className="w-5 shrink-0 select-none text-center text-fg-subtle">
-          {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
-        </span>
+        {inline ? (
+          // One number column: the line's own side, old for a deletion.
+          gutter(line, side)
+        ) : (
+          <>
+            {!split ? gutter(line, 'old') : null}
+            {gutter(line, split ? side : 'new')}
+            <span aria-hidden className="w-5 shrink-0 select-none text-center text-fg-subtle">
+              {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
+            </span>
+          </>
+        )}
         <code
-          className={`min-w-0 flex-1 pr-4 font-mono text-[12.5px] ${wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
+          className={`ari-diff-code min-w-0 flex-1 pr-4 font-mono ${inline ? 'pl-2 text-[12px]' : 'text-[12.5px]'} ${wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
         >
           {line && highlights[`${index}:${side}`] ? (
             <span dangerouslySetInnerHTML={{ __html: highlights[`${index}:${side}`]! }} />
@@ -191,6 +243,68 @@ export function DiffSurface({
       </div>
     )
   }
+  if (inline)
+    return (
+      <div
+        ref={body}
+        role="region"
+        aria-label={`Diff for ${path}`}
+        className="ari-scroll shiki overflow-x-auto overflow-y-hidden"
+      >
+        {file?.isBinary ? (
+          <p className="px-3 py-2 text-[12.5px] text-fg-subtle">
+            Binary content changed. Open the file to inspect it.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="px-3 py-2 text-[12.5px] text-fg-subtle">No text changes in this file.</p>
+        ) : (
+          <div
+            className="font-mono text-[12px]"
+            style={{
+              height: virtual.getTotalSize(),
+              position: 'relative',
+              minWidth: wrap
+                ? undefined
+                : split
+                  ? `max(100%, calc(${maxChars * 2}ch + 7rem))`
+                  : `max(100%, calc(${maxChars}ch + 4rem))`,
+            }}
+          >
+            {virtual.getVirtualItems().map((item) => {
+              const row = rows[item.index]!
+              return (
+                <div
+                  key={item.key}
+                  data-index={item.index}
+                  ref={virtual.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${item.start - margin}px)`,
+                  }}
+                  className="min-h-5 leading-5"
+                >
+                  {row.header ? (
+                    <div className="flex h-6 items-center bg-fg/3 pl-12 font-mono text-[11px] text-fg-subtle">
+                      <span className="truncate">{row.header}</span>
+                    </div>
+                  ) : split ? (
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] [&>div+div]:border-l [&>div+div]:border-border">
+                      {cell(row.old, 'old', item.index)}
+                      {cell(row.next, 'new', item.index)}
+                    </div>
+                  ) : (
+                    cell(row.next ?? row.old, row.next ? 'new' : 'old', item.index)
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
   return (
     <section
       ref={root}

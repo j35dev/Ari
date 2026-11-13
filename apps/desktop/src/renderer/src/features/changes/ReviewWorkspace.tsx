@@ -1,58 +1,111 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  FileDiff,
-  GitBranch,
-  RefreshCw,
-  UnfoldVertical,
-} from 'lucide-react'
-import type {
-  GitComparison,
-  GitScope,
-  GitReviewManifest,
-  SourceControlContext,
-} from '@ari/contracts/rpc'
-import { Select } from '@ari/ui/select'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Columns2, ListTree, RefreshCw, Search, TextWrap } from 'lucide-react'
+import type { GitComparison, GitScope } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
-import { iconButton } from '../../lib/recipes'
-import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
-import { DiffSurface, type DiffRange } from '../diffs/DiffSurface'
-import { ReviewNavigator } from './ReviewNavigator'
-import { useSourceControl } from './use-source-control'
+import { cx, iconButton, iconButtonActive } from '../../lib/recipes'
+import { useSessionClient } from '../session/session-client'
+import { useToolSessionClient } from '../terminal/tool-session-client'
+import { useEngineSettings } from '../settings/useEngineSettings'
+import type { DiffRange } from '../diffs/DiffSurface'
+import { ChangedFiles } from './ChangedFiles'
+import { ChangeRequests } from './ChangeRequests'
+import { FileSection, PatchCache, type FileAction } from './FileStack'
+import { useGitMutations } from './ReviewActions'
+import { BasePicker, ScopeMenu, type ScopeTurn } from './ScopeMenu'
+import { TurnRevert } from './TurnRevert'
 import { useReviewPreferences } from './use-review-preferences'
+import { useSourceControl } from './use-source-control'
 
 const log = createLogger('ui:review')
-const control = iconButton
-export interface ReviewControlsState {
-  scope: GitScope
-  context: SourceControlContext | null
-  manifest: GitReviewManifest | null
-  paths: string[]
-  loading: boolean
-  refresh: () => void
-}
+export type ReviewView = 'changes' | 'requests'
 export interface ReviewWorkspaceProps {
   scope: GitScope | null
   initialComparison?: GitComparison
   onRange?: (path: string, comparisonId: string, range: DiffRange) => void
   label?: 'Review changes' | 'Source control'
-  renderControls?: (state: ReviewControlsState) => ReactNode
+  /** Local review, or the host's pull requests in the same panel. */
+  view?: ReviewView
+  onViewChange?: (view: ReviewView) => void
+  /** Why pull requests and turn reverts are off here (remote machines); null when on. */
+  administrationReason?: string | null
+  onCheckedOut?: (path: string) => Promise<void> | void
+  /** The panel's own tools (project, expand/dock, close), at the right end of the header. */
+  tools?: ReactNode
 }
 
-/** Worktree-aware review canvas; selected files load individually and survive navigation. */
+/** Files at or under these limits all open at once; past them only the first does. */
+const OPEN_ALL_FILES = 5
+const OPEN_ALL_LINES = 400
+const LAYOUT_KEY = 'ari:review:layout'
+
+interface Layout {
+  split: boolean | null
+  wrap: boolean | null
+  tree: boolean
+}
+function readLayout(): Layout {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? 'null')
+    if (typeof raw !== 'object' || raw === null) return { split: null, wrap: null, tree: false }
+    const value = raw as Record<string, unknown>
+    const flag = (entry: unknown) => (typeof entry === 'boolean' ? entry : null)
+    return { split: flag(value['split']), wrap: flag(value['wrap']), tree: value['tree'] === true }
+  } catch {
+    return { split: null, wrap: null, tree: false }
+  }
+}
+
+/** The engine's own pick when a branch is compared without a chosen base. */
+export function automaticBase(refs: readonly string[]): string {
+  return (
+    ['origin/main', 'origin/master', 'main', 'master'].find((ref) => refs.includes(ref)) ?? 'HEAD'
+  )
+}
+
+function ago(timestamp: number, now = Date.now()): string {
+  const minutes = Math.floor(Math.max(0, now - timestamp) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+/** When each turn started, from the session's messages; a turn's first message wins. */
+function turnStarts(model: unknown): Record<string, number> {
+  const messages =
+    typeof model === 'object' && model !== null ? (model as { messages?: unknown }).messages : null
+  const starts: Record<string, number> = {}
+  if (!Array.isArray(messages)) return starts
+  for (const message of messages) {
+    if (typeof message !== 'object' || message === null) continue
+    const { turnId, createdAt } = message as { turnId?: unknown; createdAt?: unknown }
+    if (typeof turnId !== 'string' || typeof createdAt !== 'number') continue
+    starts[turnId] = Math.min(starts[turnId] ?? createdAt, createdAt)
+  }
+  return starts
+}
+
+/**
+ * Worktree-aware review: one header row picks the scope and lays out the
+ * diffs, and the changed files stack below it, each opening inline.
+ */
 export function ReviewWorkspace(props: ReviewWorkspaceProps) {
   if (!props.scope)
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-        <FileDiff size={24} className="mb-1 text-fg-subtle" aria-hidden />
-        <h2 className="text-sm font-medium text-fg">A place to review your work</h2>
-        <p className="max-w-xs text-[13px] text-fg-subtle">
-          Open a project or session to see its code changes.
+      <section
+        className="flex h-full min-h-0 flex-col bg-bg"
+        aria-label={props.label ?? 'Review changes'}
+      >
+        <header className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border pl-4 pr-1.5">
+          <h2 className="sr-only">{props.label ?? 'Review changes'}</h2>
+          <div className="flex-1" />
+          {props.tools}
+        </header>
+        <p className="flex flex-1 items-center justify-center p-8 text-center text-[13px] text-fg-subtle">
+          Open a project or session to see its changes.
         </p>
-      </div>
+      </section>
     )
   return <ScopedReview key={JSON.stringify(props.scope)} {...props} scope={props.scope} />
 }
@@ -62,388 +115,535 @@ function ScopedReview({
   initialComparison,
   onRange,
   label = 'Review changes',
-  renderControls,
+  view = 'changes',
+  onViewChange,
+  administrationReason = null,
+  onCheckedOut,
+  tools,
 }: ReviewWorkspaceProps & { scope: GitScope }) {
   const rpc = useToolSessionClient(scope.sessionId)
-  const wireScope = toolWireScope(rpc, scope)
+  const dragKey = useSessionClient().viewKey
   const remote = rpc.scope.kind === 'remote'
   const scopeKey = remote ? `${rpc.viewKey}:${JSON.stringify(scope)}` : JSON.stringify(scope)
   const preferences = useReviewPreferences(scopeKey)
-  const { comparison, path: selected, filter } = preferences.value
+  const { comparison, filter: storedFilter } = preferences.value
+  const requests = view === 'requests'
   const { context, manifest, error, watchError, loading, refresh } = useSourceControl(
     scope,
-    comparison,
+    requests ? null : comparison,
   )
-  const [patch, setPatch] = useState<{ key: string; text: string; error: string | null } | null>(
-    null,
-  )
-  const [contextLines, setContextLines] = useState(3)
-  const [retry, setRetry] = useState(0)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [selection, setSelection] = useState<string[]>([])
-  const viewed = preferences.viewedPaths(manifest)
-  useEffect(() => {
-    if (manifest) preferences.reconcileViewed(manifest)
-  }, [manifest])
   useEffect(() => {
     if (initialComparison) preferences.change({ comparison: initialComparison })
   }, [JSON.stringify(initialComparison)])
+
+  // Layout: split and wrap follow Settings until toggled here; both persist.
+  const { settings } = useEngineSettings()
+  const [layout, setLayout] = useState(readLayout)
+  const changeLayout = (patch: Partial<Layout>): void =>
+    setLayout((current) => {
+      const next = { ...current, ...patch }
+      try {
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify(next))
+      } catch (error) {
+        log.warn('Review layout could not be saved', { error: String(error) })
+      }
+      return next
+    })
+  const root = useRef<HTMLElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const element = root.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width < 640)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  // Two columns are too narrow to read in a side panel, so it starts unified.
+  const defaults = settings?.sourceControl
+  const split = layout.split ?? (defaults?.diffView !== 'unified' && !narrow)
+  const wrap = layout.wrap ?? defaults?.wrapDiffLines ?? false
+  const filter = layout.tree ? storedFilter : ''
+
+  const allFiles = useMemo(() => manifest?.files ?? [], [manifest])
   const files = useMemo(
     () =>
-      (manifest?.files ?? []).filter((file) =>
-        file.path.toLowerCase().includes(filter.toLowerCase()),
-      ),
-    [manifest, filter],
+      filter
+        ? allFiles.filter((file) => file.path.toLowerCase().includes(filter.toLowerCase()))
+        : allFiles,
+    [allFiles, filter],
   )
-  const file = files.find((file) => file.path === selected) ?? files[0]
-  const paths = selection.length
-    ? selection.filter((path) => manifest?.files.some((file) => file.path === path))
-    : file
-      ? [file.path]
-      : []
-  const key = manifest && file ? `${rpc.viewKey}:${rpc.authorizationEpoch}:${manifest.id}:${file.path}:${contextLines}` : ''
+  const totals = useMemo(
+    () =>
+      manifest
+        ? manifest.files.reduce(
+            (sum, file) => ({
+              additions: sum.additions + file.additions,
+              deletions: sum.deletions + file.deletions,
+            }),
+            { additions: 0, deletions: 0 },
+          )
+        : null,
+    [manifest],
+  )
+
+  // Which files are open: small reviews open whole, larger ones open the
+  // first file; anything toggled by hand stays as left until the scope moves.
+  const comparisonKey = JSON.stringify(comparison)
+  const [toggled, setToggled] = useState<{ key: string; open: Map<string, boolean> }>(() => ({
+    key: comparisonKey,
+    open: new Map(),
+  }))
+  const overrides = toggled.key === comparisonKey ? toggled.open : null
+  const openAll =
+    allFiles.length <= OPEN_ALL_FILES &&
+    (totals ? totals.additions + totals.deletions : 0) <= OPEN_ALL_LINES
+  const firstPath = allFiles[0]?.path
+  const isOpen = (path: string): boolean => overrides?.get(path) ?? (openAll || path === firstPath)
+  const latestOpen = useRef(isOpen)
+  latestOpen.current = isOpen
+  const setOpen = useCallback(
+    (path: string, open: boolean) =>
+      setToggled((current) => {
+        const map = new Map(current.key === comparisonKey ? current.open : [])
+        map.set(path, open)
+        return { key: comparisonKey, open: map }
+      }),
+    [comparisonKey],
+  )
+  const toggle = useCallback((path: string) => setOpen(path, !latestOpen.current(path)), [setOpen])
+
+  // The stack's scroller and a version that moves whenever its content
+  // resizes, so inline diffs can find where they start.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  const [content, setContent] = useState<HTMLDivElement | null>(null)
+  const [layoutVersion, setLayoutVersion] = useState(0)
   useEffect(() => {
-    if (!manifest || !file) return
-    let cancelled = false
-    const requestId = crypto.randomUUID()
-    void rpc
-      .invoke('scm.diff', {
-        ...wireScope,
-        snapshotId: manifest.id,
-        path: file.path,
-        context: contextLines,
-        requestId,
-      })
-      .then((result) => {
-        if (!cancelled)
-          setPatch({
-            key,
-            text: result.ok ? result.value : '',
-            error: result.ok ? null : result.error.message,
-          })
-      })
-      .catch((error: unknown) => {
-        log.warn('File diff failed', { error: String(error) })
-        if (!cancelled)
-          setPatch({
-            key,
-            text: '',
-            error: 'Could not load this file. Retry or choose another file.',
-          })
-      })
+    const element = content
+    if (!element || typeof ResizeObserver === 'undefined') return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => setLayoutVersion((value) => value + 1))
+    })
+    observer.observe(element)
     return () => {
-      cancelled = true
-      void rpc
-        .invoke('scm.cancel', { requestId })
-        .catch((error: unknown) => log.warn('Diff cancellation failed', { error: String(error) }))
+      cancelAnimationFrame(frame)
+      observer.disconnect()
     }
-  }, [manifest, file?.path, contextLines, retry, rpc, rpc.authorizationEpoch, rpc.availability])
-  const options = [
-    { value: 'working-tree', label: 'Working tree' },
-    { value: 'unstaged', label: 'Unstaged' },
-    { value: 'staged', label: 'Staged' },
-    { value: 'branch', label: remote ? 'Branch changes · unavailable on this host' : 'Branch changes', disabled: remote },
-    ...(scope.sessionId ? [{ value: 'session', label: 'This session' }] : []),
-    ...(context?.turns ?? []).map((turn, index) => ({
-      value: `turn:${turn.turnId}`,
-      label: `Turn ${index + 1}${turn.stable ? '' : ' · unavailable'}`,
-    })),
-    ...(comparison.kind === 'commit'
-      ? [{ value: 'commit', label: `Commit ${comparison.ref.slice(0, 7)}`, disabled: remote }]
-      : []),
-  ]
-  const choice = comparison.kind === 'turn' ? `turn:${comparison.turnId}` : comparison.kind
-  const copyPath = async (path: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(path)
-      setNotice('Path copied')
-    } catch (error) {
-      log.warn('Copy path failed', { error: String(error) })
-      setNotice('Could not copy this path.')
-    }
-  }
-  const selectComparison = (value: string) => {
-    if (remote && (value === 'branch' || value === 'commit')) return
-    setContextLines(3)
-    setSelection([])
-    if (value.startsWith('turn:'))
-      preferences.change({ comparison: { kind: 'turn', turnId: value.slice(5) } })
-    else if (value === 'branch') preferences.change({ comparison: { kind: 'branch' } })
-    else if (
-      value === 'staged' ||
-      value === 'unstaged' ||
-      value === 'working-tree' ||
-      value === 'session'
+  }, [content])
+  // A file picked in the tree opens and scrolls to the top; while its patch
+  // loads the stack may be too short to get there, so it keeps trying briefly.
+  const [reveal, setReveal] = useState<{ path: string; at: number } | null>(null)
+  useEffect(() => {
+    if (!reveal || !scroller || Date.now() - reveal.at > 1500) return
+    const target = [...scroller.querySelectorAll<HTMLElement>('[data-path]')].find(
+      (element) => element.dataset['path'] === reveal.path,
     )
-      preferences.change({ comparison: { kind: value } })
+    if (target) scroller.scrollTop = target.offsetTop
+  }, [reveal, scroller, layoutVersion])
+
+  const patches = useMemo(() => new PatchCache(), [])
+  const changeComparison = (next: GitComparison): void => {
+    if (remote && (next.kind === 'branch' || next.kind === 'commit')) return
+    preferences.change({ comparison: next })
+    onViewChange?.('changes')
   }
-  return (
-    <section className="@container flex h-full min-h-0 flex-col bg-bg" aria-label={label}>
-      {/* The panel's tab row (or the page title) already names this view, so
-          the heading stays for assistive tech and the toolbar leads with the branch. */}
-      <header className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border py-1 pl-4 pr-2">
-        <h2 className="sr-only">{label}</h2>
-        <p className="flex min-w-0 items-center gap-1.5 text-[13px] text-fg-muted">
-          <GitBranch size={14} className="shrink-0 text-fg-subtle" aria-hidden />
-          {/* A managed worktree's path is one hover away, not a second header row. */}
-          <span
-            className="min-w-0 truncate"
-            title={
-              context?.workspace?.kind === 'managed-worktree' ? context.workspace.path : undefined
-            }
-          >
-            {context
-              ? (context.status.branch ?? 'Detached HEAD')
-              : loading
-                ? 'Reading repository…'
-                : 'Repository unavailable'}{' '}
-            ·{' '}
-            {context?.workspace?.kind === 'managed-worktree'
-              ? 'worktree'
-              : scope.sessionId
-                ? 'session'
-                : 'project'}
-          </span>
-          {context?.status.ahead ? (
-            <span className="shrink-0 font-mono text-xs" title="Commits ahead of upstream">
-              ↑{context.status.ahead}
-            </span>
-          ) : null}
-          {context?.status.behind ? (
-            <span className="shrink-0 font-mono text-xs" title="Commits behind upstream">
-              ↓{context.status.behind}
-            </span>
-          ) : null}
-        </p>
-        <div className="flex-1" />
-        <Select
-          aria-label="Compare changes"
-          value={choice}
-          options={options}
-          onValueChange={selectComparison}
-          className="max-w-48"
-        />
-        <button type="button" className={control} aria-label="Refresh changes" onClick={refresh}>
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </header>
-      {comparison.kind === 'branch' ? (
-        <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs text-fg-subtle">
-          Compare from
-          <Select
-            aria-label="Base branch"
-            value={comparison.base ?? ''}
-            options={[
-              { value: '', label: 'Automatic merge base' },
-              ...(context?.refs ?? []).map((ref) => ({ value: ref, label: ref })),
-            ]}
-            onValueChange={(base) =>
-              preferences.change({ comparison: { kind: 'branch', ...(base ? { base } : {}) } })
-            }
-          />
-        </div>
-      ) : null}
-      {error || watchError ? (
-        <div role="alert" className="border-b border-border px-4 py-2.5 text-[13px] text-danger">
-          {error ?? watchError}
-          <button type="button" className="ml-3 underline" onClick={refresh}>
-            Retry
-          </button>
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1 flex-col @[44rem]:flex-row">
-        <ReviewNavigator
-          files={files}
-          selected={file?.path}
-          filter={filter}
-          commits={context?.commits ?? []}
-          onFilter={(filter) => preferences.change({ filter })}
-          onSelect={(path, multiple) => {
-            setSelection(
-              multiple
-                ? paths.includes(path)
-                  ? paths.filter((entry) => entry !== path)
-                  : [...paths, path]
-                : [path],
-            )
-            preferences.change({ path })
-            setContextLines(3)
-          }}
-          selectedPaths={renderControls ? new Set(paths) : undefined}
-          onSelectAll={
-            renderControls
-              ? () => setSelection(files.slice(0, 500).map((file) => file.path))
-              : undefined
+
+  // Stage, unstage and discard from a file row, against the snapshot on screen.
+  const mutations = useGitMutations(scope, refresh, { branch: context?.status.branch ?? null })
+  const shown = manifest?.comparison?.kind ?? comparison.kind
+  const mutable = manifest !== null && ['working-tree', 'unstaged', 'staged'].includes(shown)
+  // Index state wins over the manifest's copy: it is what stage and discard act on.
+  const status = useMemo(
+    () =>
+      new Map(
+        [...allFiles, ...(context?.status.files ?? [])].map((file) => [file.path, file] as const),
+      ),
+    [allFiles, context],
+  )
+  const latest = useRef({ manifest, mutations })
+  latest.current = { manifest, mutations }
+  const onAction = useCallback((action: FileAction, path: string) => {
+    const { manifest, mutations } = latest.current
+    if (!manifest) return
+    if (action === 'discard')
+      mutations.request({
+        kind: 'discard',
+        snapshotId: manifest.id,
+        paths: [path],
+        confirmed: true,
+      })
+    else mutations.request({ kind: action, snapshotId: manifest.id, paths: [path] })
+  }, [])
+  const rangeHandler = useRef(onRange)
+  rangeHandler.current = onRange
+  const stableRange = useCallback(
+    (path: string, comparisonId: string, range: DiffRange) =>
+      rangeHandler.current?.(path, comparisonId, range),
+    [],
+  )
+  const flags = (path: string) => {
+    if (!mutable) return { canStage: false, canUnstage: false, canDiscard: false }
+    const file = status.get(path)
+    const unstaged = Boolean(file?.unstaged)
+    const staged = Boolean(file?.staged)
+    return {
+      canStage: shown !== 'staged' && unstaged,
+      canUnstage: shown === 'staged' ? staged : shown === 'working-tree' && staged && !unstaged,
+      canDiscard: shown !== 'staged' && unstaged,
+    }
+  }
+  const bulk = useMemo(() => {
+    const paths = (key: 'staged' | 'unstaged') =>
+      allFiles
+        .filter((file) => status.get(file.path)?.[key])
+        .slice(0, 500)
+        .map((file) => file.path)
+    return { staged: paths('staged'), unstaged: paths('unstaged') }
+  }, [allFiles, status])
+
+  // Turn labels follow capture order; the menu lists the newest first.
+  const [turnTimes, setTurnTimes] = useState<Record<string, number>>({})
+  const turnIds = context?.turns ?? []
+  const turnLabel = (turnId: string): string => {
+    const index = turnIds.findIndex((turn) => turn.turnId === turnId)
+    return index >= 0 ? `Turn ${index + 1}` : 'Turn'
+  }
+  const turns: ScopeTurn[] = turnIds
+    .map((turn, index) => ({
+      turnId: turn.turnId,
+      label: `Turn ${index + 1}`,
+      stable: turn.stable,
+      ...(turn.error ? { error: turn.error } : {}),
+      ...(turnTimes[turn.turnId] !== undefined ? { when: ago(turnTimes[turn.turnId]!) } : {}),
+    }))
+    .reverse()
+  const loadTurnTimes = (): void => {
+    if (!scope.sessionId || remote || rpc.readOnly) return
+    if (turnIds.every((turn) => turn.turnId in turnTimes)) return
+    void rpc
+      .invoke('session.load', { sessionId: scope.sessionId })
+      .then((model) => setTurnTimes(turnStarts(model)))
+      .catch((error: unknown) => log.debug('Turn times unavailable', { error: String(error) }))
+  }
+
+  const refs = context?.refs ?? []
+  // Once a branch review has loaded, its base label names the ref the engine
+  // actually resolved; before that, the same rule the engine uses.
+  const resolved =
+    manifest?.comparison?.kind === 'branch' && !manifest.comparison.base
+      ? /^Merge base · (.+)$/.exec(manifest.baseLabel)?.[1]
+      : undefined
+  const auto = resolved ?? automaticBase(refs)
+  const scopeLabel = requests
+    ? 'Pull requests'
+    : comparison.kind === 'working-tree'
+      ? 'Working tree'
+      : comparison.kind === 'staged'
+        ? 'Staged'
+        : comparison.kind === 'unstaged'
+          ? 'Unstaged'
+          : comparison.kind === 'branch'
+            ? 'Branch'
+            : comparison.kind === 'session'
+              ? 'This session'
+              : comparison.kind === 'turn'
+                ? turnLabel(comparison.turnId)
+                : `Commit ${comparison.ref.slice(0, 7)}`
+  const hostReason = remote ? 'Branch and commit comparisons are unavailable on this host.' : null
+
+  const toggleClass = (on: boolean) => cx(iconButton, on && iconButtonActive)
+  const header = (
+    <header className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border pl-2 pr-1.5">
+      <h2 className="sr-only">{label}</h2>
+      <ScopeMenu
+        label={scopeLabel}
+        tooltip={
+          manifest && !requests ? `${manifest.baseLabel} → ${manifest.headLabel}` : undefined
+        }
+        comparison={comparison}
+        requests={requests}
+        totals={allFiles.length ? totals : null}
+        sessionScoped={Boolean(scope.sessionId)}
+        branchLabel={`Branch vs ${comparison.kind === 'branch' && comparison.base ? comparison.base : auto}`}
+        turns={turns}
+        commits={(context?.commits ?? []).slice(0, 5)}
+        hostReason={hostReason}
+        requestsReason={administrationReason}
+        bulk={
+          mutable && !requests && manifest
+            ? {
+                stage:
+                  bulk.unstaged.length && shown !== 'staged'
+                    ? () =>
+                        mutations.request({
+                          kind: 'stage',
+                          snapshotId: manifest.id,
+                          paths: bulk.unstaged,
+                        })
+                    : null,
+                unstage:
+                  bulk.staged.length && shown !== 'unstaged'
+                    ? () =>
+                        mutations.request({
+                          kind: 'unstage',
+                          snapshotId: manifest.id,
+                          paths: bulk.staged,
+                        })
+                    : null,
+                reason: mutations.unavailableReason,
+              }
+            : null
+        }
+        onOpen={loadTurnTimes}
+        onComparison={changeComparison}
+        onRequests={() => onViewChange?.('requests')}
+      />
+      {!requests && comparison.kind === 'branch' ? (
+        <BasePicker
+          base={comparison.base}
+          automatic={auto}
+          refs={refs}
+          onBase={(base) =>
+            preferences.change({ comparison: { kind: 'branch', ...(base ? { base } : {}) } })
           }
-          selectedCommit={comparison.kind === 'commit' ? comparison.ref : undefined}
-          commitUnavailableReason={remote ? 'Commit comparisons are unavailable on this host.' : undefined}
-          onCommit={(ref) => {
-            if (remote) return
-            preferences.change({ comparison: { kind: 'commit', ref } })
-            setContextLines(3)
-          }}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {file && manifest ? (
-            <>
-              {/* The file header and the diff toolbar under it share one hairline. */}
-              <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 py-0.5 pl-4 pr-2">
-                <FileDiff size={14} className="mr-1 shrink-0 text-fg-subtle" aria-hidden />
-                <span
-                  className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] truncate font-mono text-[12.5px] text-fg @[44rem]:basis-auto"
-                  title={file.path}
-                >
-                  {file.path}
-                </span>
-                <span className="font-mono text-xs tabular-nums text-success">
-                  +{file.additions}
-                </span>
-                <span className="ml-1 font-mono text-xs tabular-nums text-danger">
-                  −{file.deletions}
-                </span>
-                <label className="ml-3 flex cursor-pointer items-center gap-1.5 text-xs text-fg-muted">
-                  <input
-                    type="checkbox"
-                    aria-label={`Mark ${file.path} viewed`}
-                    checked={viewed.has(file.path)}
-                    onChange={(event) =>
-                      preferences.markViewed(manifest, file, event.target.checked)
-                    }
-                    className="size-3.5 accent-fg"
-                  />
-                  Viewed
-                </label>
-                <span className="mx-1.5 h-4 w-px bg-border" aria-hidden />
-                <button
-                  type="button"
-                  className={control}
-                  aria-label="Previous file"
-                  disabled={files.indexOf(file) <= 0}
-                  onClick={() => {
-                    const next = files[files.indexOf(file) - 1]
-                    if (next) {
-                      preferences.change({ path: next.path })
-                      setContextLines(3)
-                      setSelection([next.path])
-                    }
-                  }}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="font-mono text-xs tabular-nums text-fg-subtle">
-                  {files.indexOf(file) + 1}/{files.length}
-                </span>
-                <button
-                  type="button"
-                  className={control}
-                  aria-label="Next file"
-                  disabled={files.indexOf(file) >= files.length - 1}
-                  onClick={() => {
-                    const next = files[files.indexOf(file) + 1]
-                    if (next) {
-                      preferences.change({ path: next.path })
-                      setContextLines(3)
-                      setSelection([next.path])
-                    }
-                  }}
-                >
-                  <ChevronRight size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={control}
-                  aria-label="Copy file path"
-                  onClick={() => void copyPath(file.path)}
-                >
-                  <Copy size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={control}
-                  aria-label="Expand diff context"
-                  disabled={contextLines >= 1000}
-                  onClick={() => setContextLines((value) => Math.min(1000, value + 40))}
-                >
-                  <UnfoldVertical size={14} />
-                </button>
-              </div>
-              <div className="min-h-0 flex-1">
-                {patch?.key === key ? (
-                  patch.error ? (
-                    <p role="alert" className="px-4 py-3 text-[13px] text-danger">
-                      {patch.error}
-                      <button
-                        type="button"
-                        className="ml-3 underline"
-                        onClick={() => setRetry((value) => value + 1)}
-                      >
-                        Retry file
-                      </button>
-                    </p>
-                  ) : (
-                    <DiffSurface
-                      key={file.path}
-                      diffText={patch.text}
-                      path={file.path}
-                      comparisonId={manifest.id}
-                      scrollOffset={preferences.offset(file.path)}
-                      onScrollOffset={(offset) => preferences.recordScroll(file.path, offset)}
-                      onRange={
-                        onRange ? (range) => onRange(file.path, manifest.id, range) : undefined
-                      }
-                    />
-                  )
-                ) : (
-                  <div role="status" aria-label="Loading file diff" className="space-y-3 p-5">
-                    <span className="sr-only">Loading file diff…</span>
-                    {[70, 90, 50, 80, 65, 85].map((width, index) => (
-                      <div key={index} className="flex gap-4">
-                        <span className="h-2.5 w-7 animate-pulse rounded bg-fg/6" />
-                        <span
-                          className="h-2.5 animate-pulse rounded bg-fg/6"
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : !loading && !error ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-              <Check size={24} className="mb-1 text-fg-subtle" aria-hidden />
-              <h3 className="text-sm font-medium text-fg">Nothing to review here</h3>
-              <p className="max-w-xs text-[13px] leading-relaxed text-fg-subtle">
-                {filter
-                  ? 'No changed files match your search.'
-                  : comparison.kind === 'working-tree'
-                    ? 'Working tree clean. Choose Branch changes or This session to review committed work.'
-                    : 'This comparison has no net changes.'}
-              </p>
-            </div>
-          ) : loading ? (
-            <div role="status" className="space-y-3 p-6">
-              <span className="sr-only">Loading changes…</span>
-              <div className="h-3 w-44 animate-pulse rounded bg-fg/6" />
-              <div className="h-3 w-64 animate-pulse rounded bg-fg/6" />
+      ) : null}
+      {!requests && totals && (totals.additions || totals.deletions) ? (
+        <span className="flex shrink-0 gap-1.5 pl-1 font-mono text-[11px] tabular-nums">
+          {totals.additions ? <span className="text-success">+{totals.additions}</span> : null}
+          {totals.deletions ? <span className="text-danger">−{totals.deletions}</span> : null}
+        </span>
+      ) : null}
+      <div className="min-w-2 flex-1" />
+      {!requests ? (
+        <>
+          {comparison.kind === 'turn' && scope.sessionId ? (
+            <TurnRevert
+              sessionId={scope.sessionId}
+              turnId={comparison.turnId}
+              label={turnLabel(comparison.turnId)}
+              disabledReason={administrationReason}
+              onReverted={() => {
+                preferences.change({ comparison: { kind: 'working-tree' } })
+                refresh()
+              }}
+            />
+          ) : null}
+          <button
+            type="button"
+            aria-label="Split view"
+            title={split ? 'Show diffs in one column' : 'Show diffs side by side'}
+            aria-pressed={split}
+            onClick={() => changeLayout({ split: !split })}
+            className={toggleClass(split)}
+          >
+            <Columns2 size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            aria-label="Wrap lines"
+            title={wrap ? 'Stop wrapping long lines' : 'Wrap long lines'}
+            aria-pressed={wrap}
+            onClick={() => changeLayout({ wrap: !wrap })}
+            className={toggleClass(wrap)}
+          >
+            <TextWrap size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            aria-label="File tree"
+            title={layout.tree ? 'Hide the file tree' : 'Show the file tree'}
+            aria-pressed={layout.tree}
+            onClick={() => changeLayout({ tree: !layout.tree })}
+            className={toggleClass(layout.tree)}
+          >
+            <ListTree size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            aria-label="Refresh changes"
+            title="Refresh"
+            onClick={refresh}
+            className={iconButton}
+          >
+            <RefreshCw size={14} aria-hidden className={loading ? 'animate-spin' : ''} />
+          </button>
+        </>
+      ) : null}
+      {tools}
+    </header>
+  )
+
+  const failure = error ?? watchError
+  const clean =
+    comparison.kind === 'working-tree'
+      ? 'Working tree is clean.'
+      : comparison.kind === 'turn'
+        ? 'No changes in this turn.'
+        : comparison.kind === 'staged'
+          ? 'Nothing is staged.'
+          : 'This comparison has no net changes.'
+  return (
+    <section
+      ref={root}
+      className="@container flex h-full min-h-0 flex-col bg-bg"
+      aria-label={label}
+    >
+      {header}
+      {requests ? (
+        <div className="min-h-0 flex-1">
+          {administrationReason ? (
+            <p role="status" className="p-4 text-[13px] text-fg-muted">
+              {administrationReason}
+            </p>
+          ) : (
+            <ChangeRequests scope={scope} onCheckedOut={onCheckedOut} />
+          )}
+        </div>
+      ) : (
+        <>
+          {failure ? (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2 text-[13px] text-danger"
+            >
+              <span className="min-w-0 flex-1">{failure}</span>
+              <button
+                type="button"
+                className="shrink-0 text-fg-muted underline hover:text-fg"
+                onClick={refresh}
+              >
+                Retry
+              </button>
             </div>
           ) : null}
-        </div>
-      </div>
-      {renderControls?.({ scope, context, manifest, paths, loading, refresh })}
-      <div className="flex h-7 shrink-0 items-center gap-2 border-t border-border px-4 font-mono text-xs text-fg-subtle">
-        <span className="truncate">
-          {manifest?.baseLabel ?? '—'} → {manifest?.headLabel ?? '—'}
-        </span>
-        <div className="flex-1" />
-        {notice ? <span role="status">{notice}</span> : null}
-        {manifest?.truncated ? <span className="text-warning">File list truncated</span> : null}
-        {manifest && viewed.size ? (
-          <span>
-            {viewed.size}/{manifest.files.length} viewed
-          </span>
-        ) : null}
-      </div>
+          {mutations.error ? (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2 text-[13px] text-danger"
+            >
+              <span className="min-w-0 flex-1">{mutations.error}</span>
+              <button
+                type="button"
+                className="shrink-0 text-fg-muted underline hover:text-fg"
+                onClick={mutations.dismiss}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col @[44rem]:flex-row">
+            {layout.tree && allFiles.length ? (
+              <aside
+                aria-label="File tree"
+                className="flex max-h-[40%] w-full shrink-0 flex-col border-b border-border @[44rem]:max-h-none @[44rem]:w-72 @[44rem]:border-b-0 @[44rem]:border-r"
+              >
+                <label className="mx-2 mb-1 mt-2 flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface-1 px-2 transition-colors focus-within:border-border-strong focus-within:ring-2 focus-within:ring-accent-ring hover:border-border-strong">
+                  <Search size={14} className="shrink-0 text-fg-subtle" aria-hidden />
+                  <input
+                    aria-label="Filter changed files"
+                    value={filter}
+                    onChange={(event) => preferences.change({ filter: event.target.value })}
+                    maxLength={256}
+                    placeholder="Filter files…"
+                    className="h-7 min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle"
+                  />
+                </label>
+                <ChangedFiles
+                  files={files}
+                  selected={reveal?.path}
+                  tree={!filter}
+                  onSelect={(path) => {
+                    setOpen(path, true)
+                    setReveal({ path, at: Date.now() })
+                  }}
+                />
+              </aside>
+            ) : null}
+            <div
+              ref={setScroller}
+              className="ari-scroll relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+            >
+              {manifest && files.length ? (
+                <div ref={setContent}>
+                  {files.map((file, index) => {
+                    const open = isOpen(file.path)
+                    return (
+                      <FileSection
+                        key={file.path}
+                        rpc={rpc}
+                        scope={scope}
+                        manifest={manifest}
+                        file={file}
+                        open={open}
+                        first={index === 0}
+                        {...flags(file.path)}
+                        actionsReason={
+                          mutations.unavailableReason ?? (mutations.busy ? 'Working…' : null)
+                        }
+                        dragKey={dragKey}
+                        split={split}
+                        wrap={wrap}
+                        scroller={scroller}
+                        layoutVersion={open ? layoutVersion : 0}
+                        cache={patches}
+                        onToggle={toggle}
+                        onAction={onAction}
+                        onRange={onRange ? stableRange : undefined}
+                      />
+                    )
+                  })}
+                  {manifest.truncated ? (
+                    <p className="border-t border-border px-3 py-2 text-xs text-fg-subtle">
+                      Showing the first {manifest.files.length} changed files.
+                    </p>
+                  ) : null}
+                </div>
+              ) : manifest && allFiles.length ? (
+                <p className="flex h-full items-center justify-center p-8 text-center text-[13px] text-fg-subtle">
+                  No changed files match this filter.
+                </p>
+              ) : manifest ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2.5 p-8 text-center text-[13px] text-fg-subtle">
+                  <p>{clean}</p>
+                  {scope.sessionId && comparison.kind === 'working-tree' ? (
+                    <button
+                      type="button"
+                      onClick={() => changeComparison({ kind: 'session' })}
+                      className="h-7 rounded-md bg-fg/5 px-2.5 text-[12.5px] text-fg transition-colors hover:bg-fg/9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      Show this session's changes
+                    </button>
+                  ) : null}
+                </div>
+              ) : loading ? (
+                <div role="status" aria-label="Loading changes">
+                  {[46, 62, 38, 54].map((width, index) => (
+                    <div
+                      key={width}
+                      className={cx(
+                        'flex h-8 items-center gap-2 px-2',
+                        index > 0 && 'border-t border-border',
+                      )}
+                    >
+                      <span className="size-3.5 shrink-0" />
+                      <span className="size-1.5 shrink-0 rounded-full bg-fg/10" />
+                      <span
+                        className="h-2.5 animate-pulse rounded bg-fg/6"
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </>
+      )}
+      {mutations.dialog}
     </section>
   )
 }
