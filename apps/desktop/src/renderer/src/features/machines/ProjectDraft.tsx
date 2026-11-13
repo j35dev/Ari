@@ -7,6 +7,7 @@ import type { RemoteModelCatalog, RemoteProjectWorkspaces } from '@ari/contracts
 import type { SessionScope } from '../session/session-client'
 import { Composer, type ComposerSeed } from '../composer/Composer'
 import { readSessionDraftIntent } from '../composer/draft-recovery-store'
+import type { LastPick } from '../composer/last-pick'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ComposerDock } from '../session/ComposerDock'
 import { DitherScene } from '../scene/DitherScene'
@@ -104,6 +105,7 @@ export function ProjectDraft({
   refreshHosts,
   autoReady = true,
   onRememberHost,
+  onPick,
   onCreated,
   onClose,
 }: {
@@ -118,6 +120,8 @@ export function ProjectDraft({
   clientFor: (hostId: string) => ProjectDraftClient
   defaultFor: (hostId: string, projectId: string) => ProjectAgent | null
   onRememberHost: (hostId: string) => void
+  /** A model or reasoning level chosen here becomes the next session's start. */
+  onPick?: (change: Partial<LastPick>) => void
   onCreated: (scope: SessionScope, seed?: ComposerSeed) => void
   onClose: () => void
 }) {
@@ -236,6 +240,12 @@ export function ProjectDraft({
           : modes.length > 0 && !modes.some((mode) => mode.ariMode === pick.permissionMode)
             ? 'The saved permission mode is unavailable on this host.'
             : null
+
+  // Only This PC's picks are remembered, as in a session: a remote host's
+  // models are not this machine's preference.
+  const rememberPick = (change: Partial<LastPick>) => {
+    if (selection.hostId === 'local') onPick?.(change)
+  }
 
   const chooseAuto = useCallback(() => {
     const generation = ++autoGeneration.current
@@ -561,12 +571,29 @@ export function ProjectDraft({
                 hostCatalog={catalog}
                 disabled={attempt !== null || pending}
                 onChange={(next) => {
-                  if (!attemptRef.current)
-                    setPick({
-                      ...next,
-                      effort: null,
-                      permissionMode: catalog?.defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE,
-                    })
+                  if (attemptRef.current) return
+                  // The reasoning level carries over within one agent, as in a
+                  // session, when the new model offers it; another agent starts over.
+                  const nextProvider = catalog?.providers.find(
+                    (row) => row.driverKind === next.driverKind,
+                  )
+                  const nextModel = nextProvider?.models.find(
+                    (row) => row.id === next.modelId || row.aliases?.includes(next.modelId ?? ''),
+                  )
+                  const kept =
+                    next.driverKind === pick?.driverKind &&
+                    pick.effort !== null &&
+                    (nextModel?.efforts ?? nextProvider?.efforts ?? []).some(
+                      (effort) => effort.id === pick.effort,
+                    )
+                      ? pick.effort
+                      : null
+                  setPick({
+                    ...next,
+                    effort: kept,
+                    permissionMode: catalog?.defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE,
+                  })
+                  rememberPick({ ...next, effort: kept })
                 }}
               />
               {pick && (
@@ -574,7 +601,10 @@ export function ProjectDraft({
                   label="Reasoning effort"
                   disabled={attempt !== null || pending}
                   value={pick.effort ?? ''}
-                  onChange={(value) => setPick({ ...pick, effort: value || null })}
+                  onChange={(value) => {
+                    setPick({ ...pick, effort: value || null })
+                    rememberPick({ effort: value || null })
+                  }}
                   options={[
                     // The spacer keeps this row's label in line with the ones that carry bars.
                     { value: '', label: 'Agent default', mark: <span className="size-[15px]" /> },

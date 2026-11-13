@@ -63,6 +63,44 @@ describe('project draft with normal Composer', () => {
     expect(rpc.invoke).not.toHaveBeenCalledWith('providers.detect')
     expect(rpc.invoke.mock.calls.some(([method]) => String(method).startsWith('endpoints.'))).toBe(false)
   })
+  it('remembers the reasoning level chosen on This PC, and not one chosen on another machine', async () => {
+    const user = userEvent.setup()
+    const onPick = vi.fn()
+    const view = render(<ProjectDraft {...props} onPick={onPick} />)
+    await screen.findByRole('button', { name: 'Project workspace' })
+    await user.click(screen.getByRole('button', { name: /Reasoning effort/ }))
+    await user.click(await screen.findByRole('option', { name: /Agent default/ }))
+    expect(onPick).toHaveBeenLastCalledWith({ effort: null })
+    await user.click(screen.getByRole('button', { name: /Reasoning effort/ }))
+    await user.click(await screen.findByRole('option', { name: /High/ }))
+    expect(onPick).toHaveBeenLastCalledWith({ effort: 'high' })
+    view.unmount(); onPick.mockClear(); localStorage.clear()
+    render(<ProjectDraft {...props} initialHostId="host-a" onPick={onPick} />)
+    await screen.findByRole('button', { name: 'Project workspace' })
+    await user.click(screen.getByRole('button', { name: /Reasoning effort/ }))
+    await user.click(await screen.findByRole('option', { name: /Agent default/ }))
+    expect(onPick).not.toHaveBeenCalled()
+  })
+  it('keeps the reasoning level when the model changes within one agent', async () => {
+    const catalog = remoteModelCatalogSchema.parse({
+      ...catalogFixture,
+      providers: [{ ...catalogFixture.providers[0]!, models: [
+        ...catalogFixture.providers[0]!.models,
+        { id: 'gpt-6.1-mini', label: 'GPT 6.1 Mini', efforts: [{ id: 'high', label: 'High' }] },
+      ] }],
+    })
+    client.catalog = vi.fn(async () => catalog)
+    const user = userEvent.setup()
+    const onPick = vi.fn()
+    render(<ProjectDraft {...props} onPick={onPick} />)
+    await screen.findByRole('button', { name: 'Project workspace' })
+    expect(screen.getByRole('button', { name: /Reasoning effort/ })).toHaveTextContent('High')
+    await user.click(screen.getByRole('textbox', { name: 'Message' }))
+    await user.click(screen.getByRole('button', { name: /^Model:/ }))
+    await user.click(await screen.findByRole('option', { name: /GPT 6.1 Mini/ }))
+    expect(onPick).toHaveBeenLastCalledWith({ driverKind: 'codex', modelId: 'gpt-6.1-mini', effort: 'high' })
+    expect(screen.getByRole('button', { name: /Reasoning effort/ })).toHaveTextContent('High')
+  })
   it('leaves Auto stable through resource refresh and recomputes only when reselected', async () => {
     const user = userEvent.setup()
     props.hosts = [host('host-a', 0.1), host('host-b', 0.5)]
