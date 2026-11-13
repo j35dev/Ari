@@ -61,6 +61,7 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds, parentOf } from './features/session/session-tree'
+import { LINK_FAILED_EVENT } from './lib/external-links'
 import { BrowserPanel } from './features/browser/BrowserPanel'
 import { deleteSessionDraftIntent } from './features/composer/draft-recovery-store'
 import { deleteSessionDraftText } from './features/composer/use-drafts'
@@ -524,6 +525,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
 
   const { toast } = useToast()
+  // A link in the chat that could not be opened says why, where the click was.
+  useEffect(() => {
+    const onFailed = (event: Event): void => {
+      const reason =
+        event instanceof CustomEvent && typeof event.detail === 'string' ? event.detail : ''
+      toast({ tone: 'danger', title: 'Couldn’t open that file', description: reason })
+    }
+    window.addEventListener(LINK_FAILED_EVENT, onFailed)
+    return () => window.removeEventListener(LINK_FAILED_EVENT, onFailed)
+  }, [toast])
 
   /**
    * Splits the pane the user is in — what `Mod+\`, `Mod+Shift+\` and the
