@@ -1,4 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { resetSessionOrderCache } from '../features/session/session-order'
+import { SESSION_MIME } from '../features/split/drag-split'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -466,6 +468,55 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Archived' }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
+  })
+
+  it('rearranges Sessions cards by dragging one onto another, and keeps the order', () => {
+    localStorage.clear()
+    resetSessionOrderCache()
+    localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, 'sessions')
+    const list = [session('a', 0, 'proj-1'), session('b', 1, 'proj-1'), session('c', 2, 'proj-1')]
+    const props = {
+      projects,
+      activeSessionId: null,
+      onSelect: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+      onTogglePin: () => {},
+      onToggleArchive: () => {},
+    }
+    const { rerender } = render(<SessionsUnderProjects {...props} sessions={list} />)
+    const order = () =>
+      within(screen.getByRole('region', { name: 'Active' }))
+        .getAllByRole('listitem')
+        .map((item) => /Session (\w)/.exec(item.textContent ?? '')?.[1])
+    expect(order()).toEqual(['a', 'b', 'c'])
+    const card = (id: string) =>
+      within(screen.getByRole('region', { name: 'Active' }))
+        .getAllByRole('listitem')
+        .find((item) => item.textContent?.includes(`Session ${id}`))!
+    const dataTransfer = {
+      types: [SESSION_MIME],
+      dropEffect: 'none',
+      effectAllowed: 'move',
+      setData: () => {},
+      getData: () => 'a',
+      setDragImage: () => {},
+    }
+    // Drag the newest card below the oldest (jsdom boxes are empty, so the drop
+    // lands in the lower half: "after").
+    fireEvent.dragStart(within(card('a')).getAllByRole('button')[0]!, { dataTransfer })
+    fireEvent.dragOver(card('c'), { dataTransfer })
+    expect(card('c').querySelector('[data-drop-indicator="after"]')).not.toBeNull()
+    fireEvent.drop(card('c'), { dataTransfer })
+    expect(order()).toEqual(['b', 'c', 'a'])
+    // New activity on `a` would make it newest again; the arrangement holds.
+    rerender(
+      <SessionsUnderProjects
+        {...props}
+        sessions={[{ ...session('a', 0, 'proj-1'), updatedAt: Date.now() + 1000 }, list[1]!, list[2]!]}
+      />,
+    )
+    expect(order()).toEqual(['b', 'c', 'a'])
   })
 
   it('renders inbox cards with project, status, branch and provider', async () => {

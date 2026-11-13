@@ -2,6 +2,7 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import { sessionTree } from './session-tree'
 import { collapsedSessions } from '../../shell/use-session-collapse'
 import { visibleProjects, visibleSessions } from '../aria/visibility'
+import { applySessionOrder, readSessionOrder } from './session-order'
 
 /**
  * The ad-hoc project id, doubling as the sidebar's Unfiled group: it collects
@@ -104,7 +105,10 @@ export interface SessionInboxSplit {
  * parent's thread rather than appearing as separate sidebar rows. Archived
  * sessions never enter this split.
  */
-export function inboxSplit(sessions: SessionSummary[]): SessionInboxSplit {
+export function inboxSplit(
+  sessions: SessionSummary[],
+  order: readonly string[] = readSessionOrder(),
+): SessionInboxSplit {
   const pinned: SessionSummary[] = []
   const active: SessionSummary[] = []
   for (const session of visibleSessions(sessions)) {
@@ -114,7 +118,8 @@ export function inboxSplit(sessions: SessionSummary[]): SessionInboxSplit {
   }
   pinned.sort(byRecency)
   active.sort(byRecency)
-  return { pinned, active }
+  // Cards the user dragged keep their place; new ones lead by recency.
+  return { pinned: applySessionOrder(pinned, order), active: applySessionOrder(active, order) }
 }
 
 /**

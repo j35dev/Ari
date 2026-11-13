@@ -38,7 +38,8 @@ import {
 } from '../features/session/session-activity'
 import { driverLabel } from '../features/composer/agent-mark'
 import { ProviderLogo } from '../features/composer/provider-logo'
-import { setDragSession } from '../features/split/drag-split'
+import { hasDragType, SESSION_MIME, setDragSession } from '../features/split/drag-split'
+import { moveSession, sessionDrag, useSessionOrder } from '../features/session/session-order'
 import type { PaneEdge } from '../features/split/split-layout'
 import { cx, iconButton, rowAction, rowSelected, sectionLabel } from '../lib/recipes'
 import { ContextMark } from './ContextMark'
@@ -520,7 +521,16 @@ function SessionRow({
         // the session, so nothing about this list has to know about panes.
         // Select mode owns the click, so the row is not a drag source then.
         draggable={!selecting}
-        onDragStart={selecting ? undefined : (e) => setDragSession(e, session.id, session.title)}
+        onDragStart={
+          selecting
+            ? undefined
+            : (e) => {
+                setDragSession(e, session.id, session.title)
+                // Read by the Sessions view's cards to reorder on drop.
+                sessionDrag.start(session.id)
+              }
+        }
+        onDragEnd={() => sessionDrag.end()}
         onClick={(e) => {
           if (selecting) {
             onToggleSelect?.(session.id, e.shiftKey)
@@ -767,6 +777,7 @@ function SessionList({
   variant = 'compact',
   flat = false,
   activityScope,
+  onReorder,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
@@ -782,8 +793,26 @@ function SessionList({
    * is just the cards on screen.
    */
   activityScope?: readonly SessionSummary[]
+  /**
+   * Drag-to-rearrange for the Sessions view: a card dropped on another moves
+   * before or after it. The same drag still opens a session in a pane.
+   */
+  onReorder?: (draggedId: string, targetId: string, place: 'before' | 'after') => void
 }) {
   const { collapsed, toggle } = useSessionCollapse()
+  const [dropAt, setDropAt] = useState<{ id: string; place: 'before' | 'after' } | null>(null)
+  // A drag that ends anywhere else (Escape, a pane, outside) takes its line along.
+  const canReorder = onReorder !== undefined
+  useEffect(() => {
+    if (!canReorder) return
+    const clear = () => setDropAt(null)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [canReorder])
   const scope = activityScope ?? sessions
   const rows = flat
     ? sessions.map((session) => ({
@@ -800,8 +829,56 @@ function SessionList({
         const rowVariant =
           variant === 'card' && (flat || lastAtDepth.length === 0) ? 'card' : 'compact'
         const foldable = childCount > 0 && !searching && !flat
+        // Only a card from this same list is a reorder; anything else (another
+        // section, a pane header) passes through untouched.
+        const reorderable = (event: React.DragEvent<HTMLElement>) =>
+          onReorder !== undefined &&
+          hasDragType(event, SESSION_MIME) &&
+          sessionDrag.current !== null &&
+          sessionDrag.current !== s.id &&
+          rows.some((row) => row.session.id === sessionDrag.current)
         return (
-          <motion.li key={s.id} {...LIST_LAYOUT} layoutDependency={order}>
+          <motion.li
+            key={s.id}
+            {...LIST_LAYOUT}
+            layoutDependency={order}
+            className="relative"
+            onDragOver={(event) => {
+              if (!reorderable(event)) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              const box = event.currentTarget.getBoundingClientRect()
+              const place = event.clientY < box.top + box.height / 2 ? 'before' : 'after'
+              if (dropAt?.id !== s.id || dropAt.place !== place) setDropAt({ id: s.id, place })
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                setDropAt((at) => (at?.id === s.id ? null : at))
+            }}
+            onDrop={(event) => {
+              const dragged = sessionDrag.current
+              if (!reorderable(event) || dragged === null) return
+              event.preventDefault()
+              const box = event.currentTarget.getBoundingClientRect()
+              onReorder?.(
+                dragged,
+                s.id,
+                event.clientY < box.top + box.height / 2 ? 'before' : 'after',
+              )
+              setDropAt(null)
+              sessionDrag.end()
+            }}
+          >
+            {dropAt?.id === s.id ? (
+              <span
+                aria-hidden
+                data-drop-indicator={dropAt.place}
+                className={cx(
+                  'pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent',
+                  dropAt.place === 'before' ? '-top-px' : '-bottom-px',
+                )}
+              />
+            ) : null}
             <SessionRow
               session={s}
               startedByAria={handlers.startedByAria?.(s.id)}
@@ -1672,7 +1749,22 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     () => [...sessions].filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
-  const inbox = useMemo(() => (view === 'sessions' ? inboxSplit(sessions) : null), [sessions, view])
+  const sessionOrder = useSessionOrder()
+  const inbox = useMemo(
+    () => (view === 'sessions' ? inboxSplit(sessions, sessionOrder) : null),
+    [sessions, view, sessionOrder],
+  )
+  // Select mode owns the click and the drag; reordering waits until it ends.
+  const reorderIn = (section: SessionSummary[]) =>
+    handlers.selecting
+      ? undefined
+      : (dragged: string, target: string, place: 'before' | 'after') =>
+          moveSession(
+            section.map((session) => session.id),
+            dragged,
+            target,
+            place,
+          )
   // Live sessions, including children that are not drawn as their own cards,
   // so a root card can still chase while a child agent is the one running.
   const liveSessions = useMemo(() => sessions.filter((session) => !session.archived), [sessions])
@@ -1737,6 +1829,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
                   projectNameOf={projectNameOf}
                   handlers={handlers}
                   variant="card"
+                  onReorder={reorderIn(inbox.pinned)}
                 />
               </section>
             ) : null}
@@ -1749,6 +1842,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
                   projectNameOf={projectNameOf}
                   handlers={handlers}
                   variant="card"
+                  onReorder={reorderIn(inbox.active)}
                 />
               </section>
             ) : null}
