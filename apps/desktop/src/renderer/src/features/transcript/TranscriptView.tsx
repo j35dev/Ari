@@ -10,7 +10,6 @@ import {
   useState,
   type WheelEvent,
 } from 'react'
-import { flushSync } from 'react-dom'
 import { ArrowDown, Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
@@ -26,7 +25,6 @@ import { NoticeNote } from './NoticeNote'
 import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import type { TurnDiffValue } from './types'
-import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
 import { insertDelegationRows } from './delegation-rows'
 import { insertProviderSwitchRows } from './provider-switch-rows'
@@ -87,15 +85,6 @@ function estimateUncached(row: TranscriptRow): number {
 function isAgentWake(message: Message): boolean {
   const kind = message.origin?.kind
   return kind === 'completion' || kind === 'question' || kind === 'coordination'
-}
-
-/** Hover preview text for a rail entry: prompt text, or image filenames. */
-function railText(row: TranscriptRow): string {
-  if (row.kind === 'image') {
-    return row.images?.map((image) => image.name).join(', ') || 'attached image'
-  }
-  if (row.kind === 'markdown') return row.text ?? ''
-  return ''
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -249,33 +238,6 @@ export function TranscriptView({
   const historyLoadedRef = useRef(false)
   const [, settleEntrance] = useReducer((count: number) => count + 1, 0)
 
-  // Message rail (T3 minimap): one entry per user bubble row, with its row
-  // index for jump-scrolling. Image-only prompts have no markdown row, so
-  // their thumbnail row carries the entry instead. Hidden until two prompts
-  // exist to navigate.
-  const railRef = useRef<MessageRailEntry[]>([])
-  const railEntries = useMemo<MessageRailEntry[]>(() => {
-    const next = rows
-      .map((row, index) => ({ row, index }))
-      .filter(
-        ({ row }) =>
-          (row.kind === 'markdown' || row.kind === 'image') &&
-          row.role === 'user' &&
-          // A delegation update is Ari reporting back, not a prompt to jump to.
-          row.origin?.kind !== 'completion',
-      )
-      .map(({ row, index }) => ({ key: String(index), text: railText(row) }))
-    // The rail only changes when a prompt is added; keep the array stable
-    // through the streaming flushes in between.
-    const before = railRef.current
-    const same =
-      before.length === next.length &&
-      next.every((entry, i) => entry.key === before[i]?.key && entry.text === before[i]?.text)
-    if (!same) railRef.current = next
-    return railRef.current
-  }, [rows])
-  const [activeRailKey, setActiveRailKey] = useState<string | null>(null)
-
   // Regenerate (M19.4) attaches to the newest assistant message only, so the
   // control reads as "redo this answer", not mid-history rewriting.
   const lastAssistantMessageId = useMemo(() => {
@@ -301,70 +263,10 @@ export function TranscriptView({
     return map
   }, [messages])
 
-  // Rail rows are looked up once per rail change, not per scroll event.
-  const railNodesRef = useRef<{ entries: MessageRailEntry[]; nodes: (HTMLElement | null)[] }>({
-    entries: [],
-    nodes: [],
-  })
-  const updateActiveRailKey = useCallback((): void => {
-    const el = scrollRef.current
-    if (el === null || railEntries.length < 2) return
-    const cache = railNodesRef.current
-    if (cache.entries !== railEntries || cache.nodes.some((node) => node?.isConnected === false)) {
-      cache.entries = railEntries
-      cache.nodes = railEntries.map(({ key }) => {
-        const node = el.querySelector(`[data-index="${key}"]`)
-        return node instanceof HTMLElement ? node : null
-      })
-    }
-    const anchor = el.scrollTop + el.clientHeight * 0.25
-    // Prompts sit in document order, so the active one is found by bisection.
-    let low = 0
-    let high = cache.nodes.length - 1
-    let active: string | null = null
-    while (low <= high) {
-      const mid = (low + high) >> 1
-      const node = cache.nodes[mid]
-      if (node != null && node.offsetTop > anchor) {
-        high = mid - 1
-      } else {
-        if (node != null) active = railEntries[mid]?.key ?? null
-        low = mid + 1
-      }
-    }
-    setActiveRailKey((prev) => (prev === active ? prev : active))
-  }, [railEntries])
-  const railFrameRef = useRef<number | null>(null)
-  useEffect(
-    () => () => {
-      if (railFrameRef.current !== null) cancelAnimationFrame(railFrameRef.current)
-    },
-    [],
-  )
-
   const lazyRows = useLazyRows(scrollRef, rows, sessionId, (index) => {
     const row = rows[index]
     return row === undefined ? 0 : estimateRowSize(row)
   })
-  const rowsRef = useRef(rows)
-  rowsRef.current = rows
-  const mountRow = lazyRows.mount
-
-  const handleRailJump = useCallback(
-    (key: string) => {
-      const target = rowsRef.current[Number(key)]
-      // A row still held as a placeholder mounts first, so the jump lands on
-      // its real top rather than its estimate.
-      if (target !== undefined) flushSync(() => mountRow(target.key))
-      const scroller = scrollRef.current
-      const node = scroller?.querySelector(`[data-index="${key}"]`)
-      if (!scroller || !(node instanceof HTMLElement)) return
-      atBottomRef.current = false
-      setAtBottom(false)
-      scroller.scrollTo({ top: Math.max(0, node.offsetTop - 12), left: 0, behavior: 'smooth' })
-    },
-    [mountRow],
-  )
 
   const hasWorking = Boolean(working)
   // Only a turn seen running here may announce that it finished.
@@ -506,13 +408,6 @@ export function TranscriptView({
     atBottomRef.current = pinned
     readingAtRef.current = pinned ? null : { sessionId, top: el.scrollTop }
     setAtBottom(pinned)
-    // The rail reads row offsets: once per frame however many events fire.
-    if (railFrameRef.current === null && railEntries.length >= 2) {
-      railFrameRef.current = requestAnimationFrame(() => {
-        railFrameRef.current = null
-        updateActiveRailKey()
-      })
-    }
   }
 
   // Rows that arrive after the transcript has loaded announce themselves; the
@@ -646,10 +541,6 @@ export function TranscriptView({
           <ArrowDown size={14} aria-hidden="true" />
           Jump to latest
         </button>
-      ) : null}
-
-      {railEntries.length >= 2 ? (
-        <MessageRail entries={railEntries} activeKey={activeRailKey} onJump={handleRailJump} />
       ) : null}
     </div>
   )

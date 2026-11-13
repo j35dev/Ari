@@ -171,7 +171,6 @@ describe('TranscriptView delegation', () => {
     expect(screen.queryByText(/coordination inbox notice/)).not.toBeInTheDocument()
     expect(screen.getByText('hello a')).toBeInTheDocument()
     expect(screen.getByText('hello b')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^Jump to/ })).toHaveLength(2)
   })
 
   it('names the session a relayed message came from and offers no edit', async () => {
@@ -327,31 +326,6 @@ describe('TranscriptView loading state', () => {
     Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
     fireEvent.scroll(scroller!)
     expect(screen.queryByRole('button', { name: /Jump to latest/ })).not.toBeInTheDocument()
-  })
-
-  it('updates the message rail at most once per frame while scrolling', () => {
-    const frames: FrameRequestCallback[] = []
-    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-      frames.push(callback)
-      return frames.length
-    })
-    try {
-      const { container } = render(
-        createElement(TranscriptView, {
-          sessionId: 'sess_1',
-          messages: [message('m1'), message('m2'), message('m3')],
-        }),
-      )
-      const scroller = container.querySelector('[aria-label="Conversation transcript"]')
-      Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 400 })
-      frames.length = 0
-      fireEvent.scroll(scroller!)
-      fireEvent.scroll(scroller!)
-      fireEvent.scroll(scroller!)
-      expect(frames).toHaveLength(1)
-    } finally {
-      raf.mockRestore()
-    }
   })
 
   it('returns a kept-alive view to where the reader left off', () => {
@@ -924,18 +898,6 @@ describe('TranscriptView progressive mount', () => {
         createElement(TranscriptView, { sessionId: 'sess_1', messages: history(20) }),
       )
       expect(container.querySelector('[data-lazy-row]')).toBeNull()
-    } finally {
-      io.restore()
-    }
-  })
-
-  it('mounts a placeholder row before the rail jumps to it', () => {
-    const io = stubObserver()
-    try {
-      render(createElement(TranscriptView, { sessionId: 'sess_1', messages: history(300) }))
-      expect(screen.queryByText('hello h0')).not.toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Jump to message: hello h0' }))
-      expect(screen.getByText('hello h0')).toBeInTheDocument()
     } finally {
       io.restore()
     }
