@@ -1258,7 +1258,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             initialHostId,
             lead,
           }
-      const next = [...projectDrafts.filter((draft) => draft.id !== entry.id), entry]
+      // One draft per pane: earlier drafts here are parked, as Close draft does.
+      // A second owner made the send refuse the pane and fall back to a stale draft.
+      const next = [
+        ...projectDrafts
+          .filter((draft) => draft.id !== entry.id)
+          .map((draft) =>
+            draft.spaceId === currentSpace && draft.paneId === paneId
+              ? { ...draft, paneId: `parked:${draft.id}` }
+              : draft,
+          ),
+        entry,
+      ]
       try {
         writeProjectDrafts(next)
       } catch {
