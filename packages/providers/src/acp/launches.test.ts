@@ -135,7 +135,8 @@ describe('resolveAcpLaunch', () => {
     expect(opencode).toEqual({
       label: 'opencode (native ACP)',
       command: '/usr/bin/opencode',
-      args: ['acp'],
+      // Error logs on stderr carry OpenCode's usage-limit failure (fatal-stderr.ts).
+      args: ['acp', '--print-logs', '--log-level', 'ERROR'],
     })
     const hermes = resolveAcpLaunch('hermes', { cliBinaryPath: '/usr/bin/hermes' }, ENV)
     expect(hermes?.args).toEqual(['acp'])

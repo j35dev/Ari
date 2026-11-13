@@ -59,7 +59,9 @@ export function acpAdapterSpec(
 
 /** Kinds whose own binary speaks ACP given these arguments. */
 const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
-  opencode: ['acp'],
+  // Error-level logs on stderr: OpenCode reports an exhausted usage limit only
+  // there, then retries in silence over ACP (see `fatal-stderr.ts`).
+  opencode: ['acp', '--print-logs', '--log-level', 'ERROR'],
   hermes: ['acp'],
   grok: ['agent', 'stdio'],
 }

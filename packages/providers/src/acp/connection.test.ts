@@ -150,6 +150,53 @@ describe('AcpConnection', () => {
     }
   })
 
+  it('fails a prompt at once when the agent logs an exhausted usage limit', async () => {
+    const child = fakeChild()
+    // OpenCode: the prompt is never answered, it retries quietly, and the
+    // reason only reaches stderr.
+    script(child, (method, params, id) =>
+      method === 'session/prompt' ? NO_REPLY : STANDARD_AGENT(method, params, id),
+    )
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
+    try {
+      const prompt = connection.prompt('sess_9', 'hi', { stallSilenceMs: 60_000 })
+      await drain()
+      const line =
+        'timestamp=2026-11-13T08:26:38.683Z level=ERROR run=14f93b49 message="stream error" providerID=opencode modelID=deepseek-v4.1-flash-free agent=build error.error="AI_APICallError: Free usage limit reached. Subscribe to OpenCode Go to keep going: https://opencode.ai/go"\n'
+      // Split across chunks, as a pipe may deliver it.
+      child.stderr.write(line.slice(0, 60))
+      child.stderr.write(line.slice(60))
+      await expect(prompt).rejects.toThrow(
+        'Free usage limit reached. Subscribe to OpenCode Go to keep going: https://opencode.ai/go',
+      )
+      await drain()
+      expect(child.sent).toContainEqual(
+        expect.objectContaining({ method: 'session/cancel', params: { sessionId: 'sess_9' } }),
+      )
+    } finally {
+      await connection.shutdown()
+    }
+  })
+
+  it("names the agent's last error when a silent prompt stalls", async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) =>
+      method === 'session/prompt' ? NO_REPLY : STANDARD_AGENT(method, params, id),
+    )
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
+    try {
+      const prompt = connection.prompt('sess_9', 'hi', { stallSilenceMs: 120 })
+      child.stderr.write(
+        'level=ERROR service=provider message="request failed" error="upstream returned 503"\n',
+      )
+      await expect(prompt).rejects.toThrow(
+        'The agent stopped responding. Its last error: upstream returned 503',
+      )
+    } finally {
+      await connection.shutdown()
+    }
+  })
+
   it('reads namespaced billing extensions through the response multiplexer', async () => {
     const child = fakeChild()
     script(child, (method, params, id) =>
