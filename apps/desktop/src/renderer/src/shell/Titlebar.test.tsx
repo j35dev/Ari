@@ -14,36 +14,37 @@ afterEach(() => {
 })
 
 describe('Titlebar workspace tools', () => {
-  it('places the panels a session can dock in the titlebar', () => {
-    render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
-    expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
+  it('offers one toggle for the docked panel, not a button per tool', () => {
+    render(<Titlebar onTogglePanel={() => undefined} />)
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    expect(nav.querySelectorAll('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Open panel' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    // The panel's own tabs choose between these; the titlebar no longer does.
     for (const label of ['Review changes', 'Files', 'Terminal', 'Browser']) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
     }
     // Usage and settings are app destinations: they live in the sidebar footer.
     expect(screen.queryByRole('button', { name: 'Usage' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument()
-    // Git actions and pull requests live in the one Git control, not as extra tools.
-    expect(screen.queryByRole('button', { name: 'Source control' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'PRs & issues' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
-  it('badges Review changes with the working-tree file count', () => {
-    render(<Titlebar activeTool="changes" changeCount={3} onSelectTool={() => undefined} />)
-    expect(screen.getByRole('button', { name: 'Review changes, 3 files changed' })).toHaveAttribute(
+  it('marks the toggle while the panel is open and omits it when it has no handler', () => {
+    const { rerender } = render(<Titlebar panelOpen onTogglePanel={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Close panel' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
-    expect(screen.getByText('3')).toBeInTheDocument()
+    rerender(<Titlebar />)
+    expect(screen.queryByRole('navigation', { name: 'Workspace' })).not.toBeInTheDocument()
   })
 
   it('renders the Git control it is given beside the tools', () => {
     render(
       <Titlebar
-        onSelectTool={() => undefined}
+        onTogglePanel={() => undefined}
         git={<button type="button">Commit &amp; push</button>}
       />,
     )
@@ -53,7 +54,7 @@ describe('Titlebar workspace tools', () => {
   it('shows the provider usage it is given, ahead of the Git control', () => {
     render(
       <Titlebar
-        onSelectTool={() => undefined}
+        onTogglePanel={() => undefined}
         usage={<button type="button">Codex usage: 5h 12% used</button>}
         git={<button type="button">Commit</button>}
       />,
@@ -68,22 +69,12 @@ describe('Titlebar workspace tools', () => {
     expect(screen.queryByRole('button', { name: 'Codex usage' })).not.toBeInTheDocument()
   })
 
-  it('reports the chosen tool', async () => {
-    const onSelect = vi.fn()
+  it('reports a press of the toggle', async () => {
+    const onToggle = vi.fn()
     const user = userEvent.setup()
-    render(<Titlebar onSelectTool={onSelect} />)
-    await user.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onSelect).toHaveBeenCalledWith('terminal')
-  })
-
-  it('names the place: the project, then what is open in it', () => {
-    const { rerender } = render(<Titlebar place={{ context: 'demo', title: 'Fix the build' }} />)
-    expect(screen.getByText('demo')).toBeInTheDocument()
-    expect(screen.getByText('Fix the build')).toBeInTheDocument()
-
-    rerender(<Titlebar place={{ context: null, title: 'Aria' }} />)
-    expect(screen.queryByText('demo')).not.toBeInTheDocument()
-    expect(screen.getByText('Aria')).toBeInTheDocument()
+    render(<Titlebar onTogglePanel={onToggle} />)
+    await user.click(screen.getByRole('button', { name: 'Open panel' }))
+    expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
   it('gives the sidebar header a leading zone as wide as the sidebar', () => {
