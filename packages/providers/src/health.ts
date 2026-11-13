@@ -17,19 +17,14 @@ const realProber: VersionProber = async (binaryPath) => {
   const { execFile } = await import('node:child_process')
   const started = Date.now()
   return new Promise((resolve) => {
-    execFile(
-      binaryPath,
-      ['--version'],
-      { timeout: 3000, windowsHide: true },
-      (error, stdout) => {
-        const latencyMs = Date.now() - started
-        if (error && !stdout) {
-          resolve({ version: null, latencyMs })
-          return
-        }
-        resolve({ version: stdout.split('\n')[0]?.trim() ?? null, latencyMs })
-      },
-    )
+    execFile(binaryPath, ['--version'], { timeout: 3000, windowsHide: true }, (error, stdout) => {
+      const latencyMs = Date.now() - started
+      if (error && !stdout) {
+        resolve({ version: null, latencyMs })
+        return
+      }
+      resolve({ version: stdout.split('\n')[0]?.trim() ?? null, latencyMs })
+    })
   })
 }
 

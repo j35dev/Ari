@@ -59,7 +59,11 @@ export function isExitPlanModeMethod(method: string): boolean {
 }
 
 export function isInteractiveClientMethod(method: string): boolean {
-  return method === 'elicitation/create' || isAskUserQuestionMethod(method) || isExitPlanModeMethod(method)
+  return (
+    method === 'elicitation/create' ||
+    isAskUserQuestionMethod(method) ||
+    isExitPlanModeMethod(method)
+  )
 }
 
 export function encodeQuestionnaire(payload: Questionnaire): string {
@@ -108,7 +112,9 @@ export function parseElicitationForm(params: unknown): {
     return {
       message,
       questions:
-        message.length > 0 ? [{ id: 'response', question: message, options: [], multiSelect: false }] : [],
+        message.length > 0
+          ? [{ id: 'response', question: message, options: [], multiSelect: false }]
+          : [],
       url: false,
     }
   }
@@ -217,7 +223,9 @@ export function parsePlanExit(params: unknown): { planContent: string; toolCallI
     str(obj, 'planContent') ||
     str(obj, 'plan_content') ||
     str(obj, 'content') ||
-    (nested !== null ? str(nested, 'planContent') || str(nested, 'content') || str(nested, 'text') : '')
+    (nested !== null
+      ? str(nested, 'planContent') || str(nested, 'content') || str(nested, 'text')
+      : '')
   const toolCallId = str(obj, 'toolCallId') || str(obj, 'tool_call_id')
   return { planContent, toolCallId: toolCallId.length > 0 ? toolCallId : null }
 }
@@ -363,7 +371,11 @@ function parseOneQuestion(raw: unknown, index: number): QuestionItem | null {
   const obj = asRecord(raw)
   if (obj === null) return null
   const question =
-    str(obj, 'question') || str(obj, 'prompt') || str(obj, 'text') || str(obj, 'header') || str(obj, 'title')
+    str(obj, 'question') ||
+    str(obj, 'prompt') ||
+    str(obj, 'text') ||
+    str(obj, 'header') ||
+    str(obj, 'title')
   const id = str(obj, 'id') || str(obj, 'questionId') || str(obj, 'question_id') || String(index)
   const header = str(obj, 'header')
   const multiSelect = obj['multiSelect'] === true || obj['multi_select'] === true

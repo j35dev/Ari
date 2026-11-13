@@ -465,7 +465,7 @@ describe('decideCommand', () => {
     expect(result.events).toEqual([])
   })
 
-  it('refuses to steer a message that is not queued, has images, or has no turn', () => {
+  it('refuses to steer a message that is not queued or has no turn, and accepts one with images', () => {
     const idle = modelWithSession()
     expect(
       decideCommand(
@@ -496,6 +496,14 @@ describe('decideCommand', () => {
       decideCommand(
         imaged,
         { type: 'message.steer', sessionId: 'sess_1', text: 'see this', attachments: [ref] },
+        ids,
+      ).accepted,
+    ).toBe(true)
+    // The images are part of which queued message is meant.
+    expect(
+      decideCommand(
+        imaged,
+        { type: 'message.steer', sessionId: 'sess_1', text: 'see this', attachments: [] },
         ids,
       ).accepted,
     ).toBe(false)

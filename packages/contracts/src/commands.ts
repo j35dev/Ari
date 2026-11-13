@@ -56,8 +56,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .superRefine(requiresTextOrAttachments),
   /**
-   * Pushes an already-queued message into the running turn. Steering is
-   * text-only, so a queued message carrying images can never be steered.
+   * Pushes an already-queued message, with any images it carries, into the
+   * running turn.
    */
   z.object({
     type: z.literal('message.steer'),

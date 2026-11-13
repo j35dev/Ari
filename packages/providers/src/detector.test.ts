@@ -292,9 +292,9 @@ describe('readAuthStatus', () => {
     const localAppData = join(dir, 'lad')
     await mkdir(join(localAppData, 'hermes'), { recursive: true })
     await writeFileSafe(join(localAppData, 'hermes', 'auth.json'), '{}')
-    expect(
-      readAuthStatus('hermes', { ...makeEnv(), platform: 'win32', localAppData }).status,
-    ).toBe('authenticated')
+    expect(readAuthStatus('hermes', { ...makeEnv(), platform: 'win32', localAppData }).status).toBe(
+      'authenticated',
+    )
 
     const posixHome = join(dir, 'hermes-posix')
     await mkdir(join(posixHome, '.hermes'), { recursive: true })
@@ -453,7 +453,10 @@ describe('findBinaries', () => {
       // to `npm` must not list the `.cmd` beside the `.exe` already found.
       pathEnv: [native, npm, native, npm, `${npm}${sep}`].join(delimiter),
     }
-    expect(findBinaries('claude', env)).toEqual([join(native, 'claude.exe'), join(npm, 'claude.exe')])
+    expect(findBinaries('claude', env)).toEqual([
+      join(native, 'claude.exe'),
+      join(npm, 'claude.exe'),
+    ])
     expect(findBinary('claude', env)).toBe(join(native, 'claude.exe'))
   })
 
@@ -475,7 +478,10 @@ describe('checkBinaryPath', () => {
     await mkdir(join(home, 'bin'), { recursive: true })
     await writeExecutable(join(home, 'bin', cliName('pi')))
     const expected = join(home, 'bin', cliName('pi'))
-    expect(checkBinaryPath(`~/bin/${cliName('pi')}`, makeEnv())).toEqual({ ok: true, value: expected })
+    expect(checkBinaryPath(`~/bin/${cliName('pi')}`, makeEnv())).toEqual({
+      ok: true,
+      value: expected,
+    })
   })
 
   it('says what is wrong with a path it will not use', async () => {
@@ -525,5 +531,3 @@ async function writeFileSafe(path: string, content: string): Promise<void> {
   const { writeFile } = await import('node:fs/promises')
   await writeFile(path, content, 'utf8')
 }
-
-

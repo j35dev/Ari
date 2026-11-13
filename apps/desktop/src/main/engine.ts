@@ -31,7 +31,11 @@ import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 import type { DriverRegistry } from '@ari/providers/registry'
-import { getProviderCapabilities, type AdapterApprovalDecision } from '@ari/providers/driver'
+import {
+  getProviderCapabilities,
+  type AdapterApprovalDecision,
+  type SessionAttachment,
+} from '@ari/providers/driver'
 import type { CoordinationMessage } from '@ari/contracts/coordination'
 
 const log = createLogger('desktop:engine')
@@ -200,9 +204,9 @@ interface ActiveTurn {
    * true only when the adapter confirms the text is durably in the provider's
    * hands — those messages must not re-run as a follow-up turn. False (no
    * control channel, dead transport, provider refusal) keeps the message
-   * queued so it still runs.
+   * queued so it still runs. `attachments` are the message's staged images.
    */
-  steer: (text: string) => Promise<boolean>
+  steer: (text: string, attachments?: SessionAttachment[]) => Promise<boolean>
   /**
    * Starts a fresh assistant message for whatever the adapter emits next. A
    * user message journaled mid-turn calls this so later output folds below it
@@ -751,10 +755,12 @@ export class Engine {
       // be dequeued (nor kept out of the drain) under a plain text key.
       const queued = findQueued(model, command.text, command.attachments ?? [])
       if (queued === undefined) return { accepted: false, reason: 'message is no longer queued' }
+      const images =
+        queued.attachments.length > 0 ? await this.#resolveAttachments(queued.attachments) : []
       const steered =
         (await this.#activeTurns
           .get(command.sessionId)
-          ?.steer(attributedInput(queued.text, queued.origin))) ?? false
+          ?.steer(attributedInput(queued.text, queued.origin), images)) ?? false
       if (!steered) {
         return {
           accepted: false,
@@ -825,7 +831,17 @@ export class Engine {
           turnId,
           role: 'user',
           ...(message.origin ? { origin: message.origin } : {}),
-          parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
+          // Images first, then the text, as a message that starts a turn has them.
+          parts: [
+            ...message.attachments.map((a) => ({
+              type: 'image' as const,
+              attachmentId: a.id,
+              name: a.name,
+              mimeType: a.mimeType,
+              size: a.size,
+            })),
+            ...(message.text.length > 0 ? [{ type: 'text' as const, text: message.text }] : []),
+          ],
           createdAt: Date.now(),
         },
       }),
@@ -1180,10 +1196,10 @@ export class Engine {
       respondInput: (inputId, value) => {
         adapter.respondInput?.(inputId, value)
       },
-      steer: async (text) => {
+      steer: async (text, attachments) => {
         if (adapter.steer === undefined) return false
         try {
-          return await adapter.steer(text)
+          return await adapter.steer(text, attachments)
         } catch (e) {
           log.debug('steer failed', { sessionId: session.id, error: String(e) })
           throw e
@@ -1823,21 +1839,33 @@ export class Engine {
             return fail('journal contains an unreadable record')
           }
           const parsed = journalEventSchema.safeParse(entry.value)
-          if (!parsed.success || parsed.data.sessionId !== sessionId || parsed.data.seq !== expected++) {
+          if (
+            !parsed.success ||
+            parsed.data.sessionId !== sessionId ||
+            parsed.data.seq !== expected++
+          ) {
             if (events.length) await onChunk(events)
             return fail('journal sequence or event is invalid')
           }
           const event = parsed.data
           if (event.seq > options.throughSeq) break
-          if (event.seq > last) { events.push(event); last = event.seq }
-          if (event.seq === options.throughSeq) { reached = true; break }
+          if (event.seq > last) {
+            events.push(event)
+            last = event.seq
+          }
+          if (event.seq === options.throughSeq) {
+            reached = true
+            break
+          }
         }
         if (events.length) await onChunk(events)
         if (reached) return { outcome: 'complete', seq: last, reason: null }
       }
       return fail('journal prefix is missing')
     } catch {
-      return fail(options.signal?.aborted ? 'replay cancelled' : 'journal could not be read completely')
+      return fail(
+        options.signal?.aborted ? 'replay cancelled' : 'journal could not be read completely',
+      )
     }
   }
 }

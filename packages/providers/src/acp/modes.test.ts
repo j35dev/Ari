@@ -22,7 +22,16 @@ describe('classifyAgentMode', () => {
   })
 
   it('returns null for thinking axes and unknown vocabularies', () => {
-    for (const value of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'something', 'dontAsk']) {
+    for (const value of [
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'something',
+      'dontAsk',
+    ]) {
       expect(classifyAgentMode(value)).toBeNull()
     }
   })

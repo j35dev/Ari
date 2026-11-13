@@ -32,18 +32,10 @@ export function wellKnownDirs(env: DetectEnvironment): string[] {
   const dirs: string[] = []
   if (env.platform === 'win32') {
     if (env.localAppData) {
-      dirs.push(
-        join(env.localAppData, 'Programs'),
-        join(env.localAppData, 'Programs', 'npm'),
-      )
+      dirs.push(join(env.localAppData, 'Programs'), join(env.localAppData, 'Programs', 'npm'))
     }
   } else {
-    dirs.push(
-      join(env.homeDir, '.local', 'bin'),
-      '/usr/local/bin',
-      '/opt/homebrew/bin',
-      '/usr/bin',
-    )
+    dirs.push(join(env.homeDir, '.local', 'bin'), '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin')
   }
   return dirs.filter((d) => d.length > 0 && existsSync(d))
 }
@@ -326,15 +318,21 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthPr
       ) {
         return { status: 'unauthenticated', reason: 'This account is not signed in.' }
       }
-      return unknownAuth('No ~/.claude credentials file; Claude Code may be using a subscription session or ANTHROPIC_API_KEY.')
+      return unknownAuth(
+        'No ~/.claude credentials file; Claude Code may be using a subscription session or ANTHROPIC_API_KEY.',
+      )
     case 'opencode':
-      return unknownAuth('No opencode auth.json found; opencode can also read provider keys from the environment.')
+      return unknownAuth(
+        'No opencode auth.json found; opencode can also read provider keys from the environment.',
+      )
     case 'grok':
       return unknownAuth('No ~/.grok/auth.json or config.toml and XAI_API_KEY is unset.')
     case 'pi':
       return unknownAuth('No auth.json under the pi agent dir (override with PI_CODING_AGENT_DIR).')
     case 'hermes':
-      return unknownAuth('No hermes auth.json in the platform config dir (override with HERMES_HOME).')
+      return unknownAuth(
+        'No hermes auth.json in the platform config dir (override with HERMES_HOME).',
+      )
     default:
       return unknownAuth('Ari has no credential-store layout for this CLI.')
   }
