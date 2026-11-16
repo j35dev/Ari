@@ -1,8 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { customThemeSchema, type CustomTheme, type ThemeLibraryEvent } from '@ari/contracts/themes'
-import { paintCustomTheme, resolveCustomTheme } from './custom-themes'
+import {
+  customThemeSchema,
+  wallpaperFocus,
+  type CustomTheme,
+  type ThemeLibraryEvent,
+} from '@ari/contracts/themes'
+import { customThemeAssetUrl, paintCustomTheme, resolveCustomTheme } from './custom-themes'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme } from './themes'
 import { canBakeWallpaper, installWallpaperBake } from './wallpaper-bake'
@@ -134,6 +139,29 @@ function writeCache(prefs: ThemePreferences): void {
   }
 }
 
+interface ThemeWallpaper {
+  src: string
+  blur: number
+  tint: number
+  /** Focal point in percent of the image. */
+  focus: { x: number; y: number }
+}
+
+/** The active custom theme's own wallpaper, which replaces the bundled selection. */
+function themeWallpaper(custom: CustomTheme | null | undefined): ThemeWallpaper | null {
+  const wallpaper = custom?.wallpaper
+  const src = wallpaper && custom ? customThemeAssetUrl(custom, wallpaper.asset) : undefined
+  return wallpaper && src
+    ? { src, blur: wallpaper.blur, tint: wallpaper.tint, focus: wallpaperFocus(wallpaper.position) }
+    : null
+}
+
+const THEME_WALLPAPER_PROPS = [
+  '--ari-wallpaper-blur',
+  '--ari-wallpaper-tint',
+  '--ari-wallpaper-position',
+]
+
 /**
  * Reflects the wallpaper selection onto `<html>` for wallpaper.css: the
  * attribute gates every wallpaper rule (absent for 'none', so the plain theme
@@ -144,7 +172,22 @@ function writeCache(prefs: ThemePreferences): void {
  * survive the production build unrebased and unhashed, which broke the
  * packaged app while working in dev (see wallpaper.css).
  */
-function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): void {
+function applyWallpaperAttr(
+  root: HTMLElement,
+  wallpaper: WallpaperSetting,
+  themed: ThemeWallpaper | null = null,
+): void {
+  for (const prop of THEME_WALLPAPER_PROPS) root.style.removeProperty(prop)
+  delete root.dataset['ariWallpaperSharp']
+  if (themed) {
+    root.dataset['ariWallpaper'] = 'theme'
+    root.style.setProperty('--ari-wallpaper-image', `url("${themed.src}")`)
+    root.style.setProperty('--ari-wallpaper-blur', `${themed.blur}px`)
+    root.style.setProperty('--ari-wallpaper-tint', `${themed.tint}%`)
+    root.style.setProperty('--ari-wallpaper-position', `${themed.focus.x}% ${themed.focus.y}%`)
+    if (themed.blur === 0) root.dataset['ariWallpaperSharp'] = ''
+    return
+  }
   if (wallpaper === 'none') {
     delete root.dataset['ariWallpaper']
     root.style.removeProperty('--ari-wallpaper-image')
@@ -178,7 +221,7 @@ export function applyCachedTheme(): void {
   root.dataset['ariTheme'] = custom?.base ?? theme.id
   root.dataset['ariScheme'] = theme.scheme
   delete root.dataset['ariGlass']
-  applyWallpaperAttr(root, prefs.wallpaper)
+  applyWallpaperAttr(root, prefs.wallpaper, themeWallpaper(custom))
   paintCustomTheme(custom)
 }
 
@@ -363,13 +406,15 @@ export function ThemeProvider({
   }, [])
 
   const painted = useRef(false)
+  const themedWallpaper = themeWallpaper(custom)
   useEffect(() => {
+    const themed = themeWallpaper(custom)
     const root = document.documentElement
     const apply = (): void => {
       root.dataset['ariTheme'] = custom?.base ?? theme.id
       root.dataset['ariScheme'] = theme.scheme
       delete root.dataset['ariGlass']
-      applyWallpaperAttr(root, prefs.wallpaper)
+      applyWallpaperAttr(root, prefs.wallpaper, themed)
       paintCustomTheme(custom)
     }
     // The first run only confirms what applyCachedTheme already painted, and a
@@ -378,16 +423,23 @@ export function ThemeProvider({
     else revealTheme(root, apply)
     painted.current = true
   }, [theme, custom, prefs.wallpaper])
+  const bakeSrc = themedWallpaper?.src ?? wallpapers.find((w) => w.id === prefs.wallpaper)?.src
+  const bakeBlur = themedWallpaper?.blur
+  const bakeFocusX = themedWallpaper?.focus.x
+  const bakeFocusY = themedWallpaper?.focus.y
   useEffect(() => {
     void persistence?.paint?.(theme.id, custom).catch(() => undefined)
   }, [persistence, theme, custom])
 
   // Swap the live backdrop blur for a baked one (see wallpaper-bake.ts).
   useEffect(() => {
-    const src = wallpapers.find((w) => w.id === prefs.wallpaper)?.src
-    if (src === undefined || !canBakeWallpaper()) return
-    return installWallpaperBake(document.documentElement, src)
-  }, [prefs.wallpaper])
+    if (bakeSrc === undefined || bakeBlur === 0 || !canBakeWallpaper()) return
+    const focus =
+      bakeFocusX === undefined || bakeFocusY === undefined
+        ? undefined
+        : { x: bakeFocusX / 100, y: bakeFocusY / 100 }
+    return installWallpaperBake(document.documentElement, bakeSrc, {}, bakeBlur, focus)
+  }, [bakeSrc, bakeBlur, bakeFocusX, bakeFocusY])
 
   useEffect(() => {
     writeCache(prefs)
@@ -504,7 +556,9 @@ export function ThemeProvider({
   return (
     <ThemeContext.Provider value={value}>
       {children}
-      {(custom || saveError) &&
+      {/* Only while a preview runs or a save failed. A kept theme is undone with
+          the shortcut, Settings → Appearance or `ari theme reset`. */}
+      {(preview || saveError) &&
         createPortal(
           <aside
             data-ari-theme-recovery=""

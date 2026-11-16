@@ -98,9 +98,16 @@ function isSafeInvocation(segment: string): boolean {
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
   if (first === 'theme')
-    return ['schema', 'list', 'validate', 'install', 'preview', 'remove', 'reset'].includes(
-      second ?? '',
-    )
+    return [
+      'schema',
+      'list',
+      'validate',
+      'install',
+      'preview',
+      'remove',
+      'reset',
+      'screenshot',
+    ].includes(second ?? '')
   if (first === 'session') return second !== undefined && SESSION.has(second)
   if (first === 'project') return ['ask', 'create', 'default', 'lead'].includes(second ?? '')
   if (first === 'routine') return second !== undefined && ROUTINE.has(second)

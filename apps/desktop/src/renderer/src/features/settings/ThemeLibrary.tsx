@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Download, Palette, Plus, Trash2, Upload } from 'lucide-react'
 import { useTheme } from '@ari/ui/theme-provider'
-import { resolveCustomTheme } from '@ari/ui/custom-themes'
+import { customThemeAssetUrl, resolveCustomTheme } from '@ari/ui/custom-themes'
 import { customThemeSchema, type CustomTheme } from '@ari/contracts/themes'
 import { rpc } from '../../lib/rpc'
 import { iconButton, outlineButton } from '../../lib/recipes'
@@ -10,11 +10,16 @@ import { SettingsSection } from './SettingsSection'
 function ThemePreview({ theme }: { theme: CustomTheme }) {
   const { colors } = resolveCustomTheme(theme)
   const radius = theme.radii?.md ?? 6
+  const wallpaper = theme.wallpaper && customThemeAssetUrl(theme, theme.wallpaper.asset)
   return (
     <div
       aria-hidden
       className="flex h-32 overflow-hidden"
-      style={{ background: colors.bg, color: colors.fg }}
+      style={{
+        backgroundColor: colors.bg,
+        color: colors.fg,
+        ...(wallpaper ? { backgroundImage: `url("${wallpaper}")`, backgroundSize: 'cover' } : {}),
+      }}
     >
       <div
         className="w-14 shrink-0 border-r p-2.5"
@@ -55,9 +60,12 @@ function ThemePreview({ theme }: { theme: CustomTheme }) {
   )
 }
 
-function exportTheme(theme: CustomTheme) {
+/** The theme plus its images and fonts, base64-encoded under `assetData`. */
+async function exportTheme(theme: CustomTheme) {
+  const { assetData } = await rpc.invoke('theme.export', { id: theme.id })
+  const file = Object.keys(assetData).length ? { ...theme, assetData } : theme
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(theme, null, 2)], { type: 'application/json' }),
+    new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }),
   )
   const link = document.createElement('a')
   link.href = url
@@ -75,10 +83,19 @@ export function ThemeLibrary() {
     setBusy(true)
     setNotice(null)
     try {
-      if (file.size > 256 * 1024) throw new Error('Theme files must be smaller than 256 KiB.')
-      const theme = customThemeSchema.parse(JSON.parse((await file.text()).replace(/^\uFEFF/, '')))
+      if (file.size > 64 * 1024 * 1024) throw new Error('Theme files must be smaller than 64 MB.')
+      const { assetData, ...rest } = JSON.parse((await file.text()).replace(/^\uFEFF/, '')) as {
+        assetData?: Record<string, string>
+      }
+      const theme = customThemeSchema.parse(rest)
       resolveCustomTheme(theme)
-      adoptLibrary(await rpc.invoke('theme.install', { theme, preview: true }))
+      adoptLibrary(
+        await rpc.invoke('theme.install', {
+          theme,
+          preview: true,
+          ...(assetData ? { assetData } : {}),
+        }),
+      )
       setNotice(`${theme.name} was added to your library.`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not import this theme.')
@@ -194,7 +211,13 @@ export function ThemeLibrary() {
                     type="button"
                     className={iconButton}
                     aria-label={`Export ${theme.name}`}
-                    onClick={() => exportTheme(theme)}
+                    onClick={() =>
+                      void exportTheme(theme).catch((error: unknown) =>
+                        setNotice(
+                          error instanceof Error ? error.message : 'Could not export the theme.',
+                        ),
+                      )
+                    }
                   >
                     <Download size={14} />
                   </button>

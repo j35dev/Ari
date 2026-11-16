@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { expect, it } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const cli = createRequire(import.meta.url)('../../resources/cli/ari.cjs') as {
   parse(argv: string[]): { method: string; params: Record<string, unknown> }
@@ -18,11 +18,21 @@ it('parses theme library commands and refuses misplaced options', async () => {
       cli.parse(['theme', 'install', '--file', file, '--preview', '--key', 'theme-one']),
     ).toMatchObject({
       method: 'theme.install',
-      params: { theme: { id: 'custom:test' }, preview: true, idempotencyKey: 'theme-one' },
+      params: {
+        theme: { id: 'custom:test' },
+        preview: true,
+        idempotencyKey: 'theme-one',
+      },
     })
-    expect(cli.parse(['theme', 'validate', '--file', file])).toMatchObject({
+    expect(cli.parse(['theme', 'validate', '--file', file, '--assets', 'art'])).toMatchObject({
       method: 'theme.validate',
+      params: { assetsDir: resolve('art') },
     })
+    expect(cli.parse(['theme', 'screenshot', '--out', 'shot.png'])).toMatchObject({
+      method: 'theme.screenshot',
+      params: { out: resolve('shot.png') },
+    })
+    expect(() => cli.parse(['theme', 'screenshot', '--file', file])).toThrow(/Unsupported/)
     expect(cli.parse(['theme', 'schema', '--json'])).toMatchObject({
       method: 'theme.schema',
       params: {},

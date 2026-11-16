@@ -10,30 +10,37 @@ metadata:
 ## Custom Ari themes
 
 When the user asks for a personal Ari theme (including `/ari theme <brief>`),
-create a version 1 JSON theme package using the API below. Do not edit Ari's
-source code or inject CSS or JavaScript. All sessions can use the theme library.
+create a version 1 theme package with the API below. Do not edit Ari's source
+code. All sessions can use the theme library.
 
 ```sh
 ari theme schema --json
 ari theme list --json
-ari theme validate --file neon.ari-theme.json --json
-ari theme install --file neon.ari-theme.json --preview --key neon-1 --json
-ari theme preview custom:neon --json
-ari theme remove custom:neon --json
+ari theme validate --file one-piece/theme.json --json
+ari theme install --file one-piece/theme.json --preview --key one-piece-1 --json
+ari theme screenshot --json
+ari theme preview custom:one-piece --json
+ari theme remove custom:one-piece --json
 ari theme reset --json
 ```
 
-The schema command returns the exact JSON schema, supported component slots,
-and a usable neon example. Customize palette, bundled fonts, radii, shadows,
-component styling, gradients and hover/active/selected/focus/disabled states.
-Validation checks the format, bounded values and inherited text contrast.
-Correct validation errors before installation. Install adds or updates an entry
-in Settings → Appearance → Your themes. `--preview` requests a 30-second preview;
-the user chooses Keep theme or Revert. A preview never changes the saved theme.
-An installed revision does not overwrite the previously confirmed active revision.
-The protected Reset theme control and Ctrl/⌘+Alt+Shift+T restore Obsidian.
-Keep the same ID for an intentional revision; use a new `custom:<slug>` ID for a
-new design. Report the saved theme's name and library location.
+`schema` returns the JSON schema, the CSS hooks, an example and a design guide;
+read the guide before designing. A theme is a palette plus optional `css`,
+`assets` and `wallpaper`. Keep each theme in its own folder: theme.json next
+to its images. Generate a wallpaper with your image tool if you have one, or
+download one into the folder. List each file in `assets` by name; install reads
+them from the theme file's folder (or `--assets <dir>`) and stores them with the
+theme. Theme CSS references them as `url("asset:wallpaper.jpg")`. Emoji go in
+::before/::after `content`. CSS cannot load anything from the network.
+
+Install adds or updates an entry in Settings → Appearance → Your themes.
+`--preview` requests a 30-second preview; the user chooses Keep theme or
+Revert. `screenshot` saves a PNG of the Ari window and returns its path: open
+it, look at your theme, and fix what looks wrong before asking the user how
+it looks. Keep iterating with them. Keep the same ID for a revision (files
+already stored under the same names are kept); use a new `custom:<slug>` ID for
+a new design. The protected Reset theme control and Ctrl/⌘+Alt+Shift+T restore
+Obsidian.
 
 ## Explicit app navigation (current Aria only)
 
