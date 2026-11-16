@@ -46,6 +46,7 @@ import {
   type ProjectDraftEntry,
 } from './features/machines/project-draft-registry'
 import type { ComposerSeed } from './features/composer/Composer'
+import { useSnapshots } from './features/snapshots/useSnapshots'
 import { groupRepositories, type RepositoryGroup } from './features/machines/repository-groups'
 import { SessionKeepAlive } from './features/session/SessionKeepAlive'
 import { loadLastPick, nextLastPick, saveLastPick } from './features/composer/last-pick'
@@ -1265,14 +1266,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     },
   })
   const openProjectDraft = useCallback(
-    (group: RepositoryGroup, lead = false, initialHostId?: string) => {
+    (group: RepositoryGroup, lead = false, initialHostId?: string, snapshotDraftId?: string, reveal = true) => {
       if (draftRegistry.error) {
         toast({ tone: 'warning', title: draftRegistry.error })
         return
       }
       const currentSpace = spaceStoreSnapshot().activeSpaceId
       const paneId = activePaneOf(splitLayoutSnapshot())
-      const existing = projectDrafts.find(
+      const existing = projectDrafts.find((entry) => entry.id === snapshotDraftId) ?? projectDrafts.find(
         (entry) =>
           entry.groupId === group.id &&
           entry.spaceId === currentSpace &&
@@ -1311,14 +1312,42 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       setProjectDrafts(next)
-      splitLayoutActions.clear(paneId)
-      setNewSessionRequest(null)
-      leaveWorkspaceTool()
-      setFullPage(null)
-      setInspector(null)
+      if (reveal) {
+        splitLayoutActions.clear(paneId)
+        setNewSessionRequest(null)
+        leaveWorkspaceTool()
+        setFullPage(null)
+        setInspector(null)
+      }
+      return entry.id
     },
     [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool],
   )
+  const resolveSnapshotTarget = useCallback((pinned?: string): string | null => {
+    if (setupCovered) return null
+    const paneId = activePaneOf(splitLayoutSnapshot())
+    const spaceId = spaceStoreSnapshot().activeSpaceId
+    if (pinned?.startsWith('project-draft:')) {
+      const entry = projectDraftsRef.current.find((draft) => `project-draft:${draft.id}` === pinned)
+      if (!entry) return null
+      return pinned
+    }
+    if (pinned) {
+      if (!(pinned === 'aria' && ariaEnabled) && !navigation.sessions.some((session) => session.id === pinned && !session.archived)) return null
+      return pinned
+    }
+    if (activeSessionId && ((activeSessionId === 'aria' && ariaEnabled) || navigation.sessions.some((session) => session.id === activeSessionId && !session.archived)))
+      return activeSessionId
+    const draft = projectDraftsRef.current.find((entry) => entry.spaceId === spaceId && entry.paneId === paneId)
+    if (draft) return `project-draft:${draft.id}`
+    const recent = [...navigation.sessions].filter((session) => !session.archived).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (recent) return recent.id
+    const group = navigation.groups.find((entry) => entry.checkouts.some((checkout) => checkout.local)) ?? navigation.groups[0]
+    if (!group) return null
+    const id = openProjectDraft(group, false, local?.identity.machineId, undefined, false)
+    return id ? `project-draft:${id}` : null
+  }, [setupCovered, openProjectDraft, navigation.sessions, navigation.groups, activeSessionId, ariaEnabled, local?.identity.machineId])
+  useSnapshots(resolveSnapshotTarget, (message) => toast({ tone: 'warning', title: 'SnapShots', description: message }))
   useEffect(() => {
     if (onboardingDraft === null) return
     if (

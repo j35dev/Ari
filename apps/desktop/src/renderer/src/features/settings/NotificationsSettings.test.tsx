@@ -17,6 +17,7 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   ariaVoice: defaultSettings.ariaVoice,
+  snapshots: defaultSettings.snapshots,
   experimental: { ariaEnabled: false },
   speech: defaultSettings.speech,
   version: 1,

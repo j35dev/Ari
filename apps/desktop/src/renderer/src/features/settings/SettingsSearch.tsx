@@ -21,6 +21,7 @@ export interface SettingsIndexEntry {
  * carry matching ids; until then clicks fall through harmlessly.
  */
 export const SETTINGS_SEARCH_INDEX = [
+  { section: 'settings-snapshots', label: 'SnapShots', keywords: 'screenshot capture window global shortcut attachment animation sound image' },
   {
     section: 'settings-experimental',
     label: 'Experimental Aria',

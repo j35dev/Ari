@@ -9,6 +9,8 @@ import {
   speechBindingsError,
   migrateSpeechShortcut,
   speechBindingError,
+  defaultSnapshotShortcut,
+  snapshotShortcutError,
 } from '@ari/contracts/settings'
 import type { CliKind, ProviderConnection, Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
@@ -36,6 +38,7 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  snapshots?: Partial<Settings['snapshots']>
   experimental?: Partial<Settings['experimental']>
   speech?: Partial<Settings['speech']>
   ariaVoice?: Partial<Settings['ariaVoice']>
@@ -71,6 +74,10 @@ export class SettingsStore {
     this.#path = join(options.dir, 'settings.json')
     this.#current = {
       ...defaultSettings,
+      snapshots: {
+        ...defaultSettings.snapshots,
+        shortcut: defaultSnapshotShortcut(process.platform),
+      },
       speech: {
         ...defaultSettings.speech,
         shortcut: defaultSpeechShortcut(process.platform),
@@ -110,6 +117,10 @@ export class SettingsStore {
       }
       this.#current = {
         ...defaultSettings,
+        snapshots: {
+          ...defaultSettings.snapshots,
+          shortcut: defaultSnapshotShortcut(process.platform),
+        },
         speech: {
           ...defaultSettings.speech,
           shortcut: defaultSpeechShortcut(process.platform),
@@ -161,6 +172,21 @@ export class SettingsStore {
         ...this.#current,
         speech: { ...this.#current.speech, shortcut, dictationShortcut },
       }
+    const snapshotShortcut =
+      this.#current.snapshots.shortcut || defaultSnapshotShortcut(process.platform)
+    const snapshotInvalid = snapshotShortcutError(
+      snapshotShortcut,
+      process.platform,
+      this.#current.speech,
+    )
+    this.#current = {
+      ...this.#current,
+      snapshots: {
+        ...this.#current.snapshots,
+        shortcut: snapshotInvalid ? defaultSnapshotShortcut(process.platform) : snapshotShortcut,
+        enabled: snapshotInvalid ? false : this.#current.snapshots.enabled,
+      },
+    }
     if (migrateDelegationApproval || migrateFullAuto || migrateShortcut)
       await this.save(this.#current)
     this.#loaded = true
@@ -180,6 +206,14 @@ export class SettingsStore {
   async #apply(patch: SettingsPatch): Promise<Settings> {
     // Window geometry can save before boot has loaded the user's preferences.
     if (!this.#loaded) await this.#read()
+    if (patch.snapshots || (patch.speech && this.#current.snapshots.enabled)) {
+      const error = snapshotShortcutError(
+        patch.snapshots?.shortcut ?? this.#current.snapshots.shortcut,
+        process.platform,
+        { ...this.#current.speech, ...patch.speech },
+      )
+      if (error) throw new Error(error)
+    }
     if (patch.speech) {
       const error = speechBindingsError(
         patch.speech.shortcut ?? this.#current.speech.shortcut,
@@ -189,6 +223,7 @@ export class SettingsStore {
       if (error) throw new Error(error)
     }
     const next: Settings = {
+      snapshots: { ...this.#current.snapshots, ...patch.snapshots },
       experimental: { ...this.#current.experimental, ...patch.experimental },
       ariaVoice: { ...this.#current.ariaVoice, ...patch.ariaVoice },
       speech: { ...this.#current.speech, ...patch.speech },

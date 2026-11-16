@@ -1,8 +1,10 @@
 import type { VoiceAudio } from '../features/aria/voice-playback'
 import type { RpcMethod, RpcResults, StreamFrame, StreamName } from '@ari/contracts/rpc'
 import type { DictationBridge } from '../../../shared/dictation'
+import type { SnapshotBridge } from '../../../shared/snapshots'
 
 interface AriBridge {
+  snapshots?: SnapshotBridge
   voice?: {
     onAudio: (callback: (frame: VoiceAudio) => void) => () => void
     played: (id: number, generation: number, error?: string) => void
