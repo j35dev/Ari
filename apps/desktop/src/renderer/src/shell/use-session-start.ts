@@ -138,6 +138,10 @@ export function useSessionStart(options: {
       return
     }
     busy(true)
+    // A draft hands its session off itself, so only a plain start yields to a
+    // tooltip, menu or pane change that made its focus intent stale.
+    const abandoned = (): boolean =>
+      (!attempt.draft && !attempt.intent.isCurrent()) || !mounted.current
     let stage: Stage = attempt.projectId ? 'create' : attempt.path ? 'project' : 'folder'
     try {
       if (!attempt.projectId) {
@@ -149,7 +153,7 @@ export function useSessionStart(options: {
           }
           attempt.path = path
         }
-        if (!attempt.intent.isCurrent() || !mounted.current) {
+        if (abandoned()) {
           attempt.intent.dispose()
           return
         }
@@ -158,7 +162,7 @@ export function useSessionStart(options: {
         attempt.projectId = project.id
         latest.current.refreshProjects()
       }
-      if (!attempt.intent.isCurrent() || !mounted.current) {
+      if (abandoned()) {
         attempt.intent.dispose()
         return
       }
@@ -219,6 +223,9 @@ export function useSessionStart(options: {
     } catch (error) {
       attempt.intent.dispose()
       log.warn(`${stage} start failed`, error)
+      // A draft keeps its own receipt and recovery; holding one here as well
+      // refused every later start in the window until Ari restarted.
+      if (attempt.draft) throw error
       const recovery = {
         attempt,
         stage,
@@ -227,7 +234,6 @@ export function useSessionStart(options: {
       }
       recoveryRef.current = recovery
       showRecovery(recovery)
-      if (attempt.draft) throw error
       return undefined
     } finally {
       busy(false)
