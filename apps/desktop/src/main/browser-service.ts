@@ -162,8 +162,8 @@ export class BrowserService {
   layout(id: string, bounds: BrowserBounds, visible: boolean): boolean {
     const tab = this.#tabs.get(id)
     if (tab === undefined) return false
-    tab.guest.setVisible(visible)
     if (visible) tab.guest.setBounds(bounds)
+    tab.guest.setVisible(visible)
     return true
   }
 

@@ -73,7 +73,11 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
   const blankRef = useRef(true)
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
-  const [still, setStill] = useState<string | null>(null)
+  const [still, setStill] = useState<{
+    dataUrl: string
+    width: number
+    height: number
+  } | null>(null)
 
   const boundsRef = useRef<Bounds | null>(null)
   // Why the guest may not show, kept outside React so a cover hides it in the
@@ -182,12 +186,18 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
     let live = true
     const refresh = (): void => {
       if (!visibleRef.current || document.visibilityState !== 'visible') return
+      const bounds = boundsRef.current
+      if (bounds === null || bounds.width <= 0 || bounds.height <= 0) return
       void rpc
         .invoke('browser.capture', { id: tabId })
         .then(async ({ dataUrl }) => {
           if (dataUrl === null) return
           await decoded(dataUrl)
-          if (live) setStill(dataUrl)
+          const current = boundsRef.current
+          // The image is displayed at its captured CSS size, even on HiDPI
+          // screens. A resize during capture would make that size ambiguous.
+          if (live && current?.width === bounds.width && current.height === bounds.height)
+            setStill({ dataUrl, width: bounds.width, height: bounds.height })
         })
         .catch(() => undefined)
     }
@@ -306,7 +316,7 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
       {tab.error !== null ? (
         <p className="shrink-0 px-4 py-1.5 text-xs text-danger">{tab.error}</p>
       ) : null}
-      <div ref={hostRef} className="relative min-h-0 flex-1">
+      <div ref={hostRef} className="relative min-h-0 flex-1 overflow-hidden">
         {blank ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
             <p className="text-[13px] text-fg-muted">In-app browser</p>
@@ -316,13 +326,15 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
           </div>
         ) : null}
         {!blank && still !== null ? (
-          // Always under the guest, so hiding the guest reveals it with no wait.
+          // Keep the last frame aligned with the live page instead of stretching
+          // it when the host resizes while an overlay hides the guest.
           <img
-            src={still}
+            src={still.dataUrl}
             alt=""
             decoding="sync"
             draggable={false}
-            className="absolute inset-0 h-full w-full"
+            className="absolute left-0 top-0 max-w-none"
+            style={{ width: still.width, height: still.height }}
           />
         ) : null}
       </div>
