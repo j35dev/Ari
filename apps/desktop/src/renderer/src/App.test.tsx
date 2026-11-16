@@ -427,7 +427,7 @@ describe('Shell split panes', () => {
     }
   }
 
-  const sidebar = (): HTMLElement => screen.getByRole('complementary')
+  const sidebar = (): HTMLElement => screen.getByRole('navigation', { name: 'Sessions' })
   const row = (title: string): HTMLElement => {
     const found = within(sidebar()).getByText(title).closest('button')
     if (found === null) throw new Error(`no sidebar row for ${title}`)
@@ -1464,10 +1464,9 @@ describe('Shell live sidebar feed', () => {
     }
   })
 
-  it('starts a lead session on request instead of reusing the pristine chat', async () => {
+  it('starts a fresh lead session on request even when an empty chat exists', async () => {
     render(<App />)
-    // The first list call carries an empty session, which a normal Mod+N
-    // would reuse; the lead goes through creation regardless.
+    // The first list call carries an older empty session.
     await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
     // The sidebar's own "New session" button satisfies the wait above before
     // `project.list` lands, and Mod+N with no projects opens the folder picker
@@ -1539,7 +1538,7 @@ describe('Shell live sidebar feed', () => {
       )
     })
 
-    it('moves a reused empty session onto that mode as it opens it', async () => {
+    it('applies that mode to a fresh session while leaving the older empty session alone', async () => {
       render(<App />)
       await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
       await settingsLoaded()
@@ -1547,19 +1546,25 @@ describe('Shell live sidebar feed', () => {
       await startSessionInAri()
 
       await vi.waitFor(() => {
-        const dispatched = invokeMock.mock.calls.find(([method]) => method === 'command.dispatch')
-        // The rest of the new-session start (agent, model, level) rides along.
-        expect(dispatched?.[1]).toMatchObject({
-          command: { type: 'session.update', sessionId: 'sess_alpha', permissionMode: 'full' },
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'proj-ari', permissionMode: 'full' }),
+        )
+        expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+          command: { type: 'turn.start', sessionId: 'sess_new', text: 'Test draft first prompt', attachments: [] },
         })
       })
-      expect(invokeMock).not.toHaveBeenCalledWith('session.create', expect.anything())
-      // The update leaves before the pane asks for the session.
+      expect(invokeMock.mock.calls.some(([method, params]) => method === 'command.dispatch' &&
+        (params as { command?: { type?: string } })?.command?.type === 'session.update')).toBe(false)
       await vi.waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' }),
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_new' }),
       )
-      const order = invokeMock.mock.calls.map(([method]) => method)
-      expect(order.indexOf('command.dispatch')).toBeLessThan(order.indexOf('session.load'))
+      const created = invokeMock.mock.calls.findIndex(([method]) => method === 'session.create')
+      const sent = invokeMock.mock.calls.findIndex(([method]) => method === 'command.dispatch')
+      const loaded = invokeMock.mock.calls.findIndex(([method, params]) => method === 'session.load' &&
+        (params as { sessionId?: string })?.sessionId === 'sess_new')
+      expect(created).toBeLessThan(sent)
+      expect(sent).toBeLessThan(loaded)
     })
   })
 

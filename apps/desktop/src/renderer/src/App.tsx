@@ -1276,12 +1276,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       }
       const currentSpace = spaceStoreSnapshot().activeSpaceId
       const paneId = activePaneOf(splitLayoutSnapshot())
-      // An earlier draft for this project comes back while it holds a send
-      // receipt or anything the user typed or attached, rather than a blank one.
+      // Keep unsent text and attachments when reopening a project draft. A
+      // submitted draft keeps its receipt under its original id; choosing a
+      // new session must not reopen that submission.
       const holdsWork = (entry: ProjectDraftEntry): boolean =>
-        localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) !== null ||
-        readSessionDraftText(`project-draft:${entry.id}`).trim() !== '' ||
-        readSessionDraftIntent(`project-draft:${entry.id}`).images.length > 0
+        localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) === null &&
+        (readSessionDraftText(`project-draft:${entry.id}`).trim() !== '' ||
+          readSessionDraftIntent(`project-draft:${entry.id}`).images.length > 0)
       const existing =
         projectDrafts.find((entry) => entry.id === snapshotDraftId) ??
         [...projectDrafts]
