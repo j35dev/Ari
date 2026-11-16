@@ -1,21 +1,23 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, nativeImage, WebContentsView } from 'electron'
 import { hostedBrowserGuestFactory } from '../browser-electron'
 import { startBrowserMcpServer } from '../browser-mcp'
 import { BrowserService, type BrowserGuest } from '../browser-service'
+import { checkNativeBrowserInput } from './browser-native-input'
 
-// Real-Electron check that browser_pointer and browser_key input to an offscreen
-// agent tab shows up in browser_state, and only in that tab. Run under a display:
+// Real-Electron check for background automation and the same native page docked
+// for user interaction. Run under a display:
 // `xvfb-run -a pnpm --filter @ari/desktop e2e`.
 
 // Input reaches the game only through a requestAnimationFrame loop, so it needs
-// the agent tab to keep rendering offscreen (#432). Chromium drops input sent
-// before a document's first contentful paint, so state() waits for that paint
-// and every input in this run comes after a state read.
+// the agent tab to keep rendering while hidden (#432). Hidden native pages do
+// not necessarily expose first-contentful-paint entries. Verify an actual drawn
+// capture before sending input, and let state() wait for the page's frame loop.
 const FIXTURE = `<!doctype html>
-<html><body><p>browser_state input fixture</p><script>
+<html><body style="background:#eaf2ff"><p>browser_state input fixture</p>
+<input id="field" aria-label="Native browser input"><div style="height:2000px">Scrollable page</div><script>
 const tab = new URLSearchParams(location.search).get('tab')
 const state = { player: { x: 0 }, clicks: 0, lastPointer: null }
 const pending = []
@@ -38,16 +40,8 @@ function frame() {
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
-const painted = new Promise((resolve) => {
-  new PerformanceObserver((list, observer) => {
-    if (list.getEntriesByName('first-contentful-paint').length === 0) return
-    observer.disconnect()
-    resolve()
-  }).observe({ type: 'paint', buffered: true })
-})
 window.__ari = {
   state: async () => {
-    await painted
     await new Promise((resolve) => requestAnimationFrame(resolve))
     return { tab, ...structuredClone(state) }
   },
@@ -70,6 +64,10 @@ async function main(): Promise<void> {
 
   await app.whenReady()
   const win = new BrowserWindow({ width: 1200, height: 800 })
+  win.removeMenu()
+  await win.loadURL(
+    'data:text/html,<body style="background:rgb(255,255,255)">Ari browser test shell</body>',
+  )
   const guests = new Map<string, BrowserGuest>()
   const createGuest = hostedBrowserGuestFactory(win.webContents)
   const browsers = new BrowserService(
@@ -130,6 +128,23 @@ async function main(): Promise<void> {
   await callTool(a, 'browser_navigate', { url: `${base}/?tab=a` })
   await callTool(b, 'browser_navigate', { url: `${base}/?tab=b` })
 
+  for (const id of ['agent:a', 'agent:b']) {
+    const capture = await browsers.screenshot(id)
+    assert.ok(capture, `${id} has no rendered capture`)
+    const image = nativeImage.createFromDataURL(capture)
+    assert.deepEqual(image.getSize(), { width: 800, height: 600 })
+    const pixels = image.toBitmap()
+    const offset = (400 * 800 + 600) * 4
+    const expected = [255, 242, 234]
+    for (const [channel, value] of expected.entries()) {
+      const actual = pixels[offset + channel]
+      assert.ok(
+        actual !== undefined && Math.abs(actual - value) <= 5,
+        `${id} captured an unpainted page`,
+      )
+    }
+  }
+
   const freshA = { tab: 'a', player: { x: 0 }, clicks: 0, lastPointer: null }
   const freshB = { tab: 'b', player: { x: 0 }, clicks: 0, lastPointer: null }
   assert.deepEqual(await state(a), freshA)
@@ -156,6 +171,67 @@ async function main(): Promise<void> {
     lastPointer: { x: 100, y: 50 },
   })
   assert.deepEqual(await state(a), movedA, 'input to tab b reached tab a')
+
+  const page = win.contentView.children.find(
+    (view) => view instanceof WebContentsView && view.webContents.getURL() === `${base}/?tab=a`,
+  )
+  assert.ok(page instanceof WebContentsView, 'agent has no native view')
+  assert.equal(page.webContents.isOffscreen(), false, 'docked browser must accept native input')
+  assert.ok(
+    win.contentView.children.every((view) => !view.getVisible()),
+    'background agent obscures shell',
+  )
+  const pageId = page.webContents.id
+  await page.webContents.executeJavaScript('document.querySelector("#field").value = "unsaved"')
+
+  const bounds = { x: 480, y: 80, width: 630, height: 420 }
+  browsers.layout('agent:a', bounds, true)
+  assert.equal(page.getVisible(), true, 'docked browser is not visible')
+  assert.deepEqual(page.getBounds(), bounds)
+  assert.deepEqual(await page.webContents.executeJavaScript('[innerWidth,innerHeight]'), [630, 420])
+  const shot = await browsers.screenshot('agent:a')
+  assert.ok(shot, 'native browser screenshot is empty')
+  assert.deepEqual(nativeImage.createFromDataURL(shot).getSize(), { width: 630, height: 420 })
+
+  await checkNativeBrowserInput(win, page)
+  const persisted: unknown = await page.webContents.executeJavaScript(
+    'document.querySelector("#field").value',
+  )
+  const afterInput = await state(a)
+  browsers.layout('agent:a', { x: 0, y: 0, width: 0, height: 0 }, false)
+  assert.equal(page.getVisible(), false, 'hidden browser obscures shell')
+  assert.deepEqual(await state(a), afterInput, 'hiding the browser reset the page')
+
+  // Throttling can start while a background tab is idle. Tool use must resume
+  // its animation loop even after the entire window has gone to the tray.
+  page.webContents.setBackgroundThrottling(true)
+  win.hide()
+  assert.deepEqual(await state(a), afterInput, 'tray-hidden browser cannot resume rendering')
+  assert.ok(await browsers.screenshot('agent:a'), 'tray-hidden browser cannot be captured')
+  win.show()
+
+  const resized = { ...bounds, width: 400, height: 300 }
+  browsers.layout('agent:a', resized, true)
+  assert.equal(page.webContents.id, pageId, 'docking recreated the page')
+  assert.equal(
+    await page.webContents.executeJavaScript('document.querySelector("#field").value'),
+    persisted,
+  )
+  assert.deepEqual(await page.webContents.executeJavaScript('[innerWidth,innerHeight]'), [400, 300])
+  browsers.hideAll()
+  assert.ok(
+    win.contentView.children.every((view) => !view.getVisible()),
+    'shell reset left browser on top',
+  )
+  const closingContents = page.webContents
+  const destroyed = new Promise<void>((resolve) => closingContents.once('destroyed', resolve))
+  mcp.revoke('a')
+  mcp.revoke('b')
+  await destroyed
+  assert.equal(closingContents.isDestroyed(), true, 'closing the tab leaked its webContents')
+  mcp.close()
+  fixture.close()
+  win.destroy()
 }
 
 const watchdog = setTimeout(() => {
@@ -166,7 +242,7 @@ const watchdog = setTimeout(() => {
 main().then(
   () => {
     clearTimeout(watchdog)
-    console.log('E2E PASS browser_state input')
+    console.log('E2E PASS browser input, native docking, resize, tray resume and cleanup')
     app.exit(0)
   },
   (error: unknown) => {

@@ -67,6 +67,10 @@ describe('BrowserService', () => {
     expect(service.layout('tab1', { x: 10, y: 20, width: 400, height: 300 }, true)).toBe(true)
     expect(setVisible).toHaveBeenCalledWith(true)
     expect(setBounds).toHaveBeenCalledWith({ x: 10, y: 20, width: 400, height: 300 })
+    const placed = setBounds.mock.invocationCallOrder[0]
+    const shown = setVisible.mock.invocationCallOrder[0]
+    if (placed === undefined || shown === undefined) throw new Error('guest was not placed')
+    expect(placed).toBeLessThan(shown)
     expect(service.close('tab1')).toBe(true)
     expect(destroy).toHaveBeenCalledOnce()
     expect(service.layout('tab1', { x: 0, y: 0, width: 1, height: 1 }, false)).toBe(false)

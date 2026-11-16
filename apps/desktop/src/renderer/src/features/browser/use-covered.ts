@@ -5,14 +5,15 @@ const FILL_STEP = 96
 const MIN_GAP_MS = 150
 
 /**
- * Where to hit-test `rect`: a tight ring just inside its edge, which anything
- * anchored outside must cross, and a loose grid for what floats in the middle.
+ * Where to hit-test the visible part of `rect`: a tight ring just inside its
+ * edge and a loose grid for what floats in the middle.
  */
 function* probePoints(rect: DOMRect): Generator<[number, number]> {
-  const left = rect.left + 1
-  const top = rect.top + 1
-  const right = rect.right - 1
-  const bottom = rect.bottom - 1
+  const left = Math.max(0, rect.left) + 1
+  const top = Math.max(0, rect.top) + 1
+  const right = Math.min(window.innerWidth, rect.right) - 1
+  const bottom = Math.min(window.innerHeight, rect.bottom) - 1
+  if (right <= left || bottom <= top) return
   for (let x = left; x < right; x += EDGE_STEP) {
     yield [x, top]
     yield [x, bottom]
@@ -71,9 +72,15 @@ export function useCovered(hostRef: RefObject<Element | null>, enabled: boolean)
       attributes: true,
       attributeFilter: ['class', 'style'],
     })
+    // Reflow and scrolling move surfaces without necessarily mutating the DOM.
+    // Capture also catches scroll events from nested workspace containers.
+    window.addEventListener('resize', schedule)
+    window.addEventListener('scroll', schedule, true)
     schedule()
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', schedule)
+      window.removeEventListener('scroll', schedule, true)
       window.clearTimeout(timer)
       setCovered(false)
     }
