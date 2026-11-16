@@ -464,7 +464,11 @@ export function ProjectDraft({
           attemptRef.current = null
           setAttempt(null)
           setFailure(null)
-          setSelection({ mode: 'manual', hostId: original.hostId, reason: `${hostsRef.current.find((host) => host.id === original.hostId)?.name ?? 'This PC'} runs this draft.` })
+          setSelection({
+            mode: 'manual',
+            hostId: original.hostId,
+            reason: `${hostsRef.current.find((host) => host.id === original.hostId)?.name ?? 'This PC'} runs this draft.`,
+          })
           return
         }
         if (!scope) {

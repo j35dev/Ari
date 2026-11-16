@@ -35,14 +35,19 @@ it('creates a draft session even when its focus intent went stale', async () => 
         refreshSessions: () => undefined,
         checkSessions: async () => undefined,
       }),
-    { wrapper: ({ children }: { children: ReactNode }) => <ToastProvider>{children}</ToastProvider> },
+    {
+      wrapper: ({ children }: { children: ReactNode }) => <ToastProvider>{children}</ToastProvider>,
+    },
   )
   let id: string | undefined
   await act(async () => {
     id = await result.current.createDraft('project', {})
   })
   expect(id).toBe('created')
-  expect(rpcMocks.invoke).toHaveBeenCalledWith('session.create', expect.objectContaining({ projectId: 'project' }))
+  expect(rpcMocks.invoke).toHaveBeenCalledWith(
+    'session.create',
+    expect.objectContaining({ projectId: 'project' }),
+  )
 })
 
 it('leaves a failed draft start to the draft, so the next start is not refused', async () => {
@@ -64,7 +69,9 @@ it('leaves a failed draft start to the draft, so the next start is not refused',
         refreshSessions: () => undefined,
         checkSessions: async () => undefined,
       }),
-    { wrapper: ({ children }: { children: ReactNode }) => <ToastProvider>{children}</ToastProvider> },
+    {
+      wrapper: ({ children }: { children: ReactNode }) => <ToastProvider>{children}</ToastProvider>,
+    },
   )
   await act(async () => {
     await expect(result.current.createDraft('project', {})).rejects.toThrow('Creation reply lost')
