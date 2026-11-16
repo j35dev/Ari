@@ -7,6 +7,7 @@ import {
   themeCssAssetRefs,
   wallpaperFocus,
 } from './themes'
+import { settingsSchema } from './settings'
 
 describe('custom theme boundary', () => {
   it('rejects executable content, unknown slots and geometry that can hide controls', () => {
@@ -100,5 +101,50 @@ describe('custom theme boundary', () => {
       '/ari fix bug',
     ])
       expect(themeAuthoringPrompt(text)).toBe(text)
+  })
+})
+
+// Review of #543: one refused theme made the settings store throw away every setting.
+describe('custom themes in settings', () => {
+  const bad = {
+    ...neonThemeExample,
+    id: 'custom:bad',
+    css: 'body{background:url(https://x.example)}',
+  }
+  it('drops unreadable themes instead of refusing the settings file', () => {
+    const settings = settingsSchema.parse({
+      version: 1,
+      appearance: {
+        mode: 'custom:bad',
+        themeId: 'custom:bad',
+        fontSize: 18,
+        customThemes: [neonThemeExample, bad, { ...neonThemeExample, name: 'Duplicate' }, 'junk'],
+        activeCustomTheme: bad,
+      },
+      notifications: { discordPresence: true },
+    })
+    expect(settings.appearance.customThemes).toEqual([neonThemeExample])
+    expect(settings.appearance.activeCustomTheme).toBeUndefined()
+    expect(settings.appearance.mode).toBe('system')
+    expect(settings.appearance.themeId).toBe('obsidian')
+    expect(settings.appearance.fontSize).toBe(18)
+    expect(settings.notifications.discordPresence).toBe(true)
+  })
+  it('keeps a custom theme selected while it is still readable', () => {
+    const appearance = settingsSchema.parse({
+      version: 1,
+      appearance: {
+        mode: 'custom:neon',
+        themeId: 'custom:neon',
+        activeCustomTheme: neonThemeExample,
+      },
+    }).appearance
+    expect(appearance.mode).toBe('custom:neon')
+    expect(appearance.themeId).toBe('custom:neon')
+    expect(appearance.activeCustomTheme).toEqual(neonThemeExample)
+    expect(
+      settingsSchema.parse({ version: 1, appearance: { mode: 'custom:Not An Id' } }).appearance
+        .mode,
+    ).toBe('system')
   })
 })
