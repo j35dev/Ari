@@ -90,6 +90,16 @@ async function sendDraft(user: ReturnType<typeof userEvent.setup>, text = 'First
   await user.click(screen.getByRole('button', { name: 'Send' }))
 }
 describe('first-send shell draft ownership', () => {
+  it('brings back unsent text when a new session for the same project is opened again', async () => {
+    render(<App />)
+    const user = await chooseDraft()
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Half-written idea')
+    await user.click(screen.getByRole('button', { name: 'Close draft' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Close draft' })).toBeNull())
+    await chooseDraft()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Half-written idea')
+    expect(calls('session.create')).toHaveLength(0)
+  })
   it('selects a client draft without creation, then delivers first Send once to a normal local scope', async () => {
     render(<App />)
     const user = await chooseDraft()

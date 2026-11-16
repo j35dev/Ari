@@ -63,8 +63,11 @@ import {
 import { descendantIds, parentOf } from './features/session/session-tree'
 import { LINK_FAILED_EVENT } from './lib/external-links'
 import { BrowserPanel, browserTabFor } from './features/browser/BrowserPanel'
-import { deleteSessionDraftIntent } from './features/composer/draft-recovery-store'
-import { deleteSessionDraftText } from './features/composer/use-drafts'
+import {
+  deleteSessionDraftIntent,
+  readSessionDraftIntent,
+} from './features/composer/draft-recovery-store'
+import { deleteSessionDraftText, readSessionDraftText } from './features/composer/use-drafts'
 import { writeReviewDrafts } from './features/changes/review-drafts'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
@@ -1273,12 +1276,23 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       }
       const currentSpace = spaceStoreSnapshot().activeSpaceId
       const paneId = activePaneOf(splitLayoutSnapshot())
-      const existing = projectDrafts.find((entry) => entry.id === snapshotDraftId) ?? projectDrafts.find(
-        (entry) =>
-          entry.groupId === group.id &&
-          entry.spaceId === currentSpace &&
-          localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) !== null,
-      )
+      // An earlier draft for this project comes back while it holds a send
+      // receipt or anything the user typed or attached, rather than a blank one.
+      const holdsWork = (entry: ProjectDraftEntry): boolean =>
+        localStorage.getItem(`ari.machines.projectDraft.attempt.v1:${entry.id}`) !== null ||
+        readSessionDraftText(`project-draft:${entry.id}`).trim() !== '' ||
+        readSessionDraftIntent(`project-draft:${entry.id}`).images.length > 0
+      const existing =
+        projectDrafts.find((entry) => entry.id === snapshotDraftId) ??
+        [...projectDrafts]
+          .reverse()
+          .find(
+            (entry) =>
+              entry.groupId === group.id &&
+              entry.spaceId === currentSpace &&
+              Boolean(entry.lead) === lead &&
+              holdsWork(entry),
+          )
       const entry: ProjectDraftEntry = existing
         ? { ...existing, paneId }
         : {
