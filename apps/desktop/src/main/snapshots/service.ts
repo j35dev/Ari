@@ -55,8 +55,9 @@ export class SnapshotsService {
         if (typeof target !== 'string' || !target || target.length > 128)
           throw new Error('Invalid capture destination')
         const item = await this.pending.read(String(id))
-        if (!item.target) await this.pending.save({ ...item, target })
-        return item.target ?? target
+        // The renderer keeps a live pin and only sends another when it is gone.
+        if (item.target !== target) await this.pending.save({ ...item, target })
+        return target
       },
       acknowledge: async (id) => {
         await this.pending.acknowledge(String(id))
@@ -143,7 +144,11 @@ export class SnapshotsService {
   updateSettings(store: SettingsStore, patch: SettingsPatch): Promise<Settings> {
     const task = this.updates.then(async () => {
       const previous = store.current
-      const changesShortcut = patch.snapshots !== undefined || patch.speech !== undefined
+      // Only bindings can collide; other speech saves must not retry registration.
+      const changesShortcut =
+        patch.snapshots !== undefined ||
+        patch.speech?.shortcut !== undefined ||
+        patch.speech?.dictationShortcut !== undefined
       if (changesShortcut)
         this.configure({
           ...previous,
@@ -151,7 +156,17 @@ export class SnapshotsService {
           speech: { ...previous.speech, ...patch.speech },
         })
       try {
-        return await store.update(patch)
+        const next = await store.update(patch)
+        // Feedback reads appearance too, e.g. Reduce motion; keep the copy current.
+        if (!this.disposed)
+          this.settings = {
+            ...next,
+            snapshots: {
+              ...next.snapshots,
+              shortcut: next.snapshots.shortcut || defaultSnapshotShortcut(process.platform),
+            },
+          }
+        return next
       } catch (error) {
         if (changesShortcut) this.initialize(previous)
         throw error
