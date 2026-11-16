@@ -25,9 +25,21 @@ export interface DraftImage {
   metadata: DraftFileMetadata
   file?: File
   ref?: AttachmentRef
+  /** Local receipt keeps captured bytes recoverable even for an unsent remote draft. */
+  snapshot?: { id: string; localRef: AttachmentRef; capturedAt: number }
 }
 
-const imageSchema = z.object({ metadata: metadataSchema, ref: attachmentRefSchema.optional() })
+const imageSchema = z.object({
+  metadata: metadataSchema,
+  ref: attachmentRefSchema.optional(),
+  snapshot: z
+    .object({
+      id: z.string().uuid(),
+      localRef: attachmentRefSchema,
+      capturedAt: z.number().nonnegative(),
+    })
+    .optional(),
+})
 const noteSchema = z.object({
   id: z.string().min(1).max(128),
   path: z.string().min(1).max(4096),
@@ -187,7 +199,7 @@ export function useSessionDraftIntent(sessionId: string): SessionDraftIntent {
 }
 
 function persistedImage(image: DraftImage): z.infer<typeof imageSchema> {
-  return { metadata: image.metadata, ref: image.ref }
+  return { metadata: image.metadata, ref: image.ref, snapshot: image.snapshot }
 }
 function persistedPick(pick: BrowserPick): z.infer<typeof pickSchema> {
   const element = { ...pick.element }

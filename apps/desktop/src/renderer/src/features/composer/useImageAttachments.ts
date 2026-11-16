@@ -1,4 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { rpc } from '../../lib/rpc'
+import { tagSnapshotFile } from '../snapshots/arrival'
 import {
   imageIntent,
   readSessionDraftIntent,
@@ -12,6 +14,42 @@ export const MAX_IMAGES = 4
 
 /** Maximum accepted size in bytes for a single image (8MB). */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+/** Shared admission path for pasted, dropped and globally captured image files. */
+export function appendImageFiles(previous: DraftImage[], incoming: File[]): DraftImage[] {
+  const accepted = incoming.filter(
+    (file) => file.type.startsWith('image/') && file.size <= MAX_IMAGE_BYTES,
+  )
+  if (!accepted.length) return previous
+  const next = [...previous]
+  for (const file of accepted) {
+    const missing = next.findIndex(
+      (image) =>
+        !image.file &&
+        !image.ref &&
+        !image.snapshot &&
+        image.metadata.name === file.name &&
+        image.metadata.mimeType === file.type &&
+        image.metadata.size === file.size,
+    )
+    if (missing >= 0) next[missing] = imageIntent(file)
+    else if (next.length < MAX_IMAGES) next.push(imageIntent(file))
+  }
+  return next
+}
+
+export function snapshotFile(
+  dataBase64: string,
+  name: string,
+  mimeType: string,
+  capturedAt: number,
+): File {
+  const binary = atob(dataBase64)
+  return new File([Uint8Array.from(binary, (character) => character.charCodeAt(0))], name, {
+    type: mimeType,
+    lastModified: capturedAt,
+  })
+}
 
 export interface UseImageAttachmentsResult {
   /** Accepted images in arrival order. */
@@ -49,6 +87,34 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
     [sessionId],
   )
 
+  useEffect(() => {
+    if (!sessionId) return
+    let cancelled = false
+    for (const image of intents) {
+      if (image.file || !image.snapshot) continue
+      const snapshot = image.snapshot
+      void rpc
+        .invoke('attachments.read', { id: snapshot.localRef.id })
+        .then(({ attachment }) => {
+          if (cancelled || !attachment) return
+          const file = snapshotFile(
+            attachment.dataBase64,
+            image.metadata.name,
+            image.metadata.mimeType,
+            image.metadata.lastModified,
+          )
+          tagSnapshotFile(file, snapshot.id)
+          setImages((previous) =>
+            previous.map((candidate) => (candidate === image ? { ...candidate, file } : candidate)),
+          )
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, intents, setImages])
+
   const addFiles = useCallback(
     (files: FileList | File[]) => {
       let incoming = Array.from(files)
@@ -72,24 +138,7 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
           updateSessionDraftIntent(sessionId, (prev) => ({ ...prev, picks: restored }))
       }
       setImages((prev) => {
-        const accepted = incoming.filter(
-          (file) => file.type.startsWith('image/') && file.size <= MAX_IMAGE_BYTES,
-        )
-        if (accepted.length === 0) return prev
-        const next = [...prev]
-        for (const file of accepted) {
-          const missing = next.findIndex(
-            (image) =>
-              !image.file &&
-              !image.ref &&
-              image.metadata.name === file.name &&
-              image.metadata.mimeType === file.type &&
-              image.metadata.size === file.size,
-          )
-          if (missing >= 0) next[missing] = imageIntent(file)
-          else if (next.length < MAX_IMAGES) next.push(imageIntent(file))
-        }
-        return next
+        return appendImageFiles(prev, incoming)
       })
     },
     [sessionId, setImages],

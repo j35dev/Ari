@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { rowAction } from '../../lib/recipes'
+import { SnapshotThumbnail } from '../snapshots/SnapshotThumbnail'
 
 export interface AttachmentStripProps {
   /** Pending images to preview, in arrival order. */
@@ -29,19 +30,14 @@ export function AttachmentStrip({ images, onRemove }: AttachmentStripProps) {
   if (images.length === 0) return null
 
   return (
-    <div role="list" aria-label="Attached images" className="flex flex-wrap gap-1.5">
+    <div role="list" aria-label="Attached images" aria-live="polite" className="flex flex-wrap gap-1.5">
       {images.map((file, index) => (
         <div
           key={`${file.name}:${index}`}
           role="listitem"
           className="flex h-9 min-w-0 max-w-56 items-center gap-2 rounded-md border border-border bg-surface-2/50 pl-1 pr-1.5 text-xs text-fg-muted"
         >
-          <img
-            src={urls[index]}
-            alt={file.name}
-            title={file.name}
-            className="size-7 shrink-0 rounded-md object-cover"
-          />
+          <SnapshotThumbnail file={file} src={urls[index]} />
           {/* The image already carries the name for assistive tech. */}
           <span aria-hidden className="min-w-0 truncate">
             {file.name}
