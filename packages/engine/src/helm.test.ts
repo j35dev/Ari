@@ -1782,7 +1782,7 @@ it('requires a model choice for direct sessions and leads, then reuses the saved
   })
 })
 
-it('refuses a second session while project work is live and allows follow-ups across Aria topics', async () => {
+it('allows a second session while project work is live and follow-ups across Aria topics', async () => {
   await store.append('helm2', { type: 'session.created', session: { ...helm, id: 'helm2' } })
   const accepted = (await service.invoke('helm1', 'session.spawn', {
     ...launch,
@@ -1790,13 +1790,9 @@ it('refuses a second session while project work is live and allows follow-ups ac
   })) as { result: { child: Session } }
   const id = accepted.result.child.id
   await startTurn(id, 'Continue working', { kind: 'session', sessionId: 'helm1' })
-  const refused = await service.invoke('helm2', 'session.spawn', {
-    ...launch,
-    idempotencyKey: 'code-two',
-  })
-  expect(refused).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
-  expect(refused.ok ? '' : refused.error.message).toContain(`ari session prompt ${id}`)
-  expect(refused.ok ? '' : refused.error.message).toContain('wait for it to finish')
+  expect(
+    await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'code-two' }),
+  ).toMatchObject({ ok: true })
   expect(
     await service.invoke('helm2', 'session.prompt', {
       targetSessionId: id,
@@ -1812,13 +1808,9 @@ it('refuses a second session while project work is live and allows follow-ups ac
       idempotencyKey: 'concurrent-lead',
     }),
   ).toMatchObject({ ok: true })
-  await store.append(id, { type: 'session.updated', archived: true })
-  expect(
-    await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'archived-code' }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
 })
 
-it('holds the code slot while a direct session waits for workers and refuses restarting another session', async () => {
+it('lets a busy project folder take new sessions and restart idle ones', async () => {
   const idle = await service.invoke('helm1', 'session.spawn', {
     ...launch,
     prompt: undefined,
@@ -1847,14 +1839,14 @@ it('holds the code slot while a direct session waits for workers and refuses res
       ...launch,
       idempotencyKey: 'waiting-blocked',
     }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  ).toMatchObject({ ok: true })
   expect(
     await service.invoke('helm1', 'session.prompt', {
       targetSessionId: idleId,
       text: 'Start old work',
       idempotencyKey: 'restart-blocked',
     }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  ).toMatchObject({ ok: true })
   expect(
     await service.invoke('helm1', 'session.prompt', {
       targetSessionId: id,
@@ -1958,7 +1950,7 @@ it('keeps direct sessions reachable and counted when the Aria topic that launche
   expect((await service.tasks('helm2')).map((task) => task.sessionId)).toContain(id)
   expect(
     await service.invoke('helm2', 'session.spawn', { ...launch, idempotencyKey: 'orphan-code' }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  ).toMatchObject({ ok: true })
   expect(
     await service.invoke('helm2', 'session.switch', {
       targetSessionId: id,
@@ -2084,7 +2076,7 @@ it.each(['destroy', 'reset'] as const)(
 )
 
 it.each(['project', 'managed-worktree'] as const)(
-  'counts human code work only when it shares the project folder (%s)',
+  'does not block Aria on human code work (%s)',
   async (kind) => {
     await store.append('human-code', {
       type: 'session.created',
@@ -2106,21 +2098,14 @@ it.each(['project', 'managed-worktree'] as const)(
     })
     await startTurn('human-code', 'Fix login')
     const result = await service.invoke('helm1', 'session.spawn', launch)
-    if (kind === 'project') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { code: 'delegation_limit' },
-      })
-      expect(result.ok ? '' : result.error.message).toContain('Human login task')
-      expect(result.ok ? '' : result.error.message).toContain('human-code')
-      expect(
-        await service.invoke('helm1', 'session.prompt', {
-          targetSessionId: 'human-code',
-          text: 'Also inspect logout',
-          idempotencyKey: 'human-code-followup',
-        }),
-      ).toMatchObject({ ok: true })
-    } else expect(result.ok).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(
+      await service.invoke('helm1', 'session.prompt', {
+        targetSessionId: 'human-code',
+        text: 'Also inspect logout',
+        idempotencyKey: 'human-code-followup',
+      }),
+    ).toMatchObject({ ok: true })
   },
 )
 
@@ -2271,71 +2256,7 @@ it('ignores queued work and pending worker reports when no turn is actually runn
   ).toMatchObject({ ok: true })
 })
 
-it.each(['approval', 'question'] as const)(
-  'stops counting a live turn after a three-minute human %s wait, even with fresh provider activity',
-  async (kind) => {
-    const now = Date.now()
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
-    try {
-      await startTurn('web1', 'Work until human input', undefined, now)
-      const request = () =>
-        kind === 'approval'
-          ? store.append('web1', {
-              type: 'approval.requested',
-              approvalId: 'wait-input',
-              toolName: 'Bash',
-              summaryJson: '{}',
-              options: [],
-            })
-          : store.append('web1', {
-              type: 'input.requested',
-              inputId: 'wait-input',
-              prompt: 'Which approach?',
-              choicesJson: null,
-            })
-      const answer = () =>
-        kind === 'approval'
-          ? store.append('web1', {
-              type: 'approval.responded',
-              approvalId: 'wait-input',
-              decision: 'allow',
-            })
-          : store.append('web1', {
-              type: 'input.responded',
-              inputId: 'wait-input',
-              value: 'Continue',
-            })
-      await request()
-      clock.mockReturnValue(now + 2 * 60_000)
-      const blocked = await service.invoke('helm1', 'session.spawn', {
-        ...launch,
-        idempotencyKey: 'short-wait',
-      })
-      expect(blocked).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
-      expect(blocked.ok ? '' : blocked.error.message).toContain(web.title)
-      clock.mockReturnValue(now + 3 * 60_000)
-      await store.append('web1', {
-        type: 'assistant.parts.appended',
-        messageId: 'waiting-status',
-        parts: [{ type: 'text', text: 'Still waiting.' }],
-      })
-      // A repeated provider request is still the same uninterrupted human wait.
-      await request()
-      expect(
-        await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: 'long-wait' }),
-      ).toMatchObject({ ok: true })
-      await answer()
-      await request()
-      expect(
-        await service.invoke('helm1', 'session.spawn', { ...launch, idempotencyKey: 'new-wait' }),
-      ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
-    } finally {
-      clock.mockRestore()
-    }
-  },
-)
-
-it('lets Aria prompt a lead worker in the project folder while the lead is running', async () => {
+it('lets Aria prompt a lead worker and another root in the project folder while the lead is running', async () => {
   const first = await service.invoke('helm1', 'projects.ask', {
     projectId: 'web',
     text: 'Lead login work',
@@ -2367,5 +2288,5 @@ it('lets Aria prompt a lead worker in the project folder while the lead is runni
       text: 'Start a different top-level task',
       idempotencyKey: 'prompt-other-root',
     }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
+  ).toMatchObject({ ok: true })
 })

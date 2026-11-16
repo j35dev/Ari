@@ -781,10 +781,7 @@ export const rpcParams = {
   'aria.newChat': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
-  'session.workspace': z.object({
-    sessionId: z.string().min(1),
-    checkOccupancy: z.boolean().optional(),
-  }),
+  'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
   'session.tasks': z.object({ sessionId: z.string().min(1) }),
   /** Stop every running session below this one; the session itself is left alone. */
@@ -1228,7 +1225,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'aria.newChat': { sessionId: string }
   'session.create': { sessionId: string }
   'session.load': unknown
-  'session.workspace': { path: string | null; busyReason?: string | null }
+  'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]
   'session.stopChildren': { stopped: number }
   'session.resume.schedule': { at: number }

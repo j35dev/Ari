@@ -74,7 +74,6 @@ async function boot(recover = false): Promise<void> {
     publish: () => undefined,
     resolveWorkspace: async (id) => folders.get(id) ?? null,
     authorizeTurn: async (session) => runtime.authorizeTurn(session),
-    authorizeWorkspace: async (session) => runtime.service.authorizeWorkspace(session),
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
   runtime = await startAgentRuntime({
@@ -350,15 +349,13 @@ it('admits two top-level isolated worktrees together, snapshots dirty files, and
   expect(git('branch', '--list', 'ari/*')).toBe('')
 })
 
-it('atomically refuses simultaneous starts sharing a folder, even under different project IDs', async () => {
+it('admits simultaneous starts sharing a folder, even under different project IDs', async () => {
   await seed('one')
   await seed('two', 'alias')
   const replies = await Promise.all([start('one'), start('two')])
-  expect(replies.filter((r) => r.accepted)).toHaveLength(1)
-  expect(replies.find((r) => !r.accepted)?.reason).toContain('Working folder is busy')
-  expect((await store.load('two')).activeTurnId).toBeNull()
+  expect(replies).toEqual([{ accepted: true }, { accepted: true }])
   await stop('one')
-  expect(await start('two')).toEqual({ accepted: true })
+  await stop('two')
 })
 
 it('admits another root while a provider steering response is slow', async () => {
@@ -421,13 +418,6 @@ it('automatically gives Aria a root worktree alongside a busy human folder and r
   expect(child.parentSessionId).toBeUndefined()
   await vi.waitFor(() => expect(engine.hasLiveTurn(child.id)).toBe(true))
   expect(engine.hasLiveTurn('human')).toBe(true)
-  expect(
-    await runtime.service.invoke('aria', 'session.spawn', {
-      ...launch,
-      workspaceMode: 'shared',
-      idempotencyKey: 'refuse-shared',
-    }),
-  ).toMatchObject({ ok: false, error: { code: 'delegation_limit' } })
   await stop(child.id)
   await stop('human')
   await runtime.close()
@@ -455,7 +445,7 @@ it('automatically gives Aria a root worktree alongside a busy human folder and r
   ).toBe(false)
 })
 
-it('refuses busy non-Git projects and empty repositories without creating another session', async () => {
+it('shares busy non-Git projects and empty repositories instead of refusing', async () => {
   const plain = join(dir, 'plain')
   await mkdir(plain)
   folders.set('plain', plain)
@@ -468,10 +458,9 @@ it('refuses busy non-Git projects and empty repositories without creating anothe
       projectId: 'plain',
       idempotencyKey: `plain-${initialized}`,
     })
-    expect(reply).toMatchObject({ ok: false, error: { code: 'workspace_not_git' } })
-    expect(reply.ok ? '' : reply.error.message).toContain('plain-human')
+    expect(reply).toMatchObject({ ok: true, result: { child: { workspace: { kind: 'project' } } } })
   }
-  expect((await store.listSessions()).filter((s) => s.projectId === 'plain')).toHaveLength(1)
+  expect((await store.listSessions()).filter((s) => s.projectId === 'plain')).toHaveLength(3)
 })
 
 it.each(['session.spawn', 'projects.ask'] as const)(
@@ -560,30 +549,7 @@ it('automatically isolates human new-session creation alongside a busy project',
   expect(engine.hasLiveTurn('human')).toBe(true)
 })
 
-it('rechecks folder occupancy before resuming a long human wait', async () => {
-  await seed('parked')
-  await seed('new-work')
-  await start('parked')
-  await store.append('parked', {
-    type: 'input.requested',
-    inputId: 'question',
-    prompt: 'Continue?',
-    choicesJson: null,
-    at: Date.now() - 4 * 60_000,
-  })
-  expect(await start('new-work')).toEqual({ accepted: true })
-  expect(
-    await engine.dispatch({
-      type: 'input.respond',
-      sessionId: 'parked',
-      inputId: 'question',
-      value: 'Continue',
-    }),
-  ).toMatchObject({ accepted: false, reason: expect.stringContaining('new-work') })
-  expect((await store.load('parked')).pendingInputs).toHaveLength(1)
-})
-
-it('counts shared descendants in their effective folder and resumes a held root queue when it frees', async () => {
+it('admits a root alongside a shared descendant in the same folder', async () => {
   await seed('parent')
   await seed('other')
   await engine.createSession({
@@ -596,19 +562,7 @@ it('counts shared descendants in their effective folder and resumes a held root 
     workspace: { kind: 'project' },
   })
   expect(await start('descendant')).toEqual({ accepted: true })
-  expect(await start('other')).toMatchObject({
-    accepted: false,
-    reason: expect.stringContaining('Descendant'),
-  })
-  await engine.dispatch({
-    type: 'message.enqueue',
-    sessionId: 'other',
-    text: 'Held work',
-    attachments: [],
-    hold: true,
-  })
-  await engine.drainHeld()
-  expect((await store.load('other')).activeTurnId).toBeNull()
+  expect(await start('other')).toEqual({ accepted: true })
   await stop('descendant')
-  await vi.waitFor(async () => expect((await store.load('other')).activeTurnId).not.toBeNull())
+  await stop('other')
 })
