@@ -43,7 +43,7 @@ const FALLBACK_SYMBOL = '#eaeaea'
 
 /** Packaged renderer policy; remote audio is restricted to HTTPS media only. */
 export const PACKAGED_CONTENT_SECURITY_POLICY =
-  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http: https: ws:; media-src 'self' https: blob:"
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ari-theme-asset:; font-src 'self' ari-theme-asset:; connect-src 'self' http: https: ws: ari-theme-asset:; media-src 'self' https: blob:"
 
 export interface ThemeWindowChrome {
   backgroundColor: string

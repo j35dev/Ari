@@ -132,6 +132,10 @@ vi.mock('./store', () => ({
   }),
 }))
 vi.mock('./tray', () => ({ createTray: fixture.createTray }))
+vi.mock('./theme-asset-protocol', () => ({
+  registerThemeAssetScheme: vi.fn(),
+  handleThemeAssets: vi.fn(),
+}))
 vi.mock('./window', async (importOriginal) => ({
   ...(await importOriginal<typeof WindowModule>()),
   createMainWindow: fixture.createWindow,

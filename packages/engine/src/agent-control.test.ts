@@ -11,15 +11,18 @@ import { neonThemeExample } from '@ari/contracts/themes'
 
 it('allows authenticated theme authoring and deduplicates installs without exposing renderer code', async () => {
   const install = vi.fn(async () => ({ installed: true }))
-  host.themes = {
+  const screenshot = vi.fn(async () => ({ path: '/tmp/ari.png', width: 10, height: 10 }))
+  const themes: NonNullable<ControlHost['themes']> = {
     schema: () => ({}),
     list: () => ({ themes: [] }),
-    validate: () => ({ valid: true }),
+    validate: async () => ({ valid: true }),
     install,
     preview: () => ({}),
     remove: async () => ({}),
     reset: async () => ({}),
+    screenshot,
   }
+  host.themes = themes
   const params = { theme: neonThemeExample, preview: true, idempotencyKey: 'theme-one' }
   expect(await service.invoke(root.id, 'theme.install', params)).toMatchObject({ ok: true })
   expect(await service.invoke(root.id, 'theme.install', params)).toMatchObject({ ok: true })
@@ -27,16 +30,31 @@ it('allows authenticated theme authoring and deduplicates installs without expos
   expect(
     await service.invoke(root.id, 'theme.install', {
       ...params,
-      theme: { ...neonThemeExample, css: 'body{}' },
+      theme: { ...neonThemeExample, css: 'body{background:url(https://example.com/x.png)}' },
     }),
   ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
   expect(install).toHaveBeenCalledOnce()
-  host.themes.validate = () => {
+  themes.validate = async () => {
     throw new Error('fg on surface-1 needs 4.5:1 contrast.')
   }
   const invalid = await service.invoke(root.id, 'theme.validate', { theme: neonThemeExample })
   expect(invalid).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
   if (!invalid.ok) expect(invalid.error.message).toContain('contrast')
+  expect(await service.invoke(root.id, 'theme.screenshot', {})).toMatchObject({
+    ok: true,
+    result: { path: '/tmp/ari.png' },
+  })
+  themes.validate = async () => ({ valid: true })
+  expect(
+    await service.invoke(root.id, 'theme.install', {
+      ...params,
+      idempotencyKey: 'theme-two',
+      assetsDir: '/themes/one-piece',
+    }),
+  ).toMatchObject({ ok: true })
+  expect(install).toHaveBeenLastCalledWith(neonThemeExample, true, {
+    assetsDir: '/themes/one-piece',
+  })
 })
 
 let dir: string

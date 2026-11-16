@@ -10,12 +10,24 @@ const os = require('node:os')
 const { randomUUID } = require('node:crypto')
 
 const skillPath = path.join(__dirname, 'ari', 'SKILL.md')
+const THEME_USAGE = [
+  'ari theme schema --json            JSON schema, design guide, CSS hooks and a working example. Start here.',
+  'ari theme list --json              Themes in the library.',
+  'ari theme validate --file <theme.json> [--assets <dir>] --json',
+  'ari theme install --file <theme.json> [--assets <dir>] [--preview] [--key <k>] --json',
+  'ari theme screenshot [--out <file.png>] --json   PNG of the Ari window; open it to check your theme.',
+  'ari theme preview|remove <custom:id> --json',
+  'ari theme reset --json',
+  'The file is the theme object itself (version, id, name, base, colors, ...), not wrapped in another key.',
+  'Files listed in assets are read from the theme file folder unless --assets is given.',
+].join('\n')
 const failure = (code, message) => ({ ok: false, error: { code, message } })
 
 function parse(argv) {
   const positional = []
   const flags = {}
   const boolean = new Set([
+    'help',
     'json',
     'wait',
     'patch',
@@ -77,6 +89,9 @@ function parse(argv) {
     'query',
     'limit',
     'file',
+    'assets',
+    'out',
+    'help',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -115,8 +130,18 @@ function parse(argv) {
   let method
   let params
   if (group === 'theme') {
-    if (!['schema', 'list', 'validate', 'install', 'preview', 'remove', 'reset'].includes(verb))
-      throw new Error('Use ari theme schema|list|validate|install|preview|remove|reset')
+    if (flags.help || !verb) throw new Error(THEME_USAGE)
+    const verbs = [
+      'schema',
+      'list',
+      'validate',
+      'install',
+      'preview',
+      'remove',
+      'reset',
+      'screenshot',
+    ]
+    if (!verbs.includes(verb)) throw new Error(`Use ari theme ${verbs.join('|')}`)
     const fromFile = ['validate', 'install'].includes(verb)
     const needsId = ['preview', 'remove'].includes(verb)
     for (const name of Object.keys(flags)) {
@@ -125,8 +150,9 @@ function parse(argv) {
           'json',
           'key',
           'timeout',
-          ...(fromFile ? ['file'] : []),
+          ...(fromFile ? ['file', 'assets'] : []),
           ...(verb === 'install' ? ['preview'] : []),
+          ...(verb === 'screenshot' ? ['out'] : []),
         ].includes(name)
       )
         throw new Error(`Unsupported theme ${verb} option --${name}`)
@@ -143,6 +169,10 @@ function parse(argv) {
       : needsId
         ? { id: target }
         : {}
+    // Ari reads theme files itself, so it needs absolute paths. They default to the theme's folder.
+    if (fromFile && (flags.assets || params.theme?.assets?.length))
+      params.assetsDir = path.resolve(flags.assets || path.dirname(path.resolve(flags.file)))
+    if (verb === 'screenshot' && flags.out) params.out = path.resolve(flags.out)
     if (verb === 'install') params.preview = flags.preview === true
     if (['install', 'preview', 'remove', 'reset'].includes(verb)) params.idempotencyKey = key
     method = `theme.${verb}`

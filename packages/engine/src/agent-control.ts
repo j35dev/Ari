@@ -187,11 +187,13 @@ export interface ControlHost {
   themes?: {
     schema(): unknown
     list(): unknown
-    validate(theme: unknown): unknown
-    install(theme: unknown, preview?: boolean): Promise<unknown>
+    validate(theme: unknown, files?: { assetsDir?: string }): Promise<unknown>
+    install(theme: unknown, preview?: boolean, files?: { assetsDir?: string }): Promise<unknown>
     remove(id: string): Promise<unknown>
     preview(id: string): unknown
     reset(): Promise<unknown>
+    /** PNG of the Ari window, so an agent can see its theme. */
+    screenshot(out?: string): Promise<unknown>
   }
   /** Disabled Aria retains its journal but cannot invoke cross-project powers. */
   ariaEnabled?(): boolean
@@ -934,7 +936,8 @@ export class AgentControlService {
       case 'theme.install':
       case 'theme.remove':
       case 'theme.preview':
-      case 'theme.reset': {
+      case 'theme.reset':
+      case 'theme.screenshot': {
         const library = this.host.themes
         if (!library)
           throw new ControlFailure('unsupported', 'Custom themes are unavailable in this runtime.')
@@ -944,26 +947,36 @@ export class AgentControlService {
           case 'theme.list':
             return library.list()
           case 'theme.validate':
-            try {
-              return library.validate((raw as ControlParams<'theme.validate'>).theme)
-            } catch (error) {
-              throw new ControlFailure(
-                'invalid_request',
-                error instanceof Error ? error.message : 'Invalid theme.',
-              )
-            }
           case 'theme.install': {
             const p = raw as ControlParams<'theme.install'>
+            const files = p.assetsDir === undefined ? {} : { assetsDir: p.assetsDir }
             try {
-              library.validate(p.theme)
+              const validated = await library.validate(p.theme, files)
+              if (method === 'theme.validate') return validated
             } catch (error) {
               throw new ControlFailure(
                 'invalid_request',
                 error instanceof Error ? error.message : 'Invalid theme.',
               )
             }
-            return library.install(p.theme, p.preview)
+            try {
+              return await library.install(p.theme, p.preview, files)
+            } catch (error) {
+              throw new ControlFailure(
+                'invalid_request',
+                error instanceof Error ? error.message : 'Could not install the theme.',
+              )
+            }
           }
+          case 'theme.screenshot':
+            try {
+              return await library.screenshot((raw as ControlParams<'theme.screenshot'>).out)
+            } catch (error) {
+              throw new ControlFailure(
+                'unavailable',
+                error instanceof Error ? error.message : 'Could not capture the window.',
+              )
+            }
           case 'theme.remove':
             return library.remove((raw as ControlParams<'theme.remove'>).id)
           case 'theme.preview':

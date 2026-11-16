@@ -37,11 +37,13 @@ export function coverRect(
   imageHeight: number,
   boxWidth: number,
   boxHeight: number,
+  /** Focal point as fractions of the image, matching CSS background-position percentages. */
+  focus: { x: number; y: number } = { x: 0.5, y: 0.5 },
 ): Rect {
   const scale = Math.max(boxWidth / imageWidth, boxHeight / imageHeight)
   const width = imageWidth * scale
   const height = imageHeight * scale
-  return { x: (boxWidth - width) / 2, y: (boxHeight - height) / 2, width, height }
+  return { x: (boxWidth - width) * focus.x, y: (boxHeight - height) * focus.y, width, height }
 }
 
 export interface BakePlan {
@@ -54,8 +56,12 @@ export interface BakePlan {
   margin: number
 }
 
-export function bakePlan(viewWidth: number, viewHeight: number): BakePlan {
-  const blur = WALLPAPER_BLUR_PX * BAKE_SCALE
+export function bakePlan(
+  viewWidth: number,
+  viewHeight: number,
+  blurPx = WALLPAPER_BLUR_PX,
+): BakePlan {
+  const blur = blurPx * BAKE_SCALE
   return {
     width: Math.max(1, Math.round(viewWidth * BAKE_SCALE)),
     height: Math.max(1, Math.round(viewHeight * BAKE_SCALE)),
@@ -80,14 +86,20 @@ function context2d(canvas: OffscreenCanvas): OffscreenCanvasRenderingContext2D {
  * to an object URL that is already decoded, so swapping it in never shows a
  * blank frame. The caller owns the URL and revokes it.
  */
-export async function bakeWallpaper(src: string, viewWidth: number, viewHeight: number): Promise<string> {
+export async function bakeWallpaper(
+  src: string,
+  viewWidth: number,
+  viewHeight: number,
+  blurPx = WALLPAPER_BLUR_PX,
+  focus?: { x: number; y: number },
+): Promise<string> {
   const response = await fetch(src)
   if (!response.ok) throw new Error(`wallpaper fetch failed: ${response.status}`)
   const bitmap = await createImageBitmap(await response.blob())
-  const { width, height, blur, margin } = bakePlan(viewWidth, viewHeight)
+  const { width, height, blur, margin } = bakePlan(viewWidth, viewHeight, blurPx)
 
   const scene = new OffscreenCanvas(width, height)
-  const fit = coverRect(bitmap.width, bitmap.height, width, height)
+  const fit = coverRect(bitmap.width, bitmap.height, width, height, focus)
   context2d(scene).drawImage(bitmap, fit.x, fit.y, fit.width, fit.height)
   bitmap.close()
 
@@ -126,7 +138,13 @@ export async function bakeWallpaper(src: string, viewWidth: number, viewHeight: 
 }
 
 export interface WallpaperBakeDeps {
-  bake?: (src: string, viewWidth: number, viewHeight: number) => Promise<string>
+  bake?: (
+    src: string,
+    viewWidth: number,
+    viewHeight: number,
+    blurPx?: number,
+    focus?: { x: number; y: number },
+  ) => Promise<string>
   revoke?: (url: string) => void
 }
 
@@ -140,6 +158,8 @@ export function installWallpaperBake(
   root: HTMLElement,
   src: string,
   { bake = bakeWallpaper, revoke = (url) => URL.revokeObjectURL(url) }: WallpaperBakeDeps = {},
+  blurPx = WALLPAPER_BLUR_PX,
+  focus?: { x: number; y: number },
 ): () => void {
   let disposed = false
   let current: string | null = null
@@ -161,7 +181,7 @@ export function installWallpaperBake(
     if (size === bakedSize) return
     bakedSize = size
     const mine = ++generation
-    bake(src, width, height).then(
+    bake(src, width, height, blurPx, ...(focus ? [focus] : [])).then(
       (url) => {
         if (disposed || mine !== generation) {
           revoke(url)

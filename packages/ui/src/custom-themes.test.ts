@@ -4,6 +4,8 @@ import {
   customThemeCss,
   paintCustomTheme,
   resolveCustomTheme,
+  resolveThemeCss,
+  themeCssValueFetches,
   themePartSelectors,
 } from './custom-themes'
 
@@ -38,4 +40,35 @@ it('scopes overrides, preserves recovery controls and removes the entire skin on
   paintCustomTheme(undefined)
   expect(document.getElementById('ari-custom-theme-style')).toBeNull()
   expect(document.documentElement.dataset['ariCustomTheme']).toBeUndefined()
+})
+
+it('points asset references at stored files and filters anything that would load remotely', () => {
+  const sha = 'a'.repeat(64)
+  const theme = {
+    ...neonThemeExample,
+    assets: [{ name: 'hat.png', sha256: sha }],
+    css: '[data-ari-part="brand"]::after{content:"👒";background:url("asset:hat.png")}',
+  }
+  expect(resolveThemeCss(theme)).toContain(`url("ari-theme-asset://a/${sha}.png")`)
+  expect(resolveThemeCss({ ...theme, css: 'body{background:url(https://example.com)}' })).toBe('')
+  expect(themeCssValueFetches(`url("ari-theme-asset://a/${sha}.png")`)).toBe(false)
+  expect(themeCssValueFetches('url("data:image/svg+xml;utf8,<svg></svg>")')).toBe(false)
+  expect(themeCssValueFetches('url("https://example.com/x.png")')).toBe(true)
+  expect(themeCssValueFetches('url("ari-theme-asset://a/../secret")')).toBe(true)
+})
+
+it('draws themes saved before the boxless rule without boxing broad parts', () => {
+  const css = customThemeCss({
+    ...neonThemeExample,
+    parts: {
+      button: {
+        default: { color: '#edfaff', borderWidth: 1, backgroundColor: '#1b1f2e' },
+        hover: { backgroundColor: '#24334e' },
+      },
+    },
+  })
+  const rules = css.split('\n').filter((rule) => rule.includes('button, [role="button"]'))
+  expect(rules[0]).toContain('color:#edfaff')
+  expect(rules[0]).not.toMatch(/border-width|background-color/)
+  expect(rules[1]).toContain('background-color:#24334e')
 })

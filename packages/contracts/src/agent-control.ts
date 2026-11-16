@@ -186,10 +186,18 @@ export const controlParams = {
   'runtime.info': z.object({}).strict(),
   'theme.schema': z.object({}).strict(),
   'theme.list': z.object({}).strict(),
-  'theme.validate': z.object({ theme: customThemeSchema }).strict(),
-  'theme.install': z
-    .object({ theme: customThemeSchema, preview: z.boolean().default(false), idempotencyKey: key })
+  'theme.validate': z
+    .object({ theme: customThemeSchema, assetsDir: z.string().min(1).max(4096).optional() })
     .strict(),
+  'theme.install': z
+    .object({
+      theme: customThemeSchema,
+      preview: z.boolean().default(false),
+      assetsDir: z.string().min(1).max(4096).optional(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  'theme.screenshot': z.object({ out: z.string().min(1).max(4096).optional() }).strict(),
   'theme.remove': z.object({ id: customThemeIdSchema, idempotencyKey: key }).strict(),
   'theme.preview': z.object({ id: customThemeIdSchema, idempotencyKey: key }).strict(),
   'theme.reset': z.object({ idempotencyKey: key }).strict(),

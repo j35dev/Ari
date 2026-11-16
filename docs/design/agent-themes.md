@@ -9,10 +9,14 @@ The same CLI is available to Aria, project agents and child sessions.
 ## User flow
 
 1. Describe a theme with `/ari theme <brief>` or ask an agent in ordinary language.
-2. The agent runs `ari theme schema --json`, creates the package and runs
+2. The agent runs `ari theme schema --json` (schema, design guide, CSS hooks,
+   example), makes a theme folder with theme.json and its images (a wallpaper it
+   generates or downloads, stickers, fonts), and runs
    `ari theme validate --file <path> --json`.
-3. `ari theme install --file <path> --preview --json` saves the validated package
-   and requests a 30-second full-app preview.
+3. `ari theme install --file <path> --preview --json` stores the listed files,
+   saves the package and requests a 30-second full-app preview.
+   `ari theme screenshot --json` saves a PNG of the window so the agent can see
+   the result and iterate before asking the user.
 4. Keep theme saves the selected revision. Revert, or the preview timeout,
    restores the previous confirmed theme. Reloading during a preview also
    restores the confirmed theme.
@@ -25,7 +29,12 @@ The current schema is served by `ari theme schema --json`, together with the
 component-slot list and a usable neon example. The version 1 package has a
 `custom:<slug>` identity, name, description, bundled base palette, semantic
 color overrides, bundled UI/code fonts, bounded density presets for spacing, corner radii, structured shadows,
-background gradients, decorative scene preference, and component styles.
+background gradients, decorative scene preference, and component styles. It may
+also carry `assets` (up to 32 png/jpg/webp/gif/avif/svg/woff2 files, 12 MB each,
+40 MB per theme), a `wallpaper` (asset, blur, tint, focal position) that replaces
+the bundled wallpaper while the theme is painted, and `css` (up to 50,000
+characters) applied after Ari's styles. CSS references theme files as
+`url("asset:<name>")`; emoji and stickers go in pseudo-element content.
 
 Every registered component slot has default, hover, active, selected, focus and
 disabled states. Slots cover the app frame, sidebar, titlebar, panels, composer,
@@ -37,14 +46,23 @@ an appropriate stable part. Tailwind selectors are never part of a theme file.
 
 ## Runtime guarantees and boundaries
 
-The package is data, not a plugin. Ari owns selectors and compiles an allowlist
-of visual properties. No arbitrary CSS, JavaScript, HTML, URLs, downloaded
-fonts, layout positioning, display, visibility, pointer events, z-index,
-content replacement or DOM changes are accepted. Theme authors can redesign
-the visual treatment; navigation structure, element ordering, hit targets,
-window dragging and component logic remain owned by Ari. Version 1 does not
-offer arbitrary layouts, replacement components, user icon packs or custom
-animation code. These would need separate, tested extension contracts.
+The package is data plus CSS, not a plugin: no JavaScript or HTML. Structured
+fields compile through Ari-owned selectors. Theme CSS follows T3 Code's model:
+it targets the stable hooks served with the schema (`data-ari-part` and
+`ari-*` classes, never Tailwind utilities) and must never load from the network,
+because a `url()` on an attribute selector could send what is on screen to
+another host. Validation refuses `@import`, `image-set()`, `src()`,
+backslashes (so escapes cannot spell a function past the check) and any
+`url()` other than `asset:`, `data:` or `#id`. At paint time the browser-parsed
+sheet is filtered again and only `ari-theme-asset:` and `data:` survive; the
+packaged CSP independently limits images, fonts and fetches to the app, data,
+blob and the theme-asset scheme.
+
+Theme files are stored once by SHA-256 under userData/theme-assets and served
+read-only as `ari-theme-asset://a/<sha256>.<ext>`. Bytes must match the claimed
+type. Content addressing means a revision never overwrites a file the confirmed
+theme still uses; files no library entry or confirmed theme references are
+removed after each library change. Exports embed the files as base64.
 
 Schema validation runs at IPC/control and storage boundaries. Contrast checks
 run before installation and painting, including inherited palette colors.
