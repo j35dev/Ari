@@ -15,7 +15,7 @@ const THEME_USAGE = [
   'ari theme list --json              Themes in the library.',
   'ari theme validate --file <theme.json> [--assets <dir>] --json',
   'ari theme install --file <theme.json> [--assets <dir>] [--preview] [--key <k>] --json',
-  'ari theme screenshot [--out <file.png>] --json   PNG of the Ari window; open it to check your theme.',
+  'ari theme screenshot [--out <name.png>] --json   PNG of the Ari window in the temp ari-theme-screenshots folder; open it to check your theme.',
   'ari theme preview|remove <custom:id> --json',
   'ari theme reset --json',
   'The file is the theme object itself (version, id, name, base, colors, ...), not wrapped in another key.',
@@ -172,7 +172,9 @@ function parse(argv) {
     // Ari reads theme files itself, so it needs absolute paths. They default to the theme's folder.
     if (fromFile && (flags.assets || params.theme?.assets?.length))
       params.assetsDir = path.resolve(flags.assets || path.dirname(path.resolve(flags.file)))
-    if (verb === 'screenshot' && flags.out) params.out = path.resolve(flags.out)
+    // Ari writes screenshots only to its temp folder; a bare name lands there.
+    if (verb === 'screenshot' && flags.out)
+      params.out = path.resolve(os.tmpdir(), 'ari-theme-screenshots', flags.out)
     if (verb === 'install') params.preview = flags.preview === true
     if (['install', 'preview', 'remove', 'reset'].includes(verb)) params.idempotencyKey = key
     method = `theme.${verb}`
