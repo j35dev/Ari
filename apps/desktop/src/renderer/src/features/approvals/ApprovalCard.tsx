@@ -3,8 +3,8 @@ import type { KeyboardEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { ApprovalOption } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
-import { outlineButton, primaryButton } from '../../lib/recipes'
-import { refuseButton } from './buttons'
+import { Shielded } from '@ari/ui/shielded'
+import { useThemeColors } from '@ari/ui/theme-provider'
 
 type ApprovalRespond = Extract<Command, { type: 'approval.respond' }>
 
@@ -135,7 +135,7 @@ export function approvalHeadline(summaryJson: string): { label: string; detail: 
 
 function ShortcutHint({ children }: { children: string }) {
   return (
-    <span aria-hidden="true" className="font-mono text-[11px] font-normal opacity-60">
+    <span aria-hidden="true" className="key">
       {children}
     </span>
   )
@@ -143,8 +143,49 @@ function ShortcutHint({ children }: { children: string }) {
 
 /** Ink for the one-off grant, an outline for the standing one, quiet for a refusal. */
 function choiceClass(kind: string | null): string {
-  if (kind === 'reject_once' || kind === 'reject_always') return refuseButton
-  return kind === 'allow_always' ? outlineButton : primaryButton
+  if (kind === 'reject_once' || kind === 'reject_always') return 'refuse'
+  return kind === 'allow_always' ? 'outline' : 'primary'
+}
+
+const SAFE_COLOR = /^[#\w().,%\s/-]+$/
+/**
+ * The card's own styles, with the palette written in as values. It lives in a shadow
+ * root (see Shielded) so theme CSS cannot relabel, reorder or hide a choice, and it
+ * reads no custom properties because a theme can override or re-register those.
+ */
+function approvalCss(colors: Record<string, string>): string {
+  const c = (role: string) => {
+    const value = colors[role] ?? ''
+    return SAFE_COLOR.test(value) ? value : 'CanvasText'
+  }
+  const wash = (percent: number) => `color-mix(in srgb,${c('fg')} ${percent}%,transparent)`
+  return `*{box-sizing:border-box}[hidden]{display:none !important}p{margin:0}
+.card{display:block;color:${c('fg')};font:13.5px/1.45 system-ui,sans-serif;text-align:left}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+.ask{display:flex;flex:1 1 0%;min-width:min(14rem,100%);align-items:center;gap:10px}
+.dot{flex:none;width:7px;height:7px;margin:0 3.5px;border-radius:50%;background:${c('accent')};box-shadow:0 0 0 3px ${c('accent-subtle')}}
+.title{flex-shrink:0}
+.tool{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${c('fg-muted')}}
+.headline{display:flex;flex:1 1 0%;min-width:0;align-items:center;gap:6px}
+.label{flex-shrink:0;font-size:12px;color:${c('fg-subtle')}}
+code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;background:${wash(9)};padding:1px 6px;font:12.5px/1.45 ui-monospace,monospace}
+.choices{margin-left:auto;display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+summary{display:flex;height:28px;cursor:pointer;user-select:none;list-style:none;align-items:center;gap:4px;border-radius:6px;padding:0 6px;font-size:12px;color:${c('fg-subtle')}}
+summary::-webkit-details-marker{display:none}
+summary:hover{color:${c('fg')}}
+.chev{transition:transform 150ms}.chev.open{transform:rotate(180deg)}
+.count{flex-shrink:0;padding:0 4px;font-size:12px;font-variant-numeric:tabular-nums;color:${c('fg-subtle')}}
+button{all:unset;box-sizing:border-box;display:inline-flex;height:28px;align-items:center;justify-content:center;gap:6px;border-radius:6px;padding:0 10px;font:500 13px/1 system-ui,sans-serif;cursor:pointer;transition:background-color 150ms,color 150ms}
+:focus-visible{outline:2px solid ${c('accent-ring')};outline-offset:1px}
+.primary{background:${c('fg')};color:${c('bg')}}
+.primary:hover{background:color-mix(in srgb,${c('fg')} 90%,transparent)}
+.outline{border:1px solid ${c('border-strong')}}
+.outline:hover{background:${wash(6)}}
+.refuse{color:${c('fg-muted')}}
+.refuse:hover{background:${c('danger-subtle')};color:${c('danger')}}
+.key{font:11px ui-monospace,monospace;opacity:.6}
+pre{margin:10px 0 0;max-height:160px;overflow:auto;border:1px solid ${c('border')};border-radius:8px;background:${c('surface-0')};padding:8px 12px;font:12.5px/1.625 ui-monospace,monospace;color:${c('fg-muted')}}
+@media (prefers-reduced-motion:reduce){.chev,button{transition:none}}`
 }
 
 /**
@@ -181,83 +222,74 @@ export function ApprovalCard({
   const displayName = formatApprovalToolName(toolName)
   const [rawOpen, setRawOpen] = useState(false)
   const rawId = useId()
+  const colors = useThemeColors()
 
   return (
     <div
       data-approval-id={approvalId}
-      data-ari-part="approval"
       role="group"
       aria-label={`Approval requested: ${toolName}`}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       className="px-3.5 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
     >
-      {/* One row when it fits; the choices drop under the request when the
-          pane is too narrow to hold both. */}
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-        <div className="flex min-w-[min(14rem,100%)] flex-1 items-center gap-2.5">
-          <span aria-hidden="true" className="ari-status" data-status="attention" />
-          <p className="shrink-0 text-[13.5px] text-fg">Permission needed</p>
-          <p className="min-w-0 shrink truncate text-[13.5px] text-fg-muted">{displayName}</p>
-          {headline ? (
-            <p className="flex min-w-0 flex-1 items-center gap-1.5" title={headline.detail}>
-              <span className="shrink-0 text-xs text-fg-subtle">{headline.label}</span>
-              <code className="min-w-0 truncate rounded-sm bg-fg/9 px-1.5 py-px font-mono text-[12.5px] text-fg">
-                {headline.detail}
-              </code>
-            </p>
-          ) : null}
+      <Shielded css={approvalCss(colors)}>
+        <div className="card">
+          {/* One row when it fits; the choices drop under the request when the
+              pane is too narrow to hold both. */}
+          <div className="row">
+            <div className="ask">
+              <span aria-hidden="true" className="dot" />
+              <p className="title">Permission needed</p>
+              <p className="tool">{displayName}</p>
+              {headline ? (
+                <p className="headline" title={headline.detail}>
+                  <span className="label">{headline.label}</span>
+                  <code>{headline.detail}</code>
+                </p>
+              ) : null}
+            </div>
+            <div className="choices">
+              {/* The toggle is a bare disclosure; what it opens sits below the
+                  row so it can run the full width of the tab. */}
+              <details open={rawOpen} onToggle={(event) => setRawOpen(event.currentTarget.open)}>
+                <summary aria-controls={rawId}>
+                  Raw request
+                  <ChevronDown
+                    size={12}
+                    strokeWidth={1.75}
+                    aria-hidden
+                    className={rawOpen ? 'chev open' : 'chev'}
+                  />
+                </summary>
+              </details>
+              {position !== undefined && total !== undefined && total > 1 ? (
+                <span className="count">
+                  {position}/{total}
+                </span>
+              ) : null}
+              {choices.map((choice, index) => {
+                const shortcut = keys[index] ?? null
+                return (
+                  <button
+                    key={choice.key}
+                    type="button"
+                    title={shortcut === null ? choice.name : `${choice.name} (${shortcut})`}
+                    className={choiceClass(choice.kind)}
+                    onClick={() => onRespond(choice.answer)}
+                  >
+                    {choice.name}
+                    {shortcut === null ? null : <ShortcutHint>{shortcut}</ShortcutHint>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <pre id={rawId} hidden={!rawOpen}>
+            {prettySummary(summaryJson)}
+          </pre>
         </div>
-        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          {/* The toggle is a bare disclosure; what it opens sits below the
-              row so it can run the full width of the tab. */}
-          <details
-            className="shrink-0"
-            open={rawOpen}
-            onToggle={(event) => setRawOpen(event.currentTarget.open)}
-          >
-            <summary
-              aria-controls={rawId}
-              className="flex h-7 cursor-pointer select-none list-none items-center gap-1 rounded-md px-1.5 text-xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring [&::-webkit-details-marker]:hidden"
-            >
-              Raw request
-              <ChevronDown
-                size={12}
-                strokeWidth={1.75}
-                aria-hidden
-                className={`transition-transform duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${rawOpen ? 'rotate-180' : ''}`}
-              />
-            </summary>
-          </details>
-          {position !== undefined && total !== undefined && total > 1 ? (
-            <span className="shrink-0 px-1 text-xs tabular-nums text-fg-subtle">
-              {position}/{total}
-            </span>
-          ) : null}
-          {choices.map((choice, index) => {
-            const shortcut = keys[index] ?? null
-            return (
-              <button
-                key={choice.key}
-                type="button"
-                title={shortcut === null ? choice.name : `${choice.name} (${shortcut})`}
-                className={choiceClass(choice.kind)}
-                onClick={() => onRespond(choice.answer)}
-              >
-                {choice.name}
-                {shortcut === null ? null : <ShortcutHint>{shortcut}</ShortcutHint>}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      <pre
-        id={rawId}
-        hidden={!rawOpen}
-        className="ari-scroll mt-2.5 max-h-40 overflow-auto rounded-lg border border-border bg-surface-0 px-3 py-2 font-mono text-[12.5px] leading-relaxed text-fg-muted"
-      >
-        {prettySummary(summaryJson)}
-      </pre>
+      </Shielded>
     </div>
   )
 }

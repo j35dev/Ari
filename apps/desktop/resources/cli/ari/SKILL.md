@@ -34,6 +34,7 @@ theme. Theme CSS references them as `url("asset:wallpaper.jpg")`. Emoji go in
 ::before/::after `content`. CSS cannot load anything from the network.
 
 Install adds or updates an entry in Settings → Appearance → Your themes.
+`install --preview`, `preview` and `screenshot` ask the user's permission first.
 `--preview` requests a 30-second preview; the user chooses Keep theme or
 Revert. `screenshot` saves a PNG of the Ari window and returns its path: open
 it, look at your theme, and fix what looks wrong before asking the user how
