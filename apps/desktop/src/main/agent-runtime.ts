@@ -66,6 +66,7 @@ const scopedKeys = [
 ]
 
 export interface AgentRuntimeOptions {
+  themes?: ControlHost['themes']
   ariaEnabled?: () => boolean
   userData: string
   cliPath: string
@@ -214,6 +215,7 @@ async function startControlTransport(
     version: options.version,
     policy: () => options.policy(),
     providers: options.providers,
+    ...(options.themes === undefined ? {} : { themes: options.themes }),
     ...(options.effortsForModel === undefined ? {} : { effortsForModel: options.effortsForModel }),
     ...(options.routines === undefined ? {} : { routines: options.routines }),
     ...(options.projects === undefined ? {} : { projects: options.projects }),
@@ -399,8 +401,11 @@ async function startControlTransport(
   return {
     orchestration,
     service,
-    prepareRootWorkspace: (session: Session, mode?: 'auto' | 'isolated' | 'shared', baseSnapshotCommit?: string) =>
-      service.prepareRootWorkspace(session, mode, baseSnapshotCommit),
+    prepareRootWorkspace: (
+      session: Session,
+      mode?: 'auto' | 'isolated' | 'shared',
+      baseSnapshotCommit?: string,
+    ) => service.prepareRootWorkspace(session, mode, baseSnapshotCommit),
     approvals,
     supervisor,
     refreshAriaExperiment: async () => {

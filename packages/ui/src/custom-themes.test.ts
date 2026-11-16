@@ -1,0 +1,41 @@
+import { afterEach, expect, it } from 'vitest'
+import { neonThemeExample, themeParts } from '@ari/contracts/themes'
+import {
+  customThemeCss,
+  paintCustomTheme,
+  resolveCustomTheme,
+  themePartSelectors,
+} from './custom-themes'
+
+afterEach(() => paintCustomTheme(undefined))
+it('covers every advertised slot with a selector owned by Ari', () => {
+  expect(Object.keys(themePartSelectors).sort()).toEqual([...themeParts].sort())
+})
+it('rejects an unreadable inherited palette before changing the live DOM', () => {
+  paintCustomTheme(neonThemeExample)
+  const before = document.getElementById('ari-custom-theme-style')!.textContent
+  expect(() =>
+    paintCustomTheme({
+      ...neonThemeExample,
+      colors: {
+        ...neonThemeExample.colors,
+        'surface-1': '#edfaff',
+      },
+    }),
+  ).toThrow(/contrast/)
+  expect(document.getElementById('ari-custom-theme-style')!.textContent).toBe(before)
+})
+it('scopes overrides, preserves recovery controls and removes the entire skin on reset', () => {
+  const css = customThemeCss(neonThemeExample)
+  expect(css).toContain('html[data-ari-custom-theme="custom:neon"]')
+  expect(customThemeCss({ ...neonThemeExample, density: 'compact' })).toContain('--spacing:3.5px')
+  expect(css).toContain(':not([data-ari-theme-recovery],[data-ari-theme-recovery] *)')
+  expect(css).toContain('outline:2px solid var(--ari-fg)')
+  expect(css).not.toMatch(/url\(|@import|pointer-events|display:none|position:/)
+  expect(resolveCustomTheme(neonThemeExample).colors.accent).toBe('#54f2e4')
+  paintCustomTheme(neonThemeExample)
+  expect(document.documentElement.dataset['ariCustomTheme']).toBe('custom:neon')
+  paintCustomTheme(undefined)
+  expect(document.getElementById('ari-custom-theme-style')).toBeNull()
+  expect(document.documentElement.dataset['ariCustomTheme']).toBeUndefined()
+})

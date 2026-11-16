@@ -78,6 +78,7 @@ export const ComposerDock = memo(function ComposerDock({
     >
       <motion.div
         className={`ari-session-intro pointer-events-none absolute inset-x-0 bottom-full text-left ${aria ? 'pb-3' : 'pb-2.5'}`}
+        data-ari-part="empty-state"
         aria-hidden={!centered}
         initial={false}
         animate={{ opacity: centered ? 1 : 0, y: centered ? 0 : -8 }}

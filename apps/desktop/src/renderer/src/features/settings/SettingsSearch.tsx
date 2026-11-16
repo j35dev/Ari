@@ -35,7 +35,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Theme',
-    keywords: 'theme accent light dark preview appearance',
+    keywords:
+      'theme accent light dark preview appearance custom library neon import export agent design',
   },
   {
     section: 'settings-appearance',

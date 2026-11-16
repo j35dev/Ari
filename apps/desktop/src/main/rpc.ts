@@ -112,6 +112,8 @@ import {
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
 import { applyThemeToWindow, registerWindowControls } from './window'
+import { ThemeLibrary } from './theme-library'
+import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
@@ -971,6 +973,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   rpcRegistryRef = rpcRegistry
+  const themeLibrary = new ThemeLibrary(getSettingsStore(), (event) => {
+    rpcRegistry.publish('themes.changed', event)
+    options.onSettingsChanged?.(getSettingsStore().current)
+  })
   const speech = (speechService ??= new SpeechService(app.getPath('userData'), getSettingsStore()))
   speech.publish = (frame) => {
     rpcRegistryRef?.publish('speech.progress', frame)
@@ -1383,6 +1389,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
+        themes: themeLibrary,
         openApp: (callerId, target, requestId, signal) =>
           appNavigation.open(callerId, target, requestId, signal),
         createProject: async (input, onProgress) => {
@@ -2468,9 +2475,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('theme.apply', (params) => {
     const win = BrowserWindow.fromWebContents(contents)
     if (!win) return { applied: false }
-    applyThemeToWindow(win, themeOf(params.themeId))
+    const custom =
+      params.customTheme?.id === params.themeId
+        ? params.customTheme
+        : themeLibrary.list().themes.find((theme) => theme.id === params.themeId)
+    applyThemeToWindow(win, custom ? resolveCustomTheme(custom) : themeOf(params.themeId))
     return { applied: true }
   })
+  r.register('theme.list', () => themeLibrary.list())
+  r.register('theme.install', ({ theme, preview }) => themeLibrary.install(theme, preview))
+  r.register('theme.remove', ({ id }) => themeLibrary.remove(id))
 
   r.register('providers.setupTerminal', async ({ kind }) => {
     ptyModule = await loadPtyModule()

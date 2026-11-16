@@ -12,6 +12,7 @@ import type { Project, ProjectDiscovery } from './project'
 import { projectAgentSchema } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
+import { customThemeSchema, customThemeIdSchema, type ThemeLibraryEvent } from './themes'
 export { sessionSummarySchema } from './session'
 import type { SessionSummary } from './session'
 export type { SessionSummary } from './session'
@@ -296,6 +297,7 @@ export type PickedElement = z.infer<typeof pickedElementSchema>
 
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
+  'themes.changed',
   'projects.changed',
   'speech.progress',
   'orchestration.changed',
@@ -914,7 +916,12 @@ export const rpcParams = {
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
-  'theme.apply': z.object({ themeId: themeIdSchema }),
+  'theme.apply': z.object({ themeId: themeIdSchema, customTheme: customThemeSchema.optional() }),
+  'theme.list': z.object({}).strict(),
+  'theme.install': z
+    .object({ theme: customThemeSchema, preview: z.boolean().default(false) })
+    .strict(),
+  'theme.remove': z.object({ id: customThemeIdSchema }).strict(),
   'terminal.create': z.object({ id: z.string().min(1), cwd: z.string().min(1) }),
   'terminal.write': z.object({ id: z.string().min(1), data: z.string() }),
   'terminal.resize': z.object({
@@ -1465,6 +1472,9 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'window.close': { done: boolean }
   /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
   'theme.apply': { applied: boolean }
+  'theme.list': ThemeLibraryEvent
+  'theme.install': ThemeLibraryEvent
+  'theme.remove': ThemeLibraryEvent
   'terminal.create': { created: boolean }
   'providers.setupTerminal': { ok: true; id: string; cwd: string } | { ok: false; error: string }
   'terminal.write': { written: boolean }

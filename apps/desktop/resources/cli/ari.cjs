@@ -27,6 +27,7 @@ function parse(argv) {
     'include-consumed',
     'active',
     'reset',
+    'preview',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -75,6 +76,7 @@ function parse(argv) {
     'project',
     'query',
     'limit',
+    'file',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -112,7 +114,39 @@ function parse(argv) {
     throw new Error('--params-file is supported for orchestration commands')
   let method
   let params
-  if (group === 'app') {
+  if (group === 'theme') {
+    if (!['schema', 'list', 'validate', 'install', 'preview', 'remove', 'reset'].includes(verb))
+      throw new Error('Use ari theme schema|list|validate|install|preview|remove|reset')
+    const fromFile = ['validate', 'install'].includes(verb)
+    const needsId = ['preview', 'remove'].includes(verb)
+    for (const name of Object.keys(flags)) {
+      if (
+        ![
+          'json',
+          'key',
+          'timeout',
+          ...(fromFile ? ['file'] : []),
+          ...(verb === 'install' ? ['preview'] : []),
+        ].includes(name)
+      )
+        throw new Error(`Unsupported theme ${verb} option --${name}`)
+    }
+    if (rest.length || (needsId ? !target : target !== undefined))
+      throw new Error(
+        needsId
+          ? `theme ${verb} needs exactly one theme ID`
+          : `theme ${verb} does not accept extra arguments`,
+      )
+    if (fromFile && !flags.file) throw new Error(`theme ${verb} needs --file <theme.json>`)
+    params = fromFile
+      ? { theme: JSON.parse(readInputFile(flags.file)) }
+      : needsId
+        ? { id: target }
+        : {}
+    if (verb === 'install') params.preview = flags.preview === true
+    if (['install', 'preview', 'remove', 'reset'].includes(verb)) params.idempotencyKey = key
+    method = `theme.${verb}`
+  } else if (group === 'app') {
     if (verb !== 'open' || !['session', 'aria', 'settings', 'changes'].includes(target))
       throw new Error(
         'Use ari app open session <id>, aria, settings or changes --project <id>|--session <id>',

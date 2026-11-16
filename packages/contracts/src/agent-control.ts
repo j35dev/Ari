@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { customThemeSchema, customThemeIdSchema } from './themes'
 import { orchestrationParams } from './orchestration'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { delegationRoleSchema, type DelegationRole } from './session'
@@ -183,6 +184,15 @@ export interface CreatedProject {
 export const controlParams = {
   ...orchestrationParams,
   'runtime.info': z.object({}).strict(),
+  'theme.schema': z.object({}).strict(),
+  'theme.list': z.object({}).strict(),
+  'theme.validate': z.object({ theme: customThemeSchema }).strict(),
+  'theme.install': z
+    .object({ theme: customThemeSchema, preview: z.boolean().default(false), idempotencyKey: key })
+    .strict(),
+  'theme.remove': z.object({ id: customThemeIdSchema, idempotencyKey: key }).strict(),
+  'theme.preview': z.object({ id: customThemeIdSchema, idempotencyKey: key }).strict(),
+  'theme.reset': z.object({ idempotencyKey: key }).strict(),
   'providers.list': z.object({}).strict(),
   'app.open': appOpenParamsSchema,
   /** Aria only: the projects it can start and steer work in. */

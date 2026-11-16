@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { themeIdSchema, wallpaperIdSchema } from '@ari/contracts/settings'
+import { bundledThemeIdSchema, themeIdSchema, wallpaperIdSchema } from '@ari/contracts/settings'
+import { neonThemeExample } from '@ari/contracts/themes'
+import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { themeIds, themes } from '@ari/ui/themes'
 import { wallpaperIds } from '@ari/ui/wallpapers'
 import { themeWindowChrome } from './window'
@@ -8,8 +10,10 @@ import { themeWindowChrome } from './window'
 // other (@ari/contracts stays UI-free), so nothing but this cross-package
 // assertion stops a seventh theme from being unpersistable.
 describe('theme registries agree across packages', () => {
-  it('contracts accepts exactly the themes the UI defines', () => {
-    expect([...themeIdSchema.options].sort()).toEqual([...themeIds].sort())
+  it('contracts accepts exactly the bundled themes the UI defines, plus namespaced custom identities', () => {
+    expect([...bundledThemeIdSchema.options].sort()).toEqual([...themeIds].sort())
+    expect(themeIdSchema.safeParse('custom:neon').success).toBe(true)
+    expect(themeIdSchema.safeParse('unknown').success).toBe(false)
   })
 
   it('contracts accepts exactly the wallpapers the UI defines', () => {
@@ -18,6 +22,12 @@ describe('theme registries agree across packages', () => {
 })
 
 describe('themeWindowChrome', () => {
+  it('uses custom hex colors for native chrome', () => {
+    expect(themeWindowChrome(resolveCustomTheme(neonThemeExample))).toEqual({
+      backgroundColor: '#090e17',
+      symbolColor: '#edfaff',
+    })
+  })
   it('gives every theme a solid background', () => {
     for (const theme of Object.values(themes)) {
       const chrome = themeWindowChrome(theme)

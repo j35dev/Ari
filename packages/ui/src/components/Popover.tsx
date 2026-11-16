@@ -218,6 +218,7 @@ export function PopoverContent({
             overlayRef(node)
           }}
           role="dialog"
+          data-ari-part="popover"
           initial="hidden"
           animate="visible"
           exit="exit"

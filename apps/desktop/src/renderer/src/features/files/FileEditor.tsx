@@ -161,8 +161,11 @@ interface FileEditorProps {
 export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: FileEditorProps) {
   const rpc = useToolSessionClient(scope.sessionId)
   const wireScope = useMemo(() => toolWireScope(rpc, scope), [rpc, scope])
-  const editingReason = readOnlyReason ?? (rpc.scope.kind === 'remote' || rpc.readOnly
-    ? rpc.capabilityReason('fs.writeTextFile') ?? 'File editing is unavailable on this machine.' : null)
+  const editingReason =
+    readOnlyReason ??
+    (rpc.scope.kind === 'remote' || rpc.readOnly
+      ? (rpc.capabilityReason('fs.writeTextFile') ?? 'File editing is unavailable on this machine.')
+      : null)
   const readOnly = editingReason != null
   const generation = useRef(0)
   const [original, setOriginal] = useState<string | null>(null)
@@ -291,7 +294,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
   return (
     <section
       aria-label={`${readOnly ? 'Preview' : 'Edit'} ${name}`}
-      className="flex h-full min-h-0 flex-col bg-bg"
+      className="ari-file-editor flex h-full min-h-0 flex-col bg-bg"
     >
       <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border pl-1.5 pr-2">
         <button

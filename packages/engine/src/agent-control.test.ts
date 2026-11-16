@@ -7,6 +7,37 @@ import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { SessionStore } from './session-store'
 import { decideCommand } from './dispatcher'
+import { neonThemeExample } from '@ari/contracts/themes'
+
+it('allows authenticated theme authoring and deduplicates installs without exposing renderer code', async () => {
+  const install = vi.fn(async () => ({ installed: true }))
+  host.themes = {
+    schema: () => ({}),
+    list: () => ({ themes: [] }),
+    validate: () => ({ valid: true }),
+    install,
+    preview: () => ({}),
+    remove: async () => ({}),
+    reset: async () => ({}),
+  }
+  const params = { theme: neonThemeExample, preview: true, idempotencyKey: 'theme-one' }
+  expect(await service.invoke(root.id, 'theme.install', params)).toMatchObject({ ok: true })
+  expect(await service.invoke(root.id, 'theme.install', params)).toMatchObject({ ok: true })
+  expect(install).toHaveBeenCalledOnce()
+  expect(
+    await service.invoke(root.id, 'theme.install', {
+      ...params,
+      theme: { ...neonThemeExample, css: 'body{}' },
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+  expect(install).toHaveBeenCalledOnce()
+  host.themes.validate = () => {
+    throw new Error('fg on surface-1 needs 4.5:1 contrast.')
+  }
+  const invalid = await service.invoke(root.id, 'theme.validate', { theme: neonThemeExample })
+  expect(invalid).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+  if (!invalid.ok) expect(invalid.error.message).toContain('contrast')
+})
 
 let dir: string
 let store: SessionStore
