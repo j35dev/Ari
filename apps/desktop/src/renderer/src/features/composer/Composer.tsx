@@ -909,6 +909,7 @@ export function Composer({
         onBlur={handleShellBlur}
         onMouseDown={handleShellMouseDown}
         data-resting={resting || undefined}
+        data-composer-draft={sessionId}
         data-dictation={dictating ? dictation : undefined}
         className="ari-composer-shell relative rounded-2xl"
       >
