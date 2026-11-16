@@ -13,6 +13,7 @@ vi.mock('../../lib/rpc', () => ({
 
 const baseSettings: Settings = {
   ariaVoice: defaultSettings.ariaVoice,
+  snapshots: defaultSettings.snapshots,
   experimental: { ariaEnabled: false },
   speech: defaultSettings.speech,
   version: 1,

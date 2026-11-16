@@ -8,6 +8,7 @@ import {
   defaultDictationShortcut,
   speechBindingsError,
   settingsUpdateSchema,
+  defaultSnapshotShortcut,
 } from '@ari/contracts/settings'
 
 let dir: string
@@ -21,6 +22,35 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('keeps SnapShots off by default and persists partial preferences across restart', async () => {
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).snapshots).toEqual({
+      enabled: false,
+      shortcut: defaultSnapshotShortcut(process.platform),
+      animation: true,
+      sound: true,
+    })
+    await store.update({ snapshots: { enabled: true, shortcut: 'ctrl+alt+p', animation: false } })
+    await store.update(settingsUpdateSchema.parse({ snapshots: { sound: false } }))
+    expect((await new SettingsStore({ dir }).load()).snapshots).toEqual({
+      enabled: true,
+      shortcut: 'ctrl+alt+p',
+      animation: false,
+      sound: false,
+    })
+  })
+  it('rejects colliding capture and dictation bindings without changing disk preferences', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    await expect(
+      store.update({ snapshots: { shortcut: 'ctrl+k', enabled: true } }),
+    ).rejects.toThrow('Ari')
+    await store.update({ snapshots: { enabled: true, shortcut: 'f19' } })
+    await expect(store.update({ speech: { dictationShortcut: 'f19' } })).rejects.toThrow(
+      'dictation',
+    )
+    expect((await new SettingsStore({ dir }).load()).snapshots.shortcut).toBe('f19')
+  })
   it('migrates Aria off and preserves its choices across disable, restart and enable', async () => {
     await writeFile(
       join(dir, 'settings.json'),

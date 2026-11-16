@@ -11,6 +11,42 @@ export function defaultDictationShortcut(platform: string): string {
   return platform === 'darwin' ? 'shift+meta+d' : 'ctrl+alt+d'
 }
 
+export function defaultSnapshotShortcut(platform: string): string {
+  return platform === 'darwin' ? 'shift+meta+p' : 'ctrl+alt+p'
+}
+
+/** SnapShots shares the app's binding grammar and reserves both dictation chords. */
+export function snapshotShortcutError(
+  shortcut: string,
+  platform: string,
+  speech?: Pick<z.infer<typeof speechSettingsSchema>, 'shortcut' | 'dictationShortcut'>,
+): string | null {
+  const invalid = speechBindingError(shortcut, platform)
+  if (invalid) return invalid.replace('hold-to-talk', 'capture')
+  const parts = shortcut.split('+')
+  const key = parts.pop()!
+  if (
+    parts.length === 1 &&
+    (parts[0] === 'shift' ||
+      ((parts[0] === 'ctrl' || parts[0] === 'meta') &&
+        ['a', 'c', 'f', 'o', 'p', 'q', 't', 'v', 'w', 'x', 'y', 'z'].includes(key)))
+  )
+    return 'This shortcut is used for typing or common app commands. Add another modifier.'
+  if (
+    shortcut === (speech?.shortcut || defaultSpeechShortcut(platform)) ||
+    shortcut === (speech?.dictationShortcut || defaultDictationShortcut(platform))
+  )
+    return 'This shortcut is already used by dictation. Choose another shortcut.'
+  return null
+}
+
+export const snapshotsSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  shortcut: z.string().max(80).default(''),
+  animation: z.boolean().default(true),
+  sound: z.boolean().default(true),
+})
+
 export function speechBindingsError(
   aria: string,
   dictation: string,
@@ -293,6 +329,7 @@ export const speechSettingsSchema = z.object({
 
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  snapshots: snapshotsSettingsSchema.default(() => snapshotsSettingsSchema.parse({})),
   experimental: z
     .object({ ariaEnabled: z.boolean().default(false) })
     .default({ ariaEnabled: false }),
@@ -404,6 +441,15 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  snapshots: z
+    .object({
+      enabled: z.boolean(),
+      shortcut: z.string().max(80),
+      animation: z.boolean(),
+      sound: z.boolean(),
+    })
+    .partial()
+    .optional(),
   ariaVoice: ariaVoiceSettingsSchema.partial().optional(),
   experimental: z.object({ ariaEnabled: z.boolean() }).partial().optional(),
   speech: z
@@ -524,6 +570,7 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  snapshots: snapshotsSettingsSchema.parse({}),
   ariaVoice: ariaVoiceSettingsSchema.parse({}),
   experimental: { ariaEnabled: false },
   speech: speechSettingsSchema.parse({}),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Bell,
+  Camera,
   Cpu,
   FlaskConical,
   FileCog,
@@ -25,6 +26,7 @@ import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { MachinesSettings } from './MachinesSettings'
 import { SpeechSettings } from './SpeechSettings'
+import { SnapshotsSettings } from './SnapshotsSettings'
 import { SourceControlSettings } from './SourceControlSettings'
 import { SETTINGS_COLUMN_WIDE_CLASS, SettingsPage } from './SettingsPage'
 import { SettingsSearch } from './SettingsSearch'
@@ -38,6 +40,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'notifications', label: 'Notifications', icon: Bell, group: null },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard, group: null },
   { id: 'speech', label: 'Speech to text', icon: Mic, group: null },
+  { id: 'snapshots', label: 'SnapShots', icon: Camera, group: null },
   { id: 'providers', label: 'Providers', icon: Cpu, group: 'AI' },
   { id: 'agents', label: 'Agents', icon: FileCog, group: 'AI' },
   { id: 'endpoints', label: 'Endpoints', icon: Plug, group: 'AI' },
@@ -205,6 +208,7 @@ export function SettingsWorkspace({
           ) : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'speech' ? <SpeechSettings /> : null}
+          {section === 'snapshots' ? <SnapshotsSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
           {section === 'experimental' ? <ExperimentalSettings /> : null}
         </div>

@@ -39,6 +39,7 @@ import { descendantIds } from './subtree-ids'
 import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
+import { SnapshotsService } from './snapshots/service'
 import { createSession, type SessionCreateDeps } from './session-create'
 import { launchEffortLookup } from './launch-efforts'
 import { createProject } from './project-create'
@@ -1153,6 +1154,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
+  const snapshots = new SnapshotsService(contents, app.getPath('userData'), attachmentStore)
+  shutdownTasks.push(() => snapshots.dispose())
+  void settingsReady().then(() => snapshots.initialize(getSettingsStore().current))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
   const appNavigation = new AppNavigation({
@@ -1709,7 +1713,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
 
   r.register('settings.update', async (params) => {
-    const settings = await getSettingsStore().update(params)
+    await settingsReady()
+    const settings = await snapshots.updateSettings(getSettingsStore(), params)
     if (params.ariaVoice || params.experimental || params.speech) {
       voiceTurn.clear()
       voice.configure()

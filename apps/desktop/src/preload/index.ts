@@ -3,6 +3,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { StreamBatchFrame, StreamFrame } from '@ari/contracts/rpc'
 import { StreamRouter } from './stream-router'
+import type {
+  PendingSnapshot,
+  SnapshotEvent,
+  SnapshotStatus,
+  SnapshotRectangle,
+} from '../shared/snapshots'
 
 const STREAM_CHANNEL = 'ari:stream'
 
@@ -12,6 +18,24 @@ ipcRenderer.on(STREAM_CHANNEL, (_event: IpcRendererEvent, frame: StreamFrame | S
 )
 
 const api = {
+  snapshots: {
+    status: (): Promise<SnapshotStatus> => ipcRenderer.invoke('ari:snapshots.status'),
+    pending: (): Promise<PendingSnapshot[]> => ipcRenderer.invoke('ari:snapshots.pending'),
+    read: (id: string): Promise<PendingSnapshot & { dataBase64: string }> =>
+      ipcRenderer.invoke('ari:snapshots.read', id),
+    target: (id: string, target: string): Promise<string> =>
+      ipcRenderer.invoke('ari:snapshots.target', id, target),
+    acknowledge: (id: string): Promise<void> => ipcRenderer.invoke('ari:snapshots.acknowledge', id),
+    destination: (id: string, rectangle: SnapshotRectangle): Promise<void> =>
+      ipcRenderer.invoke('ari:snapshots.destination', id, rectangle),
+    suppress: (suppressed: boolean): Promise<void> =>
+      ipcRenderer.invoke('ari:snapshots.suppress', suppressed),
+    onEvent: (callback: (event: SnapshotEvent) => void): (() => void) => {
+      const receive = (_event: IpcRendererEvent, event: SnapshotEvent) => callback(event)
+      ipcRenderer.on('ari:snapshots.event', receive)
+      return () => ipcRenderer.removeListener('ari:snapshots.event', receive)
+    },
+  },
   voice: {
     played: (id: number, generation: number, error?: string): void =>
       ipcRenderer.send('ari:ariaVoice.played', { id, generation, error }),
