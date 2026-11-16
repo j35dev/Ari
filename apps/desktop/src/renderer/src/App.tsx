@@ -1800,7 +1800,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const activeDraftGroup = [...projectDrafts]
     .reverse()
     .find(
-      (draft) => draft.spaceId === spaceStore.activeSpaceId && draft.paneId === activePaneOf(layout),
+      (draft) =>
+        draft.spaceId === spaceStore.activeSpaceId && draft.paneId === activePaneOf(layout),
     )?.group
   const activeDraftLabel =
     activeDraftGroup &&
