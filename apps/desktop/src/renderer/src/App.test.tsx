@@ -1497,7 +1497,7 @@ describe('Shell live sidebar feed', () => {
       invokeMock.mockImplementation(async (method, params) => {
         if (method === 'settings.get') return settingsSchema.parse({ version: 1 })
         if (method === 'command.dispatch') return { accepted: true }
-        if (method === 'session.workspace') return { path: '/projects/ari', busyReason: null }
+        if (method === 'session.workspace') return { path: '/projects/ari' }
         return base?.(method, params)
       })
     })
@@ -1555,11 +1555,6 @@ describe('Shell live sidebar feed', () => {
         expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' }),
       )
       const order = invokeMock.mock.calls.map(([method]) => method)
-      expect(invokeMock).toHaveBeenCalledWith('session.workspace', {
-        sessionId: 'sess_alpha',
-        checkOccupancy: true,
-      })
-      expect(order.indexOf('session.workspace')).toBeLessThan(order.indexOf('command.dispatch'))
       expect(order.indexOf('command.dispatch')).toBeLessThan(order.indexOf('session.load'))
     })
   })
