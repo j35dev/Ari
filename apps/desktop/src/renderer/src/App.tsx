@@ -1796,6 +1796,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   }
 
   const activeTool = settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)
+  // A draft in the active pane names its project where a session's would be.
+  const activeDraftGroup = [...projectDrafts]
+    .reverse()
+    .find(
+      (draft) => draft.spaceId === spaceStore.activeSpaceId && draft.paneId === activePaneOf(layout),
+    )?.group
+  const activeDraftLabel =
+    activeDraftGroup &&
+    `${activeDraftGroup.name}${activeDraftGroup.label ? ` · ${activeDraftGroup.label}` : ''}`
 
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
@@ -1850,11 +1859,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           // Aria's page names her itself; a workspace tool fills the window.
           ariaActive || workspaceToolOpen
             ? undefined
-            : navigation.sidebarProjects.find(
+            : (navigation.sidebarProjects.find(
                 (group) =>
                   group.id ===
                   navigation.sessions.find((session) => session.id === activeSessionId)?.projectId,
-              )?.name
+              )?.name ?? activeDraftLabel)
         }
       />
       {/* Settings opens as a dialog over the workspace, which stays visible

@@ -12,7 +12,7 @@ import { ModelSelector } from '../composer/ModelSelector'
 import { ComposerDock } from '../session/ComposerDock'
 import { DitherScene } from '../scene/DitherScene'
 import { MachinePicker, type DraftMachineSelection } from './MachinePicker'
-import { FolderOpen, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { iconButton, outlineButton } from '../../lib/recipes'
 import { TextPicker, sentenceCase } from '../session/TextPicker'
 import { ModeMark } from '../session/mode-mark'
@@ -43,7 +43,8 @@ export interface ProjectDraftClient {
     scope: SessionScope,
     input: { draftId: string; text: string; attachmentIds: string[] },
   ): Promise<void>
-  checkCreate(draftId: string): Promise<SessionScope | null>
+  /** `null` is still unknown; 'not-created' means the host knows no session was made. */
+  checkCreate(draftId: string, projectId: string): Promise<SessionScope | null | 'not-created'>
   checkPrompt(draftId: string, scope: SessionScope): Promise<boolean>
 }
 const scopeSchema = z.discriminatedUnion('kind', [
@@ -456,7 +457,16 @@ export function ProjectDraft({
     setPending(true)
     try {
       if (original.phase === 'create') {
-        const scope = await client.checkCreate(draftId)
+        const scope = await client.checkCreate(draftId, original.projectId)
+        if (scope === 'not-created') {
+          // Nothing exists to duplicate: the draft and its text are free to send again.
+          localStorage.removeItem(attemptKey(draftId))
+          attemptRef.current = null
+          setAttempt(null)
+          setFailure(null)
+          setSelection({ mode: 'manual', hostId: original.hostId, reason: `${hostsRef.current.find((host) => host.id === original.hostId)?.name ?? 'This PC'} runs this draft.` })
+          return
+        }
         if (!scope) {
           setFailure('The creation outcome is still unknown. Reconnect and check again.')
           return
@@ -500,14 +510,8 @@ export function ProjectDraft({
     >
       {/* The same scene as any empty session: a draft is one, before it is sent. */}
       <DitherScene kind="session" className="ari-session-scene" />
-      <div className="ari-chat-column relative flex h-11 shrink-0 items-center justify-between gap-3 text-[13px] text-fg-subtle">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <FolderOpen size={14} strokeWidth={1.7} aria-hidden className="shrink-0" />
-          <span className="truncate">
-            {group.name}
-            {group.label ? ` · ${group.label}` : ''}
-          </span>
-        </span>
+      {/* The project is named in the titlebar, as for any session; the scene stays clear. */}
+      <div className="ari-chat-column relative flex h-11 shrink-0 items-center justify-end">
         <button
           type="button"
           onClick={onClose}
