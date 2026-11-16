@@ -129,6 +129,42 @@ it('keeps the active chord and saved preference when a replacement is refused', 
   expect(electron.unregister).not.toHaveBeenCalled()
   service.dispose()
 })
+it('saves unrelated speech settings while the SnapShots chord is unregistered', async () => {
+  const { store, service } = await fixture()
+  await store.update({ snapshots: { enabled: true, shortcut: 'f19' } })
+  electron.register.mockReturnValue(false)
+  service.initialize(store.current)
+  expect(service.status()).toMatchObject({ registered: false, error: expect.any(String) })
+  electron.register.mockClear()
+  await expect(service.updateSettings(store, { speech: { duckAudio: false } })).resolves.toEqual(
+    expect.objectContaining({ speech: expect.objectContaining({ duckAudio: false }) }),
+  )
+  expect(electron.register).not.toHaveBeenCalled()
+  await expect(
+    service.updateSettings(store, { speech: { dictationShortcut: 'ctrl+alt+j' } }),
+  ).rejects.toThrow('could not be registered')
+  service.dispose()
+})
+it('applies Ari Reduce motion to desktop feedback without a restart', async () => {
+  const { store, contents, service } = await fixture()
+  electron.capture.mockResolvedValue({
+    bytes: Buffer.from('image'),
+    windowTitle: 'External app',
+    bounds: { x: 0, y: 0, width: 800, height: 600 },
+  })
+  await service.updateSettings(store, { snapshots: { enabled: true, shortcut: 'f19' } })
+  await service.updateSettings(store, { appearance: { reducedMotion: true } })
+  const capture = electron.register.mock.calls[0]?.[1] as () => void
+  capture()
+  await vi.waitFor(() =>
+    expect(contents.send).toHaveBeenCalledWith('ari:snapshots.event', { type: 'captured' }),
+  )
+  expect(electron.feedback).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ appearance: expect.objectContaining({ reducedMotion: true }) }),
+  )
+  service.dispose()
+})
 it('gates capture data and shortcut suppression to the top-level Ari renderer', async () => {
   const { contents, service } = await fixture()
   const handler = electron.handle.mock.calls.find(

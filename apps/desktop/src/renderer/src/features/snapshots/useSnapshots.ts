@@ -27,50 +27,61 @@ export function useSnapshots(
       }
       busy = true
       try {
+        let failure: string | null = null
         do {
           again = false
           for (const item of await bridge.pending()) {
             if (disposed) return
-            const target = current.current.resolveTarget(item.target)
-            if (!target) throw new Error('Open a project or chat to attach your saved SnapShot.')
-            const pinned = await bridge.target(item.id, target)
-            const capture = await bridge.read(item.id)
-            if (disposed) return
-            attachSnapshot(capture, pinned, current.current.settings.snapshots)
-            if (capture.desktopFeedback)
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                  if (disposed || document.visibilityState !== 'visible') return
-                  const image = [
-                    ...document.querySelectorAll<HTMLImageElement>(
-                      `[data-snapshot-id="${capture.id}"]`,
-                    ),
-                  ].find((candidate) => {
-                    const rectangle = candidate.getBoundingClientRect()
-                    return (
-                      rectangle.width > 0 &&
-                      document.elementFromPoint(
-                        rectangle.x + rectangle.width / 2,
-                        rectangle.y + rectangle.height / 2,
-                      ) === candidate
-                    )
-                  })
-                  const rectangle = image?.getBoundingClientRect()
-                  if (rectangle && rectangle.width > 0 && rectangle.height > 0)
-                    void bridge
-                      .destination(capture.id, {
-                        x: rectangle.x,
-                        y: rectangle.y,
-                        width: rectangle.width,
-                        height: rectangle.height,
-                      })
-                      .catch(() => undefined)
-                }),
-              )
-            await bridge.acknowledge(item.id)
-            lastError = null
+            // One unattachable capture must not hold back the rest of the queue.
+            try {
+              // A pinned draft can disappear (a sent project draft, an archived
+              // chat); re-pin to the current destination instead of waiting forever.
+              const target =
+                current.current.resolveTarget(item.target) ??
+                (item.target ? current.current.resolveTarget() : null)
+              if (!target) throw new Error('Open a project or chat to attach your saved SnapShot.')
+              const pinned = await bridge.target(item.id, target)
+              const capture = await bridge.read(item.id)
+              if (disposed) return
+              attachSnapshot(capture, pinned, current.current.settings.snapshots)
+              if (capture.desktopFeedback)
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => {
+                    if (disposed || document.visibilityState !== 'visible') return
+                    const image = [
+                      ...document.querySelectorAll<HTMLImageElement>(
+                        `[data-snapshot-id="${capture.id}"]`,
+                      ),
+                    ].find((candidate) => {
+                      const rectangle = candidate.getBoundingClientRect()
+                      return (
+                        rectangle.width > 0 &&
+                        document.elementFromPoint(
+                          rectangle.x + rectangle.width / 2,
+                          rectangle.y + rectangle.height / 2,
+                        ) === candidate
+                      )
+                    })
+                    const rectangle = image?.getBoundingClientRect()
+                    if (rectangle && rectangle.width > 0 && rectangle.height > 0)
+                      void bridge
+                        .destination(capture.id, {
+                          x: rectangle.x,
+                          y: rectangle.y,
+                          width: rectangle.width,
+                          height: rectangle.height,
+                        })
+                        .catch(() => undefined)
+                  }),
+                )
+              await bridge.acknowledge(item.id)
+            } catch (error) {
+              failure ??= error instanceof Error ? error.message : String(error)
+            }
           }
         } while (again && !disposed)
+        if (failure && !disposed && lastError !== failure) current.current.notify(failure)
+        lastError = failure
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (!disposed && lastError !== message) current.current.notify(message)
