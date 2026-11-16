@@ -66,7 +66,6 @@ export const themeParts = [
   'user-message',
   'assistant-message',
   'tool-call',
-  'approval',
   'notice',
   'button',
   'primary-button',

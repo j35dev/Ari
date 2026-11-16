@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ApprovalCard, formatApprovalToolName } from './ApprovalCard'
@@ -8,6 +8,13 @@ const ONCE_ALWAYS_DENY = [
   { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
   { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
 ]
+
+/** The card's content sits in a shadow root, out of reach of `screen` and of theme CSS. */
+function card() {
+  const root = document.querySelector('[data-approval-id] [data-ari-shield]')?.shadowRoot
+  if (!root) throw new Error('No approval card is rendered')
+  return within(root as unknown as HTMLElement)
+}
 
 describe('ApprovalCard', () => {
   it.each([
@@ -23,8 +30,8 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText(label)).toBeInTheDocument()
-    expect(screen.getByText(detail)).toBeInTheDocument()
+    expect(card().getByText(label)).toBeInTheDocument()
+    expect(card().getByText(detail)).toBeInTheDocument()
   })
 
   it('renders one button per offered option and answers with its exact id', async () => {
@@ -39,7 +46,7 @@ describe('ApprovalCard', () => {
         onRespond={onRespond}
       />,
     )
-    await user.click(screen.getByRole('button', { name: /Allow for this session/ }))
+    await user.click(card().getByRole('button', { name: /Allow for this session/ }))
     expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'acceptForSession' })
   })
 
@@ -62,9 +69,9 @@ describe('ApprovalCard', () => {
     )
     // Both persistent grants are `allow_always`; the id is what tells them
     // apart, so each has to be its own button.
-    await user.click(screen.getByRole('button', { name: /Allow every git command/ }))
+    await user.click(card().getByRole('button', { name: /Allow every git command/ }))
     expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'allow_prefix' })
-    expect(screen.getByRole('button', { name: /Allow for this session/ })).toBeInTheDocument()
+    expect(card().getByRole('button', { name: /Allow for this session/ })).toBeInTheDocument()
   })
 
   it('offers only what the provider advertised', () => {
@@ -80,8 +87,8 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.queryByRole('button', { name: /session/ })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(card().queryByRole('button', { name: /session/ })).not.toBeInTheDocument()
+    expect(card().getAllByRole('button')).toHaveLength(2)
   })
 
   it('shortcuts y/a/n onto the first allow, persistent allow, and refusal', async () => {
@@ -140,7 +147,7 @@ describe('ApprovalCard', () => {
         onRespond={onRespond}
       />,
     )
-    await user.click(screen.getByRole('button', { name: /Always allow/ }))
+    await user.click(card().getByRole('button', { name: /Always allow/ }))
     expect(onRespond).toHaveBeenCalledExactlyOnceWith({ decision: 'always-allow' })
   })
 
@@ -155,7 +162,7 @@ describe('ApprovalCard', () => {
       />,
     )
     expect(screen.getByRole('group', { name: 'Approval requested: bash' })).toBeInTheDocument()
-    expect(screen.getByText(/"command": "ls -la"/)).toBeInTheDocument()
+    expect(card().getByText(/"command": "ls -la"/)).toBeInTheDocument()
   })
 
   it('styles refusals with the danger token', () => {
@@ -168,7 +175,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByRole('button', { name: /Deny/ }).className).toContain('text-danger')
+    expect(card().getByRole('button', { name: /Deny/ }).className).toBe('refuse')
   })
 
   it('humanizes underscored tool names', () => {
@@ -184,7 +191,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('Ari delegation')).toBeInTheDocument()
+    expect(card().getByText('Ari delegation')).toBeInTheDocument()
     expect(formatApprovalToolName('Ari_delegation')).toBe('Ari delegation')
   })
 
@@ -200,7 +207,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByRole('button', { name: /Allow for this session/ })).toHaveAttribute(
+    expect(card().getByRole('button', { name: /Allow for this session/ })).toHaveAttribute(
       'title',
       'Allow for this session (A)',
     )
@@ -216,8 +223,8 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('Command')).toBeInTheDocument()
-    expect(screen.getByText('rm -rf dist')).toBeInTheDocument()
+    expect(card().getByText('Command')).toBeInTheDocument()
+    expect(card().getByText('rm -rf dist')).toBeInTheDocument()
   })
 
   it('falls back to a file headline for file tools', () => {
@@ -230,8 +237,8 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('File')).toBeInTheDocument()
-    expect(screen.getByText('src/app.ts')).toBeInTheDocument()
+    expect(card().getByText('File')).toBeInTheDocument()
+    expect(card().getByText('src/app.ts')).toBeInTheDocument()
   })
 
   it('shows the pending counter only with more than one approval', () => {
@@ -246,7 +253,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('1/3')).toBeInTheDocument()
+    expect(card().getByText('1/3')).toBeInTheDocument()
 
     rerender(
       <ApprovalCard
@@ -259,6 +266,47 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.queryByText('1/1')).not.toBeInTheDocument()
+    expect(card().queryByText('1/1')).not.toBeInTheDocument()
+  })
+
+  // Review of #543: a theme could relabel or swap the choices of a card in Ask mode.
+  it('keeps the choices and the request out of reach of theme CSS', () => {
+    const style = document.createElement('style')
+    style.textContent =
+      '[data-ari-part="approval"] button, [data-approval-id] button{order:-1!important;font-size:0!important;flex-direction:row-reverse!important}' +
+      ' [data-approval-id] button::after{content:"Deny"!important;font-size:13px!important}' +
+      ' [data-approval-id]{direction:rtl!important} code{font-size:0!important} code::after{content:"ls"!important}'
+    document.head.append(style)
+    try {
+      render(
+        <ApprovalCard
+          approvalId="ap-1"
+          toolName="bash"
+          summaryJson='{"command":"rm -rf dist"}'
+          options={ONCE_ALWAYS_DENY}
+          onRespond={vi.fn()}
+        />,
+      )
+      // jsdom applies document sheets inside shadow trees, so computed styles prove
+      // nothing here; Chromium does not. What is checked is that no theme selector can
+      // reach the content, nothing inherits through its host, and the labels stand.
+      expect(document.querySelectorAll('[data-approval-id] button, code')).toHaveLength(0)
+      expect(document.querySelector('[data-ari-part="approval"]')).toBeNull()
+      const host = document.querySelector('[data-approval-id] [data-ari-shield]')!
+      expect(host.getAttribute('style')).toContain('all:initial !important')
+      expect(host.getAttribute('style')).toContain('direction:ltr !important')
+      const sheet = host.shadowRoot!.querySelector('style')!.textContent
+      expect(sheet).toContain(':host::after{content:none !important')
+      expect(sheet).not.toMatch(/var\(/)
+      expect(sheet).toContain('font:13.5px/1.45 system-ui,sans-serif')
+      expect(
+        card()
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual(['Allow onceY', 'Allow for this sessionA', 'DenyN'])
+      expect(card().getByText('rm -rf dist')).toBeInTheDocument()
+    } finally {
+      style.remove()
+    }
   })
 })

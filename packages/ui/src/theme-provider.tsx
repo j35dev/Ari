@@ -8,6 +8,7 @@ import {
   type ThemeLibraryEvent,
 } from '@ari/contracts/themes'
 import { customThemeAssetUrl, paintCustomTheme, resolveCustomTheme } from './custom-themes'
+import { Shielded } from './shielded'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme } from './themes'
 import { canBakeWallpaper, installWallpaperBake } from './wallpaper-bake'
@@ -289,6 +290,20 @@ function useMediaQuery(query: string): boolean {
   return matched
 }
 
+const RECOVERY_CSS = `aside{all:initial;position:fixed;inset:48px 16px auto auto;margin:0;z-index:2147483647;display:flex;align-items:center;gap:10px;box-sizing:border-box;max-width:calc(100vw - 32px);padding:10px 12px;border:1px solid #526174;border-radius:10px;background:#101826;color:#f4f8ff;font:13px/1.5 system-ui,sans-serif;box-shadow:0 8px 24px #00000066}
+button{all:initial;padding:5px 10px;border:1px solid #526174;border-radius:6px;background:#233044;color:#f4f8ff;font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid #f4f8ff;outline-offset:2px}`
+
+/** The top layer paints above everything the page draws, including a theme's overlays. */
+function showOnTop(element: HTMLElement | null): void {
+  if (!element || typeof element.showPopover !== 'function') return
+  try {
+    if (!element.matches(':popover-open')) element.showPopover()
+  } catch {
+    // Without popover support the bar stays fixed at the top of the page.
+  }
+}
+
 export function ThemeProvider({
   children,
   persistence,
@@ -544,75 +559,51 @@ export function ThemeProvider({
     ],
   )
 
-  const recoveryButton = {
-    padding: '5px 10px',
-    border: '1px solid #526174',
-    borderRadius: 6,
-    background: '#233044',
-    color: '#f4f8ff',
-    font: 'inherit',
-    cursor: 'pointer',
-  }
   return (
     <ThemeContext.Provider value={value}>
       {children}
       {/* Only while a preview runs or a save failed. A kept theme is undone with
-          the shortcut, Settings → Appearance or `ari theme reset`. */}
+          the shortcut, Settings → Appearance or `ari theme reset`. Shielded and in
+          the top layer, so theme CSS can neither restyle the bar nor paint over it. */}
       {(preview || saveError) &&
         createPortal(
-          <aside
-            data-ari-theme-recovery=""
-            aria-label="Theme recovery"
-            style={{
-              position: 'fixed',
-              top: 48,
-              right: 16,
-              zIndex: 2147483647,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              maxWidth: 'calc(100vw - 32px)',
-              padding: '10px 12px',
-              border: '1px solid #526174',
-              borderRadius: 10,
-              background: '#101826',
-              color: '#f4f8ff',
-              font: '13px/1.5 system-ui, sans-serif',
-              boxShadow: '0 8px 24px #00000066',
-            }}
-          >
-            {preview ? (
-              <>
+          <Shielded css={RECOVERY_CSS}>
+            <aside
+              ref={showOnTop}
+              popover="manual"
+              data-ari-theme-recovery=""
+              aria-label="Theme recovery"
+            >
+              {preview ? (
+                <>
+                  <span role="status">
+                    Previewing {preview.name} · {seconds}s
+                  </span>
+                  <button
+                    onClick={() => {
+                      setPrefs((current) => ({
+                        ...current,
+                        mode: preview.id,
+                        activeCustomTheme: preview,
+                      }))
+                      setPreview(null)
+                    }}
+                  >
+                    Keep theme
+                  </button>
+                  <button onClick={() => setPreview(null)}>Revert</button>
+                </>
+              ) : null}
+              {saveError && (
                 <span role="status">
-                  Previewing {preview.name} · {seconds}s
+                  Could not save the theme choice. Check available disk space and try again.
                 </span>
-                <button
-                  style={recoveryButton}
-                  onClick={() => {
-                    setPrefs((current) => ({
-                      ...current,
-                      mode: preview.id,
-                      activeCustomTheme: preview,
-                    }))
-                    setPreview(null)
-                  }}
-                >
-                  Keep theme
-                </button>
-                <button style={recoveryButton} onClick={() => setPreview(null)}>
-                  Revert
-                </button>
-              </>
-            ) : null}
-            {saveError && (
-              <span role="status">
-                Could not save the theme choice. Check available disk space and try again.
-              </span>
-            )}
-            <button style={recoveryButton} title="Ctrl/⌘+Alt+Shift+T" onClick={resetTheme}>
-              Reset theme
-            </button>
-          </aside>,
+              )}
+              <button title="Ctrl/⌘+Alt+Shift+T" onClick={resetTheme}>
+                Reset theme
+              </button>
+            </aside>
+          </Shielded>,
           document.body,
         )}
     </ThemeContext.Provider>
@@ -623,4 +614,12 @@ export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext)
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
   return ctx
+}
+
+/**
+ * The active palette as theme data, not as the page's CSS variables, which theme CSS
+ * can override. The default theme's outside a provider.
+ */
+export function useThemeColors(): Theme['colors'] {
+  return useContext(ThemeContext)?.theme.colors ?? themes[defaultThemeId].colors
 }

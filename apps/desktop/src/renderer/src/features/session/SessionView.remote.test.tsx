@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -76,7 +76,12 @@ describe('normal remote SessionView', () => {
     emit({ kind: 'live', event: journal(1, { type: 'turn.started', turnId: 'live-turn' }) })
     emit({ kind: 'live', event: journal(2, { type: 'approval.requested', approvalId: 'approval', toolName: 'shell', summaryJson: '{}',
       options: [{ optionId: 'host-prefix-option', name: 'Allow host prefix', kind: 'allow_always' }] }) })
-    fireEvent.click(await screen.findByRole('button', { name: /Allow host prefix/ }))
+    // The card's choices sit in a shadow root, out of reach of `screen` and theme CSS.
+    const group = await screen.findByRole('group', { name: /^Approval requested/ })
+    const card = within(
+      (await waitFor(() => group.querySelector('[data-ari-shield]')!.shadowRoot!)) as unknown as HTMLElement,
+    )
+    fireEvent.click(await card.findByRole('button', { name: /Allow host prefix/ }))
     await waitFor(() => expect(commands()).toHaveLength(1))
     expect(commands()[0]?.[1]).toMatchObject({ machineId: 'host-a', command: { op: 'approval.respond', sessionId: 'sess_remote', optionId: 'host-prefix-option' } })
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Queue on host' } })

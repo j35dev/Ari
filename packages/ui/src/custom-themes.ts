@@ -30,7 +30,6 @@ export const themePartSelectors: Record<ThemePart, string> = {
   'user-message': '.ari-user-bubble',
   'assistant-message': '[data-ari-part="assistant-message"]',
   'tool-call': '[data-ari-part="tool-call"]',
-  approval: '[data-ari-part="approval"]',
   notice: '[role="status"], [role="alert"]',
   button: 'button, [role="button"]',
   'primary-button': '.ari-theme-primary-button',

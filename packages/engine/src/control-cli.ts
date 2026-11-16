@@ -97,17 +97,13 @@ function isSafeInvocation(segment: string): boolean {
   const [first, second] = args
   if (first === undefined) return false
   if (TOP_LEVEL.has(first)) return true
+  // Previewing changes what the user sees and a screenshot captures the whole window,
+  // so those ask. Installing only adds to the library; remove and reset only undo.
   if (first === 'theme')
-    return [
-      'schema',
-      'list',
-      'validate',
-      'install',
-      'preview',
-      'remove',
-      'reset',
-      'screenshot',
-    ].includes(second ?? '')
+    return (
+      ['schema', 'list', 'validate', 'remove', 'reset'].includes(second ?? '') ||
+      (second === 'install' && !args.includes('--preview'))
+    )
   if (first === 'session') return second !== undefined && SESSION.has(second)
   if (first === 'project') return ['ask', 'create', 'default', 'lead'].includes(second ?? '')
   if (first === 'routine') return second !== undefined && ROUTINE.has(second)

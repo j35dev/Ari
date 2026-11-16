@@ -38,7 +38,7 @@ characters) applied after Ari's styles. CSS references theme files as
 
 Every registered component slot has default, hover, active, selected, focus and
 disabled states. Slots cover the app frame, sidebar, titlebar, panels, composer,
-messages, tool calls, approvals, settings, inputs, buttons, icons, dialogs,
+messages, tool calls, settings, inputs, buttons, icons, dialogs,
 menus, tooltips, tables, file and diff views, terminals, and scrollbars. Native
 elements and shared recipes provide broad coverage; `data-ari-part` marks
 specific surfaces. New components should use these shared recipes or advertise
@@ -67,7 +67,12 @@ removed after each library change. Exports embed the files as base64.
 Schema validation runs at IPC/control and storage boundaries. Contrast checks
 run before installation and painting, including inherited palette colors.
 Geometry and shadow values are bounded. Keyboard focus remains visible.
-Recovery controls live outside theme selectors and carry their own fixed colors.
+The theme recovery bar and approval cards render in shadow roots that theme CSS
+cannot select into or inherit through, so a theme cannot relabel, reorder or hide
+their buttons. The recovery bar also sits in the browser's top layer, above
+anything a theme paints. Approval cards are not a theme hook. Applying a theme
+(`theme install --preview`, `theme preview`) and `theme screenshot` go through
+the user's normal command approval; installing to the library does not.
 The library is capped at 50 entries and 500 KiB to bound storage and control frames.
 
 The engine settings store persists the library atomically. All library writers
