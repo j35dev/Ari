@@ -73,6 +73,11 @@ function hostWindow(): BrowserWindow {
     contentView: { children: [], addChildView: vi.fn(), removeChildView: vi.fn() },
     webContents: shell,
     isDestroyed: () => false,
+    isVisible: vi.fn(() => true),
+    isMinimized: vi.fn(() => false),
+    isFocused: vi.fn(() => true),
+    on: vi.fn(),
+    removeListener: vi.fn(),
   } as unknown as BrowserWindow
 }
 
@@ -179,6 +184,37 @@ describe('createElectronBrowserGuest rendering', () => {
 })
 
 describe('agent tab throttling', () => {
+  it.each(['hide', 'minimize', 'blur'] as const)(
+    'keeps a placed panel capturable when its host emits %s',
+    async (event) => {
+      vi.useFakeTimers()
+      const win = hostWindow()
+      const guest = createElectronBrowserGuest(win, 'agent:sess-a', vi.fn())
+      const wc = firstView().webContents
+      guest.setVisible(true)
+      expect(wc.endFrameSubscription).toHaveBeenCalledOnce()
+
+      if (event === 'hide') vi.mocked(win.isVisible).mockReturnValue(false)
+      if (event === 'minimize') vi.mocked(win.isMinimized).mockReturnValue(true)
+      if (event === 'blur') vi.mocked(win.isFocused).mockReturnValue(false)
+      const listeners = vi.mocked(win.on).mock.calls as unknown as Array<[string, () => void]>
+      const update = listeners.find(([name]) => name === event)?.[1]
+      if (update === undefined) throw new Error(`no ${event} listener`)
+      update()
+      expect(wc.beginFrameSubscription).toHaveBeenCalledTimes(2)
+      await guest.executeJavaScript('1')
+      expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(false)
+
+      vi.mocked(win.isVisible).mockReturnValue(true)
+      vi.mocked(win.isMinimized).mockReturnValue(false)
+      vi.mocked(win.isFocused).mockReturnValue(true)
+      update()
+      expect(wc.endFrameSubscription).toHaveBeenCalledTimes(2)
+      guest.destroy()
+      expect(win.removeListener).toHaveBeenCalledWith(event, update)
+    },
+  )
+
   it('subscribes to hidden frames and releases the capturer while the page is visible', () => {
     const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
     const wc = firstView().webContents

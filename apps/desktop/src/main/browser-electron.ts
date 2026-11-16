@@ -155,6 +155,7 @@ export function createElectronBrowserGuest(
   view.setBounds({ x: 0, y: 0, width: 800, height: 600 })
   view.setVisible(false)
   const wc = view.webContents
+  let presented = false
   let heldButton: PointerButton | null = null
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
 
@@ -167,6 +168,20 @@ export function createElectronBrowserGuest(
         frameReceived?.()
       })
     : null
+  // A placed panel can still be hidden by the tray, minimization, or another
+  // app. Keep its capturer alive until the host can paint it natively again.
+  const updatePresentation = (): void => {
+    if (win.isDestroyed()) return
+    painter?.present(presented && win.isVisible() && !win.isMinimized() && win.isFocused())
+  }
+  if (agent) {
+    win.on('show', updatePresentation)
+    win.on('hide', updatePresentation)
+    win.on('minimize', updatePresentation)
+    win.on('restore', updatePresentation)
+    win.on('focus', updatePresentation)
+    win.on('blur', updatePresentation)
+  }
   const wake = (): boolean => painter?.wake() ?? false
   // sendInputEvent needs the page focused. Agent input borrows that focus from
   // whoever had it and holds it across calls while a key or button is down, so
@@ -363,6 +378,7 @@ export function createElectronBrowserGuest(
     },
     setVisible: (visible) => {
       if (win.isDestroyed()) return
+      presented = visible
       if (visible) {
         // Its subscription frame predates the page the user is about to change.
         frame = null
@@ -373,10 +389,18 @@ export function createElectronBrowserGuest(
         if (lender !== null) returnFocus()
         else if (wc.isFocused()) win.webContents.focus()
       }
-      painter?.present(visible)
+      updatePresentation()
     },
     destroy: () => {
       returnFocus()
+      if (agent) {
+        win.removeListener('show', updatePresentation)
+        win.removeListener('hide', updatePresentation)
+        win.removeListener('minimize', updatePresentation)
+        win.removeListener('restore', updatePresentation)
+        win.removeListener('focus', updatePresentation)
+        win.removeListener('blur', updatePresentation)
+      }
       painter?.dispose()
       frame = null
       if (!win.isDestroyed()) win.contentView.removeChildView(view)

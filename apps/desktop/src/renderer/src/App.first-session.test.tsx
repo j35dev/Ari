@@ -13,7 +13,8 @@ import { activeSessionOf } from './features/split/split-layout'
 import { spaceActions } from './features/spaces'
 import { keepAliveActions } from './features/session/session-keep-alive'
 import { dropDraftIntentMemory } from './features/composer/draft-recovery-store'
-import { dropDraftTextMemory } from './features/composer/use-drafts'
+import { DRAFTS_STORAGE_KEY, dropDraftTextMemory, readSessionDraftText } from './features/composer/use-drafts'
+import { readProjectDrafts } from './features/machines/project-draft-registry'
 
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn(() => () => {}) }))
 vi.mock('./lib/rpc', () => ({ rpc }))
@@ -123,14 +124,49 @@ describe('first-send shell draft ownership', () => {
     expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
     expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
   })
-  it('reuses and reseeds an empty local session on Send', async () => {
-    record({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' })
+  it.each(['create', 'stage', 'prompt'] as const)('starts fresh instead of reopening a parked %s submission draft', async (phase) => {
     render(<App />)
     const user = await chooseDraft()
-    await sendDraft(user)
-    await screen.findByTestId('normal-session')
+    const original = readProjectDrafts()[0]!
+    const originalText = 'An old submission from another session'
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), originalText)
+    const key = `ari.machines.projectDraft.attempt.v1:${original.id}`
+    const receipt = JSON.stringify({ draftId: original.id, groupId: original.groupId,
+      hostId: 'local', projectId: PROJECT.id, text: originalText, phase,
+      scope: phase === 'create' ? null : { kind: 'local', sessionId: 'sess_old' } })
+    localStorage.setItem(key, receipt)
+    await user.click(screen.getByRole('button', { name: 'Close draft' }))
+
+    await chooseDraft()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull()
+    expect(readProjectDrafts().at(-1)?.id).not.toBe(original.id)
+    expect(readProjectDrafts().find((entry) => entry.id === original.id)?.paneId).toBe(`parked:${original.id}`)
+    expect(localStorage.getItem(key)).toBe(receipt)
+    expect(readSessionDraftText(`project-draft:${original.id}`)).toBe(originalText)
     expect(calls('session.create')).toHaveLength(0)
-    expect(calls('command.dispatch')[0]?.[1]).toMatchObject({ command: { type: 'session.update', sessionId: 'sess_first' } })
+    expect(calls('command.dispatch')).toHaveLength(0)
+
+    await sendDraft(user, 'Only the fresh prompt')
+    expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
+    expect(calls('command.dispatch')).toEqual([['command.dispatch', { command: {
+      type: 'turn.start', sessionId: 'sess_first', text: 'Only the fresh prompt', attachments: [],
+    } }]])
+  })
+  it('creates a fresh local session on Send even when an older empty session has a saved draft', async () => {
+    record({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' }, 'sess_empty')
+    localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify({ sess_empty: 'An older unsent prompt' }))
+    render(<App />)
+    const user = await chooseDraft()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
+    await sendDraft(user)
+    expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
+    expect(calls('session.create')).toHaveLength(1)
+    expect(calls('command.dispatch')).toEqual([['command.dispatch', { command: {
+      type: 'turn.start', sessionId: 'sess_first', text: 'First prompt', attachments: [],
+    } }]])
+    expect(readSessionDraftText('sess_empty')).toBe('An older unsent prompt')
   })
   it('frees the draft to send again once This PC shows the failed creation made no session', async () => {
     const base = rpc.invoke.getMockImplementation()!
