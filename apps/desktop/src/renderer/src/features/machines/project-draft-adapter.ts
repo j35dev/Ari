@@ -21,7 +21,7 @@ export function remoteProjectDraftClient(machineId: string, draftId: string): Pr
   }
 }
 
-/** Local creation retains the shell's existing F occupancy/reuse and unknown-start guards. */
+/** Local creation retains the shell's existing reuse and unknown-start guards. */
 export function localProjectDraftClient(options: {
   catalog: () => Promise<RemoteModelCatalog>
   create: (projectId: string, pick: ProjectAgent, workspaceMode: 'auto' | 'isolated' | 'shared') => Promise<string>

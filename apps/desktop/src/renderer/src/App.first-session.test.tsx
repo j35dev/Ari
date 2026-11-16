@@ -32,7 +32,6 @@ const PROJECT: Project = { id: 'project-first', name: 'First project', path: 'D:
 let projects: Project[]
 let sessions: SessionSummary[]
 let endpoints: Array<{ id: string }>
-let busyReason: string | null
 const calls = (method: string) => rpc.invoke.mock.calls.filter(([name]) => name === method)
 const record = (params: SessionCreateParams, id = 'sess_first') => {
   sessions.push({ id, projectId: params.projectId, title: params.title, messageCount: 0, updatedAt: 2 })
@@ -46,7 +45,7 @@ function deferred<T>() {
 beforeEach(() => {
   localStorage.clear(); dropDraftIntentMemory(); dropDraftTextMemory()
   splitLayoutActions.reset(); keepAliveActions.reset()
-  projects = [PROJECT]; sessions = []; endpoints = []; busyReason = null
+  projects = [PROJECT]; sessions = []; endpoints = []
   rpc.invoke.mockReset(); rpc.subscribe.mockClear()
   rpc.invoke.mockImplementation(async (method: string, raw?: unknown) => {
     if (method === 'ping') return 'pong'
@@ -68,7 +67,7 @@ beforeEach(() => {
     if (method === 'endpoints.list') return endpoints
     if (method === 'endpoints.upsert') { endpoints = [raw as { id: string }]; return raw }
     if (method === 'providers.detect' || method === 'providers.models' || method === 'providers.efforts') return []
-    if (method === 'session.workspace') return { path: PROJECT.path, busyReason }
+    if (method === 'session.workspace') return { path: PROJECT.path }
     if (method === 'dialog.pickFolder') return { path: PROJECT.path }
     if (method === 'project.open') { projects = [PROJECT]; return PROJECT }
     if (method === 'session.create') return record(raw as SessionCreateParams)
@@ -112,26 +111,14 @@ describe('first-send shell draft ownership', () => {
     expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
     expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
   })
-  it('checks root occupancy only on Send before reusing and reseeding an empty local session', async () => {
+  it('reuses and reseeds an empty local session on Send', async () => {
     record({ projectId: PROJECT.id, title: 'Empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' })
     render(<App />)
     const user = await chooseDraft()
-    expect(calls('session.workspace')).toHaveLength(0)
     await sendDraft(user)
     await screen.findByTestId('normal-session')
     expect(calls('session.create')).toHaveLength(0)
-    expect(rpc.invoke).toHaveBeenCalledWith('session.workspace', { sessionId: 'sess_first', checkOccupancy: true })
     expect(calls('command.dispatch')[0]?.[1]).toMatchObject({ command: { type: 'session.update', sessionId: 'sess_first' } })
-  })
-  it('creates an isolated-capable session when the candidate root is occupied', async () => {
-    record({ projectId: PROJECT.id, title: 'Busy empty session', driverKind: 'ari-core', modelId: null, permissionMode: 'ask' }, 'sess_busy')
-    busyReason = 'Another process occupies the root'
-    render(<App />)
-    const user = await chooseDraft()
-    await sendDraft(user)
-    await screen.findByTestId('normal-session')
-    expect(calls('session.create')[0]?.[1]).toMatchObject({ projectId: PROJECT.id, workspaceMode: 'auto' })
-    expect(calls('command.dispatch').some((call) => (call[1] as { command: { type: string } }).command.type === 'session.update')).toBe(false)
   })
   it('keeps uncertain local creation status-only across repeated checks without a retry action', async () => {
     const base = rpc.invoke.getMockImplementation()!

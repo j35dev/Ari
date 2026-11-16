@@ -1234,7 +1234,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     canRespondControlApproval: (id) => runtime?.approvals.isPending(id) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
-    authorizeWorkspace: async (session) => (await controlReady).service.authorizeWorkspace(session),
     turnContext: async (session) => {
       if (!isHelmSession(session) || !getSettingsStore().current.experimental.ariaEnabled)
         return null
@@ -2091,21 +2090,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return model.session ? model : null
   })
 
-  r.register('session.workspace', async ({ sessionId, checkOccupancy }) => {
+  r.register('session.workspace', async ({ sessionId }) => {
     const viewedAt = Date.now()
     const { session } = await getSessionStore().load(sessionId)
     // The shell requests this when its selected session changes, including restored panes.
     if (session) projectSelection.record(session.projectId, viewedAt)
-    return {
-      path: session ? await engine.workspace(session) : null,
-      ...(checkOccupancy
-        ? {
-            busyReason: session
-              ? await (await controlReady).service.authorizeWorkspace(session)
-              : null,
-          }
-        : {}),
-    }
+    return { path: session ? await engine.workspace(session) : null }
   })
 
   r.register('session.tasks', async ({ sessionId }) =>
