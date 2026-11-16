@@ -30,7 +30,7 @@ it('parses theme library commands and refuses misplaced options', async () => {
     })
     expect(cli.parse(['theme', 'screenshot', '--out', 'shot.png'])).toMatchObject({
       method: 'theme.screenshot',
-      params: { out: resolve('shot.png') },
+      params: { out: join(tmpdir(), 'ari-theme-screenshots', 'shot.png') },
     })
     expect(() => cli.parse(['theme', 'screenshot', '--file', file])).toThrow(/Unsupported/)
     expect(cli.parse(['theme', 'schema', '--json'])).toMatchObject({

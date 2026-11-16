@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import {
   customThemeLibrarySchema,
@@ -30,6 +30,9 @@ const extraHooks = {
   'reading lane behind a running chat': '.ari-reading-lane',
   'bundled scene art': '.ari-scene',
 }
+
+/** The only folder `theme screenshot` writes to: Ari's own, inside the OS temp folder. */
+export const THEME_SCREENSHOT_DIR = join(tmpdir(), 'ari-theme-screenshots')
 
 /** All library writers share this queue; settings writes remain atomic. */
 export class ThemeLibrary {
@@ -157,15 +160,26 @@ export class ThemeLibrary {
     if (!theme) throw new Error('Theme is not in your library.')
     return { theme, assetData: (await this.assets?.exportData(theme)) ?? {} }
   }
-  /** Saves a PNG of the Ari window so an agent can look at its theme. */
+  /**
+   * Saves a PNG of the Ari window so an agent can look at its theme. It writes only
+   * into THEME_SCREENSHOT_DIR, so it cannot overwrite the user's files.
+   */
   async screenshot(out?: string) {
     if (!this.capture) throw new Error('Screenshots are unavailable in this runtime.')
-    if (out !== undefined && (!isAbsolute(out) || !out.toLowerCase().endsWith('.png')))
-      throw new Error('--out must be an absolute path to a .png file.')
-    const path = out ?? join(tmpdir(), 'ari-theme-screenshots', `ari-${Date.now()}.png`)
+    const name =
+      out === undefined ? `ari-${Date.now()}.png` : relative(THEME_SCREENSHOT_DIR, resolve(out))
+    if (!/^[\w.-]+\.png$/i.test(name))
+      throw new Error(
+        `--out must be a .png file directly inside ${THEME_SCREENSHOT_DIR}. Leave it out to get a new file there.`,
+      )
     const { png, width, height } = await this.capture()
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, png)
+    await mkdir(THEME_SCREENSHOT_DIR, { recursive: true })
+    // A link planted in place of the folder or the file would send the write elsewhere.
+    if (!(await lstat(THEME_SCREENSHOT_DIR)).isDirectory())
+      throw new Error(`${THEME_SCREENSHOT_DIR} is not a plain folder.`)
+    const path = join(THEME_SCREENSHOT_DIR, name)
+    await rm(path, { force: true })
+    await writeFile(path, png, { flag: 'wx' })
     return { path, width, height }
   }
 }

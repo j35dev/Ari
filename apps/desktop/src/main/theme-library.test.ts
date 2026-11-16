@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
 import { neonThemeExample } from '@ari/contracts/themes'
 import { SettingsStore } from '@ari/engine/settings'
-import { ThemeLibrary } from './theme-library'
+import { THEME_SCREENSHOT_DIR, ThemeLibrary } from './theme-library'
 import { ThemeAssetStore } from './theme-assets'
 
 const dirs: string[] = []
@@ -87,10 +87,32 @@ it('stores theme files with the theme and saves window screenshots', async () =>
   await library.remove(theme.id)
   expect(await readdir(join(dir, 'assets'))).toEqual([])
 
-  const out = join(dir, 'shots', 'theme.png')
+  const out = join(THEME_SCREENSHOT_DIR, `test-${process.pid}.png`)
   expect(await library.screenshot(out)).toEqual({ path: out, width: 4, height: 3 })
   expect(await readFile(out, 'utf8')).toBe('png')
-  await expect(library.screenshot('relative.png')).rejects.toThrow(/absolute/)
+  // A second capture to the same name replaces the file.
+  expect(await library.screenshot(out)).toMatchObject({ path: out })
+  await rm(out)
+  const fresh = (await library.screenshot()) as { path: string }
+  expect(fresh.path.startsWith(THEME_SCREENSHOT_DIR)).toBe(true)
+  await rm(fresh.path)
+})
+
+// Review of #543: --out wrote a PNG to any absolute path, creating folders on the way.
+it('writes screenshots only inside its own temp folder', async () => {
+  const { dir, settings, publish } = await setup()
+  const capture = vi.fn(async () => ({ png: Buffer.from('png'), width: 4, height: 3 }))
+  const library = new ThemeLibrary(settings, publish, undefined, capture)
+  for (const out of [
+    join(dir, 'shots', 'theme.png'),
+    join(homedir(), 'Desktop', 'theme.png'),
+    join(THEME_SCREENSHOT_DIR, '..', 'theme.png'),
+    join(THEME_SCREENSHOT_DIR, 'nested', 'theme.png'),
+    join(THEME_SCREENSHOT_DIR, 'theme.txt'),
+  ])
+    await expect(library.screenshot(out), out).rejects.toThrow(/directly inside/)
+  expect(capture).not.toHaveBeenCalled()
+  expect(await readdir(dir)).not.toContain('shots')
 })
 
 it('refuses themes that box every row, paragraph or tool line', async () => {
