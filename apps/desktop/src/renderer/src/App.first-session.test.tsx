@@ -95,6 +95,8 @@ describe('first-send shell draft ownership', () => {
     const user = await chooseDraft()
     expect(calls('session.create')).toHaveLength(0)
     expect(activeSessionOf(splitLayoutSnapshot())).toBeNull()
+    // The draft names its project in the titlebar, as a session does.
+    expect(screen.getByLabelText('Session project')).toHaveTextContent('First project')
     await sendDraft(user)
     expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
     expect(calls('session.create')).toHaveLength(1)
@@ -120,20 +122,25 @@ describe('first-send shell draft ownership', () => {
     expect(calls('session.create')).toHaveLength(0)
     expect(calls('command.dispatch')[0]?.[1]).toMatchObject({ command: { type: 'session.update', sessionId: 'sess_first' } })
   })
-  it('keeps uncertain local creation status-only across repeated checks without a retry action', async () => {
+  it('frees the draft to send again once This PC shows the failed creation made no session', async () => {
     const base = rpc.invoke.getMockImplementation()!
-    rpc.invoke.mockImplementation((method, params) => method === 'session.create'
+    let lost = true
+    rpc.invoke.mockImplementation((method, params) => method === 'session.create' && lost
       ? Promise.reject(new Error('Creation reply lost')) : base(method, params))
     render(<App />)
     const user = await chooseDraft()
     await sendDraft(user, 'Original uncertain text')
-    await screen.findByRole('button', { name: 'Check original submission' })
-    await user.click(screen.getByRole('button', { name: 'Check original submission' }))
-    await user.click(screen.getByRole('button', { name: 'Check original submission' }))
+    await user.click(await screen.findByRole('button', { name: 'Check original submission' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull())
     expect(calls('session.create')).toHaveLength(1)
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Original uncertain text')
-    expect(screen.queryByRole('button', { name: 'Start another session' })).toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled()
     expect(calls('command.dispatch')).toHaveLength(0)
+    // Nothing else holds the window's starts: the same text now goes through.
+    lost = false
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
+    expect(calls('session.create')).toHaveLength(2)
   })
   it('keeps confirmed creation and unknown first prompt separate without recreating or resending', async () => {
     const base = rpc.invoke.getMockImplementation()!
