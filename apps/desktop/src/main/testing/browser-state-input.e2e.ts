@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { app, BrowserWindow, nativeImage, WebContentsView } from 'electron'
-import { hostedBrowserGuestFactory } from '../browser-electron'
+import { hostedBrowserGuestFactory, INPUT_FOCUS_HOLD_MS } from '../browser-electron'
 import { startBrowserMcpServer } from '../browser-mcp'
 import { BrowserService, type BrowserGuest } from '../browser-service'
 import { checkNativeBrowserInput } from './browser-native-input'
@@ -22,8 +22,15 @@ const tab = new URLSearchParams(location.search).get('tab')
 const state = { player: { x: 0 }, clicks: 0, lastPointer: null }
 const pending = []
 let frames = 0
+const held = new Set()
+let blurredWhileHeld = 0
 addEventListener('keydown', (event) => {
+  held.add(event.key)
   if (event.key === 'ArrowRight') pending.push({ type: 'key' })
+})
+addEventListener('keyup', (event) => held.delete(event.key))
+addEventListener('blur', () => {
+  if (held.size > 0) blurredWhileHeld++
 })
 addEventListener('pointerdown', (event) => {
   pending.push({ type: 'pointer', x: event.clientX, y: event.clientY })
@@ -46,6 +53,7 @@ window.__ari = {
     return { tab, ...structuredClone(state) }
   },
 }
+window.__blurredWhileHeld = () => blurredWhileHeld
 window.__fixtureDiagnostics = () => ({ tab, frames, readyState: document.readyState,
   hidden: document.hidden, paint: performance.getEntriesByType('paint').map(p => p.name) })
 </script></body></html>`
@@ -156,11 +164,20 @@ async function main(): Promise<void> {
   assert.deepEqual(await state(a), clickedA)
   assert.deepEqual(await state(b), freshB, 'a click on tab a reached tab b')
 
+  win.webContents.focus()
   await callTool(a, 'browser_key', { key: 'ArrowRight' })
   await callTool(a, 'browser_key', { key: 'ArrowRight' })
   const movedA = { ...clickedA, player: { x: 2 } }
   assert.deepEqual(await state(a), movedA)
   assert.deepEqual(await state(b), freshB, 'a key on tab a reached tab b')
+  assert.equal(
+    await guests.get('agent:a')?.executeJavaScript('window.__blurredWhileHeld()'),
+    0,
+    'hidden key input blurred the page while its key was held',
+  )
+  // Agent input lends the page the shell's focus only briefly.
+  await new Promise((resolve) => setTimeout(resolve, INPUT_FOCUS_HOLD_MS + 200))
+  if (win.isFocused()) assert.ok(win.webContents.isFocused(), 'agent input kept the shell focus')
 
   await callTool(b, 'browser_pointer', { action: 'click', x: 100, y: 50 })
   await callTool(b, 'browser_key', { key: 'ArrowRight' })
