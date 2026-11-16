@@ -58,6 +58,34 @@ describe('isCovered', () => {
     paint((_x, y) => (y < 180 ? toast : host))
     expect(isCovered(host)).toBe(false)
   })
+
+  it('only probes the portion of a host inside the viewport', () => {
+    host.getBoundingClientRect = () =>
+      ({
+        left: -100,
+        top: -100,
+        right: window.innerWidth + 100,
+        bottom: window.innerHeight + 100,
+      }) as DOMRect
+    paint(() => host)
+
+    expect(isCovered(host)).toBe(false)
+    for (const [x, y] of vi.mocked(document.elementFromPoint).mock.calls) {
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(window.innerWidth)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(window.innerHeight)
+    }
+  })
+
+  it('does not probe a host entirely outside the viewport', () => {
+    host.getBoundingClientRect = () =>
+      ({ left: -100, top: -100, right: -10, bottom: -10 }) as DOMRect
+    paint(() => document.body)
+
+    expect(isCovered(host)).toBe(false)
+    expect(document.elementFromPoint).not.toHaveBeenCalled()
+  })
 })
 
 describe('useCovered', () => {
@@ -94,5 +122,45 @@ describe('useCovered', () => {
 
     rerender({ on: false })
     expect(result.current).toBe(false)
+  })
+
+  it.each(['resize', 'scroll'])(
+    'rechecks coverage after %s without a DOM mutation',
+    async (event) => {
+      const host = mountHost()
+      const overlay = document.createElement('div')
+      document.body.append(overlay)
+      let overlapping = true
+      paint(() => (overlapping ? overlay : host))
+      const ref = { current: host }
+      const { result } = renderHook(() => useCovered(ref, true))
+      await waitFor(() => expect(result.current).toBe(true))
+
+      overlapping = false
+      // Element scroll events do not bubble; the window listener must capture.
+      const target = event === 'scroll' ? host : window
+      target.dispatchEvent(new Event(event))
+      await waitFor(() => expect(result.current).toBe(false))
+    },
+  )
+
+  it('stops checking resize and scroll events after unmount', async () => {
+    const host = mountHost()
+    paint(() => host)
+    const ref = { current: host }
+    const { unmount } = renderHook(() => useCovered(ref, true))
+    await waitFor(() => expect(document.elementFromPoint).toHaveBeenCalled())
+    unmount()
+    vi.mocked(document.elementFromPoint).mockClear()
+    vi.useFakeTimers()
+
+    try {
+      window.dispatchEvent(new Event('resize'))
+      host.dispatchEvent(new Event('scroll'))
+      await vi.advanceTimersByTimeAsync(200)
+      expect(document.elementFromPoint).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -178,6 +178,36 @@ describe('BrowserPanel', () => {
       release()
     })
 
+    it('keeps a captured frame at its original CSS size when the covered panel resizes', async () => {
+      const { container } = render(<BrowserPanel />)
+      await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', STILL))
+      expect(container.querySelector('img')).toHaveStyle({ width: '400px', height: '600px' })
+
+      const release = registerOverlay(document.createElement('div'))
+      await Promise.resolve()
+      expect(layouts().at(-1)).toBe(false)
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 700,
+        bottom: 300,
+        width: 700,
+        height: 300,
+      } as DOMRect)
+      window.dispatchEvent(new Event('resize'))
+
+      await waitFor(() =>
+        expect(invokeFn).toHaveBeenCalledWith(
+          'browser.layout',
+          expect.objectContaining({ width: 700, height: 300, visible: false }),
+        ),
+      )
+      expect(container.querySelector('img')).toHaveStyle({ width: '400px', height: '600px' })
+      release()
+    })
+
     it('still hides the guest for unregistered app UI the hit-test sweep finds', async () => {
       render(<BrowserPanel />)
       await waitFor(() => expect(layouts().at(-1)).toBe(true))
