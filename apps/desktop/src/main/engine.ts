@@ -19,6 +19,7 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { controlPreamble } from '@ari/engine/control-preamble'
+import { themeAuthoringPrompt } from '@ari/contracts/themes'
 import { helmReportRecipient } from '@ari/engine/helm'
 import { isHelmSession } from '@ari/contracts/helm'
 import {
@@ -1080,7 +1081,7 @@ export class Engine {
         : null
       const inbox = hasControl ? coordinationContext(await this.#deps.store.load(session.id)) : null
       inboxMessageIds = inbox?.messageIds ?? []
-      const body = [handoff, context, inbox?.text ?? null, prompt]
+      const body = [handoff, context, inbox?.text ?? null, themeAuthoringPrompt(prompt)]
         .filter((part) => part !== null)
         .join('\n\n')
       const resolvedAttachments =

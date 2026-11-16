@@ -108,10 +108,26 @@ export function RemoteTerminal({
       }, 200)
     })
     resize.observe(element.current)
+    const themeObserver = new MutationObserver(() => {
+      xterm.options.theme = {
+        background: tokenColor('--ari-bg'),
+        foreground: tokenColor('--ari-fg'),
+        cursor: tokenColor('--ari-accent'),
+      }
+      xterm.options.fontFamily = getComputedStyle(document.documentElement)
+        .getPropertyValue('--ari-font-mono')
+        .trim()
+      fit.fit()
+    })
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'data-ari-theme', 'data-ari-custom-theme'],
+    })
     return () => {
       alive.current = false
       blocked.current = true
       resize.disconnect()
+      themeObserver.disconnect()
       clearTimeout(resizeTimer)
       data.dispose()
       xterm.dispose()
@@ -267,6 +283,7 @@ export function RemoteTerminal({
       )}
       <div
         ref={element}
+        data-ari-part="terminal"
         className="min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-bg p-2"
       />
     </section>

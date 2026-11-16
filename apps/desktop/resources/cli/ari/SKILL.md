@@ -7,6 +7,42 @@ metadata:
 
 # Ari session control
 
+## Custom Ari themes
+
+When the user asks for a personal Ari theme (including `/ari theme <brief>`),
+create a version 1 theme package with the API below. Do not edit Ari's source
+code. All sessions can use the theme library.
+
+```sh
+ari theme schema --json
+ari theme list --json
+ari theme validate --file one-piece/theme.json --json
+ari theme install --file one-piece/theme.json --preview --key one-piece-1 --json
+ari theme screenshot --json
+ari theme preview custom:one-piece --json
+ari theme remove custom:one-piece --json
+ari theme reset --json
+```
+
+`schema` returns the JSON schema, the CSS hooks, an example and a design guide;
+read the guide before designing. A theme is a palette plus optional `css`,
+`assets` and `wallpaper`. Keep each theme in its own folder: theme.json next
+to its images. Generate a wallpaper with your image tool if you have one, or
+download one into the folder. List each file in `assets` by name; install reads
+them from the theme file's folder (or `--assets <dir>`) and stores them with the
+theme. Theme CSS references them as `url("asset:wallpaper.jpg")`. Emoji go in
+::before/::after `content`. CSS cannot load anything from the network.
+
+Install adds or updates an entry in Settings → Appearance → Your themes.
+`install --preview`, `preview` and `screenshot` ask the user's permission first.
+`--preview` requests a 30-second preview; the user chooses Keep theme or
+Revert. `screenshot` saves a PNG of the Ari window and returns its path: open
+it, look at your theme, and fix what looks wrong before asking the user how
+it looks. Keep iterating with them. Keep the same ID for a revision (files
+already stored under the same names are kept); use a new `custom:<slug>` ID for
+a new design. The protected Reset theme control and Ctrl/⌘+Alt+Shift+T restore
+Obsidian.
+
 ## Explicit app navigation (current Aria only)
 
 Only the current nonarchived Aria chat may use these commands, and only when the

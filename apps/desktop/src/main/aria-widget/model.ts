@@ -1,3 +1,4 @@
+import type { CustomTheme } from '@ari/contracts/themes'
 export type WidgetPhase = 'hidden' | 'listening' | 'transcribing' | 'sent' | 'error'
 
 export interface WidgetState {
@@ -10,6 +11,7 @@ export interface WidgetState {
 export interface WidgetSnapshot extends WidgetState {
   destination?: 'aria' | 'dictation'
   theme: string
+  customTheme?: CustomTheme
   reducedMotion: boolean
 }
 

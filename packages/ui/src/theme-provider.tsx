@@ -1,7 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  customThemeSchema,
+  wallpaperFocus,
+  type CustomTheme,
+  type ThemeLibraryEvent,
+} from '@ari/contracts/themes'
+import { customThemeAssetUrl, paintCustomTheme, resolveCustomTheme } from './custom-themes'
+import { Shielded } from './shielded'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
-import type { Theme, ThemeId } from './themes'
+import type { Theme } from './themes'
 import { canBakeWallpaper, installWallpaperBake } from './wallpaper-bake'
 import { isWallpaperSetting, wallpapers } from './wallpapers'
 import type { WallpaperSetting } from './wallpapers'
@@ -19,38 +28,65 @@ import type { WallpaperSetting } from './wallpapers'
  */
 
 /** User selection: an explicit theme or `system` (follow the OS scheme). */
-export type ThemeMode = 'system' | ThemeId
+export type ThemeMode = string
 
 export interface ThemePreferences {
   mode: ThemeMode
   /** Bundled background scene shown behind the themed UI, or 'none'. */
   wallpaper: WallpaperSetting
+  customThemes?: CustomTheme[]
+  activeCustomTheme?: CustomTheme | null
 }
 
 /** Adapter onto durable storage (the engine settings store in the app). */
 export interface ThemePersistence {
-  load: () => Promise<Partial<ThemePreferences & { themeId: ThemeId }> | null>
-  save: (prefs: ThemePreferences & { themeId: ThemeId }) => Promise<void>
+  load: () => Promise<Partial<ThemePreferences & { themeId: string }> | null>
+  save: (prefs: ThemePreferences & { themeId: string }) => Promise<void>
+  paint?: (themeId: string, customTheme?: CustomTheme) => Promise<void>
+  subscribe?: (listener: (event: ThemeLibraryEvent) => void) => () => void
 }
 
 export interface ThemeContextValue {
   /** Id of the theme actually painted (resolved through `system`). */
-  themeId: ThemeId
+  themeId: string
   /** Full palette of the painted theme. */
   theme: Theme
   /** Pins an explicit theme. */
-  setTheme: (id: ThemeId) => void
+  setTheme: (id: string) => void
   mode: ThemeMode
   setMode: (mode: ThemeMode) => void
   resolvedScheme: 'light' | 'dark'
   /** Active wallpaper selection ('none' = plain theme background). */
   wallpaper: WallpaperSetting
   setWallpaper: (wallpaper: WallpaperSetting) => void
+  customThemes: CustomTheme[]
+  activeCustomTheme: CustomTheme | null | undefined
+  adoptLibrary: (event: ThemeLibraryEvent) => void
+  previewTheme: (id: string) => void
+  resetTheme: () => void
 }
 
 const STORAGE_KEY = 'ari.theme'
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
+
+function readableTheme(value: unknown): CustomTheme | undefined {
+  try {
+    const parsed = customThemeSchema.parse(value)
+    resolveCustomTheme(parsed)
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+function readableLibrary(value: unknown): CustomTheme[] {
+  return Array.isArray(value)
+    ? value.slice(0, 50).flatMap((entry) => {
+        const theme = readableTheme(entry)
+        return theme ? [theme] : []
+      })
+    : []
+}
 
 function matches(query: string): boolean {
   try {
@@ -66,13 +102,27 @@ function readCache(): ThemePreferences {
     if (raw) {
       const parsed: unknown = JSON.parse(raw)
       if (parsed && typeof parsed === 'object') {
-        const { mode, wallpaper } = parsed as {
+        const {
+          mode,
+          wallpaper,
+          customThemes: rawThemes,
+          activeCustomTheme: rawActive,
+        } = parsed as {
           mode?: unknown
           wallpaper?: unknown
+          customThemes?: unknown
+          activeCustomTheme?: unknown
         }
+        const customThemes = readableLibrary(rawThemes)
+        const activeCustomTheme = readableTheme(rawActive)
         return {
-          mode: mode === 'system' || isThemeId(mode) ? mode : 'system',
+          mode:
+            mode === 'system' || isThemeId(mode) || customThemes.some((theme) => theme.id === mode)
+              ? (mode as string)
+              : 'system',
           wallpaper: isWallpaperSetting(wallpaper) ? wallpaper : 'none',
+          customThemes,
+          activeCustomTheme,
         }
       }
     }
@@ -90,6 +140,29 @@ function writeCache(prefs: ThemePreferences): void {
   }
 }
 
+interface ThemeWallpaper {
+  src: string
+  blur: number
+  tint: number
+  /** Focal point in percent of the image. */
+  focus: { x: number; y: number }
+}
+
+/** The active custom theme's own wallpaper, which replaces the bundled selection. */
+function themeWallpaper(custom: CustomTheme | null | undefined): ThemeWallpaper | null {
+  const wallpaper = custom?.wallpaper
+  const src = wallpaper && custom ? customThemeAssetUrl(custom, wallpaper.asset) : undefined
+  return wallpaper && src
+    ? { src, blur: wallpaper.blur, tint: wallpaper.tint, focus: wallpaperFocus(wallpaper.position) }
+    : null
+}
+
+const THEME_WALLPAPER_PROPS = [
+  '--ari-wallpaper-blur',
+  '--ari-wallpaper-tint',
+  '--ari-wallpaper-position',
+]
+
 /**
  * Reflects the wallpaper selection onto `<html>` for wallpaper.css: the
  * attribute gates every wallpaper rule (absent for 'none', so the plain theme
@@ -100,7 +173,22 @@ function writeCache(prefs: ThemePreferences): void {
  * survive the production build unrebased and unhashed, which broke the
  * packaged app while working in dev (see wallpaper.css).
  */
-function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): void {
+function applyWallpaperAttr(
+  root: HTMLElement,
+  wallpaper: WallpaperSetting,
+  themed: ThemeWallpaper | null = null,
+): void {
+  for (const prop of THEME_WALLPAPER_PROPS) root.style.removeProperty(prop)
+  delete root.dataset['ariWallpaperSharp']
+  if (themed) {
+    root.dataset['ariWallpaper'] = 'theme'
+    root.style.setProperty('--ari-wallpaper-image', `url("${themed.src}")`)
+    root.style.setProperty('--ari-wallpaper-blur', `${themed.blur}px`)
+    root.style.setProperty('--ari-wallpaper-tint', `${themed.tint}%`)
+    root.style.setProperty('--ari-wallpaper-position', `${themed.focus.x}% ${themed.focus.y}%`)
+    if (themed.blur === 0) root.dataset['ariWallpaperSharp'] = ''
+    return
+  }
   if (wallpaper === 'none') {
     delete root.dataset['ariWallpaper']
     root.style.removeProperty('--ari-wallpaper-image')
@@ -121,15 +209,21 @@ function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): voi
  */
 export function applyCachedTheme(): void {
   const prefs = readCache()
-  const theme =
-    prefs.mode === 'system'
+  const custom =
+    prefs.activeCustomTheme?.id === prefs.mode
+      ? prefs.activeCustomTheme
+      : prefs.customThemes?.find((entry) => entry.id === prefs.mode)
+  const theme = custom
+    ? resolveCustomTheme(custom)
+    : prefs.mode === 'system'
       ? systemTheme(matches('(prefers-color-scheme: dark)'))
-      : themes[prefs.mode]
+      : themes[isThemeId(prefs.mode) ? prefs.mode : defaultThemeId]
   const root = document.documentElement
-  root.dataset['ariTheme'] = theme.id
+  root.dataset['ariTheme'] = custom?.base ?? theme.id
   root.dataset['ariScheme'] = theme.scheme
   delete root.dataset['ariGlass']
-  applyWallpaperAttr(root, prefs.wallpaper)
+  applyWallpaperAttr(root, prefs.wallpaper, themeWallpaper(custom))
+  paintCustomTheme(custom)
 }
 
 /** Where the last click landed, so a theme change can open outward from it. */
@@ -196,6 +290,20 @@ function useMediaQuery(query: string): boolean {
   return matched
 }
 
+const RECOVERY_CSS = `aside{all:initial;position:fixed;inset:48px 16px auto auto;margin:0;z-index:2147483647;display:flex;align-items:center;gap:10px;box-sizing:border-box;max-width:calc(100vw - 32px);padding:10px 12px;border:1px solid #526174;border-radius:10px;background:#101826;color:#f4f8ff;font:13px/1.5 system-ui,sans-serif;box-shadow:0 8px 24px #00000066}
+button{all:initial;padding:5px 10px;border:1px solid #526174;border-radius:6px;background:#233044;color:#f4f8ff;font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid #f4f8ff;outline-offset:2px}`
+
+/** The top layer paints above everything the page draws, including a theme's overlays. */
+function showOnTop(element: HTMLElement | null): void {
+  if (!element || typeof element.showPopover !== 'function') return
+  try {
+    if (!element.matches(':popover-open')) element.showPopover()
+  } catch {
+    // Without popover support the bar stays fixed at the top of the page.
+  }
+}
+
 export function ThemeProvider({
   children,
   persistence,
@@ -204,6 +312,10 @@ export function ThemeProvider({
   persistence?: ThemePersistence
 }) {
   const [prefs, setPrefs] = useState<ThemePreferences>(readCache)
+  const [preview, setPreview] = useState<CustomTheme | null>(null)
+  const [seconds, setSeconds] = useState(30)
+  const [saveError, setSaveError] = useState(false)
+  const saveGeneration = useRef(0)
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)')
   // Gates the save effect: writing the localStorage cache back before the
   // durable copy has been read would clobber it with a stale value.
@@ -217,9 +329,19 @@ export function ThemeProvider({
       (stored) => {
         if (cancelled) return
         if (stored) {
+          const customThemes = readableLibrary(stored.customThemes)
           setPrefs((current) => ({
-            mode: stored.mode === 'system' || isThemeId(stored.mode) ? stored.mode : current.mode,
+            mode:
+              stored.mode === 'system' ||
+              isThemeId(stored.mode) ||
+              customThemes.some((theme) => theme.id === stored.mode)
+                ? stored.mode!
+                : 'system',
             wallpaper: isWallpaperSetting(stored.wallpaper) ? stored.wallpaper : current.wallpaper,
+            customThemes,
+            activeCustomTheme:
+              readableTheme(stored.activeCustomTheme) ??
+              customThemes.find((entry) => entry.id === stored.mode),
           }))
         }
         setHydrated(true)
@@ -235,10 +357,63 @@ export function ThemeProvider({
     }
   }, [persistence])
 
-  const theme =
+  const custom =
+    preview ??
+    (prefs.activeCustomTheme?.id === prefs.mode
+      ? prefs.activeCustomTheme
+      : prefs.customThemes?.find((entry) => entry.id === prefs.mode))
+  const theme = useMemo(
+    () =>
+      custom
+        ? resolveCustomTheme(custom)
+        : prefs.mode === 'system'
+          ? systemTheme(prefersDark)
+          : themes[isThemeId(prefs.mode) ? prefs.mode : defaultThemeId],
+    [custom, prefs.mode, prefersDark],
+  )
+  const confirmedThemeId =
     prefs.mode === 'system'
-      ? systemTheme(prefersDark)
-      : (themes[prefs.mode] ?? themes[defaultThemeId])
+      ? systemTheme(prefersDark).id
+      : isThemeId(prefs.mode) || prefs.customThemes?.some((entry) => entry.id === prefs.mode)
+        ? prefs.mode
+        : defaultThemeId
+
+  const adoptLibrary = useCallback((event: ThemeLibraryEvent) => {
+    const customThemes = readableLibrary(event.themes)
+    setPrefs((current) => ({
+      ...current,
+      customThemes,
+      ...(event.reset ||
+      (current.mode.startsWith('custom:') &&
+        !customThemes.some((entry) => entry.id === current.mode))
+        ? { mode: defaultThemeId, activeCustomTheme: null }
+        : {}),
+    }))
+    setPreview((current) =>
+      event.reset
+        ? null
+        : event.previewId
+          ? (customThemes.find((entry) => entry.id === event.previewId) ?? null)
+          : current && customThemes.some((entry) => entry.id === current.id)
+            ? current
+            : null,
+    )
+  }, [])
+  useEffect(() => persistence?.subscribe?.(adoptLibrary), [persistence, adoptLibrary])
+  useEffect(() => {
+    if (!preview) return
+    setSeconds(30)
+    const deadline = Date.now() + 30_000
+    const clock = window.setInterval(
+      () => setSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))),
+      1000,
+    )
+    const revert = window.setTimeout(() => setPreview(null), 30_000)
+    return () => {
+      window.clearInterval(clock)
+      window.clearTimeout(revert)
+    }
+  }, [preview])
 
   useEffect(() => {
     document.addEventListener('click', trackClick, true)
@@ -246,38 +421,109 @@ export function ThemeProvider({
   }, [])
 
   const painted = useRef(false)
+  const themedWallpaper = themeWallpaper(custom)
   useEffect(() => {
+    const themed = themeWallpaper(custom)
     const root = document.documentElement
     const apply = (): void => {
-      root.dataset['ariTheme'] = theme.id
+      root.dataset['ariTheme'] = custom?.base ?? theme.id
       root.dataset['ariScheme'] = theme.scheme
       delete root.dataset['ariGlass']
-      applyWallpaperAttr(root, prefs.wallpaper)
+      applyWallpaperAttr(root, prefs.wallpaper, themed)
+      paintCustomTheme(custom)
     }
     // The first run only confirms what applyCachedTheme already painted, and a
     // wallpaper change is not a theme change: neither is worth a transition.
     if (!painted.current || root.dataset['ariTheme'] === theme.id) apply()
     else revealTheme(root, apply)
     painted.current = true
-  }, [theme.id, theme.scheme, prefs.wallpaper])
+  }, [theme, custom, prefs.wallpaper])
+  const bakeSrc = themedWallpaper?.src ?? wallpapers.find((w) => w.id === prefs.wallpaper)?.src
+  const bakeBlur = themedWallpaper?.blur
+  const bakeFocusX = themedWallpaper?.focus.x
+  const bakeFocusY = themedWallpaper?.focus.y
+  useEffect(() => {
+    void persistence?.paint?.(theme.id, custom).catch(() => undefined)
+  }, [persistence, theme, custom])
 
   // Swap the live backdrop blur for a baked one (see wallpaper-bake.ts).
   useEffect(() => {
-    const src = wallpapers.find((w) => w.id === prefs.wallpaper)?.src
-    if (src === undefined || !canBakeWallpaper()) return
-    return installWallpaperBake(document.documentElement, src)
-  }, [prefs.wallpaper])
+    if (bakeSrc === undefined || bakeBlur === 0 || !canBakeWallpaper()) return
+    const focus =
+      bakeFocusX === undefined || bakeFocusY === undefined
+        ? undefined
+        : { x: bakeFocusX / 100, y: bakeFocusY / 100 }
+    return installWallpaperBake(document.documentElement, bakeSrc, {}, bakeBlur, focus)
+  }, [bakeSrc, bakeBlur, bakeFocusX, bakeFocusY])
 
   useEffect(() => {
     writeCache(prefs)
     if (!persistence || !hydrated) return
-    void persistence.save({ ...prefs, themeId: theme.id }).catch(() => undefined)
-  }, [persistence, prefs, theme.id, hydrated])
+    const generation = ++saveGeneration.current
+    void persistence
+      .save({
+        mode: prefs.mode,
+        wallpaper: prefs.wallpaper,
+        themeId: confirmedThemeId,
+        ...(prefs.activeCustomTheme !== undefined
+          ? { activeCustomTheme: prefs.activeCustomTheme }
+          : {}),
+      })
+      .then(
+        () => {
+          if (saveGeneration.current === generation) setSaveError(false)
+        },
+        () => {
+          if (saveGeneration.current === generation) setSaveError(true)
+        },
+      )
+  }, [persistence, prefs, confirmedThemeId, hydrated])
 
   const setMode = useCallback((mode: ThemeMode) => {
-    setPrefs((current) => ({ ...current, mode }))
+    setPreview(null)
+    setPrefs((current) => {
+      const next = current.customThemes?.find((entry) => entry.id === mode)
+      return mode === 'system' || isThemeId(mode) || next
+        ? {
+            ...current,
+            mode,
+            activeCustomTheme: next ?? (current.activeCustomTheme ? null : undefined),
+          }
+        : current
+    })
   }, [])
-  const setTheme = useCallback((id: ThemeId) => setMode(id), [setMode])
+  const setTheme = useCallback((id: string) => setMode(id), [setMode])
+  const previewTheme = useCallback(
+    (id: string) => {
+      setPreview(prefs.customThemes?.find((entry) => entry.id === id) ?? null)
+    },
+    [prefs.customThemes],
+  )
+  const resetTheme = useCallback(() => {
+    setPreview(null)
+    setPrefs((current) => ({
+      ...current,
+      mode: defaultThemeId,
+      activeCustomTheme: null,
+      wallpaper: 'none',
+    }))
+  }, [])
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.altKey &&
+        event.shiftKey &&
+        event.code === 'KeyT'
+      ) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        resetTheme()
+      }
+    }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [resetTheme])
   const setWallpaper = useCallback((wallpaper: WallpaperSetting) => {
     setPrefs((current) => ({ ...current, wallpaper }))
   }, [])
@@ -292,15 +538,88 @@ export function ThemeProvider({
       resolvedScheme: theme.scheme,
       wallpaper: prefs.wallpaper,
       setWallpaper,
+      customThemes: prefs.customThemes ?? [],
+      activeCustomTheme: prefs.activeCustomTheme,
+      adoptLibrary,
+      previewTheme,
+      resetTheme,
     }),
-    [theme, setTheme, prefs.mode, setMode, prefs.wallpaper, setWallpaper],
+    [
+      theme,
+      setTheme,
+      prefs.mode,
+      setMode,
+      prefs.wallpaper,
+      setWallpaper,
+      prefs.customThemes,
+      prefs.activeCustomTheme,
+      adoptLibrary,
+      previewTheme,
+      resetTheme,
+    ],
   )
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  return (
+    <ThemeContext.Provider value={value}>
+      {children}
+      {/* Only while a preview runs or a save failed. A kept theme is undone with
+          the shortcut, Settings → Appearance or `ari theme reset`. Shielded and in
+          the top layer, so theme CSS can neither restyle the bar nor paint over it. */}
+      {(preview || saveError) &&
+        createPortal(
+          <Shielded css={RECOVERY_CSS}>
+            <aside
+              ref={showOnTop}
+              popover="manual"
+              data-ari-theme-recovery=""
+              aria-label="Theme recovery"
+            >
+              {preview ? (
+                <>
+                  <span role="status">
+                    Previewing {preview.name} · {seconds}s
+                  </span>
+                  <button
+                    onClick={() => {
+                      setPrefs((current) => ({
+                        ...current,
+                        mode: preview.id,
+                        activeCustomTheme: preview,
+                      }))
+                      setPreview(null)
+                    }}
+                  >
+                    Keep theme
+                  </button>
+                  <button onClick={() => setPreview(null)}>Revert</button>
+                </>
+              ) : null}
+              {saveError && (
+                <span role="status">
+                  Could not save the theme choice. Check available disk space and try again.
+                </span>
+              )}
+              <button title="Ctrl/⌘+Alt+Shift+T" onClick={resetTheme}>
+                Reset theme
+              </button>
+            </aside>
+          </Shielded>,
+          document.body,
+        )}
+    </ThemeContext.Provider>
+  )
 }
 
 export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext)
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
   return ctx
+}
+
+/**
+ * The active palette as theme data, not as the page's CSS variables, which theme CSS
+ * can override. The default theme's outside a provider.
+ */
+export function useThemeColors(): Theme['colors'] {
+  return useContext(ThemeContext)?.theme.colors ?? themes[defaultThemeId].colors
 }

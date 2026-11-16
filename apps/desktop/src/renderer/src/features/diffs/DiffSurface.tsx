@@ -459,7 +459,7 @@ export function DiffSurface({
       ) : null}
       <div
         ref={scroll}
-        className="ari-scroll shiki min-h-0 flex-1 overflow-auto bg-surface-0 [scrollbar-gutter:stable]"
+        className="ari-diff-surface ari-scroll shiki min-h-0 flex-1 overflow-auto bg-surface-0 [scrollbar-gutter:stable]"
         tabIndex={0}
         aria-label="Diff lines"
         onScroll={(event) => onScrollOffset?.(event.currentTarget.scrollTop)}

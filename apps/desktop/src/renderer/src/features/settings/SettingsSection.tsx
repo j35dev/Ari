@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 /** Rounded surface that holds settings rows, divided by hairlines. */
 export const SETTINGS_CARD_CLASS =
-  'rounded-xl border border-border bg-surface-1 divide-y divide-border'
+  'ari-theme-settings-card rounded-xl border border-border bg-surface-1 divide-y divide-border'
 
 /** The caption above a group: 13px, medium, quiet. */
 export const SETTINGS_CAPTION_CLASS = 'text-[13px] font-medium text-fg-subtle'

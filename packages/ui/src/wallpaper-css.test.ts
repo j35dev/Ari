@@ -21,11 +21,16 @@ describe('wallpaper.css', () => {
       /\[data-ari-wallpaper\]\[data-ari-wallpaper-baked\] body::before \{[^}]*background-image: var\(--ari-wallpaper-baked\)/,
     )
     // The live filter is scoped to the pending state, never the baked one.
-    const live = /([^{}]+)\{[^}]*backdrop-filter: blur\(28px\) saturate\(1\.35\)/.exec(css)
+    const live =
+      /([^{}]+)\{[^}]*backdrop-filter: blur\(var\(--ari-wallpaper-blur, 28px\)\) saturate\(1\.35\)/.exec(
+        css,
+      )
     expect(live?.[1]).toContain(':not([data-ari-wallpaper-baked])')
     expect(css.match(/^\s*backdrop-filter: blur/gm)).toHaveLength(1)
     // The fallback must be the filter the bake reproduces.
-    expect(css).toContain(`blur(${WALLPAPER_BLUR_PX}px) saturate(${WALLPAPER_SATURATE})`)
+    expect(css).toContain(
+      `blur(var(--ari-wallpaper-blur, ${WALLPAPER_BLUR_PX}px)) saturate(${WALLPAPER_SATURATE})`,
+    )
   })
 
   it('neutralizes nested chrome and pane fills so no surface double-tints', () => {

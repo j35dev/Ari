@@ -10,12 +10,24 @@ const os = require('node:os')
 const { randomUUID } = require('node:crypto')
 
 const skillPath = path.join(__dirname, 'ari', 'SKILL.md')
+const THEME_USAGE = [
+  'ari theme schema --json            JSON schema, design guide, CSS hooks and a working example. Start here.',
+  'ari theme list --json              Themes in the library.',
+  'ari theme validate --file <theme.json> [--assets <dir>] --json',
+  'ari theme install --file <theme.json> [--assets <dir>] [--preview] [--key <k>] --json',
+  'ari theme screenshot [--out <name.png>] --json   PNG of the Ari window in the temp ari-theme-screenshots folder; open it to check your theme.',
+  'ari theme preview|remove <custom:id> --json',
+  'ari theme reset --json',
+  'The file is the theme object itself (version, id, name, base, colors, ...), not wrapped in another key.',
+  'Files listed in assets are read from the theme file folder unless --assets is given.',
+].join('\n')
 const failure = (code, message) => ({ ok: false, error: { code, message } })
 
 function parse(argv) {
   const positional = []
   const flags = {}
   const boolean = new Set([
+    'help',
     'json',
     'wait',
     'patch',
@@ -27,6 +39,7 @@ function parse(argv) {
     'include-consumed',
     'active',
     'reset',
+    'preview',
   ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
@@ -75,6 +88,10 @@ function parse(argv) {
     'project',
     'query',
     'limit',
+    'file',
+    'assets',
+    'out',
+    'help',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -112,7 +129,56 @@ function parse(argv) {
     throw new Error('--params-file is supported for orchestration commands')
   let method
   let params
-  if (group === 'app') {
+  if (group === 'theme') {
+    if (flags.help || !verb) throw new Error(THEME_USAGE)
+    const verbs = [
+      'schema',
+      'list',
+      'validate',
+      'install',
+      'preview',
+      'remove',
+      'reset',
+      'screenshot',
+    ]
+    if (!verbs.includes(verb)) throw new Error(`Use ari theme ${verbs.join('|')}`)
+    const fromFile = ['validate', 'install'].includes(verb)
+    const needsId = ['preview', 'remove'].includes(verb)
+    for (const name of Object.keys(flags)) {
+      if (
+        ![
+          'json',
+          'key',
+          'timeout',
+          ...(fromFile ? ['file', 'assets'] : []),
+          ...(verb === 'install' ? ['preview'] : []),
+          ...(verb === 'screenshot' ? ['out'] : []),
+        ].includes(name)
+      )
+        throw new Error(`Unsupported theme ${verb} option --${name}`)
+    }
+    if (rest.length || (needsId ? !target : target !== undefined))
+      throw new Error(
+        needsId
+          ? `theme ${verb} needs exactly one theme ID`
+          : `theme ${verb} does not accept extra arguments`,
+      )
+    if (fromFile && !flags.file) throw new Error(`theme ${verb} needs --file <theme.json>`)
+    params = fromFile
+      ? { theme: JSON.parse(readInputFile(flags.file)) }
+      : needsId
+        ? { id: target }
+        : {}
+    // Ari reads theme files itself, so it needs absolute paths. They default to the theme's folder.
+    if (fromFile && (flags.assets || params.theme?.assets?.length))
+      params.assetsDir = path.resolve(flags.assets || path.dirname(path.resolve(flags.file)))
+    // Ari writes screenshots only to its temp folder; a bare name lands there.
+    if (verb === 'screenshot' && flags.out)
+      params.out = path.resolve(os.tmpdir(), 'ari-theme-screenshots', flags.out)
+    if (verb === 'install') params.preview = flags.preview === true
+    if (['install', 'preview', 'remove', 'reset'].includes(verb)) params.idempotencyKey = key
+    method = `theme.${verb}`
+  } else if (group === 'app') {
     if (verb !== 'open' || !['session', 'aria', 'settings', 'changes'].includes(target))
       throw new Error(
         'Use ari app open session <id>, aria, settings or changes --project <id>|--session <id>',
