@@ -22,6 +22,13 @@ function acceleratorKey(key: string): string {
 export const AGENT_TAB_IDLE_MS = 2 * 60_000
 /** After painting restarts, a capture waits this long for a fresh frame. */
 export const AGENT_TAB_WAKE_MS = 100
+/**
+ * On Linux a hidden native view delivers no subscription frames, and its first
+ * capturePage can reject with UnknownVizError while Chromium makes the surface
+ * copyable. Capture retries at this spacing, up to CAPTURE_ATTEMPTS times.
+ */
+export const CAPTURE_RETRY_MS = 50
+export const CAPTURE_ATTEMPTS = 5
 
 interface PaintControl {
   setBackgroundThrottling(allowed: boolean): void
@@ -254,16 +261,20 @@ export function createElectronBrowserGuest(
       wake()
       const delay = painter?.settleDelay() ?? 0
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
-      try {
-        const captured = encodeCapture(await wc.capturePage(rect), format, size)
-        if (captured !== null) return captured
-      } catch {
-        // Hidden native surfaces can have no copyable frame during a handoff.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const captured = encodeCapture(await wc.capturePage(rect), format, size)
+          if (captured !== null) return captured
+        } catch {
+          // Hidden native surfaces can have no copyable frame during a handoff.
+        }
+        if (wc.isDestroyed()) return null
+        // Subscription images contain device pixels. Element rectangles are CSS
+        // pixels, so only a whole-viewport capture may use this fallback.
+        if (rect === undefined && frame !== null) return encodeCapture(frame, format, size)
+        if (attempt >= CAPTURE_ATTEMPTS) return null
+        await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_MS))
       }
-      // Subscription images contain device pixels. Element rectangles are CSS
-      // pixels, so only a whole-viewport capture may use this fallback.
-      if (rect !== undefined || frame === null || wc.isDestroyed()) return null
-      return encodeCapture(frame, format, size)
     },
     sendKey: (key, phase, modifiers) => {
       wake()
