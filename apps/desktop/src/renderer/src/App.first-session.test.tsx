@@ -188,6 +188,38 @@ describe('first-send shell draft ownership', () => {
     expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
     expect(calls('session.create')).toHaveLength(2)
   })
+  it('lets an explicit new session start fresh after an earlier creation acknowledgement was lost', async () => {
+    const base = rpc.invoke.getMockImplementation()!
+    let creationCount = 0
+    rpc.invoke.mockImplementation((method, params) => {
+      if (method === 'session.create' && ++creationCount === 1) {
+        record(params as SessionCreateParams, 'sess_unknown')
+        return Promise.reject(new Error('Creation acknowledgement lost'))
+      }
+      return base(method, params)
+    })
+    render(<App />)
+    const originalUser = await chooseDraft()
+    const original = readProjectDrafts()[0]!
+    await sendDraft(originalUser, 'Original uncertain prompt')
+    await screen.findByRole('button', { name: 'Check original submission' })
+    const key = `ari.machines.projectDraft.attempt.v1:${original.id}`
+    const receipt = localStorage.getItem(key)
+    expect(receipt).not.toBeNull()
+
+    const user = await chooseDraft()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull()
+    expect(screen.queryByText('Couldn’t confirm the new session')).toBeNull()
+    expect(localStorage.getItem(key)).toBe(receipt)
+    expect(readSessionDraftText(`project-draft:${original.id}`)).toBe('Original uncertain prompt')
+    await sendDraft(user, 'Fresh prompt')
+    expect(await screen.findByTestId('normal-session')).toHaveTextContent('local:sess_first')
+    expect(calls('session.create')).toHaveLength(2)
+    expect(calls('command.dispatch')).toEqual([['command.dispatch', { command: {
+      type: 'turn.start', sessionId: 'sess_first', text: 'Fresh prompt', attachments: [],
+    } }]])
+  })
   it('keeps confirmed creation and unknown first prompt separate without recreating or resending', async () => {
     const base = rpc.invoke.getMockImplementation()!
     rpc.invoke.mockImplementation((method, params) => method === 'command.dispatch'

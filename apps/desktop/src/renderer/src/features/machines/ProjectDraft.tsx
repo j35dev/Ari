@@ -204,6 +204,8 @@ export function ProjectDraft({
   // picked, so exactly one row is ticked.
   const [nativeModeId, setNativeModeId] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [handingOff, setHandingOff] = useState(false)
   const [autoSampling, setAutoSampling] = useState(false)
   const pendingRef = useRef(false)
   const autoGeneration = useRef(0)
@@ -217,6 +219,10 @@ export function ProjectDraft({
     [],
   )
   const [failure, setFailure] = useState<string | null>(restored.error)
+  const handOff: typeof onCreated = (...args) => {
+    onCreated(...args)
+    setHandingOff(true)
+  }
   const canvasRef = useRef<HTMLDivElement>(null)
   const client = useMemo(
     () => (selection.hostId ? clientFor(selection.hostId) : null),
@@ -371,7 +377,8 @@ export function ProjectDraft({
       )
   }
   const send = (text: string, files: File[]) => {
-    if (pendingRef.current || autoSampling || attemptRef.current || restored.error) return false
+    if (pendingRef.current || handingOff || autoSampling || attemptRef.current || restored.error)
+      return false
     const reason =
       validateSelection(selectedHost, false) ??
       pickReason ??
@@ -435,7 +442,7 @@ export function ProjectDraft({
         rememberAttempt({ ...started, scope, phase: 'prompt' })
         await client.prompt(scope, { draftId, text, attachmentIds })
         localStorage.removeItem(attemptKey(draftId))
-        onCreated(scope)
+        handOff(scope)
       } catch (error) {
         setFailure(
           attemptRef.current
@@ -455,6 +462,7 @@ export function ProjectDraft({
     if (!original || !client || pendingRef.current) return
     pendingRef.current = true
     setPending(true)
+    setChecking(true)
     try {
       if (original.phase === 'create') {
         const scope = await client.checkCreate(draftId, original.projectId)
@@ -477,7 +485,7 @@ export function ProjectDraft({
         }
         verifyScope(scope, original.hostId)
         rememberAttempt({ ...original, scope, phase: 'stage' })
-        onCreated(scope, {
+        handOff(scope, {
           text: original.text,
           nonce: Date.now(),
           images: readSessionDraftIntent(`project-draft:${draftId}`).images,
@@ -485,7 +493,7 @@ export function ProjectDraft({
       } else if (original.phase === 'prompt' && original.scope) {
         if (await client.checkPrompt(draftId, original.scope)) {
           localStorage.removeItem(attemptKey(draftId))
-          onCreated(original.scope)
+          handOff(original.scope)
         } else
           setFailure(
             'The first prompt outcome is still unknown. This draft remains on its original machine.',
@@ -499,10 +507,11 @@ export function ProjectDraft({
     } finally {
       pendingRef.current = false
       setPending(false)
+      setChecking(false)
     }
   }
   const openCreated = (scope: SessionScope, text: string) =>
-    onCreated(scope, {
+    handOff(scope, {
       text,
       nonce: Date.now(),
       images: readSessionDraftIntent(`project-draft:${draftId}`).images,
@@ -533,20 +542,23 @@ export function ProjectDraft({
         reducedMotion={false}
         onStart={(prompt) => send(prompt, [])}
       >
-        {(failure || attempt) && (
+        {(pending || handingOff) && (
+          <p role="status" className="mb-3 px-1 text-[13px] text-fg-subtle">
+            {handingOff ? 'Opening session…' : checking ? 'Checking session…' : 'Starting session…'}
+          </p>
+        )}
+        {!pending && !handingOff && (failure || attempt) && (
           <div className="mb-3 flex items-start gap-3 rounded-xl border border-border bg-surface-1 px-3.5 py-3">
             <span aria-hidden className="ari-status mt-[3px]" data-status="attention" />
             <div className="min-w-0 flex-1">
               <p role="status" className="text-[13px] text-fg">
                 {failure ?? 'Check the original submission before continuing.'}
               </p>
-              {(attempt && !pending) || (attempt?.scope && attempt.phase === 'stage') ? (
+              {attempt ? (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {attempt && !pending && (
-                    <button type="button" className={outlineButton} onClick={() => void check()}>
-                      Check original submission
-                    </button>
-                  )}
+                  <button type="button" className={outlineButton} onClick={() => void check()}>
+                    Check original submission
+                  </button>
                   {attempt?.scope && attempt.phase === 'stage' && (
                     <button
                       type="button"
@@ -567,8 +579,10 @@ export function ProjectDraft({
           draftOnly
           remoteInput={selection.hostId !== 'local'}
           centered
-          disabled={pending || autoSampling || attempt !== null || restored.error !== null}
-          sendPending={pending}
+          disabled={
+            pending || handingOff || autoSampling || attempt !== null || restored.error !== null
+          }
+          sendPending={pending || handingOff}
           onSend={send}
           placeholder="Describe what you want to do in this project…"
           leading={
