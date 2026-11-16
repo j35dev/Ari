@@ -4,6 +4,8 @@ import type { BrowserWindow, WebContents } from 'electron'
 import {
   AGENT_TAB_IDLE_MS,
   AGENT_TAB_WAKE_MS,
+  CAPTURE_ATTEMPTS,
+  CAPTURE_RETRY_MS,
   createElectronBrowserGuest,
   hostedBrowserGuestFactory,
 } from './browser-electron'
@@ -303,6 +305,30 @@ describe('cached frame fallback', () => {
     expect((await guest.capturePage())?.toString()).toBe('cached-png')
     guest.setBounds({ x: 400, y: 80, width: 400, height: 300 })
     expect(await guest.capturePage()).toBeNull()
+  })
+
+  it('retries a native capture that fails before the hidden surface is copyable', async () => {
+    vi.useFakeTimers()
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const wc = firstView().webContents
+    wc.capturePage.mockRejectedValueOnce(new Error('UnknownVizError'))
+
+    const shot = guest.capturePage(undefined, 'jpeg')
+    await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS)
+    expect((await shot)?.toString()).toBe('jpeg')
+    expect(wc.capturePage).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up after a bounded number of failed native captures', async () => {
+    vi.useFakeTimers()
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const wc = firstView().webContents
+    wc.capturePage.mockRejectedValue(new Error('UnknownVizError'))
+
+    const shot = guest.capturePage()
+    await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS * CAPTURE_ATTEMPTS)
+    expect(await shot).toBeNull()
+    expect(wc.capturePage).toHaveBeenCalledTimes(CAPTURE_ATTEMPTS)
   })
 
   it('does not crop a device-pixel cached frame with a CSS-pixel capture rectangle', async () => {
