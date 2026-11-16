@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WidgetSnapshot } from '../../main/aria-widget/model'
 import { defaultThemeId } from '@ari/ui/themes'
+import { customThemeSchema } from '@ari/contracts/themes'
+import { paintCustomTheme } from '@ari/ui/custom-themes'
 import { startRecording } from '../src/features/speech/recorder'
 import { RecordingFlow } from './flow'
 import { Widget } from './Widget'
@@ -31,7 +33,14 @@ export function WidgetApp(): React.JSX.Element {
     let disposed = false
     const receive = (next: WidgetSnapshot): void => {
       if (disposed) return
-      document.documentElement.dataset['ariTheme'] = next.theme
+      const custom = customThemeSchema.safeParse(next.customTheme)
+      document.documentElement.dataset['ariTheme'] = custom.success ? custom.data.base : next.theme
+      try {
+        paintCustomTheme(custom.success ? custom.data : undefined)
+      } catch {
+        paintCustomTheme(undefined)
+        document.documentElement.dataset['ariTheme'] = defaultThemeId
+      }
       document.documentElement.dataset['reducedMotion'] = String(next.reducedMotion)
       setState(next)
       flow.observe(next)

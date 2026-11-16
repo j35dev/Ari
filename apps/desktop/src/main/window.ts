@@ -4,6 +4,7 @@ import type { WebContents } from 'electron'
 import { oklchToHex } from '@ari/ui/color'
 import { themeOf } from '@ari/ui/themes'
 import type { Theme } from '@ari/ui/themes'
+import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { appDisplayName } from './dev-instance'
 import { attachAppShellNavigationGuard } from './app-shell-guard'
 import { getSettingsStore } from './store'
@@ -51,13 +52,24 @@ export interface ThemeWindowChrome {
 
 /** Native window colors derived from a theme. */
 export function themeWindowChrome(theme: Theme): ThemeWindowChrome {
-  const symbolColor = oklchToHex(theme.colors.fg) ?? FALLBACK_SYMBOL
-  return { backgroundColor: oklchToHex(theme.colors.bg) ?? FALLBACK_BG, symbolColor }
+  const hex = (value: string) =>
+    /^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(value) ? value.slice(0, 7) : oklchToHex(value)
+  const symbolColor = hex(theme.colors.fg) ?? FALLBACK_SYMBOL
+  return { backgroundColor: hex(theme.colors.bg) ?? FALLBACK_BG, symbolColor }
 }
 
 /** The theme the window should paint, per persisted settings. */
 export function persistedTheme(): Theme {
-  return themeOf(getSettingsStore().current.appearance.themeId)
+  const appearance = getSettingsStore().current.appearance
+  const custom =
+    appearance.activeCustomTheme?.id === appearance.themeId
+      ? appearance.activeCustomTheme
+      : appearance.customThemes?.find((theme) => theme.id === appearance.themeId)
+  try {
+    return custom ? resolveCustomTheme(custom) : themeOf(appearance.themeId)
+  } catch {
+    return themeOf('obsidian')
+  }
 }
 
 /**

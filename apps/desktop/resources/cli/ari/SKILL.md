@@ -7,6 +7,34 @@ metadata:
 
 # Ari session control
 
+## Custom Ari themes
+
+When the user asks for a personal Ari theme (including `/ari theme <brief>`),
+create a version 1 JSON theme package using the API below. Do not edit Ari's
+source code or inject CSS or JavaScript. All sessions can use the theme library.
+
+```sh
+ari theme schema --json
+ari theme list --json
+ari theme validate --file neon.ari-theme.json --json
+ari theme install --file neon.ari-theme.json --preview --key neon-1 --json
+ari theme preview custom:neon --json
+ari theme remove custom:neon --json
+ari theme reset --json
+```
+
+The schema command returns the exact JSON schema, supported component slots,
+and a usable neon example. Customize palette, bundled fonts, radii, shadows,
+component styling, gradients and hover/active/selected/focus/disabled states.
+Validation checks the format, bounded values and inherited text contrast.
+Correct validation errors before installation. Install adds or updates an entry
+in Settings → Appearance → Your themes. `--preview` requests a 30-second preview;
+the user chooses Keep theme or Revert. A preview never changes the saved theme.
+An installed revision does not overwrite the previously confirmed active revision.
+The protected Reset theme control and Ctrl/⌘+Alt+Shift+T restore Obsidian.
+Keep the same ID for an intentional revision; use a new `custom:<slug>` ID for a
+new design. Report the saved theme's name and library location.
+
 ## Explicit app navigation (current Aria only)
 
 Only the current nonarchived Aria chat may use these commands, and only when the

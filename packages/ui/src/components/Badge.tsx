@@ -27,7 +27,7 @@ export function Badge({ tone = 'neutral', size = 'md', className, children, ...r
   return (
     <span
       className={[
-        'inline-flex items-center rounded-md text-xs font-medium',
+        'ari-theme-badge inline-flex items-center rounded-md text-xs font-medium',
         TONE_CLASSES[tone],
         SIZE_CLASSES[size],
         className,

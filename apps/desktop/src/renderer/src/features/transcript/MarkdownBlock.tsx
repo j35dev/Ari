@@ -204,7 +204,14 @@ const MarkdownText = memo(function MarkdownText({
     [],
   )
 
-  return <div ref={ref} className="ari-md" data-streaming={streaming ? '' : undefined} />
+  return (
+    <div
+      ref={ref}
+      data-ari-part="assistant-message"
+      className="ari-md"
+      data-streaming={streaming ? '' : undefined}
+    />
+  )
 })
 
 /** Visual fences are React-owned; ordinary Markdown retains its incremental DOM renderer. */

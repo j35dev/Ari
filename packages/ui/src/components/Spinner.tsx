@@ -21,6 +21,7 @@ export function Spinner({ size = 'md', className, ...rest }: SpinnerProps) {
     <span
       role="status"
       aria-label="Loading"
+      data-ari-part="progress"
       className={[
         'inline-block rounded-full border-current border-t-transparent motion-safe:animate-spin',
         SPINNER_SIZE_CLASSES[size],

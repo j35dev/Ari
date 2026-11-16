@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { customThemeLibrarySchema, customThemeSchema, themeSelectionSchema } from './themes'
 import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent-control'
 import { DEFAULT_PERMISSION_MODE, driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
@@ -116,7 +117,7 @@ export function migrateSpeechShortcut(shortcut: string, platform: string): strin
  * owns the palettes; contracts keeps its own literal list so the engine never
  * depends on the React UI package.
  */
-export const themeIdSchema = z.enum([
+export const bundledThemeIdSchema = z.enum([
   'obsidian',
   'graphite',
   'nocturne',
@@ -133,6 +134,7 @@ export const themeIdSchema = z.enum([
   'platinum',
   'ink',
 ])
+export const themeIdSchema = themeSelectionSchema
 export type ThemeIdSetting = z.infer<typeof themeIdSchema>
 
 /** Either an explicit theme or 'system' (follow the OS color scheme). */
@@ -313,6 +315,10 @@ export const settingsSchema = z.object({
         .default(defaultAppearance.themeId),
       /** User's selection: 'system' tracks the OS, otherwise a pinned theme. */
       mode: themeModeSchema.default(defaultAppearance.mode),
+      /** User-authored data-only themes, stored atomically with preferences. */
+      customThemes: customThemeLibrarySchema.optional(),
+      /** Confirmed revision; editing a library entry does not alter the active skin. */
+      activeCustomTheme: customThemeSchema.nullable().optional(),
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
@@ -445,6 +451,7 @@ export const settingsUpdateSchema = z.object({
   appearance: z
     .object({
       themeId: themeIdSchema,
+      activeCustomTheme: customThemeSchema.nullable().optional(),
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,

@@ -1898,6 +1898,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         <AnimatePresence initial={false}>
           {sidebarOpen ? (
             <motion.aside
+              data-ari-part="sidebar"
               key="sidebar"
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: sidebar.width, opacity: 1 }}
@@ -2332,6 +2333,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   className="ari-sidebar-resize w-[var(--ari-frame-gap)] shrink-0 cursor-col-resize focus-visible:outline-none"
                 />
                 <motion.aside
+                  data-ari-part="panel"
                   initial={{ opacity: 0, x: 12 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}

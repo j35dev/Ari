@@ -185,6 +185,7 @@ export function ApprovalCard({
   return (
     <div
       data-approval-id={approvalId}
+      data-ari-part="approval"
       role="group"
       aria-label={`Approval requested: ${toolName}`}
       tabIndex={0}

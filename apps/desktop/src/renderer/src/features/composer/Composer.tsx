@@ -1006,6 +1006,27 @@ export function Composer({
                 : 'px-[18px] pb-1.5 pt-4'
             }`}
           />
+          {/^\/ari(?:\s|$)/i.test(text) && (
+            <div className="px-4 pb-2 text-xs text-fg-subtle">
+              {/^\/ari\s*$/i.test(text) ? (
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-fg hover:bg-fg/6"
+                  onClick={() => {
+                    setText('/ari theme ')
+                    textareaRef.current?.focus()
+                  }}
+                >
+                  /ari theme — Design a custom theme for Ari
+                </button>
+              ) : (
+                <span>
+                  Your agent will build a theme for your library. Try /ari theme followed by a
+                  design idea.
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div
           className={

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./custom-themes": "./src/custom-themes.ts",
     "./visualization": "./src/visualization/Visualization.tsx",
     "./visualization-markdown": "./src/visualization/markdown.ts",
     "./visualization.css": "./src/visualization/visualization.css",
