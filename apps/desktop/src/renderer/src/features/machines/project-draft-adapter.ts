@@ -49,9 +49,13 @@ export function localProjectDraftClient(options: {
       })
       if (!result.accepted) throw new Error(result.reason ?? 'The first prompt was refused.')
     },
-    checkCreate: async () => {
-      await rpc.invoke('session.list')
-      throw new Error('Local creation is still unconfirmed. Inspect the refreshed session list before starting another.')
+    // This PC's own session list is authoritative: the start either left an
+    // empty session in the project (reused, as a fresh start would) or made none.
+    checkCreate: async (_draftId, projectId) => {
+      const empty = (await rpc.invoke('session.list'))
+        .filter((session) => session.projectId === projectId && session.messageCount === 0 && !session.archived)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      return empty ? { kind: 'local', sessionId: empty.id } : 'not-created'
     },
     checkPrompt: async (_draftId, scope) => {
       if (scope.kind !== 'local') throw new Error('This draft belongs to This PC.')
