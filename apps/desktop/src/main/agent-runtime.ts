@@ -413,8 +413,6 @@ async function startControlTransport(
           }
     },
     authorizeTurn: async (session: Session): Promise<string | null> => {
-      const workspaceReason = await service.authorizeWorkspace(session)
-      if (workspaceReason) return workspaceReason
       if (isHelmSession(session) && options.ariaEnabled?.() === false)
         return 'Aria is off. Enable it in Settings → Experimental.'
       if (!session.parentSessionId) return null

@@ -1094,8 +1094,6 @@ export class AgentControlService {
             'model_unavailable',
             'The target model changed during effort discovery. Retry the assignment.',
           )
-        if (isHelmSession(current) && !fresh.parentSessionId)
-          await this.#checkProjectCode(fresh, true)
         if ((fresh.effort ?? null) !== effortSelection.resolved) {
           const updated = await this.host.dispatch({
             type: 'session.update',
@@ -1629,7 +1627,7 @@ export class AgentControlService {
       ...agent,
       projectId: project.projectId,
     }
-    await this.#checkLaunch(caller, launch, false, undefined, true)
+    await this.#checkLaunch(caller, launch)
     await this.#approveDelegation(caller, policy, signal)
     const current = await this.#get(caller.id)
     if (current.archived || exceedsPermission(permissionMode, current.permissionMode))
@@ -1638,7 +1636,7 @@ export class AgentControlService {
         'Aria permissions changed while delegation was pending.',
       )
     checkDelegation(this.host.policy(), 0, 0)
-    await this.#checkLaunch(current, launch, false, undefined, true)
+    await this.#checkLaunch(current, launch)
     const id = newTypedId('sess')
     const session: Session = {
       id,
@@ -2119,7 +2117,6 @@ export class AgentControlService {
       Partial<Pick<Session, 'id' | 'projectId' | 'workspace' | 'parentSessionId'>>,
     existing = false,
     providers?: readonly ProjectAgentProvider[],
-    preparingWorkspace = false,
   ): Promise<void> {
     const policy = this.host.policy()
     checkDelegation(policy, 0, 0)
@@ -2140,12 +2137,6 @@ export class AgentControlService {
       )
     const working = await this.#workingProjectSessions(session.id)
     const model = session.id ? await this.host.store.load(session.id) : null
-    const occupancy = model?.session ? { ...model.session, ...session } : (session as Session)
-    if (session.projectId && !preparingWorkspace)
-      await this.#refuseConcurrentCode(
-        occupancy,
-        existing ? this.#outsideTree(occupancy, working) : working,
-      )
     const workingRoots = await this.#workingProjectRoots(working)
     if (existing && session.id) workingRoots.delete(session.id)
     if (
@@ -2189,34 +2180,23 @@ export class AgentControlService {
     baseSnapshotCommit?: string,
   ): Promise<SessionWorkspace> {
     const working = await this.#workingProjectSessions(session.id)
-    const active = await this.#conflictingSession(session, working)
-    if (mode === 'shared' && active) await this.#refuseConcurrentCode(session, working)
+    const active = mode === 'shared' ? undefined : await this.#conflictingSession(session, working)
     if (mode === 'isolated' || baseSnapshotCommit || active) {
       try {
         return await this.host.isolate(session, session.id, session.title, baseSnapshotCommit)
       } catch (error) {
-        if (error instanceof ControlFailure && error.code === 'workspace_not_git')
-          throw new ControlFailure(
-            'workspace_not_git',
-            `${active ? `Folder is busy with "${active.title}" (${active.id}). ` : ''}An isolated session requires a Git repository with a commit. Prompt the working session or wait.`,
-            error.details,
-          )
+        // A busy folder only prefers isolation; without Git, share the folder.
+        if (
+          error instanceof ControlFailure &&
+          error.code === 'workspace_not_git' &&
+          mode !== 'isolated' &&
+          !baseSnapshotCommit
+        )
+          return { kind: 'project' }
         throw error
       }
     }
     return { kind: 'project' }
-  }
-
-  /** Called by the engine for human prompts and restart queue drains, too. */
-  async authorizeWorkspace(session: Session): Promise<string | null> {
-    if (session.projectId === HELM_PROJECT_ID) return null
-    try {
-      await this.#checkProjectCode(session)
-      return null
-    } catch (error) {
-      if (error instanceof ControlFailure) return error.message
-      throw error
-    }
   }
 
   async #projectTurnRunning(id: string, model: SessionReadModel, now: number): Promise<boolean> {
@@ -2251,19 +2231,6 @@ export class AgentControlService {
     return Number.isFinite(waitingSince) && now - waitingSince < PROJECT_HUMAN_WAIT_MS
   }
 
-  #outsideTree(session: Session, working: readonly Session[]): Session[] {
-    const root = session.rootSessionId ?? session.id
-    return working.filter((active) => (active.rootSessionId ?? active.id) !== root)
-  }
-
-  async #checkProjectCode(session: Session, queueWithinTree = false): Promise<void> {
-    const working = await this.#workingProjectSessions(session.id)
-    await this.#refuseConcurrentCode(
-      session,
-      queueWithinTree ? this.#outsideTree(session, working) : working,
-    )
-  }
-
   async #conflictingSession(
     session: Session,
     working: readonly Session[],
@@ -2276,15 +2243,6 @@ export class AgentControlService {
       if (activePath && (await workspacesOverlap(path, activePath))) return active
     }
     return undefined
-  }
-
-  async #refuseConcurrentCode(session: Session, working: readonly Session[]): Promise<void> {
-    const active = await this.#conflictingSession(session, working)
-    if (active)
-      throw new ControlFailure(
-        'delegation_limit',
-        `Working folder is busy with "${active.title}" (${active.id}). Send follow-ups with \`ari session prompt ${active.id} "<task>"\`, wait for it to finish, or create a new isolated session with \`ari session spawn --project ${session.projectId} --workspace isolated\`.`,
-      )
   }
 
   #messageId(sender: string, key: string): string {
@@ -2458,9 +2416,6 @@ export class AgentControlService {
     if (++bucket.count > 60)
       throw new ControlFailure('delegation_limit', 'Agent message rate limit reached.')
     this.#rates.set(caller.id, bucket)
-    // Work inside an existing tree can queue behind a shared-folder worker.
-    // The engine still checks every actual start against that worker's cwd.
-    if (isHelmSession(caller)) await this.#checkProjectCode(target, true)
     const state = await this.host.store.load(target.id)
     if (state.queuedMessages.length >= 32)
       throw new ControlFailure('delegation_limit', 'Target message queue is full.')
