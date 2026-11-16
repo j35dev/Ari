@@ -15,6 +15,7 @@ export function Skeleton({ w, h, className, style, ...rest }: SkeletonProps) {
   return (
     <div
       aria-hidden="true"
+      data-ari-part="skeleton"
       className={['ari-pulse rounded-md bg-surface-2', className].filter(Boolean).join(' ')}
       style={{ width: w, height: h, ...style }}
       {...rest}

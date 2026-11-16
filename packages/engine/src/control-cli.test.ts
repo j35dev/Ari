@@ -49,6 +49,10 @@ describe('isSafeControlCommand', () => {
     'ari session prompt sess_1 "Read the notes about &&, ||, and |" --key p-2 --json',
     'ari session wait --children sess_a,sess_b --any --timeout 600 --json',
     'ari parent message "Which API should I target?" --key q-1 --json',
+    'ari theme schema --json',
+    'ari theme install --file one-piece/theme.json --key one-piece-1 --json',
+    'ari theme remove custom:one-piece --json',
+    'ari theme reset --json',
     // Real assignments run to several lines; inside quotes that is only text.
     'ari session spawn --title "Parser" --agent codex --key p-1 --json --prompt "Fix the parser.\n\nScope: src/parse.\n- add tests\n- report changed files"',
   ])('allows %s', (command) => {
@@ -66,6 +70,12 @@ describe('isSafeControlCommand', () => {
     'ari routine unknown',
     'ari project unknown',
     'ari task unknown',
+    // Theme commands that change what is on screen or capture it.
+    'ari theme install --file one-piece/theme.json --preview --key one-piece-1 --json',
+    'ari theme install --file one-piece/theme.json "--preview" --json',
+    'ari theme preview custom:one-piece --json',
+    'ari theme screenshot --json',
+    'ari theme screenshot --out /tmp/shot.png --json',
     // Other commands, however they are attached.
     'ari env; rm -rf .',
     'ari env && rm -rf .',

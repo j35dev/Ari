@@ -69,6 +69,7 @@ export function Titlebar({
 
   return (
     <header
+      data-ari-part="titlebar"
       className="@container flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >

@@ -472,6 +472,10 @@ describe('Shell split panes', () => {
           return []
         case 'session.load':
           return { session: null, activeTurnId: null }
+        // Saving the theme must succeed: a failed save raises the "Theme recovery"
+        // <aside>, a second complementary landmark beside the sidebar.
+        case 'settings.update':
+          return undefined
         default:
           throw new Error(`unexpected method: ${String(method)}`)
       }

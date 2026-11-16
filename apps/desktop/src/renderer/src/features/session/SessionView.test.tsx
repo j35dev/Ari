@@ -611,6 +611,13 @@ describe('SessionView question panel', () => {
       return decideCommand(pending, dispatched[0]!, { turnId: 'turn_1', messageId: 'msg_1' })
     }
 
+    /** The card's choices sit in a shadow root, out of reach of `screen` and theme CSS. */
+    async function approvalCard() {
+      const group = await screen.findByRole('group', { name: /^Approval requested/ })
+      const root = await waitFor(() => group.querySelector('[data-ari-shield]')!.shadowRoot!)
+      return within(root as unknown as HTMLElement)
+    }
+
     it.each([
       ['Allow', 'allow'],
       ['Always allow', 'always-allow'],
@@ -622,7 +629,7 @@ describe('SessionView question panel', () => {
       const requested = request([])
       emitSessionEvent(requested)
 
-      await user.click(await screen.findByRole('button', { name: label }))
+      await user.click(await (await approvalCard()).findByRole('button', { name: label }))
 
       const decided = decideDispatchedAnswer(requested)
       expect(decided).toMatchObject({
@@ -655,7 +662,9 @@ describe('SessionView question panel', () => {
       ])
       emitSessionEvent(requested)
 
-      await user.click(await screen.findByRole('button', { name: 'Allow for this session' }))
+      await user.click(
+        await (await approvalCard()).findByRole('button', { name: 'Allow for this session' }),
+      )
 
       expect(decideDispatchedAnswer(requested)).toMatchObject({
         accepted: true,

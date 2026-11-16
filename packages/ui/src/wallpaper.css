@@ -30,7 +30,11 @@
  */
 
 [data-ari-wallpaper] {
-  --ari-wallpaper-pane: color-mix(in oklab, var(--ari-surface-0) 72%, transparent);
+  --ari-wallpaper-pane: color-mix(
+    in oklab,
+    var(--ari-surface-0) var(--ari-wallpaper-tint, 72%),
+    transparent
+  );
 }
 
 /* The scene. Negative z-index paints it above the canvas background but below
@@ -53,7 +57,7 @@
   background-image: var(--ari-wallpaper-image);
   background-repeat: no-repeat;
   background-size: cover;
-  background-position: center;
+  background-position: var(--ari-wallpaper-position, center);
 }
 
 /* The baked blur, made for exactly this window size. */
@@ -69,8 +73,14 @@
 
 /* Live stand-in until the bake lands; must match wallpaper-bake.ts. */
 [data-ari-wallpaper]:not([data-ari-wallpaper-baked]) .ari-wallpaper-pane {
-  -webkit-backdrop-filter: blur(28px) saturate(1.35);
-  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--ari-wallpaper-blur, 28px)) saturate(1.35);
+  backdrop-filter: blur(var(--ari-wallpaper-blur, 28px)) saturate(1.35);
+}
+
+/* A theme wallpaper with no blur is shown sharp: there is nothing to bake. */
+[data-ari-wallpaper][data-ari-wallpaper-sharp] .ari-wallpaper-pane {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Nothing inside the plate re-tints it: structural chrome and pane fills go
@@ -110,7 +120,7 @@
 }
 
 [data-ari-wallpaper] .ari-session-scene {
-  background: var(--ari-haze-art) center / cover no-repeat fixed;
+  background: var(--ari-haze-art) var(--ari-wallpaper-position, center) / cover no-repeat fixed;
   mask-image: var(--ari-haze-fade);
 }
 

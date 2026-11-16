@@ -1,4 +1,10 @@
 import { z } from 'zod'
+import {
+  customThemeLibrarySchema,
+  customThemeSchema,
+  themeSelectionSchema,
+  type CustomTheme,
+} from './themes'
 import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent-control'
 import { DEFAULT_PERMISSION_MODE, driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
@@ -152,7 +158,7 @@ export function migrateSpeechShortcut(shortcut: string, platform: string): strin
  * owns the palettes; contracts keeps its own literal list so the engine never
  * depends on the React UI package.
  */
-export const themeIdSchema = z.enum([
+export const bundledThemeIdSchema = z.enum([
   'obsidian',
   'graphite',
   'nocturne',
@@ -169,6 +175,7 @@ export const themeIdSchema = z.enum([
   'platinum',
   'ink',
 ])
+export const themeIdSchema = themeSelectionSchema
 export type ThemeIdSetting = z.infer<typeof themeIdSchema>
 
 /** Either an explicit theme or 'system' (follow the OS color scheme). */
@@ -299,6 +306,22 @@ const defaultAppearance = {
   chatStyle: 'conversation',
 } as const
 
+/**
+ * Saved themes are read leniently, the way the renderer does: an entry that a later,
+ * stricter rule refuses is dropped instead of making the whole settings file invalid.
+ */
+function readableThemes(value: unknown): CustomTheme[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const themes: CustomTheme[] = []
+  for (const entry of value) {
+    const parsed = customThemeSchema.safeParse(entry)
+    if (parsed.success && themes.length < 50 && !themes.some((t) => t.id === parsed.data.id))
+      themes.push(parsed.data)
+  }
+  while (JSON.stringify(themes).length > 512_000) themes.pop()
+  return themes
+}
+
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
 const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
 
@@ -349,7 +372,16 @@ export const settingsSchema = z.object({
         )
         .default(defaultAppearance.themeId),
       /** User's selection: 'system' tracks the OS, otherwise a pinned theme. */
-      mode: themeModeSchema.default(defaultAppearance.mode),
+      mode: z
+        .preprocess(
+          (v) => (themeModeSchema.safeParse(v).success ? v : defaultAppearance.mode),
+          themeModeSchema,
+        )
+        .default(defaultAppearance.mode),
+      /** User-authored data-only themes, stored atomically with preferences. */
+      customThemes: z.preprocess(readableThemes, customThemeLibrarySchema.optional()),
+      /** Confirmed revision; editing a library entry does not alter the active skin. */
+      activeCustomTheme: customThemeSchema.nullable().optional().catch(undefined),
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
@@ -358,6 +390,18 @@ export const settingsSchema = z.object({
       fontSize: savedInterfaceFontSizeSchema.default(defaultAppearance.fontSize),
       chatWidth: chatWidthSchema.default(defaultAppearance.chatWidth),
       chatStyle: chatStyleSchema.default(defaultAppearance.chatStyle),
+    })
+    // A custom theme that was dropped above leaves a built-in theme selected.
+    .transform((appearance) => {
+      const missing = (id: string) =>
+        id.startsWith('custom:') &&
+        appearance.activeCustomTheme?.id !== id &&
+        !appearance.customThemes?.some((theme) => theme.id === id)
+      return {
+        ...appearance,
+        mode: missing(appearance.mode) ? defaultAppearance.mode : appearance.mode,
+        themeId: missing(appearance.themeId) ? defaultAppearance.themeId : appearance.themeId,
+      }
     })
     .default(defaultAppearance),
   sessions: z
@@ -491,6 +535,7 @@ export const settingsUpdateSchema = z.object({
   appearance: z
     .object({
       themeId: themeIdSchema,
+      activeCustomTheme: customThemeSchema.nullable().optional(),
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,

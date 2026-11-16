@@ -113,6 +113,9 @@ import {
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
 import { applyThemeToWindow, registerWindowControls } from './window'
+import { ThemeLibrary } from './theme-library'
+import { getThemeAssetStore } from './theme-asset-protocol'
+import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
@@ -972,6 +975,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   rpcRegistryRef = rpcRegistry
+  const themeLibrary = new ThemeLibrary(
+    getSettingsStore(),
+    (event) => {
+      rpcRegistry.publish('themes.changed', event)
+      options.onSettingsChanged?.(getSettingsStore().current)
+    },
+    getThemeAssetStore(),
+    async () => {
+      const win = BrowserWindow.fromWebContents(contents)
+      if (!win || win.isDestroyed()) throw new Error("Ari's window is closed.")
+      if (win.isMinimized() || !win.isVisible())
+        throw new Error(
+          "Ari's window is minimized or hidden. Ask the user to show it, then try again.",
+        )
+      // Let a preview requested just before this paint and finish its reveal.
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      const image = await contents.capturePage()
+      if (image.isEmpty()) throw new Error('The window could not be captured. Try again.')
+      const { width, height } = image.getSize()
+      return { png: image.toPNG(), width, height }
+    },
+  )
   const speech = (speechService ??= new SpeechService(app.getPath('userData'), getSettingsStore()))
   speech.publish = (frame) => {
     rpcRegistryRef?.publish('speech.progress', frame)
@@ -1387,6 +1412,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         routines: routineHost(resumeSchedule),
         projects: helmProjects,
+        themes: themeLibrary,
         openApp: (callerId, target, requestId, signal) =>
           appNavigation.open(callerId, target, requestId, signal),
         createProject: async (input, onProgress) => {
@@ -2473,9 +2499,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('theme.apply', (params) => {
     const win = BrowserWindow.fromWebContents(contents)
     if (!win) return { applied: false }
-    applyThemeToWindow(win, themeOf(params.themeId))
+    const custom =
+      params.customTheme?.id === params.themeId
+        ? params.customTheme
+        : themeLibrary.list().themes.find((theme) => theme.id === params.themeId)
+    applyThemeToWindow(win, custom ? resolveCustomTheme(custom) : themeOf(params.themeId))
     return { applied: true }
   })
+  r.register('theme.list', () => themeLibrary.list())
+  r.register('theme.install', ({ theme, preview, assetData }) =>
+    themeLibrary.install(theme, preview, { assetData }),
+  )
+  r.register('theme.export', ({ id }) => themeLibrary.exportTheme(id))
+  r.register('theme.remove', ({ id }) => themeLibrary.remove(id))
 
   r.register('providers.setupTerminal', async ({ kind }) => {
     ptyModule = await loadPtyModule()

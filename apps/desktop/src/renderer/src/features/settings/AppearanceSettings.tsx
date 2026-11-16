@@ -4,7 +4,7 @@ import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
 import { themeList } from '@ari/ui/themes'
-import type { Theme, ThemeId } from '@ari/ui/themes'
+import type { Theme } from '@ari/ui/themes'
 import { wallpapers } from '@ari/ui/wallpapers'
 import { defaultSettings, type Settings } from '@ari/contracts/settings'
 import { codeFonts, interfaceFonts } from '../../lib/appearance'
@@ -18,6 +18,7 @@ import {
   SettingsSection,
 } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
+import { ThemeLibrary } from './ThemeLibrary'
 
 const log = createLogger('settings:appearance')
 
@@ -98,7 +99,7 @@ function ThemeGroup({
   title: string
   themes: readonly Theme[]
   selectedMode: string
-  onSelect: (id: ThemeId) => void
+  onSelect: (id: string) => void
 }) {
   return (
     <section aria-label={title} className="p-3.5">
@@ -328,6 +329,7 @@ export function AppearanceSettings() {
         <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
         <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
       </SettingsSection>
+      <ThemeLibrary />
 
       <SettingsSection
         title="Wallpaper"

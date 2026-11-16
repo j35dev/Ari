@@ -183,6 +183,18 @@ function raceApproval(pending: Promise<boolean>, signal?: AbortSignal): Promise<
 }
 
 export interface ControlHost {
+  /** Data-only theme library. Never exposes source edits or arbitrary renderer code. */
+  themes?: {
+    schema(): unknown
+    list(): unknown
+    validate(theme: unknown, files?: { assetsDir?: string }): Promise<unknown>
+    install(theme: unknown, preview?: boolean, files?: { assetsDir?: string }): Promise<unknown>
+    remove(id: string): Promise<unknown>
+    preview(id: string): unknown
+    reset(): Promise<unknown>
+    /** PNG of the Ari window, so an agent can see its theme. */
+    screenshot(out?: string): Promise<unknown>
+  }
   /** Disabled Aria retains its journal but cannot invoke cross-project powers. */
   ariaEnabled?(): boolean
   orchestration?(
@@ -616,7 +628,11 @@ export class AgentControlService {
           ['projects.setDefault', 'projects.lead', 'session.switch'].includes(method) &&
             parsed.error.issues.some((issue) => issue.path[0] === 'modelId')
             ? 'This command requires --model. Ask the user which model to use.'
-            : 'Invalid command parameters.',
+            : method.startsWith('theme.')
+              ? parsed.error.issues
+                  .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+                  .join('; ')
+              : 'Invalid command parameters.',
         )
       const caller = await this.#get(callerId)
       if (isHelmSession(caller) && this.host.ariaEnabled?.() === false)
@@ -914,6 +930,62 @@ export class AgentControlService {
       return this.host.orchestration(caller.id, method, raw, signal)
     }
     switch (method) {
+      case 'theme.schema':
+      case 'theme.list':
+      case 'theme.validate':
+      case 'theme.install':
+      case 'theme.remove':
+      case 'theme.preview':
+      case 'theme.reset':
+      case 'theme.screenshot': {
+        const library = this.host.themes
+        if (!library)
+          throw new ControlFailure('unsupported', 'Custom themes are unavailable in this runtime.')
+        switch (method) {
+          case 'theme.schema':
+            return library.schema()
+          case 'theme.list':
+            return library.list()
+          case 'theme.validate':
+          case 'theme.install': {
+            const p = raw as ControlParams<'theme.install'>
+            const files = p.assetsDir === undefined ? {} : { assetsDir: p.assetsDir }
+            try {
+              const validated = await library.validate(p.theme, files)
+              if (method === 'theme.validate') return validated
+            } catch (error) {
+              throw new ControlFailure(
+                'invalid_request',
+                error instanceof Error ? error.message : 'Invalid theme.',
+              )
+            }
+            try {
+              return await library.install(p.theme, p.preview, files)
+            } catch (error) {
+              throw new ControlFailure(
+                'invalid_request',
+                error instanceof Error ? error.message : 'Could not install the theme.',
+              )
+            }
+          }
+          case 'theme.screenshot':
+            try {
+              return await library.screenshot((raw as ControlParams<'theme.screenshot'>).out)
+            } catch (error) {
+              throw new ControlFailure(
+                'unavailable',
+                error instanceof Error ? error.message : 'Could not capture the window.',
+              )
+            }
+          case 'theme.remove':
+            return library.remove((raw as ControlParams<'theme.remove'>).id)
+          case 'theme.preview':
+            return library.preview((raw as ControlParams<'theme.preview'>).id)
+          case 'theme.reset':
+            return library.reset()
+        }
+        break
+      }
       case 'runtime.info': {
         const chain = await this.#lineage(caller)
         const root = chain.at(-1) as Session

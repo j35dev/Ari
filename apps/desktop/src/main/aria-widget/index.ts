@@ -160,6 +160,7 @@ export class AriaWidget {
     return {
       ...this.hold.state,
       theme: appearance?.themeId ?? defaultThemeId,
+      ...(appearance?.activeCustomTheme ? { customTheme: appearance.activeCustomTheme } : {}),
       reducedMotion: appearance?.reducedMotion ?? false,
       destination: this.destination,
     }

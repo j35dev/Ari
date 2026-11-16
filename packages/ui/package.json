@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./custom-themes": "./src/custom-themes.ts",
     "./visualization": "./src/visualization/Visualization.tsx",
     "./visualization-markdown": "./src/visualization/markdown.ts",
     "./visualization.css": "./src/visualization/visualization.css",
@@ -15,6 +16,7 @@
     "./fonts": "./src/fonts.ts",
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
+    "./shielded": "./src/shielded.tsx",
     "./themes": "./src/themes.ts",
     "./tool-labels": "./src/tool-labels.ts",
     "./wallpapers": "./src/wallpapers.ts",

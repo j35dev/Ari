@@ -16,6 +16,11 @@ describe('coverRect', () => {
     expect(coverRect(100, 100, 50, 200)).toEqual({ x: -75, y: 0, width: 200, height: 200 })
     expect(coverRect(100, 100, 200, 50)).toEqual({ x: 0, y: -75, width: 200, height: 200 })
   })
+
+  it('keeps a theme focal point in view, like background-position percentages', () => {
+    expect(coverRect(1600, 900, 450, 450, { x: 0, y: 0.5 }).x).toBeCloseTo(0)
+    expect(coverRect(1600, 900, 450, 450, { x: 1, y: 0.5 }).x).toBe(-350)
+  })
 })
 
 describe('bakePlan', () => {
@@ -56,7 +61,7 @@ describe('installWallpaperBake', () => {
     const bake = vi.fn(() => Promise.resolve('blob:one'))
     const dispose = installWallpaperBake(root, '/scene.jpg', { bake, revoke: vi.fn() })
 
-    expect(bake).toHaveBeenCalledWith('/scene.jpg', 1280, 800)
+    expect(bake).toHaveBeenCalledWith('/scene.jpg', 1280, 800, WALLPAPER_BLUR_PX)
     expect(flagged()).toBe(false)
     await vi.waitFor(() => expect(flagged()).toBe(true))
     expect(baked()).toBe('url("blob:one")')
@@ -76,7 +81,7 @@ describe('installWallpaperBake', () => {
     expect(bake).toHaveBeenCalledTimes(1)
     vi.advanceTimersByTime(RESIZE_SETTLE_MS)
     expect(bake).toHaveBeenCalledTimes(2)
-    expect(bake).toHaveBeenLastCalledWith('/scene.jpg', 1600, 800)
+    expect(bake).toHaveBeenLastCalledWith('/scene.jpg', 1600, 800, WALLPAPER_BLUR_PX)
 
     await vi.waitFor(() => expect(baked()).toBe('url("blob:two")'))
     expect(revoke).toHaveBeenCalledWith('blob:one')

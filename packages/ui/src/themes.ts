@@ -65,7 +65,7 @@ export const themeIds = [
 export type ThemeId = (typeof themeIds)[number]
 
 export interface Theme {
-  id: ThemeId
+  id: string
   label: string
   /** One-line description shown under the label in the picker. */
   description: string

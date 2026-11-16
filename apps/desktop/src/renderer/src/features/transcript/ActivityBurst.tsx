@@ -90,7 +90,11 @@ export function ActivityBurst({
   if (tally.length > 0 && tally !== label) named.push(tally)
 
   return (
-    <div className="ari-burst my-1" data-activity={live ? 'working' : 'settled'}>
+    <div
+      data-ari-part="tool-call"
+      className="ari-burst my-1"
+      data-activity={live ? 'working' : 'settled'}
+    >
       <button
         type="button"
         onClick={() => setOpenOverride((prev) => !(prev ?? (terminal || live)))}

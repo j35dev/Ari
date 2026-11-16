@@ -11,6 +11,7 @@ import { getSettingsStore } from './store'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
 import { createMainWindow } from './window'
+import { handleThemeAssets, registerThemeAssetScheme } from './theme-asset-protocol'
 
 const log = createLogger('desktop:main')
 
@@ -24,6 +25,7 @@ app.commandLine.appendSwitch('disable-quic')
 // the mutex (and every userData store) off app name. Installed Ari stays on
 // its own profile so both can run at once.
 isolateDevInstance(app)
+registerThemeAssetScheme()
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -92,6 +94,7 @@ if (!gotLock) {
     .whenReady()
     .then(() => {
       if (mainWindow || quitting) return
+      handleThemeAssets()
       // One window owns the whole startup: it stays hidden until the renderer has
       // painted its first frame, which is the launch animation itself, so there
       // is never a separate splash surface to hand over from.

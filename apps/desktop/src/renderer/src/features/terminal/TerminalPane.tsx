@@ -152,6 +152,18 @@ export function TerminalPane({
 
     // Update font metrics in place so choosing a new face never restarts a shell.
     const fontObserver = new MutationObserver(() => {
+      term.options.theme = {
+        ...term.options.theme,
+        background: readToken('--ari-bg', '#0b0b0e'),
+        foreground: readToken('--ari-fg', '#e6e6ea'),
+        cursor: readToken('--ari-accent', '#7c6cf0'),
+        selectionBackground: readToken('--ari-accent-subtle', '#333'),
+        black: readToken('--ari-surface-2', '#222'),
+        green: readToken('--ari-success', '#4ade80'),
+        red: readToken('--ari-danger', '#f87171'),
+        yellow: readToken('--ari-warning', '#facc15'),
+        blue: readToken('--ari-info', '#60a5fa'),
+      }
       const family = readToken('--ari-font-mono', FALLBACK_FONT)
       const size = FONT_SIZE
       if (term.options.fontFamily === family && term.options.fontSize === size) return
@@ -160,7 +172,10 @@ export function TerminalPane({
       fitAndResize()
       warmFont(family, size)
     })
-    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    fontObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'data-ari-theme', 'data-ari-custom-theme'],
+    })
 
     // A rejected create used to vanish into `.catch(() => undefined)`, leaving
     // a blank xterm with a blinking cursor and no way to tell it had failed.
@@ -238,7 +253,7 @@ export function TerminalPane({
   }, [active])
 
   return (
-    <div className="h-full min-h-0 w-full overflow-hidden">
+    <div data-ari-part="terminal" className="h-full min-h-0 w-full overflow-hidden">
       <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden p-2.5" />
     </div>
   )

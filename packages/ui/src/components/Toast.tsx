@@ -196,6 +196,7 @@ function ToastCard({
   return (
     <motion.div
       role="status"
+      data-ari-part="toast"
       aria-live="polite"
       onMouseEnter={pauseTimer}
       onMouseLeave={armTimer}

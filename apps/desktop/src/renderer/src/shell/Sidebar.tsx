@@ -188,7 +188,11 @@ export function SidebarHeader({
   return (
     <div className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center px-3">
       <div className="flex min-w-0 flex-1 items-baseline pl-2">
-        <span aria-label="Ari" className="text-[15px] font-semibold tracking-[-0.03em] text-fg">
+        <span
+          aria-label="Ari"
+          data-ari-part="brand"
+          className="text-[15px] font-semibold tracking-[-0.03em] text-fg"
+        >
           Ari
           <span aria-hidden="true" className="text-accent">
             .
