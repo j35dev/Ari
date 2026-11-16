@@ -252,10 +252,11 @@ function stripCssComments(css: string): string {
 export function themeCssProblem(css: string): string | null {
   if (css.includes('\\'))
     return 'Theme CSS cannot contain backslashes. Write characters and emoji literally.'
-  const code = stripCssComments(css)
-  if (/@import/i.test(code)) return 'Theme CSS cannot use @import.'
-  if (/image-set\(|\bsrc\(/i.test(code)) return 'Theme CSS cannot use image-set() or src().'
-  for (const match of code.matchAll(URL_TARGET)) {
+  // Comments are not stripped first: a "/*" inside a string opens no comment, and
+  // stripping from there would hide the real rules that follow it.
+  if (/@import/i.test(css)) return 'Theme CSS cannot use @import.'
+  if (/image-set\(|\bsrc\(/i.test(css)) return 'Theme CSS cannot use image-set() or src().'
+  for (const match of css.matchAll(URL_TARGET)) {
     const target = (match[2] ?? '').toLowerCase()
     if (!/^(?:asset:|data:|#)/.test(target))
       return `url(${match[2] ?? ''}) is not allowed. Use url("asset:<file>") for the theme's own files, or a data: address.`

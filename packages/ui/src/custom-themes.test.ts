@@ -5,6 +5,7 @@ import {
   paintCustomTheme,
   resolveCustomTheme,
   resolveThemeCss,
+  stripThemeCssFetches,
   themeCssValueFetches,
   themePartSelectors,
 } from './custom-themes'
@@ -71,4 +72,31 @@ it('draws themes saved before the boxless rule without boxing broad parts', () =
   expect(rules[0]).toContain('color:#edfaff')
   expect(rules[0]).not.toMatch(/border-width|background-color/)
   expect(rules[1]).toContain('background-color:#24334e')
+})
+
+// Review of #543: Chromium stores a shorthand holding var() as longhands that read back
+// empty, so a per-property check kept this remote url(). jsdom keeps the shorthand, so
+// the rule below is shaped the way Chromium hands it over.
+it('drops a whole rule whose var() shorthand would load remotely', () => {
+  const leak = 'background: var(--z) url(https://evil.example/leak)'
+  const style = document.createElement('div').style
+  style.cssText = leak
+  const longhands = ['background-image', 'background-position-x', 'background-color']
+  Object.defineProperties(style, {
+    length: { value: longhands.length },
+    item: { value: (index: number) => longhands[index] ?? '' },
+    getPropertyValue: { value: () => '' },
+  })
+  expect(style.cssText).toContain('url(https://evil.example/leak)')
+  const kept = document.createElement('div').style
+  kept.cssText = 'content: "/*"'
+  const rules = [{ style: kept }, { style }, { style: kept }] as unknown as CSSRule[]
+  stripThemeCssFetches({
+    get cssRules() {
+      return rules as unknown as CSSRuleList
+    },
+    deleteRule: (index: number) => void rules.splice(index, 1),
+  })
+  expect(rules).toHaveLength(2)
+  expect(rules.every((rule) => (rule as CSSStyleRule).style === kept)).toBe(true)
 })

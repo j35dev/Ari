@@ -256,28 +256,34 @@ export function themeCssValueFetches(value: string): boolean {
 }
 
 type RuleParent = Pick<CSSStyleSheet, 'cssRules' | 'deleteRule'>
-function stripDeclarations(rule: CSSRule): boolean {
-  if (!('style' in rule) || !(rule.style instanceof CSSStyleDeclaration)) return false
-  for (let index = rule.style.length - 1; index >= 0; index--) {
-    const property = rule.style.item(index)
-    if (themeCssValueFetches(rule.style.getPropertyValue(property)))
-      rule.style.removeProperty(property)
-  }
-  return true
+/**
+ * Whether a rule's declarations could load anything. The whole text is checked: a
+ * shorthand holding var() reads back as empty longhands, which would hide its url().
+ */
+function ruleFetches(rule: CSSRule): boolean {
+  return (
+    'style' in rule &&
+    rule.style instanceof CSSStyleDeclaration &&
+    themeCssValueFetches(rule.style.cssText)
+  )
 }
 /**
- * The browser parses the text first, so this sees normalized values. Only rule
- * shapes it can check survive: an unknown at-rule that might fetch is dropped.
+ * The browser parses the text first, so this sees normalized values. A rule that
+ * could fetch is dropped whole, and so is any rule shape it cannot check: an unknown
+ * at-rule that might fetch.
  */
-function stripFetches(parent: RuleParent): void {
+export function stripThemeCssFetches(parent: RuleParent): void {
   for (let index = parent.cssRules.length - 1; index >= 0; index--) {
     const rule = parent.cssRules[index]
     if (!rule) continue
-    const hasStyle = stripDeclarations(rule)
-    if (typeof CSSKeyframesRule !== 'undefined' && rule instanceof CSSKeyframesRule) {
-      for (const frame of Array.from(rule.cssRules)) stripDeclarations(frame)
+    const hasStyle = 'style' in rule && rule.style instanceof CSSStyleDeclaration
+    if (ruleFetches(rule)) {
+      parent.deleteRule(index)
+    } else if (typeof CSSKeyframesRule !== 'undefined' && rule instanceof CSSKeyframesRule) {
+      for (const frame of Array.from(rule.cssRules).reverse())
+        if (ruleFetches(frame)) rule.deleteRule((frame as CSSKeyframeRule).keyText)
     } else if ('cssRules' in rule && 'deleteRule' in rule) {
-      stripFetches(rule as unknown as RuleParent)
+      stripThemeCssFetches(rule as unknown as RuleParent)
     } else if (!hasStyle) {
       try {
         parent.deleteRule(index)
@@ -300,7 +306,7 @@ function applyThemeCss(css: string): void {
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, themeSheet]
   }
   themeSheet.replaceSync(css)
-  stripFetches(themeSheet)
+  stripThemeCssFetches(themeSheet)
 }
 
 const STYLE_ID = 'ari-custom-theme-style'
