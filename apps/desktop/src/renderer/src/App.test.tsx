@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
+import type { BrowserTabState } from '@ari/contracts/rpc'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -150,6 +151,7 @@ describe('Shell session navigation keys', () => {
     localStorage.clear()
     splitLayoutActions.reset()
     invokeMock.mockReset()
+    rpcMocks.subscribe.mockClear()
     invokeMock.mockImplementation(async (method) => {
       switch (method) {
         case 'ping':
@@ -274,6 +276,111 @@ describe('Shell session navigation keys', () => {
       },
       { timeout: 10_000 },
     )
+  })
+
+  async function browserReveal(): Promise<(sessionId?: string) => void> {
+    const base = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'browser.open')
+        return {
+          id: (params as { id: string }).id,
+          url: 'https://example.com/',
+          title: 'Example',
+          canGoBack: false,
+          canGoForward: false,
+          loading: false,
+          error: null,
+        } satisfies BrowserTabState
+      if (method === 'browser.capture') return { dataUrl: null }
+      if (method.startsWith('browser.')) return true
+      return base(method, params)
+    })
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+    await vi.waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_alpha' }),
+    )
+    const subscription = (
+      rpcMocks.subscribe.mock.calls as unknown as Array<
+        [string, { id?: string }, (payload: BrowserTabState) => void]
+      >
+    ).findLast(([name, params]) => name === 'browser.updated' && params.id === undefined)
+    if (!subscription) throw new Error('no browser reveal subscription')
+    return (sessionId = 'sess_alpha') => {
+      act(() =>
+        subscription[2]({
+          id: `agent:${sessionId}`,
+          url: 'https://example.com/next',
+          title: 'Next page',
+          canGoBack: true,
+          canGoForward: false,
+          loading: false,
+          error: null,
+          reveal: true,
+        }),
+      )
+    }
+  }
+
+  it.each(['Close inspector', 'Close panel'])(
+    'respects %s during later agent navigation and lets the user reopen Browser',
+    async (closeButton) => {
+      render(<App />)
+      await screen.findByText('Alpha')
+      const reveal = await browserReveal()
+      reveal('sess_beta')
+      expect(screen.queryByRole('textbox', { name: 'Address' })).not.toBeInTheDocument()
+      reveal()
+      expect(await screen.findByRole('textbox', { name: 'Address' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: closeButton }))
+      reveal()
+      expect(screen.queryByRole('textbox', { name: 'Address' })).not.toBeInTheDocument()
+      expect(localStorage.getItem('ari.browser.autoReveal')).toBe('0')
+
+      fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+      await vi.waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_beta' }),
+      )
+      reveal('sess_beta')
+      expect(screen.queryByRole('textbox', { name: 'Address' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Open panel' }))
+      expect(await screen.findByRole('textbox', { name: 'Address' })).toBeInTheDocument()
+      expect(localStorage.getItem('ari.browser.autoReveal')).toBe('1')
+    },
+  )
+
+  it('keeps the selected panel tab when the agent navigates again', async () => {
+    render(<App />)
+    await screen.findByText('Alpha')
+    const reveal = await browserReveal()
+    reveal()
+    await screen.findByRole('textbox', { name: 'Address' })
+    fireEvent.click(screen.getByRole('tab', { name: 'Files' }))
+    reveal()
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: 'Browser' }))
+    expect(await screen.findByRole('textbox', { name: 'Address' })).toBeInTheDocument()
+    expect(localStorage.getItem('ari.browser.autoReveal')).toBe('1')
+  })
+
+  it('remembers a closed browser across app mounts and supports reopening from the palette', async () => {
+    const first = render(<App />)
+    await screen.findByText('Alpha')
+    const reveal = await browserReveal()
+    reveal()
+    await screen.findByRole('textbox', { name: 'Address' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close inspector' }))
+    first.unmount()
+
+    render(<App />)
+    await screen.findByText('Alpha')
+    const afterRestart = await browserReveal()
+    afterRestart()
+    expect(screen.queryByRole('textbox', { name: 'Address' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.click(await screen.findByRole('option', { name: 'Go to Browser' }))
+    expect(await screen.findByRole('textbox', { name: 'Address' })).toBeInTheDocument()
+    expect(localStorage.getItem('ari.browser.autoReveal')).toBe('1')
   })
 
   it('returns to a recent session without reloading or resubscribing it', async () => {

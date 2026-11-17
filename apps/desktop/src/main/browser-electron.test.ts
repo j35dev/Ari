@@ -302,6 +302,12 @@ describe('agent tab throttling', () => {
     })
     await vi.advanceTimersByTimeAsync(0)
     expect(loaded).toBe(false)
+    const frameCallback = firstView().webContents.beginFrameSubscription.mock.calls.at(-1)?.[1] as
+      ((image: { isEmpty(): boolean }) => void) | undefined
+    if (frameCallback === undefined) throw new Error('no frame subscriber')
+    frameCallback({ isEmpty: () => true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(loaded).toBe(false)
     deliverFrame()
     await vi.advanceTimersByTimeAsync(0)
     expect(loaded).toBe(true)
@@ -402,6 +408,24 @@ describe('cached frame fallback', () => {
     await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS)
     expect((await shot)?.toString()).toBe('jpeg')
     expect(wc.capturePage).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits through empty Windows startup captures until the page has rendered', async () => {
+    vi.useFakeTimers()
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const wc = firstView().webContents
+    const empty = {
+      getSize: () => ({ width: 0, height: 0 }),
+      resize: vi.fn(),
+      toJPEG: () => Buffer.alloc(0),
+      toPNG: () => Buffer.alloc(0),
+    }
+    for (let attempt = 0; attempt < 8; attempt++) wc.capturePage.mockResolvedValueOnce(empty)
+
+    const shot = guest.capturePage(undefined, 'jpeg')
+    await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS * 8)
+    expect((await shot)?.toString()).toBe('jpeg')
+    expect(wc.capturePage).toHaveBeenCalledTimes(9)
   })
 
   it('gives up after a bounded number of failed native captures', async () => {
