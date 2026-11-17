@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { timestampSchema } from './common'
+import { externalSourceSchema } from './external'
 
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system'])
 export type MessageRole = z.infer<typeof messageRoleSchema>
@@ -104,6 +105,7 @@ export const messageSchema = z.object({
   turnId: z.string().nullable(),
   role: messageRoleSchema,
   origin: messageOriginSchema.optional(),
+  externalSource: externalSourceSchema.optional(),
   parts: z.array(messagePartSchema),
   createdAt: timestampSchema,
 })

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { messageOriginSchema, wakePrioritySchema } from './message'
+import { externalSourceSchema } from './external'
 
 /** Maximum images carried by one message (mirrors the composer's cap). */
 export const MAX_ATTACHMENTS = 4
@@ -30,6 +31,7 @@ export type AttachmentRef = z.infer<typeof attachmentRefSchema>
  */
 export const queuedMessageSchema = z.object({
   origin: messageOriginSchema.optional(),
+  externalSource: externalSourceSchema.optional(),
   text: z.string(),
   attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   /** Delegated work waiting for a free slot; it survives a stop and an error. */
