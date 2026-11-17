@@ -500,10 +500,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
   }, [leaveWorkspaceTool])
 
+  // Closing the browser is a visibility preference, not a pause in agent work.
+  // Only an explicit user open enables navigation-driven reveals again.
+  const browserAutoRevealRef = useRef(localStorage.getItem('ari.browser.autoReveal') !== '0')
+  const setBrowserAutoReveal = useCallback((enabled: boolean) => {
+    browserAutoRevealRef.current = enabled
+    try {
+      localStorage.setItem('ari.browser.autoReveal', enabled ? '1' : '0')
+    } catch {
+      // Keep respecting the choice for this window if storage is unavailable.
+    }
+  }, [])
+
   useEffect(() => {
     return rpc.subscribe('browser.updated', {}, (payload) => {
       const next = payload as BrowserTabState
-      if (next.reveal !== true) return
+      if (next.reveal !== true || !browserAutoRevealRef.current) return
       // An agent browsing in a session that is not on screen stays out of the
       // way; its page is there when the user opens that session's browser.
       if (next.id !== browserTabFor(revealSessionRef.current)) return
@@ -971,6 +983,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setHubOpen(false)
         setSettingsOpen(false)
         setFullPage(null)
+        setBrowserAutoReveal(true)
         setInspector('browser')
       } else if (view === 'changes' || view === 'source-control') {
         openSourceControl()
@@ -1517,9 +1530,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       setFullPage(null)
+      if (id === 'browser') setBrowserAutoReveal(inspector !== 'browser')
       setInspector((prev) => (prev === id ? null : id))
     },
-    [openSourceControl, remoteActive, toast],
+    [openSourceControl, remoteActive, toast, inspector, setBrowserAutoReveal],
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
@@ -1868,6 +1882,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           if (inspector !== null) {
             // Closing her overview is a choice; it stays closed.
             if (inspector === 'overview') overviewDismissedRef.current = true
+            if (inspector === 'browser') setBrowserAutoReveal(false)
             setInspector(null)
             return
           }
@@ -1883,6 +1898,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           leaveWorkspaceTool()
           setFullPage(null)
           if (next === 'changes') setSourceControlTab('changes')
+          if (next === 'browser') setBrowserAutoReveal(true)
           setInspector(next)
         }}
         leading={
@@ -2407,11 +2423,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     active={inspector}
                     onSelect={(id) => {
                       if (id === 'changes') setSourceControlTab('changes')
+                      if (id === 'browser' || inspector === 'browser')
+                        setBrowserAutoReveal(id === 'browser')
                       setInspector(id)
                     }}
                     onClose={() => {
                       // Closing her overview is a choice; it stays closed.
                       if (inspector === 'overview') overviewDismissedRef.current = true
+                      if (inspector === 'browser') setBrowserAutoReveal(false)
                       setInspector(null)
                     }}
                   />
@@ -2449,7 +2468,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                       <ErrorBoundary label="Browser">
                         <BrowserPanel
                           sessionId={remoteActive ? undefined : (activeSessionId ?? undefined)}
-                          onClose={() => setInspector(null)}
+                          onClose={() => {
+                            setBrowserAutoReveal(false)
+                            setInspector(null)
+                          }}
                         />
                       </ErrorBoundary>
                     </div>

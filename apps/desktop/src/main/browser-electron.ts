@@ -23,12 +23,12 @@ export const AGENT_TAB_IDLE_MS = 2 * 60_000
 /** After painting restarts, a capture waits this long for a fresh frame. */
 export const AGENT_TAB_WAKE_MS = 100
 /**
- * On Linux a hidden native view delivers no subscription frames, and its first
- * capturePage can reject with UnknownVizError while Chromium makes the surface
- * copyable. Capture retries at this spacing, up to CAPTURE_ATTEMPTS times.
+ * A hidden native view's first capture can be empty on Windows or reject with
+ * UnknownVizError on Linux while Chromium makes the surface copyable. Allow
+ * one second for that handoff, without accepting an empty screenshot.
  */
 export const CAPTURE_RETRY_MS = 50
-export const CAPTURE_ATTEMPTS = 5
+export const CAPTURE_ATTEMPTS = 21
 /**
  * Agent input borrows keyboard focus for the page and gives it back this long
  * after its last event, unless a key or mouse button is still held down.
@@ -164,7 +164,8 @@ export function createElectronBrowserGuest(
   let frameReceived: (() => void) | null = null
   const painter = agent
     ? idlePainter(wc, (image?: NativeImage) => {
-        if (image !== undefined && !image.isEmpty()) frame = image
+        if (image === undefined || image.isEmpty()) return
+        frame = image
         frameReceived?.()
       })
     : null
