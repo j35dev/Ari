@@ -1,5 +1,6 @@
 import { coordinationMessageSchema } from './coordination'
 import { z } from 'zod'
+import { externalSourceSchema } from './external'
 import {
   orchestrationTaskRecordSchema,
   contextPackageSchema,
@@ -235,6 +236,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   eventBase.extend({
     type: z.literal('message.enqueued'),
     origin: messageOriginSchema.optional(),
+    externalSource: externalSourceSchema.optional(),
     text: z.string(),
     attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
     held: z.boolean().optional(),
@@ -243,6 +245,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   eventBase.extend({
     type: z.literal('message.dequeued'),
     origin: messageOriginSchema.optional(),
+    externalSource: externalSourceSchema.optional(),
     text: z.string(),
     attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   }),

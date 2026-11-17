@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { slackConfigureSchema, type SlackSnapshot, type SlackMutationResult } from './slack'
 import { machinesRpcParams, type MachinesRpcResults } from './machines'
 import { orchestrationParams, type OrchestrationResults } from './orchestration'
 import { commandSchema } from './commands'
@@ -316,6 +317,7 @@ export const streamNames = [
   'machines.updates',
   'app.navigate',
   'scm.changed',
+  'slack.updates',
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
@@ -763,6 +765,10 @@ export interface UpdateStart {
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
 export const rpcParams = {
+  'slack.get': z.undefined(),
+  'slack.configure': slackConfigureSchema,
+  'slack.disconnect': z.undefined(),
+  'slack.forget': z.undefined(),
   ...orchestrationParams,
   ping: z.undefined(),
   'app.info': z.undefined(),
@@ -1223,6 +1229,10 @@ export const rpcParams = {
 export type RpcMethod = keyof typeof rpcParams
 
 export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
+  'slack.get': SlackSnapshot
+  'slack.configure': SlackMutationResult
+  'slack.disconnect': SlackMutationResult
+  'slack.forget': SlackMutationResult
   ping: { pong: boolean; at: number }
   'app.navigation.consumer': { registered: boolean }
   'app.navigation.validate': z.infer<typeof appNavigationValidationSchema>

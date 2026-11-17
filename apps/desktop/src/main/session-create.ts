@@ -1,5 +1,6 @@
 import type { SessionCreateParams } from '@ari/contracts/rpc'
 import type { Session, SessionWorkspace } from '@ari/contracts/session'
+import type { ExternalSource } from '@ari/contracts/external'
 
 export interface SessionCreateDeps {
   loadProject: (projectId: string) => Promise<unknown>
@@ -15,14 +16,22 @@ export async function createSession(
   deps: SessionCreateDeps,
   params: SessionCreateParams,
   /** Trusted host-issued workspace selection; never accepted by the local RPC schema. */
-  selection?: { baseSnapshotCommit?: string },
+  selection?: {
+    baseSnapshotCommit?: string
+    sessionId?: string
+    externalSource?: ExternalSource
+    admissionGuard?: () => void
+  },
 ): Promise<{ sessionId: string }> {
   // A session always runs inside a project: without one there is no workspace
   // to jail the terminal and file tools against. The renderer resolves a
   // project before it gets here, so a miss means a caller skipped that step —
   // fail loudly rather than minting another Unfiled session.
   await deps.loadProject(params.projectId)
-  const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  selection?.admissionGuard?.()
+  const sessionId =
+    selection?.sessionId ??
+    `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const session: Session = {
     id: sessionId,
     projectId: params.projectId,
@@ -30,6 +39,7 @@ export async function createSession(
     driverKind: params.driverKind,
     modelId: params.modelId,
     permissionMode: params.permissionMode,
+    ...(selection?.externalSource ? { externalSource: selection.externalSource } : {}),
     ...(params.effort !== undefined ? { effort: params.effort } : {}),
     ...(params.lead === true ? { lead: true as const } : {}),
     status: 'idle',
@@ -37,7 +47,12 @@ export async function createSession(
     updatedAt: Date.now(),
   }
   if (deps.prepareRootWorkspace)
-    session.workspace = await deps.prepareRootWorkspace(session, params.workspaceMode, selection?.baseSnapshotCommit)
+    session.workspace = await deps.prepareRootWorkspace(
+      session,
+      params.workspaceMode,
+      selection?.baseSnapshotCommit,
+    )
+  selection?.admissionGuard?.()
   await deps.createSession(session)
   return { sessionId }
 }

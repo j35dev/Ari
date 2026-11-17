@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./external": "./src/external.ts",
+    "./questions": "./src/questions.ts",
+    "./slack": "./src/slack.ts",
     "./themes": "./src/themes.ts",
     "./visualization": "./src/visualization.ts",
     "./orchestration-presentation": "./src/orchestration-presentation.ts",

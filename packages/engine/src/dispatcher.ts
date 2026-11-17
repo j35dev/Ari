@@ -1,4 +1,5 @@
 import type { Command } from '@ari/contracts/commands'
+import type { ExternalSource } from '@ari/contracts/external'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { MessagePart, MessageOrigin } from '@ari/contracts/message'
 import type { AttachmentRef, QueuedMessage } from '@ari/contracts/attachments'
@@ -56,7 +57,15 @@ export function decideCommand(
     case 'turn.start': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (model.activeTurnId) return reject('a turn is already active')
-      return startTurn(model, command.text, command.attachments ?? [], ids, origin)
+      return startTurn(
+        model,
+        command.text,
+        command.attachments ?? [],
+        ids,
+        origin,
+        undefined,
+        command.externalSource,
+      )
     }
 
     case 'message.enqueue': {
@@ -70,6 +79,7 @@ export function decideCommand(
             text: command.text,
             attachments: command.attachments ?? [],
             ...(origin ? { origin } : {}),
+            ...(command.externalSource ? { externalSource: command.externalSource } : {}),
             held: true,
             ...(command.priority ? { priority: command.priority } : {}),
           },
@@ -86,6 +96,7 @@ export function decideCommand(
           ids,
           origin,
           command.priority,
+          command.externalSource,
         )
       }
       return accept([
@@ -95,6 +106,7 @@ export function decideCommand(
           text: command.text,
           attachments: command.attachments ?? [],
           ...(origin ? { origin } : {}),
+          ...(command.externalSource ? { externalSource: command.externalSource } : {}),
           ...(command.priority ? { priority: command.priority } : {}),
         },
       ])
@@ -123,6 +135,7 @@ export function decideCommand(
           text: queued.text,
           attachments: queued.attachments,
           ...(queued.origin ? { origin: queued.origin } : {}),
+          ...(queued.externalSource ? { externalSource: queued.externalSource } : {}),
         },
       ])
     }
@@ -147,6 +160,8 @@ export function decideCommand(
     }
 
     case 'approval.respond': {
+      if (command.expectedTurnId !== undefined && model.activeTurnId !== command.expectedTurnId)
+        return reject('approval turn changed; refresh current context before answering')
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       const pending = model.pendingApprovals.find((a) => a.approvalId === command.approvalId)
       if (!pending) return reject('unknown or already-answered approval')
@@ -284,6 +299,7 @@ function startTurn(
   ids: DispatchIds,
   origin?: MessageOrigin,
   priority?: QueuedMessage['priority'],
+  externalSource?: ExternalSource,
 ): DispatchDecision {
   const session = model.session
   if (!session) return reject('unknown session')
@@ -306,6 +322,7 @@ function startTurn(
         turnId: ids.turnId,
         role: 'user',
         ...(origin ? { origin } : {}),
+        ...(externalSource ? { externalSource } : {}),
         parts,
         createdAt: Date.now(),
       },
