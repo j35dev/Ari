@@ -297,6 +297,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
           text: event.text,
           attachments: event.attachments ?? [],
           ...(event.origin ? { origin: event.origin } : {}),
+          ...(event.externalSource ? { externalSource: event.externalSource } : {}),
           ...(event.held === true ? { held: true } : {}),
           ...(event.priority ? { priority: event.priority } : {}),
         },
@@ -312,6 +313,8 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         (m) =>
           m.text === event.text &&
           JSON.stringify(m.origin) === JSON.stringify(event.origin) &&
+          (event.externalSource === undefined ||
+            m.externalSource?.requestId === event.externalSource.requestId) &&
           (event.attachments === undefined || idsOf(m.attachments) === want),
       )
       if (idx === -1) break

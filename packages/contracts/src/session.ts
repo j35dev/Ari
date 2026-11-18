@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { externalSourceSchema } from './external'
 import {
   driverKindSchema,
   permissionModeSchema,
@@ -66,6 +67,7 @@ export const sessionSchema = z.object({
   parentSessionId: z.string().min(1).nullish(),
   rootSessionId: z.string().min(1).nullish(),
   createdBy: sessionCreatorSchema.nullish(),
+  externalSource: externalSourceSchema.optional(),
   /** Set on delegated children only; absent on journals written before roles. */
   role: delegationRoleSchema.nullish(),
   workspace: sessionWorkspaceSchema.nullish(),

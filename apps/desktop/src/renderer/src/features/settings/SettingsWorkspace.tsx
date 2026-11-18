@@ -9,6 +9,7 @@ import {
   Keyboard,
   Mic,
   Monitor,
+  MessageSquare,
   Palette,
   Plug,
   Shield,
@@ -25,6 +26,7 @@ import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { MachinesSettings } from './MachinesSettings'
+import { SlackSettings } from './SlackSettings'
 import { SpeechSettings } from './SpeechSettings'
 import { SnapshotsSettings } from './SnapshotsSettings'
 import { SourceControlSettings } from './SourceControlSettings'
@@ -48,6 +50,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'source-control', label: 'Source control', icon: GitBranch, group: 'Code' },
   { id: 'remote', label: 'Mobile access', icon: Smartphone, group: 'Connections' },
   { id: 'machines', label: 'Machines', icon: Monitor, group: 'Connections' },
+  { id: 'integrations', label: 'Integrations', icon: MessageSquare, group: 'Connections' },
   { id: 'experimental', label: 'Experimental', icon: FlaskConical, group: null },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal, group: null },
 ] as const
@@ -197,6 +200,7 @@ export function SettingsWorkspace({
             </SettingsPage>
           ) : null}
           {section === 'source-control' ? <SourceControlSettings /> : null}
+          {section === 'integrations' ? <SlackSettings /> : null}
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}

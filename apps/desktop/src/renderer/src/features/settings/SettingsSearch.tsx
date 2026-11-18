@@ -22,6 +22,11 @@ export interface SettingsIndexEntry {
  */
 export const SETTINGS_SEARCH_INDEX = [
   {
+    section: 'settings-integrations',
+    label: 'Slack · @Aria',
+    keywords: 'slack aria integrations bot socket mode channel project mentions tokens connection',
+  },
+  {
     section: 'settings-snapshots',
     label: 'SnapShots',
     keywords: 'screenshot capture window global shortcut attachment animation sound image',

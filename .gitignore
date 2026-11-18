@@ -25,6 +25,9 @@ recordings/
 .worktrees/
 
 # Internal planning documents and agent-only notes.
+/docs/
+/research/
+research/
 /AGENTS.md
 /PLAN.md
 /PROGRESS.md

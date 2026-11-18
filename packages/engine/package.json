@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./launch-effort": "./src/launch-effort.ts",
     "./orchestration": "./src/orchestration.ts",
     "./agent-control": "./src/agent-control.ts",
     "./helm": "./src/helm.ts",
