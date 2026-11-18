@@ -44,6 +44,8 @@ import { createSession, type SessionCreateDeps } from './session-create'
 import { launchEffortLookup } from './launch-efforts'
 import { createProject } from './project-create'
 import { AriaThread } from './aria-thread'
+import { createExternalTaskHost } from './external/task-host'
+import { SlackService } from './integrations/slack/service'
 import { ProjectContextCache, ProjectSelection } from './project-context'
 import { WalkCache } from './file-index'
 import {
@@ -2134,6 +2136,35 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('aria.open', (params) => aria.open(params))
   r.register('aria.newChat', () => aria.newChat())
 
+  const slack = new SlackService({
+    path: join(app.getPath('userData'), 'integrations', 'slack', 'state.json'),
+    secrets: () => {
+      if (!safeStorage.isEncryptionAvailable()) return null
+      if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
+        return null
+      return safeStorageBox(safeStorage)
+    },
+    host: createExternalTaskHost({
+      engine,
+      store: getSessionStore(),
+      sessionDeps,
+      projects: async () => {
+        await getProjectStore().load()
+        return getProjectStore().list()
+      },
+      providers: async () => (await controlReady).service.host.providers(),
+      efforts: launchEffortsForModel,
+      tasks: async (sessionId) => (await controlReady).service.tasks(sessionId, true),
+    }),
+    onChanged: (snapshot) => rpcRegistry.publish('slack.updates', snapshot),
+  })
+  r.register('slack.get', () => slack.snapshot())
+  r.register('slack.configure', (params) => slack.configure(params))
+  r.register('slack.disconnect', () => slack.disconnect())
+  r.register('slack.forget', () => slack.forget())
+  void slack.startSaved().catch(() => log.warn('Slack connection did not start'))
+  shutdownTasks.push(() => slack.close())
+
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
     return model.session ? model : null
@@ -3200,6 +3231,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         rpcRegistry.publish('app.updates', frame satisfies AppUpdateFrame)
       }
     }
+    if (params.name === 'slack.updates')
+      return slack.snapshot().then((snapshot) => {
+        rpcRegistry.publish('slack.updates', snapshot)
+        return { subscribed: true }
+      })
     return { subscribed: true }
   })
 

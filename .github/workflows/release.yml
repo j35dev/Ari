@@ -47,7 +47,6 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $version"
             exit 1
           fi
-          test -f "docs/releases/$version.md" || { echo "::error::Missing docs/releases/$version.md"; exit 1; }
 
       - name: Install workspace
         run: pnpm install --frozen-lockfile
@@ -112,7 +111,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: Ari v${{ steps.version.outputs.version }}
-          body_path: docs/releases/${{ steps.version.outputs.version }}.md
+          generate_release_notes: true
           draft: true
           files: release/*
           fail_on_unmatched_files: true

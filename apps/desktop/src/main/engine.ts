@@ -537,14 +537,18 @@ export class Engine {
     }
   }
 
-  async dispatch(command: Command, origin?: MessageOrigin): Promise<CommandReceipt> {
+  async dispatch(
+    command: Command,
+    origin?: MessageOrigin,
+    admissionGuard?: (session: Session) => void,
+  ): Promise<CommandReceipt> {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
     return this.#chain(id, () =>
       ['turn.start', 'message.enqueue', 'approval.respond', 'input.respond'].includes(command.type)
-        ? this.#admit(() => this.#dispatch(command, origin))
-        : this.#dispatch(command, origin),
+        ? this.#admit(() => this.#dispatch(command, origin, admissionGuard))
+        : this.#dispatch(command, origin, admissionGuard),
     )
   }
 
@@ -577,7 +581,11 @@ export class Engine {
     return this.#append(sessionId, event)
   }
 
-  async #dispatch(command: Command, origin?: MessageOrigin): Promise<CommandReceipt> {
+  async #dispatch(
+    command: Command,
+    origin?: MessageOrigin,
+    admissionGuard?: (session: Session) => void,
+  ): Promise<CommandReceipt> {
     if (this.#closing && command.type !== 'turn.interrupt')
       return { accepted: false, reason: 'Ari is shutting down' }
     if (!('sessionId' in command)) {
@@ -622,6 +630,7 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
+    if (model.session) admissionGuard?.(model.session)
     if (command.type === 'checkpoint.revert') {
       // Revert before journaling `checkpoint.reverted`: a failed revert keeps
       // the checkpoint and reaches the caller as a rejection.
@@ -653,6 +662,7 @@ export class Engine {
     }
     if (this.#closing && command.type !== 'turn.interrupt')
       return { accepted: false, reason: 'Ari is shutting down' }
+    if (model.session) admissionGuard?.(model.session)
     let releaseTurn: ((persisted: boolean) => void) | undefined
     if (startRequest !== null && turnSession !== null) {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
@@ -810,6 +820,7 @@ export class Engine {
           text: message.text,
           attachments: message.attachments,
           ...(message.origin ? { origin: message.origin } : {}),
+          ...(message.externalSource ? { externalSource: message.externalSource } : {}),
         })
       ).seq
     } catch (e) {
@@ -830,6 +841,7 @@ export class Engine {
           turnId,
           role: 'user',
           ...(message.origin ? { origin: message.origin } : {}),
+          ...(message.externalSource ? { externalSource: message.externalSource } : {}),
           // Images first, then the text, as a message that starts a turn has them.
           parts: [
             ...message.attachments.map((a) => ({
@@ -1715,7 +1727,13 @@ export class Engine {
     const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
     const decision = decideCommand(
       fresh,
-      { type: 'turn.start', sessionId, text: next.text, attachments: next.attachments },
+      {
+        type: 'turn.start',
+        sessionId,
+        text: next.text,
+        attachments: next.attachments,
+        externalSource: next.externalSource,
+      },
       ids,
       next.origin,
     )
@@ -1756,6 +1774,7 @@ export class Engine {
         text: next.text,
         attachments: next.attachments,
         ...(next.origin ? { origin: next.origin } : {}),
+        ...(next.externalSource ? { externalSource: next.externalSource } : {}),
       })
       for (const event of decision.events) {
         await this.#append(sessionId, event)

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { wakePrioritySchema } from './message'
+import { externalSourceSchema } from './external'
 
 /**
  * A user turn needs text, images, or both: an images-only message (empty
@@ -36,6 +37,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('turn.start'),
       sessionId: z.string(),
       text: z.string(),
+      externalSource: externalSourceSchema.optional(),
       attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
     })
     .superRefine(requiresTextOrAttachments),
@@ -44,6 +46,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('message.enqueue'),
       sessionId: z.string(),
       text: z.string(),
+      externalSource: externalSourceSchema.optional(),
       attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
       /**
        * Delegated work: the message waits even when the session is idle, and
@@ -83,6 +86,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('approval.respond'),
       sessionId: z.string(),
       approvalId: z.string(),
+      expectedTurnId: z.string().min(1).optional(),
       optionId: z.string().min(1).optional(),
       decision: z.enum(['allow', 'deny', 'always-allow']).optional(),
     })
