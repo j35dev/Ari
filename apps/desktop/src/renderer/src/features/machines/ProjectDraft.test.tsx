@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
@@ -51,6 +51,40 @@ const start = async () => {
 }
 
 describe('project draft with normal Composer', () => {
+  it.each(['create', 'stage', 'prompt'] as const)('shows startup progress while %s is pending, then hands off without a recovery warning', async (phase) => {
+    let resume!: () => void
+    const pending = new Promise<void>((resolve) => { resume = resolve })
+    const scope = { kind: 'remote' as const, machineId: 'host-a', sessionId: 'sess_created' }
+    if (phase === 'create') vi.mocked(client.create).mockImplementation(async () => { await pending; return scope })
+    if (phase === 'stage') vi.mocked(client.stage).mockImplementation(async () => { await pending; return [] })
+    if (phase === 'prompt') vi.mocked(client.prompt).mockImplementation(async () => { await pending })
+
+    const user = userEvent.setup()
+    const view = render(<ProjectDraft {...props} initialHostId="host-a" />)
+    await screen.findByRole('button', { name: 'Project workspace' })
+    const input = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.paste(input, { clipboardData: { files: [new File(['image'], 'shot.png', { type: 'image/png' })] } })
+    await user.type(input, 'A fresh first prompt')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(client[phase]).toHaveBeenCalledOnce())
+
+    expect(screen.getByText('Starting session…')).toBeInTheDocument()
+    expect(screen.queryByText('Check the original submission before continuing.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open created session' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(client.create).toHaveBeenCalledOnce()
+
+    await act(async () => { resume(); await pending })
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledOnce())
+    expect(props.onCreated).toHaveBeenCalledWith(scope)
+    expect(screen.getByText('Opening session…')).toBeInTheDocument()
+    expect(screen.queryByText('Check the original submission before continuing.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull()
+    expect(localStorage.getItem('ari.machines.projectDraft.attempt.v1:draft-one')).toBeNull()
+    view.unmount()
+  })
   it('starts on This PC, changes host without creating, and never detects local providers for the supplied catalog', async () => {
     const user = userEvent.setup()
     render(<ProjectDraft {...props} />)
@@ -213,6 +247,27 @@ describe('project draft with normal Composer', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledOnce())
     expect(client.create).toHaveBeenCalledTimes(2)
+  })
+  it('shows checking progress during recovery without creating or sending another request', async () => {
+    vi.mocked(client.create).mockRejectedValue(new Error('Acknowledgement lost'))
+    const user = await start()
+    await screen.findByRole('button', { name: 'Check original submission' })
+    let resume!: () => void
+    const pending = new Promise<void>((resolve) => { resume = resolve })
+    vi.mocked(client.checkCreate).mockImplementation(async () => { await pending; return null })
+
+    await user.click(screen.getByRole('button', { name: 'Check original submission' }))
+    expect(screen.getByText('Checking session…')).toBeInTheDocument()
+    expect(screen.queryByText('Starting session…')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check original submission' })).toBeNull()
+    expect(client.create).toHaveBeenCalledOnce()
+    expect(client.prompt).not.toHaveBeenCalled()
+
+    await act(async () => { resume(); await pending })
+    await screen.findByRole('button', { name: 'Check original submission' })
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep this original prompt')
+    expect(client.create).toHaveBeenCalledOnce()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
   it('never recreates or resends a confirmed session with an uncertain first prompt', async () => {
     vi.mocked(client.prompt).mockRejectedValue(new Error('Prompt acknowledgement lost'))

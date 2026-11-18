@@ -73,6 +73,11 @@ function hostWindow(): BrowserWindow {
     contentView: { children: [], addChildView: vi.fn(), removeChildView: vi.fn() },
     webContents: shell,
     isDestroyed: () => false,
+    isVisible: vi.fn(() => true),
+    isMinimized: vi.fn(() => false),
+    isFocused: vi.fn(() => true),
+    on: vi.fn(),
+    removeListener: vi.fn(),
   } as unknown as BrowserWindow
 }
 
@@ -179,6 +184,37 @@ describe('createElectronBrowserGuest rendering', () => {
 })
 
 describe('agent tab throttling', () => {
+  it.each(['hide', 'minimize', 'blur'] as const)(
+    'keeps a placed panel capturable when its host emits %s',
+    async (event) => {
+      vi.useFakeTimers()
+      const win = hostWindow()
+      const guest = createElectronBrowserGuest(win, 'agent:sess-a', vi.fn())
+      const wc = firstView().webContents
+      guest.setVisible(true)
+      expect(wc.endFrameSubscription).toHaveBeenCalledOnce()
+
+      if (event === 'hide') vi.mocked(win.isVisible).mockReturnValue(false)
+      if (event === 'minimize') vi.mocked(win.isMinimized).mockReturnValue(true)
+      if (event === 'blur') vi.mocked(win.isFocused).mockReturnValue(false)
+      const listeners = vi.mocked(win.on).mock.calls as unknown as Array<[string, () => void]>
+      const update = listeners.find(([name]) => name === event)?.[1]
+      if (update === undefined) throw new Error(`no ${event} listener`)
+      update()
+      expect(wc.beginFrameSubscription).toHaveBeenCalledTimes(2)
+      await guest.executeJavaScript('1')
+      expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(false)
+
+      vi.mocked(win.isVisible).mockReturnValue(true)
+      vi.mocked(win.isMinimized).mockReturnValue(false)
+      vi.mocked(win.isFocused).mockReturnValue(true)
+      update()
+      expect(wc.endFrameSubscription).toHaveBeenCalledTimes(2)
+      guest.destroy()
+      expect(win.removeListener).toHaveBeenCalledWith(event, update)
+    },
+  )
+
   it('subscribes to hidden frames and releases the capturer while the page is visible', () => {
     const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
     const wc = firstView().webContents
@@ -264,6 +300,12 @@ describe('agent tab throttling', () => {
     void guest.loadURL('https://example.com/hidden').then(() => {
       loaded = true
     })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(loaded).toBe(false)
+    const frameCallback = firstView().webContents.beginFrameSubscription.mock.calls.at(-1)?.[1] as
+      ((image: { isEmpty(): boolean }) => void) | undefined
+    if (frameCallback === undefined) throw new Error('no frame subscriber')
+    frameCallback({ isEmpty: () => true })
     await vi.advanceTimersByTimeAsync(0)
     expect(loaded).toBe(false)
     deliverFrame()
@@ -366,6 +408,24 @@ describe('cached frame fallback', () => {
     await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS)
     expect((await shot)?.toString()).toBe('jpeg')
     expect(wc.capturePage).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits through empty Windows startup captures until the page has rendered', async () => {
+    vi.useFakeTimers()
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const wc = firstView().webContents
+    const empty = {
+      getSize: () => ({ width: 0, height: 0 }),
+      resize: vi.fn(),
+      toJPEG: () => Buffer.alloc(0),
+      toPNG: () => Buffer.alloc(0),
+    }
+    for (let attempt = 0; attempt < 8; attempt++) wc.capturePage.mockResolvedValueOnce(empty)
+
+    const shot = guest.capturePage(undefined, 'jpeg')
+    await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS * 8)
+    expect((await shot)?.toString()).toBe('jpeg')
+    expect(wc.capturePage).toHaveBeenCalledTimes(9)
   })
 
   it('gives up after a bounded number of failed native captures', async () => {

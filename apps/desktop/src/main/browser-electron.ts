@@ -23,12 +23,12 @@ export const AGENT_TAB_IDLE_MS = 2 * 60_000
 /** After painting restarts, a capture waits this long for a fresh frame. */
 export const AGENT_TAB_WAKE_MS = 100
 /**
- * On Linux a hidden native view delivers no subscription frames, and its first
- * capturePage can reject with UnknownVizError while Chromium makes the surface
- * copyable. Capture retries at this spacing, up to CAPTURE_ATTEMPTS times.
+ * A hidden native view's first capture can be empty on Windows or reject with
+ * UnknownVizError on Linux while Chromium makes the surface copyable. Allow
+ * one second for that handoff, without accepting an empty screenshot.
  */
 export const CAPTURE_RETRY_MS = 50
-export const CAPTURE_ATTEMPTS = 5
+export const CAPTURE_ATTEMPTS = 21
 /**
  * Agent input borrows keyboard focus for the page and gives it back this long
  * after its last event, unless a key or mouse button is still held down.
@@ -155,6 +155,7 @@ export function createElectronBrowserGuest(
   view.setBounds({ x: 0, y: 0, width: 800, height: 600 })
   view.setVisible(false)
   const wc = view.webContents
+  let presented = false
   let heldButton: PointerButton | null = null
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
 
@@ -163,10 +164,25 @@ export function createElectronBrowserGuest(
   let frameReceived: (() => void) | null = null
   const painter = agent
     ? idlePainter(wc, (image?: NativeImage) => {
-        if (image !== undefined && !image.isEmpty()) frame = image
+        if (image === undefined || image.isEmpty()) return
+        frame = image
         frameReceived?.()
       })
     : null
+  // A placed panel can still be hidden by the tray, minimization, or another
+  // app. Keep its capturer alive until the host can paint it natively again.
+  const updatePresentation = (): void => {
+    if (win.isDestroyed()) return
+    painter?.present(presented && win.isVisible() && !win.isMinimized() && win.isFocused())
+  }
+  if (agent) {
+    win.on('show', updatePresentation)
+    win.on('hide', updatePresentation)
+    win.on('minimize', updatePresentation)
+    win.on('restore', updatePresentation)
+    win.on('focus', updatePresentation)
+    win.on('blur', updatePresentation)
+  }
   const wake = (): boolean => painter?.wake() ?? false
   // sendInputEvent needs the page focused. Agent input borrows that focus from
   // whoever had it and holds it across calls while a key or button is down, so
@@ -363,6 +379,7 @@ export function createElectronBrowserGuest(
     },
     setVisible: (visible) => {
       if (win.isDestroyed()) return
+      presented = visible
       if (visible) {
         // Its subscription frame predates the page the user is about to change.
         frame = null
@@ -373,10 +390,18 @@ export function createElectronBrowserGuest(
         if (lender !== null) returnFocus()
         else if (wc.isFocused()) win.webContents.focus()
       }
-      painter?.present(visible)
+      updatePresentation()
     },
     destroy: () => {
       returnFocus()
+      if (agent) {
+        win.removeListener('show', updatePresentation)
+        win.removeListener('hide', updatePresentation)
+        win.removeListener('minimize', updatePresentation)
+        win.removeListener('restore', updatePresentation)
+        win.removeListener('focus', updatePresentation)
+        win.removeListener('blur', updatePresentation)
+      }
       painter?.dispose()
       frame = null
       if (!win.isDestroyed()) win.contentView.removeChildView(view)

@@ -1,6 +1,5 @@
-# Typecheck, lint and test on every supported OS; on Linux also build the
-# bundles a release ships and run the browser e2e. Runs once per PR and once per
-# push to main.
+# Typecheck, lint and test on every supported OS; Linux also builds the release
+# bundles. Linux and Windows run the browser e2e. Runs once per PR and main push.
 name: verify
 
 on:
@@ -56,6 +55,10 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y xvfb
           xvfb-run -a pnpm --filter @ari/desktop e2e
+
+      - name: Windows browser input e2e
+        if: runner.os == 'Windows'
+        run: pnpm --filter @ari/desktop e2e
 
   # The `protect main` ruleset requires a check named exactly `verify`; a matrix
   # reports per-OS names, so this job carries the one name for all of them.
