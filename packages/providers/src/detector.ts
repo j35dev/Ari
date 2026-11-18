@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
-import { delimiter, join, posix, win32 } from 'node:path'
+import { basename, delimiter, join, posix, win32 } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
@@ -21,6 +21,17 @@ const BINARY_NAMES: Record<DriverKind, string[]> = {
   grok: ['grok', 'grok.cmd', 'grok.exe', 'grok.ps1'],
   pi: ['pi', 'pi.cmd', 'pi.exe', 'pi.ps1'],
   hermes: ['hermes', 'hermes.cmd', 'hermes.exe', 'hermes.ps1'],
+  qoder: [
+    'qodercli',
+    'qodercli.exe',
+    'qodercli.cmd',
+    'qodercli.ps1',
+    'qoder',
+    'qoder.cmd',
+    'qoder.ps1',
+  ],
+  muse: ['muse', 'muse.cmd', 'muse.exe', 'muse.ps1'],
+  deepseek: ['dsh', 'dsh.cmd', 'dsh.exe', 'dsh.ps1'],
   'ari-core': [],
 }
 
@@ -88,6 +99,16 @@ export function findBinaries(kind: DriverKind, env: DetectEnvironment): string[]
       : BINARY_NAMES[kind]
   const searchDirs = [
     ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
+    ...(kind === 'qoder'
+      ? [
+          join(env.homeDir, '.qoder', 'bin', 'qodercli'),
+          join(env.homeDir, '.qoder', 'bin'),
+          join(env.homeDir, '.qoder', 'entry'),
+        ]
+      : []),
+    ...(kind === 'muse' && env.platform === 'win32' && env.localAppData
+      ? [join(env.vars?.['MUSE_INSTALL_DIR'] ?? join(env.localAppData, 'Programs', 'muse'))]
+      : []),
     ...wellKnownDirs(env),
   ]
   const found: string[] = []
@@ -109,7 +130,16 @@ export function findBinaries(kind: DriverKind, env: DetectEnvironment): string[]
       break
     }
   }
-  return found
+  // Qoder's IDE and coding CLI can both provide a `qoder` launcher. The
+  // unambiguous coding CLI wins over a dispatcher; a user-pinned path still
+  // wins in detectDriver. Do not discover the IDE's generic qoder.exe.
+  return kind === 'qoder'
+    ? found.sort(
+        (a, b) =>
+          Number(!/^qodercli(?:\.|$)/i.test(basename(a))) -
+          Number(!/^qodercli(?:\.|$)/i.test(basename(b))),
+      )
+    : found
 }
 
 /**
@@ -297,6 +327,7 @@ function authCandidates(kind: DriverKind, env: DetectEnvironment): string[] {
 export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthProbe {
   if (kind === 'ari-core') return authenticated
   if (kind === 'grok' && envVar(env, 'XAI_API_KEY') !== null) return authenticated
+  if (kind === 'qoder' && envVar(env, 'QODER_PERSONAL_ACCESS_TOKEN') !== null) return authenticated
   const candidates = authCandidates(kind, env)
   if (candidates.some((c) => existsSync(c))) return authenticated
   switch (kind) {

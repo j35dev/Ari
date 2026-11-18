@@ -1,4 +1,5 @@
 import type { Readable, Writable } from 'node:stream'
+import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { explainExitCode } from '../exit-codes'
 import { spawnCli } from '../spawn-cli'
@@ -41,6 +42,11 @@ export interface AcpLaunch {
   env?: Record<string, string>
   /** True when the agent rides `npx -y <pkg>` — enables npm exit decoding. */
   viaNpx?: boolean
+  /** Native runtimes whose sandbox boundary is fixed at process launch. */
+  permissionModeEnv?: Partial<Record<PermissionMode, Record<string, string>>>
+  permissionModeArgs?: Partial<Record<PermissionMode, string[]>>
+  /** Applied only to an authorized workspace session, never background probes. */
+  sessionArgs?: string[]
 }
 
 /** Structural child surface the connection needs; real spawns satisfy it. */

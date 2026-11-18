@@ -348,7 +348,7 @@ describe('SettingsStore', () => {
     expect((await new SettingsStore({ dir }).load()).providers.grok.enabled).toBe(false)
   })
 
-  it('reads a settings file written before providers existed as all on', async () => {
+  it('reads a settings file written before providers existed with only the four default providers enabled', async () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(
       join(dir, 'settings.json'),
@@ -357,16 +357,23 @@ describe('SettingsStore', () => {
     )
     const loaded = await new SettingsStore({ dir }).load()
     expect(loaded.notifications.settleSound).toBe(false)
-    expect(Object.values(loaded.providers).every((c) => c.enabled && c.binaryPath === '')).toBe(
-      true,
-    )
+    expect(Object.values(loaded.providers).every((c) => c.binaryPath === '')).toBe(true)
+    expect(
+      Object.entries(loaded.providers)
+        .filter(([, connection]) => connection.enabled)
+        .map(([kind]) => kind)
+        .sort(),
+    ).toEqual(['claude', 'codex', 'grok', 'opencode'])
     expect(Object.keys(loaded.providers).sort()).toEqual([
       'claude',
       'codex',
+      'deepseek',
       'grok',
       'hermes',
+      'muse',
       'opencode',
       'pi',
+      'qoder',
     ])
   })
 

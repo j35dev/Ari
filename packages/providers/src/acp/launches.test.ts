@@ -144,6 +144,31 @@ describe('resolveAcpLaunch', () => {
     expect(grok?.args).toEqual(['agent', 'stdio'])
   })
 
+  it.each([
+    ['qoder', '/opt/qodercli', ['--acp']],
+    ['muse', '/opt/muse', ['acp']],
+    ['deepseek', '/opt/dsh', ['--profile', 'acp']],
+  ] as const)('launches %s through its native ACP command without npx', (kind, command, args) => {
+    const launch = resolveAcpLaunch(kind, { cliBinaryPath: command }, ENV)
+    expect(launch).toMatchObject({ label: `${kind} (native ACP)`, command, args })
+    expect(probeLaunch(launch!)).toEqual(launch)
+    expect(describeTransport(kind, command, ENV)).toMatchObject({ mode: 'acp' })
+  })
+
+  it('reports ACP-only transports unavailable when ACP is disabled', () => {
+    process.env['ARI_ACP_QODER'] = '0'
+    try {
+      expect(resolveAcpLaunch('qoder', { cliBinaryPath: '/opt/qodercli' }, ENV)).toBeNull()
+      expect(describeTransport('qoder', '/opt/qodercli', ENV)).toMatchObject({
+        mode: 'acp',
+        available: false,
+        label: 'ACP unavailable',
+      })
+    } finally {
+      delete process.env['ARI_ACP_QODER']
+    }
+  })
+
   it('uses the detected Codex for both ACP sessions and background probes', async () => {
     const npxPath = await makeFakeNpx()
     const cliBinaryPath = join(dirname(npxPath), 'CLI with spaces', 'codex.cmd')

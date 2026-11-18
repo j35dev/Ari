@@ -40,12 +40,79 @@ function replyWith(method: string, value: unknown): void {
 }
 
 describe('ModelSelector', () => {
+  it.each([
+    ['qoder', 'Qoder'],
+    ['muse', 'Muse Code'],
+    ['deepseek', 'DeepSeek Harness'],
+  ] as const)('selects the live catalog from %s', async (kind, label) => {
+    replyWith('providers.detect', [
+      {
+        kind,
+        installed: true,
+        enabled: true,
+        authStatus: 'unknown',
+        transport: { available: true },
+      },
+    ])
+    replyWith('providers.models', [
+      { kind, source: 'live', models: [{ id: 'native-model', label: 'Native model' }] },
+    ])
+    const { onChange } = setup(kind, null)
+    await userEvent.click(await screen.findByRole('button', { name: /model:/i }))
+    expect(
+      within(await screen.findByRole('presentation', { name: 'Providers' })).getByText(label),
+    ).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('option', { name: /Native model/ }))
+    expect(onChange).toHaveBeenCalledWith({ driverKind: kind, modelId: 'native-model' })
+  })
+
+  it('keeps newly enabled optional providers empty until their live catalog arrives', async () => {
+    replyWith('providers.detect', [
+      { kind: 'qoder', installed: true, enabled: true, authStatus: 'unknown' },
+    ])
+    replyWith('providers.models', [{ kind: 'qoder', source: 'live', models: [] }])
+    setup('qoder', null)
+    await userEvent.click(await screen.findByRole('button', { name: /model:/i }))
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+  })
+
+  it('withholds an installed ACP-only provider when its transport is unavailable', async () => {
+    replyWith('providers.detect', [
+      { kind: 'claude', installed: true, authStatus: 'authenticated' },
+      {
+        kind: 'muse',
+        installed: true,
+        authStatus: 'unknown',
+        transport: { available: false, note: 'ACP is disabled.' },
+      },
+    ])
+    setup()
+    await userEvent.click(await screen.findByRole('button', { name: /model:/i }))
+    expect(screen.queryByText('Muse Code', { selector: 'button' })).toBeNull()
+    expect(await screen.findByText(/ACP is disabled/)).toBeInTheDocument()
+  })
   it('uses the host catalog without local provider or endpoint probes', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
-    render(<ModelSelector driverKind="codex" modelId="host-model" onChange={onChange}
-      hostCatalog={{ providers: [{ driverKind: 'codex', installed: true, available: true,
-        authStatus: 'authenticated', source: 'live', models: [{ id: 'host-model', label: 'Host model' }] }] }} />)
+    render(
+      <ModelSelector
+        driverKind="codex"
+        modelId="host-model"
+        onChange={onChange}
+        hostCatalog={{
+          providers: [
+            {
+              driverKind: 'codex',
+              installed: true,
+              available: true,
+              authStatus: 'authenticated',
+              source: 'live',
+              models: [{ id: 'host-model', label: 'Host model' }],
+            },
+          ],
+        }}
+      />,
+    )
     await user.click(await screen.findByRole('button', { name: /model:/i }))
     expect(await screen.findByRole('option', { name: /Host model/ })).toBeInTheDocument()
     expect(rpcMocks.invoke).not.toHaveBeenCalled()
@@ -53,12 +120,21 @@ describe('ModelSelector', () => {
   })
 
   it('waits for a remote catalog without substituting bundled or local models', async () => {
-    render(<ModelSelector driverKind="codex" modelId={null} onChange={vi.fn()} hostCatalog={null} />)
+    render(
+      <ModelSelector driverKind="codex" modelId={null} onChange={vi.fn()} hostCatalog={null} />,
+    )
     expect(rpcMocks.invoke).not.toHaveBeenCalled()
     expect(rpcMocks.subscribe).not.toHaveBeenCalled()
   })
   it('names a known model on the chip while a host catalog is still loading', () => {
-    render(<ModelSelector driverKind="codex" modelId="gpt-6.1-sol" onChange={vi.fn()} hostCatalog={null} />)
+    render(
+      <ModelSelector
+        driverKind="codex"
+        modelId="gpt-6.1-sol"
+        onChange={vi.fn()}
+        hostCatalog={null}
+      />,
+    )
     const chip = screen.getByRole('button', { name: /^Model:/ })
     expect(chip).toHaveTextContent('GPT-6.1 Sol')
     expect(chip).not.toHaveTextContent('gpt-6.1-sol')

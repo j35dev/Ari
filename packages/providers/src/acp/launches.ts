@@ -64,6 +64,14 @@ const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
   opencode: ['acp', '--print-logs', '--log-level', 'ERROR'],
   hermes: ['acp'],
   grok: ['agent', 'stdio'],
+  qoder: ['--acp'],
+  muse: ['acp'],
+  deepseek: ['--profile', 'acp'],
+}
+
+/** These runtimes use ACP exclusively in Ari; no one-shot driver is substituted. */
+export function isAcpOnlyKind(kind: DriverKind): boolean {
+  return kind === 'qoder' || kind === 'muse' || kind === 'deepseek'
 }
 
 /**
@@ -256,7 +264,26 @@ export function resolveAcpLaunch(
 
   const args = NATIVE_ACP_ARGS[kind]
   if (args !== undefined) {
-    return { label: `${kind} (native ACP)`, command: options.cliBinaryPath, args }
+    return {
+      label: `${kind} (native ACP)`,
+      command: options.cliBinaryPath,
+      args,
+      ...(kind === 'deepseek'
+        ? {
+            permissionModeEnv: {
+              ask: { DSH_PERMISSION_MODE: 'workspace-write' },
+              'allow-edits': { DSH_PERMISSION_MODE: 'workspace-write' },
+              full: { DSH_PERMISSION_MODE: 'danger-full-access' },
+            },
+          }
+        : {}),
+      ...(kind === 'muse'
+        ? {
+            sessionArgs: ['--trust-workspace'],
+            permissionModeArgs: { full: ['--disable-sandbox'] },
+          }
+        : {}),
+    }
   }
   return null
 }
@@ -273,6 +300,14 @@ export function describeTransport(
 ): ProviderTransport {
   const launch = resolveAcpLaunch(kind, { cliBinaryPath }, detectEnv)
   if (launch === null) {
+    if (isAcpOnlyKind(kind)) {
+      return {
+        mode: 'acp',
+        label: 'ACP unavailable',
+        available: false,
+        note: 'This provider requires ACP. Enable its ACP transport to use it in Ari.',
+      }
+    }
     const needsNpx = NPM_ADAPTERS[kind] !== undefined && findNpxCommand(detectEnv) === null
     return {
       mode: 'cli',

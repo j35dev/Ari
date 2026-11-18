@@ -26,7 +26,15 @@ type ConfigFile = RpcResults['providers.configFiles']['files'][number]
  * process is the authority — an agent with no mapping answers with an empty
  * file list — but the picker needs names before any call returns.
  */
-const CONFIGURABLE: DriverKind[] = ['pi', 'claude', 'codex', 'opencode', 'grok', 'ari-core']
+const CONFIGURABLE: DriverKind[] = [
+  'pi',
+  'claude',
+  'codex',
+  'opencode',
+  'grok',
+  'qoder',
+  'ari-core',
+]
 
 const KIND_LABELS: Partial<Record<DriverKind, string>> = {
   pi: 'pi',
@@ -34,6 +42,7 @@ const KIND_LABELS: Partial<Record<DriverKind, string>> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   grok: 'Grok',
+  qoder: 'Qoder',
   'ari-core': 'Ari Core',
 }
 

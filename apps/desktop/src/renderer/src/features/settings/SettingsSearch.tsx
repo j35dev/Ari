@@ -21,7 +21,11 @@ export interface SettingsIndexEntry {
  * carry matching ids; until then clicks fall through harmlessly.
  */
 export const SETTINGS_SEARCH_INDEX = [
-  { section: 'settings-snapshots', label: 'SnapShots', keywords: 'screenshot capture window global shortcut attachment animation sound image' },
+  {
+    section: 'settings-snapshots',
+    label: 'SnapShots',
+    keywords: 'screenshot capture window global shortcut attachment animation sound image',
+  },
   {
     section: 'settings-experimental',
     label: 'Experimental Aria',
@@ -78,12 +82,14 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-providers',
     label: 'Detected providers',
-    keywords: 'claude codex opencode grok pi hermes detect rescan health install auth badge',
+    keywords:
+      'claude codex opencode grok pi hermes qoder muse code meta deepseek harness optional detect rescan health install auth badge',
   },
   {
     section: 'settings-providers',
     label: 'Turn providers on or off',
-    keywords: 'enable disable toggle hide agent model picker claude codex opencode grok pi hermes',
+    keywords:
+      'enable disable toggle hide agent model picker optional claude codex opencode grok pi hermes qoder muse code meta deepseek harness',
   },
   {
     section: 'settings-providers',
