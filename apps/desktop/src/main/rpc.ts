@@ -203,12 +203,12 @@ function acpProbeKinds(): DriverKind[] {
   // with it — probeAcpModels still skips the ACP fallback below.
   if (process.env['ARI_ACP'] === '0') return ['codex']
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
-    return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+    return ALL_CLI_KINDS
   }
   // Every kind with a real ACP transport: the probe reads the agent's own
   // model list (session config options), which is what keeps the picker
   // honest; the curated snapshot is only a first-paint fallback.
-  return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+  return ALL_CLI_KINDS
 }
 
 /**
@@ -374,7 +374,17 @@ async function probeEffortsForModel(
  * Every CLI kind probed by `providers.detect`, regardless of hydration state,
  * so the providers grid is complete even while drivers are still registering.
  */
-const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+const ALL_CLI_KINDS: DriverKind[] = [
+  'claude',
+  'codex',
+  'opencode',
+  'grok',
+  'pi',
+  'hermes',
+  'qoder',
+  'muse',
+  'deepseek',
+]
 /** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
 const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
 
@@ -818,8 +828,8 @@ const hydrateGenerations = new Map<DriverKind, number>()
  */
 function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]): void {
   const candidates: {
-    kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi' | 'hermes'
-    make: (bin: string) => Driver
+    kind: Exclude<DriverKind, 'ari-core'>
+    make?: (bin: string) => Driver
   }[] = [
     { kind: 'claude', make: (bin) => new ClaudeDriver(bin) },
     { kind: 'codex', make: (bin) => new CodexDriver(bin) },
@@ -827,6 +837,9 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
     { kind: 'grok', make: (bin) => new GrokDriver(bin) },
     { kind: 'pi', make: (bin) => new PiDriver(bin) },
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
+    { kind: 'qoder' },
+    { kind: 'muse' },
+    { kind: 'deepseek' },
   ]
   // Claimed before anything is awaited: a round already in flight for a kind
   // (the one from start-up, say) must lose to this one however long it takes.
@@ -855,11 +868,16 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
             cliBinaryPath: detection.binaryPath,
           })
+          const fallback = candidate.make?.(detection.binaryPath) ?? null
+          if (launch === null && fallback === null) {
+            registry.unregister(candidate.kind)
+            return
+          }
           registry.register(
             new AcpDriver(
               candidate.kind,
               launch,
-              candidate.make(detection.binaryPath),
+              fallback,
               (wall) => publishAuthWall(candidate.kind, wall),
               (session) => browserAcpServers(session),
             ),
@@ -867,7 +885,7 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
           log.info('driver registered', {
             kind: candidate.kind,
             version: detection.version,
-            transport: launch === null ? 'cli' : 'acp+fallback',
+            transport: launch === null ? 'cli' : fallback === null ? 'acp' : 'acp+fallback',
           })
         } catch (error) {
           log.error('driver detection failed', { kind: candidate.kind, error: String(error) })

@@ -14,10 +14,7 @@ built-in harness (**Ari Core**) that turns any OpenAI/Anthropic/Ollama-compatibl
 into a full coding agent. No accounts. No OAuth flows. No cloud middleman: sessions,
 journals and checkpoints live on your disk.
 
-
 <img width="1917" height="1015" alt="image" src="https://github.com/user-attachments/assets/4bfd4225-4628-4a35-bcb9-08db759068d9" />
-
-
 
 > Status: **pre-alpha, under active construction.**
 
@@ -40,31 +37,41 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 
 ## Features
 
-| Area | What you get |
-| --- | --- |
-| Agents | Claude Code, Codex, OpenCode, Grok, Pi, Hermes — auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core |
-| Terminals | Full-page pane workspace: binary splits, draggable/keyboard dividers, agent-CLI launcher, per-pane scrollback that survives remounts |
-| Sessions | Event-sourced journals, realtime streaming deltas, session resume, edit-and-resend |
-| References | `@file` mentions with a ranked popup; drag files from the explorer or Changes list straight into the prompt |
-| Review | Per-turn diffs, checkpoint list with per-turn revert, worktree status |
-| Ship | Stage → commit → push → PR in one flow |
-| Models | Cross-provider model picker with live catalogs, per-session lock after first turn |
-| Desktop | Command palette, prompt stash, usage dashboard (ccusage), file explorer with editor, theme engine |
-| Phone | Installable PWA that drives sessions from anywhere: prompts, queues, approvals with the provider's own choices, interruptions, live activity |
+| Area       | What you get                                                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes — auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                 |
+| Terminals  | Full-page pane workspace: binary splits, draggable/keyboard dividers, agent-CLI launcher, per-pane scrollback that survives remounts         |
+| Sessions   | Event-sourced journals, realtime streaming deltas, session resume, edit-and-resend                                                           |
+| References | `@file` mentions with a ranked popup; drag files from the explorer or Changes list straight into the prompt                                  |
+| Review     | Per-turn diffs, checkpoint list with per-turn revert, worktree status                                                                        |
+| Ship       | Stage → commit → push → PR in one flow                                                                                                       |
+| Models     | Cross-provider model picker with live catalogs, per-session lock after first turn                                                            |
+| Desktop    | Command palette, prompt stash, usage dashboard (ccusage), file explorer with editor, theme engine                                            |
+| Phone      | Installable PWA that drives sessions from anywhere: prompts, queues, approvals with the provider's own choices, interruptions, live activity |
 
 ## Supported agents
 
-| Agent | Transport | Notes |
-| --- | --- | --- |
-| Claude Code | ACP + CLI fallback | Detected via `claude` on PATH |
-| Codex CLI | App-server + CLI fallback | Detected via `codex` on PATH |
-| OpenCode | ACP + CLI fallback | |
-| Grok CLI | ACP + CLI fallback | |
-| Pi | ACP + CLI fallback | |
-| Hermes | ACP + CLI fallback | |
-| Ari Core | Direct harness | Any OpenAI/Anthropic/Ollama-compatible endpoint |
+| Agent            | Transport                        | Notes                                                            |
+| ---------------- | -------------------------------- | ---------------------------------------------------------------- |
+| Claude Code      | ACP + CLI fallback               | Detected via `claude` on PATH                                    |
+| Codex CLI        | App-server + CLI fallback        | Detected via `codex` on PATH                                     |
+| OpenCode         | ACP + CLI fallback               |                                                                  |
+| Grok CLI         | ACP + CLI fallback               |                                                                  |
+| Pi               | ACP + CLI fallback               |                                                                  |
+| Hermes           | ACP + CLI fallback               |                                                                  |
+| Qoder CLI        | Native ACP                       | Optional; uses the existing Qoder login                          |
+| Muse Code        | Native ACP                       | Optional; Muse account; upstream ACP is experimental             |
+| DeepSeek Harness | Native ACP (`dsh --profile acp`) | Optional; Node ≥ 24.9; model-provider credentials managed by DSH |
+| Ari Core         | Direct harness                   | Any OpenAI/Anthropic/Ollama-compatible endpoint                  |
 
-An agent you don't use simply stays unlisted — detection is passive and offline.
+Claude Code, Codex, Grok, and OpenCode are enabled by default. Enable Qoder, Muse Code,
+DeepSeek Harness, Pi, or Hermes in **Settings → Providers** when you want to use them.
+Optional providers have installer actions and executable-path settings. Existing saved
+enable/disable choices are preserved. Ari Core uses the API endpoints you add yourself.
+
+An agent you don't use stays out of the model picker; a disabled provider is never launched
+or probed. Native ACP providers reuse their own logins and discover models and reasoning
+levels from the installed runtime. Qoder uses `qoder login`; Muse uses `muse login`.
 
 ## Quick start
 
@@ -99,10 +106,10 @@ on the computer. Closing the phone changes nothing about the work.
 
 Two independent ways to reach the desktop; neither needs the other:
 
-| Mode | Setup | Needs an account |
-| --- | --- | --- |
-| Tailscale | Install Tailscale on both devices, then Settings → Remote → Enable, Enable Serve | No |
-| Ari Connect | An invitation to the hosted service, then Settings → Remote → Managed connection | Yes |
+| Mode        | Setup                                                                            | Needs an account |
+| ----------- | -------------------------------------------------------------------------------- | ---------------- |
+| Tailscale   | Install Tailscale on both devices, then Settings → Remote → Enable, Enable Serve | No               |
+| Ari Connect | An invitation to the hosted service, then Settings → Remote → Managed connection | Yes              |
 
 For the self-hosted path, the desktop publishes its gateway on your tailnet and
 serves the phone's app from that same address, so nothing leaves your devices.
@@ -143,15 +150,15 @@ signing env vars (`CSC_LINK` / `CSC_KEY_PASSWORD`) are picked up automatically w
 
 A pnpm monorepo of small, strict packages:
 
-| Package | Role |
-| --- | --- |
-| `@ari/contracts` | Zod schemas + typed RPC channel definitions — parse, don't validate twice |
-| `@ari/shared` | Result types, JSONL utilities, logger — the boring, load-bearing code |
-| `@ari/ui` | Design system: tokens, primitives, motion |
-| `@ari/providers` | Driver registry: ACP transports, CLI adapters, detection, model catalogs |
-| `@ari/engine` | Sessions, event-sourced journals, git service (diffs, checkpoints, worktrees) |
-| `@ari/ari-core` | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent |
-| `apps/desktop` | The Electron shell: sandboxed renderer, typed IPC, React UI |
+| Package          | Role                                                                            |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `@ari/contracts` | Zod schemas + typed RPC channel definitions — parse, don't validate twice       |
+| `@ari/shared`    | Result types, JSONL utilities, logger — the boring, load-bearing code           |
+| `@ari/ui`        | Design system: tokens, primitives, motion                                       |
+| `@ari/providers` | Driver registry: ACP transports, CLI adapters, detection, model catalogs        |
+| `@ari/engine`    | Sessions, event-sourced journals, git service (diffs, checkpoints, worktrees)   |
+| `@ari/ari-core`  | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent |
+| `apps/desktop`   | The Electron shell: sandboxed renderer, typed IPC, React UI                     |
 
 Design invariants worth knowing before you dig in:
 

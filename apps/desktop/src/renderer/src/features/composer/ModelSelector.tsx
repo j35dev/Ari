@@ -48,6 +48,11 @@ type CatalogByKind = Partial<Record<DriverKind, CatalogModelInfo[]>>
 /** Where each served catalog came from, so the picker can say when it is not the agent's own. */
 type SourcesByKind = Partial<Record<DriverKind, CatalogSource>>
 
+/** These optional harnesses supply their own models; no bundled catalog is assumed. */
+function bundledModels(kind: DriverKind) {
+  return kind === 'qoder' || kind === 'muse' || kind === 'deepseek' ? [] : modelsFor(kind)
+}
+
 /**
  * Names a non-`live` catalog for what it is. Only `live` is the agent's own
  * list of what it accepts; everything else is Ari's guess at it, which is
@@ -133,17 +138,36 @@ export function ModelSelector({
   const loadCatalogs = useCallback(() => {
     if (hostCatalog !== undefined) {
       const rows = hostCatalog?.providers ?? []
-      setDetections(rows.map((row) => ({
-        kind: row.driverKind, installed: row.installed ?? row.available === true,
-        authStatus: row.authStatus ?? 'unknown', enabled: row.available !== false,
-        authReason: row.reason ?? undefined,
-      })))
+      setDetections(
+        rows.map((row) => ({
+          kind: row.driverKind,
+          installed: row.installed ?? row.available === true,
+          authStatus: row.authStatus ?? 'unknown',
+          enabled: row.available !== false,
+          authReason: row.reason ?? undefined,
+        })),
+      )
       setCatalog(Object.fromEntries(rows.map((row) => [row.driverKind, row.models])))
       setSources(Object.fromEntries(rows.map((row) => [row.driverKind, row.source ?? 'live'])))
-      setAgentDefaults(Object.fromEntries(rows.filter((row) => row.defaultModelId).map((row) => [row.driverKind, row.defaultModelId!])))
-      setEndpointModels(rows.filter((row) => row.driverKind === 'ari-core').flatMap((row) => row.models.map((model) => ({
-        id: model.id, label: model.label, group: 'Ari Core', hint: model.contextHint,
-      }))))
+      setAgentDefaults(
+        Object.fromEntries(
+          rows
+            .filter((row) => row.defaultModelId)
+            .map((row) => [row.driverKind, row.defaultModelId!]),
+        ),
+      )
+      setEndpointModels(
+        rows
+          .filter((row) => row.driverKind === 'ari-core')
+          .flatMap((row) =>
+            row.models.map((model) => ({
+              id: model.id,
+              label: model.label,
+              group: 'Ari Core',
+              hint: model.contextHint,
+            })),
+          ),
+      )
       setLoaded(hostCatalog !== null)
       return
     }
@@ -215,7 +239,12 @@ export function ModelSelector({
       // The catalog is already scoped to what this CLI serves; when it is
       // genuinely empty fall back to the CLI's own default rather than nothing.
       const live = catalog[kind]
-      const list = hostCatalog !== undefined ? live ?? [] : live && live.length > 0 ? live : modelsFor(kind)
+      const list =
+        hostCatalog !== undefined
+          ? (live ?? [])
+          : live && live.length > 0
+            ? live
+            : bundledModels(kind)
       return list.map((model) => ({
         id: `${kind}:${model.id}`,
         label: model.label,
@@ -239,7 +268,12 @@ export function ModelSelector({
     if (driverKind === 'ari-core') return pick ?? ''
     if (pick === null) return `${driverKind}:`
     const live = catalog[driverKind]
-    const list = hostCatalog !== undefined ? live ?? [] : live && live.length > 0 ? live : modelsFor(driverKind)
+    const list =
+      hostCatalog !== undefined
+        ? (live ?? [])
+        : live && live.length > 0
+          ? live
+          : bundledModels(driverKind)
     return `${driverKind}:${resolveOfferedModel(pick, list) ?? pick}`
   }, [driverKind, modelId, agentDefaults, catalog, hostCatalog])
   const currentKindLabel = driverLabel(driverKind)
@@ -462,7 +496,7 @@ export function ModelSelector({
       const known =
         modelId === null
           ? undefined
-          : modelsFor(driverKind).find(
+          : bundledModels(driverKind).find(
               (model) => model.id === modelId || (model.aliases?.includes(modelId) ?? false),
             )
       return known ? splitRecommended(known.label).name : (modelId ?? currentKindLabel)

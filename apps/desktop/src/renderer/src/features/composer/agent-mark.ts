@@ -7,6 +7,9 @@ const DRIVER_LABEL: Record<DriverKind, string> = {
   grok: 'Grok',
   pi: 'Pi',
   hermes: 'Hermes',
+  qoder: 'Qoder',
+  muse: 'Muse Code',
+  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 
@@ -28,6 +31,7 @@ export function agentMark(kind: string): string {
 
 /** Map a picker group label back to a driver kind for the letter mark. */
 export function kindFromGroup(group: string): string {
-  if (group === 'Ari Core') return 'ari-core'
+  const known = Object.entries(DRIVER_LABEL).find(([, label]) => label === group)
+  if (known !== undefined) return known[0]
   return group.toLowerCase()
 }

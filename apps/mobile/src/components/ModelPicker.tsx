@@ -11,6 +11,9 @@ const names: Record<string, string> = {
   grok: 'Grok',
   pi: 'Pi',
   hermes: 'Hermes',
+  qoder: 'Qoder',
+  muse: 'Muse Code',
+  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 

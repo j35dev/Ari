@@ -75,7 +75,11 @@ export function OnboardingAgents({
   useEffect(() => {
     if (chose.current || detections === null) return
     const available = detections.filter(
-      (d) => d.installed && d.enabled !== false && d.kind !== 'ari-core',
+      (d) =>
+        d.installed &&
+        d.enabled !== false &&
+        d.transport?.available !== false &&
+        d.kind !== 'ari-core',
     )
     const candidate = available.find((d) => d.authStatus === 'authenticated') ?? available[0]
     const kind = driverKindSchema.safeParse(candidate?.kind)
@@ -188,7 +192,8 @@ export function OnboardingAgents({
             auth: auth[kind],
             install: installs[kind],
           })
-          const usable = detection?.installed === true && enabled
+          const usable =
+            detection?.installed === true && enabled && detection.transport?.available !== false
           const isSelected = selected === kind
           const isInstalling = installs[kind]?.outcome === null
           const failed = installs[kind]?.outcome
@@ -382,7 +387,10 @@ export function OnboardingAgents({
       )}
       {detections?.some(
         (d) =>
-          d.installed && d.enabled !== false && !['claude', 'codex', 'ari-core'].includes(d.kind),
+          d.installed &&
+          d.enabled !== false &&
+          d.transport?.available !== false &&
+          !['claude', 'codex', 'ari-core'].includes(d.kind),
       ) && (
         <div>
           <p className={`mb-2 ${sectionLabel}`}>Also found on this computer</p>
@@ -392,6 +400,7 @@ export function OnboardingAgents({
                 (d) =>
                   d.installed &&
                   d.enabled !== false &&
+                  d.transport?.available !== false &&
                   !['claude', 'codex', 'ari-core'].includes(d.kind),
               )
               .map((d) => (

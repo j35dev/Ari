@@ -63,6 +63,13 @@ export function providerStatus({
     }
     return { tone: 'quiet', headline: 'Not installed', detail: 'No CLI found on PATH.' }
   }
+  if (detection.transport?.available === false) {
+    return {
+      tone: 'error',
+      headline: 'Transport unavailable',
+      detail: detection.transport.note ?? 'The provider transport is unavailable.',
+    }
+  }
   if (auth?.result.status === 'auth-required') {
     return {
       tone: 'warning',
