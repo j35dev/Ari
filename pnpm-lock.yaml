@@ -94,12 +94,6 @@ importers:
       '@lydell/node-pty-win32-x64':
         specifier: 1.2.0-beta.15
         version: 1.2.0-beta.15
-      '@slack/socket-mode':
-        specifier: ^3.2.0
-        version: 3.2.0(undici@7.29.0)
-      '@slack/web-api':
-        specifier: ^8.4.0
-        version: 8.4.0
       '@tanstack/react-router':
         specifier: ^1.170.31
         version: 1.170.31(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -188,6 +182,12 @@ importers:
       '@ari/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@slack/socket-mode':
+        specifier: ^3.2.0
+        version: 3.2.0(undici@7.29.0)
+      '@slack/web-api':
+        specifier: ^8.4.0
+        version: 8.4.0
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
