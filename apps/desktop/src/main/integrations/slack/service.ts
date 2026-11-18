@@ -121,6 +121,7 @@ export class SlackService {
   #pumpTimer: ReturnType<typeof setTimeout> | undefined
   #pumping = false
   #refreshing: Promise<void> | null = null
+  #refreshFollowUp: Promise<void> | null = null
   #nextPostAt = 0
   #off: (() => void) | null = null
   #lifecycle: Promise<unknown> = Promise.resolve()
@@ -1060,7 +1061,17 @@ export class SlackService {
   }
 
   #refresh(): Promise<void> {
-    if (this.#refreshing) return this.#refreshing
+    if (this.#refreshing) {
+      const current = this.#refreshing
+      // The in-flight pass already read the session. One later pass applies this request.
+      this.#refreshFollowUp ??= current.finally(() => {
+        this.#refreshFollowUp = null
+        if (this.#refreshing === current) this.#refreshing = null
+        if (this.#closed) return
+        return this.#refresh()
+      })
+      return this.#refreshFollowUp
+    }
     const generation = this.#generation,
       revision = this.store.state.revision
     const operation = (async () => {
