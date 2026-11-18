@@ -490,6 +490,51 @@ describe('provider answers and outbound recovery', () => {
     expect(host.answers).toHaveLength(1)
   })
 
+  it('projects an approval that appears while a refresh is already reading the session', async () => {
+    await service.receive(mention('Ev1', 'approval task'))
+    await service.flush()
+    const read = host.view.bind(host)
+    let calls = 0
+    let release!: () => void
+    const gate = new Promise<void>((done) => {
+      release = done
+    })
+    host.view = (id, projectId) => {
+      calls += 1
+      if (calls === 1)
+        return read(id, projectId).then(async (snapshot) => {
+          await gate
+          return snapshot
+        })
+      return read(id, projectId)
+    }
+    const first = service.flush()
+    await vi.waitFor(() => expect(calls).toBe(1))
+    const view = host.sessions.get(host.creates[0]!)!
+    view.pending = [
+      {
+        kind: 'approval',
+        sessionId: view.sessionId,
+        turnId: view.activeTurnId!,
+        id: 'approval-one',
+        prompt: 'Run tests',
+        choicesJson: null,
+        available: true,
+        options: [{ optionId: 'allow-once-exact', name: 'Allow once', kind: 'allow_once' }],
+      },
+    ]
+    view.seq++
+    const second = service.flush()
+    for (let step = 0; step < 8; step++) await Promise.resolve()
+    expect(calls).toBe(1)
+    release()
+    await first
+    await second
+    expect(
+      Object.values(service.store.state.callbacks).some((callback) => callback.kind === 'approval'),
+    ).toBe(true)
+  })
+
   it('invalidates old buttons after an explicit reconnection', async () => {
     const callback = await approval()
     await service.configure({ ...config, botToken: undefined, appToken: undefined })
