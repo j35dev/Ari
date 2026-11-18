@@ -241,15 +241,13 @@ export function useSessionStart(options: {
   }
 
   // Toast actions outlive renders; always use the current shell callbacks.
-  const actions = useRef({ run, showRecovery, clearRecovery })
-  actions.current = { run, showRecovery, clearRecovery }
+  const actions = useRef({ run, clearRecovery })
+  actions.current = { run, clearRecovery }
   const canStart = useCallback((): boolean => {
     if (pendingRef.current) return false
-    const recovery = recoveryRef.current
-    if (recovery?.stage === 'create') {
-      actions.current.showRecovery(recovery)
-      return false
-    }
+    // A new-session action requests a fresh scope. Its predecessor keeps its
+    // receipt in the original draft, without blocking the new choice.
+    actions.current.clearRecovery()
     return true
   }, [])
   const start = useCallback(
@@ -262,11 +260,10 @@ export function useSessionStart(options: {
         intent?.dispose()
         return
       }
-      actions.current.clearRecovery()
       void actions.current.run({
         projectId,
         effective: { ...latest.current.defaults, ...overrides },
-        allowReuse: overrides?.driverKind === undefined,
+        allowReuse: false,
         intent: intent ?? latest.current.captureIntent(),
       })
     },
@@ -276,12 +273,12 @@ export function useSessionStart(options: {
     pending,
     canStart,
     createDraft: useCallback(async (projectId: string, overrides: Partial<SessionDefaults>): Promise<string> => {
-      if (!canStart()) throw new Error('Check the earlier session creation before starting another.')
-      actions.current.clearRecovery()
+      if (!canStart()) throw new Error('Another session is starting. Wait for it to finish.')
       const sessionId = await actions.current.run({
         projectId, effective: { ...latest.current.defaults, ...overrides },
-        allowReuse: (overrides.driverKind === undefined || overrides.driverKind === latest.current.defaults.driverKind) &&
-          !overrides.lead && overrides.workspaceMode !== 'isolated',
+        // An empty session can still own saved text, images, or a submission
+        // receipt. First Send from a new draft creates its own session scope.
+        allowReuse: false,
         intent: latest.current.captureIntent(), draft: true,
       })
       if (!sessionId) throw new Error('Session creation was not confirmed.')
