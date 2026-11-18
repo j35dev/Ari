@@ -67,10 +67,17 @@ export class AcpSessionPool {
     if (entry.connection.closed) return null
     if (entry.key !== key) {
       log.info('agent launch changed; starting a fresh connection', { ariSessionId })
-      void entry.connection.shutdown()
+      void this.#close(ariSessionId, entry).catch((error: unknown) =>
+        log.warn('changed agent launch shutdown failed', { ariSessionId, error: String(error) }),
+      )
       return null
     }
     return entry
+  }
+
+  /** A changed sandbox process must close before its session can be resumed. */
+  async waitForRelease(ariSessionId: string): Promise<void> {
+    await this.#closing.get(ariSessionId)
   }
 
   /** Parks a connection after its turn, routing its between-turn traffic. */

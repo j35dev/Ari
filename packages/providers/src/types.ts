@@ -55,6 +55,8 @@ export interface Detection {
 export interface ProviderTransport {
   /** `acp` when turns go through the Agent Client Protocol, `cli` for one-shot runs. */
   mode: 'acp' | 'cli'
+  /** False when an installed runtime has no usable transport in Ari. */
+  available?: boolean
   /** What is launched, e.g. the adapter package and version. */
   label: string
   /** Something about this pairing worth knowing, e.g. a bundled CLI standing in. */

@@ -47,6 +47,26 @@ beforeEach(() => {
 })
 
 describe('AgentConfigSettings', () => {
+  it('lists Qoder configuration from the backend without assuming its files', async () => {
+    mocks.invoke.mockImplementation(async (method: string, params?: { kind: string }) => {
+      if (method === 'providers.configFiles')
+        return params?.kind === 'qoder'
+          ? {
+              dir: '/custom/qoder',
+              files: [{ ...PI_FILES.files[0], path: '/custom/qoder/settings.json' }],
+            }
+          : PI_FILES
+      if (method === 'sessions.importable') return []
+      if (method === 'providers.extensionInventory') return { records: [], truncated: false }
+      throw new Error(`unexpected ${method}`)
+    })
+    render(<AgentConfigSettings />)
+    await screen.findByText('settings.json')
+    await userEvent.click(screen.getByRole('button', { name: 'Qoder' }))
+    expect(await screen.findByText('/custom/qoder')).toBeInTheDocument()
+    expect(mocks.invoke).toHaveBeenCalledWith('providers.configFiles', { kind: 'qoder' })
+    expect(screen.getByRole('button', { name: 'Edit settings.json' })).toBeInTheDocument()
+  })
   it("lists the selected agent's config files with their state", async () => {
     render(<AgentConfigSettings />)
     expect(await screen.findByText('settings.json')).toBeInTheDocument()

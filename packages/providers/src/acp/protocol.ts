@@ -69,6 +69,29 @@ export interface AcpConfigOptionValue {
   value?: string
   name?: string
   description?: string
+  /** ACP select options can group values by provider (DeepSeek Harness). */
+  group?: string
+  options?: AcpConfigOptionValue[]
+  /** Parent select group's display label, assigned while flattening. */
+  groupName?: string
+}
+
+/** Preserve each leaf's opaque wire value while removing presentation groups. */
+export function flattenConfigOptionValues(values: AcpConfigOptionValue[]): AcpConfigOptionValue[] {
+  const pending = [...values]
+    .reverse()
+    .map((value) => ({ value, groupName: undefined as string | undefined }))
+  const flattened: AcpConfigOptionValue[] = []
+  while (pending.length > 0) {
+    const entry = pending.pop()
+    const value = entry?.value
+    if (!value || typeof value !== 'object') continue
+    if (Array.isArray(value.options)) {
+      const groupName = value.name ?? value.group ?? entry?.groupName
+      pending.push(...[...value.options].reverse().map((value) => ({ value, groupName })))
+    } else flattened.push(entry?.groupName ? { ...value, groupName: entry.groupName } : value)
+  }
+  return flattened
 }
 
 /** Session configuration option (`select` flavor); booleans are ignored by Ari. */
@@ -176,9 +199,9 @@ export interface AcpInitializeResult {
       sse?: boolean
     }
     sessionCapabilities?: {
-      resume?: boolean
-      close?: boolean
-      list?: boolean
+      resume?: boolean | Record<string, unknown>
+      close?: boolean | Record<string, unknown>
+      list?: boolean | Record<string, unknown>
       [k: string]: unknown
     }
   }
@@ -351,6 +374,20 @@ export class AcpUpdateFolder {
   /** A turn starts on this folder (a reused connection's, too). */
   beginTurn(): void {
     this.#background.beginTurn()
+  }
+
+  /** Permission requests may reference an earlier tool announcement by id only. */
+  pendingToolCall(callId: string | undefined): AcpToolCallUpdate | undefined {
+    if (callId === undefined) return undefined
+    const call = this.#open.get(callId)
+    return call === undefined
+      ? undefined
+      : {
+          toolCallId: callId,
+          title: call.title,
+          kind: call.kind,
+          rawInput: call.rawInput,
+        }
   }
 
   /** The turn's last prompt returned with `stopReason`; ends its sub-agents. */

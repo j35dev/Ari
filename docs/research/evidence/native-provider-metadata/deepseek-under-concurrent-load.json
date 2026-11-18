@@ -1,0 +1,16 @@
+{
+  "kind": "deepseek",
+  "testedAt": "2026-11-18T06:37:02.958Z",
+  "inferenceCalls": 0,
+  "protocol": null,
+  "agentInfo": null,
+  "models": [],
+  "efforts": null,
+  "configOptions": [],
+  "resumedSameSession": false,
+  "error": {
+    "name": "AcpConnectionError",
+    "code": null,
+    "message": "deepseek (native ACP) initialization failed: deepseek (native ACP): initialize timed out after 45000ms"
+  }
+}
