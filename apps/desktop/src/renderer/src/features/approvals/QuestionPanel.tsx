@@ -19,9 +19,14 @@ import {
 const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
 
-/** One answer: a 32px row that grows only when a description wraps. */
+/**
+ * One answer: a 32px row that grows only when a description wraps. `shrink-0`
+ * because the list is a height-capped flex column: once wrapped options and the
+ * custom-answer box overflow it, flex-shrink squeezes each row back to its
+ * 32px minimum and the wrapped text spills over the rows below.
+ */
 const OPTION_ROW =
-  'flex min-h-8 w-full min-w-0 items-center rounded-md px-2.5 py-1 transition-colors'
+  'flex min-h-8 w-full min-w-0 shrink-0 items-center rounded-md px-2.5 py-1 transition-colors'
 
 /** The row as a button: number key, label, and a check once it is the answer. */
 const OPTION_BUTTON =

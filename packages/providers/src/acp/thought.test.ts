@@ -5,9 +5,34 @@ import {
   mergeEffortCatalogs,
   thoughtEffortsFromMeta,
   thoughtEffortsFromSession,
+  ACP_PROVIDER_DEFAULT_EFFORT,
 } from './thought'
 
 describe('findThoughtOption', () => {
+  it('represents an empty provider-default effort as a usable Ari selection', () => {
+    expect(
+      thoughtEffortsFromSession({
+        configOptions: [
+          {
+            id: 'reasoning_effort',
+            category: 'thought_level',
+            type: 'select',
+            currentValue: '',
+            options: [
+              { value: '', name: 'Provider default' },
+              { value: 'high', name: 'High' },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      currentId: ACP_PROVIDER_DEFAULT_EFFORT,
+      options: [
+        { id: ACP_PROVIDER_DEFAULT_EFFORT, label: 'Provider default' },
+        { id: 'high', label: 'High' },
+      ],
+    })
+  })
   it('prefers the spec thought_level category', () => {
     const option = findThoughtOption([
       { id: 'model', category: 'model', type: 'select', options: [{ value: 'm1' }] },

@@ -48,6 +48,7 @@ function pathSegments(binaryPath: string): string[] {
  * then be invoked with the wrong package name.
  */
 export function inferManager(binaryPath: string | null, kind: DriverKind): PackageManager {
+  if (kind === 'qoder' || kind === 'muse') return 'native'
   if (kind in NATIVE_SELF_UPGRADE) return 'native'
   if (!binaryPath) return NPM_PACKAGES[kind] ? 'npm' : 'native'
   const segments = pathSegments(binaryPath).map((s) => s.toLowerCase())
@@ -101,8 +102,32 @@ function brewFormula(pkg: string): string {
  * install or upgrade that CLI. Pure: no filesystem or process access, so the
  * confirm dialog can display the literal command before anything executes.
  */
-export function planFor(kind: DriverKind, binaryPath: string | null): InstallPlan | null {
+export function planFor(
+  kind: DriverKind,
+  binaryPath: string | null,
+  platform: NodeJS.Platform = process.platform,
+): InstallPlan | null {
   if (kind === 'ari-core') return null
+  if (kind === 'qoder' || kind === 'muse') {
+    const url = kind === 'qoder' ? 'https://qoder.com/install' : 'https://dev.meta.ai/install.sh'
+    const windowsUrl =
+      kind === 'qoder' ? 'https://qoder.com/install.ps1' : 'https://dev.meta.ai/install.ps1'
+    const installCommand =
+      platform === 'win32'
+        ? [
+            'powershell.exe',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            `Invoke-RestMethod '${windowsUrl}' | Invoke-Expression`,
+          ]
+        : ['bash', '-c', `curl -fsSL ${url} | bash`]
+    // Muse's native installer is repeatable; the same vendor command refreshes
+    // its installed runtime. Qoder also exposes its own update subcommand.
+    const upgradeCommand = kind === 'qoder' ? [binaryPath ?? 'qoder', 'update'] : installCommand
+    return { manager: 'native', installCommand, upgradeCommand, display: upgradeCommand.join(' ') }
+  }
   const manager = inferManager(binaryPath, kind)
   const pkg = NPM_PACKAGES[kind]
   if (manager !== 'native' && pkg) {

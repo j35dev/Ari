@@ -1,0 +1,144 @@
+{
+  "kind": "qoder",
+  "testedAt": "2026-11-18T06:29:03.777Z",
+  "inferenceCalls": 0,
+  "protocol": 1,
+  "agentInfo": {
+    "name": "qoder-cli",
+    "title": "Qoder CLI",
+    "version": "1.1.91"
+  },
+  "models": [
+    {
+      "id": "efficient",
+      "label": "Efficient (default)",
+      "description": "Vision · 0.00x Credit"
+    },
+    {
+      "id": "qmodel_latest",
+      "label": "Qwen4-Max",
+      "description": "Reasoning · Vision · New · 0.40x Credit"
+    },
+    {
+      "id": "qmodel_latest_preview",
+      "label": "Qwen4-Max-Preview",
+      "description": "Reasoning · Vision · New · 0.10x Credit"
+    },
+    {
+      "id": "qmodel_38max",
+      "label": "Qwen3.8-Max",
+      "description": "Reasoning · Vision · New · 0.50x Credit"
+    },
+    {
+      "id": "qfmodel",
+      "label": "Qwen3.8-Flash",
+      "description": "Reasoning · Vision · New · 0.10x Credit"
+    },
+    {
+      "id": "dmodel",
+      "label": "DeepSeek-V4-Pro",
+      "description": "Reasoning · Vision · New · 0.50x Credit"
+    },
+    {
+      "id": "dfmodel",
+      "label": "DeepSeek-Flash",
+      "description": "Reasoning · Vision · New · 0.10x Credit"
+    },
+    {
+      "id": "mmodel",
+      "label": "MiniMax-M3.1-Flash",
+      "description": "Reasoning · Vision · New · 0.10x Credit"
+    }
+  ],
+  "efforts": {
+    "currentId": null,
+    "options": []
+  },
+  "configOptions": [
+    {
+      "type": "select",
+      "id": "mode",
+      "name": "Mode",
+      "category": "mode",
+      "currentValue": "default",
+      "options": [
+        {
+          "value": "default",
+          "name": "Default",
+          "description": "Prompts for approval"
+        },
+        {
+          "value": "acceptEdits",
+          "name": "Accept Edits",
+          "description": "Auto-approves edit tools"
+        },
+        {
+          "value": "auto",
+          "name": "Auto",
+          "description": "Auto-approves via the safety classifier"
+        },
+        {
+          "value": "dontAsk",
+          "name": "Don't Ask",
+          "description": "Refuses instead of prompting"
+        },
+        {
+          "value": "yolo",
+          "name": "Bypass Permissions",
+          "description": "Auto-approves all tools"
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "currentValue": "auto",
+      "options": [
+        {
+          "value": "efficient",
+          "name": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "value": "qmodel_latest",
+          "name": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "value": "qmodel_latest_preview",
+          "name": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "value": "qmodel_38max",
+          "name": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "value": "qfmodel",
+          "name": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "value": "dmodel",
+          "name": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "value": "dfmodel",
+          "name": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "value": "mmodel",
+          "name": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ]
+    }
+  ],
+  "resumedSameSession": true,
+  "resumeAdvertised": true
+}

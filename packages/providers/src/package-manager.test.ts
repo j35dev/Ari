@@ -37,6 +37,37 @@ describe('inferManager', () => {
 })
 
 describe('planFor', () => {
+  it('uses vendor installers for native Qoder and Muse instead of guessing npm packages', () => {
+    expect(planFor('qoder', null, 'linux')?.installCommand).toEqual([
+      'bash',
+      '-c',
+      'curl -fsSL https://qoder.com/install | bash',
+    ])
+    expect(planFor('muse', null, 'win32')?.installCommand).toEqual([
+      'powershell.exe',
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "Invoke-RestMethod 'https://dev.meta.ai/install.ps1' | Invoke-Expression",
+    ])
+    expect(planFor('qoder', '/opt/qodercli', 'linux')?.upgradeCommand).toEqual([
+      '/opt/qodercli',
+      'update',
+    ])
+    const muse = planFor('muse', null, 'linux')
+    expect(muse?.upgradeCommand).toEqual(muse?.installCommand)
+  })
+  it('installs DeepSeek Harness through its verified npm package', () => {
+    expect(planFor('deepseek', null)?.installCommand).toEqual([
+      'npm',
+      'install',
+      '-g',
+      '--allow-scripts=@deepseek-ai/dsh',
+      '@deepseek-ai/dsh',
+    ])
+    expect(planFor('deepseek', '/opt/dsh')?.upgradeCommand.at(-1)).toBe('@deepseek-ai/dsh@latest')
+  })
   it('builds argv arrays, never shell strings', () => {
     const plan = planFor('codex', 'C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd')
     expect(plan?.installCommand).toEqual([

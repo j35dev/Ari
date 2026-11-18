@@ -59,6 +59,9 @@ const CLI_LABELS: Record<string, string> = {
   grok: 'Grok Build',
   pi: 'Pi',
   hermes: 'Hermes',
+  qoder: 'Qoder',
+  muse: 'Muse Code',
+  deepseek: 'DeepSeek Harness',
 }
 
 const KEYBOARD_HINTS = [

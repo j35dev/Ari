@@ -1,13 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  SETTINGS_SEARCH_INDEX,
-  SettingsSearch,
-  filterSettingsIndex,
-} from './SettingsSearch'
+import { SETTINGS_SEARCH_INDEX, SettingsSearch, filterSettingsIndex } from './SettingsSearch'
 
 describe('filterSettingsIndex', () => {
+  it.each(['qoder', 'muse', 'deepseek', 'optional'])(
+    'finds optional provider controls for %s',
+    (query) => {
+      expect(
+        filterSettingsIndex(query).some((entry) => entry.label === 'Turn providers on or off'),
+      ).toBe(true)
+    },
+  )
   it('returns every entry for an empty or blank query', () => {
     expect(filterSettingsIndex('')).toEqual(SETTINGS_SEARCH_INDEX)
     expect(filterSettingsIndex('   ')).toEqual(SETTINGS_SEARCH_INDEX)

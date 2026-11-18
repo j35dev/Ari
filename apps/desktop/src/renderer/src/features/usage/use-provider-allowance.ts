@@ -51,7 +51,9 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
       const detected = await rpc.invoke('providers.detect')
       if (current !== generation.current) return
       const kinds = detected
-        .filter((row) => row.installed)
+        .filter(
+          (row) => row.installed && row.enabled !== false && row.transport?.available !== false,
+        )
         .flatMap((row) => {
           const parsed = driverKindSchema.safeParse(row.kind)
           return parsed.success ? [parsed.data] : []
@@ -146,7 +148,14 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
         setRows((previous) =>
           previous.map((row) =>
             row.kind === changed
-              ? { kind: changed, status: 'unavailable', windows: [], updatedAt: null, checkedAt: 0, detail: '' }
+              ? {
+                  kind: changed,
+                  status: 'unavailable',
+                  windows: [],
+                  updatedAt: null,
+                  checkedAt: 0,
+                  detail: '',
+                }
               : row,
           ),
         )

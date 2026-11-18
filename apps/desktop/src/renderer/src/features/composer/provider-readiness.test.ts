@@ -23,6 +23,30 @@ const installedClaude = detection({
 const absentCodex = detection({ kind: 'codex' })
 
 describe('partitionProviders', () => {
+  it('withholds an installed ACP-only provider when its transport is unavailable', () => {
+    const { ready, withheld } = partitionProviders([
+      {
+        kind: 'qoder',
+        installed: true,
+        authStatus: 'authenticated',
+        transport: { available: false, note: 'ACP is disabled.' },
+      },
+    ])
+    expect(ready).toEqual([])
+    expect(withheld[0]?.reason).toBe('ACP is disabled.')
+  })
+
+  it('offers optional providers with an available transport', () => {
+    const { ready } = partitionProviders(
+      ['qoder', 'muse', 'deepseek'].map((kind) => ({
+        kind,
+        installed: true,
+        authStatus: 'unknown',
+        transport: { available: true },
+      })),
+    )
+    expect(ready.map((entry) => entry.kind)).toEqual(['qoder', 'muse', 'deepseek'])
+  })
   it('offers an installed, authenticated provider', () => {
     const { ready } = partitionProviders([installedClaude])
     expect(ready.map((d) => d.kind)).toEqual(['claude'])

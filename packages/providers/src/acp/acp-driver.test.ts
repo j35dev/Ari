@@ -10,8 +10,11 @@ import {
   describeAdvertisedModel,
   AcpDriver,
   launchWithEffort,
+  launchForSession,
+  modelsFromConfigOptions,
   pickAgentMode,
   publishAdvertisedModels,
+  sessionResumeSupported,
   shouldFallBack,
   systemInstructionsMeta,
   __resetLearnedAcpSelectors,
@@ -2395,6 +2398,16 @@ describe('pickAgentMode', () => {
 })
 
 describe('AcpDriver', () => {
+  it('keeps the original connection error for an ACP-only provider', async () => {
+    const driver = new AcpDriver(
+      'qoder',
+      { label: 'Qoder', command: 'ari-missing-qoder-bin', args: ['--acp'] },
+      null,
+    )
+    await expect(driver.create({ ...SESSION, workspacePath: process.cwd() })).rejects.toThrow(
+      /Qoder (?:failed to spawn|initialization failed)/,
+    )
+  })
   it('falls back to the legacy driver when no launch is available', async () => {
     const fallbackCreate = vi.fn(async (): Promise<ProviderAdapter> => ({
       start: () => ({ [Symbol.asyncIterator]: () => emptyIterator() }),
@@ -2441,6 +2454,231 @@ describe('AcpDriver', () => {
     expect(systemInstructionsMeta('claude', 'Note.')).toEqual({ systemPrompt: { append: 'Note.' } })
     expect(systemInstructionsMeta('claude', null)).toBeNull()
     expect(systemInstructionsMeta('codex', 'Note.')).toBeNull()
+  })
+})
+
+describe('object-shaped ACP session capabilities', () => {
+  it('accepts an object-shaped resume declaration as well as older boolean declarations', () => {
+    expect(
+      sessionResumeSupported({ agentCapabilities: { sessionCapabilities: { resume: {} } } }),
+    ).toBe(true)
+    expect(
+      sessionResumeSupported({ agentCapabilities: { sessionCapabilities: { resume: true } } }),
+    ).toBe(true)
+    expect(
+      sessionResumeSupported({ agentCapabilities: { sessionCapabilities: { resume: false } } }),
+    ).toBe(false)
+    expect(sessionResumeSupported({})).toBe(false)
+  })
+})
+
+describe('new ACP runtime compatibility', () => {
+  beforeEach(() => __resetLearnedAcpSelectors())
+  it('sends DeepSeek provider-default reasoning as its exact empty wire value', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/new')
+        return {
+          sessionId: 'dsh-default',
+          configOptions: [
+            {
+              id: 'reasoning_effort',
+              category: 'thought_level',
+              type: 'select',
+              currentValue: 'high',
+              options: [
+                { value: '', name: 'Provider default' },
+                { value: 'high', name: 'High' },
+              ],
+            },
+          ],
+        }
+      if (method === 'session/set_config_option') return {}
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, effort: 'provider-default' },
+      () => child,
+    )
+    for await (const _event of adapter.start()) {
+      /* drain */
+    }
+    expect(child.sent).toContainEqual(
+      expect.objectContaining({
+        method: 'session/set_config_option',
+        params: { sessionId: 'dsh-default', configId: 'reasoning_effort', value: '' },
+      }),
+    )
+    await adapter.dispose()
+  })
+  it('uses earlier DeepSeek tool metadata for id-only Allow edits requests', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+              sessionId: 's',
+              update: {
+                sessionUpdate: 'tool_call',
+                toolCallId: 'edit1',
+                title: 'Edit a file',
+                kind: 'edit',
+                status: 'pending',
+                rawInput: { path: '/w/file.txt' },
+              },
+            },
+          }) + '\n',
+        )
+        child.stdout.write(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'permit1',
+            method: 'session/request_permission',
+            params: {
+              sessionId: 's',
+              toolCall: { toolCallId: 'edit1' },
+              options: [
+                { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+                { optionId: 'reject-once', name: 'Reject once', kind: 'reject_once' },
+              ],
+            },
+          }) + '\n',
+        )
+        return { stopReason: 'end_turn' }
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'allow-edits' },
+      () => child,
+    )
+    const events: AgentEvent[] = []
+    for await (const event of adapter.start()) events.push(event)
+    expect(events.some((event) => event.type === 'approval-requested')).toBe(false)
+    expect(child.sent).toContainEqual({
+      jsonrpc: '2.0',
+      id: 'permit1',
+      result: { outcome: { outcome: 'selected', optionId: 'allow-once' } },
+    })
+    await adapter.dispose()
+  })
+  it('keeps grouped DeepSeek model wire values intact and sends the selected value', async () => {
+    const first = JSON.stringify(['deepseek-official', 'deepseek-v4-flash'])
+    const second = JSON.stringify(['custom', 'deepseek-v4-pro'])
+    const options = [
+      {
+        id: 'model',
+        category: 'model',
+        type: 'select',
+        currentValue: first,
+        options: [
+          {
+            group: 'deepseek-official',
+            name: 'DeepSeek',
+            options: [{ value: first, name: 'DeepSeek Flash' }],
+          },
+          { group: 'custom', name: 'Custom', options: [{ value: second, name: 'DeepSeek Pro' }] },
+        ],
+      },
+    ]
+    expect(modelsFromConfigOptions(options).map((model) => model.id)).toEqual([first, second])
+    expect(modelsFromConfigOptions(options).map((model) => model.label)).toEqual([
+      'DeepSeek / DeepSeek Flash',
+      'Custom / DeepSeek Pro',
+    ])
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') return { protocolVersion: 1 }
+      if (method === 'session/new') return { sessionId: 'dsh1', configOptions: options }
+      if (method === 'session/set_config_option') return { configOptions: options }
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      return {}
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: second }, () => child)
+    for await (const _event of adapter.start()) {
+      /* drain */
+    }
+    expect(child.sent).toContainEqual(
+      expect.objectContaining({
+        method: 'session/set_config_option',
+        params: { sessionId: 'dsh1', configId: 'model', value: second },
+      }),
+    )
+    await adapter.dispose()
+  })
+
+  it('uses Muse permission labels while preserving opaque option ids', async () => {
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') return { protocolVersion: 1 }
+      if (method === 'session/new')
+        return {
+          sessionId: 'muse1',
+          configOptions: [
+            {
+              id: 'approval',
+              category: 'mode',
+              type: 'select',
+              currentValue: 'c',
+              options: [
+                { value: 'a', name: 'Deny unmatched actions' },
+                { value: 'b', name: 'Allow all' },
+                { value: 'c', name: 'Ask before unmatched actions' },
+              ],
+            },
+          ],
+        }
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      return {}
+    })
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'full' },
+      () => child,
+    )
+    for await (const _event of adapter.start()) {
+      /* drain */
+    }
+    expect(child.sent).toContainEqual(
+      expect.objectContaining({
+        method: 'session/set_config_option',
+        params: { sessionId: 'muse1', configId: 'approval', value: 'b' },
+      }),
+    )
+    await adapter.dispose()
+  })
+
+  it('applies a runtime sandbox boundary without carrying Full into a limited turn', () => {
+    const dsh: AcpLaunch = {
+      label: 'deepseek (native ACP)',
+      command: 'dsh',
+      args: ['--profile', 'acp'],
+      permissionModeEnv: {
+        ask: { DSH_PERMISSION_MODE: 'workspace-write' },
+        full: { DSH_PERMISSION_MODE: 'danger-full-access' },
+      },
+    }
+    expect(launchForSession(dsh, { ...SESSION, permissionMode: 'full' }).env).toEqual({
+      DSH_PERMISSION_MODE: 'danger-full-access',
+    })
+    expect(launchForSession(dsh, SESSION).env).toEqual({ DSH_PERMISSION_MODE: 'workspace-write' })
+    const muse: AcpLaunch = {
+      label: 'muse (native ACP)',
+      command: 'muse',
+      args: ['acp'],
+      permissionModeArgs: { full: ['--disable-sandbox'] },
+    }
+    expect(launchForSession(muse, { ...SESSION, permissionMode: 'full' }).args).toEqual([
+      'acp',
+      '--disable-sandbox',
+    ])
+    expect(launchForSession(muse, SESSION).args).toEqual(['acp'])
+    expect(muse.args).toEqual(['acp'])
   })
 })
 

@@ -11,6 +11,12 @@ const ENV: DetectEnvironment = {
 }
 
 describe('providerConfigFiles', () => {
+  it('lists Qoder settings without exposing credential stores', () => {
+    const env = { ...ENV, vars: { QODER_CONFIG_DIR: '/custom/qoder' } }
+    expect(providerConfigDir('qoder', env)).toBe('/custom/qoder')
+    expect(providerConfigFiles('qoder', env).map((file) => file.id)).toEqual(['settings'])
+    expect(providerConfigFiles('qoder', env)[0]?.path).toBe(join('/custom/qoder', 'settings.json'))
+  })
   it("lists pi's settings, prompts, and models under the agent dir", () => {
     const files = providerConfigFiles('pi', ENV)
     expect(files.map((f) => f.id)).toEqual([

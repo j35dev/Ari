@@ -33,6 +33,45 @@ function makeEnv(overrides: Partial<DetectEnvironment> = {}): DetectEnvironment 
 }
 
 describe('findBinary', () => {
+  it('finds Qoder native CLI installs beyond PATH and prefers them over the dispatcher', async () => {
+    const homeDir = join(dir, 'home')
+    const cliDir = join(homeDir, '.qoder', 'bin', 'qodercli')
+    const entryDir = join(homeDir, '.qoder', 'entry')
+    await mkdir(cliDir, { recursive: true })
+    await mkdir(entryDir, { recursive: true })
+    await writeFileSafe(join(cliDir, 'qodercli.exe'), '')
+    await writeFileSafe(join(entryDir, 'qoder.cmd'), '')
+    const env = makeEnv({ platform: 'win32', homeDir, pathEnv: entryDir })
+    expect(findBinaries('qoder', env)).toEqual([
+      join(cliDir, 'qodercli.exe'),
+      join(entryDir, 'qoder.cmd'),
+    ])
+  })
+
+  it('does not mistake the Qoder IDE executable for the coding CLI', async () => {
+    const binDir = join(dir, 'ide-bin')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'qoder.exe'), '')
+    expect(findBinary('qoder', makeEnv({ platform: 'win32', pathEnv: binDir }))).toBeNull()
+  })
+
+  it('finds native Muse launchers on Windows', async () => {
+    const binDir = join(dir, 'muse-bin')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'muse.cmd'), '')
+    expect(findBinary('muse', makeEnv({ platform: 'win32', pathEnv: binDir }))).toBe(
+      join(binDir, 'muse.cmd'),
+    )
+  })
+
+  it('finds the DeepSeek Harness npm shim without confusing it with model providers', async () => {
+    const binDir = join(dir, 'dsh-bin')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'dsh.cmd'), '')
+    expect(findBinary('deepseek', makeEnv({ platform: 'win32', pathEnv: binDir }))).toBe(
+      join(binDir, 'dsh.cmd'),
+    )
+  })
   it('resolves a binary on PATH honoring extension priority', async () => {
     const binDir = join(dir, 'bin')
     await mkdir(binDir, { recursive: true })

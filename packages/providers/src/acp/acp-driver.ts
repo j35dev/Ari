@@ -24,7 +24,12 @@ import {
   replyPermissionChoice,
   replyPlanExit,
 } from './client-requests'
-import { findThoughtOption, looksLikeThoughtAxis, thoughtEffortsFromSession } from './thought'
+import {
+  ACP_PROVIDER_DEFAULT_EFFORT,
+  findThoughtOption,
+  looksLikeThoughtAxis,
+  thoughtEffortsFromSession,
+} from './thought'
 import type { EffortCatalog } from './thought'
 import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
@@ -45,6 +50,7 @@ import {
   AcpUpdateFolder,
   configOptionsFromUpdate,
   currentModelId,
+  flattenConfigOptionValues,
   stopReasonEvents,
 } from './protocol'
 import type {
@@ -159,6 +165,10 @@ export async function createAcpAdapter(
   }
 
   const onRequestPermission = (request: AcpRequestPermission): Promise<unknown> => {
+    request = {
+      ...request,
+      toolCall: { ...folder.pendingToolCall(request.toolCall?.toolCallId), ...request.toolCall },
+    }
     if (isQuestionPermission(request.options)) {
       const title = request.toolCall?.title ?? request.toolCall?.kind ?? 'Choose an option'
       const questions = questionsFromPermission(title, request.options)
@@ -264,7 +274,11 @@ export async function createAcpAdapter(
     return new Error(formatAcpSetupError(error), { cause: error })
   }
 
-  const effectiveLaunch = launchWithEffort(launch, session.effort ?? null)
+  const effectiveLaunch = launchForSession(launch, session)
+  const permissionEnv = launch.permissionModeEnv?.[session.permissionMode] ?? {}
+  const effectiveRuntimeEnv = session.runtimeEnv
+    ? { ...session.runtimeEnv, ...permissionEnv }
+    : undefined
   // A connection parked by this session's previous turn is reused when it was
   // started the same way: same command, folder, tools and environment.
   const poolKey = JSON.stringify([
@@ -272,11 +286,12 @@ export async function createAcpAdapter(
     effectiveLaunch.args,
     effectiveLaunch.env ?? null,
     session.workspacePath,
-    session.runtimeEnv ?? null,
+    effectiveRuntimeEnv ?? null,
     mcpServers,
     sessionMeta,
   ])
   const pooled = pool?.take(session.sessionId, poolKey) ?? null
+  if (!pooled) await pool?.waitForRelease(session.sessionId)
   if (pooled) {
     folder = pooled.folder
     // The engine ends what earlier turns left open; the folder starts over.
@@ -289,7 +304,7 @@ export async function createAcpAdapter(
     try {
       connection = await AcpConnection.connect({
         launch: effectiveLaunch,
-        ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
+        ...(effectiveRuntimeEnv ? { runtimeEnv: effectiveRuntimeEnv } : {}),
         cwd: session.workspacePath,
         ...(spawn !== undefined ? { spawn } : {}),
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
@@ -816,10 +831,16 @@ export async function createAcpAdapter(
  */
 export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): CatalogModel[] {
   const option = findModelOption(configOptions)
-  const values = option?.options ?? []
+  const values = flattenConfigOptionValues(option?.options ?? [])
   return values.flatMap((value) =>
     typeof value.value === 'string' && value.value.length > 0
-      ? [describeAdvertisedModel(value.value, value.name, value.description)]
+      ? [
+          describeAdvertisedModel(
+            value.value,
+            value.groupName ? `${value.groupName} / ${value.name ?? value.value}` : value.name,
+            value.description,
+          ),
+        ]
       : [],
   )
 }
@@ -928,7 +949,10 @@ export function describeAdvertisedModel(
 
 /** True when the agent advertised `session/resume` (no history replay). */
 export function sessionResumeSupported(initialize: AcpInitializeResult): boolean {
-  return initialize.agentCapabilities?.sessionCapabilities?.resume === true
+  const resume = initialize.agentCapabilities?.sessionCapabilities?.resume
+  return (
+    resume === true || (resume !== null && typeof resume === 'object' && !Array.isArray(resume))
+  )
 }
 
 /**
@@ -1101,7 +1125,7 @@ async function applyModel(
     log.debug('acp: requested model not advertised by agent', { modelId })
     return {
       kind: 'unavailable',
-      offered: option.options
+      offered: flattenConfigOptionValues(option.options)
         .map((v) => v.value)
         .filter((v): v is string => typeof v === 'string' && v.length > 0),
     }
@@ -1190,8 +1214,13 @@ async function applyPermissionMode(
 ): Promise<void> {
   const option = findModeOption(configOptions)
   if (option !== null && option.options !== undefined && option.id !== undefined) {
-    const candidates = option.options.map((value) => value.value)
-    const chosen = safePermissionTarget(candidates, mode)
+    const values = flattenConfigOptionValues(option.options)
+    const candidates = values.map((value) => value.value)
+    const chosen = safePermissionTarget(
+      candidates,
+      mode,
+      values.map((value) => value.name),
+    )
     if (chosen === null) return
     try {
       await connection.setConfigOption(sessionId, option.id, chosen)
@@ -1202,7 +1231,11 @@ async function applyPermissionMode(
     return
   }
   const candidates = availableModes.map((availableMode) => availableMode.id)
-  const chosen = safePermissionTarget(candidates, mode)
+  const chosen = safePermissionTarget(
+    candidates,
+    mode,
+    availableModes.map((availableMode) => availableMode.name),
+  )
   if (chosen === null) return
   try {
     await connection.setMode(sessionId, chosen)
@@ -1215,12 +1248,22 @@ async function applyPermissionMode(
 function safePermissionTarget(
   candidates: (string | undefined)[],
   mode: PermissionMode,
+  labels: (string | undefined)[] = [],
 ): string | null {
-  const chosen = pickAgentMode(candidates, mode)
+  // ACP ids are opaque. Muse's human labels carry the permission vocabulary
+  // even when ids such as `onRequest` do not. Return the exact id, not the label.
+  const vocabulary = candidates.map((candidate, index) =>
+    candidate === undefined ? undefined : `${candidate} ${labels[index] ?? ''}`.trim(),
+  )
+  const resolve = (target: PermissionMode): string | null => {
+    const picked = pickAgentMode(vocabulary, target)
+    return picked === null ? null : (candidates[vocabulary.indexOf(picked)] ?? null)
+  }
+  const chosen = resolve(mode)
   if (chosen !== null || mode === 'full') return chosen
-  const conservative = pickAgentMode(candidates, 'ask')
+  const conservative = resolve('ask')
   if (conservative !== null) return conservative
-  const hasPermissionMode = candidates.some(
+  const hasPermissionMode = vocabulary.some(
     (candidate) => typeof candidate === 'string' && classifyAgentMode(candidate) !== null,
   )
   if (hasPermissionMode) throw new Error(`ACP agent offers no safe mode for ${mode}`)
@@ -1249,11 +1292,15 @@ async function applyThoughtLevel(
   if (effort === null || effort.length === 0) return
   const option = findThoughtOption(configOptions)
   if (option !== null && option.id !== undefined) {
-    const advertised = option.options ?? []
-    if (advertised.length > 0 && !advertised.some((v) => v.value === effort)) {
+    const advertised = flattenConfigOptionValues(option.options ?? [])
+    const wireEffort =
+      effort === ACP_PROVIDER_DEFAULT_EFFORT && advertised.some((value) => value.value === '')
+        ? ''
+        : effort
+    if (advertised.length > 0 && !advertised.some((v) => v.value === wireEffort)) {
       throw new Error(`Reasoning effort ${effort} is not advertised by this model.`)
     }
-    await connection.setConfigOption(sessionId, option.id, effort)
+    await connection.setConfigOption(sessionId, option.id, wireEffort)
     return
   }
   const ids = availableModes
@@ -1276,6 +1323,23 @@ export function launchWithEffort(launch: AcpLaunch, effort: string | null): AcpL
   if (!/^grok\b/i.test(launch.label)) return launch
   if (launch.args.includes('--effort')) return launch
   return { ...launch, args: ['--effort', effort, ...launch.args] }
+}
+
+/** Apply the native sandbox boundary before starting or reusing an ACP process. */
+export function launchForSession(launch: AcpLaunch, session: AdapterSession): AcpLaunch {
+  const env = launch.permissionModeEnv?.[session.permissionMode]
+  const args = [
+    ...(launch.sessionArgs ?? []),
+    ...(launch.permissionModeArgs?.[session.permissionMode] ?? []),
+  ]
+  return launchWithEffort(
+    {
+      ...launch,
+      ...(env ? { env: { ...launch.env, ...env } } : {}),
+      ...(args.length > 0 ? { args: [...launch.args, ...args] } : {}),
+    },
+    session.effort ?? null,
+  )
 }
 
 /**
@@ -1400,7 +1464,7 @@ export class AcpDriver implements Driver {
         publishAdvertisedModels(this.kind, adapter.advertisedModels)
         return adapter
       } catch (error) {
-        if (!shouldFallBack(error)) throw error
+        if (this.fallback === null || !shouldFallBack(error)) throw error
         log.warn('ACP transport failed; using legacy CLI driver', {
           kind: this.kind,
           error: String(error instanceof Error ? error.message : error),

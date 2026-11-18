@@ -215,6 +215,19 @@ async function main(): Promise<void> {
     'document.querySelector("#field").value',
   )
   const afterInput = await state(a)
+  // The panel stays placed when Ari goes to the tray. Its page must keep
+  // responding to tools even though there is no visible native surface.
+  win.hide()
+  assert.deepEqual(
+    await state(a),
+    afterInput,
+    'placed browser stopped rendering with a hidden host',
+  )
+  assert.ok(
+    await browsers.screenshot('agent:a'),
+    'placed browser cannot be captured with a hidden host',
+  )
+  win.show()
   browsers.layout('agent:a', { x: 0, y: 0, width: 0, height: 0 }, false)
   assert.equal(page.getVisible(), false, 'hidden browser obscures shell')
   assert.deepEqual(await state(a), afterInput, 'hiding the browser reset the page')

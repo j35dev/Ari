@@ -49,6 +49,8 @@ export function providerConfigDir(
       return envVar(env, 'OPENCODE_CONFIG_DIR') ?? join(home, '.config', 'opencode')
     case 'grok':
       return envVar(env, 'GROK_HOME') ?? join(home, '.grok')
+    case 'qoder':
+      return envVar(env, 'QODER_CONFIG_DIR') ?? join(home, '.qoder')
     default:
       // hermes has no layout Ari has confirmed; ari-core is configured in Ari.
       return null
@@ -71,6 +73,16 @@ export function providerConfigFiles(
   ): ProviderConfigFile => ({ id, label, path: join(dir, name), format, description })
 
   switch (kind) {
+    case 'qoder':
+      return [
+        file(
+          'settings',
+          'settings.json',
+          'settings.json',
+          'json',
+          'Model defaults, permission rules, hooks, and MCP servers.',
+        ),
+      ]
     case 'pi':
       return [
         file(

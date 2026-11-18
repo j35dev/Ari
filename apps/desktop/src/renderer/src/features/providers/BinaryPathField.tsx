@@ -119,7 +119,9 @@ export function BinaryPathField({
           Could not open the file picker.
         </p>
       )}
-      {checking ? (
+      {off ? (
+        <p className={SETTINGS_HINT_CLASS}>Checked when you turn the provider on.</p>
+      ) : checking ? (
         <p className={SETTINGS_HINT_CLASS}>Checking…</p>
       ) : problem !== undefined ? (
         <p
@@ -129,11 +131,7 @@ export function BinaryPathField({
           {problem}
         </p>
       ) : custom ? (
-        <p className={SETTINGS_HINT_CLASS}>
-          {off
-            ? 'Checked when you turn the provider on.'
-            : 'Ari runs this file and does not search PATH.'}
-        </p>
+        <p className={SETTINGS_HINT_CLASS}>Ari runs this file and does not search PATH.</p>
       ) : found !== null ? (
         <p className={SETTINGS_HINT_CLASS}>Found on PATH.</p>
       ) : (

@@ -124,7 +124,8 @@ describe('provider allowance after an account switch', () => {
     invoke.mockImplementation(async (method: string, params?: { kind: string }) => {
       if (method === 'providers.detect')
         return ['codex', 'grok', 'claude'].map((kind) => ({ kind, installed: true }))
-      if (params?.kind === 'codex') return new Promise<ProviderAllowance>((resolve) => (answer = resolve))
+      if (params?.kind === 'codex')
+        return new Promise<ProviderAllowance>((resolve) => (answer = resolve))
       return sample(params?.kind ?? 'grok')
     })
     // An account merely added beside the one in use changes nothing here.
@@ -495,5 +496,18 @@ describe('provider allowance pill', () => {
       resolveOld([{ kind: 'pi', installed: true }])
     })
     expect(hook.result.current.rows.map((row) => row.kind)).toEqual(['codex', 'grok', 'claude'])
+  })
+
+  it('does not probe usage for disabled or transport-unavailable providers', async () => {
+    invoke.mockImplementationOnce(async () => [
+      { kind: 'codex', installed: true },
+      { kind: 'pi', installed: true, enabled: false },
+      { kind: 'muse', installed: true, transport: { available: false } },
+    ])
+    const hook = renderHook(() => useProviderAllowance('one', 'codex'))
+    await settle()
+    expect(hook.result.current.rows.map((row) => row.kind)).toEqual(['codex'])
+    expect(invoke).not.toHaveBeenCalledWith('providers.allowance', { kind: 'pi' })
+    expect(invoke).not.toHaveBeenCalledWith('providers.allowance', { kind: 'muse' })
   })
 })

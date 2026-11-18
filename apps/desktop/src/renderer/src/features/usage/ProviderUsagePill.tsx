@@ -25,6 +25,9 @@ const NAMES: Record<string, string> = {
   opencode: 'OpenCode',
   pi: 'Pi',
   hermes: 'Hermes',
+  qoder: 'Qoder',
+  muse: 'Muse Code',
+  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 
