@@ -6,6 +6,15 @@ import { ProviderLogo } from './provider-logo'
 const LOGO_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
 
 describe('ProviderLogo', () => {
+  it.each([
+    ['qoder', 'Q'],
+    ['muse', 'M'],
+    ['deepseek', 'D'],
+  ])('uses the established letter mark for %s', (kind, mark) => {
+    const { container } = render(<ProviderLogo kind={kind} />)
+    expect(container.querySelector('svg')).toBeNull()
+    expect(container.textContent).toBe(mark)
+  })
   it.each(LOGO_KINDS)('renders the vendor glyph for %s, not the letter fallback', (kind) => {
     const { container } = render(<ProviderLogo kind={kind} />)
     expect(container.querySelector('svg')).not.toBeNull()

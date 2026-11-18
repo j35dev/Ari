@@ -66,11 +66,25 @@ function isAuthWall(error: unknown): error is { logins: AcpTerminalLogin[] } {
 export function toLoginMethods(
   logins: AcpTerminalLogin[] | undefined,
   kind: DriverKind,
+  binaryPath?: string | null,
 ): ProviderLoginMethod[] {
   // The agent names the command; which account it signs in is decided by the
   // home it runs in, so that travels with it.
   const env = providerEnvironment(kind)
-  return (logins ?? []).map((login) => ({
+  const offered = logins?.length
+    ? logins
+    : kind === 'muse' && binaryPath
+      ? [
+          {
+            methodId: 'muse-cli-login',
+            name: 'Muse Code',
+            description: 'Sign in with Muse Code using the CLI device login.',
+            command: binaryPath,
+            args: ['login'],
+          },
+        ]
+      : []
+  return offered.map((login) => ({
     methodId: login.methodId,
     name: login.name,
     description: login.description,
@@ -87,7 +101,10 @@ export function toLoginMethods(
  * spawning a second adapter just to ask again.
  */
 export class ProviderAuthState {
-  readonly #walls = new Map<DriverKind, { label: string; logins: ProviderLoginMethod[]; at: number }>()
+  readonly #walls = new Map<
+    DriverKind,
+    { label: string; logins: ProviderLoginMethod[]; at: number }
+  >()
   readonly #probes = new Map<DriverKind, { result: AuthProbeResult; at: number }>()
   readonly #generations = new Map<DriverKind, number>()
   readonly #now: () => number
@@ -133,7 +150,11 @@ export class ProviderAuthState {
     return entry.result
   }
 
-  rememberProbe(kind: DriverKind, result: AuthProbeResult, generation = this.generation(kind)): void {
+  rememberProbe(
+    kind: DriverKind,
+    result: AuthProbeResult,
+    generation = this.generation(kind),
+  ): void {
     if (generation !== this.generation(kind)) return
     this.#probes.set(kind, { result, at: this.#now() })
   }
@@ -156,7 +177,18 @@ export async function probeProviderAuth(
   // A wall seen during a real turn outranks anything a probe could learn.
   const wall = state.wallFor(kind)
   if (wall !== null) {
-    return { status: 'auth-required', label: wall.label, logins: wall.logins }
+    const binaryPath =
+      kind === 'muse' && wall.logins.length === 0
+        ? (await deps.detections()).find(
+            (row) =>
+              row.kind === kind && row.enabled !== false && row.transport?.available !== false,
+          )?.binaryPath
+        : null
+    return {
+      status: 'auth-required',
+      label: wall.label,
+      logins: wall.logins.length ? wall.logins : toLoginMethods([], kind, binaryPath),
+    }
   }
 
   const detections = await deps.detections()
@@ -169,6 +201,21 @@ export async function probeProviderAuth(
         'Not installed — Ari cannot check the login until the CLI is present.',
     }
   }
+  if (detection.transport?.available === false) {
+    return {
+      status: 'unknown',
+      reason: detection.transport.note ?? 'This provider has no usable transport in Ari.',
+    }
+  }
+  // DSH opens local sessions without contacting the selected model provider.
+  // A successful ACP handshake cannot prove that provider's credentials work.
+  if (kind === 'deepseek') {
+    return {
+      status: 'unknown',
+      reason:
+        'DeepSeek Harness manages authentication for each model provider. Configure its provider credentials in dsh; ACP cannot verify them.',
+    }
+  }
 
   let connection: AuthProbeConnection | null
   try {
@@ -179,7 +226,7 @@ export async function probeProviderAuth(
       const result: AuthProbeResult = {
         status: 'auth-required',
         label: kind,
-        logins: toLoginMethods(error.logins, kind),
+        logins: toLoginMethods(error.logins, kind, detection.binaryPath),
       }
       state.rememberProbe(kind, result, generation)
       return result
@@ -214,6 +261,7 @@ export async function probeProviderAuth(
         logins: toLoginMethods(
           connection.terminalLogins.length > 0 ? connection.terminalLogins : error.logins,
           kind,
+          detection.binaryPath,
         ),
       }
       state.rememberProbe(kind, result, generation)
@@ -241,7 +289,7 @@ export async function resolveProviderLogins(
   state: ProviderAuthState,
 ): Promise<RpcResults['providers.login']> {
   const wall = state.wallFor(kind)
-  if (wall !== null) return { label: wall.label, logins: wall.logins }
+  if (wall !== null && wall.logins.length > 0) return { label: wall.label, logins: wall.logins }
   const probe = await probeProviderAuth(kind, deps, state)
   if (probe.status === 'auth-required') return { label: probe.label, logins: probe.logins }
   return { label: kind, logins: [] }

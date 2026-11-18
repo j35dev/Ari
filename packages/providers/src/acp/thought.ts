@@ -1,4 +1,5 @@
 import type { AcpConfigOption, AcpNewSessionResult } from './protocol'
+import { flattenConfigOptionValues } from './protocol'
 
 /**
  * One thought/reasoning level a harness advertised. `id` is the wire value
@@ -18,6 +19,9 @@ export interface EffortCatalog {
   currentId: string | null
   options: CatalogEffort[]
 }
+
+/** Nonempty Ari selection for ACP agents whose provider-default wire value is empty. */
+export const ACP_PROVIDER_DEFAULT_EFFORT = 'provider-default'
 
 const THOUGHT_CATEGORY = 'thought_level'
 const THOUGHT_NAME_RE = /thought|thinking|effort|reasoning/i
@@ -58,19 +62,28 @@ export function looksLikeThoughtAxis(values: (string | undefined)[]): boolean {
 
 function optionsOf(option: AcpConfigOption): CatalogEffort[] {
   const out: CatalogEffort[] = []
-  for (const value of option.options ?? []) {
-    if (typeof value.value !== 'string' || value.value.length === 0) continue
+  for (const value of flattenConfigOptionValues(option.options ?? [])) {
+    if (typeof value.value !== 'string') continue
     const label = typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value
     const description =
       typeof value.description === 'string' && value.description.length > 0
         ? value.description
         : undefined
-    out.push({ id: value.value, label, ...(description !== undefined ? { description } : {}) })
+    out.push({
+      id: value.value.length === 0 ? ACP_PROVIDER_DEFAULT_EFFORT : value.value,
+      label: label || 'Provider default',
+      ...(description !== undefined ? { description } : {}),
+    })
   }
   return out
 }
 
 function currentOf(option: AcpConfigOption): string | null {
+  if (
+    option.currentValue === '' &&
+    flattenConfigOptionValues(option.options ?? []).some((value) => value.value === '')
+  )
+    return ACP_PROVIDER_DEFAULT_EFFORT
   return typeof option.currentValue === 'string' && option.currentValue.length > 0
     ? option.currentValue
     : null

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProviderConnection } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
@@ -15,6 +15,7 @@ import { shortVersion } from './provider-status'
 import type { Detection, ProviderStatus } from './provider-status'
 import type { ProviderAuthEntry } from './use-provider-auth'
 import type { InstallState } from './use-provider-installs'
+import { rpc } from '../../lib/rpc'
 
 export interface ProviderEditorProps {
   kind: DriverKind
@@ -84,6 +85,25 @@ export function ProviderEditor({
   const on = connection?.enabled !== false
   const live = on && !checking && detection?.enabled !== false
   const installed = live && detection?.installed === true
+  const runnable = installed && detection?.transport?.available !== false
+  const builtIn = connection === null
+  const [managedInstall, setManagedInstall] = useState(false)
+
+  useEffect(() => {
+    if (builtIn || !on) return
+    let active = true
+    void rpc.invoke('providers.plan', { kind }).then(
+      (plan) => {
+        if (active) setManagedInstall(plan !== null)
+      },
+      () => {
+        if (active) setManagedInstall(false)
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [kind, on, builtIn])
 
   return (
     <div aria-label={`${name} settings`} role="group" className="flex min-w-0 flex-col">
@@ -138,7 +158,7 @@ export function ProviderEditor({
           <Section title="Connection">
             <BinaryPathField
               name={name}
-              command={kind}
+              command={kind === 'qoder' ? 'qodercli' : kind === 'deepseek' ? 'dsh' : kind}
               value={connection.binaryPath}
               detection={detection}
               checking={checking}
@@ -167,7 +187,7 @@ export function ProviderEditor({
             </Section>
           ) : (
             <>
-              {installed && (
+              {runnable && (
                 <ProviderAccounts kind={kind} name={name} onOpenTerminal={onOpenTerminal} />
               )}
               <Section title="Version">
@@ -216,11 +236,14 @@ export function ProviderEditor({
                     <Button size="sm" variant="ghost" onClick={onCancelInstall}>
                       Cancel
                     </Button>
-                  ) : installed && detection?.updateAvailable === true ? (
+                  ) : managedInstall && installed && detection?.updateAvailable === true ? (
                     <Button size="sm" onClick={onUpdate}>
                       Update
                     </Button>
-                  ) : live && detection?.installed === false && connection.binaryPath === '' ? (
+                  ) : managedInstall &&
+                    live &&
+                    detection?.installed === false &&
+                    connection.binaryPath === '' ? (
                     <Button size="sm" variant="secondary" onClick={onInstall}>
                       Install
                     </Button>
@@ -228,7 +251,7 @@ export function ProviderEditor({
                 </div>
               </Section>
 
-              {installed && (
+              {runnable && (
                 <Section title="Sign-in check">
                   {auth != null ? (
                     <ProviderSignIn

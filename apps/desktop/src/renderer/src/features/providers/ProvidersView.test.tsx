@@ -52,7 +52,8 @@ const DETECTIONS: Detection[] = [
     binaryPath: '/usr/local/bin/opencode',
     version: '0.4.2',
     authStatus: 'unknown',
-    authReason: 'No opencode auth.json found; opencode can also read provider keys from the environment.',
+    authReason:
+      'No opencode auth.json found; opencode can also read provider keys from the environment.',
     pathSource: 'auto',
     candidates: ['/usr/local/bin/opencode'],
   },
@@ -69,7 +70,16 @@ const DETECTIONS: Detection[] = [
     candidates: ['/usr/local/bin/pi'],
   },
   absent('hermes'),
-  { kind: 'ari-core', installed: true, binaryPath: null, version: null, authStatus: 'authenticated' },
+  { ...absent('qoder'), enabled: false },
+  { ...absent('muse'), enabled: false },
+  { ...absent('deepseek'), enabled: false },
+  {
+    kind: 'ari-core',
+    installed: true,
+    binaryPath: null,
+    version: null,
+    authStatus: 'authenticated',
+  },
 ]
 
 let detections: Detection[]
@@ -84,13 +94,15 @@ let answers: Record<string, unknown>
  */
 function captureSubscribers(): (payload: unknown) => void {
   const listeners: ((payload: unknown) => void)[] = []
-  subscribeFn.mockImplementation((_name: string, _params: unknown, cb: (payload: unknown) => void) => {
-    listeners.push(cb)
-    return () => {
-      const at = listeners.indexOf(cb)
-      if (at !== -1) listeners.splice(at, 1)
-    }
-  })
+  subscribeFn.mockImplementation(
+    (_name: string, _params: unknown, cb: (payload: unknown) => void) => {
+      listeners.push(cb)
+      return () => {
+        const at = listeners.indexOf(cb)
+        if (at !== -1) listeners.splice(at, 1)
+      }
+    },
+  )
   return (payload) => {
     act(() => {
       for (const listener of [...listeners]) listener(payload)
@@ -148,8 +160,16 @@ describe('ProvidersView', () => {
         return Promise.resolve(detections)
       }
       if (method in answers) return Promise.resolve(answers[method])
+      if (method === 'providers.plan')
+        return Promise.resolve({
+          manager: 'vendor',
+          installCommand: ['install'],
+          upgradeCommand: ['upgrade'],
+          display: 'Vendor CLI',
+        })
       // Accounts have their own tests; here no provider offers any.
-      if (method === 'providers.accounts') return Promise.resolve({ supported: false, accounts: [] })
+      if (method === 'providers.accounts')
+        return Promise.resolve({ supported: false, accounts: [] })
       return Promise.reject(new Error(`unexpected rpc: ${method}`))
     })
   })
@@ -164,7 +184,10 @@ describe('ProvidersView', () => {
 
     expect(within(rowFor('Codex')).getByText('Not installed')).toBeInTheDocument()
     expect(within(rowFor('OpenCode')).getByText('Installed')).toBeInTheDocument()
-    expect(within(rowFor('Pi')).getByText('Update available')).toBeInTheDocument()
+    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code', 'DeepSeek Harness']) {
+      expect(within(rowFor(name)).getByText('Off')).toBeInTheDocument()
+      expect(within(rowFor(name)).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
+    }
     // Ari Core is part of Ari: there is nothing to turn off.
     expect(within(rowFor('Ari Core')).queryByRole('switch')).toBeNull()
   })
@@ -181,9 +204,91 @@ describe('ProvidersView', () => {
     expect(within(editor).getByText('2.1.0 (Claude Code)')).toBeInTheDocument()
   })
 
+  it.each([
+    ['pi', 'Pi'],
+    ['hermes', 'Hermes'],
+    ['qoder', 'Qoder'],
+    ['muse', 'Muse Code'],
+    ['deepseek', 'DeepSeek Harness'],
+  ] as const)(
+    'enables optional %s from Settings and waits for a fresh detection',
+    async (kind, name) => {
+      const publish = captureSubscribers()
+      await renderLoaded()
+      const editor = await open(name)
+      expect(within(editor).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
+      expect(within(editor).queryByRole('button', { name: 'Install' })).toBeNull()
+      expect(invokeFn).not.toHaveBeenCalledWith('providers.plan', { kind })
+      await userEvent.click(within(editor).getByRole('switch', { name: `Enable ${name}` }))
+      expect(invokeFn).toHaveBeenCalledWith('settings.update', {
+        providers: { [kind]: { enabled: true } },
+      })
+      expect(await within(rowFor(name)).findByText('Checking')).toBeInTheDocument()
+      expect(settings.providers[kind].enabled).toBe(true)
+      publish({
+        type: 'detections',
+        checked: [kind],
+        detections: DETECTIONS.map((entry) =>
+          entry.kind === kind ? { ...absent(kind), enabled: true } : entry,
+        ),
+      })
+      expect(await within(rowFor(name)).findByText('Not installed')).toBeInTheDocument()
+      expect(within(editor).getByRole('switch', { name: `Enable ${name}` })).toBeChecked()
+    },
+  )
+
+  it('uses optional defaults when an older settings response has no connection', async () => {
+    for (const kind of ['pi', 'hermes', 'qoder', 'muse', 'deepseek'])
+      Reflect.deleteProperty(settings.providers, kind)
+    await renderLoaded()
+    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code', 'DeepSeek Harness']) {
+      expect(within(rowFor(name)).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
+    }
+  })
+
+  it('offers an install only when the backend supplies a plan', async () => {
+    settings.providers.muse.enabled = true
+    detections = DETECTIONS.map((entry) => (entry.kind === 'muse' ? absent('muse') : entry))
+    answers['providers.plan'] = null
+    await renderLoaded()
+    const editor = await open('Muse Code')
+    await waitFor(() => expect(invokeFn).toHaveBeenCalledWith('providers.plan', { kind: 'muse' }))
+    expect(within(editor).queryByRole('button', { name: 'Install' })).toBeNull()
+    expect(within(editor).getByLabelText('Binary path')).toHaveAttribute('placeholder', 'muse')
+    expect(invokeFn).not.toHaveBeenCalledWith('providers.install', expect.anything())
+  })
+
+  it('explains an installed optional provider whose transport is disabled', async () => {
+    settings.providers.qoder.enabled = true
+    detections = DETECTIONS.map((entry) =>
+      entry.kind === 'qoder'
+        ? {
+            ...CLAUDE,
+            kind: 'qoder',
+            binaryPath: '/tools/qodercli',
+            transport: {
+              mode: 'acp',
+              label: 'Native ACP',
+              available: false,
+              note: 'ACP is disabled for this session.',
+            },
+          }
+        : entry,
+    )
+    await renderLoaded()
+    const editor = await open('Qoder')
+    expect(within(rowFor('Qoder')).getByText('Transport unavailable')).toBeInTheDocument()
+    expect(within(editor).getByText('Native ACP')).toBeInTheDocument()
+    expect(within(editor).getAllByText(/ACP is disabled/).length).toBeGreaterThan(0)
+    expect(within(editor).queryByRole('button', { name: /Check sign-in/ })).toBeNull()
+    expect(invokeFn).not.toHaveBeenCalledWith('providers.accounts', { kind: 'qoder' })
+  })
+
   it('opens on the provider that needs the user', async () => {
     detections = DETECTIONS.map((d) =>
-      d.kind === 'opencode' ? { ...d, authStatus: 'unauthenticated', authReason: 'Run opencode auth login.' } : d,
+      d.kind === 'opencode'
+        ? { ...d, authStatus: 'unauthenticated', authReason: 'Run opencode auth login.' }
+        : d,
     )
     await renderLoaded()
 
@@ -213,7 +318,9 @@ describe('ProvidersView', () => {
     const publish = captureSubscribers()
     settings.providers.claude.enabled = false
     detections = DETECTIONS.map((d) =>
-      d.kind === 'claude' ? { ...absent('claude'), enabled: false, candidates: CLAUDE.candidates } : d,
+      d.kind === 'claude'
+        ? { ...absent('claude'), enabled: false, candidates: CLAUDE.candidates }
+        : d,
     )
     await renderLoaded()
     expect(within(rowFor('Claude')).getByText('Off')).toBeInTheDocument()
@@ -245,14 +352,18 @@ describe('ProvidersView', () => {
           : d,
       ),
     })
-    expect(await within(editor).findByRole('alert')).toHaveTextContent('No file exists at this path.')
+    expect(await within(editor).findByRole('alert')).toHaveTextContent(
+      'No file exists at this path.',
+    )
     expect(path).toHaveAttribute('aria-invalid', 'true')
     expect(within(rowFor('Codex')).getByText('Path not usable')).toBeInTheDocument()
     // Installing would not fix a path the user chose; clearing it would.
     expect(within(editor).queryByRole('button', { name: 'Install' })).toBeNull()
 
     await userEvent.click(within(editor).getByRole('button', { name: 'Reset' }))
-    expect(invokeFn).toHaveBeenCalledWith('settings.update', { providers: { codex: { binaryPath: '' } } })
+    expect(invokeFn).toHaveBeenCalledWith('settings.update', {
+      providers: { codex: { binaryPath: '' } },
+    })
   })
 
   it('keeps waiting when a round about another provider reports first', async () => {
@@ -326,20 +437,26 @@ describe('ProvidersView', () => {
     })
 
     // Going back to the first one on PATH means going back to automatic.
-    await userEvent.click(await within(editor).findByRole('button', { name: 'Use /opt/native/claude' }))
+    await userEvent.click(
+      await within(editor).findByRole('button', { name: 'Use /opt/native/claude' }),
+    )
     expect(invokeFn).toHaveBeenLastCalledWith('settings.update', {
       providers: { claude: { binaryPath: '' } },
     })
   })
 
   it('installs a missing provider and updates a stale one without a command dump', async () => {
+    settings.providers.pi.enabled = true
     answers['providers.install'] = { started: true }
     await renderLoaded()
 
     const codex = await open('Codex')
     expect(within(codex).queryByRole('button', { name: 'Update' })).toBeNull()
     await userEvent.click(within(codex).getByRole('button', { name: 'Install' }))
-    expect(invokeFn).toHaveBeenCalledWith('providers.install', { kind: 'codex', operation: 'install' })
+    expect(invokeFn).toHaveBeenCalledWith('providers.install', {
+      kind: 'codex',
+      operation: 'install',
+    })
     expect(await within(codex).findByText('Installing…')).toBeInTheDocument()
     expect(within(rowFor('Codex')).getByText('Installing')).toBeInTheDocument()
 
@@ -365,6 +482,7 @@ describe('ProvidersView', () => {
   })
 
   it('follows a detection round published after an update', async () => {
+    settings.providers.pi.enabled = true
     const publish = captureSubscribers()
     await renderLoaded()
 

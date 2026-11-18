@@ -91,6 +91,34 @@ const count = (child: Child, method: string): number =>
   child.sent.filter((message) => message.method === method).length
 
 describe('pooled ACP sessions', () => {
+  it('waits for the old sandbox process to exit before starting its replacement', async () => {
+    const pool = new AcpSessionPool()
+    const first = agent(standard)
+    const second = agent(standard)
+    let spawns = 0
+    const spawn = () => {
+      if (++spawns === 1) return first
+      expect(first.killed).toBe(true)
+      return second
+    }
+    const a = await createAcpAdapter(LAUNCH, SESSION, spawn, undefined, [], null, pool)
+    await drain(a)
+    await a.dispose()
+    first.stdin.removeAllListeners('end')
+    first.stdin.on('end', () => setTimeout(() => first.kill(), 50))
+    const b = await createAcpAdapter(
+      { ...LAUNCH, args: ['--disable-sandbox'] },
+      SESSION,
+      spawn,
+      undefined,
+      [],
+      null,
+      pool,
+    )
+    await drain(b)
+    await b.dispose()
+    await pool.shutdownAll()
+  })
   it('keeps the agent alive after a turn and reuses it for the next one', async () => {
     const pool = new AcpSessionPool()
     const child = agent(standard)

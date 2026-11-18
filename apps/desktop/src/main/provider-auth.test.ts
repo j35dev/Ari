@@ -24,7 +24,9 @@ function authWall(logins: AcpTerminalLogin[]): Error {
   return error
 }
 
-function detection(over: Partial<RpcResults['providers.detect'][number]> = {}): RpcResults['providers.detect'] {
+function detection(
+  over: Partial<RpcResults['providers.detect'][number]> = {},
+): RpcResults['providers.detect'] {
   return [
     {
       kind: 'claude',
@@ -62,6 +64,52 @@ function deps(over: Partial<AuthProbeDeps> = {}): AuthProbeDeps {
 }
 
 describe('a sign-in check that straddles an account switch', () => {
+  it('offers Muse device login when its ACP wall has no runnable terminal metadata', async () => {
+    const state = new ProviderAuthState()
+    state.recordWall('muse', 'Muse Code', [])
+    const methods = await resolveProviderLogins(
+      'muse',
+      deps({
+        detections: async () => detection({ kind: 'muse', binaryPath: '/opt/muse' }),
+      }),
+      state,
+    )
+    expect(methods.logins).toContainEqual(
+      expect.objectContaining({ command: '/opt/muse', args: ['login'] }),
+    )
+  })
+  it('does not certify DeepSeek model credentials from a local ACP session', async () => {
+    const connect = vi.fn(async () => connectionThat(async () => ({ sessionId: 'dsh' })))
+    const result = await probeProviderAuth(
+      'deepseek',
+      deps({
+        detections: async () => detection({ kind: 'deepseek', binaryPath: '/opt/dsh' }),
+        connect,
+      }),
+      new ProviderAuthState(),
+    )
+    expect(result.status).toBe('unknown')
+    expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('does not probe an installed ACP-only runtime when its transport is disabled', async () => {
+    const connect = vi.fn(async () => connectionThat(async () => ({})))
+    const result = await probeProviderAuth(
+      'qoder',
+      deps({
+        detections: async () =>
+          detection({
+            kind: 'qoder',
+            binaryPath: '/opt/qodercli',
+            transport: { mode: 'acp', available: false, label: 'Disabled' },
+          }),
+        connect,
+      }),
+      new ProviderAuthState(),
+    )
+    expect(result.status).toBe('unknown')
+    expect(connect).not.toHaveBeenCalled()
+  })
   it('is answered but not remembered as the new account’s verdict', async () => {
     const state = new ProviderAuthState()
     const gate: { finish: (() => void) | null } = { finish: null }
@@ -152,7 +200,11 @@ describe('probeProviderAuth', () => {
 
   it('always kills the throwaway probe connection', async () => {
     const connection = connectionThat(async () => ({ sessionId: 'probe_1' }))
-    await probeProviderAuth('claude', deps({ connect: async () => connection }), new ProviderAuthState())
+    await probeProviderAuth(
+      'claude',
+      deps({ connect: async () => connection }),
+      new ProviderAuthState(),
+    )
     expect(connection.killed).toBe(true)
   })
 

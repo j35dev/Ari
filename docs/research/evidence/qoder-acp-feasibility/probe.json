@@ -1,0 +1,617 @@
+{
+  "testedAt": "2026-11-18T04:20:38.727Z",
+  "initialize": {
+    "protocolVersion": 1,
+    "authMethods": [
+      {
+        "type": "terminal",
+        "id": "qodercli-login-terminal",
+        "name": "Login with qodercli",
+        "description": "Run qodercli login in a client terminal, then reuse that login for this ACP session.",
+        "args": ["login"],
+        "_meta": {
+          "terminal-auth": {
+            "command": "C:\\Users\\user\\.qoder\\bin\\qodercli\\qodercli.exe",
+            "args": ["login"],
+            "label": "qodercli Login"
+          }
+        }
+      }
+    ],
+    "agentInfo": {
+      "name": "qoder-cli",
+      "title": "Qoder CLI",
+      "version": "1.1.91"
+    },
+    "agentCapabilities": {
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "resume": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "_meta": {
+        "qoder": {
+          "promptQueueing": true
+        }
+      }
+    }
+  },
+  "incomingClientMethods": ["session/request_permission"],
+  "turns": [
+    {
+      "name": "about-ask",
+      "permissionMode": "ask",
+      "modelId": "efficient",
+      "advertisedModels": [
+        {
+          "id": "efficient",
+          "label": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "id": "qmodel_latest",
+          "label": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "id": "qmodel_latest_preview",
+          "label": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "qmodel_38max",
+          "label": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "qfmodel",
+          "label": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "dmodel",
+          "label": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "dfmodel",
+          "label": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "mmodel",
+          "label": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ],
+      "advertisedEfforts": {
+        "currentId": null,
+        "options": []
+      },
+      "capabilities": {
+        "steering": "follow-up",
+        "liveResponses": "approvals-and-input",
+        "responsesAfterReconnect": false,
+        "nativeChildren": {
+          "visibility": "unknown",
+          "inspect": false,
+          "message": false,
+          "stop": false,
+          "approvals": false
+        },
+        "nativeFork": false,
+        "nativeHandoff": false,
+        "processContinuity": "between-turns",
+        "terminalStatus": "explicit"
+      },
+      "events": [
+        {
+          "type": "text-delta",
+          "text": "Command /about requires interactive UI and is not available in ACP."
+        },
+        {
+          "type": "done"
+        }
+      ],
+      "completed": true,
+      "approvalsAnswered": 0,
+      "durationMs": 9202,
+      "eventCounts": {
+        "text-delta": 1,
+        "done": 1
+      }
+    },
+    {
+      "name": "help-allow-edits",
+      "permissionMode": "allow-edits",
+      "modelId": "efficient",
+      "advertisedModels": [
+        {
+          "id": "efficient",
+          "label": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "id": "qmodel_latest",
+          "label": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "id": "qmodel_latest_preview",
+          "label": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "qmodel_38max",
+          "label": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "qfmodel",
+          "label": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "dmodel",
+          "label": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "dfmodel",
+          "label": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "mmodel",
+          "label": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ],
+      "advertisedEfforts": {
+        "currentId": null,
+        "options": []
+      },
+      "capabilities": {
+        "steering": "follow-up",
+        "liveResponses": "approvals-and-input",
+        "responsesAfterReconnect": false,
+        "nativeChildren": {
+          "visibility": "unknown",
+          "inspect": false,
+          "message": false,
+          "stop": false,
+          "approvals": false
+        },
+        "nativeFork": false,
+        "nativeHandoff": false,
+        "processContinuity": "between-turns",
+        "terminalStatus": "explicit"
+      },
+      "events": [
+        {
+          "type": "text-delta",
+          "text": "Command /help requires interactive UI and is not available in ACP."
+        },
+        {
+          "type": "done"
+        }
+      ],
+      "completed": true,
+      "approvalsAnswered": 0,
+      "durationMs": 215,
+      "eventCounts": {
+        "text-delta": 1,
+        "done": 1
+      }
+    },
+    {
+      "name": "file-and-terminal-ask",
+      "permissionMode": "ask",
+      "modelId": "efficient",
+      "advertisedModels": [
+        {
+          "id": "efficient",
+          "label": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "id": "qmodel_latest",
+          "label": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "id": "qmodel_latest_preview",
+          "label": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "qmodel_38max",
+          "label": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "qfmodel",
+          "label": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "dmodel",
+          "label": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "dfmodel",
+          "label": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "mmodel",
+          "label": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ],
+      "advertisedEfforts": {
+        "currentId": null,
+        "options": []
+      },
+      "capabilities": {
+        "steering": "follow-up",
+        "liveResponses": "approvals-and-input",
+        "responsesAfterReconnect": false,
+        "nativeChildren": {
+          "visibility": "unknown",
+          "inspect": false,
+          "message": false,
+          "stop": false,
+          "approvals": false
+        },
+        "nativeFork": false,
+        "nativeHandoff": false,
+        "processContinuity": "between-turns",
+        "terminalStatus": "explicit"
+      },
+      "events": [
+        {
+          "type": "tool-started",
+          "callId": "call_e9fa4c022a9e4780ae531015",
+          "name": "read",
+          "argsJson": "{\"title\":\"Read C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-input.txt\",\"input\":{\"file_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-input.txt\"}}"
+        },
+        {
+          "type": "tool-completed",
+          "callId": "call_e9fa4c022a9e4780ae531015",
+          "resultJson": "\"1\\tARI_QODER_PROBE_OK\\n2\\t\"",
+          "isError": false
+        },
+        {
+          "type": "tool-started",
+          "callId": "call_109b6f43fbc54e3d8214489c",
+          "name": "edit",
+          "argsJson": "{\"title\":\"Write C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-output.txt\",\"input\":{\"content\":\"ARI_QODER_PROBE_OK\\n\",\"file_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-output.txt\"}}"
+        },
+        {
+          "type": "approval-requested",
+          "approvalId": "acp-perm-1",
+          "toolName": "Edit probe-output.txt",
+          "summaryJson": "{\"kind\":\"edit\",\"rawInput\":{\"content\":\"ARI_QODER_PROBE_OK\\n\",\"file_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-output.txt\"},\"locations\":[],\"options\":[{\"optionId\":\"proceed_always\",\"name\":\"Allow for this session\",\"kind\":\"allow_always\"},{\"optionId\":\"proceed_once\",\"name\":\"Allow\",\"kind\":\"allow_once\"},{\"optionId\":\"cancel\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}",
+          "options": [
+            {
+              "optionId": "proceed_always",
+              "name": "Allow for this session",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "proceed_once",
+              "name": "Allow",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "cancel",
+              "name": "Reject",
+              "kind": "reject_once"
+            }
+          ]
+        },
+        {
+          "type": "tool-completed",
+          "callId": "call_109b6f43fbc54e3d8214489c",
+          "resultJson": "\"File created successfully at: C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\\\\probe-output.txt The file state is current in your context; no need to read it back.\"",
+          "isError": false
+        },
+        {
+          "type": "tool-started",
+          "callId": "call_1da7d0e832cf40b0a6b2da2a",
+          "name": "execute",
+          "argsJson": "{\"title\":\"cmd /c type probe-output.txt\",\"input\":{\"command\":\"cmd /c type probe-output.txt\",\"description\":\"Print probe-output.txt contents\",\"dir_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\"}}"
+        },
+        {
+          "type": "approval-requested",
+          "approvalId": "acp-perm-2",
+          "toolName": "cmd /c type probe-output.txt",
+          "summaryJson": "{\"kind\":\"execute\",\"rawInput\":{\"command\":\"cmd /c type probe-output.txt\",\"description\":\"Print probe-output.txt contents\",\"dir_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\"},\"locations\":[],\"options\":[{\"optionId\":\"proceed_always_and_save\",\"name\":\"Always allow \\\"cmd\\\"\",\"kind\":\"allow_always\"},{\"optionId\":\"proceed_once\",\"name\":\"Allow\",\"kind\":\"allow_once\"},{\"optionId\":\"cancel\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}",
+          "options": [
+            {
+              "optionId": "proceed_always_and_save",
+              "name": "Always allow \"cmd\"",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "proceed_once",
+              "name": "Allow",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "cancel",
+              "name": "Reject",
+              "kind": "reject_once"
+            }
+          ]
+        },
+        {
+          "type": "tool-completed",
+          "callId": "call_1da7d0e832cf40b0a6b2da2a",
+          "resultJson": "\"Microsoft Windows [Version 10.0.26200.9974]\\r\\n(c) Microsoft Corporation. All rights reserved.\\r\\n\\r\\nC:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf>\"",
+          "isError": false
+        },
+        {
+          "type": "tool-started",
+          "callId": "call_4c09a056edb844faaf5a4e68",
+          "name": "execute",
+          "argsJson": "{\"title\":\"MSYS2_ARG_CONV_EXCL='*' cmd /c type probe-output.txt\",\"input\":{\"command\":\"MSYS2_ARG_CONV_EXCL='*' cmd /c type probe-output.txt\",\"description\":\"Print probe-output.txt via cmd type\",\"dir_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\"}}"
+        },
+        {
+          "type": "approval-requested",
+          "approvalId": "acp-perm-3",
+          "toolName": "MSYS2_ARG_CONV_EXCL='*' cmd /c type probe-output.txt",
+          "summaryJson": "{\"kind\":\"execute\",\"rawInput\":{\"command\":\"MSYS2_ARG_CONV_EXCL='*' cmd /c type probe-output.txt\",\"description\":\"Print probe-output.txt via cmd type\",\"dir_path\":\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\ari-qoder-acp-eZYNAf\"},\"locations\":[],\"options\":[{\"optionId\":\"proceed_always_and_save\",\"name\":\"Always allow \\\"cmd\\\"\",\"kind\":\"allow_always\"},{\"optionId\":\"proceed_once\",\"name\":\"Allow\",\"kind\":\"allow_once\"},{\"optionId\":\"cancel\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}",
+          "options": [
+            {
+              "optionId": "proceed_always_and_save",
+              "name": "Always allow \"cmd\"",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "proceed_once",
+              "name": "Allow",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "cancel",
+              "name": "Reject",
+              "kind": "reject_once"
+            }
+          ]
+        },
+        {
+          "type": "tool-completed",
+          "callId": "call_4c09a056edb844faaf5a4e68",
+          "resultJson": "\"ARI_QODER_PROBE_OK\"",
+          "isError": false
+        },
+        {
+          "type": "text-delta",
+          "text": "ARI"
+        },
+        {
+          "type": "text-delta",
+          "text": "_QODER_PRO"
+        },
+        {
+          "type": "text-delta",
+          "text": "BE_OK"
+        },
+        {
+          "type": "done"
+        }
+      ],
+      "completed": true,
+      "approvalsAnswered": 3,
+      "durationMs": 21941,
+      "eventCounts": {
+        "thinking-delta": 194,
+        "tool-started": 4,
+        "tool-completed": 4,
+        "approval-requested": 3,
+        "text-delta": 3,
+        "done": 1
+      }
+    },
+    {
+      "name": "about-full-reasoning-model",
+      "permissionMode": "full",
+      "modelId": "qmodel_latest",
+      "advertisedModels": [
+        {
+          "id": "efficient",
+          "label": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "id": "qmodel_latest",
+          "label": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "id": "qmodel_latest_preview",
+          "label": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "qmodel_38max",
+          "label": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "qfmodel",
+          "label": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "dmodel",
+          "label": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "dfmodel",
+          "label": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "mmodel",
+          "label": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ],
+      "advertisedEfforts": {
+        "currentId": "xhigh",
+        "options": [
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "none",
+            "label": "None"
+          }
+        ]
+      },
+      "capabilities": {
+        "steering": "follow-up",
+        "liveResponses": "approvals-and-input",
+        "responsesAfterReconnect": false,
+        "nativeChildren": {
+          "visibility": "unknown",
+          "inspect": false,
+          "message": false,
+          "stop": false,
+          "approvals": false
+        },
+        "nativeFork": false,
+        "nativeHandoff": false,
+        "processContinuity": "between-turns",
+        "terminalStatus": "explicit"
+      },
+      "events": [
+        {
+          "type": "text-delta",
+          "text": "Command /about requires interactive UI and is not available in ACP."
+        },
+        {
+          "type": "done"
+        }
+      ],
+      "completed": true,
+      "approvalsAnswered": 0,
+      "durationMs": 431,
+      "eventCounts": {
+        "text-delta": 1,
+        "done": 1
+      }
+    },
+    {
+      "name": "load-after-process-restart",
+      "permissionMode": "ask",
+      "modelId": "efficient",
+      "advertisedModels": [
+        {
+          "id": "efficient",
+          "label": "Efficient (default)",
+          "description": "Vision · 0.00x Credit"
+        },
+        {
+          "id": "qmodel_latest",
+          "label": "Qwen4-Max",
+          "description": "Reasoning · Vision · New · 0.40x Credit"
+        },
+        {
+          "id": "qmodel_latest_preview",
+          "label": "Qwen4-Max-Preview",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "qmodel_38max",
+          "label": "Qwen3.8-Max",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "qfmodel",
+          "label": "Qwen3.8-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "dmodel",
+          "label": "DeepSeek-V4-Pro",
+          "description": "Reasoning · Vision · New · 0.50x Credit"
+        },
+        {
+          "id": "dfmodel",
+          "label": "DeepSeek-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        },
+        {
+          "id": "mmodel",
+          "label": "MiniMax-M3.1-Flash",
+          "description": "Reasoning · Vision · New · 0.10x Credit"
+        }
+      ],
+      "advertisedEfforts": {
+        "currentId": null,
+        "options": []
+      },
+      "capabilities": {
+        "steering": "follow-up",
+        "liveResponses": "approvals-and-input",
+        "responsesAfterReconnect": false,
+        "nativeChildren": {
+          "visibility": "unknown",
+          "inspect": false,
+          "message": false,
+          "stop": false,
+          "approvals": false
+        },
+        "nativeFork": false,
+        "nativeHandoff": false,
+        "processContinuity": "between-turns",
+        "terminalStatus": "explicit"
+      },
+      "events": [
+        {
+          "type": "text-delta",
+          "text": "Command /about requires interactive UI and is not available in ACP."
+        },
+        {
+          "type": "done"
+        }
+      ],
+      "completed": true,
+      "approvalsAnswered": 0,
+      "durationMs": 8329,
+      "eventCounts": {
+        "text-delta": 1,
+        "done": 1
+      }
+    }
+  ],
+  "fileCopyVerified": true,
+  "spawnedProcesses": 2
+}

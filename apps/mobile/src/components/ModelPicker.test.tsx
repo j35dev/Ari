@@ -73,6 +73,23 @@ function picker(fixedProvider = false): {
 }
 
 describe('desktop model picker', () => {
+  it.each([
+    ['qoder', 'Qoder'],
+    ['muse', 'Muse Code'],
+    ['deepseek', 'DeepSeek Harness'],
+  ] as const)('selects %s models reported by the desktop', (kind, name) => {
+    app.catalog!.providers.push({
+      driverKind: kind,
+      available: true,
+      models: [{ id: 'native-model', label: 'Desktop model' }],
+    })
+    const { select } = picker()
+    fireEvent.click(screen.getByRole('button', { name }))
+    fireEvent.click(screen.getByRole('button', { name: /Desktop model/ }))
+    expect(select).toHaveBeenCalledWith(kind, 'native-model')
+    expect(modelChipLabel(app.catalog, kind, '')).toBe(name)
+    expect(modelSelectionLabel(app.catalog, kind, '')).toBe(`${name} · Default model`)
+  })
   it('searches the desktop list and sends the exact native model ID', () => {
     const { select, close } = picker()
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search models' }), {

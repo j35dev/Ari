@@ -1,5 +1,6 @@
 import type { PermissionMode } from '@ari/contracts/common'
 import type { AcpConfigOption, AcpNewSessionResult } from './protocol'
+import { flattenConfigOptionValues } from './protocol'
 
 /**
  * Mapping between Ari's permission modes and the mode vocabulary an ACP agent
@@ -17,6 +18,7 @@ const ASK_PATTERNS = [
   /\bdefault\b/i,
   /\bnormal\b/i,
   /\bstandard\b/i,
+  /prompt.?unmatched/i,
   /\bplan(ning)?\b/i,
 ]
 // `build` is opencode's write-capable mode; `code` is the same idea elsewhere.
@@ -25,7 +27,7 @@ const EDIT_PATTERNS = [
   /\bedit(s|ing)?\b/i,
   /\bworkspace\b/i,
   /\bbuild\b/i,
-  /^code$/i,
+  /\bcode\b/i,
 ]
 /**
  * Full-permission flavors, tiered. A `bypass`-flavored id skips permission
@@ -34,7 +36,7 @@ const EDIT_PATTERNS = [
  * outage turns every tool call into a hard failure ("auto mode cannot
  * determine the safety of Bash"). The bypass tier must always win.
  */
-const BYPASS_PATTERNS = [/bypass/i, /yolo/i, /danger/i, /\bfull\b/i]
+const BYPASS_PATTERNS = [/bypass/i, /yolo/i, /danger/i, /\bfull\b/i, /allow.?all/i]
 const AUTO_PATTERNS = [/\bauto\b/i]
 /** Classification only — preference order comes from the tiers above. */
 const FULL_PATTERNS = [...BYPASS_PATTERNS, ...AUTO_PATTERNS]
@@ -141,7 +143,7 @@ export function agentModesFromSession(created: AcpNewSessionResult): AgentModeCa
   const option = findModeOption(created.configOptions ?? [])
   if (option !== null) {
     const options: CatalogAgentMode[] = []
-    for (const value of option.options ?? []) {
+    for (const value of flattenConfigOptionValues(option.options ?? [])) {
       if (typeof value.value !== 'string' || value.value.length === 0) continue
       options.push({
         id: value.value,
@@ -149,7 +151,7 @@ export function agentModesFromSession(created: AcpNewSessionResult): AgentModeCa
         ...(typeof value.description === 'string' && value.description.length > 0
           ? { description: value.description }
           : {}),
-        ariMode: classifyAgentMode(value.value),
+        ariMode: classifyAgentMode(`${value.value} ${value.name ?? ''}`),
       })
     }
     if (options.some((o) => o.ariMode !== null)) {
@@ -175,7 +177,7 @@ export function agentModesFromSession(created: AcpNewSessionResult): AgentModeCa
     options.push({
       id: mode.id,
       label: typeof mode.name === 'string' && mode.name.length > 0 ? mode.name : mode.id,
-      ariMode: classifyAgentMode(mode.id),
+      ariMode: classifyAgentMode(`${mode.id} ${mode.name ?? ''}`),
     })
   }
   if (!options.some((o) => o.ariMode !== null)) return EMPTY_MODE_CATALOG
