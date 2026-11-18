@@ -10,6 +10,8 @@ export interface ProviderReadiness {
   authReason?: string | undefined
   /** False when the user turned the provider off in settings. */
   enabled?: boolean | undefined
+  /** Installed ACP-only providers cannot run while their transport is disabled. */
+  transport?: { available?: boolean; note?: string } | undefined
 }
 
 /** A provider the rail will not offer, paired with why. */
@@ -29,7 +31,7 @@ export interface ProviderPartition<T> {
 /**
  * Splits detections into the providers the picker may offer and those it must
  * withhold, so the rail never advertises a harness the user cannot run a turn
- * on. Two conditions, deliberately different in kind:
+ * on. The runtime must be installed, usable, and not known to be logged out:
  *
  * - `installed` — a real binary resolved on disk. A provider that is absent
  *   still gets a fully-populated catalog from `providers.models` (catalogs are
@@ -39,6 +41,8 @@ export interface ProviderPartition<T> {
  *   `unknown` means Ari found no credential store but the CLI may authenticate
  *   another way (`ANTHROPIC_API_KEY`, a subscription session); hiding those
  *   would drop providers that work fine.
+ * - `transport.available !== false` — an installed ACP-only executable cannot
+ *   run when its ACP connection is disabled or unsupported on this host.
  *
  * A provider the user turned off is in neither list: it was their choice, so
  * the picker has nothing to explain.
@@ -55,6 +59,13 @@ export function partitionProviders<T extends ProviderReadiness>(
     if (detection.enabled === false) continue
     if (detection.kind !== 'ari-core' && !detection.installed) {
       withheld.push({ detection, reason: 'Not installed - no CLI found on PATH.' })
+      continue
+    }
+    if (detection.transport?.available === false) {
+      withheld.push({
+        detection,
+        reason: detection.transport.note ?? 'The provider transport is unavailable.',
+      })
       continue
     }
     if (detection.authStatus === 'unauthenticated') {

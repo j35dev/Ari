@@ -264,8 +264,13 @@ export const providerConnectionSchema = z.object({
 })
 export type ProviderConnection = z.infer<typeof providerConnectionSchema>
 
-const defaultConnection = (): ProviderConnection => ({
-  enabled: true,
+/** Missing preferences enable only the four bundled CLI choices. */
+export function providerEnabledByDefault(kind: CliKind): boolean {
+  return kind === 'claude' || kind === 'codex' || kind === 'opencode' || kind === 'grok'
+}
+
+const defaultConnection = (kind: CliKind): ProviderConnection => ({
+  enabled: providerEnabledByDefault(kind),
   binaryPath: '',
   accounts: [],
   activeAccount: DEFAULT_ACCOUNT,
@@ -278,17 +283,26 @@ export function activeAccountId(connection: ProviderConnection): string {
     : DEFAULT_ACCOUNT
 }
 
-const connectionsShape = <T extends z.ZodType>(field: () => T): Record<CliKind, T> => ({
-  claude: field(),
-  codex: field(),
-  opencode: field(),
-  grok: field(),
-  pi: field(),
-  hermes: field(),
+const connectionsShape = <T extends z.ZodType>(
+  field: (kind: CliKind) => T,
+): Record<CliKind, T> => ({
+  claude: field('claude'),
+  codex: field('codex'),
+  opencode: field('opencode'),
+  grok: field('grok'),
+  pi: field('pi'),
+  hermes: field('hermes'),
+  qoder: field('qoder'),
+  muse: field('muse'),
+  deepseek: field('deepseek'),
 })
 
 export const providerConnectionsSchema = z.object(
-  connectionsShape(() => providerConnectionSchema.default(defaultConnection)),
+  connectionsShape((kind) =>
+    providerConnectionSchema
+      .extend({ enabled: z.boolean().default(providerEnabledByDefault(kind)) })
+      .default(() => defaultConnection(kind)),
+  ),
 )
 export type ProviderConnections = z.infer<typeof providerConnectionsSchema>
 

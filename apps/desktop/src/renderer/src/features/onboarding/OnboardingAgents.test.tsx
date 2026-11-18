@@ -47,6 +47,30 @@ function mount() {
 }
 
 describe('onboarding agents', () => {
+  it('does not select an installed optional provider whose transport is disabled', async () => {
+    invoke.mockImplementation(async (method: string) =>
+      method === 'providers.detect'
+        ? [
+            {
+              kind: 'muse',
+              installed: true,
+              enabled: true,
+              authStatus: 'authenticated',
+              transport: {
+                mode: 'acp',
+                label: 'Native ACP',
+                available: false,
+                note: 'ACP is disabled.',
+              },
+            },
+          ]
+        : {},
+    )
+    const { onSelect } = mount()
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('providers.detect'))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Muse Code' })).toBeNull()
+  })
   it('reuses detected sign-ins without starting login, probes or installs', async () => {
     const { onSelect } = mount()
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('claude'))

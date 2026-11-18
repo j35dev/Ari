@@ -25,6 +25,14 @@ describe('driverLabel', () => {
 })
 
 describe('kindFromGroup', () => {
+  it.each([
+    ['qoder', 'Qoder'],
+    ['muse', 'Muse Code'],
+    ['deepseek', 'DeepSeek Harness'],
+  ])('round-trips %s labels', (kind, label) => {
+    expect(driverLabel(kind)).toBe(label)
+    expect(kindFromGroup(label)).toBe(kind)
+  })
   it('round-trips picker group labels', () => {
     expect(kindFromGroup('Ari Core')).toBe('ari-core')
     expect(kindFromGroup('claude')).toBe('claude')

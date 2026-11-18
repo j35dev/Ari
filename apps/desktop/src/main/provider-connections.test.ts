@@ -67,6 +67,15 @@ describe('detectConnection', () => {
 })
 
 describe('unavailableReason', () => {
+  it('refuses an installed ACP-only provider when its transport is disabled', () => {
+    expect(
+      unavailableReason('qoder', {
+        ...found('/opt/qodercli'),
+        kind: 'qoder',
+        transport: { mode: 'acp', available: false, label: 'ACP unavailable', note: 'Enable ACP.' },
+      }),
+    ).toBe('Qoder cannot start: Enable ACP.')
+  })
   it('has nothing to say when the CLI was found or was never looked for', () => {
     expect(unavailableReason('claude', found('/usr/bin/claude'))).toBeNull()
     expect(unavailableReason('claude', undefined)).toBeNull()

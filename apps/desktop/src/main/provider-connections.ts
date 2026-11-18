@@ -12,6 +12,9 @@ const LABELS: Record<DriverKind, string> = {
   grok: 'Grok',
   pi: 'Pi',
   hermes: 'Hermes',
+  qoder: 'Qoder',
+  muse: 'Muse Code',
+  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 
@@ -49,6 +52,9 @@ export function unavailableReason(
   const name = LABELS[kind]
   if (!enabled || detection?.enabled === false) {
     return `${name} is turned off. Turn it on in Settings > Providers to use this session.`
+  }
+  if (detection?.transport?.available === false) {
+    return `${name} cannot start: ${detection.transport.note ?? detection.transport.label}`
   }
   if (detection === undefined || detection.binaryPath !== null) return null
   if (detection.pathProblem !== undefined) {
