@@ -1975,6 +1975,51 @@ describe('engine end-to-end with scripted driver', () => {
     expect((await store.load(sessionId)).queuedMessages).toEqual([])
   }, 10_000)
 
+  it('settles a turn a restart left open so the session accepts a new message', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'recovered' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_restarted'
+    await seedSession(store, sessionId, 'proj_1', { status: 'running' })
+    await store.append(sessionId, { type: 'turn.started', turnId: 'turn_lost' })
+    expect((await store.load(sessionId)).activeTurnId).toBe('turn_lost')
+
+    await engine.recoverInterruptedTurns()
+
+    const recovered = await store.load(sessionId)
+    expect(recovered.activeTurnId).toBeNull()
+    expect(recovered.lastTurn).toMatchObject({
+      turnId: 'turn_lost',
+      stopReason: 'interrupted',
+    })
+    expect(recovered.session?.status).toBe('idle')
+
+    // The stale turn no longer blocks sends: this is a new turn, not a queue.
+    expect(
+      await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId,
+        text: 'continue',
+        attachments: [],
+      }),
+    ).toMatchObject({ accepted: true })
+    for (let i = 0; i < 150 && (await store.load(sessionId)).lastTurn?.stopReason !== 'completed'; i++)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    const done = await store.load(sessionId)
+    expect(done.lastTurn?.stopReason).toBe('completed')
+    expect(done.queuedMessages).toEqual([])
+    expect(
+      done.messages
+        .filter((message) => message.role === 'user')
+        .map((message) => message.parts.find((part) => part.type === 'text')?.text),
+    ).toEqual(['continue'])
+  }, 10_000)
+
   it('starts a human message ahead of room and routine work queued before it', async () => {
     let allowed = false
     const registry = new DriverRegistry()

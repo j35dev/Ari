@@ -1487,11 +1487,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           }))
         },
       })
+      // Settle turns the previous process left open before the runtime counts
+      // as ready: a send that resumes the session must not land behind a turn
+      // no live process will ever finish.
+      if (firstRuntime)
+        await engine
+          .recoverInterruptedTurns()
+          .catch((error: unknown) =>
+            log.warn('interrupted turns were not settled', { error: String(error) }),
+          )
       return runtime
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
-  // Delegated work queued before a restart runs now that the gate is up.
+  // Delegated work queued before the restart runs now that the gate is up.
   void controlReady
     .then(() => engine.drainHeld())
     .catch((error: unknown) =>
