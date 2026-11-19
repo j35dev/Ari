@@ -1651,6 +1651,24 @@ export class Engine {
     })
   }
 
+  /**
+   * No turn survives a restart, but its `turn.started` does. A session left
+   * that way reads as busy forever: sends only queue behind a turn that will
+   * never settle, and steering is refused because no transport is live. Settle
+   * every such turn as interrupted so the session can be used again.
+   */
+  async recoverInterruptedTurns(): Promise<void> {
+    for (const row of await this.#deps.store.listSessions()) {
+      if (this.#closing) return
+      // A turn this process is executing (a second runtime sharing the engine)
+      // is not a leftover; only journal history with no live task is.
+      if (this.hasLiveTurn(row.id)) continue
+      const model = await this.#deps.store.load(row.id)
+      if (model.activeTurnId === null) continue
+      await this.dispatch({ type: 'turn.interrupt', sessionId: row.id })
+    }
+  }
+
   /** Starts delegated work left waiting by a restart, through the same gate. */
   async drainHeld(): Promise<void> {
     for (const row of await this.#deps.store.listSessions()) {
