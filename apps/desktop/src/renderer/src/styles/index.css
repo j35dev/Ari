@@ -14,6 +14,7 @@
 @import './interaction-motion.css';
 @import './workspace-appearance.css';
 @import './frame.css';
+@import './terminal-workspace.css';
 
 /* Tailwind v4's automatic source detection only reaches this app's own tree,
    so utilities that appear solely in the shared UI package — reached here

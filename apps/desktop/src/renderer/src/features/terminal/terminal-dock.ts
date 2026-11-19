@@ -22,6 +22,11 @@ export interface TerminalTab {
   cwd: string
   /** First command written into the shell after spawn (presets, run scripts). */
   command?: string
+  /** A terminal workspace owns its presentation independently of the inspector rail. */
+  workspaceTaskId?: string
+  profile?: 'shell' | 'claude' | 'codex' | 'custom'
+  /** Saved for an explicit restart only; never dispatched on a view mount. */
+  launchCommand?: string
   /** Absent only for legacy/local shells. Never infer remote ownership from cwd. */
   owner?: TerminalOwner
   /** Set once from the authenticated host's confirmed creation result. */
@@ -67,7 +72,17 @@ function load(): TerminalDockState {
     const tabs: TerminalTab[] = []
     for (const entry of raws) {
       if (typeof entry !== 'object' || entry === null) continue
-      const { id, title, cwd, owner: rawOwner, hostTerminalId, creationAttempted } = entry as Record<string, unknown>
+      const {
+        id,
+        title,
+        cwd,
+        owner: rawOwner,
+        hostTerminalId,
+        creationAttempted,
+        workspaceTaskId,
+        profile,
+        launchCommand,
+      } = entry as Record<string, unknown>
       if (typeof id !== 'string' || typeof title !== 'string' || typeof cwd !== 'string') continue
       const owner = parseOwner(rawOwner)
       // A damaged remote owner/binding must never become a local terminal.
@@ -75,6 +90,8 @@ function load(): TerminalDockState {
       if (hostTerminalId !== undefined && (owner.kind !== 'remote' || !validId(hostTerminalId)))
         continue
       if (creationAttempted !== undefined && typeof creationAttempted !== 'boolean') continue
+      if (workspaceTaskId !== undefined && (!validId(workspaceTaskId) || owner.kind !== 'local'))
+        continue
       tabs.push({
         id,
         title,
@@ -82,6 +99,11 @@ function load(): TerminalDockState {
         ...(owner.kind === 'remote' ? { owner } : {}),
         ...(typeof hostTerminalId === 'string' ? { hostTerminalId } : {}),
         ...(owner.kind === 'remote' ? { creationAttempted: creationAttempted !== false } : {}),
+        ...(typeof workspaceTaskId === 'string' ? { workspaceTaskId } : {}),
+        ...(['shell', 'claude', 'codex', 'custom'].includes(String(profile))
+          ? { profile: profile as TerminalTab['profile'] }
+          : {}),
+        ...(typeof launchCommand === 'string' ? { launchCommand } : {}),
       })
     }
     if (tabs.length === 0) return EMPTY
@@ -110,9 +132,18 @@ function persist(next: TerminalDockState, required = false): void {
           id: tab.id,
           title: tab.title,
           cwd: tab.cwd,
+          ...(tab.workspaceTaskId
+            ? {
+                workspaceTaskId: tab.workspaceTaskId,
+                profile: tab.profile,
+                launchCommand: tab.launchCommand,
+              }
+            : {}),
           ...(tab.owner?.kind === 'remote' ? { owner: tab.owner } : {}),
           ...(tab.hostTerminalId !== undefined ? { hostTerminalId: tab.hostTerminalId } : {}),
-          ...(tab.owner?.kind === 'remote' ? { creationAttempted: tab.creationAttempted === true } : {}),
+          ...(tab.owner?.kind === 'remote'
+            ? { creationAttempted: tab.creationAttempted === true }
+            : {}),
         })),
         activeId: next.activeId,
       }),
@@ -160,7 +191,9 @@ export function uniqueTabTitle(base: string, tabs: readonly TerminalTab[]): stri
  * reload — which restarts the sequence while main-process ptys survive — can
  * never adopt a stranger's shell through the idempotent `terminal.create`.
  */
-export function openTerminalTab(tab: Omit<TerminalTab, 'id' | 'hostTerminalId' | 'creationAttempted'>): string {
+export function openTerminalTab(
+  tab: Omit<TerminalTab, 'id' | 'hostTerminalId' | 'creationAttempted'>,
+): string {
   const owner = parseOwner(tab.owner)
   if (owner === null) throw new Error('The terminal owner is invalid.')
   const prefix = owner.kind === 'remote' ? 'rterm' : 'term'
@@ -225,10 +258,15 @@ export function bindRemoteTerminalTab(
   )
     throw new Error('This terminal belongs to another host, session or shell.')
   if (tab.hostTerminalId === hostTerminalId) return
-  commit({
-    ...state,
-    tabs: state.tabs.map((entry) => (entry.id === id ? { ...entry, hostTerminalId, creationAttempted: true } : entry)),
-  }, true)
+  commit(
+    {
+      ...state,
+      tabs: state.tabs.map((entry) =>
+        entry.id === id ? { ...entry, hostTerminalId, creationAttempted: true } : entry,
+      ),
+    },
+    true,
+  )
 }
 
 export function findTerminalTab(id: string): TerminalTab | undefined {
@@ -238,11 +276,22 @@ export function findTerminalTab(id: string): TerminalTab | undefined {
 /** A durable dispatch latch; only an explicit new tab can request a new shell. */
 export function markRemoteTerminalCreation(id: string, owner: TerminalOwner): boolean {
   const tab = findTerminalTab(id)
-  if (owner.kind !== 'remote' || tab?.owner?.kind !== 'remote' ||
-    terminalOwnerKey(owner) !== terminalOwnerKey(tab.owner))
+  if (
+    owner.kind !== 'remote' ||
+    tab?.owner?.kind !== 'remote' ||
+    terminalOwnerKey(owner) !== terminalOwnerKey(tab.owner)
+  )
     throw new Error('The terminal does not belong to this session.')
   if (tab.creationAttempted) return false
-  commit({ ...state, tabs: state.tabs.map((entry) => entry.id === id ? { ...entry, creationAttempted: true } : entry) }, true)
+  commit(
+    {
+      ...state,
+      tabs: state.tabs.map((entry) =>
+        entry.id === id ? { ...entry, creationAttempted: true } : entry,
+      ),
+    },
+    true,
+  )
   return true
 }
 
@@ -277,6 +326,15 @@ export function closeTerminalTab(id: string): void {
 export function activateTerminalTab(id: string): void {
   if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return
   commit({ tabs: state.tabs, activeId: id })
+}
+
+export function renameTerminalTab(id: string, title: string): void {
+  const trimmed = title.trim().slice(0, 100)
+  if (!trimmed || !state.tabs.some((tab) => tab.id === id)) return
+  commit({
+    ...state,
+    tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, title: trimmed } : tab)),
+  })
 }
 
 /** Test seam: forgets every tab so each case starts from an empty rail. */
