@@ -89,6 +89,7 @@ describe('a sign-in check that straddles an account switch', () => {
       new ProviderAuthState(),
     )
     expect(result.status).toBe('unknown')
+    expect(result.status === 'unknown' && result.reason).toContain('DEEPSEEK_API_KEY')
     expect(connect).not.toHaveBeenCalled()
   })
 

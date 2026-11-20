@@ -73,6 +73,12 @@ An agent you don't use stays out of the model picker; a disabled provider is nev
 or probed. Native ACP providers reuse their own logins and discover models and reasoning
 levels from the installed runtime. Qoder uses `qoder login`; Muse uses `muse login`.
 
+DeepSeek Harness runs the upstream `@deepseek-ai/dsh` harness through its headless
+automation profile (`dsh --profile acp`), not the `dsh web` UI. DSH owns model-provider
+credentials: add a DeepSeek API key in its Web UI (Settings → Models) or export
+`DEEPSEEK_API_KEY` before launching Ari. Until then the picker shows the profile's shipped
+default route and a turn fails with a missing-credential error.
+
 ## Quick start
 
 Prerequisites: **Node ≥ 22.13** (pnpm needs it) and **pnpm** — CI and the

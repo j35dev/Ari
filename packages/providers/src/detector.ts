@@ -364,6 +364,13 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthPr
       return unknownAuth(
         'No hermes auth.json in the platform config dir (override with HERMES_HOME).',
       )
+    case 'deepseek':
+      // DSH keeps model-provider credentials in its own store, which its Web
+      // UI writes; Ari only inherits an exported key. ACP exposes no auth
+      // method, so this stays unknown rather than "signed in".
+      return unknownAuth(
+        'DeepSeek Harness manages model-provider credentials itself: add a DeepSeek API key in dsh (Web UI → Settings → Models) or export DEEPSEEK_API_KEY before launching Ari.',
+      )
     default:
       return unknownAuth('Ari has no credential-store layout for this CLI.')
   }

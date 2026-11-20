@@ -362,6 +362,12 @@ describe('readAuthStatus', () => {
       expect(probe.reason).toBeTruthy()
     }
   })
+
+  it('names the key DeepSeek Harness needs for its model providers', () => {
+    const probe = readAuthStatus('deepseek', { ...makeEnv(), homeDir: join(dir, 'void') })
+    expect(probe.status).toBe('unknown')
+    expect(probe.reason).toContain('DEEPSEEK_API_KEY')
+  })
 })
 
 describe('detectDriver', () => {

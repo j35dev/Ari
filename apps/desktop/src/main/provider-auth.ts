@@ -208,12 +208,13 @@ export async function probeProviderAuth(
     }
   }
   // DSH opens local sessions without contacting the selected model provider.
-  // A successful ACP handshake cannot prove that provider's credentials work.
+  // A successful ACP handshake cannot prove that provider's credentials work,
+  // and the shipped default route is advertised even before one exists.
   if (kind === 'deepseek') {
     return {
       status: 'unknown',
       reason:
-        'DeepSeek Harness manages authentication for each model provider. Configure its provider credentials in dsh; ACP cannot verify them.',
+        'DeepSeek Harness advertises its default model route before any provider is signed in. Add a DeepSeek API key in dsh (its Web UI: Settings → Models) or export DEEPSEEK_API_KEY before launching Ari; ACP cannot verify it.',
     }
   }
 
