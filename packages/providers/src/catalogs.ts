@@ -79,7 +79,6 @@ export const MODEL_CATALOGS: Record<DriverKind, CatalogModel[]> = {
   hermes: CLI_DEFAULT_MODELS,
   qoder: CLI_DEFAULT_MODELS,
   muse: CLI_DEFAULT_MODELS,
-  deepseek: CLI_DEFAULT_MODELS,
   'ari-core': [],
 }
 
@@ -358,9 +357,6 @@ function curateToCurrentModels(kind: DriverKind, models: CatalogModel[]): Catalo
  * Returns new objects; the caller's list is never mutated.
  */
 export function collapseCatalog(kind: DriverKind, models: CatalogModel[]): CatalogModel[] {
-  // DeepSeek's model ids select both a provider and a model. Identical model
-  // names across providers are distinct routes, never aliases of one another.
-  if (kind === 'deepseek') return models.map(withoutFamily)
   const families = FAMILY_ALIASES[kind]
   const pointers = familyPointers(models)
   // A list that already offers `opus` as its own row needs no alias for it:

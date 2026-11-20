@@ -62,11 +62,10 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 | Hermes           | ACP + CLI fallback               |                                                                  |
 | Qoder CLI        | Native ACP                       | Optional; uses the existing Qoder login                          |
 | Muse Code        | Native ACP                       | Optional; Muse account; upstream ACP is experimental             |
-| DeepSeek Harness | Native ACP (`dsh --profile acp`) | Optional; Node ≥ 24.9; model-provider credentials managed by DSH |
 | Ari Core         | Direct harness                   | Any OpenAI/Anthropic/Ollama-compatible endpoint                  |
 
 Claude Code, Codex, Grok, and OpenCode are enabled by default. Enable Qoder, Muse Code,
-DeepSeek Harness, Pi, or Hermes in **Settings → Providers** when you want to use them.
+Pi, or Hermes in **Settings → Providers** when you want to use them.
 Optional providers have installer actions and executable-path settings. Existing saved
 enable/disable choices are preserved. Ari Core uses the API endpoints you add yourself.
 
