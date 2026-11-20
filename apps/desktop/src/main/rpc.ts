@@ -385,7 +385,6 @@ const ALL_CLI_KINDS: DriverKind[] = [
   'hermes',
   'qoder',
   'muse',
-  'deepseek',
 ]
 /** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
 const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
@@ -841,7 +840,6 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
     { kind: 'qoder' },
     { kind: 'muse' },
-    { kind: 'deepseek' },
   ]
   // Claimed before anything is awaited: a round already in flight for a kind
   // (the one from start-up, say) must lose to this one however long it takes.

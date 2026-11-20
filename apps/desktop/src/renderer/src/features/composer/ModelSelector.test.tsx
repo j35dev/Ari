@@ -43,7 +43,6 @@ describe('ModelSelector', () => {
   it.each([
     ['qoder', 'Qoder'],
     ['muse', 'Muse Code'],
-    ['deepseek', 'DeepSeek Harness'],
   ] as const)('selects the live catalog from %s', async (kind, label) => {
     replyWith('providers.detect', [
       {

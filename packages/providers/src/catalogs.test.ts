@@ -161,16 +161,6 @@ describe('modelsFor fallback chain', () => {
 })
 
 describe('collapseCatalog', () => {
-  it('keeps DeepSeek provider routes distinct even when their display names match', () => {
-    const official = JSON.stringify(['deepseek-official', 'deepseek-v4-flash'])
-    const custom = JSON.stringify(['custom', 'deepseek-v4-flash'])
-    const models = collapseCatalog('deepseek', [
-      { id: official, label: 'DeepSeek V4 Flash' },
-      { id: custom, label: 'DeepSeek V4 Flash' },
-    ])
-    expect(models.map((model) => model.id)).toEqual([official, custom])
-    expect(models.every((model) => !model.aliases?.includes(custom))).toBe(true)
-  })
   it('folds a version-less family alias onto the family freshest row', () => {
     const models = collapseCatalog('claude', [
       { id: 'claude-opus-5', label: 'Claude Opus 5' },

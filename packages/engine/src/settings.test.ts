@@ -377,7 +377,6 @@ describe('SettingsStore', () => {
     expect(Object.keys(loaded.providers).sort()).toEqual([
       'claude',
       'codex',
-      'deepseek',
       'grok',
       'hermes',
       'muse',

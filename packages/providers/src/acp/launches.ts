@@ -66,12 +66,11 @@ const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
   grok: ['agent', 'stdio'],
   qoder: ['--acp'],
   muse: ['acp'],
-  deepseek: ['--profile', 'acp'],
 }
 
 /** These runtimes use ACP exclusively in Ari; no one-shot driver is substituted. */
 export function isAcpOnlyKind(kind: DriverKind): boolean {
-  return kind === 'qoder' || kind === 'muse' || kind === 'deepseek'
+  return kind === 'qoder' || kind === 'muse'
 }
 
 /**
@@ -268,15 +267,6 @@ export function resolveAcpLaunch(
       label: `${kind} (native ACP)`,
       command: options.cliBinaryPath,
       args,
-      ...(kind === 'deepseek'
-        ? {
-            permissionModeEnv: {
-              ask: { DSH_PERMISSION_MODE: 'workspace-write' },
-              'allow-edits': { DSH_PERMISSION_MODE: 'workspace-write' },
-              full: { DSH_PERMISSION_MODE: 'danger-full-access' },
-            },
-          }
-        : {}),
       ...(kind === 'muse'
         ? {
             sessionArgs: ['--trust-workspace'],

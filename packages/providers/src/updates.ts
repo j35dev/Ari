@@ -15,7 +15,6 @@ export const NPM_PACKAGES: Partial<Record<DriverKind, string>> = {
   codex: '@openai/codex',
   opencode: 'opencode-ai',
   pi: '@earendil-works/pi-coding-agent',
-  deepseek: '@deepseek-ai/dsh',
 }
 
 /** Extracts the first bare semver-ish token from a `--version` output line. */

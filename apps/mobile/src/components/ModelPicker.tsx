@@ -13,7 +13,6 @@ const names: Record<string, string> = {
   hermes: 'Hermes',
   qoder: 'Qoder',
   muse: 'Muse Code',
-  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 

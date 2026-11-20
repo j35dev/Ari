@@ -69,7 +69,7 @@ export interface AcpConfigOptionValue {
   value?: string
   name?: string
   description?: string
-  /** ACP select options can group values by provider (DeepSeek Harness). */
+  /** ACP select options can group values by provider. */
   group?: string
   options?: AcpConfigOptionValue[]
   /** Parent select group's display label, assigned while flattening. */
