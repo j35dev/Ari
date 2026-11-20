@@ -61,7 +61,6 @@ const CLI_LABELS: Record<string, string> = {
   hermes: 'Hermes',
   qoder: 'Qoder',
   muse: 'Muse Code',
-  deepseek: 'DeepSeek Harness',
 }
 
 const KEYBOARD_HINTS = [

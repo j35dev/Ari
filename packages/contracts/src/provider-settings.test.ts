@@ -9,7 +9,7 @@ import {
 } from './settings'
 
 const PRIMARY = ['claude', 'codex', 'opencode', 'grok'] as const
-const OPTIONAL = ['pi', 'hermes', 'qoder', 'muse', 'deepseek'] as const
+const OPTIONAL = ['pi', 'hermes', 'qoder', 'muse'] as const
 
 describe('provider preferences', () => {
   it('enables only the four primary CLIs for a fresh settings file', () => {
@@ -69,9 +69,18 @@ describe('provider preferences', () => {
     expect(migrated.providers.codex.enabled).toBe(false)
     expect(migrated.providers.pi.enabled).toBe(true)
     expect(migrated.providers.hermes.enabled).toBe(true)
-    for (const kind of ['qoder', 'muse', 'deepseek'] as const)
+    for (const kind of ['qoder', 'muse'] as const)
       expect(migrated.providers[kind].enabled).toBe(false)
     expect(migrated.sessions.defaultDriverKind).toBe('pi')
+  })
+
+  it('drops a saved default naming a provider this build no longer ships', () => {
+    const parsed = settingsSchema.parse({
+      version: 1,
+      sessions: { defaultDriverKind: 'retired-harness' },
+    })
+    expect(parsed.sessions.defaultDriverKind).toBeNull()
+    expect(parsed.appearance.themeId).toBe(defaultSettings.appearance.themeId)
   })
 
   it.each(OPTIONAL)(

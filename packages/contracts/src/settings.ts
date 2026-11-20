@@ -294,7 +294,6 @@ const connectionsShape = <T extends z.ZodType>(
   hermes: field('hermes'),
   qoder: field('qoder'),
   muse: field('muse'),
-  deepseek: field('deepseek'),
 })
 
 export const providerConnectionsSchema = z.object(
@@ -430,7 +429,9 @@ export const settingsSchema = z.object({
     .default(defaultAppearance),
   sessions: z
     .object({
-      defaultDriverKind: driverKindSchema.nullable().default(null),
+      // A saved choice naming a provider this build no longer ships must not
+      // invalidate the whole settings file.
+      defaultDriverKind: driverKindSchema.nullable().default(null).catch(null),
       defaultPermissionMode: permissionModeSchema.default(DEFAULT_PERMISSION_MODE),
     })
     .default({ defaultDriverKind: null, defaultPermissionMode: DEFAULT_PERMISSION_MODE }),

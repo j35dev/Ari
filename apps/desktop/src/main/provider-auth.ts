@@ -207,16 +207,6 @@ export async function probeProviderAuth(
       reason: detection.transport.note ?? 'This provider has no usable transport in Ari.',
     }
   }
-  // DSH opens local sessions without contacting the selected model provider.
-  // A successful ACP handshake cannot prove that provider's credentials work.
-  if (kind === 'deepseek') {
-    return {
-      status: 'unknown',
-      reason:
-        'DeepSeek Harness manages authentication for each model provider. Configure its provider credentials in dsh; ACP cannot verify them.',
-    }
-  }
-
   let connection: AuthProbeConnection | null
   try {
     connection = await deps.connect(kind, detection.binaryPath)

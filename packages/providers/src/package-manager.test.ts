@@ -58,16 +58,6 @@ describe('planFor', () => {
     const muse = planFor('muse', null, 'linux')
     expect(muse?.upgradeCommand).toEqual(muse?.installCommand)
   })
-  it('installs DeepSeek Harness through its verified npm package', () => {
-    expect(planFor('deepseek', null)?.installCommand).toEqual([
-      'npm',
-      'install',
-      '-g',
-      '--allow-scripts=@deepseek-ai/dsh',
-      '@deepseek-ai/dsh',
-    ])
-    expect(planFor('deepseek', '/opt/dsh')?.upgradeCommand.at(-1)).toBe('@deepseek-ai/dsh@latest')
-  })
   it('builds argv arrays, never shell strings', () => {
     const plan = planFor('codex', 'C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd')
     expect(plan?.installCommand).toEqual([

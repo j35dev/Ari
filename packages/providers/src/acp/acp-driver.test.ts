@@ -2474,12 +2474,12 @@ describe('object-shaped ACP session capabilities', () => {
 
 describe('new ACP runtime compatibility', () => {
   beforeEach(() => __resetLearnedAcpSelectors())
-  it('sends DeepSeek provider-default reasoning as its exact empty wire value', async () => {
+  it('sends provider-default reasoning as its exact empty wire value', async () => {
     const child = fakeChild()
     script(child, (method, params, id) => {
       if (method === 'session/new')
         return {
-          sessionId: 'dsh-default',
+          sessionId: 'agent-default',
           configOptions: [
             {
               id: 'reasoning_effort',
@@ -2507,12 +2507,12 @@ describe('new ACP runtime compatibility', () => {
     expect(child.sent).toContainEqual(
       expect.objectContaining({
         method: 'session/set_config_option',
-        params: { sessionId: 'dsh-default', configId: 'reasoning_effort', value: '' },
+        params: { sessionId: 'agent-default', configId: 'reasoning_effort', value: '' },
       }),
     )
     await adapter.dispose()
   })
-  it('uses earlier DeepSeek tool metadata for id-only Allow edits requests', async () => {
+  it('uses earlier tool metadata for id-only Allow edits requests', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {
       if (method === 'session/prompt') {
@@ -2567,9 +2567,9 @@ describe('new ACP runtime compatibility', () => {
     })
     await adapter.dispose()
   })
-  it('keeps grouped DeepSeek model wire values intact and sends the selected value', async () => {
-    const first = JSON.stringify(['deepseek-official', 'deepseek-v4-flash'])
-    const second = JSON.stringify(['custom', 'deepseek-v4-pro'])
+  it('keeps grouped model wire values intact and sends the selected value', async () => {
+    const first = JSON.stringify(['provider-official', 'model-flash'])
+    const second = JSON.stringify(['custom', 'model-pro'])
     const options = [
       {
         id: 'model',
@@ -2578,23 +2578,23 @@ describe('new ACP runtime compatibility', () => {
         currentValue: first,
         options: [
           {
-            group: 'deepseek-official',
-            name: 'DeepSeek',
-            options: [{ value: first, name: 'DeepSeek Flash' }],
+            group: 'provider-official',
+            name: 'Official',
+            options: [{ value: first, name: 'Flash' }],
           },
-          { group: 'custom', name: 'Custom', options: [{ value: second, name: 'DeepSeek Pro' }] },
+          { group: 'custom', name: 'Custom', options: [{ value: second, name: 'Pro' }] },
         ],
       },
     ]
     expect(modelsFromConfigOptions(options).map((model) => model.id)).toEqual([first, second])
     expect(modelsFromConfigOptions(options).map((model) => model.label)).toEqual([
-      'DeepSeek / DeepSeek Flash',
-      'Custom / DeepSeek Pro',
+      'Official / Flash',
+      'Custom / Pro',
     ])
     const child = fakeChild()
     script(child, (method) => {
       if (method === 'initialize') return { protocolVersion: 1 }
-      if (method === 'session/new') return { sessionId: 'dsh1', configOptions: options }
+      if (method === 'session/new') return { sessionId: 'grouped1', configOptions: options }
       if (method === 'session/set_config_option') return { configOptions: options }
       if (method === 'session/prompt') return { stopReason: 'end_turn' }
       return {}
@@ -2606,7 +2606,7 @@ describe('new ACP runtime compatibility', () => {
     expect(child.sent).toContainEqual(
       expect.objectContaining({
         method: 'session/set_config_option',
-        params: { sessionId: 'dsh1', configId: 'model', value: second },
+        params: { sessionId: 'grouped1', configId: 'model', value: second },
       }),
     )
     await adapter.dispose()
@@ -2654,19 +2654,21 @@ describe('new ACP runtime compatibility', () => {
   })
 
   it('applies a runtime sandbox boundary without carrying Full into a limited turn', () => {
-    const dsh: AcpLaunch = {
-      label: 'deepseek (native ACP)',
-      command: 'dsh',
-      args: ['--profile', 'acp'],
+    const sandboxed: AcpLaunch = {
+      label: 'sandboxed (native ACP)',
+      command: 'agent',
+      args: ['--acp'],
       permissionModeEnv: {
-        ask: { DSH_PERMISSION_MODE: 'workspace-write' },
-        full: { DSH_PERMISSION_MODE: 'danger-full-access' },
+        ask: { AGENT_PERMISSION_MODE: 'workspace-write' },
+        full: { AGENT_PERMISSION_MODE: 'danger-full-access' },
       },
     }
-    expect(launchForSession(dsh, { ...SESSION, permissionMode: 'full' }).env).toEqual({
-      DSH_PERMISSION_MODE: 'danger-full-access',
+    expect(launchForSession(sandboxed, { ...SESSION, permissionMode: 'full' }).env).toEqual({
+      AGENT_PERMISSION_MODE: 'danger-full-access',
     })
-    expect(launchForSession(dsh, SESSION).env).toEqual({ DSH_PERMISSION_MODE: 'workspace-write' })
+    expect(launchForSession(sandboxed, SESSION).env).toEqual({
+      AGENT_PERMISSION_MODE: 'workspace-write',
+    })
     const muse: AcpLaunch = {
       label: 'muse (native ACP)',
       command: 'muse',

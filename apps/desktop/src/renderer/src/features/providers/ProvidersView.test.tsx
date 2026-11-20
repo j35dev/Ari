@@ -72,7 +72,6 @@ const DETECTIONS: Detection[] = [
   absent('hermes'),
   { ...absent('qoder'), enabled: false },
   { ...absent('muse'), enabled: false },
-  { ...absent('deepseek'), enabled: false },
   {
     kind: 'ari-core',
     installed: true,
@@ -190,7 +189,7 @@ describe('ProvidersView', () => {
 
     expect(within(rowFor('Codex')).getByText('Not installed')).toBeInTheDocument()
     expect(within(rowFor('OpenCode')).getByText('Installed')).toBeInTheDocument()
-    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code', 'DeepSeek Harness']) {
+    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code']) {
       expect(within(rowFor(name)).getByText('Off')).toBeInTheDocument()
       expect(within(rowFor(name)).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
     }
@@ -231,7 +230,6 @@ describe('ProvidersView', () => {
     ['hermes', 'Hermes'],
     ['qoder', 'Qoder'],
     ['muse', 'Muse Code'],
-    ['deepseek', 'DeepSeek Harness'],
   ] as const)(
     'enables optional %s from Settings and waits for a fresh detection',
     async (kind, name) => {
@@ -260,10 +258,10 @@ describe('ProvidersView', () => {
   )
 
   it('uses optional defaults when an older settings response has no connection', async () => {
-    for (const kind of ['pi', 'hermes', 'qoder', 'muse', 'deepseek'])
+    for (const kind of ['pi', 'hermes', 'qoder', 'muse'])
       Reflect.deleteProperty(settings.providers, kind)
     await renderLoaded()
-    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code', 'DeepSeek Harness']) {
+    for (const name of ['Pi', 'Hermes', 'Qoder', 'Muse Code']) {
       expect(within(rowFor(name)).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
     }
   })

@@ -31,7 +31,6 @@ const BINARY_NAMES: Record<DriverKind, string[]> = {
     'qoder.ps1',
   ],
   muse: ['muse', 'muse.cmd', 'muse.exe', 'muse.ps1'],
-  deepseek: ['dsh', 'dsh.cmd', 'dsh.exe', 'dsh.ps1'],
   'ari-core': [],
 }
 

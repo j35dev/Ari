@@ -147,7 +147,6 @@ describe('resolveAcpLaunch', () => {
   it.each([
     ['qoder', '/opt/qodercli', ['--acp']],
     ['muse', '/opt/muse', ['acp']],
-    ['deepseek', '/opt/dsh', ['--profile', 'acp']],
   ] as const)('launches %s through its native ACP command without npx', (kind, command, args) => {
     const launch = resolveAcpLaunch(kind, { cliBinaryPath: command }, ENV)
     expect(launch).toMatchObject({ label: `${kind} (native ACP)`, command, args })
