@@ -91,4 +91,15 @@ describe('provider preferences', () => {
   it('rejects malformed saved enable preferences rather than silently changing them', () => {
     expect(providerConnectionsSchema.safeParse({ muse: { enabled: 'false' } }).success).toBe(false)
   })
+
+  it('defaults Ari Core on and stores its switch separately from the CLIs', () => {
+    expect(settingsSchema.parse({ version: 1 }).ariCore.enabled).toBe(true)
+    expect(defaultSettings.ariCore.enabled).toBe(true)
+    expect(settingsUpdateSchema.parse({ ariCore: { enabled: false } })).toEqual({
+      ariCore: { enabled: false },
+    })
+    expect(settingsSchema.parse({ version: 1, ariCore: { enabled: false } }).ariCore.enabled).toBe(
+      false,
+    )
+  })
 })

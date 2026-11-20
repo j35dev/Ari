@@ -9,6 +9,7 @@ import {
   speechBindingsError,
   settingsUpdateSchema,
   defaultSnapshotShortcut,
+  defaultSettings,
 } from '@ari/contracts/settings'
 
 let dir: string
@@ -260,6 +261,15 @@ describe('SettingsStore', () => {
     await expect(store.update({ onboarding: { completedAt: -1 } })).rejects.toThrow()
     expect(store.current.onboarding?.completedAt).toBe(1234)
   })
+  it('persists the Ari Core switch without touching provider connections', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    await store.update({ ariCore: { enabled: false } })
+    const reloaded = await new SettingsStore({ dir }).load()
+    expect(reloaded.ariCore.enabled).toBe(false)
+    expect(reloaded.providers).toEqual(defaultSettings.providers)
+  })
+
   it('persists delegation patches without resetting other limits', async () => {
     const store = new SettingsStore({ dir })
     await store.load()
