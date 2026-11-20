@@ -70,6 +70,17 @@ import {
 import { deleteSessionDraftText, readSessionDraftText } from './features/composer/use-drafts'
 import { writeReviewDrafts } from './features/changes/review-drafts'
 import { TerminalDock, TerminalPane } from './features/terminal'
+import { TerminalWorkspace } from './features/terminal/TerminalWorkspace'
+import {
+  WorkspaceViewSwitch,
+  TerminalWorkspaceBrand,
+  TerminalWorkspaceUsageButton,
+} from './features/terminal/WorkspaceViewSwitch'
+import {
+  useTerminalWorkspace,
+  terminalWorkspaceActions,
+  type WorkspaceView,
+} from './features/terminal/terminal-workspace-state'
 import {
   openTerminalTab,
   subscribeTerminalDock,
@@ -266,13 +277,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // the pane the user is actually in rather than the last row they clicked.
   const layout = useSplitLayout()
   const spaceStore = useSpaces()
+  const terminalWorkspace = useTerminalWorkspace()
+  const terminalMode = terminalWorkspace.view === 'terminals'
+  const [terminalWorkspaceVisited, setTerminalWorkspaceVisited] = useState(terminalMode)
+  useEffect(() => {
+    if (terminalMode) setTerminalWorkspaceVisited(true)
+  }, [terminalMode])
   const activeSessionId = activeSessionOf(layout)
   const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
   const remoteActive = activeSessionScope?.kind === 'remote'
   // The session whose browser page the panel shows; read when an agent navigates.
   const revealSessionRef = useRef<string | undefined>(undefined)
   revealSessionRef.current = remoteActive ? undefined : (activeSessionId ?? undefined)
-  const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
+  const visibleSessionIds = useMemo(
+    () => (terminalMode ? [] : sessionsOnScreen(layout)),
+    [layout, terminalMode],
+  )
   const { activityOf, attentionCountOf, acknowledge, forget } = useSessionActivity(
     visibleSessionIds,
     navigation.sessions.map((session) => session.id),
@@ -317,10 +337,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
   const panesVisible =
-    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
+    !terminalMode && !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
-  const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
+  const tabsVisible = !terminalMode && !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
   const [composerFocusRequest, setComposerFocusRequest] = useState<{
     sessionId: string
     intent: SessionStartIntent
@@ -546,6 +566,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         listedSessions.some((session) => session.id === id && isHelmSession(session))
       )
         return
+      terminalWorkspaceActions.setView('sessions')
       navigationGeneration.current++
       // A session already open is shown where it is, in whichever space holds
       // it; anything else replaces what the focused pane was showing, which is
@@ -644,6 +665,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   useEffect(() => {
     if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
+      if (terminalMode) return
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         toggleSidebar()
@@ -851,6 +873,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const openAria = useCallback(
     (newChat = false): void => {
       if (!ariaEnabled) return
+      terminalWorkspaceActions.setView('sessions')
       // The pinned row is navigation, just like any other known session.
       // Discovery scans every saved journal and must not hold up switching
       // back to the Aria chat the shell has already listed.
@@ -965,6 +988,28 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         }
       : undefined,
     onNavigate: (view) => {
+      if (terminalMode) {
+        if (view === 'terminal') {
+          terminalWorkspaceActions.requestLaunch()
+          setPaletteOpen(false)
+          return
+        }
+        if (view === 'files') {
+          terminalWorkspaceActions.panel('files')
+          setPaletteOpen(false)
+          return
+        }
+        if (view === 'changes' || view === 'source-control') {
+          terminalWorkspaceActions.panel('changes')
+          setPaletteOpen(false)
+          return
+        }
+        if (view === 'usage') {
+          terminalWorkspaceActions.overlay('usage')
+          setPaletteOpen(false)
+          return
+        }
+      }
       if (view === 'settings') {
         setHubOpen(false)
         setSettingsOpen(true)
@@ -972,6 +1017,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setSettingsOpen(false)
         setHubOpen(true)
       } else if (view === 'sessions') {
+        terminalWorkspaceActions.setView('sessions')
         setHubOpen(false)
         clearTransientInspector()
       } else if (view === 'terminal') {
@@ -980,6 +1026,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setFullPage(null)
         setInspector('terminal')
       } else if (view === 'browser') {
+        terminalWorkspaceActions.setView('sessions')
         setHubOpen(false)
         setSettingsOpen(false)
         setFullPage(null)
@@ -1000,7 +1047,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
-      if (remoteActive) {
+      if (remoteActive && !terminalMode) {
         toast({ tone: 'info', title: 'Content search is unavailable on this host.' })
         return
       }
@@ -1016,16 +1063,18 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           single: paneCount(layout) === 1,
         }
       : undefined,
-    spaces: {
-      spaces: spaceStore.spaces.map((space) => ({ id: space.id, name: space.name })),
-      atCeiling: spaceStore.spaces.length >= MAX_SPACES,
-      single: spaceStore.spaces.length <= 1,
-      create: createSpace,
-      close: () => spaceActions.close(spaceStore.activeSpaceId),
-      next: () => spaceActions.cycle(1),
-      previous: () => spaceActions.cycle(-1),
-      select: spaceActions.select,
-    },
+    spaces: terminalMode
+      ? undefined
+      : {
+          spaces: spaceStore.spaces.map((space) => ({ id: space.id, name: space.name })),
+          atCeiling: spaceStore.spaces.length >= MAX_SPACES,
+          single: spaceStore.spaces.length <= 1,
+          create: createSpace,
+          close: () => spaceActions.close(spaceStore.activeSpaceId),
+          next: () => spaceActions.cycle(1),
+          previous: () => spaceActions.cycle(-1),
+          select: spaceActions.select,
+        },
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
@@ -1243,6 +1292,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => window.removeEventListener('keydown', onKey)
   }, [
     setupCovered,
+    terminalMode,
     ariaEnabled,
     paletteOpen,
     settingsOpen,
@@ -1282,7 +1332,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     },
   })
   const openProjectDraft = useCallback(
-    (group: RepositoryGroup, lead = false, initialHostId?: string, snapshotDraftId?: string, reveal = true) => {
+    (
+      group: RepositoryGroup,
+      lead = false,
+      initialHostId?: string,
+      snapshotDraftId?: string,
+      reveal = true,
+    ) => {
       if (draftRegistry.error) {
         toast({ tone: 'warning', title: draftRegistry.error })
         return
@@ -1351,31 +1407,62 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     },
     [projectDrafts, draftRegistry.error, toast, leaveWorkspaceTool],
   )
-  const resolveSnapshotTarget = useCallback((pinned?: string): string | null => {
-    if (setupCovered) return null
-    const paneId = activePaneOf(splitLayoutSnapshot())
-    const spaceId = spaceStoreSnapshot().activeSpaceId
-    if (pinned?.startsWith('project-draft:')) {
-      const entry = projectDraftsRef.current.find((draft) => `project-draft:${draft.id}` === pinned)
-      if (!entry) return null
-      return pinned
-    }
-    if (pinned) {
-      if (!(pinned === 'aria' && ariaEnabled) && !navigation.sessions.some((session) => session.id === pinned && !session.archived)) return null
-      return pinned
-    }
-    if (activeSessionId && ((activeSessionId === 'aria' && ariaEnabled) || navigation.sessions.some((session) => session.id === activeSessionId && !session.archived)))
-      return activeSessionId
-    const draft = projectDraftsRef.current.find((entry) => entry.spaceId === spaceId && entry.paneId === paneId)
-    if (draft) return `project-draft:${draft.id}`
-    const recent = [...navigation.sessions].filter((session) => !session.archived).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-    if (recent) return recent.id
-    const group = navigation.groups.find((entry) => entry.checkouts.some((checkout) => checkout.local)) ?? navigation.groups[0]
-    if (!group) return null
-    const id = openProjectDraft(group, false, local?.identity.machineId, undefined, false)
-    return id ? `project-draft:${id}` : null
-  }, [setupCovered, openProjectDraft, navigation.sessions, navigation.groups, activeSessionId, ariaEnabled, local?.identity.machineId])
-  useSnapshots(resolveSnapshotTarget, (message) => toast({ tone: 'warning', title: 'SnapShots', description: message }))
+  const resolveSnapshotTarget = useCallback(
+    (pinned?: string): string | null => {
+      if (setupCovered) return null
+      const paneId = activePaneOf(splitLayoutSnapshot())
+      const spaceId = spaceStoreSnapshot().activeSpaceId
+      if (pinned?.startsWith('project-draft:')) {
+        const entry = projectDraftsRef.current.find(
+          (draft) => `project-draft:${draft.id}` === pinned,
+        )
+        if (!entry) return null
+        return pinned
+      }
+      if (pinned) {
+        if (
+          !(pinned === 'aria' && ariaEnabled) &&
+          !navigation.sessions.some((session) => session.id === pinned && !session.archived)
+        )
+          return null
+        return pinned
+      }
+      if (
+        activeSessionId &&
+        ((activeSessionId === 'aria' && ariaEnabled) ||
+          navigation.sessions.some(
+            (session) => session.id === activeSessionId && !session.archived,
+          ))
+      )
+        return activeSessionId
+      const draft = projectDraftsRef.current.find(
+        (entry) => entry.spaceId === spaceId && entry.paneId === paneId,
+      )
+      if (draft) return `project-draft:${draft.id}`
+      const recent = [...navigation.sessions]
+        .filter((session) => !session.archived)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      if (recent) return recent.id
+      const group =
+        navigation.groups.find((entry) => entry.checkouts.some((checkout) => checkout.local)) ??
+        navigation.groups[0]
+      if (!group) return null
+      const id = openProjectDraft(group, false, local?.identity.machineId, undefined, false)
+      return id ? `project-draft:${id}` : null
+    },
+    [
+      setupCovered,
+      openProjectDraft,
+      navigation.sessions,
+      navigation.groups,
+      activeSessionId,
+      ariaEnabled,
+      local?.identity.machineId,
+    ],
+  )
+  useSnapshots(resolveSnapshotTarget, (message) =>
+    toast({ tone: 'warning', title: 'SnapShots', description: message }),
+  )
   useEffect(() => {
     if (onboardingDraft === null) return
     if (
@@ -1442,6 +1529,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         return
       }
       if (overrides) setDefaults((previous) => ({ ...previous, ...overrides }))
+      terminalWorkspaceActions.setView('sessions')
       intent?.dispose() // The chooser owns the next explicit pick and its focus.
       setNewSessionRequest({ anchor, overrides })
     },
@@ -1495,6 +1583,23 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
 
   const selectWorkspaceTool = useCallback(
     (id: SidebarNavId | 'overview'): void => {
+      if (terminalMode) {
+        if (id === 'files') {
+          terminalWorkspaceActions.panel('files')
+          return
+        }
+        if (id === 'changes' || id === 'source-control') {
+          terminalWorkspaceActions.panel('changes')
+          return
+        }
+        if (id === 'usage') {
+          terminalWorkspaceActions.overlay('usage')
+          return
+        }
+        if (id === 'terminal') return
+        if (id === 'session' || id === 'browser' || id === 'overview')
+          terminalWorkspaceActions.setView('sessions')
+      }
       if (remoteActive && (id === 'browser' || id === 'usage' || id === 'github')) {
         toast({ tone: 'info', title: 'This tool is unavailable for the selected machine.' })
         return
@@ -1533,7 +1638,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       if (id === 'browser') setBrowserAutoReveal(inspector !== 'browser')
       setInspector((prev) => (prev === id ? null : id))
     },
-    [openSourceControl, remoteActive, toast, inspector, setBrowserAutoReveal],
+    [openSourceControl, remoteActive, toast, terminalMode, inspector, setBrowserAutoReveal],
   )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
@@ -1865,20 +1970,138 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     activeDraftGroup &&
     `${activeDraftGroup.name}${activeDraftGroup.label ? ` · ${activeDraftGroup.label}` : ''}`
 
+  const nativeTask = terminalWorkspace.tasks.find(
+    (task) => task.id === terminalWorkspace.activeTaskId && !task.closed,
+  )
+  const nativeProjectId =
+    nativeTask?.projectId ?? terminalWorkspace.selectedProjectId ?? projects[0]?.id
+  const nativeGitScope = useMemo(
+    () => (nativeProjectId ? { projectId: nativeProjectId } : null),
+    [nativeProjectId],
+  )
+  const switchWorkspaceView = useCallback(
+    (view: WorkspaceView): void => {
+      const projectId =
+        !remoteActive &&
+        activeSession?.projectId &&
+        projects.some((project) => project.id === activeSession.projectId)
+          ? activeSession.projectId
+          : null
+      terminalWorkspaceActions.setView(view, view === 'terminals' ? projectId : null)
+      setHubOpen(false)
+      setGalleryOpen(false)
+      setFullPage(null)
+      setSearchOpen(false)
+    },
+    [remoteActive, activeSession?.projectId, projects],
+  )
+  useEffect(() => {
+    document.documentElement.dataset.ariWorkspaceView = terminalWorkspace.view
+    if (setupCovered) return
+    const switchKey = (event: KeyboardEvent): void => {
+      if (event.isComposing || document.querySelector('[role="dialog"]')) return
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'm'
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        switchWorkspaceView(terminalMode ? 'sessions' : 'terminals')
+      }
+    }
+    window.addEventListener('keydown', switchKey, true)
+    return () => window.removeEventListener('keydown', switchKey, true)
+  }, [setupCovered, terminalWorkspace.view, terminalMode, switchWorkspaceView])
+
+  const workspaceCommands = [
+    {
+      id: 'workspace.view',
+      label: terminalMode ? 'Switch to Sessions workspace' : 'Switch to Terminals workspace',
+      hint: 'Ctrl+Shift+M',
+      run: () => switchWorkspaceView(terminalMode ? 'sessions' : 'terminals'),
+    },
+    ...(terminalMode
+      ? [
+          {
+            id: 'terminal.task.new',
+            label: 'New terminal',
+            hint: 'Ctrl+Shift+T',
+            run: () => terminalWorkspaceActions.requestLaunch(),
+          },
+          {
+            id: 'terminal.preferences',
+            label: 'Customize terminal workspace',
+            run: () => terminalWorkspaceActions.overlay('preferences'),
+          },
+          {
+            id: 'terminal.space.new',
+            label: 'New space',
+            hint: 'Ctrl+Shift+N',
+            run: () => terminalWorkspaceActions.requestNewSpace(),
+          },
+          {
+            id: 'terminal.desk',
+            label: 'Terminal desk layout',
+            run: () => terminalWorkspaceActions.preset('desk'),
+          },
+          {
+            id: 'terminal.agents',
+            label: 'Agent desk layout',
+            run: () => terminalWorkspaceActions.preset('agents'),
+          },
+          {
+            id: 'terminal.workbench',
+            label: 'Workbench layout',
+            run: () => terminalWorkspaceActions.preset('workbench'),
+          },
+          ...(nativeTask
+            ? [
+                {
+                  id: 'terminal.arrange',
+                  label: 'Arrange terminal grid',
+                  run: () => terminalWorkspaceActions.arrange(nativeTask.id, 'grid'),
+                },
+                {
+                  id: 'terminal.park',
+                  label: 'Park terminal task',
+                  hint: 'Ctrl+Shift+W',
+                  run: () => terminalWorkspaceActions.closeTask(nativeTask.id),
+                },
+              ]
+            : []),
+        ]
+      : []),
+    ...commands,
+  ]
+
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
       <ScopedTitlebar
         scope={
-          inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
-            ? changesClientScope
-            : activeSessionScope
+          terminalMode
+            ? null
+            : inspector === 'changes' || fullPage === 'changes' || fullPage === 'source-control'
+              ? changesClientScope
+              : activeSessionScope
         }
-        gitScope={sourceControlScope}
+        gitScope={terminalMode ? nativeGitScope : sourceControlScope}
         hideGit={workspaceToolOpen}
-        onReview={() => openSourceControl('changes')}
-        onRequests={() => openSourceControl('requests')}
-        panelOpen={inspector !== null}
+        onReview={() =>
+          terminalMode ? terminalWorkspaceActions.panel('changes') : openSourceControl('changes')
+        }
+        onRequests={() =>
+          terminalMode
+            ? terminalWorkspaceActions.panel('changes', 'requests')
+            : openSourceControl('requests')
+        }
+        panelOpen={terminalMode ? terminalWorkspace.panel !== null : inspector !== null}
         onTogglePanel={() => {
+          if (terminalMode) {
+            terminalWorkspaceActions.panel(terminalWorkspace.panel ? null : 'files')
+            return
+          }
           if (inspector !== null) {
             // Closing her overview is a choice; it stays closed.
             if (inspector === 'overview') overviewDismissedRef.current = true
@@ -1902,23 +2125,47 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
           setInspector(next)
         }}
         leading={
-          sidebarOpen && !workspaceToolOpen ? (
+          terminalMode ? (
+            <TerminalWorkspaceBrand
+              onPalette={() => setPaletteOpen(true)}
+              onToggleProjects={() =>
+                terminalWorkspaceActions.preset(
+                  terminalWorkspace.preset === 'desk' ? 'agents' : 'desk',
+                )
+              }
+            />
+          ) : sidebarOpen && !workspaceToolOpen ? (
             <SidebarHeader
               onSearch={() => sidebarSearchRef.current?.focus()}
               onCollapse={toggleSidebar}
             />
           ) : undefined
         }
-        leadingWidth={sidebar.width}
+        leadingWidth={
+          terminalMode ? (terminalWorkspace.preset === 'desk' ? 160 : 216) : sidebar.width
+        }
         usage={
-          remoteActive ? undefined : (
+          terminalMode ? (
+            <TerminalWorkspaceUsageButton
+              onClick={() => terminalWorkspaceActions.overlay('usage')}
+            />
+          ) : remoteActive ? undefined : (
             <ProviderUsagePill sessionId={activeSessionId} kind={activeDriverKind} />
           )
         }
-        onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
+        onExpandSidebar={
+          terminalMode || sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar
+        }
+        viewSwitch={
+          <WorkspaceViewSwitch
+            view={terminalWorkspace.view}
+            onChange={switchWorkspaceView}
+            disabled={setupCovered}
+          />
+        }
         projectLabel={
           // Aria's page names her itself; a workspace tool fills the window.
-          ariaActive || workspaceToolOpen
+          terminalMode || ariaActive || workspaceToolOpen
             ? undefined
             : (navigation.sidebarProjects.find(
                 (group) =>
@@ -1958,9 +2205,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         />
       ) : null}
       <div
-        className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
-        hidden={workspaceToolOpen}
-        inert={workspaceToolOpen}
+        className={`${workspaceToolOpen || terminalMode ? 'hidden' : 'flex'} min-h-0 flex-1`}
+        hidden={workspaceToolOpen || terminalMode}
+        inert={workspaceToolOpen || terminalMode}
         onFocusCapture={(event) => {
           lastWorkspaceFocusRef.current = event.target
         }}
@@ -2192,7 +2439,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                     same-frame swap, and every session and terminal in the
                     space comes back exactly as it was left. */}
               {mountedSpaces.map((space) => {
-                const visible = space.id === spaceStore.activeSpaceId
+                const visible = !terminalMode && space.id === spaceStore.activeSpaceId
                 const layout = space.layout
                 const activeSessionId = activeSessionOf(layout)
                 return (
@@ -2533,6 +2780,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         </main>
       </div>
 
+      {(terminalMode || terminalWorkspaceVisited) && (
+        <TerminalWorkspace
+          projects={projects}
+          visible={terminalMode && !workspaceToolOpen && !setupCovered}
+          onAddProject={() => openProjectViaDialog()}
+          onSettings={() => setSettingsOpen(true)}
+          onPalette={() => setPaletteOpen(true)}
+        />
+      )}
+
       {importProjectId !== null ? (
         <SessionImportDialog
           open
@@ -2552,13 +2809,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        commands={commands}
+        commands={workspaceCommands}
       />
       <ContentSearchOverlay
-        open={searchOpen && !remoteActive}
+        open={searchOpen && (!remoteActive || terminalMode)}
         onClose={() => setSearchOpen(false)}
-        root={remoteActive ? null : activeProjectPath}
-        scope={remoteActive ? null : activeScope}
+        root={
+          terminalMode
+            ? (nativeTask?.cwd ??
+              projects.find((project) => project.id === nativeProjectId)?.path ??
+              null)
+            : remoteActive
+              ? null
+              : activeProjectPath
+        }
+        scope={terminalMode ? nativeGitScope : remoteActive ? null : activeScope}
       />
       {setupCovered ? null : <KeyboardCheatSheet />}
       <NewSessionLauncher

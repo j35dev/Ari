@@ -21,6 +21,7 @@ import {
 } from './features/composer/draft-recovery-store'
 import { dropDraftTextMemory, DRAFTS_STORAGE_KEY } from './features/composer/use-drafts'
 import { localSnapshotFixture } from './features/machines/fixtures.test-support'
+import { terminalWorkspaceActions } from './features/terminal/terminal-workspace-state'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -91,26 +92,45 @@ const rpcMocks = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => undefined),
 }))
 
-vi.mock('./lib/rpc', () => ({ rpc: { ...rpcMocks, invoke: (...args: [string, unknown?]) => {
-  const [method] = args
-  if (method === 'machines.list') return Promise.resolve([])
-  if (method === 'machines.preferences') return Promise.resolve({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
-  if (method === 'machines.localSnapshot') return Promise.resolve(appSnapshot())
-  return rpcMocks.invoke(...args)
-} } }))
+vi.mock('./lib/rpc', () => ({
+  rpc: {
+    ...rpcMocks,
+    invoke: (...args: [string, unknown?]) => {
+      const [method] = args
+      if (method === 'machines.list') return Promise.resolve([])
+      if (method === 'machines.preferences')
+        return Promise.resolve({ autoEnabled: false, hostTiers: {}, projectHosts: {} })
+      if (method === 'machines.localSnapshot') return Promise.resolve(appSnapshot())
+      return rpcMocks.invoke(...args)
+    },
+  },
+}))
 function appSnapshot() {
   const snapshot = localSnapshotFixture()
-  snapshot.models.providers = (['ari-core', 'claude', 'codex'] as const).map((driverKind) => ({ driverKind,
-    available: true, models: ['default', 'opus', 'kept-model', 'gpt-6.1-sol'].map((id) => ({ id, label: id,
-      efforts: ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id, label: id })) })),
-    modes: (['ask', 'allow-edits', 'full'] as const).map((ariMode) => ({ id: ariMode, label: ariMode, ariMode })),
+  snapshot.models.providers = (['ari-core', 'claude', 'codex'] as const).map((driverKind) => ({
+    driverKind,
+    available: true,
+    models: ['default', 'opus', 'kept-model', 'gpt-6.1-sol'].map((id) => ({
+      id,
+      label: id,
+      efforts: ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id, label: id })),
+    })),
+    modes: (['ask', 'allow-edits', 'full'] as const).map((ariMode) => ({
+      id: ariMode,
+      label: ariMode,
+      ariMode,
+    })),
   }))
   return snapshot
 }
 async function sendProjectDraft() {
   await screen.findByRole('button', { name: 'Execution machine' })
-  await vi.waitFor(() => expect(screen.queryByText('This agent is unavailable on the selected machine.')).toBeNull())
-  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Test draft first prompt' } })
+  await vi.waitFor(() =>
+    expect(screen.queryByText('This agent is unavailable on the selected machine.')).toBeNull(),
+  )
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+    target: { value: 'Test draft first prompt' },
+  })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 }
 // These suites exercise the established workspace. Real startup/setup is covered in App.onboarding.
@@ -146,6 +166,7 @@ describe('ParentSessionLink', () => {
 describe('Shell session navigation keys', () => {
   const NOW = Date.now()
   beforeEach(() => {
+    terminalWorkspaceActions.reset()
     dropDraftIntentMemory()
     dropDraftTextMemory()
     localStorage.clear()
@@ -220,6 +241,19 @@ describe('Shell session navigation keys', () => {
     expect(await screen.findByText('Garden planner')).toBeInTheDocument()
   })
 
+  it('switches to the terminal workspace and back without replacing the session layout', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+    const previous = splitLayoutSnapshot()
+    await user.click(screen.getByRole('button', { name: 'Terminals workspace' }))
+    expect(await screen.findByRole('button', { name: 'New terminal' })).toBeInTheDocument()
+    expect(splitLayoutSnapshot()).toBe(previous)
+    await user.click(screen.getByRole('button', { name: 'Sessions workspace' }))
+    expect(splitLayoutSnapshot()).toBe(previous)
+  })
+
   it('cleans durable draft entries only after confirmed session deletion', async () => {
     const user = userEvent.setup()
     const first = render(<Composer sessionId="sess_alpha" onSend={vi.fn()} />)
@@ -251,7 +285,7 @@ describe('Shell session navigation keys', () => {
     await act(async () => finish())
     await vi.waitFor(() => expect(readSessionDraftIntent('sess_alpha').images).toHaveLength(0))
     expect(JSON.parse(localStorage.getItem(DRAFTS_STORAGE_KEY) ?? '{}')).toEqual({
-      'sess_beta': 'keep the other draft',
+      sess_beta: 'keep the other draft',
     })
     expect(
       JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) ?? '{}').sessions['sess_alpha'],
@@ -384,6 +418,7 @@ describe('Shell session navigation keys', () => {
   })
 
   it('returns to a recent session without reloading or resubscribing it', async () => {
+    const subscriptionsStart = rpcMocks.subscribe.mock.calls.length
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })
     const loadsOf = (sessionId: string) =>
@@ -392,11 +427,13 @@ describe('Shell session navigation keys', () => {
           method === 'session.load' && (params as { sessionId?: string }).sessionId === sessionId,
       ).length
     const subscriptionsOf = (sessionId: string) =>
-      rpcMocks.subscribe.mock.calls.filter(
-        (call) =>
-          (call as unknown[])[0] === 'session.events' &&
-          ((call as unknown[])[1] as { sessionId?: string }).sessionId === sessionId,
-      ).length
+      rpcMocks.subscribe.mock.calls
+        .slice(subscriptionsStart)
+        .filter(
+          (call) =>
+            (call as unknown[])[0] === 'session.events' &&
+            ((call as unknown[])[1] as { sessionId?: string }).sessionId === sessionId,
+        ).length
 
     fireEvent.keyDown(window, { key: '1', ctrlKey: true })
     await vi.waitFor(() => expect(loadsOf('sess_alpha')).toBe(1), { timeout: 10_000 })
@@ -1196,7 +1233,9 @@ describe('Starting a session with no project yet', () => {
         case 'session.list':
           return []
         case 'project.list':
-          return opened ? [{ id: 'proj-new', name: 'Ari', path: 'C:\\work\\ari', open: true, status: 'ok' }] : []
+          return opened
+            ? [{ id: 'proj-new', name: 'Ari', path: 'C:\\work\\ari', open: true, status: 'ok' }]
+            : []
         case 'dialog.pickFolder':
           return { path: 'C:\\work\\ari' }
         case 'project.open':
@@ -1597,8 +1636,13 @@ describe('Shell live sidebar feed', () => {
         expect.objectContaining({ projectId: 'proj-ari', lead: true }),
       ),
     )
-    expect(invokeMock.mock.calls.some(([method, params]) => method === 'command.dispatch' &&
-      (params as { command?: { type?: string } })?.command?.type === 'session.update')).toBe(false)
+    expect(
+      invokeMock.mock.calls.some(
+        ([method, params]) =>
+          method === 'command.dispatch' &&
+          (params as { command?: { type?: string } })?.command?.type === 'session.update',
+      ),
+    ).toBe(false)
   })
 
   describe('with fresh default permissions', () => {

@@ -6,6 +6,57 @@ import { findTerminalTab } from './terminal-dock'
 import { useToolSessionClient } from './tool-session-client'
 import { createTerminalSessionAdapter } from './terminal-session-adapter'
 import { bindTerminalClipboard } from './terminal-clipboard'
+import { getTerminalRuntime } from './terminal-runtime'
+
+export interface TerminalPaneProps {
+  terminalId: string
+  cwd: string | null
+  initialCommand?: string
+  attachOnly?: boolean
+  active: boolean
+  onError?: (message: string) => void
+}
+
+/** Remote terminals retain their authenticated adapter; local view mounts attach to a stable VT. */
+export function TerminalPane(props: TerminalPaneProps) {
+  const remote =
+    findTerminalTab(props.terminalId)?.owner?.kind === 'remote' ||
+    props.terminalId.startsWith('rterm_')
+  return remote ? <RemoteTerminalPane {...props} /> : <LocalTerminalPane {...props} />
+}
+
+function LocalTerminalPane({
+  terminalId,
+  cwd,
+  initialCommand,
+  attachOnly = false,
+  active,
+  onError,
+}: TerminalPaneProps) {
+  const host = useRef<HTMLDivElement>(null)
+  const error = useRef(onError)
+  error.current = onError
+  useEffect(() => {
+    if (!host.current || cwd === null) return
+    const runtime = getTerminalRuntime(terminalId, cwd)
+    const detach = runtime.mount(host.current)
+    const removeError = runtime.onError((message) => error.current?.(message))
+    runtime.start(cwd, initialCommand, attachOnly)
+    return () => {
+      removeError()
+      detach()
+    }
+    // Startup values belong to the terminal's first launch, not subsequent pane mounts.
+  }, [terminalId, cwd, attachOnly])
+  useEffect(() => {
+    if (active && cwd !== null) getTerminalRuntime(terminalId, cwd).focus()
+  }, [active, terminalId, cwd])
+  return (
+    <div data-ari-part="terminal" className="h-full min-h-0 w-full overflow-hidden">
+      <div ref={host} className="h-full min-h-0 w-full overflow-hidden" />
+    </div>
+  )
+}
 
 function readToken(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -23,7 +74,7 @@ const LINE_HEIGHT = 1.3
  * is idempotent in the main process (an existing session is reused and its
  * scrollback replays through the subscription), so remounts never lose output.
  */
-export function TerminalPane({
+function RemoteTerminalPane({
   terminalId,
   cwd,
   initialCommand,

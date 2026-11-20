@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import type * as ChildProcess from 'node:child_process'
 import {
   TerminalService,
+  POWERSHELL_PROMPT_INTEGRATION,
   ptyUnavailableReason,
   type PtyFactory,
   type PtyLike,
@@ -79,6 +80,22 @@ function makeService() {
 }
 
 describe('TerminalService', () => {
+  it('installs prompt cleanup through Windows shell arguments without injecting or repeating it as input', () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    const pty = fakePty()
+    const factory = vi.fn<PtyFactory>(() => pty)
+    const service = new TerminalService({ onData: vi.fn(), onExit: vi.fn() }, factory)
+    service.create('shell', '.', 'codex', { pathEnv: '' })
+    service.create('shell', '.', 'codex', { pathEnv: '' })
+    expect(factory).toHaveBeenCalledOnce()
+    expect(factory.mock.calls[0]?.[1]).toEqual([
+      '-NoLogo',
+      '-NoExit',
+      '-Command',
+      POWERSHELL_PROMPT_INTEGRATION,
+    ])
+    expect(pty.write.mock.calls).toEqual([['codex\r']])
+  })
   it('creates sessions with the platform shell and forwards data', () => {
     const { service, ptys, dataEvents } = makeService()
     service.create('t1', 'D:\\proj')
@@ -119,6 +136,26 @@ describe('TerminalService', () => {
     service.create('dup', '.')
     service.create('dup', '.')
     expect(ptys).toHaveLength(1)
+  })
+
+  it('executes a startup command once even when its view creates again', () => {
+    const { service, ptys } = makeService()
+    expect(service.create('cli', '.', 'codex')).toBe(true)
+    expect(service.create('cli', '.', 'codex')).toBe(false)
+    expect(ptys).toHaveLength(1)
+    expect(ptys[0]?.write.mock.calls).toEqual([['codex\r']])
+  })
+
+  it('reports the actual exit outcome and retains history without restarting', () => {
+    const { service, ptys } = makeService()
+    service.create('exit', '.', undefined, { cols: 120, rows: 36 })
+    ptys[0]?.emitData('saved output')
+    ptys[0]?.emitExit(17)
+    expect(service.info('exit')).toMatchObject({ exited: true, exitCode: 17, cols: 120, rows: 36 })
+    expect(service.replay('exit')).toBe('saved output')
+    expect(service.create('exit', '.', 'must-not-restart')).toBe(false)
+    expect(ptys[0]?.write).not.toHaveBeenCalled()
+    expect(service.info('unknown')).toBeNull()
   })
 
   it('forwards pty exit so the host can name it instead of hanging blank', () => {

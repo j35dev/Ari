@@ -15,6 +15,7 @@ import { sessionMachine } from '../session/session-machine-access'
 import { ContextMenu, type MenuAnchor } from '../../shell/ContextMenu'
 import { TerminalA11y } from './TerminalA11y'
 import { TerminalPane } from './TerminalPane'
+import { destroyTerminalRuntime } from './terminal-runtime'
 import {
   activateTerminalTab,
   closeTerminalTab,
@@ -103,7 +104,10 @@ export function TerminalDock({
   const paneHosted = paneTerminalIds ?? new Set<string>()
   // Each rail mounts only shells owned by its immutable host/session scope.
   const tabs = dock.tabs.filter(
-    (tab) => terminalOwnerKey(terminalOwnerOf(tab)) === ownerKey && !paneHosted.has(tab.id),
+    (tab) =>
+      !tab.workspaceTaskId &&
+      terminalOwnerKey(terminalOwnerOf(tab)) === ownerKey &&
+      !paneHosted.has(tab.id),
   )
   const activeId = tabs.some((tab) => tab.id === dock.activeId)
     ? dock.activeId
@@ -218,6 +222,7 @@ export function TerminalDock({
           return
         }
       }
+      if (!remote) destroyTerminalRuntime(id)
       setErrorByTab((prev) => {
         if (!(id in prev)) return prev
         const next = { ...prev }
