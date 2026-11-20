@@ -16,12 +16,15 @@ const found = (binaryPath: string | null): Detection => ({
 describe('detectConnection', () => {
   it("hands the detector that provider's own settings", async () => {
     const detect = vi.fn(async () => found(null))
-    const connections = {
-      ...defaultSettings.providers,
-      claude: { ...defaultSettings.providers.claude, enabled: false, binaryPath: '/opt/claude' },
+    const settings = {
+      ...defaultSettings,
+      providers: {
+        ...defaultSettings.providers,
+        claude: { ...defaultSettings.providers.claude, enabled: false, binaryPath: '/opt/claude' },
+      },
     }
-    await detectConnection('claude', ENV, connections, detect)
-    await detectConnection('codex', ENV, connections, detect)
+    await detectConnection('claude', ENV, settings, detect)
+    await detectConnection('codex', ENV, settings, detect)
     expect(detect).toHaveBeenNthCalledWith(
       1,
       'claude',
@@ -41,7 +44,7 @@ describe('detectConnection', () => {
     const missing = await detectConnection(
       'claude',
       ENV,
-      defaultSettings.providers,
+      defaultSettings,
       async () => found(null),
       describe,
     )
@@ -51,7 +54,7 @@ describe('detectConnection', () => {
     const present = await detectConnection(
       'claude',
       ENV,
-      defaultSettings.providers,
+      defaultSettings,
       async () => found('/usr/bin/claude'),
       describe,
     )
@@ -59,10 +62,17 @@ describe('detectConnection', () => {
     expect(describe).toHaveBeenCalledWith('claude', '/usr/bin/claude')
   })
 
-  it('passes Ari Core through without connection settings', async () => {
+  it('hands Ari Core its own on/off setting', async () => {
     const detect = vi.fn(async () => ({ ...found(null), kind: 'ari-core' as const }))
-    await detectConnection('ari-core', ENV, defaultSettings.providers, detect)
-    expect(detect).toHaveBeenCalledWith('ari-core', ENV, {})
+    await detectConnection('ari-core', ENV, defaultSettings, detect)
+    expect(detect).toHaveBeenCalledWith('ari-core', ENV, { enabled: true })
+    await detectConnection(
+      'ari-core',
+      ENV,
+      { ...defaultSettings, ariCore: { enabled: false } },
+      detect,
+    )
+    expect(detect).toHaveBeenLastCalledWith('ari-core', ENV, { enabled: false })
   })
 })
 

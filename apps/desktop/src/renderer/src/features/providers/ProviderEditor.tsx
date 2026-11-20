@@ -22,6 +22,8 @@ export interface ProviderEditorProps {
   detection: Detection | undefined
   /** Null for Ari Core, which has nothing to connect to. */
   connection: ProviderConnection | null
+  /** The stored switch state, including Ari Core's separate setting. */
+  enabled: boolean | null
   status: ProviderStatus
   /** A connection change was saved and detection has not caught up. */
   checking: boolean
@@ -64,6 +66,7 @@ export function ProviderEditor({
   kind,
   detection,
   connection,
+  enabled,
   status,
   checking,
   install,
@@ -82,7 +85,7 @@ export function ProviderEditor({
   const name = driverLabel(kind)
   const version = shortVersion(detection?.version)
   const running = install != null && install.outcome === null
-  const on = connection?.enabled !== false
+  const on = enabled !== false
   const live = on && !checking && detection?.enabled !== false
   const installed = live && detection?.installed === true
   const runnable = installed && detection?.transport?.available !== false
@@ -131,9 +134,9 @@ export function ProviderEditor({
             </span>
           </p>
         </div>
-        {connection !== null && (
+        {enabled !== null && (
           <Switch
-            checked={connection.enabled}
+            checked={enabled}
             onCheckedChange={onEnabledChange}
             aria-label={`Enable ${name}`}
             className="mt-0.5"
@@ -142,17 +145,26 @@ export function ProviderEditor({
       </header>
 
       {connection === null ? (
-        <Section title="Endpoints">
-          <p className={SETTINGS_HINT_CLASS}>
-            Ari Core is Ari&apos;s own agent. It needs no CLI and talks to any OpenAI-compatible
-            endpoint you add.
-          </p>
-          {onOpenEndpoints && (
-            <Button size="sm" variant="secondary" className="mt-3" onClick={onOpenEndpoints}>
-              Manage endpoints
-            </Button>
-          )}
-        </Section>
+        on ? (
+          <Section title="Endpoints">
+            <p className={SETTINGS_HINT_CLASS}>
+              Ari Core is Ari&apos;s own agent. It needs no CLI and talks to any OpenAI-compatible
+              endpoint you add.
+            </p>
+            {onOpenEndpoints && (
+              <Button size="sm" variant="secondary" className="mt-3" onClick={onOpenEndpoints}>
+                Manage endpoints
+              </Button>
+            )}
+          </Section>
+        ) : (
+          <Section title="Status">
+            <p className={SETTINGS_HINT_CLASS}>
+              Ari Core is off. Its saved endpoints stay in place, but its models are hidden and
+              sessions that already use it cannot run a new turn until it is back on.
+            </p>
+          </Section>
+        )
       ) : (
         <>
           <Section title="Connection">

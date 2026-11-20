@@ -39,6 +39,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  ariCore: defaultSettings.ariCore,
   providers: defaultSettings.providers,
   sourceControl: {
     confirmDefaultPush: true,

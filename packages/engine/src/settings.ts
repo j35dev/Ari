@@ -46,6 +46,7 @@ export interface SettingsPatch {
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
   sessions?: Partial<Settings['sessions']>
+  ariCore?: Partial<Settings['ariCore']>
   providers?: Partial<Record<CliKind, Partial<ProviderConnection>>>
   sourceControl?: Partial<Settings['sourceControl']>
   notifications?: Partial<Settings['notifications']>
@@ -232,6 +233,7 @@ export class SettingsStore {
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
+      ariCore: { ...this.#current.ariCore, ...patch.ariCore },
       providers: mergeConnections(this.#current.providers, patch.providers),
       sourceControl: { ...this.#current.sourceControl, ...patch.sourceControl },
       notifications: { ...this.#current.notifications, ...patch.notifications },

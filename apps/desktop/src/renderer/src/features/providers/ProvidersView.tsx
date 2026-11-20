@@ -99,25 +99,28 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
     [settings],
   )
 
+  const ariCoreEnabled = (settings?.ariCore ?? defaultSettings.ariCore).enabled
+
   const rows = useMemo<ProviderListRow[]>(
     () =>
       ORDER.map((kind) => {
         const connection = connectionOf(kind)
         const detection = pending.has(kind) ? undefined : detections?.find((d) => d.kind === kind)
+        const enabled = kind === 'ari-core' ? ariCoreEnabled : (connection?.enabled ?? null)
         return {
           kind,
-          enabled: connection === null ? null : connection.enabled,
+          enabled,
           version: detection?.installed === true ? shortVersion(detection.version) : null,
           status: providerStatus({
             kind,
             detection,
-            enabled: connection?.enabled !== false,
+            enabled: enabled !== false,
             auth: auth[kind],
             install: installs[kind],
           }),
         }
       }),
-    [auth, connectionOf, detections, installs, pending],
+    [ariCoreEnabled, auth, connectionOf, detections, installs, pending],
   )
 
   // Open on whatever needs the user, once, and never move a selection they made.
@@ -144,6 +147,14 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
         next.delete(kind)
         return next
       })
+    })
+  }
+
+  const saveAriCore = (enabled: boolean): void => {
+    chosen.current = true
+    setError(null)
+    update({ ariCore: { enabled } }).catch(() => {
+      setError('Could not save the Ari Core setting.')
     })
   }
 
@@ -197,7 +208,8 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
             selected={selected}
             onSelect={select}
             onEnabledChange={(kind, enabled) => {
-              if (kind !== 'ari-core') save(kind, { enabled })
+              if (kind === 'ari-core') saveAriCore(enabled)
+              else save(kind, { enabled })
             }}
           />
         </div>
@@ -207,13 +219,15 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
             kind={row.kind}
             detection={detections?.find((d) => d.kind === row.kind)}
             connection={connectionOf(row.kind)}
+            enabled={row.enabled}
             status={row.status}
             checking={pending.has(row.kind) || detections === null}
             install={installs[row.kind]}
             auth={auth[row.kind]}
             checkingAuth={checking[row.kind] === true}
             onEnabledChange={(enabled) => {
-              if (row.kind !== 'ari-core') save(row.kind, { enabled })
+              if (row.kind === 'ari-core') saveAriCore(enabled)
+              else save(row.kind, { enabled })
             }}
             onBinaryPathChange={(binaryPath) => {
               if (row.kind !== 'ari-core') save(row.kind, { binaryPath })

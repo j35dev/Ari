@@ -27,12 +27,18 @@ const LABELS: Record<DriverKind, string> = {
 export async function detectConnection(
   kind: DriverKind,
   env: DetectEnvironment,
-  connections: Settings['providers'],
+  settings: Pick<Settings, 'providers' | 'ariCore'>,
   detect: typeof detectDriver = detectDriver,
   describe: (kind: DriverKind, binaryPath: string) => ProviderTransport = describeTransport,
 ): Promise<Detection> {
   const cli = cliKindSchema.safeParse(kind)
-  const detection = await detect(kind, env, cli.success ? connections[cli.data] : {})
+  // Ari Core has no connection block; its on/off switch lives beside it.
+  const options = cli.success
+    ? settings.providers[cli.data]
+    : kind === 'ari-core'
+      ? { enabled: settings.ariCore.enabled }
+      : {}
+  const detection = await detect(kind, env, options)
   if (detection.binaryPath === null) return detection
   // Described against the process environment, as the launch itself resolves.
   return { ...detection, transport: describe(kind, detection.binaryPath) }
