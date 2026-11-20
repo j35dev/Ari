@@ -148,12 +148,18 @@ describe('ProvidersView', () => {
     invokeFn.mockImplementation((method: string, params?: unknown) => {
       if (method === 'settings.get') return Promise.resolve(settings)
       if (method === 'settings.update') {
-        const patch = (params as SettingsUpdate).providers ?? {}
+        const next = params as SettingsUpdate
         const providers = { ...settings.providers }
-        for (const kind of Object.keys(patch) as (keyof typeof providers)[]) {
-          providers[kind] = { ...providers[kind], ...patch[kind] }
+        for (const kind of Object.keys(next.providers ?? {}) as (keyof typeof providers)[]) {
+          providers[kind] = { ...providers[kind], ...next.providers?.[kind] }
         }
-        settings = { ...settings, providers }
+        settings = {
+          ...settings,
+          providers,
+          ...(next.ariCore === undefined
+            ? {}
+            : { ariCore: { ...settings.ariCore, ...next.ariCore } }),
+        }
         return Promise.resolve(settings)
       }
       if (method === 'providers.detect' || method === 'providers.rescan') {
@@ -188,8 +194,24 @@ describe('ProvidersView', () => {
       expect(within(rowFor(name)).getByText('Off')).toBeInTheDocument()
       expect(within(rowFor(name)).getByRole('switch', { name: `Enable ${name}` })).not.toBeChecked()
     }
-    // Ari Core is part of Ari: there is nothing to turn off.
-    expect(within(rowFor('Ari Core')).queryByRole('switch')).toBeNull()
+    // Ari Core is built in, but it still has its own switch.
+    expect(
+      within(rowFor('Ari Core')).getByRole('switch', { name: 'Enable Ari Core' }),
+    ).toBeChecked()
+  })
+
+  it('turns Ari Core off without losing its saved endpoints', async () => {
+    await renderLoaded()
+    const toggle = within(rowFor('Ari Core')).getByRole('switch', { name: 'Enable Ari Core' })
+
+    await userEvent.click(toggle)
+    expect(invokeFn).toHaveBeenCalledWith('settings.update', { ariCore: { enabled: false } })
+    await waitFor(() => expect(toggle).not.toBeChecked())
+    expect(within(rowFor('Ari Core')).getByText('Off')).toBeInTheDocument()
+
+    const editor = await open('Ari Core')
+    expect(within(editor).getByText(/Ari Core is off\./)).toBeInTheDocument()
+    expect(within(editor).queryByRole('button', { name: 'Manage endpoints' })).toBeNull()
   })
 
   it('shows which install the selected provider runs and how Ari reaches it', async () => {

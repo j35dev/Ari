@@ -37,15 +37,15 @@ export function providerStatus({
   auth,
   install,
 }: ProviderStatusInput): ProviderStatus {
-  if (kind === 'ari-core') {
-    return { tone: 'quiet', headline: 'Built in', detail: 'Runs on the endpoints you add.' }
-  }
   if (!enabled) {
     return {
       tone: 'quiet',
       headline: 'Off',
       detail: 'Hidden from the model picker and never launched.',
     }
+  }
+  if (kind === 'ari-core') {
+    return { tone: 'quiet', headline: 'Built in', detail: 'Runs on the endpoints you add.' }
   }
   if (detection === undefined || detection.enabled === false) {
     return { tone: 'busy', headline: 'Checking', detail: null }

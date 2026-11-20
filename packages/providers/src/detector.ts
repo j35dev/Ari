@@ -383,6 +383,9 @@ export async function detectDriver(
   if (kind === 'ari-core') {
     return {
       kind,
+      // The built-in harness has no binary to find, but the user can still
+      // turn it off; consumers gate on this like any other provider.
+      enabled: options.enabled !== false,
       installed: true,
       binaryPath: null,
       version: null,

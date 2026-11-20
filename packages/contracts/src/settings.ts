@@ -308,6 +308,16 @@ export type ProviderConnections = z.infer<typeof providerConnectionsSchema>
 
 const defaultConnections = (): ProviderConnections => providerConnectionsSchema.parse({})
 
+/**
+ * Ari Core is Ari's built-in harness, so it has no CLI connection to configure,
+ * but it can still be turned off: the switch hides its endpoint models and
+ * refuses turns until it is back on.
+ */
+export const ariCoreSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+})
+export type AriCoreSettings = z.infer<typeof ariCoreSettingsSchema>
+
 const defaultAppearance = {
   themeId: 'obsidian',
   mode: 'system',
@@ -424,6 +434,7 @@ export const settingsSchema = z.object({
       defaultPermissionMode: permissionModeSchema.default(DEFAULT_PERMISSION_MODE),
     })
     .default({ defaultDriverKind: null, defaultPermissionMode: DEFAULT_PERMISSION_MODE }),
+  ariCore: ariCoreSettingsSchema.default(() => ariCoreSettingsSchema.parse({})),
   providers: providerConnectionsSchema.default(defaultConnections),
   /** How the titlebar Git control and the diff panel behave. */
   sourceControl: z
@@ -509,6 +520,7 @@ export const settingsUpdateSchema = z.object({
     .partial()
     .optional(),
   ariaVoice: ariaVoiceSettingsSchema.partial().optional(),
+  ariCore: ariCoreSettingsSchema.partial().optional(),
   experimental: z.object({ ariaEnabled: z.boolean() }).partial().optional(),
   speech: z
     .object({
@@ -637,6 +649,7 @@ export const defaultSettings: Settings = {
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: DEFAULT_PERMISSION_MODE },
+  ariCore: ariCoreSettingsSchema.parse({}),
   providers: defaultConnections(),
   sourceControl: {
     confirmDefaultPush: true,

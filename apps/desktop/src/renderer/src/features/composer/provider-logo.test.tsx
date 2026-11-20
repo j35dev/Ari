@@ -13,6 +13,7 @@ const LOGO_KINDS: DriverKind[] = [
   'qoder',
   'muse',
   'deepseek',
+  'ari-core',
 ]
 
 describe('ProviderLogo', () => {
@@ -27,12 +28,6 @@ describe('ProviderLogo', () => {
     const path = container.querySelector('svg path')
     expect(path?.getAttribute('fill-rule')).toBe('evenodd')
     expect(path?.getAttribute('d')?.match(/M/g)?.length).toBeGreaterThan(1)
-  })
-
-  it('keeps ari-core on the letter mark', () => {
-    const { container } = render(<ProviderLogo kind="ari-core" />)
-    expect(container.querySelector('svg')).toBeNull()
-    expect(container.textContent).toBe('A')
   })
 
   it('falls back to the letter mark for unknown kinds', () => {

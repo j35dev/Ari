@@ -61,7 +61,10 @@ describe('providerStatus', () => {
   it('warns when signed out, unless a preflight just proved otherwise', () => {
     const signedOut = { ...installed, authStatus: 'unauthenticated' }
     expect(status(signedOut)).toMatchObject({ tone: 'warning', headline: 'Not signed in' })
-    const ready = { source: 'probe' as const, result: { status: 'ready' as const, label: 'Claude' } }
+    const ready = {
+      source: 'probe' as const,
+      result: { status: 'ready' as const, label: 'Claude' },
+    }
     expect(status(signedOut, { auth: ready })).toMatchObject({ tone: 'ok', headline: 'Ready' })
   })
 
@@ -95,9 +98,17 @@ describe('providerStatus', () => {
   })
 
   it('never asks Ari Core for a CLI', () => {
-    expect(providerStatus({ kind: 'ari-core', detection: undefined, enabled: true })).toMatchObject({
+    expect(providerStatus({ kind: 'ari-core', detection: undefined, enabled: true })).toMatchObject(
+      {
+        tone: 'quiet',
+        headline: 'Built in',
+      },
+    )
+    expect(
+      providerStatus({ kind: 'ari-core', detection: undefined, enabled: false }),
+    ).toMatchObject({
       tone: 'quiet',
-      headline: 'Built in',
+      headline: 'Off',
     })
   })
 })

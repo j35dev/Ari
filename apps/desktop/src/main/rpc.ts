@@ -415,7 +415,7 @@ async function detectConfigured(kind: DriverKind, env: DetectEnvironment): Promi
   return detectConnection(
     kind,
     { ...env, vars: { ...env.vars, ...account }, separateAccount },
-    getSettingsStore().current.providers,
+    getSettingsStore().current,
   )
 }
 
@@ -1077,25 +1077,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return mcpStoreReady
   }
   void ensureMcpStore()
-  driverRegistry.register(
-    new AriCoreDriver(getEndpointStore(), {
-      // Ari Core owns its transcript (it has no provider-side thread to
-      // resume), so conversation memory is persisted per session on disk.
-      conversations: new FileConversationStore(join(coreDir, 'conversations')),
-      skills: { homeDir: homedir(), trustDir: coreDir },
-      mcpServers: (session) => {
-        for (const server of mcpStore.list()) {
-          if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
-            log.warn('mcp server name is reserved', {
-              server: server.name,
-              reason: 'reserved-name',
-            })
-          }
+  const ariCoreDriver = new AriCoreDriver(getEndpointStore(), {
+    // Ari Core owns its transcript (it has no provider-side thread to
+    // resume), so conversation memory is persisted per session on disk.
+    conversations: new FileConversationStore(join(coreDir, 'conversations')),
+    skills: { homeDir: homedir(), trustDir: coreDir },
+    mcpServers: (session) => {
+      for (const server of mcpStore.list()) {
+        if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
+          log.warn('mcp server name is reserved', {
+            server: server.name,
+            reason: 'reserved-name',
+          })
         }
-        return mergeCoreMcp(mcpStore.list(), browserCoreServers(session))
-      },
-    }),
-  )
+      }
+      return mergeCoreMcp(mcpStore.list(), browserCoreServers(session))
+    },
+  })
+  driverRegistry.register(ariCoreDriver)
+  // The in-memory defaults are on; a stored choice takes it back off before
+  // any turn can reach the registry.
+  void settingsReady().then(() => {
+    if (!getSettingsStore().current.ariCore.enabled) driverRegistry.unregister('ari-core')
+  })
   driverRegistryRef = driverRegistry
   hydrateDrivers(driverRegistry)
 
@@ -1310,10 +1314,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return enabled && autoApproveCli ? controlCliApproval(request) : null
     },
     driverUnavailable: async (kind) => {
+      const current = getSettingsStore().current
       const cli = cliKindSchema.safeParse(kind)
-      if (cli.success && !getSettingsStore().current.providers[cli.data].enabled) {
-        return unavailableReason(kind, undefined, false)
-      }
+      const enabled =
+        kind === 'ari-core'
+          ? current.ariCore.enabled
+          : cli.success
+            ? current.providers[cli.data].enabled
+            : true
+      if (!enabled) return unavailableReason(kind, undefined, false)
       const rows = await rawDetections()
       return unavailableReason(kind, rows.find((row) => row.kind === kind) as Detection | undefined)
     },
@@ -1781,6 +1790,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     }
     if (params.experimental?.ariaEnabled !== undefined)
       await (await controlReady).refreshAriaExperiment()
+    if (params.ariCore !== undefined) {
+      // Ari Core is always built in, but its driver must leave the registry
+      // before a turn sent in the same instant can find it.
+      if (settings.ariCore.enabled) {
+        if (driverRegistry.get('ari-core') === null) driverRegistry.register(ariCoreDriver)
+      } else {
+        driverRegistry.unregister('ari-core')
+      }
+      void redetect(['ari-core']).catch((error: unknown) =>
+        log.warn('Ari Core redetect failed', { error: String(error) }),
+      )
+    }
     if (params.providers !== undefined) {
       const kinds = cliKindSchema.array().parse(Object.keys(params.providers))
       // Off takes effect before this call returns: detection may be seconds
