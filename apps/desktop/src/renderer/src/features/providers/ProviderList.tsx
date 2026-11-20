@@ -10,7 +10,7 @@ export interface ProviderListRow {
   status: ProviderStatus
   /** Short version for the row, or null when unknown or not applicable. */
   version: string | null
-  /** Null for a provider that cannot be turned off (Ari Core). */
+  /** The stored switch state; null when this row has no switch. */
   enabled: boolean | null
 }
 
