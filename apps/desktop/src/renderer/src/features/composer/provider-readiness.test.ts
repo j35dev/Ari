@@ -38,14 +38,14 @@ describe('partitionProviders', () => {
 
   it('offers optional providers with an available transport', () => {
     const { ready } = partitionProviders(
-      ['qoder', 'muse', 'deepseek'].map((kind) => ({
+      ['qoder', 'muse'].map((kind) => ({
         kind,
         installed: true,
         authStatus: 'unknown',
         transport: { available: true },
       })),
     )
-    expect(ready.map((entry) => entry.kind)).toEqual(['qoder', 'muse', 'deepseek'])
+    expect(ready.map((entry) => entry.kind)).toEqual(['qoder', 'muse'])
   })
   it('offers an installed, authenticated provider', () => {
     const { ready } = partitionProviders([installedClaude])

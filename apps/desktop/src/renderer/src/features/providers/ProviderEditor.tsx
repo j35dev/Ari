@@ -170,7 +170,7 @@ export function ProviderEditor({
           <Section title="Connection">
             <BinaryPathField
               name={name}
-              command={kind === 'qoder' ? 'qodercli' : kind === 'deepseek' ? 'dsh' : kind}
+              command={kind === 'qoder' ? 'qodercli' : kind}
               value={connection.binaryPath}
               detection={detection}
               checking={checking}

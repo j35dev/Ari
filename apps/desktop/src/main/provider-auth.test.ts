@@ -78,20 +78,6 @@ describe('a sign-in check that straddles an account switch', () => {
       expect.objectContaining({ command: '/opt/muse', args: ['login'] }),
     )
   })
-  it('does not certify DeepSeek model credentials from a local ACP session', async () => {
-    const connect = vi.fn(async () => connectionThat(async () => ({ sessionId: 'dsh' })))
-    const result = await probeProviderAuth(
-      'deepseek',
-      deps({
-        detections: async () => detection({ kind: 'deepseek', binaryPath: '/opt/dsh' }),
-        connect,
-      }),
-      new ProviderAuthState(),
-    )
-    expect(result.status).toBe('unknown')
-    expect(connect).not.toHaveBeenCalled()
-  })
-
   it('does not probe an installed ACP-only runtime when its transport is disabled', async () => {
     const connect = vi.fn(async () => connectionThat(async () => ({})))
     const result = await probeProviderAuth(

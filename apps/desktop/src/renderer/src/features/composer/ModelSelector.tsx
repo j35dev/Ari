@@ -50,7 +50,7 @@ type SourcesByKind = Partial<Record<DriverKind, CatalogSource>>
 
 /** These optional harnesses supply their own models; no bundled catalog is assumed. */
 function bundledModels(kind: DriverKind) {
-  return kind === 'qoder' || kind === 'muse' || kind === 'deepseek' ? [] : modelsFor(kind)
+  return kind === 'qoder' || kind === 'muse' ? [] : modelsFor(kind)
 }
 
 /**

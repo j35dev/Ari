@@ -12,7 +12,6 @@ const LOGO_KINDS: DriverKind[] = [
   'hermes',
   'qoder',
   'muse',
-  'deepseek',
   'ari-core',
 ]
 

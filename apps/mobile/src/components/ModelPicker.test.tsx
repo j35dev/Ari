@@ -76,7 +76,6 @@ describe('desktop model picker', () => {
   it.each([
     ['qoder', 'Qoder'],
     ['muse', 'Muse Code'],
-    ['deepseek', 'DeepSeek Harness'],
   ] as const)('selects %s models reported by the desktop', (kind, name) => {
     app.catalog!.providers.push({
       driverKind: kind,

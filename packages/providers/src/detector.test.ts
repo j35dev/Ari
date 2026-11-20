@@ -64,14 +64,6 @@ describe('findBinary', () => {
     )
   })
 
-  it('finds the DeepSeek Harness npm shim without confusing it with model providers', async () => {
-    const binDir = join(dir, 'dsh-bin')
-    await mkdir(binDir, { recursive: true })
-    await writeFileSafe(join(binDir, 'dsh.cmd'), '')
-    expect(findBinary('deepseek', makeEnv({ platform: 'win32', pathEnv: binDir }))).toBe(
-      join(binDir, 'dsh.cmd'),
-    )
-  })
   it('resolves a binary on PATH honoring extension priority', async () => {
     const binDir = join(dir, 'bin')
     await mkdir(binDir, { recursive: true })

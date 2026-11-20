@@ -9,7 +9,6 @@ const DRIVER_LABEL: Record<DriverKind, string> = {
   hermes: 'Hermes',
   qoder: 'Qoder',
   muse: 'Muse Code',
-  deepseek: 'DeepSeek Harness',
   'ari-core': 'Ari Core',
 }
 
