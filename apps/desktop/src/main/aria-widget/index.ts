@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, ipcMain, powerMonitor, screen } from 'electron'
+import { BrowserWindow, clipboard, ipcMain, powerMonitor, screen } from 'electron'
 import { defaultThemeId } from '@ari/ui/themes'
 import type { Settings } from '@ari/contracts/settings'
 import type { uIOhook } from 'uiohook-napi'
@@ -18,7 +18,6 @@ import { CaptureLease } from '../speech/capture-lease'
 import { captureDictationTarget, prepareDictation } from '../speech/dictation-target'
 import type { DictationTarget } from '../../shared/dictation'
 import { getAudioDucking, type AudioDucking } from '../speech/audio-ducking'
-import { recoverDictation } from '../speech/recovery'
 import { hasDictationText } from '../../shared/dictation-format'
 
 const log = createLogger('desktop:aria-widget')
@@ -343,10 +342,7 @@ export class AriaWidget {
         const token = this.token
         // Start target capture before displaying the recording pill.
         try {
-          this.target = (
-            this.deps.captureTarget ??
-            ((id: string) => captureDictationTarget(this.deps.mainWindow?.() ?? null, id))
-          )(token)
+          this.target = this.captureTarget(token)
         } catch (error) {
           this.target = Promise.reject(error instanceof Error ? error : new Error(String(error)))
         }
@@ -386,6 +382,13 @@ export class AriaWidget {
     if (this.destination === 'dictation' && !this.targetReady) this.hold.cancel()
     else this.hold.up(performance.now())
     this.publish()
+  }
+
+  private captureTarget(id: string): Promise<DictationTarget> {
+    return (
+      this.deps.captureTarget ??
+      ((id: string) => captureDictationTarget(this.deps.mainWindow?.() ?? null, id))
+    )(id)
   }
 
   private async handle(method: string, raw: unknown): Promise<unknown> {
@@ -444,14 +447,26 @@ export class AriaWidget {
             const token = this.token
             const target = await this.target
             if (!token || !target || !this.lease.current(token)) return
-            await target.insert(
-              text,
-              () =>
-                this.lease.current(token) &&
-                id === this.hold.state.id &&
-                this.hold.state.phase === 'transcribing' &&
-                !this.disposed,
-            )
+            // Every result stays on the clipboard so it can be pasted anywhere.
+            clipboard.writeText(text)
+            const current = (): boolean =>
+              this.lease.current(token) &&
+              id === this.hold.state.id &&
+              this.hold.state.phase === 'transcribing' &&
+              !this.disposed
+            try {
+              await target.insert(text, current)
+            } catch (error) {
+              if (!current()) throw error
+              // Focus moved while dictating: type where the user is now instead.
+              try {
+                const here = await this.captureTarget(`${token}:retarget`)
+                await here.insert(text, current)
+              } catch {
+                if (!current()) throw error
+                throw new Error('Copied to clipboard. Press Ctrl+V to paste.')
+              }
+            }
           } else
             await sendToAria(
               {
@@ -480,8 +495,6 @@ export class AriaWidget {
           false,
           performance.now(),
         )
-        if (text && id === this.hold.state.id && this.hold.visible() && !this.disposed)
-          void recoverDictation(text).catch(() => undefined)
       } finally {
         this.sending = null
       }
