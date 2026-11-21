@@ -15,6 +15,7 @@ import { applyAppearance } from '../../lib/appearance'
 import { defaultSettings } from '@ari/contracts/settings'
 import { dropDraftIntentMemory, RECOVERY_STORAGE_KEY } from './draft-recovery-store'
 import { dropDraftTextMemory } from './use-drafts'
+import { ARI_SLASH_COMMANDS, type SlashCommand } from '@ari/contracts/slash-commands'
 
 beforeEach(() => {
   dropDraftIntentMemory()
@@ -1387,5 +1388,87 @@ describe('Composer mention highlight', () => {
     // and therefore character alignment — stays identical while scrolling.
     expect(input.className).toContain('scrollbar-gutter')
     expect(overlay.className).toContain('scrollbar-gutter')
+  })
+})
+
+describe('Composer slash commands', () => {
+  const commands: SlashCommand[] = [
+    ...ARI_SLASH_COMMANDS,
+    {
+      name: 'compact',
+      description: 'Free up context',
+      argumentHint: '<instructions>',
+      source: 'builtin',
+      run: 'prompt-text',
+    },
+    {
+      name: 'model',
+      description: 'Set the model',
+      argumentHint: null,
+      source: 'builtin',
+      run: 'unsupported',
+      reason: "Choose the model with Ari's model picker under the message box.",
+    },
+  ]
+
+  it('opens the menu on a leading slash, filters, and inserts without sending', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    const onCommandMenu = vi.fn()
+    render(<Composer onSend={onSend} commands={commands} onCommandMenu={onCommandMenu} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, '/')
+    expect(onCommandMenu).toHaveBeenCalledOnce()
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      expect.stringContaining('/ari theme'),
+      expect.stringContaining('/compact'),
+      expect.stringContaining('/model'),
+    ])
+    await user.type(input, 'com')
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(input).toHaveValue('/compact ')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
+    await user.keyboard('{Enter}')
+    expect(onSend).toHaveBeenCalledWith('/compact', [])
+  })
+
+  it('closes on Escape and keeps the typed text', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} commands={commands} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, '/co')
+    expect(screen.getByRole('listbox', { name: 'Slash commands' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
+    expect(input).toHaveValue('/co')
+  })
+
+  it('keeps a command Ari cannot run in the field, with the reason', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    render(<Composer onSend={onSend} commands={commands} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, '/model opus{Enter}')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).toHaveValue('/model opus')
+    expect(screen.getByRole('status')).toHaveTextContent("Ari's model picker")
+    await user.clear(input)
+    await user.type(input, '/quit{Escape}{Enter}')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('terminal app')
+  })
+
+  it('offers Ari’s own commands when the session has no list', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} commandsNote="Loading the agent’s commands…" />)
+    await user.type(screen.getByLabelText('Message'), '/')
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      expect.stringContaining('/ari theme'),
+    ])
+    expect(screen.getByText('Loading the agent’s commands…')).toBeInTheDocument()
+    await user.keyboard('{Tab}')
+    expect(screen.getByLabelText('Message')).toHaveValue('/ari theme ')
   })
 })

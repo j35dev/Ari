@@ -11,7 +11,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createLogger } from '@ari/shared/logger'
-import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  CommandListRequest,
+  Driver,
+  ProviderAdapter,
+} from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import { teardownChild } from '../teardown'
@@ -27,6 +33,10 @@ import { CLAUDE_APPROVAL_OPTIONS, ClaudeMessageMapper, type NativeLine } from '.
 import { claudeSdkExecutable } from './executable'
 import { claudeSessionPool, type ClaudeSessionPool } from './session-pool'
 import type { ClaudeSessionProcess } from './session'
+import type { SlashCommand } from '@ari/contracts/slash-commands'
+import { claudeSlashCommands } from '../slash-commands'
+import { discoverExtensions } from '../extensions/inventory'
+import { realDetectEnvironment } from '../types'
 
 // Retain the old transport for explicit rollback and the JSONL fixture recorder.
 export { ClaudeCliDriver, argvSafeText, buildClaudeArgs, buildUserFrame } from './cli-driver'
@@ -53,6 +63,7 @@ export type ClaudeQuery = AsyncIterable<SDKMessage> &
     Pick<
       Query,
       | 'initializationResult'
+      | 'supportedCommands'
       | 'setModel'
       | 'stopTask'
       | 'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET'
@@ -546,6 +557,15 @@ function openClaudeSession(
   // The driver awaits readiness before submitting prompt bytes; keep rejection handled
   // while the stream pump is still reporting the same startup failure.
   void ready.catch(() => undefined)
+  // The composer's "/" menu: the session's commands, refreshed by `commands_changed`.
+  void ready
+    .then(async () => {
+      const commands = await runtime.supportedCommands?.()
+      if (commands && !closed) emit([mapper.commandsEvent(commands)])
+    })
+    .catch((error: unknown) =>
+      log.debug('Claude command list unavailable', { error: String(error) }),
+    )
   void pump().catch((error: unknown) =>
     log.warn('claude query cleanup failed', { error: String(error) }),
   )
@@ -745,6 +765,25 @@ export class ClaudeDriver implements Driver {
       return this.options.fallback.create(session)
     }
   }
+  /** Asks a control-only query for the commands; no prompt, no model tokens. */
+  async listCommands(request: CommandListRequest): Promise<SlashCommand[]> {
+    const env = request.runtimeEnv ?? { ...process.env }
+    const [commands, inventory] = await Promise.all([
+      withClaudeQuery(this.binaryPath, request.workspacePath, env, (runtime) =>
+        runtime.supportedCommands(),
+      ),
+      discoverExtensions({
+        provider: 'claude',
+        workspacePath: request.workspacePath,
+        env: { ...realDetectEnvironment(), vars: env },
+      }).catch(() => ({ records: [] })),
+    ])
+    const skills = inventory.records
+      .filter((record) => record.kind === 'skill')
+      .map((record) => record.name)
+    return claudeSlashCommands(commands, { skills })
+  }
+
   private async createSdk(session: AdapterSession): Promise<ProviderAdapter> {
     const pool = this.options.pool === undefined ? claudeSessionPool : this.options.pool
     const options = buildClaudeOptions(session, this.binaryPath)

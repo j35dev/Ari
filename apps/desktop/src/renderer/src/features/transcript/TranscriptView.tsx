@@ -22,6 +22,8 @@ import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ErrorNote } from './ErrorNote'
 import { NoticeNote } from './NoticeNote'
+import { CommandChip } from './CommandChip'
+import { parseSlashCommand } from '@ari/contracts/slash-commands'
 import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import type { TurnDiffValue } from './types'
@@ -919,6 +921,8 @@ function UserBubble({
   labelled?: boolean
 }) {
   const [copied, setCopied] = useState(false)
+  // A slash command reads as a command, not as a chat message.
+  const command = useMemo(() => parseSlashCommand(text), [text])
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(text)
@@ -954,9 +958,13 @@ function UserBubble({
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
-      <div className="ari-user-bubble ari-chat-copy ml-1 min-w-0 max-w-[72%] whitespace-pre-wrap break-words rounded-2xl bg-surface-2 px-4 py-2.5 text-fg">
-        {text}
-      </div>
+      {command ? (
+        <CommandChip command={command} />
+      ) : (
+        <div className="ari-user-bubble ari-chat-copy ml-1 min-w-0 max-w-[72%] whitespace-pre-wrap break-words rounded-2xl bg-surface-2 px-4 py-2.5 text-fg">
+          {text}
+        </div>
+      )}
     </div>
   )
 }

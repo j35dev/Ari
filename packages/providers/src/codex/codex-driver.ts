@@ -9,9 +9,19 @@ import { CodexNativeChildren } from './native-children'
 import { AppServerConnection, AppServerRequestError } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
 import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
+import {
+  describeGoal,
+  parseGoalArgs,
+  reviewTarget,
+  type CodexGoal,
+  type GoalRequest,
+} from './commands'
+import { codexSlashCommands, type CodexSkill } from '../slash-commands'
+import { parseSlashCommand, type SlashCommand } from '@ari/contracts/slash-commands'
 import type {
   AdapterApprovalDecision,
   AdapterSession,
+  CommandListRequest,
   Driver,
   ProviderAdapter,
   SessionAttachment,
@@ -23,6 +33,48 @@ import { spawnCli, writeCliPrompt } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
+
+/** How long a command that starts a server turn (compact, goal) waits for it. */
+const SERVER_TURN_MS = 15_000
+/** How long an active goal may sit idle between Codex's turns before Ari stops. */
+const GOAL_IDLE_MS = 10_000
+/** What Codex's own clients send when a goal is set but no turn starts on it. */
+const GOAL_CONTINUATION_PROMPT = 'Continue working toward the active goal.'
+
+/** How a turn's work began: a turn, a server turn to wait for, or a direct answer. */
+type StartedWork =
+  | { kind: 'turn'; turnId: string | null; events: AgentEvent[] }
+  | { kind: 'server-turn'; turnId: null; waitMs: number; events: AgentEvent[] }
+  | { kind: 'answered'; events: AgentEvent[] }
+
+/** `/compact`, `/review`, `/goal` or `/$skill` typed as the whole prompt. */
+function codexCommandIn(prompt: string): { name: string; args: string } | null {
+  const invocation = parseSlashCommand(prompt)
+  if (invocation === null) return null
+  const name = invocation.name.toLowerCase()
+  return ['compact', 'review', 'goal'].includes(name) || name.startsWith('$') ? invocation : null
+}
+
+/** One `skills/list` entry with what a skill input item needs. */
+interface ListedSkill extends CodexSkill {
+  path?: string
+}
+
+/** `skills/list` for one folder; an older server without it lists none. */
+export async function listCodexSkills(
+  connection: Pick<AppServerConnection, 'request'>,
+  cwd: string,
+): Promise<ListedSkill[]> {
+  try {
+    const result = (await connection.request('skills/list', { cwds: [cwd] }, 15_000)) as {
+      data?: { skills?: ListedSkill[] }[]
+    } | null
+    return (result?.data ?? []).flatMap((entry) => entry.skills ?? [])
+  } catch (error) {
+    log.debug('codex skills/list failed', { error: formatUnknownError(error) })
+    return []
+  }
+}
 
 /**
  * Argv for a one-shot `codex exec` turn. Approval/sandbox flags map Ari
@@ -97,6 +149,43 @@ export class CodexDriver implements Driver {
     private readonly binaryPath: string,
     private readonly options: CodexDriverOptions = {},
   ) {}
+
+  /**
+   * Codex's commands Ari can run, and its skills. The app-server has no list
+   * of the TUI's commands, so those come from {@link codexSlashCommands};
+   * skills come from a short-lived app-server's `skills/list`. No thread or
+   * turn is started. Without the app-server none of them can run.
+   */
+  async listCommands(request: CommandListRequest): Promise<SlashCommand[]> {
+    const probe = this.options.probe === undefined ? createAppServerProbe() : this.options.probe
+    if (probe === null || !(await probe.supportsAppServer(this.binaryPath).catch(() => false))) {
+      return codexSlashCommands().map((command) =>
+        command.run === 'rpc'
+          ? {
+              ...command,
+              run: 'unsupported' as const,
+              reason: 'This Codex install has no app-server, which Ari needs to run it.',
+            }
+          : command,
+      )
+    }
+    const connection = AppServerConnection.start({
+      binaryPath: this.binaryPath,
+      cwd: request.workspacePath,
+      ...(request.runtimeEnv ? { env: request.runtimeEnv } : {}),
+      ...(this.options.spawnAppServer ? { spawn: this.options.spawnAppServer } : {}),
+    })
+    try {
+      await connection.request(
+        'initialize',
+        { clientInfo: { name: 'ari', version: '0.1.0' }, capabilities: {} },
+        15_000,
+      )
+      return codexSlashCommands(await listCodexSkills(connection, request.workspacePath))
+    } finally {
+      connection.kill()
+    }
+  }
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {
     // `undefined` (production `new CodexDriver(bin)`) probes the binary;
@@ -301,6 +390,18 @@ export async function createCodexAppServerAdapter(
   let disposed = false
   const beforeThread: string[] = []
   const beforeTurn: string[] = []
+  /** `/goal` set the goal active: Ari stays on while Codex works toward it. */
+  let goalPursuit = false
+  let goalActive = false
+  /** Codex started a turn on the goal, or Ari had to ask it to. */
+  let goalTurnSeen = false
+  let goalNudged = false
+  /** Commands the server answers by starting its own turn (compact, goal). */
+  let serverTurnTimer: ReturnType<typeof setTimeout> | null = null
+  const clearServerTurnTimer = (): void => {
+    if (serverTurnTimer) clearTimeout(serverTurnTimer)
+    serverTurnTimer = null
+  }
 
   const handleFrame = (line: string): void => {
     if (rootThreadId === null) {
@@ -323,6 +424,24 @@ export async function createCodexAppServerAdapter(
       return
     }
     const isRoot = correlation.threadId === rootThreadId
+    if (isRoot && (method === 'thread/goal/updated' || method === 'thread/goal/cleared')) {
+      // Goal changes name the turn they happened in, which may be the one that
+      // just ended; they are thread state, never stale turn output.
+      const raw = params['goal']
+      const goal = raw !== null && typeof raw === 'object' ? (raw as CodexGoal) : null
+      const wasActive = goalActive
+      goalActive = method === 'thread/goal/updated' && goal?.status === 'active'
+      if (goalPursuit && wasActive && !goalActive) {
+        push([
+          {
+            type: 'notice',
+            message: method === 'thread/goal/cleared' ? 'Goal cleared.' : describeGoal(goal),
+          },
+        ])
+        if (activeTurnId === null && startConfirmed) settleServerWork()
+      }
+      return
+    }
     if (isRoot) {
       // Only the start/resume response owns the persisted resume reference.
       if (method === 'thread/started') return
@@ -364,7 +483,11 @@ export async function createCodexAppServerAdapter(
       // the root mapper, including its stateful item/usage de-duplication.
       if (requestId === null) return
     }
-    if (isRoot && method === 'turn/started') rootTurnStarted = true
+    if (isRoot && method === 'turn/started') {
+      rootTurnStarted = true
+      if (goalPursuit) goalTurnSeen = true
+      clearServerTurnTimer()
+    }
     if (isRoot && (method === 'item/started' || method === 'item/completed')) {
       if ((params['item'] as { type?: string } | undefined)?.type === 'collabAgentToolCall') {
         diagnose(line, method, 'native-collaboration')
@@ -413,8 +536,24 @@ export async function createCodexAppServerAdapter(
       )
       return
     }
+    if (
+      inbound.kind === 'notification' &&
+      method === 'turn/completed' &&
+      goalPursuit &&
+      goalActive
+    ) {
+      // Codex continues toward an active goal once the thread is idle. Each of
+      // its turns lands in this one Ari turn until the goal stops being active.
+      activeTurnId = null
+      rootTurnStarted = false
+      push(children.end())
+      push(inbound.events.filter((event) => event.type !== 'done'))
+      awaitServerTurn(GOAL_IDLE_MS)
+      return
+    }
     if (inbound.kind === 'notification' && method === 'turn/completed') {
       terminal = true
+      clearServerTurnTimer()
       activeTurnId = null
       const status = (params['turn'] as { status?: string } | undefined)?.status
       push(children.end())
@@ -486,12 +625,25 @@ export async function createCodexAppServerAdapter(
     throw new Error('codex app-server returned no thread id')
   }
   rootThreadId = threadId
-  push([{ type: 'session-ref', ref: threadId }])
+  // A slash command may be answered without a turn, and a thread Codex never
+  // ran a turn on has no rollout to resume. Such a fresh thread is published
+  // only once work starts on it, so the next turn does not try to resume it.
+  // A prompt that is one of these commands runs as one even when the engine
+  // did not mark it (a turn that fell back here from the ACP adapter).
+  const command = session.command ?? codexCommandIn(session.prompt)
+  let threadPublished = false
+  const publishThread = (): void => {
+    if (threadPublished) return
+    threadPublished = true
+    push([{ type: 'session-ref', ref: threadId }])
+  }
+  if (command === null || session.resumeOf !== null) publishThread()
   for (const line of beforeThread.splice(0)) handleFrame(line)
 
   const finish = (): void => {
     disposed = true
     activeTurnId = null
+    clearServerTurnTimer()
     for (const { requestId } of pendingApprovals.values()) {
       connection.respond(requestId, { decision: 'decline' })
     }
@@ -499,25 +651,175 @@ export async function createCodexAppServerAdapter(
     connection.kill()
   }
 
+  const turnSettings = {
+    ...(session.modelId !== null && session.modelId !== 'default'
+      ? { model: session.modelId }
+      : {}),
+    // turn/start's `effort` carries forward to later turns on this thread,
+    // which is where the picker's reasoning level has to land.
+    ...(hasEffort(session.effort) ? { effort: session.effort } : {}),
+  }
+  const turnIdOf = (result: unknown): string | null => {
+    const id = (result as { turn?: { id?: unknown } } | null)?.turn?.id
+    return typeof id === 'string' ? id : null
+  }
+  const startTurn = async (input: unknown[]): Promise<StartedWork> => ({
+    kind: 'turn',
+    turnId: turnIdOf(await connection.request('turn/start', { threadId, input, ...turnSettings })),
+    events: [],
+  })
+  const notice = (message: string): AgentEvent => ({ type: 'notice', message })
+  /** The prompt as a turn, or the slash command as the app-server method that runs it. */
+  const startWork = async (): Promise<StartedWork> => {
+    if (!command) return startTurn([{ type: 'text', text: promptWithAttachments(session) }])
+    switch (command.name.toLowerCase()) {
+      case 'compact':
+        await connection.request('thread/compact/start', { threadId }, 30_000)
+        return { kind: 'server-turn', turnId: null, waitMs: SERVER_TURN_MS, events: [] }
+      case 'review': {
+        const result = await connection.request('review/start', {
+          threadId,
+          target: reviewTarget(command.args),
+          delivery: 'inline',
+        })
+        return { kind: 'turn', turnId: turnIdOf(result), events: [] }
+      }
+      case 'goal':
+        return startGoal(parseGoalArgs(command.args))
+    }
+    // A Codex skill: what the TUI sends for a `$skill` mention.
+    const wanted = command.name.replace(/^\$/, '')
+    const skill = (await listCodexSkills(connection, session.workspacePath)).find(
+      (entry) => entry.name === wanted,
+    )
+    if (!skill?.path)
+      return {
+        kind: 'answered',
+        events: [notice(`Codex has no /${command.name} command or skill here.`)],
+      }
+    const text = textWithAttachments(
+      [`$${skill.name}`, command.args].filter((part) => part.length > 0).join(' '),
+      session.attachments ?? [],
+    )
+    return startTurn([
+      { type: 'text', text },
+      { type: 'skill', name: skill.name, path: skill.path },
+    ])
+  }
+  const startGoal = async (request: GoalRequest): Promise<StartedWork> => {
+    switch (request.kind) {
+      case 'get': {
+        const result = (await connection.request('thread/goal/get', { threadId }, 15_000)) as {
+          goal?: CodexGoal | null
+        } | null
+        return { kind: 'answered', events: [notice(describeGoal(result?.goal))] }
+      }
+      case 'clear':
+        await connection.request('thread/goal/clear', { threadId, origin: 'user' }, 15_000)
+        return { kind: 'answered', events: [notice('Goal cleared.')] }
+      case 'pause': {
+        const result = (await connection.request(
+          'thread/goal/set',
+          { threadId, status: 'paused', origin: 'user' },
+          15_000,
+        )) as { goal?: CodexGoal } | null
+        return { kind: 'answered', events: [notice(describeGoal(result?.goal))] }
+      }
+      case 'edit':
+        return {
+          kind: 'answered',
+          events: [notice('Send /goal followed by the new objective to replace the goal.')],
+        }
+      case 'resume':
+      case 'set': {
+        const result = (await connection.request(
+          'thread/goal/set',
+          {
+            threadId,
+            status: 'active',
+            origin: 'user',
+            ...(request.kind === 'set' ? { objective: request.objective } : {}),
+          },
+          15_000,
+        )) as { goal?: CodexGoal } | null
+        goalPursuit = true
+        goalActive = result?.goal?.status === 'active'
+        const events = [notice(describeGoal(result?.goal))]
+        // Not active (complete, over budget): there is nothing to start.
+        if (!goalActive) return { kind: 'answered', events }
+        return { kind: 'server-turn', turnId: null, waitMs: SERVER_TURN_MS, events }
+      }
+    }
+  }
+  /** Ends this Ari turn once the server's own work is over. */
+  function settleServerWork(): void {
+    if (terminal || disposed) return
+    clearServerTurnTimer()
+    terminal = true
+    activeTurnId = null
+    push(children.end())
+    push([interrupted ? { type: 'done', stopReason: 'interrupted' } : { type: 'done' }])
+  }
+  /** Waits for the server to start the turn a command asked for, then gives up. */
+  function awaitServerTurn(waitMs: number): void {
+    clearServerTurnTimer()
+    serverTurnTimer = setTimeout(() => {
+      serverTurnTimer = null
+      if (terminal || disposed || activeTurnId !== null) return
+      if (!goalPursuit || !goalActive) {
+        settleServerWork()
+        return
+      }
+      if (!goalNudged && !goalTurnSeen) {
+        // The server did not start on the new goal by itself. Ask it to, the
+        // way Codex's own clients do, with a turn that names no new work.
+        goalNudged = true
+        void startTurn([{ type: 'text', text: GOAL_CONTINUATION_PROMPT }])
+          .then((started) => {
+            if (started.kind === 'turn' && !terminal && !disposed && activeTurnId === null)
+              activeTurnId = started.turnId
+          })
+          .catch((error: unknown) => {
+            push([{ type: 'error', message: formatUnknownError(error), rawJson: null }])
+            settleServerWork()
+          })
+        return
+      }
+      // This process ends with the Ari turn. A goal left active would be
+      // picked up by a later turn's process unasked, so it is paused instead.
+      goalActive = false
+      void connection
+        .request('thread/goal/set', { threadId, status: 'paused', origin: 'user' }, 10_000)
+        .catch((error: unknown) => log.debug('codex goal pause failed', { error: String(error) }))
+        .finally(() => {
+          push([
+            notice(
+              'Codex stopped working on the goal, so Ari paused it. Send /goal resume to continue.',
+            ),
+          ])
+          settleServerWork()
+        })
+    }, waitMs)
+  }
+
   const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
     // The user turn rides out on first pull; its completion closes the stream.
     startRequested = true
-    void connection
-      .request('turn/start', {
-        threadId,
-        input: [{ type: 'text', text: promptWithAttachments(session) }],
-        ...(session.modelId !== null && session.modelId !== 'default'
-          ? { model: session.modelId }
-          : {}),
-        // turn/start's `effort` carries forward to later turns on this thread,
-        // which is where the picker's reasoning level has to land.
-        ...(hasEffort(session.effort) ? { effort: session.effort } : {}),
-      })
-      .then((result) => {
+    void startWork()
+      .then((started) => {
         if (terminal || disposed) return
-        const turn = (result as { turn?: { id?: string } } | null)?.turn
-        if (typeof turn?.id === 'string') activeTurnId = turn.id
+        if (started.kind === 'answered') {
+          // The method itself answered the command; no turn runs.
+          startConfirmed = true
+          beforeTurn.length = 0
+          terminal = true
+          push([...started.events, { type: 'done' }])
+          return
+        }
+        publishThread()
+        if (started.turnId !== null) activeTurnId = started.turnId
         startConfirmed = true
+        push(started.events)
         // Notifications may precede the response. Replay only after its
         // authoritative turn id is known, so old completions cannot win.
         for (const line of beforeTurn.splice(0)) handleFrame(line)
@@ -536,6 +838,9 @@ export async function createCodexAppServerAdapter(
           )
           rootTurnStarted = true
         }
+        // Compaction and goal work run in a turn the server starts itself.
+        if (started.kind === 'server-turn' && !rootTurnStarted && !terminal)
+          awaitServerTurn(started.waitMs)
       })
       .catch((error: unknown) => {
         if (terminal || disposed) return
@@ -605,6 +910,14 @@ export async function createCodexAppServerAdapter(
     interrupt: () => {
       if (terminal || disposed) return
       interrupted = true
+      if (goalPursuit && goalActive) {
+        // Stop means stop: Codex must not start the goal's next turn either.
+        goalActive = false
+        void connection
+          .request('thread/goal/set', { threadId, status: 'paused', origin: 'user' }, 10_000)
+          .then(() => push([notice('Goal paused. Send /goal resume to continue.')]))
+          .catch((error: unknown) => log.debug('codex goal pause failed', { error: String(error) }))
+      }
       if (activeTurnId === null) {
         finish()
         return

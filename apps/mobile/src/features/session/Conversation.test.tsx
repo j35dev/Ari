@@ -188,3 +188,18 @@ it('keeps a delegation wake out of the conversation', () => {
   expect(screen.queryByText(/coordination inbox notice/)).toBeNull()
   expect(container.querySelectorAll('.message-bubble')).toHaveLength(1)
 })
+
+it('renders a sent slash command as a chip and a command’s report as a folded notice', () => {
+  const report = Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n')
+  const { container } = show([
+    message('user', [text('/goal ship the beta')]),
+    message('assistant', [text(`\n\nℹ ${report}`)]),
+  ])
+  const chip = container.querySelector('[data-slash-command="goal"]')
+  expect(chip?.textContent).toBe('/goal ship the beta')
+  const note = screen.getByRole('note')
+  expect(note.textContent).toContain('line 5')
+  expect(note.textContent).not.toContain('line 11')
+  fireEvent.click(within(note).getByRole('button', { name: 'Show all' }))
+  expect(note.textContent).toContain('line 11')
+})
