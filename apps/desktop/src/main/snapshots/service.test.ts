@@ -102,11 +102,13 @@ it('captures and persists in the background without restoring, showing or focusi
     bounds: { x: 400, y: 100, width: 900, height: 600 },
   })
   await service.updateSettings(store, { snapshots: { enabled: true, shortcut: 'f19' } })
+  expect(electron.feedbackPrepare).not.toHaveBeenCalled()
   const capture = electron.register.mock.calls[0]?.[1] as () => void
   capture()
   await vi.waitFor(() =>
     expect(contents.send).toHaveBeenCalledWith('ari:snapshots.event', { type: 'captured' }),
   )
+  expect(electron.feedbackPrepare).toHaveBeenCalledOnce()
   expect(electron.main.show).not.toHaveBeenCalled()
   expect(electron.main.restore).not.toHaveBeenCalled()
   expect(electron.main.focus).not.toHaveBeenCalled()

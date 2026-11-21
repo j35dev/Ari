@@ -130,12 +130,10 @@ export class SnapshotsService {
     this.shortcut.configure(settings.snapshots.enabled ? shortcut : null)
     this.settings = { ...settings, snapshots: { ...settings.snapshots, shortcut } }
     this.error = null
-    // Warm the feedback window while the app idles so the first SnapShot is not
-    // paying for BrowserWindow creation and page load.
+    // The feedback window is created per capture, not kept warm while idle.
     const feedback = this.settings.snapshots.animation || this.settings.snapshots.sound
-    if (this.settings.snapshots.enabled && feedback && process.platform === 'win32')
-      this.overlay.prepare()
-    else this.overlay.dispose()
+    if (!(this.settings.snapshots.enabled && feedback && process.platform === 'win32'))
+      this.overlay.dispose()
   }
 
   initialize(settings: Settings): void {
@@ -192,6 +190,10 @@ export class SnapshotsService {
     try {
       // Feedback from an earlier capture must not land in this frame.
       this.overlay.hide()
+      // Kick the feedback window while pixels are still being captured, so its
+      // creation and page load overlap with the native capture and preview.
+      const feedback = this.settings?.snapshots
+      if (feedback?.animation || feedback?.sound) this.overlay.prepare()
       const pending = this.pending.list()
       const captured = await captureForegroundWindow()
       if ((await pending).length >= 20)
