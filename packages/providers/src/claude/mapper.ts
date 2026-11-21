@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@ari/contracts/agent-event'
+import type { AgentEvent, SubagentActivity } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
 import { claudeSlashCommands, type ClaudeSdkCommand } from '../slash-commands'
@@ -59,6 +59,8 @@ export interface NativeLine {
   session_id?: string
   /** Set on lines a subagent produced; null for the main conversation. */
   parent_tool_use_id?: string | null
+  /** The task id of the subagent that produced the line. */
+  agent_id?: string
   error?: string
   is_error?: boolean
   uuid?: string
@@ -88,6 +90,8 @@ export interface NativeLine {
   task_type?: string
   subagent_type?: string
   description?: string
+  /** What a subagent run was asked (task_started). */
+  prompt?: string
   summary?: string
   last_tool_name?: string
   status?: string
@@ -199,9 +203,10 @@ export function mapClaudeLine(line: string): AgentEvent[] {
 export function mapClaudeMessage(parsed: NativeLine): AgentEvent[] {
   const events: AgentEvent[] = []
 
-  // Native agents have their own transcript. Their tools feed the task rail,
-  // but their prose, usage and errors must not become the parent's reply.
-  if (parsed.parent_tool_use_id != null && parsed.type !== 'control_request') return events
+  // Native agents have their own transcript. Their prose and tools go there,
+  // and their usage and errors must not become the parent's reply.
+  if (parsed.parent_tool_use_id != null && parsed.type !== 'control_request')
+    return subagentEvents(parsed, parsed.parent_tool_use_id)
 
   if (typeof parsed.error === 'string' && parsed.error.length > 0) {
     events.push({
@@ -335,6 +340,41 @@ export function mapClaudeMessage(parsed: NativeLine): AgentEvent[] {
   return events
 }
 
+/**
+ * A sub-agent's finalized messages, wrapped for its own transcript. Its
+ * streaming frames are not used: the finalized message carries the same text,
+ * and sub-agents are not watched token by token.
+ */
+function subagentEvents(line: NativeLine, taskId: string): AgentEvent[] {
+  const activity: SubagentActivity[] = []
+  if (line.type === 'assistant' && !line.error) {
+    for (const block of line.message?.content ?? []) {
+      if (block.type === 'text' && block.text)
+        activity.push({ type: 'text-delta', text: block.text })
+      else if (block.type === 'thinking' && block.thinking)
+        activity.push({ type: 'thinking-delta', text: block.thinking })
+      else if (block.type === 'tool_use' && block.id && block.name)
+        activity.push({
+          type: 'tool-started',
+          callId: block.id,
+          name: block.name,
+          argsJson: JSON.stringify(block.input ?? {}),
+        })
+    }
+  } else if (line.type === 'user') {
+    for (const block of line.message?.content ?? []) {
+      if (block.type === 'tool_result' && block.tool_use_id)
+        activity.push({
+          type: 'tool-completed',
+          callId: block.tool_use_id,
+          resultJson: JSON.stringify(block.content ?? null),
+          isError: block.is_error === true,
+        })
+    }
+  }
+  return activity.map((event) => ({ type: 'subagent-activity', taskId, event }))
+}
+
 function extractText(line: NativeLine): string {
   for (const block of line.message?.content ?? []) {
     if (block.type === 'text' && block.text) return block.text
@@ -387,7 +427,7 @@ export class ClaudeMessageMapper {
       if (this.#seen.has(native.uuid)) return []
       this.#remember(this.#seen, native.uuid)
     }
-    if (native.parent_tool_use_id != null) return []
+    if (native.parent_tool_use_id != null) return mapClaudeMessage(native)
     const events = mapClaudeMessage(native)
     if (native.type === 'stream_event') {
       if (native.event?.type === 'message_start') {

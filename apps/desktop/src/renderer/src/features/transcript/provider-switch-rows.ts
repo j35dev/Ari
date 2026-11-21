@@ -20,7 +20,12 @@ export function insertProviderSwitchRows(
         messageTarget = null
         break
       }
-      const keys = row.kind === 'tool-group' ? row.blocks.map((block) => block.key) : [row.key]
+      const keys =
+        row.kind === 'tool-group'
+          ? row.blocks.map((block) => block.key)
+          : row.kind === 'subagent'
+            ? [row.call.key]
+            : [row.key]
       if (
         messageTarget === null &&
         change.afterMessageId !== null &&

@@ -1,10 +1,15 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import type { BackgroundTaskKind, BackgroundTaskStatus } from '@ari/contracts/background-task'
-import { MAX_BACKGROUND_TASKS } from '@ari/contracts/background-task'
+import type {
+  BackgroundTaskKind,
+  BackgroundTaskStatus,
+  SubagentDetails,
+} from '@ari/contracts/background-task'
+import { clipSubagentText, MAX_BACKGROUND_TASKS } from '@ari/contracts/background-task'
 import type { NativeLine } from './mapper'
 
 type Json = Record<string, unknown>
 type TaskEvent = Extract<AgentEvent, { type: 'background-task' }>
+const DETAIL_KEYS = ['subagentType', 'prompt', 'model', 'result'] as const
 interface Task {
   id: string
   kind: BackgroundTaskKind
@@ -15,6 +20,9 @@ interface Task {
   nativeId: string | null
   runId: string | null
   sent: string
+  /** What a subagent was asked and answered; reported once each, when it changes. */
+  details: Required<SubagentDetails>
+  sentDetails: SubagentDetails
 }
 
 function record(value: unknown): Json | null {
@@ -27,6 +35,16 @@ function text(value: unknown): string | null {
 }
 function brief(value: string): string {
   return value.split(/\r?\n/, 1)[0]!.slice(0, 160)
+}
+/** A tool result's text: a plain string, or the text blocks of a content list. */
+function resultText(value: unknown): string | null {
+  if (typeof value === 'string') return text(value)
+  if (!Array.isArray(value)) return null
+  const parts = value.flatMap((block) => {
+    const entry = record(block)
+    return entry?.['type'] === 'text' && typeof entry['text'] === 'string' ? [entry['text']] : []
+  })
+  return text(parts.join('\n\n'))
 }
 function terminal(value: unknown): BackgroundTaskStatus | null {
   if (value === 'completed' || value === 'failed' || value === 'stopped') return value
@@ -89,6 +107,8 @@ export class ClaudeBackgroundTasks {
         if (!status) return []
         task.status = status
         task.detail = text(line.summary) ?? task.detail
+        const summary = text(line.summary)
+        if (task.kind === 'subagent' && summary) task.details.result = clipSubagentText(summary)
       } else if (line.subtype === 'task_progress') {
         task.detail =
           text(line.summary) ?? text(line.last_tool_name) ?? text(line.description) ?? task.detail
@@ -100,10 +120,15 @@ export class ClaudeBackgroundTasks {
       return this.#emit(task)
     }
     if (line.type === 'assistant') {
+      const parent = this.#find(line.parent_tool_use_id)
+      const model = text(line.message?.model)
+      if (parent?.kind === 'subagent' && model && parent.details.model !== model) {
+        parent.details.model = model
+        events.push(...this.#emit(parent))
+      }
       for (const block of line.message?.content ?? []) {
         if (block.type !== 'tool_use' || !block.id || !block.name) continue
         const input = record(block.input)
-        const parent = this.#find(line.parent_tool_use_id)
         if (parent?.status === 'running') {
           parent.detail = brief(
             text(input?.['description']) ?? text(input?.['file_path']) ?? block.name,
@@ -117,6 +142,10 @@ export class ClaudeBackgroundTasks {
           )
           task.detail ??= text(input?.['subagent_type'])
           task.background ||= input?.['run_in_background'] === true
+          task.details.subagentType = text(input?.['subagent_type']) ?? task.details.subagentType
+          const prompt = text(input?.['prompt'])
+          if (prompt) task.details.prompt = clipSubagentText(prompt)
+          task.details.model ??= text(input?.['model'])
           events.push(...this.#emit(task))
         } else if (
           (block.name === 'Bash' || block.name === 'PowerShell') &&
@@ -154,13 +183,19 @@ export class ClaudeBackgroundTasks {
             text(response?.['backgroundTaskId']) ??
             text(response?.['shellId'])
           if (id) this.#aliases.set(id, task.id)
+          const resolved = text(response?.['resolvedModel'])
+          if (task.kind === 'subagent' && resolved) task.details.model = resolved
         }
         if (stopped) {
           if (block.is_error) continue
           task.status = 'stopped'
           task.detail = 'Stopped by Claude'
         } else if (block.is_error) task.status = 'failed'
-        else if (task.kind === 'subagent' && !task.background) task.status = 'completed'
+        else if (task.kind === 'subagent' && !task.background) {
+          task.status = 'completed'
+          const result = resultText(block.content)
+          if (result) task.details.result = clipSubagentText(result)
+        }
         events.push(...this.#emit(task))
       }
     }
@@ -171,6 +206,18 @@ export class ClaudeBackgroundTasks {
     return [...this.#tasks.values()]
       .filter((task) => task.status === 'running')
       .map((task) => this.#event(task))
+  }
+
+  /** The task a native agent or task id names, as its background task id. */
+  taskIdOf(nativeId: string | null | undefined): string | null {
+    return this.#find(nativeId)?.id ?? null
+  }
+
+  /** Whether any subagent is still running. */
+  hasRunningSubagents(): boolean {
+    return [...this.#tasks.values()].some(
+      (task) => task.kind === 'subagent' && task.status === 'running',
+    )
   }
 
   interruptSubagents(): { nativeIds: string[]; events: AgentEvent[] } {
@@ -201,6 +248,8 @@ export class ClaudeBackgroundTasks {
       nativeId: null,
       runId: null,
       sent: '',
+      details: { subagentType: null, prompt: null, model: null, result: null },
+      sentDetails: {},
     }
     this.#tasks.set(id, task)
     for (const [oldId, old] of this.#tasks) {
@@ -239,7 +288,15 @@ export class ClaudeBackgroundTasks {
     }
     if (line.subtype === 'task_started' || !line.subtype) task.status = 'running'
     task.background ||= line.is_backgrounded === true
-    task.label = brief(text(line.description) ?? text(line.patch?.['description']) ?? task.label)
+    // A progress line's description is the current step, not what the task is.
+    if (line.subtype !== 'task_progress')
+      task.label = brief(text(line.description) ?? text(line.patch?.['description']) ?? task.label)
+    if (task.kind === 'subagent') {
+      task.details.subagentType = text(line.subagent_type) ?? task.details.subagentType
+      // A resumed run may carry no prompt; it keeps the one it was first given.
+      const prompt = text(line.prompt)
+      if (line.subtype === 'task_started' && prompt) task.details.prompt = clipSubagentText(prompt)
+    }
     return task
   }
 
@@ -255,11 +312,18 @@ export class ClaudeBackgroundTasks {
       providerItemId: task.id,
     }
   }
+  /** Reports a change; subagent details ride along only when they changed. */
   #emit(task: Task): TaskEvent[] {
     const event = this.#event(task)
     const serialized = JSON.stringify(event)
-    if (serialized === task.sent) return []
+    const changed: SubagentDetails = {}
+    if (task.kind === 'subagent')
+      for (const key of DETAIL_KEYS)
+        if (task.details[key] !== null && task.details[key] !== task.sentDetails[key])
+          changed[key] = task.details[key]
+    if (serialized === task.sent && Object.keys(changed).length === 0) return []
     task.sent = serialized
-    return [event]
+    Object.assign(task.sentDetails, changed)
+    return [{ ...event, ...changed }]
   }
 }

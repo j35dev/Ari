@@ -28,6 +28,7 @@ import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import type { TurnDiffValue } from './types'
 import { DelegationCard } from './DelegationCard'
+import { SubagentRow } from './SubagentRow'
 import { insertDelegationRows } from './delegation-rows'
 import { insertProviderSwitchRows } from './provider-switch-rows'
 import { ProviderSwitchDivider } from './ProviderSwitchDivider'
@@ -69,6 +70,7 @@ function estimateUncached(row: TranscriptRow): number {
   if (row.kind === 'turn-diff') return 40
   if (row.kind === 'delegation') return 30 * row.children.length
   if (row.kind === 'provider-switch') return 32
+  if (row.kind === 'subagent') return 44
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
   if (row.kind === 'image') return 96
   const text = row.text ?? ''
@@ -131,10 +133,13 @@ export function TranscriptView({
   onTurnInView,
   hidden = false,
   readAloud = false,
+  subagentCalls,
 }: {
   sessionId: string
   messages: Message[]
   readAloud?: boolean
+  /** Calls the session's task roster knows started a native sub-agent; each is its own row. */
+  subagentCalls?: ReadonlySet<string>
   /**
    * Called with a turn's id once its last row comes near the viewport, so
    * per-turn work (the diff card query) runs for turns the reader can see
@@ -202,12 +207,17 @@ export function TranscriptView({
       ? messages.filter((message) => !isAgentWake(message))
       : messages
     blocksRef.current = splitBlocks(visible, blocksRef.current)
-    groupedRef.current = groupBlocks(blocksRef.current, turnDiffs, groupedRef.current)
+    groupedRef.current = groupBlocks(
+      blocksRef.current,
+      turnDiffs,
+      groupedRef.current,
+      subagentCalls,
+    )
     return insertProviderSwitchRows(
       insertDelegationRows(groupedRef.current, delegations ?? []),
       providerSwitches ?? [],
     )
-  }, [messages, turnDiffs, delegations, providerSwitches])
+  }, [messages, turnDiffs, delegations, providerSwitches, subagentCalls])
   // A task card sits below the burst that spawned it, so while a turn waits on
   // its children the burst is no longer the last row. It is still the row the
   // turn is on, and the one that reads as live.
@@ -706,6 +716,8 @@ function renderRowBody({
         />
       ) : row.kind === 'delegation' ? (
         <DelegationCard row={row} sessionId={sessionId} onOpenSession={onOpenSession} />
+      ) : row.kind === 'subagent' ? (
+        <SubagentRow row={row} />
       ) : row.kind === 'image' ? (
         <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (

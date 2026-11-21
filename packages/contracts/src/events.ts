@@ -24,7 +24,11 @@ import {
 } from './message'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { delegationRoleSchema, sessionSchema } from './session'
-import { backgroundTaskKindSchema, backgroundTaskStatusSchema } from './background-task'
+import {
+  backgroundTaskKindSchema,
+  backgroundTaskStatusSchema,
+  subagentFields,
+} from './background-task'
 
 /**
  * Journal events. The engine appends these to per-session JSONL journals and
@@ -136,6 +140,8 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     providerThreadId: z.string().optional(),
     providerTurnId: z.string().optional(),
     providerItemId: z.string().optional(),
+    /** The native sub-agent that asked, as its background task id. */
+    taskId: z.string().min(1).optional(),
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
@@ -232,6 +238,16 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     status: backgroundTaskStatusSchema,
     /** Absent keeps the task's last detail; null clears it. */
     detail: z.string().nullable().optional(),
+    ...subagentFields,
+  }),
+  /**
+   * What a native sub-agent wrote or ran, in its own transcript under its
+   * parent's journal. Never part of the parent's messages.
+   */
+  eventBase.extend({
+    type: z.literal('background.task.parts.appended'),
+    taskId: z.string().min(1),
+    parts: z.array(messagePartSchema),
   }),
   eventBase.extend({
     type: z.literal('message.enqueued'),

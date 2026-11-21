@@ -4,6 +4,7 @@ import { Bot, ChevronRight } from 'lucide-react'
 import { driverLabel } from '../composer/agent-mark'
 import { hasProviderLogo, ProviderLogo } from '../composer/provider-logo'
 import { transitions } from '@ari/ui/motion'
+import type { BackgroundTask } from '@ari/contracts/background-task'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { cx, primaryButton, quietButton } from '../../lib/recipes'
 import { ElapsedSeconds } from '../moment'
@@ -34,22 +35,49 @@ const STATUS_GLYPH: Record<SessionActivityPhase, string> = {
 /** Tiles shown in the stack; the count beside them carries the rest. */
 const MAX_TILES = 3
 
+/** How a native sub-agent's status reads as a child's activity. */
+const SUBAGENT_PHASE: Record<BackgroundTask['status'], SessionActivityPhase> = {
+  running: 'working',
+  completed: 'done',
+  failed: 'error',
+  stopped: 'done',
+}
+
+/** One row of the list: an Ari child session or a Claude sub-agent. */
+interface Entry {
+  id: string
+  title: string
+  driverKind: string | undefined
+  activity: SessionActivity | undefined
+  /** The status word when it is not working, queued or waiting on the user. */
+  rest: string
+  /** Names what it is when that is not a session of its own. */
+  tag?: string
+  open: (() => void) | undefined
+}
+
 /**
  * Delegated sessions as one row on the composer: who is out there, the state
  * in words, and how long the oldest has been working. Opened, the children
  * list above the row inside the same tab, so it reads as part of the
- * composer, not a floating menu.
+ * composer, not a floating menu. Claude's own sub-agents list here too, the
+ * same way, each opening its own read-only view.
  */
 export function ChildSessionActivity({
   sessions,
   activityOf,
   onOpen,
+  subagents = [],
+  onOpenSubagent,
   onStopAll,
   stopping = false,
 }: {
   sessions: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
   onOpen?: (id: string) => void
+  /** Native sub-agents of this session's agent, by background task. */
+  subagents?: readonly BackgroundTask[]
+  onOpenSubagent?: (taskId: string) => void
   /**
    * Stops everything running below this session. Passed only while there is
    * something to stop and this session has no turn of its own to stop instead.
@@ -58,15 +86,37 @@ export function ChildSessionActivity({
   stopping?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  if (sessions.length === 0) return null
-  const working = sessions.filter((session) => activityOf?.(session.id)?.phase === 'working')
-  const queued = sessions.filter((session) => activityOf?.(session.id)?.phase === 'queued').length
+  const entries: Entry[] = [
+    ...sessions.map((session) => ({
+      id: session.id,
+      title: session.title,
+      driverKind: session.driverKind,
+      activity: activityOf?.(session.id),
+      rest: session.status ?? '',
+      open: onOpen ? () => onOpen(session.id) : undefined,
+    })),
+    ...subagents.map((task) => ({
+      id: task.id,
+      title: task.label || 'Subagent',
+      driverKind: 'claude',
+      activity: {
+        phase: SUBAGENT_PHASE[task.status],
+        startedAt: task.status === 'running' ? task.startedAt : null,
+      },
+      rest: task.status === 'completed' ? 'done' : task.status,
+      tag: 'Claude subagent',
+      open: onOpenSubagent ? () => onOpenSubagent(task.id) : undefined,
+    })),
+  ]
+  if (entries.length === 0) return null
+  const working = entries.filter((entry) => entry.activity?.phase === 'working')
+  const queued = entries.filter((entry) => entry.activity?.phase === 'queued').length
   // A child waiting on an approval or a question is stuck until someone
   // answers it in that child, and from here nothing else says so.
-  const blocked = sessions.filter((session) => activityOf?.(session.id)?.phase === 'paused')
+  const blocked = entries.filter((entry) => entry.activity?.phase === 'paused')
   const firstBlocked = blocked[0]
-  const oldest = working.reduce<number | null>((min, session) => {
-    const startedAt = activityOf?.(session.id)?.startedAt ?? null
+  const oldest = working.reduce<number | null>((min, entry) => {
+    const startedAt = entry.activity?.startedAt ?? null
     return startedAt !== null && (min === null || startedAt < min) ? startedAt : min
   }, null)
 
@@ -92,15 +142,15 @@ export function ChildSessionActivity({
             // the session canvas, which is a size container.
             className="ari-scroll max-h-[min(18rem,40cqh)] overflow-y-auto overflow-x-hidden overscroll-contain"
           >
-            {sessions.map((session, index) => {
-              const activity = activityOf?.(session.id)
+            {entries.map((entry, index) => {
+              const activity = entry.activity
               const needsUser = activity?.phase === 'paused'
               return (
-                <li key={session.id} className={index === 0 ? 'pt-1.5' : undefined}>
+                <li key={entry.id} className={index === 0 ? 'pt-1.5' : undefined}>
                   <button
                     type="button"
                     onClick={() => {
-                      onOpen?.(session.id)
+                      entry.open?.()
                       setOpen(false)
                     }}
                     className={cx(
@@ -119,7 +169,10 @@ export function ChildSessionActivity({
                     ) : (
                       <span aria-hidden className="ari-status" />
                     )}
-                    <span className="min-w-0 shrink truncate text-fg">{session.title}</span>
+                    <span className="min-w-0 shrink truncate text-fg">{entry.title}</span>
+                    {entry.tag ? (
+                      <span className="shrink-0 text-[12px] text-fg-subtle">{entry.tag}</span>
+                    ) : null}
                     <span
                       className={`min-w-0 flex-1 truncate ${needsUser ? 'text-accent' : 'text-fg-muted'}`}
                     >
@@ -129,7 +182,7 @@ export function ChildSessionActivity({
                           ? 'queued'
                           : needsUser
                             ? 'needs you'
-                            : session.status}
+                            : entry.rest}
                     </span>
                     <span
                       className={`shrink-0 transition-colors group-hover:text-fg group-focus-visible:text-fg ${needsUser ? 'font-medium text-fg' : 'text-fg-subtle'}`}
@@ -153,18 +206,18 @@ export function ChildSessionActivity({
         >
           {/* Side by side, not stacked: an overlap would clip each logo. */}
           <span aria-hidden className="flex shrink-0 gap-1">
-            {sessions.slice(0, MAX_TILES).map((session) => (
+            {entries.slice(0, MAX_TILES).map((entry) => (
               <span
-                key={session.id}
-                title={session.driverKind ? driverLabel(session.driverKind) : undefined}
+                key={entry.id}
+                title={entry.driverKind ? driverLabel(entry.driverKind) : undefined}
                 className="grid size-[22px] place-items-center rounded-full bg-surface-2 text-fg-muted"
               >
-                <AgentGlyph kind={session.driverKind} />
+                <AgentGlyph kind={entry.driverKind} />
               </span>
             ))}
           </span>
           <span className="shrink-0 font-medium text-fg">
-            {sessions.length} agent{sessions.length === 1 ? '' : 's'}
+            {entries.length} agent{entries.length === 1 ? '' : 's'}
           </span>
           <span className="min-w-0 truncate">
             {quiet.join(', ')}
@@ -188,10 +241,10 @@ export function ChildSessionActivity({
             />
           </span>
         </button>
-        {firstBlocked && onOpen ? (
+        {firstBlocked?.open ? (
           <button
             type="button"
-            onClick={() => onOpen(firstBlocked.id)}
+            onClick={firstBlocked.open}
             className={cx(primaryButton, 'shrink-0')}
           >
             Answer
@@ -202,7 +255,11 @@ export function ChildSessionActivity({
             type="button"
             disabled={stopping}
             onClick={onStopAll}
-            title="Stop every session this one delegated to"
+            title={
+              subagents.length > 0
+                ? 'Stop every session and subagent this one delegated to'
+                : 'Stop every session this one delegated to'
+            }
             className={cx(quietButton, 'shrink-0')}
           >
             {stopping ? 'Stopping…' : 'Stop all'}

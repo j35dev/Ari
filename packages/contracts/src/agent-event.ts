@@ -5,7 +5,11 @@ import {
   sessionStatusSchema,
   timestampSchema,
 } from './common'
-import { backgroundTaskKindSchema, backgroundTaskStatusSchema } from './background-task'
+import {
+  backgroundTaskKindSchema,
+  backgroundTaskStatusSchema,
+  subagentFields,
+} from './background-task'
 import { slashCommandListSchema } from './slash-commands'
 
 /**
@@ -13,9 +17,33 @@ import { slashCommandListSchema } from './slash-commands'
  * output is mapped onto this union in `@ari/providers`; the engine and UI
  * never see provider-specific shapes.
  */
+const textDeltaSchema = z.object({ type: z.literal('text-delta'), text: z.string() })
+const thinkingDeltaSchema = z.object({ type: z.literal('thinking-delta'), text: z.string() })
+const toolStartedSchema = z.object({
+  type: z.literal('tool-started'),
+  callId: z.string(),
+  name: z.string(),
+  argsJson: z.string(),
+})
+const toolCompletedSchema = z.object({
+  type: z.literal('tool-completed'),
+  callId: z.string(),
+  resultJson: z.string(),
+  isError: z.boolean(),
+})
+
+/** What a native sub-agent did; it belongs in the sub-agent's transcript, not the parent's. */
+export const subagentActivitySchema = z.discriminatedUnion('type', [
+  textDeltaSchema,
+  thinkingDeltaSchema,
+  toolStartedSchema,
+  toolCompletedSchema,
+])
+export type SubagentActivity = z.infer<typeof subagentActivitySchema>
+
 export const agentEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text-delta'), text: z.string() }),
-  z.object({ type: z.literal('thinking-delta'), text: z.string() }),
+  textDeltaSchema,
+  thinkingDeltaSchema,
   z.object({
     type: z.literal('image-output'),
     dataBase64: z.string().min(1),
@@ -28,23 +56,24 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/),
     name: z.string().min(1),
   }),
+  toolStartedSchema,
+  toolCompletedSchema,
+  /**
+   * Output of a native sub-agent (Claude Code's Agent/Task tool), keyed by the
+   * background task id of the call that started it. Never parent transcript.
+   */
   z.object({
-    type: z.literal('tool-started'),
-    callId: z.string(),
-    name: z.string(),
-    argsJson: z.string(),
-  }),
-  z.object({
-    type: z.literal('tool-completed'),
-    callId: z.string(),
-    resultJson: z.string(),
-    isError: z.boolean(),
+    type: z.literal('subagent-activity'),
+    taskId: z.string().min(1),
+    event: subagentActivitySchema,
   }),
   z.object({
     type: z.literal('approval-requested'),
     providerThreadId: z.string().optional(),
     providerTurnId: z.string().optional(),
     providerItemId: z.string().optional(),
+    /** The native sub-agent that asked, as its background task id; absent for the agent itself. */
+    taskId: z.string().min(1).optional(),
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
@@ -108,6 +137,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     status: backgroundTaskStatusSchema,
     /** Current activity or how it ended; absent keeps the last one. */
     detail: z.string().nullable().optional(),
+    ...subagentFields,
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
   /**

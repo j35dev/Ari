@@ -14,6 +14,8 @@ export interface ClaudeSessionProcess {
   onEnded: (() => void) | null
   beginTurn(prompt?: unknown, park?: () => boolean, continuing?: boolean): ProviderAdapter
   shutdown(): Promise<void>
+  /** Stops the native subagents still running, without touching a turn; returns how many. */
+  stopSubagents?(): number
   respondApproval?: ProviderAdapter['respondApproval']
   respondInput?: ProviderAdapter['respondInput']
 }
