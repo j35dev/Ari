@@ -273,7 +273,8 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       let identity = null
       if (project.status === 'ok' && project.path) {
         const cached = identities.get(project.path)
-        if (cached && Date.now() - cached.at < 30_000) identity = cached.value
+        // Remote URLs rarely change, and each read launches git.
+        if (cached && Date.now() - cached.at < 5 * 60_000) identity = cached.value
         else {
           identity = await readRepositoryIdentity(project.path)
           if (identities.size >= 512) identities.delete(identities.keys().next().value!)
@@ -395,8 +396,11 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       if (!result.ok) return result
       const files = []
       for (const file of result.value.status.files) {
-        if (await safeSnapshotPath(workspace, file.path, []) &&
-          (!file.oldPath || await safeSnapshotPath(workspace, file.oldPath, []))) files.push(file)
+        if (
+          (await safeSnapshotPath(workspace, file.path, [])) &&
+          (!file.oldPath || (await safeSnapshotPath(workspace, file.oldPath, [])))
+        )
+          files.push(file)
       }
       return {
         ok: true,

@@ -184,7 +184,8 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
     const allowed = new Set(machines.filter((machine) => !['revoked', 'unpaired'].includes(machine.status)).map((machine) => machine.id))
     setInventories((old) => new Map([...old].filter(([id]) => allowed.has(id))))
     void refreshInventory()
-    const timer = setInterval(() => void refreshInventory(), 10_000)
+    // Polls only while Ari is on screen; the next tick catches up after a restore.
+    const timer = setInterval(() => { if (!document.hidden) void refreshInventory() }, 10_000)
     return () => { inventoryRevision.current++; clearInterval(timer) }
   }, [machineGeneration, refreshInventory])
   useEffect(() => {
@@ -197,7 +198,7 @@ export function MachinesProvider({ children }: { children: ReactNode }) {
       }
     })
     void refresh()
-    const timer = setInterval(() => void refresh(), 15_000)
+    const timer = setInterval(() => { if (!document.hidden) void refresh() }, 15_000)
     return () => {
       alive.current = false
       unsubscribe()
