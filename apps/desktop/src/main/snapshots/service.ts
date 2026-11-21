@@ -130,6 +130,12 @@ export class SnapshotsService {
     this.shortcut.configure(settings.snapshots.enabled ? shortcut : null)
     this.settings = { ...settings, snapshots: { ...settings.snapshots, shortcut } }
     this.error = null
+    // Warm the feedback window while the app idles so the first SnapShot is not
+    // paying for BrowserWindow creation and page load.
+    const feedback = this.settings.snapshots.animation || this.settings.snapshots.sound
+    if (this.settings.snapshots.enabled && feedback && process.platform === 'win32')
+      this.overlay.prepare()
+    else this.overlay.dispose()
   }
 
   initialize(settings: Settings): void {
@@ -184,37 +190,47 @@ export class SnapshotsService {
     if (this.busy || this.disposed) return
     this.busy = true
     try {
-      this.overlay.dispose()
+      // Feedback from an earlier capture must not land in this frame.
+      this.overlay.hide()
+      const pending = this.pending.list()
       const captured = await captureForegroundWindow()
-      if ((await this.pending.list()).length >= 20)
+      if ((await pending).length >= 20)
         throw new Error('Attach your pending captures before taking more SnapShots.')
-      if (!captured.bytes.length || captured.bytes.length > MAX_ATTACHMENT_BYTES)
-        throw new Error('This captured window is too large to attach. Try a smaller window.')
       const title = Array.from(captured.windowTitle.replace(/[\\/:*?"<>|]/g, ''))
         .filter((character) => character.charCodeAt(0) >= 32)
         .join('')
       const name = `SnapShot ${title.slice(0, 80) || 'window'}.png`
-      const [attachment] = await this.attachments.stage([
-        { name, mimeType: 'image/png', dataBase64: captured.bytes.toString('base64') },
-      ])
-      if (!attachment) throw new Error('The capture could not be saved.')
       const id = randomUUID()
-      await this.pending.save({
-        id,
-        capturedAt: Date.now(),
-        attachment,
-        windowTitle: captured.windowTitle,
-        desktopFeedback: true,
-      })
       this.source = { id, bounds: captured.bounds }
+      // Pixels exist; show the receipt before the PNG encode and disk writes.
       try {
         if (this.settings && !this.disposed)
           this.overlay.show(
-            { id, dataBase64: captured.bytes.toString('base64'), bounds: captured.bounds },
+            { id, image: captured.previewDataUrl, bounds: captured.bounds },
             this.settings,
           )
       } catch (error) {
         log.warn('capture saved; desktop feedback unavailable', { error: String(error) })
+      }
+      try {
+        const bytes = captured.image.toPNG()
+        if (!bytes.length || bytes.length > MAX_ATTACHMENT_BYTES)
+          throw new Error('This captured window is too large to attach. Try a smaller window.')
+        const [attachment] = await this.attachments.stage([
+          { name, mimeType: 'image/png', dataBase64: bytes.toString('base64') },
+        ])
+        if (!attachment) throw new Error('The capture could not be saved.')
+        await this.pending.save({
+          id,
+          capturedAt: Date.now(),
+          attachment,
+          windowTitle: captured.windowTitle,
+          desktopFeedback: true,
+        })
+      } catch (error) {
+        this.source = null
+        this.overlay.hide()
+        throw error
       }
       this.publish({ type: 'captured' })
     } catch (error) {

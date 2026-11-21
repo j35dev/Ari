@@ -13,6 +13,8 @@ const electron = vi.hoisted(() => ({
   removeHandler: vi.fn(),
   capture: vi.fn(),
   feedback: vi.fn(),
+  feedbackPrepare: vi.fn(),
+  feedbackHide: vi.fn(),
   main: {
     show: vi.fn(),
     restore: vi.fn(),
@@ -30,6 +32,8 @@ vi.mock('./capture', () => ({ captureForegroundWindow: electron.capture }))
 vi.mock('./overlay', () => ({
   SnapshotOverlay: class {
     show = electron.feedback
+    prepare = electron.feedbackPrepare
+    hide = electron.feedbackHide
     dispose = vi.fn()
     acknowledge = vi.fn()
     destination = vi.fn()
@@ -92,7 +96,8 @@ it('does not save an enabled preference when the OS refuses registration', async
 it('captures and persists in the background without restoring, showing or focusing Ari', async () => {
   const { store, contents, service } = await fixture()
   electron.capture.mockResolvedValue({
-    bytes: Buffer.from('image'),
+    image: { toPNG: () => Buffer.from('image') },
+    previewDataUrl: 'data:image/jpeg;base64,cHJldmlldw==',
     windowTitle: 'External app',
     bounds: { x: 400, y: 100, width: 900, height: 600 },
   })
@@ -105,8 +110,12 @@ it('captures and persists in the background without restoring, showing or focusi
   expect(electron.main.show).not.toHaveBeenCalled()
   expect(electron.main.restore).not.toHaveBeenCalled()
   expect(electron.main.focus).not.toHaveBeenCalled()
+  expect(electron.feedbackHide).toHaveBeenCalled()
   expect(electron.feedback).toHaveBeenCalledWith(
-    expect.objectContaining({ bounds: { x: 400, y: 100, width: 900, height: 600 } }),
+    expect.objectContaining({
+      bounds: { x: 400, y: 100, width: 900, height: 600 },
+      image: 'data:image/jpeg;base64,cHJldmlldw==',
+    }),
     expect.anything(),
   )
   const pending = electron.handle.mock.calls.find(
@@ -148,7 +157,8 @@ it('saves unrelated speech settings while the SnapShots chord is unregistered', 
 it('applies Ari Reduce motion to desktop feedback without a restart', async () => {
   const { store, contents, service } = await fixture()
   electron.capture.mockResolvedValue({
-    bytes: Buffer.from('image'),
+    image: { toPNG: () => Buffer.from('image') },
+    previewDataUrl: 'data:image/jpeg;base64,cHJldmlldw==',
     windowTitle: 'External app',
     bounds: { x: 0, y: 0, width: 800, height: 600 },
   })
