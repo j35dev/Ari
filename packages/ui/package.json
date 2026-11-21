@@ -45,7 +45,8 @@
     "./dialog": "./src/components/Dialog.tsx",
     "./sheet": "./src/components/Sheet.tsx",
     "./select": "./src/components/Select.tsx",
-    "./toast": "./src/components/Toast.tsx"
+    "./toast": "./src/components/Toast.tsx",
+    "./brand/ari-mark": "./src/brand/ari-mark.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

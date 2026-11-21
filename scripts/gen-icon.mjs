@@ -1,133 +1,223 @@
 /**
- * One-off generator for apps/desktop/build/icon.png (512x512).
- * Run: node scripts/gen-icon.mjs
- * Draws the Ari mark: dark rounded square, iris 'A' glyph with accent glow.
+ * Ari's brand icons: builds the folded "A" mark from its geometry, writes the
+ * SVG masters, and renders every raster the desktop and the phone app ship.
+ *
+ *   node scripts/gen-icon.mjs
+ *
+ * A maintainer step (outputs are committed), never part of the build.
+ *
+ * The mark lives in a 100 x 63 box. Both legs rise at 59 degrees and are 30.5
+ * units wide along the baseline, meeting in a short flat cap. The fold is the
+ * right leg tucking under the cap along the seam from the cap's right corner
+ * down to the inner notch; it is drawn as a faint tint clipped to the
+ * silhouette, so every outer corner stays round. Below 40px the tint is
+ * invisible, so those sizes use the flat mark, a little larger.
  */
-import { deflateSync } from 'node:zlib'
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Resvg } from '@resvg/resvg-js'
 
-const SIZE = 512
-const px = new Uint8Array(SIZE * SIZE * 4)
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const brandDir = join(root, 'brand')
+const buildDir = join(root, 'apps', 'desktop', 'build')
+const mobileDir = join(root, 'apps', 'mobile', 'public')
 
-function set(x, y, r, g, b, a = 255) {
-  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return
-  const i = (y * SIZE + x) * 4
-  const na = a / 255
-  px[i] = Math.round(px[i] * (1 - na) + r * na)
-  px[i + 1] = Math.round(px[i + 1] * (1 - na) + g * na)
-  px[i + 2] = Math.round(px[i + 2] * (1 - na) + b * na)
-  px[i + 3] = Math.max(px[i + 3], Math.round(a))
+// ---- Geometry -------------------------------------------------------------
+const W = 100
+const H = 63
+const ANGLE = (59 * Math.PI) / 180
+const S = 1 / Math.tan(ANGLE) // horizontal run per unit of height
+const LEG = 30.5
+const cap = [H * S, W - H * S]
+const notch = [W / 2, H - (W / 2 - LEG) / S]
+const P = {
+  footLeftOut: [0, H],
+  capLeft: [cap[0], 0],
+  capRight: [cap[1], 0],
+  footRightOut: [W, H],
+  footRightIn: [W - LEG, H],
+  notch,
+  footLeftIn: [LEG, H],
+}
+// Soft outer corners, a tight notch.
+const RADIUS = {
+  footLeftOut: 4.4,
+  capLeft: 6.5,
+  capRight: 6.5,
+  footRightOut: 4.4,
+  footRightIn: 4.2,
+  notch: 1.6,
+  footLeftIn: 4.2,
 }
 
-const R = 96 // corner radius
-const inside = (x, y) => {
-  const cx = Math.min(Math.max(x, R), SIZE - R)
-  const cy = Math.min(Math.max(y, R), SIZE - R)
-  return (x - cx) ** 2 + (y - cy) ** 2 <= R * R || (x >= R && x <= SIZE - R) || (y >= R && y <= SIZE - R)
-}
-
-// Background: vertical oklch-ish graphite ramp
-for (let y = 0; y < SIZE; y++) {
-  for (let x = 0; x < SIZE; x++) {
-    if (!inside(x, y)) continue
-    const t = y / SIZE
-    const base = 18 + t * 22
-    set(x, y, base, base + 2, base + 8, 255)
-  }
-}
-
-// Glyph: thick 'A' as two diagonals + crossbar, iris gradient along Y
-function diag(x0, y0, x1, y1, thickness, colorAt) {
-  const steps = 1200
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps
-    const cx = x0 + (x1 - x0) * t
-    const cy = y0 + (y1 - y0) * t
-    const [r, g, b] = colorAt(cy / SIZE)
-    for (let dx = -thickness / 2; dx <= thickness / 2; dx++) {
-      for (let dy = -thickness / 2; dy <= thickness / 2; dy++) {
-        if (dx * dx + dy * dy <= (thickness / 2) ** 2) {
-          set(Math.round(cx + dx), Math.round(cy + dy), r, g, b, 255)
-        }
-      }
+const f = (n) => Number(n.toFixed(3))
+function roundedPath(names) {
+  const corners = names.map((name, i) => {
+    const prev = P[names[(i - 1 + names.length) % names.length]]
+    const cur = P[name]
+    const next = P[names[(i + 1) % names.length]]
+    const toward = (a, b, d) => {
+      const dx = b[0] - a[0]
+      const dy = b[1] - a[1]
+      const length = Math.hypot(dx, dy)
+      const t = Math.min(d, length / 2) / length
+      return [a[0] + dx * t, a[1] + dy * t]
     }
+    return { a: toward(cur, prev, RADIUS[name]), c: cur, b: toward(cur, next, RADIUS[name]) }
+  })
+  let d = `M${f(corners[0].b[0])} ${f(corners[0].b[1])}`
+  for (let i = 1; i <= corners.length; i++) {
+    const { a, c, b } = corners[i % corners.length]
+    d += ` L${f(a[0])} ${f(a[1])} Q${f(c[0])} ${f(c[1])} ${f(b[0])} ${f(b[1])}`
   }
+  return `${d} Z`
 }
-
-const iris = (t) => {
-  const hueShift = t * 30
-  return [
-    Math.round(110 + hueShift),
-    Math.round(95 + t * 40),
-    Math.round(240 - t * 20),
-  ]
-}
-
-diag(150, 400, 256, 112, 46, iris) // left stroke
-diag(362, 400, 256, 112, 46, iris) // right stroke
-diag(186, 292, 326, 292, 38, iris) // crossbar
-
-// Soft glow behind glyph: additive halo passes
-for (let pass = 6; pass >= 1; pass--) {
-  const spread = pass * 7
-  const alpha = 10
-  for (let y = 80; y < 440; y += 3) {
-    for (let x = 130; x < 384; x += 3) {
-      const t = y / SIZE
-      const [r, g, b] = iris(t)
-      const inGlyph =
-        (Math.abs((x - 150) / -1.06 - (y - 400)) < spread + 24 ||
-          Math.abs((x - 362) / 1.06 - (y - 400)) < spread + 24 ||
-          (y > 278 && y < 306 && x > 170 && x < 342)) &&
-        inside(x, y)
-      if (inGlyph) set(x, y, r, g, b, alpha)
-    }
-  }
-}
-
-// Encode PNG
-const crcTable = []
-for (let n = 0; n < 256; n++) {
-  let c = n
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-  crcTable[n] = c >>> 0
-}
-const crc32 = (buf) => {
-  let c = 0xffffffff
-  for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
-}
-const chunk = (type, data) => {
-  const len = Buffer.alloc(4)
-  len.writeUInt32BE(data.length)
-  const body = Buffer.concat([Buffer.from(type), data])
-  const crc = Buffer.alloc(4)
-  crc.writeUInt32BE(crc32(body))
-  return Buffer.concat([len, body, crc])
-}
-
-const ihdr = Buffer.alloc(13)
-ihdr.writeUInt32BE(SIZE, 0)
-ihdr.writeUInt32BE(SIZE, 4)
-ihdr[8] = 8 // bit depth
-ihdr[9] = 6 // RGBA
-
-const raw = Buffer.alloc(SIZE * (SIZE * 4 + 1))
-for (let y = 0; y < SIZE; y++) {
-  raw[y * (SIZE * 4 + 1)] = 0 // filter none
-  Buffer.from(px.buffer, y * SIZE * 4, SIZE * 4).copy(raw, y * (SIZE * 4 + 1) + 1)
-}
-
-const png = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  chunk('IHDR', ihdr),
-  chunk('IDAT', deflateSync(raw)),
-  chunk('IEND', Buffer.alloc(0)),
+const SILHOUETTE = roundedPath([
+  'footLeftOut',
+  'capLeft',
+  'capRight',
+  'footRightOut',
+  'footRightIn',
+  'notch',
+  'footLeftIn',
 ])
+// The tucked leg, as a region that only matters inside the silhouette.
+const FOLD = `M${f(cap[1] + 30)} -30 L${f(cap[1])} 0 L${f(notch[0])} ${f(notch[1])} L${f(W - LEG + 2)} ${H + 30} L${W + 40} ${H + 30} Z`
 
-const out = join(dirname(fileURLToPath(import.meta.url)), '../apps/desktop/build/icon.png')
-mkdirSync(dirname(out), { recursive: true })
-writeFileSync(out, png)
-console.log(`wrote ${out} (${png.length} bytes)`)
+// ---- Colours (sampled from the brand board's light tile) ------------------
+const TILE_TOP = '#D9DDF6'
+const TILE_BOTTOM = '#F0ECF5'
+const INK = '#33355A'
+/** The tucked leg catches a little more light than the front face. */
+const FOLD_TINT = 'fill="#FFFFFF" fill-opacity="0.07"'
+
+function markGroup(size, x, y, flat) {
+  const k = size / W
+  const t = `transform="translate(${f(x)} ${f(y)}) scale(${k.toFixed(5)})"`
+  if (flat) return `<path ${t} d="${SILHOUETTE}" fill="${INK}"/>`
+  return [
+    `<defs><clipPath id="ari-mark"><path d="${SILHOUETTE}"/></clipPath></defs>`,
+    `<g ${t}><path d="${SILHOUETTE}" fill="${INK}"/>`,
+    `<path d="${FOLD}" ${FOLD_TINT} clip-path="url(#ari-mark)"/></g>`,
+  ].join('\n')
+}
+
+function iconSvg({ size = 1024, flat = false, markRatio = 0.65, maskable = false }) {
+  const m = size * (maskable ? 0.52 : markRatio)
+  const x = (size - m) / 2
+  // The optical centre of an "A" sits a hair below the box centre.
+  const y = (size - (m * H) / W) / 2 + size * 0.008
+  const r = f(size * 0.225)
+  const tile = maskable
+    ? `<rect width="${size}" height="${size}" fill="url(#ari-tile)"/>`
+    : [
+        `<rect width="${size}" height="${size}" rx="${r}" fill="url(#ari-tile)"/>`,
+        `<rect width="${size}" height="${size}" rx="${r}" fill="none" stroke="#000" stroke-opacity="0.06" stroke-width="${f(size / 256)}"/>`,
+      ].join('\n')
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="Ari">`,
+    `<defs><linearGradient id="ari-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${TILE_TOP}"/><stop offset="1" stop-color="${TILE_BOTTOM}"/></linearGradient></defs>`,
+    tile,
+    markGroup(m, x, y, flat),
+    '</svg>',
+  ].join('\n')
+}
+
+const markSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Ari">\n<path d="${SILHOUETTE}" fill="currentColor"/>\n</svg>`
+
+const note = (text) =>
+  `<!-- ${text} Generated by scripts/gen-icon.mjs; edit the geometry there. -->\n`
+const masters = {
+  'icon.svg':
+    note('Ari app icon: the folded "A" on the light tile. Master for 40px and up.') + iconSvg({}),
+  'icon-small.svg':
+    note('Ari app icon for 16-32px: the flat mark, a little larger.') +
+    iconSvg({ flat: true, markRatio: 0.7 }),
+  'icon-maskable.svg':
+    note('Ari maskable icon: full-bleed tile, mark inside the safe zone.') +
+    iconSvg({ maskable: true }),
+  'mark.svg': note('The bare Ari mark; currentColor fill.') + markSvg,
+  'mark-paths.json': JSON.stringify(
+    { viewBox: [W, H], silhouette: SILHOUETTE, fold: FOLD },
+    null,
+    2,
+  ),
+}
+
+// ---- Rasters ---------------------------------------------------------------
+const render = (svg, size) =>
+  new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng()
+
+/** An .ico of PNG entries, which Windows Vista and later read directly. */
+function ico(entries) {
+  const header = Buffer.alloc(6)
+  header.writeUInt16LE(1, 2)
+  header.writeUInt16LE(entries.length, 4)
+  const dir = Buffer.alloc(16 * entries.length)
+  let offset = 6 + dir.length
+  entries.forEach(({ size, png }, i) => {
+    const at = i * 16
+    dir.writeUInt8(size >= 256 ? 0 : size, at)
+    dir.writeUInt8(size >= 256 ? 0 : size, at + 1)
+    dir.writeUInt16LE(1, at + 4)
+    dir.writeUInt16LE(32, at + 6)
+    dir.writeUInt32LE(png.length, at + 8)
+    dir.writeUInt32LE(offset, at + 12)
+    offset += png.length
+  })
+  return Buffer.concat([header, dir, ...entries.map((e) => e.png)])
+}
+
+mkdirSync(brandDir, { recursive: true })
+for (const [name, body] of Object.entries(masters)) writeFileSync(join(brandDir, name), `${body}\n`)
+
+// The same geometry for the apps' own UI (launch screen, phone), so in-app
+// marks never drift from the icon.
+const uiBrand = join(root, 'packages', 'ui', 'src', 'brand')
+mkdirSync(uiBrand, { recursive: true })
+writeFileSync(
+  join(uiBrand, 'ari-mark.ts'),
+  [
+    '// Generated by scripts/gen-icon.mjs from the mark geometry; do not edit by hand.',
+    '',
+    '/** The mark box, in mark units. */',
+    `export const ARI_MARK_VIEWBOX = { width: ${W}, height: ${H} } as const`,
+    '/** Leg angle from the baseline, in degrees. */',
+    'export const ARI_MARK_ANGLE = 59',
+    '/** The whole silhouette, rounded corners included. */',
+    `export const ARI_MARK_PATH = '${SILHOUETTE}'`,
+    '/** The tucked right leg; only meaningful clipped to the silhouette. */',
+    `export const ARI_MARK_FOLD_PATH = '${FOLD}'`,
+    "/** The x of the cap's right corner, where the fold seam starts. */",
+    `export const ARI_MARK_CAP_RIGHT = ${f(cap[1])}`,
+    '',
+  ].join('\n'),
+)
+
+const icon = masters['icon.svg']
+const small = masters['icon-small.svg']
+const maskable = masters['icon-maskable.svg']
+const outputs = [
+  [join(buildDir, 'icon.png'), render(icon, 1024)],
+  [
+    join(buildDir, 'icon.ico'),
+    ico(
+      [16, 20, 24, 32, 40, 48, 64, 128, 256].map((size) => ({
+        size,
+        png: render(size <= 32 ? small : icon, size),
+      })),
+    ),
+  ],
+  [join(mobileDir, 'icon-512.png'), render(icon, 512)],
+  [join(mobileDir, 'icon-192.png'), render(icon, 192)],
+  [join(mobileDir, 'icon-maskable.png'), render(maskable, 512)],
+  // iOS paints black behind transparency and rounds the icon itself.
+  [join(mobileDir, 'apple-touch-icon.png'), render(maskable, 180)],
+]
+writeFileSync(join(mobileDir, 'icon.svg'), `${masters['icon.svg']}\n`)
+writeFileSync(join(mobileDir, 'icon-maskable.svg'), `${masters['icon-maskable.svg']}\n`)
+for (const [path, bytes] of outputs) {
+  writeFileSync(path, bytes)
+  process.stdout.write(`${path.slice(root.length + 1)}: ${bytes.length} bytes\n`)
+}
