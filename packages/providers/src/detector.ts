@@ -2,15 +2,13 @@ import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { basename, delimiter, join, posix, win32 } from 'node:path'
-import { spawn } from 'node:child_process'
-import type { ChildProcess } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { err, ok } from '@ari/shared/result'
 import type { Result } from '@ari/shared/result'
 import { realDetectEnvironment } from './types'
 import type { AuthProbe, DetectEnvironment, Detection } from './types'
-import { needsWindowsShell, buildShellSpawnArgs } from './spawn-cli'
+import { runCaptured } from './off-thread'
 
 const log = createLogger('providers:detector')
 
@@ -191,67 +189,29 @@ export function checkBinaryPath(raw: string, env: DetectEnvironment): Result<str
 }
 
 /**
- * Probes `<binary> --version`. On Windows, .cmd shims are executed through an
- * escaped cmd.exe wrapper and .ps1 scripts through powershell.exe -File
- * (direct spawn is refused with EINVAL on Node ≥20).
+ * Probes `<binary> --version` off the main thread (see off-thread.ts). On
+ * Windows, .cmd shims are executed through an escaped cmd.exe wrapper and .ps1
+ * scripts through powershell.exe -File (direct spawn is refused with EINVAL on
+ * Node >=20).
  */
 // Large single-file CLIs (opencode.exe is ~180 MB) can take >5s to answer when
 // every provider is probed concurrently at startup, so allow a generous window.
-function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | null> {
-  return new Promise((resolve) => {
-    let stdout = ''
-    let settled = false
-    const done = (value: string | null): void => {
-      if (!settled) {
-        settled = true
-        resolve(value)
-      }
-    }
-    let child: ChildProcess
-    try {
-      child = needsWindowsShell(binaryPath)
-        ? (() => {
-            const wrapped = buildShellSpawnArgs(binaryPath, ['--version'])
-            const c = spawn(wrapped.file, wrapped.args, {
-              windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
-              stdio: ['ignore', 'pipe', 'ignore'],
-              windowsHide: true,
-              timeout: timeoutMs,
-            })
-            c.on('error', () => done(null))
-            return c
-          })()
-        : spawn(binaryPath, ['--version'], {
-            stdio: ['ignore', 'pipe', 'ignore'],
-            windowsHide: true,
-            timeout: timeoutMs,
-          }).on('error', () => done(null))
-    } catch (error) {
-      // macOS refuses a file that is not a real executable (ENOEXEC) by
-      // throwing here, where Linux and Windows report it as an `error` event.
-      log.debug('version probe could not start', { binaryPath, error: String(error) })
-      done(null)
-      return
-    }
-    child.stdout?.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8')
-    })
-    child.on('close', (code) => {
-      if (code !== 0 && stdout.length === 0) {
-        log.debug('version probe failed', { binaryPath, code })
-        done(null)
-        return
-      }
-      const firstLine = stdout.split('\n')[0]?.trim()
-      done(firstLine ? firstLine : null)
-    })
-    setTimeout(() => {
-      if (!settled) {
-        child.kill()
-        done(null)
-      }
-    }, timeoutMs + 1000).unref?.()
-  })
+async function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | null> {
+  const result = await runCaptured(binaryPath, ['--version'], { timeoutMs })
+  if (result === null) return null
+  if (result.error !== undefined) {
+    // macOS refuses a file that is not a real executable (ENOEXEC) by
+    // throwing at spawn, where Linux and Windows report it as an `error` event.
+    log.debug('version probe could not start', { binaryPath, error: result.error })
+    return null
+  }
+  const stdout = result.stdout ?? ''
+  if (result.code !== 0 && stdout.length === 0) {
+    log.debug('version probe failed', { binaryPath, code: result.code })
+    return null
+  }
+  const firstLine = stdout.split('\n')[0]?.trim()
+  return firstLine ? firstLine : null
 }
 
 /** Reads one env var from the injected map, treating '' as unset. */
