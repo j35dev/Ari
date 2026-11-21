@@ -29,7 +29,7 @@ export interface SpaceTabsProps {
  * the tab's tooltip and its "working" pulse, so colour is never the only cue.
  */
 const STATUS_CLASS: Record<Exclude<SpaceStatus, null>, string> = {
-  working: 'bg-accent animate-pulse',
+  working: 'bg-accent ari-working-pulse',
   attention: 'bg-warning',
 }
 
