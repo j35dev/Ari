@@ -28,13 +28,21 @@ export function containsPoint(rect: SnapshotRectangle, x: number, y: number): bo
   return x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height
 }
 
+/** Back-to-back captures reuse the hidden window instead of paying for a new renderer. */
+const IDLE_WINDOW_MS = 60_000
+
 /** Native feedback stays above the source app without ever activating Ari. */
 export class SnapshotOverlay {
   private window: BrowserWindow | null = null
   private ready: Promise<BrowserWindow> | null = null
   private active: ActiveOverlay | null = null
+  private idle: ReturnType<typeof setTimeout> | null = null
 
-  /** Pay the window creation, page load and GPU setup before the first capture. */
+  /**
+   * Begin the hidden window's creation and page load now, so it runs in
+   * parallel with the capture. Only ever called per capture: an idle window is
+   * torn down instead of living for the whole session.
+   */
   prepare(): void {
     void this.ensureWindow().catch((error: unknown) =>
       log.warn('desktop feedback prewarm failed', { error: String(error) }),
@@ -42,7 +50,11 @@ export class SnapshotOverlay {
   }
 
   private ensureWindow(): Promise<BrowserWindow> {
-    if (this.window && !this.window.isDestroyed()) return this.ready!
+    if (this.window && !this.window.isDestroyed()) {
+      this.cancelIdle()
+      return this.ready!
+    }
+    this.cancelIdle()
     const window = new BrowserWindow({
       ...this.desktopBounds(),
       show: false,
@@ -148,10 +160,13 @@ export class SnapshotOverlay {
         .catch(() => undefined)
   }
 
-  /** Remove visible feedback; the pre-warmed window and its page stay alive. */
+  /** Remove visible feedback; the window hides now and is destroyed after a minute idle. */
   hide(): void {
     if (this.active) this.finish(this.active)
-    else if (this.window && !this.window.isDestroyed()) this.window.hide()
+    else if (this.window && !this.window.isDestroyed()) {
+      this.window.hide()
+      this.scheduleIdle()
+    }
   }
 
   private finish(active: ActiveOverlay): void {
@@ -159,6 +174,31 @@ export class SnapshotOverlay {
     if (this.active !== active) return
     this.active = null
     if (this.window && !this.window.isDestroyed()) this.window.hide()
+    this.scheduleIdle()
+  }
+
+  /** Keep the hidden window briefly for the next capture, then release its renderer. */
+  private scheduleIdle(): void {
+    this.cancelIdle()
+    if (!this.window || this.window.isDestroyed()) return
+    this.idle = setTimeout(() => {
+      this.idle = null
+      this.destroyWindow()
+    }, IDLE_WINDOW_MS)
+  }
+
+  private cancelIdle(): void {
+    if (!this.idle) return
+    clearTimeout(this.idle)
+    this.idle = null
+  }
+
+  private destroyWindow(): void {
+    this.cancelIdle()
+    const window = this.window
+    this.window = null
+    this.ready = null
+    if (window && !window.isDestroyed()) window.destroy()
   }
 
   private desktopBounds(): SnapshotRectangle {
@@ -226,10 +266,7 @@ export class SnapshotOverlay {
       clearTimeout(this.active.deadline)
       this.active = null
     }
-    const window = this.window
-    this.window = null
-    this.ready = null
-    if (window && !window.isDestroyed()) window.destroy()
+    this.destroyWindow()
   }
 }
 
