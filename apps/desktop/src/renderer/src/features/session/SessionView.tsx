@@ -657,10 +657,11 @@ function SessionViewContent({
         if (appliedSeqsRef.current.has(seq)) return // replay/live overlap
         appliedSeqsRef.current.add(seq)
       }
-      history.add(raw)
+      // The stored form, with large tool-result images already moved out of text.
+      const event = history.add(raw)
       // Retry folds controls once in journal order at its terminal. Applying a
       // recovered older request now could overwrite a newer live answer.
-      if (!recovering || raw.type.startsWith('child.session.')) applyEvent(raw, live)
+      if (!recovering || raw.type.startsWith('child.session.')) applyEvent(event, live)
       if (raw.type.startsWith('orchestration.')) refreshTasksRef.current()
     }
     // One transcript update per IPC frame, and live deltas at most once per

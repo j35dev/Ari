@@ -74,7 +74,8 @@
   border-radius: 50%;
   border: 1.5px solid color-mix(in oklab, var(--ari-fg) 18%, transparent);
   border-top-color: var(--ari-fg-muted);
-  animation: ari-status-spin 0.9s linear infinite;
+  /* Twelve 30-degree ticks: a frame per tick instead of one per screen refresh. */
+  animation: ari-status-spin 0.9s steps(12) infinite;
 }
 .ari-status[data-status='queued']::before {
   content: '';
@@ -123,6 +124,26 @@
   border-radius: 50%;
   background: var(--ari-fg-subtle);
   opacity: 0.6;
+}
+
+/* The working dot on a space tab: a stepped pulse, for the same reason. */
+.ari-working-pulse {
+  animation: ari-working-pulse 2s steps(8) infinite;
+}
+
+@keyframes ari-working-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-working-pulse {
+    animation: none;
+  }
+}
+[data-ari-reduced-motion] .ari-working-pulse {
+  animation: none;
 }
 
 @keyframes ari-status-spin {

@@ -171,6 +171,7 @@ import { resolveAcpLaunch, probeLaunch, probeSessionMeta } from '@ari/providers/
 import { openProviderSetupTerminal } from './provider-setup'
 import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
+import { forgetVersions } from '@ari/providers/detector'
 import { providerEnvironment, setProviderEnvironment } from './provider-env'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import { currentModelId } from '@ari/providers/acp/protocol'
@@ -609,7 +610,11 @@ async function detectSafely(kind: DriverKind, env: DetectEnvironment): Promise<D
 }
 
 function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
-  if (force) detectionCache = null
+  if (force) {
+    detectionCache = null
+    // A forced round (rescan, after an install) reads versions again too.
+    forgetVersions()
+  }
   if (detectionCache === null || Date.now() - detectionCache.at > DETECTION_CACHE_TTL_MS) {
     // GUI-launched processes inherit a minimal PATH; the enriched env layers
     // in login-shell + version-manager dirs so terminal-installed CLIs resolve.
@@ -703,6 +708,8 @@ function redetect(kinds?: readonly DriverKind[]): Promise<RpcResults['providers.
       if (driverRegistryRef !== null) hydrateDrivers(driverRegistryRef)
     } else {
       const env = await resolveDetectionEnvironment()
+      // A changed path or a finished update: these kinds read their version again.
+      forgetVersions(kinds)
       const fresh = await Promise.all(kinds.map((kind) => detectSafely(kind, env)))
       // Read after the probes, so whatever landed while they ran is kept. The
       // last round however old: its other rows are only carried over, and

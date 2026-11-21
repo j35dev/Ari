@@ -27,6 +27,13 @@ interface SpeechResult {
 }
 
 const WORKER_ACK_TIMEOUT_MS = 60_000
+/**
+ * The worker process (and the model it loaded) ends after this long without a
+ * request. The worker already unloads its model at five minutes, but a native
+ * runtime keeps its pages, so the process sat at ~130 MB indefinitely. The next
+ * dictation starts it again and loads the model, which the worker did anyway.
+ */
+const WORKER_IDLE_EXIT_MS = 5 * 60_000
 
 export function speechRequestTimeout(kind: string, samples = 0, modelSize = 0): number {
   if (kind !== 'transcribe') return 15 * 60_000
@@ -98,9 +105,12 @@ export class SpeechService {
       hasLoaded: boolean
       knownCause: boolean
       stopping: boolean
+      /** Ended for being idle: a quiet exit, not an engine failure. */
+      idleExit?: boolean
       acknowledgment?: ReturnType<typeof setTimeout>
     }
   >()
+  #idleExit: ReturnType<typeof setTimeout> | undefined
   #progress = new Map<string, SpeechProgress>()
   #models: { at: number; value: SpeechModel[] } | null = null
   groq: GroqSpeech | null = null
@@ -839,6 +849,7 @@ export class SpeechService {
     while (worker !== this.#worker || this.#workerState.get(worker)?.stopping)
       worker = await this.#getWorker()
     const id = ++this.#nextId
+    clearTimeout(this.#idleExit)
     return new Promise((resolve, reject) => {
       this.#pending.set(id, {
         resolve,
@@ -917,6 +928,7 @@ export class SpeechService {
           hasLoaded: false,
           knownCause: false,
           stopping: false,
+          idleExit: false,
         }
         this.#workerState.set(child, state)
         child.on(
@@ -947,10 +959,16 @@ export class SpeechService {
               pending.resolve(message.result ?? { text: '' })
             }
             this.#watchAcknowledgment(child)
+            this.#scheduleIdleExit(child)
           },
         )
         child.on('exit', (code: number) => {
           clearTimeout(this.#workerState.get(child)?.acknowledgment)
+          if (state.idleExit && this.#worker === child) {
+            // Nothing was waiting and nothing failed; the next request respawns it.
+            this.#worker = null
+            return
+          }
           const message = speechWorkerExitError(
             process.platform,
             code,
@@ -972,6 +990,25 @@ export class SpeechService {
       }
       return this.#worker
     })
+  }
+
+  #scheduleIdleExit(worker: UtilityProcess): void {
+    clearTimeout(this.#idleExit)
+    this.#idleExit = setTimeout(() => {
+      if (this.#worker !== worker || this.#disposed) return
+      if ([...this.#pending.values()].some((request) => request.worker === worker)) return
+      const state = this.#workerState.get(worker)
+      if (!state || state.stopping) return
+      state.idleExit = true
+      state.stopping = true
+      try {
+        worker.kill()
+      } catch {
+        state.idleExit = false
+        state.stopping = false
+      }
+    }, WORKER_IDLE_EXIT_MS)
+    this.#idleExit.unref?.()
   }
 
   #stopWorker(worker: UtilityProcess, message = 'The speech engine stopped. Please retry.'): void {
@@ -1018,6 +1055,7 @@ export class SpeechService {
 
   dispose(): void {
     this.#disposed = true
+    clearTimeout(this.#idleExit)
     for (const { controller } of this.#downloads.values()) controller.abort()
     if (this.#worker) this.#stopWorker(this.#worker, 'Speech service stopped.')
   }
