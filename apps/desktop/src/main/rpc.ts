@@ -2135,7 +2135,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             },
           }),
           stopChildren: async (sessionId) => ({
-            stopped: await (await controlReady).supervisor.stopBelow(sessionId),
+            stopped:
+              (await (await controlReady).supervisor.stopBelow(sessionId)) +
+              claudeSessionPool.stopSubagents(sessionId),
           }),
           resume: {
             get: async (sessionId) => {
@@ -2419,8 +2421,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   shutdownTasks.push(stopOrchestrationRefresh)
   contents.once('destroyed', stopOrchestrationRefresh)
 
+  // Ari's own children, and the native subagents a parked Claude query still runs.
   r.register('session.stopChildren', async ({ sessionId }) => ({
-    stopped: await (await controlReady).supervisor.stopBelow(sessionId),
+    stopped:
+      (await (await controlReady).supervisor.stopBelow(sessionId)) +
+      claudeSessionPool.stopSubagents(sessionId),
   }))
 
   r.register('session.resume.schedule', async ({ sessionId, at }) => {

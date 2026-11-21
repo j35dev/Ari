@@ -17,8 +17,31 @@ export interface ProviderTaskIdentity {
   providerItemId?: string
 }
 
+/** Longest sub-agent prompt or result a report carries; the rest is cut. */
+export const MAX_SUBAGENT_TEXT = 16_000
+
+/**
+ * What a native sub-agent was asked and what it answered, when the harness
+ * says. Each is optional on a report: absent keeps the last value.
+ */
+export const subagentFields = {
+  /** The harness's agent type (`general-purpose`, `Explore`). */
+  subagentType: z.string().max(200).nullable().optional(),
+  prompt: z.string().max(MAX_SUBAGENT_TEXT).nullable().optional(),
+  model: z.string().max(200).nullable().optional(),
+  /** Its final answer, once it has one. */
+  result: z.string().max(MAX_SUBAGENT_TEXT).nullable().optional(),
+}
+
+export interface SubagentDetails {
+  subagentType?: string | null
+  prompt?: string | null
+  model?: string | null
+  result?: string | null
+}
+
 /** One task as the session read model holds it. */
-export interface BackgroundTask extends ProviderTaskIdentity {
+export interface BackgroundTask extends ProviderTaskIdentity, SubagentDetails {
   id: string
   kind: BackgroundTaskKind
   label: string
@@ -32,12 +55,17 @@ export interface BackgroundTask extends ProviderTaskIdentity {
 }
 
 /** A report about one task, as journaled. An absent `detail` keeps the last one. */
-export interface BackgroundTaskReport extends ProviderTaskIdentity {
+export interface BackgroundTaskReport extends ProviderTaskIdentity, SubagentDetails {
   taskId: string
   kind: BackgroundTaskKind
   label: string
   status: BackgroundTaskStatus
   detail?: string | null | undefined
+}
+
+/** Cuts a sub-agent prompt or result to what a report may carry. */
+export function clipSubagentText(value: string): string {
+  return value.length > MAX_SUBAGENT_TEXT ? `${value.slice(0, MAX_SUBAGENT_TEXT - 1)}…` : value
 }
 
 /** Tasks a session keeps; finished ones are dropped oldest first past this. */
@@ -67,6 +95,7 @@ export function foldBackgroundTask(
     label: report.label.length > 0 ? report.label : (previous?.label ?? ''),
     status: report.status,
     detail: report.detail !== undefined ? report.detail : (previous?.detail ?? null),
+    ...subagentDetails(previous, report),
     startedAt: previous?.startedAt ?? at,
     updatedAt: at,
     endedAt: running ? null : previous?.endedAt != null ? previous.endedAt : at,
@@ -83,6 +112,18 @@ export function foldBackgroundTask(
     return true
   })
   return excess > 0 ? kept.slice(excess) : kept
+}
+
+function subagentDetails(
+  previous: SubagentDetails | undefined,
+  report: SubagentDetails,
+): SubagentDetails {
+  const details: SubagentDetails = {}
+  for (const key of ['subagentType', 'prompt', 'model', 'result'] as const) {
+    const value = report[key] !== undefined ? report[key] : previous?.[key]
+    if (value !== undefined) details[key] = value
+  }
+  return details
 }
 
 /** The tasks still running, oldest first. */

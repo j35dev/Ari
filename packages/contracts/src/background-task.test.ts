@@ -38,6 +38,39 @@ describe('foldBackgroundTask', () => {
     ])
   })
 
+  it('keeps what a subagent was asked while later reports add its model and result', () => {
+    let tasks: BackgroundTask[] = []
+    tasks = foldBackgroundTask(
+      tasks,
+      {
+        taskId: 'a',
+        kind: 'subagent',
+        label: 'Survey',
+        status: 'running',
+        subagentType: 'Explore',
+        prompt: 'Look around',
+      },
+      1,
+    )
+    tasks = foldBackgroundTask(
+      tasks,
+      { taskId: 'a', kind: 'subagent', label: '', status: 'running', model: 'haiku' },
+      2,
+    )
+    tasks = foldBackgroundTask(
+      tasks,
+      { taskId: 'a', kind: 'subagent', label: '', status: 'completed', result: 'Found it.' },
+      3,
+    )
+    expect(tasks[0]).toMatchObject({
+      subagentType: 'Explore',
+      prompt: 'Look around',
+      model: 'haiku',
+      result: 'Found it.',
+      status: 'completed',
+    })
+  })
+
   it('drops finished tasks before running ones past the cap', () => {
     let tasks: BackgroundTask[] = []
     tasks = foldBackgroundTask(

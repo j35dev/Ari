@@ -22,7 +22,10 @@ import {
  * watched the lock-in play. The store is one small entry per live session, plus
  * a fade timer for each on-screen settle.
  */
-export function useSessionActivity(visibleSessionIds: readonly string[], scopedSessionKeys: readonly string[] = []): {
+export function useSessionActivity(
+  visibleSessionIds: readonly string[],
+  scopedSessionKeys: readonly string[] = [],
+): {
   activityOf: (sessionId: string) => SessionActivity | undefined
   attentionCountOf: (sessionId: string) => number
   acknowledge: (sessionId: string) => void
@@ -54,7 +57,7 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
   }, [])
 
   const remove = useCallback(
-    (sessionId: string): void => {
+    (sessionId: string, keepAgents = false): void => {
       clearFade(sessionId)
       if (attentionRef.current.has(sessionId)) {
         const next = new Map(attentionRef.current)
@@ -63,7 +66,8 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
         setAttention(next)
       }
       ownActivityRef.current.delete(sessionId)
-      nativeAgentsRef.current.delete(sessionId)
+      // A seen badge goes, but subagents still running are still tracked.
+      if (!keepAgents) nativeAgentsRef.current.delete(sessionId)
       if (!byIdRef.current.has(sessionId)) return
       const next = new Map(byIdRef.current)
       next.delete(sessionId)
@@ -92,7 +96,7 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
         setById(next)
         return
       }
-      remove(sessionId)
+      remove(sessionId, true)
     },
     [clearFade, remove],
   )
@@ -156,7 +160,6 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
               }
             }
             nativeAgentsRef.current.delete(sessionId)
-            agents = undefined
           }
         }
       }
@@ -172,10 +175,10 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
       if (nextOwn === prevOwn && !nativeChanged) return
       if (nextOwn) ownActivityRef.current.set(sessionId, nextOwn)
       else ownActivityRef.current.delete(sessionId)
-      const nextActivity =
-        agents?.running.size && nextOwn?.phase !== 'working' && nextOwn?.phase !== 'paused'
-          ? { phase: 'working' as const, startedAt: Math.min(...agents.running.values()) }
-          : nextOwn
+      // Native subagents running on after a reply do not make the session look
+      // busy: it is working only while its own turn is. Their finish still
+      // marks the row, so results that land unseen are not missed.
+      const nextActivity = nextOwn
 
       const next = new Map(byIdRef.current)
       if (nextActivity === undefined) next.delete(sessionId)
@@ -211,18 +214,26 @@ export function useSessionActivity(visibleSessionIds: readonly string[], scopedS
     }
   }, [acknowledge, clearFade])
 
-  const remoteKeys = scopedSessionKeys.filter((key) => parseSessionViewKey(key)?.kind === 'remote').sort().join('\n')
+  const remoteKeys = scopedSessionKeys
+    .filter((key) => parseSessionViewKey(key)?.kind === 'remote')
+    .sort()
+    .join('\n')
   useEffect(() => {
-    const stops = remoteKeys.split('\n').filter(Boolean).map((key) => {
-      const scope = parseSessionViewKey(key)
-      if (scope?.kind !== 'remote') return () => undefined
-      const client = createSessionClient(scope)
-      return client.subscribe('session.events', { sessionId: scope.sessionId }, (payload) => {
-        const frame = payload as SessionEventFrame
-        consumeRef.current({ ...frame, sessionId: key })
+    const stops = remoteKeys
+      .split('\n')
+      .filter(Boolean)
+      .map((key) => {
+        const scope = parseSessionViewKey(key)
+        if (scope?.kind !== 'remote') return () => undefined
+        const client = createSessionClient(scope)
+        return client.subscribe('session.events', { sessionId: scope.sessionId }, (payload) => {
+          const frame = payload as SessionEventFrame
+          consumeRef.current({ ...frame, sessionId: key })
+        })
       })
-    })
-    return () => { for (const stop of stops) stop() }
+    return () => {
+      for (const stop of stops) stop()
+    }
   }, [remoteKeys])
 
   // Changes identity only when some session's activity does, so memoized

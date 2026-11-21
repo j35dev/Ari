@@ -95,6 +95,8 @@ export interface ApprovalCardProps {
   position?: number
   /** Total pending approvals; renders the counter with `position`. */
   total?: number
+  /** Who asked when it is not the session's own agent, such as a Claude subagent. */
+  requester?: string
 }
 
 function prettySummary(json: string): string {
@@ -204,6 +206,7 @@ export function ApprovalCard({
   onRespond,
   position,
   total,
+  requester,
 }: ApprovalCardProps) {
   const choices = options.length > 0 ? offeredChoices(options) : LEGACY_CHOICES
   const keys = shortcutKeys(choices)
@@ -228,7 +231,7 @@ export function ApprovalCard({
     <div
       data-approval-id={approvalId}
       role="group"
-      aria-label={`Approval requested: ${toolName}`}
+      aria-label={`Approval requested: ${toolName}${requester ? ` by ${requester}` : ''}`}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       className="px-3.5 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
@@ -241,7 +244,10 @@ export function ApprovalCard({
             <div className="ask">
               <span aria-hidden="true" className="dot" />
               <p className="title">Permission needed</p>
-              <p className="tool">{displayName}</p>
+              <p className="tool">
+                {requester ? `${requester} · ` : null}
+                {displayName}
+              </p>
               {headline ? (
                 <p className="headline" title={headline.detail}>
                   <span className="label">{headline.label}</span>

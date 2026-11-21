@@ -26,10 +26,29 @@ function hasToolTraffic(run: TranscriptBlock[]): boolean {
   return run.some((b) => b.kind === 'tool-call' || b.kind === 'tool-result')
 }
 
+/** Claude Code's sub-agent tools, by the name its SDK reports. */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+
+/**
+ * Whether a call started a native sub-agent: by tool name, or because the
+ * session's task roster knows it as one (transports that rename the tool).
+ */
+export function isSubagentCall(
+  block: TranscriptBlock,
+  subagentCalls?: ReadonlySet<string>,
+): boolean {
+  return (
+    block.kind === 'tool-call' &&
+    ((block.name !== undefined && SUBAGENT_TOOLS.has(block.name)) ||
+      (block.callId !== undefined && subagentCalls?.has(block.callId) === true))
+  )
+}
+
 /** The turn a row belongs to, or null for rows outside any turn. */
 export function rowTurnId(row: GroupedRow): string | null {
   if (row.kind === 'tool-group') return row.blocks[0]?.turnId ?? null
   if (row.kind === 'turn-diff') return row.turnId
+  if (row.kind === 'subagent') return row.call.turnId ?? null
   return row.turnId ?? null
 }
 
@@ -106,8 +125,9 @@ export function groupBlocks(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
   previous?: GroupedRow[],
+  subagentCalls?: ReadonlySet<string>,
 ): GroupedRow[] {
-  const rows = buildRows(blocks, turnDiffs)
+  const rows = buildRows(blocks, turnDiffs, subagentCalls)
   if (previous === undefined || previous.length === 0) return rows
   const prior = new Map(previous.map((row) => [row.key, row]))
   return rows.map((row) => {
@@ -133,15 +153,29 @@ function sameRow(a: GroupedRow, b: GroupedRow): boolean {
       a.sessionId === b.sessionId
     )
   }
+  if (a.kind === 'subagent' && b.kind === 'subagent') {
+    return a.call === b.call && a.result === b.result
+  }
   return false
 }
 
 function buildRows(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
+  subagentCalls?: ReadonlySet<string>,
 ): GroupedRow[] {
   const rows: GroupedRow[] = []
   let run: TranscriptBlock[] = []
+  // A sub-agent's call is a row of its own, and its result is that row's.
+  const subagents = new Set<string>()
+  const subagentResults = new Map<string, TranscriptBlock>()
+  for (const block of blocks)
+    if (block.callId !== undefined && isSubagentCall(block, subagentCalls))
+      subagents.add(block.callId)
+  if (subagents.size > 0)
+    for (const block of blocks)
+      if (block.kind === 'tool-result' && block.callId && subagents.has(block.callId))
+        subagentResults.set(block.callId, block)
 
   const flush = (): void => {
     if (run.length === 0) return
@@ -173,7 +207,17 @@ function buildRows(
   }
 
   for (const block of blocks) {
-    if (isActivityBlock(block)) {
+    if (block.callId !== undefined && subagents.has(block.callId)) {
+      if (block.kind !== 'tool-call') continue
+      flush()
+      const result = subagentResults.get(block.callId)
+      rows.push({
+        kind: 'subagent',
+        key: `subagent:${block.key}`,
+        call: block,
+        ...(result ? { result } : {}),
+      })
+    } else if (isActivityBlock(block)) {
       run.push(block)
     } else {
       flush()

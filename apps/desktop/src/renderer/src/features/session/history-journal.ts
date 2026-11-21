@@ -1,4 +1,5 @@
 import type { JournalEvent } from '@ari/contracts/events'
+import { pushMessageParts, type MessagePart } from '@ari/contracts/message'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import type { MessageFold } from './message-fold'
 import type { TranscriptStore } from './transcript-store'
@@ -10,7 +11,10 @@ const active = new Set<WeakRef<HistoryJournal>>()
 registerSessionCacheInvalidator((machineId) => {
   for (const reference of active) {
     const history = reference.deref()
-    if (!history) { active.delete(reference); continue }
+    if (!history) {
+      active.delete(reference)
+      continue
+    }
     const scope = parseSessionViewKey(history.viewKey)
     if (scope?.kind === 'remote' && scope.machineId === machineId) history.dispose()
   }
@@ -32,7 +36,9 @@ export class HistoryJournal {
   #partCounts = new Map<string, number>()
   lastPart: { messageId: string; parts: number } | null = null
   #disposed = false
-  get viewKey(): string { return this.#store.sessionId }
+  get viewKey(): string {
+    return this.#store.sessionId
+  }
   dispose(): void {
     this.#disposed = true
     this.#events.clear()
@@ -77,6 +83,17 @@ export class HistoryJournal {
     if (event.seq < this.#tail) this.#rebuild = true
     this.#tail = Math.max(this.#tail, event.seq)
     if (!this.#rebuild) this.#append(event)
+  }
+
+  /** One native sub-agent's transcript, in journal order; never part of the session's messages. */
+  subagentParts(taskId: string): MessagePart[] {
+    const events: Extract<JournalEvent, { type: 'background.task.parts.appended' }>[] = []
+    for (const event of this.#events.values())
+      if (event.type === 'background.task.parts.appended' && event.taskId === taskId)
+        events.push(event)
+    const parts: MessagePart[] = []
+    for (const event of events.sort((a, b) => a.seq - b.seq)) pushMessageParts(parts, event.parts)
+    return parts
   }
 
   /** Rebuilds journal-derived controls, without replaying any live side effects. */
