@@ -4,6 +4,7 @@ import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import type { MessageFold } from './message-fold'
 import type { TranscriptStore } from './transcript-store'
 import { parseSessionViewKey, registerSessionCacheInvalidator } from './session-scope'
+import { compactEventImages, ImageBlobs } from './image-blobs'
 
 /** Cached with the transcript's bounded LRU, never inferred as live execution. */
 const journals = new WeakMap<TranscriptStore, HistoryJournal>()
@@ -28,6 +29,8 @@ registerSessionCacheInvalidator((machineId) => {
 export class HistoryJournal {
   readonly #store: TranscriptStore
   readonly #events = new Map<number, JournalEvent>()
+  /** Large tool-result images, held as Blobs instead of base64 text. */
+  readonly #images = new ImageBlobs()
   readonly #observed = new Set<number>()
   #fold: MessageFold
   #tail = -1
@@ -44,6 +47,7 @@ export class HistoryJournal {
     this.#events.clear()
     this.#observed.clear()
     this.#partCounts.clear()
+    this.#images.dispose()
     this.#store.dispose()
     journals.delete(this.#store)
   }
@@ -71,18 +75,24 @@ export class HistoryJournal {
     }
   }
 
-  add(event: JournalEvent): void {
-    if (this.#disposed) return
+  /**
+   * Stores an event and returns the stored form: large tool-result images are
+   * moved into Blobs first, so callers keep that instead of the base64 text.
+   */
+  add(raw: JournalEvent): JournalEvent {
+    if (this.#disposed) return raw
+    const event = compactEventImages(raw, this.#images)
     this.#observed.add(event.seq)
     const previous = this.#events.get(event.seq)
     if (previous) {
-      if (JSON.stringify(previous) === JSON.stringify(event)) return
+      if (JSON.stringify(previous) === JSON.stringify(event)) return previous
       this.#rebuild = true
     }
     this.#events.set(event.seq, event)
     if (event.seq < this.#tail) this.#rebuild = true
     this.#tail = Math.max(this.#tail, event.seq)
     if (!this.#rebuild) this.#append(event)
+    return event
   }
 
   /** One native sub-agent's transcript, in journal order; never part of the session's messages. */
