@@ -21,13 +21,13 @@ const mock = vi.hoisted(() => ({
   load: vi.fn(async () => undefined),
   autoReady: true,
   ducking: vi.fn(),
-  recover: vi.fn(async () => undefined),
+  copy: vi.fn(),
 }))
 
 vi.mock('../speech/audio-ducking', () => ({ getAudioDucking: () => ({ setActive: mock.ducking }) }))
-vi.mock('../speech/recovery', () => ({ recoverDictation: mock.recover }))
 
 vi.mock('electron', () => ({
+  clipboard: { writeText: mock.copy },
   ipcMain: {
     handle: (channel: string, handler: (event: { sender: unknown }, params?: unknown) => unknown) =>
       mock.handlers.set(channel, handler),
@@ -138,7 +138,7 @@ beforeEach(() => {
   mock.load.mockReset().mockResolvedValue(undefined)
   mock.autoReady = true
   mock.ducking.mockClear()
-  mock.recover.mockClear()
+  mock.copy.mockClear()
 })
 afterEach(() => {
   widget?.close()
@@ -802,11 +802,53 @@ it.each(['escape', 'disable', 'empty', 'unavailable'])(
       { id: 1, text: reason === 'empty' ? '  ' : 'draft' },
     )
     expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
-    expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
-    expect(mock.recover).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
-    if (reason === 'unavailable') expect(mock.recover).toHaveBeenCalledWith('draft')
+    // An unavailable target is retried once at the current focus, which also fails here.
+    expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 2 : 0)
+    expect(mock.copy).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
+    if (reason === 'unavailable') {
+      expect(mock.copy).toHaveBeenCalledWith('draft')
+      expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+        'ari:ariaWidget.state',
+        expect.objectContaining({
+          phase: 'error',
+          text: 'Copied to clipboard. Press Ctrl+V to paste.',
+        }),
+      )
+    }
   },
 )
+
+it('copies every result and types it where the user moved focus during dictation', async () => {
+  const first = vi.fn(async () => {
+    throw new Error('The dictation target changed. Dictate again in the intended field.')
+  })
+  const second = vi.fn(async () => undefined)
+  const capture = vi
+    .fn()
+    .mockResolvedValueOnce({ insert: first, cancel: vi.fn() })
+    .mockResolvedValueOnce({ insert: second, cancel: vi.fn() })
+  widget = new AriaWidget({
+    invoke: async () => ({ ready: true }),
+    openSettings: vi.fn(),
+    captureTarget: capture,
+  })
+  await widget.configure(configured)
+  mock.keys.get('keydown')!(generalKey())
+  await vi.advanceTimersByTimeAsync(0)
+  mock.keys.get('keyup')!(generalKey())
+  await mock.handlers.get('ari:ariaWidget.complete')!(
+    { sender: mock.windows[0]!.webContents },
+    { id: 1, text: 'moved draft' },
+  )
+  expect(mock.copy).toHaveBeenCalledExactlyOnceWith('moved draft')
+  expect(capture).toHaveBeenCalledTimes(2)
+  expect(capture.mock.calls[1]![0]).not.toBe(capture.mock.calls[0]![0])
+  expect(second).toHaveBeenCalledWith('moved draft', expect.any(Function))
+  expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+    'ari:ariaWidget.state',
+    expect.objectContaining({ phase: 'sent' }),
+  )
+})
 
 it('reserves capture through transcription and blocks both shortcuts while a composer owns it', async () => {
   const contents = { on: vi.fn(), removeListener: vi.fn(), isDestroyed: () => false }
@@ -835,7 +877,7 @@ it('reserves capture through transcription and blocks both shortcuts while a com
   expect(() => acquire({ sender: contents })).toThrow('Another dictation')
 })
 
-it('does not recover or retry a global insertion that was cancelled while pending', async () => {
+it('does not retarget a global insertion that was cancelled while pending', async () => {
   let reject!: (reason: Error) => void
   const insert = vi.fn(
     () =>
@@ -861,7 +903,6 @@ it('does not recover or retry a global insertion that was cancelled while pendin
   mock.keys.get('keydown')!(key(1))
   reject(new Error('The dictation target changed.'))
   await pending
-  expect(mock.recover).not.toHaveBeenCalled()
   expect(insert).toHaveBeenCalledOnce()
   expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
 })
@@ -987,7 +1028,8 @@ it.each(['complete', 'transcription-error', 'cancel', 'stale-target', 'dispose']
     expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
     expect(cancel).toHaveBeenCalledOnce()
     expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
-    expect(insert).toHaveBeenCalledTimes(['complete', 'stale-target'].includes(outcome) ? 1 : 0)
+    // A stale target is retried once at the current focus.
+    expect(insert).toHaveBeenCalledTimes({ complete: 1, 'stale-target': 2 }[outcome] ?? 0)
     if (outcome === 'dispose') {
       expect(mock.handlers.has('ari:speechCapture.acquire')).toBe(false)
       expect(vi.getTimerCount()).toBe(0)
