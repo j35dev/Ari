@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { AdapterSession, ProviderAdapter } from '../driver'
-import { ClaudeDriver } from './claude-driver'
+import { ClaudeCliDriver as ClaudeDriver } from './cli-driver'
 import { ClaudeSessionPool } from './session-pool'
 
 class Child extends EventEmitter {

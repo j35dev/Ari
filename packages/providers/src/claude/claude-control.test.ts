@@ -5,14 +5,14 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { Readable, Writable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ClaudeControlAdapter, ControlProcessLike } from './claude-driver'
+import type { ClaudeControlAdapter, ControlProcessLike } from './cli-driver'
 import {
   buildApprovalResponseFrame,
   buildInterruptFrame,
   buildUnsupportedControlResponse,
   buildUserFrame,
   wireClaudeControl,
-} from './claude-driver'
+} from './cli-driver'
 
 class FakeChild extends EventEmitter implements ControlProcessLike {
   stdin: Writable
