@@ -111,6 +111,12 @@ export class AcpSessionPool {
     return entry !== undefined && !entry.connection.closed
   }
 
+  /** Read the live folder, including notifications not yet written to the journal. */
+  hasBackgroundWork(ariSessionId: string): boolean {
+    const entry = this.#idle.get(ariSessionId)
+    return entry !== undefined && !entry.connection.closed && entry.folder.hasBackgroundWork
+  }
+
   /** Ends a session's parked connection, when it is deleted or archived. */
   async release(ariSessionId: string): Promise<void> {
     const closing = this.#closing.get(ariSessionId)
@@ -140,6 +146,7 @@ export class AcpSessionPool {
   /** Closes connections idle past the limit. Runs on a timer; exposed for tests. */
   reap(now = Date.now()): void {
     for (const [id, entry] of this.#idle) {
+      if (entry.folder.hasBackgroundWork) continue
       if (now - entry.lastActivity < this.idleMs) continue
       log.info('closing idle agent connection', { ariSessionId: id })
       void this.#close(id, entry).catch((error: unknown) =>
@@ -173,7 +180,8 @@ export class AcpSessionPool {
     while (this.#idle.size > this.maxIdle) {
       let oldest: [string, PooledAcpSession] | null = null
       for (const pair of this.#idle)
-        if (!oldest || pair[1].lastActivity < oldest[1].lastActivity) oldest = pair
+        if (!pair[1].folder.hasBackgroundWork)
+          if (!oldest || pair[1].lastActivity < oldest[1].lastActivity) oldest = pair
       if (!oldest) return
       void this.#close(oldest[0], oldest[1]).catch((error: unknown) =>
         log.warn('evicted agent shutdown failed', { error: String(error) }),

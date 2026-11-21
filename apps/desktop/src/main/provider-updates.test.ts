@@ -38,8 +38,8 @@ function harness() {
     plan: planFor(kind, detection(kind).binaryPath, 'win32'),
     env: {},
   }))
-  const busy = vi.fn(async (_kind: DriverKind) => false)
-  const release = vi.fn(async (_kind: DriverKind) => undefined)
+  const busy = vi.fn(async (_kind: DriverKind): Promise<boolean | string> => false)
+  const release = vi.fn(async (_kind: DriverKind): Promise<void | boolean> => undefined)
   const detect = vi.fn(async (kind: DriverKind) => detection(kind, '2.0.0'))
   const updated = vi.fn()
   const wait = vi.fn(async (_ms: number): Promise<void> => undefined)
@@ -75,6 +75,42 @@ function harness() {
 }
 
 describe('ProviderUpdates', () => {
+  it('shows the parked-work session count and Cancel leaves its processes untouched', async () => {
+    const h = harness()
+    const gate = deferred()
+    h.busy.mockResolvedValue('Waiting for background work in 2 sessions…')
+    h.wait.mockImplementationOnce(() => gate.promise)
+    h.updates.start('claude', 'upgrade')
+    await expect.poll(() => h.wait.mock.calls.length).toBe(1)
+    expect(h.updates.snapshot()).toContainEqual({
+      type: 'install.phase',
+      kind: 'claude',
+      phase: 'waiting',
+      message: 'Waiting for background work in 2 sessions…',
+    })
+    expect(h.prepare).not.toHaveBeenCalled()
+    expect(await h.updates.cancel('claude')).toEqual({ cancelled: true })
+    gate.resolve()
+    await expect.poll(() => h.settled().length).toBe(1)
+    expect(h.release).not.toHaveBeenCalled()
+    expect(h.run).not.toHaveBeenCalled()
+    expect(h.updates.unavailable('claude')).toBeNull()
+  })
+
+  it('waits again if work appears while idle connections are being checked', async () => {
+    const h = harness()
+    const gate = deferred()
+    h.release.mockResolvedValueOnce(false)
+    h.wait.mockImplementationOnce(() => gate.promise)
+    h.updates.start('claude', 'upgrade')
+    await expect.poll(() => h.wait.mock.calls.length).toBe(1)
+    expect(h.run).not.toHaveBeenCalled()
+    gate.resolve()
+    await expect.poll(() => h.run.mock.calls.length).toBe(1)
+    expect(h.release).toHaveBeenCalledTimes(2)
+    h.processes[0]!.finish()
+    await expect.poll(() => h.settled().length).toBe(1)
+  })
   it('drains background checks started during preparation before spawning', async () => {
     const h = harness()
     const gate = deferred()

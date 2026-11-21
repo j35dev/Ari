@@ -153,6 +153,7 @@ import {
 import { createUpdateChecker } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { ProviderProbes, ProviderUpdates } from './provider-updates'
+import { providerUpdateSessions } from './provider-update-sessions'
 import { runInstall } from '@ari/providers/install'
 import { checkNativeLatest, nativeCheckCommand } from './provider-update-checks'
 import {
@@ -1354,7 +1355,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       const { enabled, autoApproveCli } = getSettingsStore().current.delegation
       return enabled && autoApproveCli ? controlCliApproval(request) : null
     },
-    driverUnavailable: async (kind) => {
+    driverBlocked: (kind) => {
       const updating = providerUpdatesRef?.unavailable(kind)
       if (updating) return updating
       const current = getSettingsStore().current
@@ -1366,12 +1367,32 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             ? current.providers[cli.data].enabled
             : true
       if (!enabled) return unavailableReason(kind, undefined, false)
+      return null
+    },
+    driverUnavailable: async (kind) => {
       const rows = await rawDetections()
       return unavailableReason(kind, rows.find((row) => row.kind === kind) as Detection | undefined)
     },
   })
   engineRef = engine
   providerUpdatesRef = new ProviderUpdates({
+    ...providerUpdateSessions({
+      list: () => getSessionStore().listSessions(),
+      liveTurn: (id) => engine.hasLiveTurn(id),
+      backgroundWork: (id) =>
+        claudeSessionPool.hasBackgroundWork(id) || acpSessionPool.hasBackgroundWork(id),
+      probesBusy: (kind) => providerProbes.busy(kind),
+      release: async (id) => {
+        if (
+          engine.hasLiveTurn(id) ||
+          claudeSessionPool.hasBackgroundWork(id) ||
+          acpSessionPool.hasBackgroundWork(id)
+        )
+          return false
+        await releaseProviderConnections(id)
+        return true
+      },
+    }),
     prepare: async (kind) => {
       const rows = await redetect([kind])
       await enrichInFlight
@@ -1381,18 +1402,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         before,
         plan: planFor(kind, before?.binaryPath ?? null),
         env: processEnvWithPath(env.pathEnv),
-      }
-    },
-    busy: async (kind) => {
-      const sessions = await getSessionStore().listSessions()
-      return (
-        providerProbes.busy(kind) ||
-        sessions.some((session) => session.driverKind === kind && engine.hasLiveTurn(session.id))
-      )
-    },
-    release: async (kind) => {
-      for (const session of await getSessionStore().listSessions()) {
-        if (session.driverKind === kind) await releaseProviderConnections(session.id)
       }
     },
     detect: async (kind) =>

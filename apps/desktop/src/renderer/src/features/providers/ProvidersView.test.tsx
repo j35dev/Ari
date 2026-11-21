@@ -522,6 +522,26 @@ describe('ProvidersView', () => {
     expect(editorFor('Claude')).toBeInTheDocument()
   })
 
+  it('shows pending background work with a Cancel action', async () => {
+    settings.providers.pi.enabled = true
+    answers['providers.cancelInstall'] = { cancelled: true }
+    const publish = captureSubscribers()
+    await renderLoaded()
+    const pi = await open('Pi')
+    publish({ type: 'install.started', kind: 'pi', operation: 'upgrade' })
+    publish({
+      type: 'install.phase',
+      kind: 'pi',
+      phase: 'waiting',
+      message: 'Waiting for background work in 2 sessions…',
+    })
+    expect(within(pi).getByRole('status')).toHaveTextContent(
+      'Waiting for background work in 2 sessions…',
+    )
+    await userEvent.click(within(pi).getByRole('button', { name: 'Cancel' }))
+    expect(invokeFn).toHaveBeenCalledWith('providers.cancelInstall', { kind: 'pi' })
+  })
+
   it('shows a verified new version and a brief success state', async () => {
     settings.providers.pi.enabled = true
     const publish = captureSubscribers()

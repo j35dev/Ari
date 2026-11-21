@@ -64,6 +64,12 @@ export class ClaudeSessionPool {
     return this.#idle.get(sessionId)?.process.closed === false
   }
 
+  /** Pending work on a parked process must drain before an updater closes it. */
+  hasBackgroundWork(sessionId: string): boolean {
+    const process = this.#idle.get(sessionId)?.process
+    return process !== undefined && !process.closed && process.hasRunningTasks
+  }
+
   release(sessionId: string): Promise<void> {
     const entry = this.#idle.get(sessionId)
     if (!entry) return Promise.resolve()

@@ -177,6 +177,8 @@ export interface EngineDeps {
   }) => string | null
   /** Why a kind has no driver, worded for the user; null when the cause is unknown. */
   driverUnavailable?: (kind: DriverKind) => Promise<string | null>
+  /** Cheap turn gate for registered drivers; must not probe CLI installations. */
+  driverBlocked?: (kind: DriverKind) => string | null
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -970,12 +972,14 @@ export class Engine {
     const needsRelease = this.#providerReleases.has(session.id) || providerContext.handoffPending
     if (needsRelease) await waitForProviderRelease()
     const driver = this.#deps.registry.get(session.driverKind)
-    const reason = await this.#deps
-      .driverUnavailable?.(session.driverKind)
-      .catch((error: unknown) => {
-        log.warn('could not check provider availability', { error: String(error) })
-        return null
-      })
+    const reason =
+      this.#deps.driverBlocked?.(session.driverKind) ??
+      (driver
+        ? null
+        : await this.#deps.driverUnavailable?.(session.driverKind).catch((error: unknown) => {
+            log.warn('could not explain a missing driver', { error: String(error) })
+            return null
+          }))
     if (!driver || reason) {
       await this.#settle(
         session.id,

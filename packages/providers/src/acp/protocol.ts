@@ -366,6 +366,10 @@ export class AcpUpdateFolder {
     this.#background = new BackgroundTaskTracker(now)
   }
 
+  get hasBackgroundWork(): boolean {
+    return this.#background.hasRunning
+  }
+
   /** Remembers the adapter-owned prelude so it never becomes transcript prose. */
   setStartupInfo(text: string | null | undefined): void {
     this.#startupInfo = typeof text === 'string' && text.length > 0 ? text : null

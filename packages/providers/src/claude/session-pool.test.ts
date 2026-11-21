@@ -124,6 +124,7 @@ describe('Claude process continuity', () => {
     await adapter.dispose()
     expect(adapter.keepsBackgroundWork?.()).toBe(true)
     expect(pool.has('ari')).toBe(true)
+    expect(pool.hasBackgroundWork('ari')).toBe(true)
     expect(child.stdin.writableEnded).toBe(false)
     expect(adapter.steer?.('too late')).toBe(false)
     child.emitFrame({
@@ -162,6 +163,7 @@ describe('Claude process continuity', () => {
       ),
     )
     expect(child.sent).toHaveLength(1)
+    expect(pool.hasBackgroundWork('ari')).toBe(false)
   })
 
   it('reuses the same process and running task when the user sends another turn', async () => {
