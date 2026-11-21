@@ -97,6 +97,8 @@ export const discoveredProjectSchema = z.object({
   name: z.string().min(1),
   sources: z.array(z.enum(['claude', 'codex'])),
   lastUsedAt: z.number().nonnegative().nullable(),
+  /** The checked-out branch when the folder is a Git repository. */
+  branch: z.string().nullable().optional(),
 })
 export type DiscoveredProject = z.infer<typeof discoveredProjectSchema>
 

@@ -22,7 +22,7 @@ import {
 export { sessionSummarySchema } from './session'
 import type { SessionSummary } from './session'
 export type { SessionSummary } from './session'
-import type { ChildTask } from './agent-control'
+import type { ChildTask, CreatedProject } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
 import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
@@ -901,7 +901,14 @@ export const rpcParams = {
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
-  'providers.setupTerminal': z.object({ kind: z.enum(['claude', 'codex']) }),
+  /**
+   * Claude and Codex sign in through Ari's account sign-in; other agents run
+   * one of the logins `providers.login` returned, named by `methodId`.
+   */
+  'providers.setupTerminal': z.object({
+    kind: driverKindSchema.exclude(['ari-core']),
+    methodId: z.string().min(1).optional(),
+  }),
   'providers.configFiles': z.object({ kind: driverKindSchema }),
   'providers.extensionInventory': z.object({
     kind: driverKindSchema,
@@ -979,6 +986,8 @@ export const rpcParams = {
   'project.discover': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
+  /** A new empty folder with Git, made where Aria's `project create` would make it. */
+  'project.create': z.object({ name: z.string().trim().min(1).max(120) }),
   'project.close': z.object({ id: z.string().min(1) }),
   'project.setDefaultAgent': z.object({
     id: z.string().min(1),
@@ -1419,6 +1428,8 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
     installCommand: string[]
     upgradeCommand: string[]
     display: string
+    /** A program the install command needs that this computer lacks, with where to get it. */
+    prerequisite?: { program: string; label: string; url: string } | null
   } | null
   /** Accepted = the operation started; rejected when one is already running. */
   'providers.install': { started: boolean; reason?: string }
@@ -1526,6 +1537,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'project.discover': ProjectDiscovery
   'project.add': Project
   'project.open': Project
+  'project.create': CreatedProject
   'project.close': Project | null
   'project.setDefaultAgent': Project | null
   'project.remove': { removed: boolean }

@@ -3,7 +3,7 @@ import { mkdir, realpath, symlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { useTempDirs } from './testing/temp-dirs'
-import { discoverAgentProjects } from './project-discovery'
+import { discoverAgentProjects, readGitBranch } from './project-discovery'
 
 const temp = useTempDirs()
 async function folder(root: string, name: string): Promise<string> {
@@ -183,5 +183,23 @@ describe('agent project discovery', () => {
     await utimes(claude, 1000, 1000)
     await utimes(codex, 2000, 2000)
     expect((await discoverAgentProjects({ homeDir: home })).projects[0]?.lastUsedAt).toBe(2_000_000)
+  })
+})
+
+describe('readGitBranch', () => {
+  it('reads the checked-out branch from a repository or linked worktree', async () => {
+    const home = temp('ari-branch-')
+    const repo = await folder(home, 'repo')
+    await mkdir(join(repo, '.git'), { recursive: true })
+    await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/heads/feat/onboarding\n')
+    expect(await readGitBranch(repo)).toBe('feat/onboarding')
+
+    const linked = await folder(home, 'linked')
+    const gitDir = await folder(home, 'repo/.git/worktrees/linked')
+    await writeFile(join(gitDir, 'HEAD'), '0123456789abcdef0123456789abcdef01234567\n')
+    await writeFile(join(linked, '.git'), `gitdir: ${gitDir}\n`)
+    expect(await readGitBranch(linked)).toBe('0123456')
+
+    expect(await readGitBranch(await folder(home, 'plain'))).toBeNull()
   })
 })

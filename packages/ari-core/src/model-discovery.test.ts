@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { discoverModels, modelsPathFor, type DiscoveryFetch } from './model-discovery'
 
-function jsonFetch(payload: unknown, status = 200): { fetch: DiscoveryFetch; calls: string[]; headers: Record<string, string>[] } {
+function jsonFetch(
+  payload: unknown,
+  status = 200,
+): { fetch: DiscoveryFetch; calls: string[]; headers: Record<string, string>[] } {
   const calls: string[] = []
   const headers: Record<string, string>[] = []
   const fetchImpl: DiscoveryFetch = async (url, init) => {
@@ -22,6 +25,14 @@ describe('modelsPathFor', () => {
     expect(modelsPathFor('openai-chat')).toBe('/models')
     expect(modelsPathFor('anthropic-messages')).toBe('/models')
     expect(modelsPathFor('ollama')).toBe('/api/tags')
+  })
+
+  it('checks an OpenRouter key against the listing that requires one', () => {
+    expect(modelsPathFor('openai-chat', 'https://openrouter.ai/api/v1', 'sk-or-1')).toBe(
+      '/models/user',
+    )
+    expect(modelsPathFor('openai-chat', 'https://openrouter.ai/api/v1', null)).toBe('/models')
+    expect(modelsPathFor('openai-chat', 'https://api.openai.com/v1', 'sk-1')).toBe('/models')
   })
 })
 

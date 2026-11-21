@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { InstallEvent } from './install'
-import { resolveInstallProgram, ringTail, runInstall } from './install'
+import { programOnPath, resolveInstallProgram, ringTail, runInstall } from './install'
 
 function collect(): { events: InstallEvent[]; onEvent: (event: InstallEvent) => void } {
   const events: InstallEvent[] = []
@@ -173,5 +173,19 @@ describe('runInstall', () => {
     const ring = ringTail(64)
     for (const line of ['one\n', 'two\n']) ring.push(line, () => {}, 'stdout')
     expect(ring.overflowed()).toBe(false)
+  })
+})
+
+describe('programOnPath', () => {
+  it('finds a program on PATH and reports a missing one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-path-'))
+    try {
+      await writeFile(join(dir, process.platform === 'win32' ? 'npm.cmd' : 'npm'), '')
+      expect(programOnPath('npm', dir)).toBe(true)
+      expect(programOnPath('bun', dir)).toBe(false)
+      expect(programOnPath('npm', '')).toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
