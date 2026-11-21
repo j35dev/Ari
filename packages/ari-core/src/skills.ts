@@ -33,7 +33,12 @@ export async function listAriCoreSkills(
   const builtIn = new Set(options.builtInNames ?? [])
   const trusted = new Set(trustedRoots.map(normalizePath))
   const projectTrusted = trusted.has(normalizePath(workspacePath))
-  const project = await skillsIn(join(workspacePath, '.agents', 'skills'), 'project')
+  // A home workspace has no project skills of its own: its .agents/skills is
+  // the user root, and listing it twice would show every skill as untrusted.
+  const project =
+    normalizePath(workspacePath) === normalizePath(home)
+      ? []
+      : await skillsIn(join(workspacePath, '.agents', 'skills'), 'project')
   const user = await skillsIn(join(home, '.agents', 'skills'), 'user')
   const records: AriSkillRecord[] = []
   for (const skill of project) {

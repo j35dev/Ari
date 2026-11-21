@@ -110,6 +110,11 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-agents',
+    label: 'Agent skills and MCP servers',
+    keywords: 'skills skill.md mcp servers tools plugins env command args extensions trust',
+  },
+  {
+    section: 'settings-agents',
     label: 'Import pi sessions',
     keywords: 'import bring in existing history transcript resume pi jsonl past sessions migrate',
   },

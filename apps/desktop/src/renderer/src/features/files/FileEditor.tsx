@@ -1,57 +1,12 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, FileText } from 'lucide-react'
 import { toolWireScope, useToolSessionClient } from '../terminal/tool-session-client'
 import { cx, iconButton, outlineButton, primaryButton, quietButton } from '../../lib/recipes'
-import { DiffHighlightPool, type HighlightLine } from '../diffs/diff-highlight-pool'
-import { languageForPath } from '../diffs/use-diff-highlight'
+import { CodeSurface, languageLabel, type Caret } from './CodeSurface'
 import type { FsTreeScope } from './FileExplorer'
-import './file-editor.css'
 
-const pool = new DiffHighlightPool()
-
-/** Highlighting waits for a pause in typing, and skips files too big to keep up with. */
-const HIGHLIGHT_DELAY_MS = 120
-const HIGHLIGHT_MAX_LINES = 6000
-const HIGHLIGHT_MAX_CHARS = 400_000
-const HIGHLIGHT_MAX_LINE = 2000
 /** How long "Saved" stays in the status line. */
 const SAVED_NOTICE_MS = 2000
-
-const LANGUAGE_NAMES: Record<string, string> = {
-  typescript: 'TypeScript',
-  tsx: 'TSX',
-  javascript: 'JavaScript',
-  jsx: 'JSX',
-  json: 'JSON',
-  jsonc: 'JSON',
-  python: 'Python',
-  rust: 'Rust',
-  go: 'Go',
-  css: 'CSS',
-  scss: 'SCSS',
-  less: 'Less',
-  html: 'HTML',
-  markdown: 'Markdown',
-  yaml: 'YAML',
-  bash: 'Shell',
-  sql: 'SQL',
-  c: 'C',
-  cpp: 'C++',
-  csharp: 'C#',
-  java: 'Java',
-  toml: 'TOML',
-  dockerfile: 'Dockerfile',
-  xml: 'XML',
-  vue: 'Vue',
-  svelte: 'Svelte',
-  ruby: 'Ruby',
-  php: 'PHP',
-  swift: 'Swift',
-  kotlin: 'Kotlin',
-  lua: 'Lua',
-  powershell: 'PowerShell',
-  ini: 'INI',
-}
 
 function splitPath(path: string): { dir: string; name: string } {
   const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
@@ -59,84 +14,6 @@ function splitPath(path: string): { dir: string; name: string } {
     ? { dir: '', name: path }
     : { dir: path.slice(0, index + 1), name: path.slice(index + 1) }
 }
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/** Line and column (both 1-based) of a caret offset. */
-function caretPosition(text: string, offset: number): { line: number; column: number } {
-  let line = 1
-  let lineStart = 0
-  for (let index = text.indexOf('\n'); index !== -1 && index < offset;) {
-    line += 1
-    lineStart = index + 1
-    index = text.indexOf('\n', lineStart)
-  }
-  return { line, column: offset - lineStart + 1 }
-}
-
-/**
- * Inserts text at the caret through the browser's editing command, so it
- * lands on the undo stack like typing; falls back to rewriting the value.
- */
-function insertAtCaret(
-  field: HTMLTextAreaElement,
-  text: string,
-  setValue: (value: string) => void,
-): void {
-  field.focus()
-  if (typeof document.execCommand === 'function' && document.execCommand('insertText', false, text))
-    return
-  const { selectionStart: start, selectionEnd: end, value } = field
-  setValue(value.slice(0, start) + text + value.slice(end))
-  requestAnimationFrame(() => field.setSelectionRange(start + text.length, start + text.length))
-}
-
-interface Highlight {
-  /** The lines this markup was made from; a line that has changed since shows plain. */
-  source: string[]
-  html: Record<string, string>
-}
-
-/** Off-thread highlighting of the whole buffer, refreshed after each pause in typing. */
-function useHighlight(lines: string[], lang: string | null): Highlight | null {
-  const [highlight, setHighlight] = useState<Highlight | null>(null)
-  useEffect(() => {
-    if (lang === null || typeof Worker === 'undefined') return
-    if (lines.length > HIGHLIGHT_MAX_LINES) return
-    let chars = 0
-    const request: HighlightLine[] = []
-    for (const [index, text] of lines.entries()) {
-      chars += text.length
-      if (chars > HIGHLIGHT_MAX_CHARS) return
-      request.push({
-        key: String(index),
-        side: 'new',
-        text: text.length > HIGHLIGHT_MAX_LINE ? '' : text,
-      })
-    }
-    let cancel: (() => void) | undefined
-    let cancelled = false
-    const timer = setTimeout(() => {
-      const pending = pool.request(lang, request)
-      cancel = pending.cancel
-      void pending.promise.then((html) => {
-        if (!cancelled && Object.keys(html).length > 0) setHighlight({ source: lines, html })
-      })
-    }, HIGHLIGHT_DELAY_MS)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-      cancel?.()
-    }
-  }, [lines, lang])
-  return highlight
-}
-
-const CodeLine = memo(function CodeLine({ html }: { html: string }) {
-  return <div className="ari-code-line" dangerouslySetInnerHTML={{ __html: html }} />
-})
 
 interface FileEditorProps {
   /** Capability scope the file lives in (project or session workspace). */
@@ -175,8 +52,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [confirmClose, setConfirmClose] = useState(false)
-  const [caret, setCaret] = useState({ line: 1, column: 1 })
-  const [focused, setFocused] = useState(false)
+  const [caret, setCaret] = useState<Caret>({ line: 1, column: 1 })
   const fieldRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -222,9 +98,7 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
 
   const loaded = original !== null
   const dirty = loaded && draft !== original
-  const lang = useMemo(() => languageForPath(path), [path])
-  const lines = useMemo(() => draft.split('\n'), [draft])
-  const highlight = useHighlight(lines, loaded ? lang : null)
+  const lineCount = useMemo(() => draft.split('\n').length, [draft])
   const { dir, name } = splitPath(path)
 
   const save = useCallback((): void => {
@@ -259,37 +133,6 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
     if (dirty) setConfirmClose(true)
     else onClose()
   }, [dirty, onClose])
-
-  const trackCaret = (): void => {
-    const field = fieldRef.current
-    if (field !== null) setCaret(caretPosition(field.value, field.selectionStart))
-  }
-
-  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    const field = event.currentTarget
-    const mod = event.ctrlKey || event.metaKey
-    if (mod && event.key.toLowerCase() === 's') {
-      event.preventDefault()
-      save()
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      requestClose()
-    } else if (readOnly) {
-      return
-    } else if (event.key === 'Tab' && !mod && !event.altKey && !event.shiftKey) {
-      event.preventDefault()
-      insertAtCaret(field, '  ', setDraft)
-    } else if (event.key === 'Enter' && !mod && !event.altKey && !event.shiftKey) {
-      // Keep the current line's indentation on the new one.
-      const before = field.value.slice(0, field.selectionStart)
-      const indent = /^[ \t]*/.exec(before.slice(before.lastIndexOf('\n') + 1))?.[0] ?? ''
-      if (indent.length === 0) return
-      event.preventDefault()
-      insertAtCaret(field, `\n${indent}`, setDraft)
-    }
-  }
-
-  const gutterWidth = `calc(${String(Math.max(2, String(lines.length).length))}ch + 28px)`
 
   return (
     <section
@@ -362,73 +205,19 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
 
       <div className="ari-scroll relative min-h-0 flex-1 overflow-auto">
         {loaded ? (
-          <div className="flex min-h-full w-max min-w-full">
-            <div
-              aria-hidden
-              className="ari-code-gutter sticky left-0 z-pane-chrome shrink-0 bg-bg text-fg-subtle"
-              style={{ minWidth: gutterWidth }}
-            >
-              {lines.map((_, index) => (
-                <div
-                  key={index}
-                  className={cx(
-                    'ari-code-line',
-                    focused && index + 1 === caret.line ? 'text-fg-muted' : 'opacity-60',
-                  )}
-                >
-                  {index + 1}
-                </div>
-              ))}
-            </div>
-            <div className="relative min-w-0 flex-1">
-              {focused ? (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 h-5 bg-fg/4"
-                  style={{ top: 10 + (caret.line - 1) * 20 }}
-                />
-              ) : null}
-              <pre aria-hidden className="ari-code-text ari-code-highlight relative text-fg">
-                {lines.map((line, index) => (
-                  <CodeLine
-                    key={index}
-                    html={
-                      highlight !== null && highlight.source[index] === line
-                        ? (highlight.html[String(index)] ?? escapeHtml(line))
-                        : escapeHtml(line)
-                    }
-                  />
-                ))}
-              </pre>
-              <textarea
-                ref={fieldRef}
-                aria-label="File contents"
-                value={draft}
-                readOnly={readOnly}
-                onChange={(event) => {
-                  if (readOnly) return
-                  setDraft(event.target.value)
-                  trackCaret()
-                  if (confirmClose) setConfirmClose(false)
-                }}
-                onKeyDown={onKeyDown}
-                onSelect={trackCaret}
-                onKeyUp={trackCaret}
-                onClick={trackCaret}
-                onFocus={() => {
-                  setFocused(true)
-                  trackCaret()
-                }}
-                onBlur={() => setFocused(false)}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-                autoCorrect="off"
-                wrap="off"
-                className="ari-code-text ari-code-input absolute inset-0 h-full w-full resize-none overflow-hidden outline-none"
-              />
-            </div>
-          </div>
+          <CodeSurface
+            value={draft}
+            onChange={(next) => {
+              setDraft(next)
+              if (confirmClose) setConfirmClose(false)
+            }}
+            path={path}
+            readOnly={readOnly}
+            onSave={save}
+            onEscape={requestClose}
+            onCaretChange={setCaret}
+            fieldRef={fieldRef}
+          />
         ) : error !== null ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
             <p role="alert" className="max-w-80 text-[13px] text-fg">
@@ -458,12 +247,10 @@ export function FileEditor({ scope, path, onClose, onSaved, readOnlyReason }: Fi
             Ln {caret.line}, Col {caret.column}
           </span>
           <span className="shrink-0 tabular-nums">
-            {lines.length} {lines.length === 1 ? 'line' : 'lines'}
+            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
           </span>
           <span className="shrink-0">{eol === '\r\n' ? 'CRLF' : 'LF'}</span>
-          <span className="shrink-0">
-            {lang === null ? 'Plain text' : (LANGUAGE_NAMES[lang] ?? lang)}
-          </span>
+          <span className="shrink-0">{languageLabel(path)}</span>
         </footer>
       ) : null}
     </section>

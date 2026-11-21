@@ -1,6 +1,6 @@
 import { open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -182,7 +182,12 @@ import {
   toLoginMethods,
 } from './provider-auth'
 import type { AuthProbeConnection, AuthProbeDeps } from './provider-auth'
-import { listProviderConfigFiles, readProviderConfig, writeProviderConfig } from './provider-config'
+import {
+  listProviderConfigFiles,
+  providerRevealTarget,
+  readProviderConfig,
+  writeProviderConfig,
+} from './provider-config'
 import { importPiSessionCandidate, listImportableSessions } from './session-import'
 import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
@@ -2645,22 +2650,54 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return buildExtensionInventory({ kind: params.kind, workspacePath: workspace })
   })
 
-  r.register('providers.readExtensionFile', async (params) => {
-    const workspace = await resolveInventoryWorkspace(params.workspacePath)
-    if (params.kind === 'ari-core') await ensureMcpStore()
-    const inventory =
-      params.kind === 'ari-core'
-        ? await buildExtensionInventory({
-            kind: 'ari-core',
-            workspacePath: workspace,
-            coreServers: mcpStore.list(),
-            coreSkills: await listAriCoreSkills(workspace, await readTrustedSkillRoots(coreDir), {
-              homeDir: homedir(),
-              builtInNames: BUILT_IN_TOOLS.map((tool) => tool.name),
-            }),
-          })
-        : await buildExtensionInventory({ kind: params.kind, workspacePath: workspace })
-    return readInventoriedSkill(inventory, params.path)
+  const inventoryFor = async (
+    kind: DriverKind,
+    workspacePath: string | null,
+  ): Promise<RpcResults['providers.extensionInventory']> => {
+    const workspace = await resolveInventoryWorkspace(workspacePath)
+    if (kind !== 'ari-core') return buildExtensionInventory({ kind, workspacePath: workspace })
+    await ensureMcpStore()
+    return buildExtensionInventory({
+      kind: 'ari-core',
+      workspacePath: workspace,
+      coreServers: mcpStore.list(),
+      coreSkills: await listAriCoreSkills(workspace, await readTrustedSkillRoots(coreDir), {
+        homeDir: homedir(),
+        builtInNames: BUILT_IN_TOOLS.map((tool) => tool.name),
+      }),
+    })
+  }
+
+  r.register('providers.readExtensionFile', async (params) =>
+    readInventoriedSkill(await inventoryFor(params.kind, params.workspacePath), params.path),
+  )
+
+  // "Open folder" on the Agents page. The jailed shell.revealPath only knows
+  // project roots; agent homes like ~/.claude live outside them, so this
+  // resolves against what Ari already lists for that agent instead.
+  r.register('providers.revealPath', async (params) => {
+    const target = providerRevealTarget(
+      params.kind,
+      params.path,
+      params.path === null
+        ? { records: [], truncated: false }
+        : await inventoryFor(params.kind, params.workspacePath),
+    )
+    if (target === null) return { revealed: false }
+    const exists = (path: string): Promise<boolean> =>
+      stat(path).then(
+        () => true,
+        () => false,
+      )
+    if (target.folder) {
+      if (!(await exists(target.path))) return { revealed: false }
+      const failure = await shell.openPath(target.path)
+      return { revealed: failure.length === 0 }
+    }
+    if (await exists(target.path)) shell.showItemInFolder(target.path)
+    else if (await exists(dirname(target.path))) await shell.openPath(dirname(target.path))
+    else return { revealed: false }
+    return { revealed: true }
   })
 
   r.register('ariCore.mcp.list', async () => {

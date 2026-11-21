@@ -1,10 +1,15 @@
 import { mkdir, readFile, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
-import { providerConfigDir, providerConfigFile, providerConfigFiles } from '@ari/providers/config-files'
+import {
+  providerConfigDir,
+  providerConfigFile,
+  providerConfigFiles,
+} from '@ari/providers/config-files'
 import type { ProviderConfigFile } from '@ari/providers/config-files'
+import { jsonProblem } from '@ari/providers/config-validate'
 import { writeTextFile } from './fs-write'
 
 const log = createLogger('desktop:provider-config')
@@ -96,19 +101,45 @@ export async function writeProviderConfig(
 }
 
 /**
- * Rejects a payload the agent could not load. Only JSON is checked — Ari ships
- * no TOML parser, and refusing to save markdown would be absurd — so this is a
- * guard against the one silent-loss case, not a schema validator.
+ * Rejects a payload the agent could not load. Only JSON is enforced — Ari
+ * ships no TOML parser, so the TOML lint the editor shows is advisory, and
+ * refusing to save markdown would be absurd — so this is a guard against the
+ * one silent-loss case, not a schema validator. The editor runs the same
+ * `jsonProblem` before it lets you press Save.
  */
 function formatComplaint(file: ProviderConfigFile, content: string): string | null {
   if (file.format !== 'json') return null
-  if (content.trim().length === 0) return null
-  try {
-    JSON.parse(content)
-    return null
-  } catch (error) {
-    return `${file.label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+  const problem = jsonProblem(content)
+  return problem === null ? null : `${file.label} is not valid JSON: ${problem.message}`
+}
+
+/**
+ * What "Open folder" may show for an agent: its config directory (no path),
+ * one of its declared config files, or a file the inventory listed (a skill's
+ * SKILL.md, the file an MCP server came from). Anything else is refused, so
+ * the renderer cannot use this to probe the disk.
+ */
+export function providerRevealTarget(
+  kind: DriverKind,
+  path: string | null,
+  inventory: RpcResults['providers.extensionInventory'],
+): { path: string; folder: boolean } | null {
+  if (path === null) {
+    const dir = providerConfigDir(kind)
+    return dir === null ? null : { path: dir, folder: true }
   }
+  const declared = providerConfigFiles(kind).some((file) => samePath(file.path, path))
+  const listed = inventory.records.some(
+    (record) => record.sourcePath !== null && samePath(record.sourcePath, path),
+  )
+  if (!declared && !listed) throw new Error('that file does not belong to this agent')
+  return { path, folder: false }
+}
+
+function samePath(a: string, b: string): boolean {
+  const left = resolve(a)
+  const right = resolve(b)
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
 function requireFile(kind: DriverKind, fileId: string): ProviderConfigFile {

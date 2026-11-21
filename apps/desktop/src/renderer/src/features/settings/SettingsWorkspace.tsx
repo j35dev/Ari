@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
+  createLeaveGuardStore,
+  guardedLeave,
+  LeaveGuardContext,
+  type LeaveGuardStore,
+} from './settings-leave-guard'
+import {
   Bell,
   Camera,
   Cpu,
@@ -84,6 +90,11 @@ export interface SettingsWorkspaceProps {
   /** Active session workspace. Null inventories the home directory. */
   workspacePath?: string | null
   onOpenMachine?: (machineId: string) => void
+  /**
+   * Where a page with unsaved edits registers to hold navigation. The dialog
+   * passes its own so Escape and the scrim are held too.
+   */
+  leaveGuard?: LeaveGuardStore
 }
 
 function isSettingsSection(value: string): value is SettingsSectionId {
@@ -112,7 +123,10 @@ export function SettingsWorkspace({
   onOpenTerminal,
   workspacePath = null,
   onOpenMachine,
+  leaveGuard,
 }: SettingsWorkspaceProps) {
+  const [ownGuard] = useState(createLeaveGuardStore)
+  const guard = leaveGuard ?? ownGuard
   const [internal, setInternal] = useState<SettingsSectionId>('appearance')
   const section = controlledSection ?? internal
 
@@ -121,8 +135,11 @@ export function SettingsWorkspace({
   }, [controlledSection])
 
   const setSection = (next: SettingsSectionId): void => {
-    setInternal(next)
-    onSectionChange?.(next)
+    if (next === section) return
+    guardedLeave(guard, () => {
+      setInternal(next)
+      onSectionChange?.(next)
+    })
   }
 
   const handleSearchJump = (searchId: string): void => {
@@ -131,103 +148,105 @@ export function SettingsWorkspace({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 bg-surface-0">
-      <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pb-2.5 pt-3">
-        <h2 className="px-2.5 pb-1 text-sm font-semibold text-fg">Settings</h2>
-        <div className="pb-2 pt-2">
-          <SettingsSearch onJump={handleSearchJump} />
-        </div>
-        <nav
-          aria-label="Settings sections"
-          className="ari-scroll -mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-1"
-        >
-          {NAV_GROUPS.map(({ group, entries }, index) => (
-            <div
-              key={group ?? `ungrouped-${index}`}
-              className={group ? 'mt-4' : index > 0 ? 'mt-auto pt-4' : undefined}
-            >
-              {group ? <p className={`mb-1 px-2.5 ${sectionLabel}`}>{group}</p> : null}
-              <ul className="flex flex-col gap-0.5">
-                {entries.map((entry) => {
-                  const Icon: LucideIcon = entry.icon
-                  const selected = entry.id === section
-                  return (
-                    <li key={entry.id}>
-                      <button
-                        type="button"
-                        aria-current={selected ? 'page' : undefined}
-                        onClick={() => setSection(entry.id)}
-                        className={cx(NAV_ROW, selected ? rowSelected : NAV_ROW_IDLE)}
-                      >
-                        <Icon size={16} strokeWidth={1.7} className="shrink-0" aria-hidden />
-                        <span className="truncate">{entry.label}</span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          ))}
-        </nav>
-        {onOpenSetup && (
-          <button type="button" onClick={onOpenSetup} className={cx(row, 'mt-1 shrink-0')}>
-            Run setup again
-          </button>
-        )}
-      </aside>
+    <LeaveGuardContext.Provider value={guard}>
+      <div className="flex h-full min-h-0 flex-1 bg-surface-0">
+        <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pb-2.5 pt-3">
+          <h2 className="px-2.5 pb-1 text-sm font-semibold text-fg">Settings</h2>
+          <div className="pb-2 pt-2">
+            <SettingsSearch onJump={handleSearchJump} />
+          </div>
+          <nav
+            aria-label="Settings sections"
+            className="ari-scroll -mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-1"
+          >
+            {NAV_GROUPS.map(({ group, entries }, index) => (
+              <div
+                key={group ?? `ungrouped-${index}`}
+                className={group ? 'mt-4' : index > 0 ? 'mt-auto pt-4' : undefined}
+              >
+                {group ? <p className={`mb-1 px-2.5 ${sectionLabel}`}>{group}</p> : null}
+                <ul className="flex flex-col gap-0.5">
+                  {entries.map((entry) => {
+                    const Icon: LucideIcon = entry.icon
+                    const selected = entry.id === section
+                    return (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          aria-current={selected ? 'page' : undefined}
+                          onClick={() => setSection(entry.id)}
+                          className={cx(NAV_ROW, selected ? rowSelected : NAV_ROW_IDLE)}
+                        >
+                          <Icon size={16} strokeWidth={1.7} className="shrink-0" aria-hidden />
+                          <span className="truncate">{entry.label}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </nav>
+          {onOpenSetup && (
+            <button type="button" onClick={onOpenSetup} className={cx(row, 'mt-1 shrink-0')}>
+              Run setup again
+            </button>
+          )}
+        </aside>
 
-      <div className="relative flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
-        <div
-          key={section}
-          className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
-        >
-          {section === 'appearance' ? <AppearanceSettings /> : null}
-          {section === 'providers' ? (
-            <div id="settings-providers" className={SETTINGS_COLUMN_WIDE_CLASS}>
-              <ProvidersView
-                onOpenTerminal={onOpenTerminal}
-                onOpenEndpoints={() => setSection('endpoints')}
+        <div className="relative flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
+          <div
+            key={section}
+            className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+          >
+            {section === 'appearance' ? <AppearanceSettings /> : null}
+            {section === 'providers' ? (
+              <div id="settings-providers" className={SETTINGS_COLUMN_WIDE_CLASS}>
+                <ProvidersView
+                  onOpenTerminal={onOpenTerminal}
+                  onOpenEndpoints={() => setSection('endpoints')}
+                />
+              </div>
+            ) : null}
+            {section === 'agents' ? <AgentConfigSettings workspacePath={workspacePath} /> : null}
+            {section === 'endpoints' ? (
+              <SettingsPage
+                title="Endpoints"
+                description="Model servers Ari Core chats through: OpenAI-compatible, Anthropic, or Ollama."
+              >
+                <EndpointsManager />
+              </SettingsPage>
+            ) : null}
+            {section === 'source-control' ? <SourceControlSettings /> : null}
+            {section === 'integrations' ? <SlackSettings /> : null}
+            {section === 'notifications' ? <NotificationsSettings /> : null}
+            {section === 'permissions' ? <PermissionsSettings /> : null}
+            {section === 'remote' ? <RemoteSettings /> : null}
+            {section === 'machines' ? (
+              <MachinesSettings
+                onOpenMachine={onOpenMachine}
+                onHosting={() => setSection('remote')}
               />
-            </div>
-          ) : null}
-          {section === 'agents' ? <AgentConfigSettings workspacePath={workspacePath} /> : null}
-          {section === 'endpoints' ? (
-            <SettingsPage
-              title="Endpoints"
-              description="Model servers Ari Core chats through: OpenAI-compatible, Anthropic, or Ollama."
-            >
-              <EndpointsManager />
-            </SettingsPage>
-          ) : null}
-          {section === 'source-control' ? <SourceControlSettings /> : null}
-          {section === 'integrations' ? <SlackSettings /> : null}
-          {section === 'notifications' ? <NotificationsSettings /> : null}
-          {section === 'permissions' ? <PermissionsSettings /> : null}
-          {section === 'remote' ? <RemoteSettings /> : null}
-          {section === 'machines' ? (
-            <MachinesSettings
-              onOpenMachine={onOpenMachine}
-              onHosting={() => setSection('remote')}
-            />
-          ) : null}
-          {section === 'keybindings' ? <KeybindingsSettings /> : null}
-          {section === 'speech' ? <SpeechSettings /> : null}
-          {section === 'snapshots' ? <SnapshotsSettings /> : null}
-          {section === 'advanced' ? <AdvancedSettings /> : null}
-          {section === 'experimental' ? <ExperimentalSettings /> : null}
-        </div>
-        {/* After the page in the DOM so it paints over the scroller without a
+            ) : null}
+            {section === 'keybindings' ? <KeybindingsSettings /> : null}
+            {section === 'speech' ? <SpeechSettings /> : null}
+            {section === 'snapshots' ? <SnapshotsSettings /> : null}
+            {section === 'advanced' ? <AdvancedSettings /> : null}
+            {section === 'experimental' ? <ExperimentalSettings /> : null}
+          </div>
+          {/* After the page in the DOM so it paints over the scroller without a
             z-index. The page title already says where you are. */}
-        <button
-          type="button"
-          aria-label="Close settings"
-          title="Close settings"
-          onClick={onBack}
-          className={`${iconButton} absolute right-3 top-3`}
-        >
-          <X size={16} strokeWidth={1.7} aria-hidden />
-        </button>
+          <button
+            type="button"
+            aria-label="Close settings"
+            title="Close settings"
+            onClick={() => guardedLeave(guard, onBack)}
+            className={`${iconButton} absolute right-3 top-3`}
+          >
+            <X size={16} strokeWidth={1.7} aria-hidden />
+          </button>
+        </div>
       </div>
-    </div>
+    </LeaveGuardContext.Provider>
   )
 }

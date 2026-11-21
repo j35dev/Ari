@@ -9,8 +9,13 @@ import type { DetectEnvironment } from '../types'
  * Read-only inventory of the skills, MCP servers, and plugins a pass-through
  * agent already loads from disk. Ari does not spawn those servers and does
  * not copy them onto `session/new` — the records are names for the settings
- * page. Secrets (env, headers, args, URLs) never leave this module.
+ * page. Secrets never leave this module: env and header values stay behind
+ * (only env key names go out), URLs lose their query and credentials, and
+ * args that look like a secret, or follow a flag that names one, are masked.
  */
+
+/** What a masked value reads as on the settings page. */
+export const SECRET_MASK = '••••'
 
 export type ExtensionScope = 'user' | 'project' | 'plugin' | 'ari'
 export type ExtensionKind = 'mcp' | 'skill' | 'plugin'
@@ -25,8 +30,14 @@ export interface ExtensionRecord {
   summary?: string
   sourcePath: string | null
   transport?: 'stdio' | 'http' | 'sse' | 'unknown'
-  /** Basename only. Never argv. */
+  /** Basename only. */
   command?: string
+  /** MCP argv after the command, secrets masked (see {@link redactArgs}). */
+  args?: string[]
+  /** Names of the env vars the server is given. Never their values. */
+  envKeys?: string[]
+  /** HTTP/SSE endpoint without query, fragment or credentials. */
+  url?: string
   disabled: boolean
   delivery: 'delegated' | 'injected' | 'hosted'
   problem?: 'missing-binary' | 'unreadable' | 'duplicate-name' | 'untrusted-project'
@@ -56,6 +67,9 @@ interface McpHit {
   disabled: boolean
   transport: 'stdio' | 'http' | 'sse' | 'unknown'
   command?: string
+  args?: string[]
+  envKeys?: string[]
+  url?: string
   problem?: ExtensionRecord['problem']
 }
 
@@ -73,23 +87,97 @@ export function parseSkillFrontmatter(
   raw: string,
   dirName: string,
 ): { name: string; summary?: string; problem?: 'unreadable' } {
-  if (!raw.startsWith('---')) return { name: dirName }
-  const end = raw.indexOf('\n---', 3)
+  const text = raw.replace(/\r\n?/g, '\n')
+  if (!text.startsWith('---')) return { name: dirName }
+  const end = text.indexOf('\n---', 3)
   if (end === -1) return { name: dirName, problem: 'unreadable' }
-  let name = dirName
-  let summary: string | undefined
-  let sawField = false
-  for (const line of raw.slice(3, end).split('\n')) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim())
-    if (!match) continue
-    sawField = true
-    const key = match[1]
-    const value = unquote(match[2] ?? '')
-    if (key === 'name' && value.length > 0) name = value
-    if (key === 'description' && value.length > 0) summary = value.slice(0, SUMMARY_CAP)
-  }
-  if (!sawField) return { name: dirName, problem: 'unreadable' }
+  const fields = frontmatterFields(text.slice(3, end))
+  if (fields.size === 0) return { name: dirName, problem: 'unreadable' }
+  const name = oneLine(fields.get('name') ?? '') || dirName
+  const summary = oneLine(fields.get('description') ?? '').slice(0, SUMMARY_CAP)
   return summary ? { name, summary } : { name }
+}
+
+/**
+ * Top-level scalar fields of a YAML frontmatter block. Enough YAML for skill
+ * headers: plain and quoted values, values continued on indented lines, and
+ * `|` / `>` block scalars (with chomping and indent indicators). Nested
+ * mappings are skipped; only unindented keys count.
+ */
+function frontmatterFields(block: string): Map<string, string> {
+  const fields = new Map<string, string>()
+  const lines = block.split('\n')
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(lines[index] ?? '')
+    if (!match?.[1]) continue
+    const head = (match[2] ?? '').trim()
+    // Lines that belong to this key: blank, or indented past it.
+    const body: string[] = []
+    while (index + 1 < lines.length) {
+      const next = lines[index + 1] ?? ''
+      if (next.trim().length > 0 && !/^\s/.test(next)) break
+      body.push(next)
+      index++
+    }
+    while (body.length > 0 && (body[body.length - 1] ?? '').trim().length === 0) body.pop()
+    const block = /^([|>])([+-]?\d?|\d?[+-]?)\s*(?:#.*)?$/.exec(head)
+    if (block) {
+      fields.set(
+        match[1],
+        blockScalar(body, block[1] === '|' ? 'literal' : 'folded', block[2] ?? ''),
+      )
+    } else {
+      const continued = body.length > 0 ? `${head}\n${body.join('\n')}` : head
+      fields.set(match[1], unquoteScalar(fold(continued.split('\n').map((line) => line.trim()))))
+    }
+  }
+  return fields
+}
+
+/** The text of a `|` or `>` block scalar, its indentation removed. */
+function blockScalar(body: string[], style: 'literal' | 'folded', indicator: string): string {
+  const explicit = /\d/.exec(indicator)?.[0]
+  const first = body.find((line) => line.trim().length > 0)
+  const indent =
+    explicit !== undefined ? Number(explicit) : first ? (/^\s*/.exec(first)?.[0].length ?? 0) : 0
+  const content = body.map((line) =>
+    line.slice(Math.min(indent, /^\s*/.exec(line)?.[0].length ?? 0)),
+  )
+  return style === 'literal' ? content.join('\n') : fold(content)
+}
+
+/** YAML folding: lines join with a space, an empty line becomes a newline. */
+function fold(lines: string[]): string {
+  let out = ''
+  let pendingBreak = false
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      out += '\n'
+      pendingBreak = true
+      continue
+    }
+    out += out.length === 0 || pendingBreak ? line : ` ${line}`
+    pendingBreak = false
+  }
+  return out
+}
+
+function unquoteScalar(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed
+      .slice(1, -1)
+      .replace(/\\(["\\/nt])/g, (_, ch: string) => (ch === 'n' ? '\n' : ch === 't' ? '\t' : ch))
+  }
+  if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/''/g, "'")
+  }
+  return trimmed
+}
+
+/** Collapses a multi-line value onto the one line a summary row has. */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
 }
 
 /**
@@ -190,7 +278,23 @@ export async function discoverExtensions(
     }
   }
 
-  return capRecords(input.provider, skills, mcps, plugins)
+  return capRecords(input.provider, uniqueBySource(skills), uniqueBySource(mcps), plugins)
+}
+
+/**
+ * Drops a hit whose file was already collected under an earlier scope. With no
+ * session open the project walk starts at home, so `~/.claude/skills` would
+ * otherwise show up as both a user and a project skill.
+ */
+function uniqueBySource<T extends { sourcePath: string; name: string }>(hits: T[]): T[] {
+  const seen = new Set<string>()
+  return hits.filter((hit) => {
+    const path = resolve(hit.sourcePath)
+    const key = `${process.platform === 'win32' ? path.toLowerCase() : path}\u0000${hit.name}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /** Directories from `cwd` up through the git root, or just `cwd` when there is no `.git`. */
@@ -247,6 +351,9 @@ function capRecords(
       sourcePath: mcp.sourcePath,
       transport: mcp.transport,
       ...(mcp.command ? { command: mcp.command } : {}),
+      ...(mcp.args && mcp.args.length > 0 ? { args: mcp.args } : {}),
+      ...(mcp.envKeys && mcp.envKeys.length > 0 ? { envKeys: mcp.envKeys } : {}),
+      ...(mcp.url ? { url: mcp.url } : {}),
       disabled: mcp.disabled,
       delivery: 'delegated',
       ...(problem ? { problem } : {}),
@@ -429,6 +536,15 @@ function mcpFromValue(name: string, value: unknown, file: string, scope: Extensi
   const disabled = record['disabled'] === true || record['enabled'] === false
   let problem: McpHit['problem']
   if (commandRaw && isAbsolute(commandRaw) && !existsSync(commandRaw)) problem = 'missing-binary'
+  // OpenCode puts the whole argv in `command`; Claude splits it into `args`.
+  const command: unknown = record['command']
+  const args: unknown = record['args']
+  const argv = [
+    ...(Array.isArray(command) ? (command as unknown[]).slice(1) : []),
+    ...(Array.isArray(args) ? (args as unknown[]) : []),
+  ].filter((arg): arg is string => typeof arg === 'string')
+  const envKeys = Object.keys(asRecord(record['env']) ?? asRecord(record['environment']) ?? {})
+  const safeUrl = url.length > 0 ? sanitizeUrl(url) : null
   return {
     name,
     sourcePath: file,
@@ -436,6 +552,9 @@ function mcpFromValue(name: string, value: unknown, file: string, scope: Extensi
     disabled,
     transport,
     ...(commandRaw ? { command: basename(commandRaw) } : {}),
+    ...(argv.length > 0 ? { args: redactArgs(argv) } : {}),
+    ...(envKeys.length > 0 ? { envKeys } : {}),
+    ...(safeUrl ? { url: safeUrl } : {}),
     ...(problem ? { problem } : {}),
   }
 }
@@ -444,6 +563,57 @@ function commandString(value: unknown): string | null {
   if (typeof value === 'string' && value.length > 0) return value
   if (Array.isArray(value) && typeof value[0] === 'string' && value[0].length > 0) return value[0]
   return null
+}
+
+/** Flag or key names whose value is a credential. Over-matching only over-masks. */
+const SECRET_NAME = /key|token|secret|passw|pwd|auth|bearer|credential|cookie|session/i
+/** Prefixes of well-known credential formats. */
+const SECRET_PREFIX =
+  /^(sk-|sk_|pk_|rk_|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abprs]-|AKIA|AIza|eyJ)/
+
+/**
+ * MCP argv with credentials masked: `--token=x` and `API_KEY=x` keep their
+ * name, the value after `--api-key` goes, as do values shaped like a known
+ * token or a long opaque string. URLs lose their query and credentials.
+ */
+export function redactArgs(args: readonly string[]): string[] {
+  return args.map((arg, index) => {
+    const previous = index > 0 ? args[index - 1] : undefined
+    if (
+      previous !== undefined &&
+      /^--?[A-Za-z]/.test(previous) &&
+      !previous.includes('=') &&
+      SECRET_NAME.test(previous)
+    ) {
+      return SECRET_MASK
+    }
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(arg)) return sanitizeUrl(arg) ?? SECRET_MASK
+    const pair = /^([^=:\s]+)(\s*[=:]\s*)(.+)$/.exec(arg)
+    if (pair?.[1] && SECRET_NAME.test(pair[1])) return `${pair[1]}${pair[2] ?? '='}${SECRET_MASK}`
+    if (looksLikeSecret(arg)) return SECRET_MASK
+    return arg
+  })
+}
+
+function looksLikeSecret(value: string): boolean {
+  if (SECRET_PREFIX.test(value)) return true
+  // Long opaque tokens: no path separators, mixed letters and digits.
+  return (
+    value.length >= 32 &&
+    /^[A-Za-z0-9_\-+=.]+$/.test(value) &&
+    /\d/.test(value) &&
+    /[A-Za-z]/.test(value)
+  )
+}
+
+/** Origin and path only; null when it does not parse as a URL. */
+export function sanitizeUrl(raw: string): string | null {
+  try {
+    const parsed = new URL(raw)
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`
+  } catch {
+    return null
+  }
 }
 
 function unreadableMcp(name: string, file: string, scope: ExtensionScope): McpHit {
@@ -459,47 +629,99 @@ function unreadableMcp(name: string, file: string, scope: ExtensionScope): McpHi
 
 /** Line scan. A new `[` header ends the open table. Inline `mcp_servers.x = {` is ignored. */
 export function scanTomlMcp(text: string, file: string, scope: ExtensionScope): McpHit[] {
-  const hits: McpHit[] = []
-  let current: { name: string; command?: string; url?: string; disabled: boolean } | null = null
-  const flush = (): void => {
-    if (!current) return
-    let transport: McpHit['transport'] = 'unknown'
-    if (current.url) transport = 'http'
-    else if (current.command) transport = 'stdio'
-    let problem: McpHit['problem']
-    if (current.command && isAbsolute(current.command) && !existsSync(current.command)) {
-      problem = 'missing-binary'
-    }
-    hits.push({
-      name: current.name,
-      sourcePath: file,
-      scope,
-      disabled: current.disabled,
-      transport,
-      ...(current.command ? { command: basename(current.command) } : {}),
-      ...(problem ? { problem } : {}),
-    })
-    current = null
+  interface Open {
+    name: string
+    command?: string
+    url?: string
+    args: string[]
+    envKeys: string[]
+    disabled: boolean
   }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
+  const servers: Open[] = []
+  /** The server the current table belongs to, and whether it is its `.env` subtable. */
+  let current: Open | null = null
+  let inEnv = false
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  for (let index = 0; index < lines.length; index++) {
+    const trimmed = (lines[index] ?? '').trim()
     if (trimmed.startsWith('[')) {
-      flush()
-      const header = /^\[mcp_servers\.([A-Za-z0-9_-]+)\]\s*$/.exec(trimmed)
-      if (header?.[1]) current = { name: header[1], disabled: false }
+      current = null
+      inEnv = false
+      const header = /^\[mcp_servers\.([A-Za-z0-9_-]+)(\.env)?\]\s*$/.exec(trimmed)
+      if (header?.[1]) {
+        const name = header[1]
+        current = servers.find((server) => server.name === name) ?? null
+        if (!current) {
+          current = { name, args: [], envKeys: [], disabled: false }
+          servers.push(current)
+        }
+        inEnv = header[2] !== undefined
+      }
       continue
     }
     if (!current || trimmed.length === 0 || trimmed.startsWith('#')) continue
     const eq = trimmed.indexOf('=')
     if (eq === -1) continue
-    const key = trimmed.slice(0, eq).trim()
-    const value = unquote(trimmed.slice(eq + 1).trim())
+    const key = unquote(trimmed.slice(0, eq).trim())
+    let raw = trimmed.slice(eq + 1).trim()
+    if (inEnv) {
+      current.envKeys.push(key)
+      continue
+    }
+    // A multi-line array runs until its closing bracket.
+    if (raw.startsWith('[') && !raw.includes(']')) {
+      while (index + 1 < lines.length && !raw.includes(']'))
+        raw += ` ${lines[++index]?.trim() ?? ''}`
+    }
+    const value = unquote(raw)
     if (key === 'command') current.command = value
     if (key === 'url') current.url = value
     if (key === 'enabled' && value === 'false') current.disabled = true
+    if (key === 'args') current.args = tomlStrings(raw)
+    if (key === 'env') current.envKeys.push(...inlineTableKeys(raw))
   }
-  flush()
-  return hits
+  return servers.map((server) => {
+    let transport: McpHit['transport'] = 'unknown'
+    if (server.url) transport = 'http'
+    else if (server.command) transport = 'stdio'
+    let problem: McpHit['problem']
+    if (server.command && isAbsolute(server.command) && !existsSync(server.command)) {
+      problem = 'missing-binary'
+    }
+    const safeUrl = server.url ? sanitizeUrl(server.url) : null
+    return {
+      name: server.name,
+      sourcePath: file,
+      scope,
+      disabled: server.disabled,
+      transport,
+      ...(server.command ? { command: basename(server.command) } : {}),
+      ...(server.args.length > 0 ? { args: redactArgs(server.args) } : {}),
+      ...(server.envKeys.length > 0 ? { envKeys: server.envKeys } : {}),
+      ...(safeUrl ? { url: safeUrl } : {}),
+      ...(problem ? { problem } : {}),
+    }
+  })
+}
+
+/** The strings of a one-line TOML array: `["-y", 'pkg']`. */
+function tomlStrings(raw: string): string[] {
+  const out: string[] = []
+  for (const match of raw.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)) {
+    out.push(match[1] !== undefined ? match[1].replace(/\\(.)/g, '$1') : (match[2] ?? ''))
+  }
+  return out
+}
+
+/** Key names of a TOML inline table, `{ A = "x", "B" = "y" }`. Values are dropped. */
+function inlineTableKeys(raw: string): string[] {
+  const inner = /^\{(.*)\}$/.exec(raw.trim())?.[1]
+  if (inner === undefined) return []
+  const keys: string[] = []
+  for (const match of inner.matchAll(/(?:^|,)\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=/g)) {
+    if (match[1]) keys.push(unquote(match[1]))
+  }
+  return keys
 }
 
 export function scanSkillConfig(text: string): { path: string; enabled: boolean }[] {

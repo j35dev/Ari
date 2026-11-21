@@ -943,6 +943,12 @@ export const rpcParams = {
     workspacePath: z.string().nullable(),
     path: z.string().min(1),
   }),
+  /** Shows an agent's config folder (no path), or one of its listed files, in the OS file manager. */
+  'providers.revealPath': z.object({
+    kind: driverKindSchema,
+    workspacePath: z.string().nullable(),
+    path: z.string().min(1).nullable(),
+  }),
   'ariCore.mcp.list': z.undefined(),
   'ariCore.mcp.upsert': z.object({
     id: z.string().min(1).optional(),
@@ -1507,6 +1513,12 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
       sourcePath: string | null
       transport?: 'stdio' | 'http' | 'sse' | 'unknown'
       command?: string
+      /** MCP argv after the command, credentials masked. */
+      args?: string[]
+      /** Env var names only; values never leave the main process. */
+      envKeys?: string[]
+      /** HTTP/SSE endpoint without query or credentials. */
+      url?: string
       disabled: boolean
       delivery: 'delegated' | 'injected' | 'hosted'
       problem?: 'missing-binary' | 'unreadable' | 'duplicate-name' | 'untrusted-project'
@@ -1514,6 +1526,8 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
     truncated: boolean
   }
   'providers.readExtensionFile': { content: string; truncated: boolean }
+  /** False when the folder does not exist yet (the agent never wrote it). */
+  'providers.revealPath': { revealed: boolean }
   'ariCore.mcp.list': {
     servers: {
       id: string
