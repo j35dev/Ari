@@ -148,9 +148,12 @@ import {
   thoughtEffortsFromMeta,
   thoughtEffortsFromSession,
 } from '@ari/providers/acp/thought'
-import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
+import { createUpdateChecker } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
-import { runInstall, type InstallHandle } from '@ari/providers/install'
+import { ProviderProbes, ProviderUpdates } from './provider-updates'
+import { providerUpdateSessions } from './provider-update-sessions'
+import { runInstall } from '@ari/providers/install'
+import { checkNativeLatest, nativeCheckCommand } from './provider-update-checks'
 import {
   AcpDriver,
   acpSessionPool,
@@ -225,6 +228,13 @@ const PROBE_HANDSHAKE_MS = 45_000
  * from the provider itself instead of a bundled list (M16).
  */
 async function probeAcpModels(
+  kind: DriverKind,
+): Promise<RpcResults['providers.models'][number]['models'] | null> {
+  if (providerUpdatesRef?.unavailable(kind)) return null
+  return providerProbes.run(kind, () => readAcpModels(kind))
+}
+
+async function readAcpModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
   const environment = await resolveDetectionEnvironment()
@@ -312,6 +322,14 @@ async function probeAcpModels(
  * transport failure so the caller keeps its catalog fallback.
  */
 async function probeEffortsForModel(
+  kind: DriverKind,
+  modelId: string | null | undefined,
+): Promise<{ id: string; label: string; description?: string; current?: boolean }[]> {
+  if (providerUpdatesRef?.unavailable(kind)) return []
+  return providerProbes.run(kind, () => readEffortsForModel(kind, modelId))
+}
+
+async function readEffortsForModel(
   kind: DriverKind,
   modelId: string | null | undefined,
 ): Promise<{ id: string; label: string; description?: string; current?: boolean }[]> {
@@ -405,14 +423,21 @@ function settingsReady(): Promise<unknown> {
 /** One provider's detection with the user's connection settings applied. */
 async function detectConfigured(kind: DriverKind, env: DetectEnvironment): Promise<Detection> {
   await settingsReady()
+  // Verification unfreezes this only after the updater has exited.
+  if (providerUpdatesRef?.installing(kind)) {
+    const previous = providerUpdatesRef.preservedDetection(kind)
+    if (previous) return previous
+  }
   // The account's variables go in with the rest, so the sign-in looked for is
   // the one of the account in use.
   const account = providerEnvironment(kind)
   const separateAccount = Object.keys(account).length > 0
-  return detectConnection(
-    kind,
-    { ...env, vars: { ...env.vars, ...account }, separateAccount },
-    getSettingsStore().current,
+  return providerProbes.run(kind, () =>
+    detectConnection(
+      kind,
+      { ...env, vars: { ...env.vars, ...account }, separateAccount },
+      getSettingsStore().current,
+    ),
   )
 }
 
@@ -453,10 +478,29 @@ const UPDATE_CACHE_TTL_MS = 60 * 60 * 1000
 let enrichGeneration = 0
 let enrichInFlight: Promise<RpcResults['providers.detect']> | null = null
 
-/** One in-flight install/upgrade per driver kind; the UI gates on this. */
-const installsInFlight = new Map<DriverKind, InstallHandle>()
+let providerUpdatesRef: ProviderUpdates | null = null
+const providerProbes = new ProviderProbes()
 
-const updateChecker = createUpdateChecker()
+const updateChecker = createUpdateChecker({
+  latestFor: async (detection) => {
+    if (!nativeCheckCommand(detection)) return undefined
+    // Do not let background update checks hold the executable being replaced.
+    if (
+      providerUpdatesRef?.unavailable(detection.kind) &&
+      !providerUpdatesRef.verifying(detection.kind)
+    )
+      return detection.latestVersion ?? null
+    return providerProbes.run(detection.kind, async () => {
+      const env = await resolveDetectionEnvironment()
+      if (
+        providerUpdatesRef?.unavailable(detection.kind) &&
+        !providerUpdatesRef.verifying(detection.kind)
+      )
+        return detection.latestVersion ?? null
+      return checkNativeLatest(detection, processEnvWithPath(env.pathEnv))
+    })
+  },
+})
 
 function mergeUpdateFields(
   raw: RpcResults['providers.detect'],
@@ -1309,7 +1353,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       const { enabled, autoApproveCli } = getSettingsStore().current.delegation
       return enabled && autoApproveCli ? controlCliApproval(request) : null
     },
-    driverUnavailable: async (kind) => {
+    driverBlocked: (kind) => {
+      const updating = providerUpdatesRef?.unavailable(kind)
+      if (updating) return updating
       const current = getSettingsStore().current
       const cli = cliKindSchema.safeParse(kind)
       const enabled =
@@ -1319,11 +1365,49 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             ? current.providers[cli.data].enabled
             : true
       if (!enabled) return unavailableReason(kind, undefined, false)
+      return null
+    },
+    driverUnavailable: async (kind) => {
       const rows = await rawDetections()
       return unavailableReason(kind, rows.find((row) => row.kind === kind) as Detection | undefined)
     },
   })
   engineRef = engine
+  providerUpdatesRef = new ProviderUpdates({
+    ...providerUpdateSessions({
+      list: () => getSessionStore().listSessions(),
+      liveTurn: (id) => engine.hasLiveTurn(id),
+      backgroundWork: (id) =>
+        claudeSessionPool.hasBackgroundWork(id) || acpSessionPool.hasBackgroundWork(id),
+      probesBusy: (kind) => providerProbes.busy(kind),
+      release: async (id) => {
+        if (
+          engine.hasLiveTurn(id) ||
+          claudeSessionPool.hasBackgroundWork(id) ||
+          acpSessionPool.hasBackgroundWork(id)
+        )
+          return false
+        await releaseProviderConnections(id)
+        return true
+      },
+    }),
+    prepare: async (kind) => {
+      const rows = await redetect([kind])
+      await enrichInFlight
+      const before = rows.find((row) => row.kind === kind) as Detection | undefined
+      const env = await resolveDetectionEnvironment()
+      return {
+        before,
+        plan: planFor(kind, before?.binaryPath ?? null),
+        env: processEnvWithPath(env.pathEnv),
+      }
+    },
+    detect: async (kind) =>
+      (await refreshDetections()).find((row) => row.kind === kind) as Detection | undefined,
+    publish: (frame) => rpcRegistryRef?.publish('providers.updates', frame),
+    updated: () => hydrateDrivers(driverRegistry),
+  })
+  shutdownTasks.push(() => providerUpdatesRef?.shutdown())
   // Agent connections outlive their turn so background shells and sub-agents
   // keep running; what they report between turns lands in the transcript.
   for (const pool of [acpSessionPool, claudeSessionPool]) {
@@ -1842,11 +1926,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     fetchAllowanceReading(kind, binaryPath, undefined),
   ))
   const readAllowance = async (kind: DriverKind): Promise<RpcResults['providers.allowance']> => {
-    const detections = await probeAllDetections()
-    return allowanceReader.read(
-      kind,
-      detections.find((row) => row.kind === kind)?.binaryPath ?? null,
-    )
+    const updating = providerUpdatesRef?.unavailable(kind)
+    if (updating) throw new Error(updating)
+    return providerProbes.run(kind, async () => {
+      const detections = await probeAllDetections()
+      return allowanceReader.read(
+        kind,
+        detections.find((row) => row.kind === kind)?.binaryPath ?? null,
+      )
+    })
   }
   /**
    * Spends one banked reset of the account a provider runs as. One function
@@ -2375,97 +2463,26 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return planFor(params.kind, binaryPath)
   })
 
-  r.register('providers.install', async (params) => {
-    // Single-flight per kind: a second click while one runs is a no-op, not a
-    // second package-manager process racing the first over the same prefix.
-    if (installsInFlight.has(params.kind)) {
-      return { started: false, reason: 'An operation is already running for this provider.' }
-    }
-    const detections = await probeAllDetections()
-    const before = detections.find((d) => d.kind === params.kind)
-    const binaryPath = before?.binaryPath ?? null
-    const plan = planFor(params.kind, binaryPath)
-    if (plan === null) {
-      return { started: false, reason: 'No known install channel for this provider.' }
-    }
-    const argv = params.operation === 'install' ? plan.installCommand : plan.upgradeCommand
-    const detectEnv = await resolveDetectionEnvironment()
-
-    const publish = (frame: ProvidersUpdateFrame): void => {
-      rpcRegistryRef?.publish('providers.updates', frame)
-    }
-    let truncated = false
-    let exitCode: number | null = null
-    let failure: string | null = null
-
-    const handle = runInstall(
-      argv,
-      (event) => {
-        if (event.type === 'progress') {
-          publish({
-            type: 'install.progress',
-            kind: params.kind,
-            stream: event.line.stream,
-            text: event.line.text,
-          })
-          return
-        }
-        if (event.type === 'exit') {
-          truncated = event.truncated
-          exitCode = event.code
-          if (event.timedOut) failure = 'Timed out after 5 minutes.'
-          else if (event.code !== 0) failure = `Exited with code ${String(event.code)}.`
-          return
-        }
-        if (event.type === 'failed') failure = event.reason
-      },
-      { env: processEnvWithPath(detectEnv.pathEnv) },
-    )
-    installsInFlight.set(params.kind, handle)
-    publish({ type: 'install.started', kind: params.kind, operation: params.operation })
-
-    void handle.done
-      .then(async () => {
-        // Re-probe + enrich and publish so Settings auto-syncs the new version.
-        // A zero exit code is not enough (npm can skip scripts and still "succeed").
-        const afterList = await refreshDetections()
-        const after = afterList.find((d) => d.kind === params.kind)
-        const outcome = evaluateInstallSettle({
-          operation: params.operation,
-          exitCode,
-          failure,
-          before,
-          after,
-        })
-        if (outcome.ok && driverRegistryRef !== null) hydrateDrivers(driverRegistryRef)
-        publish({
-          type: 'install.settled',
-          kind: params.kind,
-          operation: params.operation,
-          ok: outcome.ok,
-          reason: outcome.reason,
-          truncated,
-          version: after?.version ?? null,
-        })
-      })
-      .catch((error: unknown) => log.warn('install settle failed', { error: String(error) }))
-      .finally(() => installsInFlight.delete(params.kind))
-
-    return { started: true }
+  r.register('providers.install', (params) => {
+    if (!providerUpdatesRef)
+      return { started: false, reason: 'The update service is starting. Try again shortly.' }
+    return providerUpdatesRef.start(params.kind, params.operation)
   })
 
-  r.register('providers.cancelInstall', async (params) => {
-    const handle = installsInFlight.get(params.kind)
-    if (handle === undefined) return { cancelled: false }
-    await handle.cancel()
-    return { cancelled: true }
-  })
+  r.register(
+    'providers.cancelInstall',
+    async (params) => providerUpdatesRef?.cancel(params.kind) ?? { cancelled: false },
+  )
 
   // Preflight: reuse whatever harness the user already has before offering to
   // change anything. Only a live refusal from the agent yields 'auth-required'.
-  r.register('providers.authProbe', (params) =>
-    probeProviderAuth(params.kind, authProbeDeps, providerAuth),
-  )
+  r.register('providers.authProbe', (params) => {
+    const updating = providerUpdatesRef?.unavailable(params.kind)
+    if (updating) throw new Error(updating)
+    return providerProbes.run(params.kind, () =>
+      probeProviderAuth(params.kind, authProbeDeps, providerAuth),
+    )
+  })
 
   // The agent's own login commands, so the UI can render real buttons. Clearing
   // the remembered wall means the next probe re-tests instead of replaying it.
@@ -3240,6 +3257,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (params.name === 'providers.updates') {
+      for (const frame of providerUpdatesRef?.snapshot() ?? [])
+        rpcRegistry.publish('providers.updates', frame)
       // Late subscribers immediately get the current state of both feeds.
       if (updateCache !== null) {
         rpcRegistry.publish('providers.updates', {

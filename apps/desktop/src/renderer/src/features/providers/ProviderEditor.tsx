@@ -204,12 +204,7 @@ export function ProviderEditor({
               )}
               <Section title="Version">
                 <Fact label="Installed">
-                  {running ? (
-                    <span className="inline-flex items-center gap-2 text-fg-muted">
-                      <Spinner className="h-3 w-3" />
-                      {install?.operation === 'install' ? 'Installing…' : 'Updating…'}
-                    </span>
-                  ) : installed ? (
+                  {installed ? (
                     <span className="font-mono text-[12.5px] text-fg-muted">
                       {detection?.version ?? 'unknown'}
                     </span>
@@ -243,10 +238,37 @@ export function ProviderEditor({
                     {install.operation === 'install' ? 'Installed.' : 'Updated.'}
                   </p>
                 )}
+                {running && install.message && (
+                  <p role="status" className={`mt-1 ${SETTINGS_HINT_CLASS}`}>
+                    {install.message}
+                  </p>
+                )}
+                {install?.details && (
+                  <details className="mt-2 text-[12px] text-fg-subtle">
+                    <summary className="cursor-pointer">Details</summary>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono">
+                      {install.details}
+                    </pre>
+                    {install.outcome?.truncated && <p>Earlier output was truncated.</p>}
+                  </details>
+                )}
                 <div className="mt-2 flex items-center gap-2 empty:hidden">
                   {running ? (
-                    <Button size="sm" variant="ghost" onClick={onCancelInstall}>
-                      Cancel
+                    <>
+                      <Button size="sm" disabled>
+                        <Spinner aria-hidden className="h-3 w-3" />
+                        {install.operation === 'install' ? 'Installing…' : 'Updating…'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={onCancelInstall}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : install?.outcome?.ok === false ? (
+                    <Button
+                      size="sm"
+                      onClick={install.operation === 'install' ? onInstall : onUpdate}
+                    >
+                      Retry
                     </Button>
                   ) : managedInstall && installed && detection?.updateAvailable === true ? (
                     <Button size="sm" onClick={onUpdate}>

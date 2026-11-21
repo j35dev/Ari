@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createAcpAdapter } from './acp-driver'
 import type { AcpLaunch } from './connection'
+import type { AcpSessionUpdate } from './protocol'
 import type { AdapterSession, ProviderAdapter } from '../driver'
 import { AcpSessionPool } from './session-pool'
 
@@ -91,6 +92,72 @@ const count = (child: Child, method: string): number =>
   child.sent.filter((message) => message.method === method).length
 
 describe('pooled ACP sessions', () => {
+  it('keeps parked background work alive through reaping and eviction until it finishes', async () => {
+    const pool = new AcpSessionPool(1, 1)
+    const child = agent(standard)
+    const notify = (update: AcpSessionUpdate) =>
+      child.stdout.write(
+        `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'agent_1', update } })}\n`,
+      )
+    try {
+      const adapter = await createAcpAdapter(
+        LAUNCH,
+        SESSION,
+        () => child,
+        undefined,
+        [],
+        null,
+        pool,
+      )
+      await drain(adapter)
+      await adapter.dispose()
+      expect(adapter.keepsBackgroundWork?.()).toBe(true)
+      notify({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'bg',
+        status: 'completed',
+        rawInput: { command: 'build', run_in_background: true },
+        _meta: { claudeCode: { toolName: 'Bash', toolResponse: { backgroundTaskId: 'b1' } } },
+      })
+      await vi.waitFor(() => expect(pool.hasBackgroundWork('ari_1')).toBe(true))
+      pool.reap(Date.now() + 5000)
+      expect(child.killed).toBe(false)
+
+      const otherChild = agent(standard)
+      const other = await createAcpAdapter(
+        LAUNCH,
+        { ...SESSION, sessionId: 'other' },
+        () => otherChild,
+        undefined,
+        [],
+        null,
+        pool,
+      )
+      await drain(other)
+      await other.dispose()
+      expect(pool.has('ari_1')).toBe(true)
+      expect(child.killed).toBe(false)
+      await vi.waitFor(() => expect(otherChild.killed).toBe(true))
+
+      notify({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'stop',
+        rawInput: { task_id: 'b1' },
+        _meta: { claudeCode: { toolName: 'TaskStop' } },
+      })
+      notify({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'stop',
+        status: 'completed',
+        _meta: { claudeCode: { toolName: 'TaskStop' } },
+      })
+      await vi.waitFor(() => expect(pool.hasBackgroundWork('ari_1')).toBe(false))
+      pool.reap(Date.now() + 5000)
+      await vi.waitFor(() => expect(child.killed).toBe(true))
+    } finally {
+      await pool.shutdownAll()
+    }
+  }, 15_000)
   it('waits for the old sandbox process to exit before starting its replacement', async () => {
     const pool = new AcpSessionPool()
     const first = agent(standard)
