@@ -189,7 +189,8 @@ export function decideCommand(
       if (command.expectedTurnId !== undefined && model.activeTurnId !== command.expectedTurnId)
         return reject('question turn changed; refresh current context before answering')
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
-      if (!model.activeTurnId) return reject('no active turn awaiting input')
+      // The host checks the live callback. Native background agents can ask
+      // a question after the turn that started them has already settled.
       const pending = model.pendingInputs.find((i) => i.inputId === command.inputId)
       if (!pending) return reject('unknown or already-answered input')
       return accept([

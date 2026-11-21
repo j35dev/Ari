@@ -1,4 +1,5 @@
 import type { DriverKind } from '@ari/contracts/common'
+import type { SDKControlGetUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import {
   codexAllowanceSchema,
   codexResetCreditsSchema,
@@ -113,6 +114,40 @@ export function parseAllowance(kind: DriverKind, value: unknown): Windows {
         usedPercent: Number(current[3]),
         resetsAt: null,
         ...(current[4] ? { resetText: current[4] } : {}),
+      },
+    ]
+  })
+}
+
+/** The SDK reports real account windows, with percentages (not 0..1 fractions). */
+export function parseClaudeSdkAllowance(value: SDKControlGetUsageResponse): Windows {
+  if (!value.rate_limits_available || !value.rate_limits) return []
+  const labels: Record<string, string> = {
+    five_hour: '5h',
+    seven_day: 'Weekly',
+    seven_day_opus: 'Weekly · Opus',
+    seven_day_sonnet: 'Weekly · Sonnet',
+    seven_day_oauth_apps: 'Weekly · apps',
+  }
+  return Object.entries(labels).flatMap(([key, label]) => {
+    const window = (
+      value.rate_limits as Record<
+        string,
+        { utilization: number | null; resets_at: string | null } | null | undefined
+      >
+    )[key]
+    if (
+      typeof window?.utilization !== 'number' ||
+      !Number.isFinite(window.utilization) ||
+      window.utilization < 0 ||
+      window.utilization > 100
+    )
+      return []
+    return [
+      {
+        label,
+        usedPercent: window.utilization,
+        resetsAt: timestamp(window.resets_at ?? undefined),
       },
     ]
   })

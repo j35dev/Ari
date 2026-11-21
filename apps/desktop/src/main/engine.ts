@@ -36,6 +36,7 @@ import {
   getProviderCapabilities,
   type AdapterApprovalDecision,
   type SessionAttachment,
+  type ProviderAdapter,
 } from '@ari/providers/driver'
 import type { CoordinationMessage } from '@ari/contracts/coordination'
 
@@ -159,6 +160,10 @@ export interface EngineDeps {
   authorizeTurn?: (session: Session) => Promise<string | null>
   /** Detaches a parked provider connection before awaiting its shutdown. */
   releaseProviderConnection?: (sessionId: string) => Promise<void>
+  /** SDK background work can request permission after its initiating turn settled. */
+  backgroundAdapter?: (
+    sessionId: string,
+  ) => Pick<ProviderAdapter, 'respondApproval' | 'respondInput'> | null
   /**
    * Live state put ahead of a turn's prompt for the provider only, never in
    * the transcript. Aria reads the state of every project this way.
@@ -319,10 +324,11 @@ export class Engine {
 
   /** Live methods, never inferred from a replayed request or provider name. */
   liveCapabilities(sessionId: string) {
+    const background = this.#deps.backgroundAdapter?.(sessionId)
     return (
       this.#activeTurns.get(sessionId)?.capabilities ?? {
-        approval: false,
-        question: false,
+        approval: background?.respondApproval !== undefined,
+        question: background?.respondInput !== undefined,
         steer: false,
       }
     )
@@ -396,6 +402,14 @@ export class Engine {
     }
     state.at = now
     for (const event of events) {
+      if (event.type === 'approval-requested') {
+        const grant = this.#deps.autoApprove?.(event) ?? null
+        const adapter = this.#deps.backgroundAdapter?.(sessionId)
+        if (grant !== null && adapter?.respondApproval) {
+          adapter.respondApproval(event.approvalId, { optionId: grant })
+          continue
+        }
+      }
       const last = state.parts[state.parts.length - 1]
       if (event.type === 'background-task') {
         // Journaled at once, in order with the parts flushed before it.
@@ -423,6 +437,44 @@ export class Engine {
           resultJson: event.resultJson,
           isError: event.isError,
         })
+      } else if (event.type === 'notice' || event.type === 'error') {
+        state.parts.push({
+          type: 'text',
+          text: `\n\n${event.type === 'error' ? '⚠' : 'ℹ'} ${event.message}`,
+        })
+      } else {
+        let data: UnstampedEvent | null = null
+        if (event.type === 'usage')
+          data = {
+            type: 'usage.recorded',
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            cachedInputTokens: event.cachedInputTokens,
+            costUsd: event.costUsd,
+          }
+        else if (event.type === 'context-usage')
+          data = {
+            type: 'context.recorded',
+            usedTokens: event.usedTokens,
+            windowTokens: event.windowTokens,
+          }
+        else if (event.type === 'permission-mode')
+          data = { type: 'session.updated', permissionMode: event.mode }
+        else if (event.type === 'approval-requested')
+          data = { ...event, type: 'approval.requested' }
+        else if (event.type === 'input-requested') data = { ...event, type: 'input.requested' }
+        if (data) {
+          const current = state
+          const recorded = data
+          current.flushing = current.flushing
+            .then(() => this.#append(sessionId, recorded).then(() => undefined))
+            .catch((error: unknown) =>
+              log.warn('background event could not be journaled', {
+                sessionId,
+                error: String(error),
+              }),
+            )
+        }
       }
     }
     if (state.parts.length === 0) return
@@ -731,11 +783,17 @@ export class Engine {
       // Route the decision to the live adapter so in-band approval protocols
       // (claude stdin control, ACP request_permission) actually proceed —
       // previously the decision was only journaled and the provider hung.
-      this.#activeTurns.get(command.sessionId)?.respondApproval(command.approvalId, answer)
+      const responder =
+        this.#activeTurns.get(command.sessionId) ??
+        this.#deps.backgroundAdapter?.(command.sessionId)
+      responder?.respondApproval?.(command.approvalId, answer)
     }
 
     if (command.type === 'input.respond') {
-      this.#activeTurns.get(command.sessionId)?.respondInput(command.inputId, command.value)
+      const responder =
+        this.#activeTurns.get(command.sessionId) ??
+        this.#deps.backgroundAdapter?.(command.sessionId)
+      responder?.respondInput?.(command.inputId, command.value)
     }
 
     if (command.type === 'message.enqueue' && decision.startsTurn !== true) {

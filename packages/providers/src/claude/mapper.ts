@@ -1,6 +1,7 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
 /**
  * The choices a `can_use_tool` request offers, using the decision vocabulary
@@ -59,8 +60,17 @@ export interface NativeLine {
   parent_tool_use_id?: string | null
   error?: string
   is_error?: boolean
-  message?: { content?: ContentBlock[]; usage?: Record<string, unknown> }
-  event?: { type?: string; delta?: StreamDelta; usage?: Record<string, unknown> }
+  uuid?: string
+  user_message_uuid?: string
+  user_message_uuids?: string[]
+  origin?: { kind?: string }
+  message?: { id?: string; content?: ContentBlock[]; usage?: Record<string, unknown> }
+  event?: {
+    type?: string
+    delta?: StreamDelta
+    usage?: Record<string, unknown>
+    message?: { id?: string; usage?: Record<string, unknown> }
+  }
   usage?: Record<string, unknown>
   modelUsage?: Record<string, Record<string, unknown> | undefined>
   total_cost_usd?: number
@@ -80,6 +90,18 @@ export interface NativeLine {
   run_id?: string
   patch?: Record<string, unknown>
   tasks?: NativeLine[]
+  errors?: string[]
+  terminal_reason?: string
+  num_turns?: number
+  permissionMode?: string
+  tool_name?: string
+  elapsed_time_seconds?: number
+  rate_limit_info?: {
+    status?: string
+    rateLimitType?: string
+    utilization?: number
+    resetsAt?: number
+  }
 }
 
 function count(raw: Record<string, unknown> | undefined, key: string): number {
@@ -156,6 +178,11 @@ export function mapClaudeLine(line: string): AgentEvent[] {
     return [{ type: 'error', message: `unparseable line: ${formatUnknownError(e)}`, rawJson: null }]
   }
 
+  return mapClaudeMessage(parsed)
+}
+
+/** SDK messages and recorded stream-json frames share their native payload schema. */
+export function mapClaudeMessage(parsed: NativeLine): AgentEvent[] {
   const events: AgentEvent[] = []
 
   // Native agents have their own transcript. Their tools feed the task rail,
@@ -278,10 +305,15 @@ export function mapClaudeLine(line: string): AgentEvent[] {
           windowTokens: contextWindowFrom(parsed.modelUsage, parsed.usage),
         })
       }
-      if (parsed.is_error === true) {
+      const interrupted =
+        parsed.terminal_reason === 'aborted_tools' ||
+        parsed.terminal_reason === 'aborted_streaming' ||
+        (parsed.subtype === 'error_during_execution' &&
+          /abort|interrupt|cancel/i.test(parsed.errors?.join(' ') ?? ''))
+      if (!interrupted && (parsed.is_error === true || parsed.subtype?.startsWith('error_'))) {
         events.push({ type: 'error', message: extractText(parsed), rawJson: null })
       }
-      events.push({ type: 'done' })
+      events.push(interrupted ? { type: 'done', stopReason: 'interrupted' } : { type: 'done' })
       break
     }
   }
@@ -293,10 +325,199 @@ function extractText(line: NativeLine): string {
   for (const block of line.message?.content ?? []) {
     if (block.type === 'text' && block.text) return block.text
   }
-  return typeof line.result === 'string' ? line.result : 'unknown provider error'
+  return typeof line.result === 'string'
+    ? line.result
+    : line.errors?.join('\n') || 'unknown provider error'
 }
 
 /** Maps a whole stream of lines in order. */
 export function mapClaudeStream(lines: Iterable<string>): AgentEvent[] {
   return Array.from(lines).flatMap((line) => mapClaudeLine(line))
+}
+
+/** Streaming deltas plus finalized fallbacks, with query-cumulative accounting. */
+export class ClaudeMessageMapper {
+  readonly #seen = new Set<string>()
+  readonly #tools = new Set<string>()
+  readonly #streamed = new Map<string, { text: string; thinking: string }>()
+  #messageId = 'current'
+  #cost = 0
+  #modelTotals = new Map<string, { input: number; output: number; cached: number }>()
+  #contextCall: Record<string, unknown> | undefined
+
+  /** Cold resume reports cumulative historical totals; establish the baseline before sending. */
+  seedUsage(cost: number, models: NativeLine['modelUsage']): void {
+    this.#cost = cost
+    this.#modelTotals = new Map(
+      Object.entries(models ?? {}).map(([id, model]) => [
+        id,
+        {
+          input:
+            count(model, 'inputTokens') +
+            count(model, 'cacheReadInputTokens') +
+            count(model, 'cacheCreationInputTokens'),
+          output: count(model, 'outputTokens'),
+          cached: count(model, 'cacheReadInputTokens'),
+        },
+      ]),
+    )
+  }
+
+  map(message: SDKMessage): AgentEvent[] {
+    const native = message as unknown as NativeLine
+    if (!native || typeof native !== 'object') throw new Error('Invalid Claude SDK message')
+    if (native.uuid) {
+      if (this.#seen.has(native.uuid)) return []
+      this.#remember(this.#seen, native.uuid)
+    }
+    if (native.parent_tool_use_id != null) return []
+    const events = mapClaudeMessage(native)
+    if (native.type === 'stream_event') {
+      if (native.event?.type === 'message_start') {
+        this.#messageId = native.event.message?.id ?? 'current'
+        this.#streamed.set(this.#messageId, { text: '', thinking: '' })
+        this.#contextCall = native.event.message?.usage
+      }
+      const streamed = this.#streamed.get(this.#messageId) ?? { text: '', thinking: '' }
+      for (const event of events) {
+        if (event.type === 'text-delta') streamed.text += event.text
+        if (event.type === 'thinking-delta') streamed.thinking += event.text
+      }
+      this.#streamed.set(this.#messageId, streamed)
+      if (native.event?.type === 'message_delta') {
+        this.#contextCall = { ...this.#contextCall, ...native.event.usage }
+        const used = contextUsed(this.#contextCall)
+        if (used !== null && !events.some((event) => event.type === 'context-usage'))
+          events.push({ type: 'context-usage', usedTokens: used, windowTokens: null })
+      }
+    }
+    if (native.type === 'assistant' && !native.error) {
+      if (native.message?.usage) this.#contextCall = native.message.usage
+      const id = native.message?.id ?? this.#messageId
+      const streamId = this.#streamed.has(id) ? id : this.#messageId
+      const streamed = this.#streamed.get(streamId) ?? { text: '', thinking: '' }
+      for (const block of native.message?.content ?? []) {
+        const kind = block.type === 'text' ? 'text' : block.type === 'thinking' ? 'thinking' : null
+        if (!kind) continue
+        const text = (kind === 'text' ? block.text : block.thinking) ?? ''
+        const delivered = streamed[kind]
+        if (delivered.startsWith(text)) streamed[kind] = delivered.slice(text.length)
+        else {
+          const remaining = text.startsWith(delivered) ? text.slice(delivered.length) : text
+          if (remaining)
+            events.push({
+              type: kind === 'text' ? 'text-delta' : 'thinking-delta',
+              text: remaining,
+            })
+          streamed[kind] = ''
+        }
+      }
+      this.#streamed.set(streamId, streamed)
+    }
+    if (native.type === 'result') {
+      const cumulative = new Map<string, { input: number; output: number; cached: number }>()
+      let input = 0,
+        output = 0,
+        cached = 0
+      for (const [modelId, model] of Object.entries(native.modelUsage ?? {})) {
+        if (!model) continue
+        const total = {
+          input:
+            count(model, 'inputTokens') +
+            count(model, 'cacheReadInputTokens') +
+            count(model, 'cacheCreationInputTokens'),
+          output: count(model, 'outputTokens'),
+          cached: count(model, 'cacheReadInputTokens'),
+        }
+        let previous = this.#modelTotals.get(modelId)
+        // /clear resets the CLI's cumulative counters inside the same query.
+        if (
+          previous &&
+          (total.input < previous.input ||
+            total.output < previous.output ||
+            total.cached < previous.cached)
+        )
+          previous = undefined
+        input += Math.max(0, total.input - (previous?.input ?? 0))
+        output += Math.max(0, total.output - (previous?.output ?? 0))
+        cached += Math.max(0, total.cached - (previous?.cached ?? 0))
+        cumulative.set(modelId, total)
+      }
+      if (cumulative.size > 0) this.#modelTotals = cumulative
+      const usage = events.find((event) => event.type === 'usage')
+      if (!events.some((event) => event.type === 'context-usage')) {
+        const used = contextUsed(this.#contextCall)
+        if (used !== null)
+          events.splice(Math.max(0, events.length - 1), 0, {
+            type: 'context-usage',
+            usedTokens: used,
+            windowTokens: contextWindowFrom(native.modelUsage, native.usage),
+          })
+      }
+      if (usage?.type === 'usage') {
+        if (cumulative.size > 0) {
+          usage.inputTokens = input
+          usage.outputTokens = output
+          usage.cachedInputTokens = cached
+        }
+        if (typeof native.total_cost_usd === 'number') {
+          usage.costUsd =
+            native.total_cost_usd < this.#cost
+              ? native.total_cost_usd
+              : native.total_cost_usd - this.#cost
+          this.#cost = native.total_cost_usd
+        }
+      }
+      this.#streamed.clear()
+    }
+    if (native.type === 'rate_limit_event' && native.rate_limit_info) {
+      const info = native.rate_limit_info
+      if (info.status !== 'allowed') {
+        const utilization =
+          typeof info.utilization === 'number'
+            ? ` (${Math.round(info.utilization * 100)}% used)`
+            : ''
+        const reset =
+          typeof info.resetsAt === 'number'
+            ? `; resets ${new Date(info.resetsAt * 1000).toISOString()}`
+            : ''
+        events.push({
+          type: 'notice',
+          message: `Claude ${info.rateLimitType ?? 'usage'} limit: ${info.status ?? 'unknown'}${utilization}${reset}`,
+        })
+      }
+    }
+    if (native.type === 'system' && native.permissionMode) {
+      if (native.permissionMode === 'plan')
+        events.push({ type: 'notice', message: 'Claude entered plan mode.' })
+      else if (
+        native.permissionMode === 'default' ||
+        native.permissionMode === 'acceptEdits' ||
+        native.permissionMode === 'bypassPermissions'
+      ) {
+        events.push({
+          type: 'permission-mode',
+          mode:
+            native.permissionMode === 'default'
+              ? 'ask'
+              : native.permissionMode === 'acceptEdits'
+                ? 'allow-edits'
+                : 'full',
+        })
+      }
+    }
+    if (native.type === 'system' && native.subtype === 'compact_boundary')
+      events.push({ type: 'notice', message: 'Claude compacted the conversation context.' })
+    return events.filter((event) => {
+      if (event.type !== 'tool-started') return true
+      if (this.#tools.has(event.callId)) return false
+      this.#remember(this.#tools, event.callId)
+      return true
+    })
+  }
+
+  #remember(set: Set<string>, id: string): void {
+    set.add(id)
+    if (set.size > 512) set.delete(set.values().next().value!)
+  }
 }

@@ -58,8 +58,8 @@ describe('detectConnection', () => {
       async () => found('/usr/bin/claude'),
       describe,
     )
-    expect(present.transport).toEqual({ mode: 'cli', label: 'Command line' })
-    expect(describe).toHaveBeenCalledWith('claude', '/usr/bin/claude')
+    expect(present.transport).toEqual({ mode: 'cli', label: 'Claude Agent SDK', available: true })
+    expect(describe).not.toHaveBeenCalled()
   })
 
   it('hands Ari Core its own on/off setting', async () => {

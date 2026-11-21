@@ -122,7 +122,14 @@ import { getThemeAssetStore } from './theme-asset-protocol'
 import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
-import { ClaudeDriver, claudeSessionPool } from '@ari/providers/claude'
+import {
+  ClaudeDriver,
+  ClaudeCliDriver,
+  claudeSessionPool,
+  type ClaudeMcpServers,
+  withClaudeQuery,
+} from '@ari/providers/claude'
+import { probeClaudeCatalog } from '@ari/providers/claude/catalog'
 import { CodexDriver } from '@ari/providers/codex'
 import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
@@ -236,6 +243,13 @@ async function probeAcpModels(
   // it too: a shim found there is only runnable if the child can also resolve
   // the runtime it shells out to (GUI launches inherit a thin process PATH).
   const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
+  if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
+    const catalog = await probeClaudeCatalog(detection.binaryPath, homedir(), probeEnv)
+    setDynamicEfforts(kind, catalog.efforts)
+    setDynamicModes(kind, catalog.modes)
+    setAgentDefaultModel(kind, catalog.defaultModelId)
+    return catalog.models
+  }
 
   if (kind === 'codex') {
     try {
@@ -320,6 +334,20 @@ async function probeEffortsForModel(
   const environment = await resolveDetectionEnvironment()
   const detection = await detectConfigured(kind, environment)
   if (!detection.binaryPath) return []
+  if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
+    const catalog = await probeClaudeCatalog(detection.binaryPath, homedir(), {
+      ...processEnvWithPath(environment.pathEnv),
+      ...providerEnvironment(kind),
+    })
+    const offered =
+      modelId && modelId !== 'default' ? resolveOfferedModel(modelId, catalog.models) : 'default'
+    if (offered === null)
+      throw new Error(
+        `Model ${modelId} is not advertised by the effort probe; refusing to use the default model's effort support.`,
+      )
+    const model = catalog.models.find((model) => model.id === offered)
+    return model?.efforts ?? catalog.efforts.options
+  }
   if (process.env['ARI_ACP'] === '0') return []
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath }, environment)
   if (launch === null) return []
@@ -432,6 +460,44 @@ const providerAuth = new ProviderAuthState()
 const authProbeDeps: AuthProbeDeps = {
   detections: () => probeAllDetections(),
   connect: async (kind, binaryPath): Promise<AuthProbeConnection | null> => {
+    if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
+      const logins: AcpTerminalLogin[] = [
+        {
+          methodId: 'claude-login',
+          name: 'Claude Code',
+          description: 'Sign in with Claude Code.',
+          command: binaryPath,
+          args: ['auth', 'login'],
+        },
+      ]
+      return {
+        terminalLogins: logins,
+        newSession: (cwd) =>
+          withClaudeQuery(
+            binaryPath,
+            cwd,
+            { ...process.env, ...providerEnvironment(kind) },
+            async (runtime) => {
+              const account = await runtime.accountInfo()
+              if (
+                !account.email &&
+                !account.organization &&
+                (!account.tokenSource || account.tokenSource === 'none') &&
+                (!account.apiKeySource || account.apiKeySource === 'none') &&
+                (!account.apiProvider || account.apiProvider === 'firstParty')
+              ) {
+                throw Object.assign(new Error('Claude Code requires sign-in.'), {
+                  code: -32000,
+                  logins,
+                })
+              }
+              return account
+            },
+            20_000,
+          ),
+        shutdown: () => Promise.resolve(),
+      }
+    }
     const launch = resolveAcpLaunch(kind, {
       cliBinaryPath: binaryPath,
     })
@@ -766,6 +832,19 @@ function publishAuthWall(
 let browserMcpHandle: BrowserMcpHandle | null = null
 let browserMcpProxyPath: string | null = null
 
+/** The SDK uses the same browser endpoint and per-session bearer as ACP. */
+function browserClaudeServers(session: { sessionId: string }): ClaudeMcpServers {
+  const handle = browserMcpHandle
+  if (!handle) return {}
+  return {
+    'ari-browser': {
+      type: 'http',
+      url: handle.url,
+      headers: { Authorization: `Bearer ${handle.tokenFor(session.sessionId)}` },
+    },
+  }
+}
+
 /** ACP entries for one session: its own bearer token, so it drives its own tab. */
 function browserAcpServers(session: { sessionId: string }): AcpMcpServer[] {
   const handle = browserMcpHandle
@@ -865,10 +944,34 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
             registry.unregister(candidate.kind)
             return
           }
+          if (candidate.kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
+            registry.register(
+              new ClaudeDriver(detection.binaryPath, {
+                fallback: new AcpDriver(
+                  'claude',
+                  resolveAcpLaunch('claude', { cliBinaryPath: detection.binaryPath }),
+                  new ClaudeCliDriver(detection.binaryPath),
+                  (wall) => publishAuthWall('claude', wall),
+                  browserAcpServers,
+                ),
+                mcpServers: browserClaudeServers,
+                onAuthRequired: (wall) => publishAuthWall('claude', wall),
+              }),
+            )
+            log.info('driver registered', {
+              kind: candidate.kind,
+              version: detection.version,
+              transport: 'claude-agent-sdk',
+            })
+            return
+          }
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
             cliBinaryPath: detection.binaryPath,
           })
-          const fallback = candidate.make?.(detection.binaryPath) ?? null
+          const fallback =
+            candidate.kind === 'claude'
+              ? new ClaudeCliDriver(detection.binaryPath)
+              : (candidate.make?.(detection.binaryPath) ?? null)
           if (launch === null && fallback === null) {
             registry.unregister(candidate.kind)
             return
@@ -1265,6 +1368,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     registry: driverRegistry,
     publish: publishSessionEvent,
     releaseProviderConnection: releaseProviderConnections,
+    backgroundAdapter: (sessionId) => claudeSessionPool.controls(sessionId),
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
