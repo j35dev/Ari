@@ -21,8 +21,6 @@ export interface PaneMenuOptions {
   onOpenTerminal?: (paneId: string) => void
   /** False when there is no project folder to jail a shell in. */
   canOpenTerminal?: boolean
-  /** Terminal panes own their xterm input menu; other editable fields keep native menus. */
-  terminalInput?: boolean
 }
 
 export interface PaneMenu {
@@ -51,7 +49,6 @@ export function usePaneMenu({
   onToggleZoom,
   onOpenTerminal,
   canOpenTerminal = true,
-  terminalInput = false,
 }: PaneMenuOptions): PaneMenu {
   const menu = useContextMenu()
   const splitLimit = `A layout holds at most ${String(MAX_PANES)} panes`
@@ -103,12 +100,7 @@ export function usePaneMenu({
   return {
     menuProps: {
       onContextMenu: (event) => {
-        const inTerminal =
-          terminalInput &&
-          event.target instanceof Element &&
-          event.target.closest('.xterm') !== null
-        if (ownsContextMenu(event.target) && !inTerminal) return
-        if (terminalInput) event.stopPropagation()
+        if (ownsContextMenu(event.target)) return
         menu.open(paneId, event)
       },
     },
