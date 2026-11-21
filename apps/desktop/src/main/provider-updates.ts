@@ -33,8 +33,10 @@ export interface ProviderUpdatesDeps {
   prepare: (
     kind: DriverKind,
   ) => Promise<{ before: Detection | undefined; plan: InstallPlan | null; env: NodeJS.ProcessEnv }>
-  busy: (kind: DriverKind) => Promise<boolean>
-  release: (kind: DriverKind) => Promise<void>
+  /** A string explains pending background work, including the session count. */
+  busy: (kind: DriverKind) => Promise<boolean | string>
+  /** False means work appeared while idle connections were being checked. */
+  release: (kind: DriverKind) => Promise<void | boolean>
   detect: (kind: DriverKind) => Promise<Detection | undefined>
   publish: (frame: ProvidersUpdateFrame) => void
   updated: () => void
@@ -199,11 +201,7 @@ export class ProviderUpdates {
     const { kind, operation } = entry
     const wait =
       this.#deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-    while (!entry.cancelled && (await this.#deps.busy(kind))) {
-      if (entry.phase.phase !== 'waiting')
-        this.#phase(entry, 'waiting', 'Will update when the current turns finish.')
-      await wait(500)
-    }
+    await this.#waitForIdle(entry, 'Will update when the current turns finish.', wait)
     if (entry.cancelled) {
       this.#finish(entry, false, 'The update was cancelled. Retry when ready.', null, false)
       return
@@ -233,10 +231,7 @@ export class ProviderUpdates {
     }
     // Freeze new version checks before awaiting readers that started during preparation.
     entry.lockProbes = true
-    while (!entry.cancelled && (await this.#deps.busy(kind))) {
-      this.#phase(entry, 'waiting', 'Waiting for background CLI checks to finish…')
-      await wait(500)
-    }
+    await this.#waitForIdle(entry, 'Waiting for background CLI checks to finish…', wait)
     if (entry.cancelled) {
       this.#finish(
         entry,
@@ -247,7 +242,10 @@ export class ProviderUpdates {
       )
       return
     }
-    await this.#deps.release(kind)
+    while (!entry.cancelled && (await this.#deps.release(kind)) === false) {
+      await wait(500)
+      await this.#waitForIdle(entry, 'Waiting for background CLI checks to finish…', wait)
+    }
     if (entry.cancelled) {
       this.#finish(
         entry,
@@ -310,5 +308,20 @@ export class ProviderUpdates {
       ? null
       : installFailureReason(entry.details, outcome.reason ?? undefined)
     this.#finish(entry, outcome.ok, reason, after?.version ?? null, truncated)
+  }
+
+  async #waitForIdle(
+    entry: PendingUpdate,
+    fallback: string,
+    wait: (ms: number) => Promise<void>,
+  ): Promise<void> {
+    while (!entry.cancelled) {
+      const busy = await this.#deps.busy(entry.kind)
+      if (!busy) return
+      const message = typeof busy === 'string' ? busy : fallback
+      if (entry.phase.phase !== 'waiting' || entry.phase.message !== message)
+        this.#phase(entry, 'waiting', message)
+      await wait(500)
+    }
   }
 }

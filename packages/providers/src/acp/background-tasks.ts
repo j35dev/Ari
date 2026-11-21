@@ -84,6 +84,10 @@ export class BackgroundTaskTracker {
 
   constructor(private readonly now: () => number = Date.now) {}
 
+  get hasRunning(): boolean {
+    return [...this.#tasks.values()].some((task) => task.status === 'running')
+  }
+
   /** Reads one `tool_call` / `tool_call_update` for background work. */
   observe(update: AcpToolCallUpdate): AgentEvent[] {
     const callId = text(update.toolCallId)

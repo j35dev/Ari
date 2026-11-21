@@ -25,13 +25,15 @@ describe('provider update turn gate', () => {
     registry.register({ kind: 'claude', create })
     const published: JournalEvent[] = []
     const unavailable = vi
-      .fn<NonNullable<EngineDeps['driverUnavailable']>>()
-      .mockResolvedValue('This provider is updating. Try again shortly.')
+      .fn<NonNullable<EngineDeps['driverBlocked']>>()
+      .mockReturnValue('This provider is updating. Try again shortly.')
+    const detect = vi.fn<NonNullable<EngineDeps['driverUnavailable']>>().mockResolvedValue(null)
     const engine = new Engine({
       store,
       registry,
       publish: (_id, event) => published.push(event),
-      driverUnavailable: unavailable,
+      driverBlocked: unavailable,
+      driverUnavailable: detect,
       git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
     })
     try {
@@ -59,7 +61,7 @@ describe('provider update turn gate', () => {
       expect(unavailable).toHaveBeenCalledWith('claude')
       expect(create).not.toHaveBeenCalled()
       expect(JSON.stringify(published)).toContain('This provider is updating. Try again shortly.')
-      unavailable.mockResolvedValue(null)
+      unavailable.mockReturnValue(null)
       await engine.dispatch({
         type: 'turn.start',
         sessionId: 'updating',
@@ -68,6 +70,8 @@ describe('provider update turn gate', () => {
       })
       await engine.quiesce('updating')
       expect(create).toHaveBeenCalledOnce()
+      // Registered, idle providers bypass the missing-driver detection path on every turn.
+      expect(detect).not.toHaveBeenCalled()
       expect(JSON.stringify(published)).toContain('after update')
     } finally {
       await engine.shutdown()
