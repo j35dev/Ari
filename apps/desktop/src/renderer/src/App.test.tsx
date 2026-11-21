@@ -135,7 +135,7 @@ async function sendProjectDraft() {
 // These suites exercise the established workspace. Real startup/setup is covered in App.onboarding.
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
-    children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null }),
+    children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null, onLanded: () => undefined }),
 }))
 
 const invokeMock = rpcMocks.invoke as unknown as Mock<

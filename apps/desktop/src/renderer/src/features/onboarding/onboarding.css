@@ -1,0 +1,202 @@
+/*
+ * Setup's slim rows, radios and tiles, and the hand-off into the workspace.
+ * Theme tokens only; reduced motion is handled globally by interaction-motion.css.
+ */
+
+.ari-onboarding-stage {
+  box-shadow: var(--ari-shadow-3);
+}
+
+.ari-onboarding-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  transition:
+    background-color var(--ari-dur-fast, 0.14s) ease,
+    border-color var(--ari-dur-fast, 0.14s) ease;
+}
+
+button.ari-onboarding-row:hover,
+.ari-onboarding-row:has(> button:hover) {
+  background: var(--ari-wash-hover);
+}
+
+.ari-onboarding-row.is-selected {
+  background: var(--ari-wash-selected);
+  border-color: var(--ari-border-strong);
+}
+
+button.ari-onboarding-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ari-accent-ring);
+}
+
+button.ari-onboarding-row:disabled {
+  cursor: default;
+}
+
+.ari-onboarding-tile {
+  display: grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--ari-surface-2);
+  color: var(--ari-fg);
+}
+
+.ari-onboarding-tile > svg {
+  width: 17px;
+  height: 17px;
+}
+
+.ari-onboarding-tile.is-dashed {
+  background: transparent;
+  border: 1px dashed var(--ari-border-strong);
+  color: var(--ari-fg-subtle);
+}
+
+/* Radio and check: drawn in CSS so they follow the row's selected state. */
+.ari-onboarding-radio,
+.ari-onboarding-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--ari-border-strong);
+  transition:
+    border-width 0.16s var(--ari-ease-out-expo, ease),
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.ari-onboarding-radio {
+  border-radius: 50%;
+}
+
+.is-selected .ari-onboarding-radio,
+.ari-onboarding-radio[data-on] {
+  border-width: 4.5px;
+  border-color: var(--ari-fg);
+}
+
+.ari-onboarding-check {
+  position: relative;
+  border-radius: 4px;
+}
+
+.is-selected .ari-onboarding-check {
+  background: var(--ari-fg);
+  border-color: var(--ari-fg);
+}
+
+.ari-onboarding-check::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 3px;
+  width: 7px;
+  height: 4px;
+  border-left: 1.75px solid var(--ari-bg);
+  border-bottom: 1.75px solid var(--ari-bg);
+  transform: rotate(-45deg) scale(0);
+  transition: transform 0.18s var(--ari-ease-out-expo, ease);
+}
+
+.is-selected .ari-onboarding-check::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+/* Detection in progress: one soft pulse, nothing spinning. */
+.ari-onboarding-pulse {
+  animation: ari-onboarding-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ari-onboarding-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* A running phase keeps a faint sheen moving across its fill. */
+.ari-onboarding-progress {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--ari-bg) 35%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: ari-onboarding-sheen 1.4s linear infinite;
+}
+
+@keyframes ari-onboarding-sheen {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* The hand-off: the finished stage holds over the workspace until it has
+   landed, then zooms toward the viewer and dissolves into it. Never interactive. */
+.ari-onboarding-exit {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ari-z-overlay);
+  pointer-events: none;
+  animation: ari-onboarding-dissolve 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.ari-onboarding-exit .ari-onboarding-stage {
+  animation: ari-onboarding-zoom 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ari-onboarding-exit.is-holding,
+.ari-onboarding-exit.is-holding .ari-onboarding-stage {
+  animation: none;
+}
+
+@keyframes ari-onboarding-dissolve {
+  25% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ari-onboarding-zoom {
+  to {
+    transform: scale(1.14);
+    filter: blur(3px);
+  }
+}
+
+/* Theme choices in setup cross-fade the whole window rather than revealing
+   from the click (motion.css), so a swatch reads as a calm swap. */
+html[data-ari-onboarding-theme]::view-transition-old(root) {
+  animation: ari-onboarding-fade-out 0.32s ease-out both;
+}
+
+html[data-ari-onboarding-theme]::view-transition-new(root) {
+  animation: ari-onboarding-fade-in 0.32s ease-out both;
+}
+
+@keyframes ari-onboarding-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ari-onboarding-fade-in {
+  from {
+    opacity: 0;
+  }
+}

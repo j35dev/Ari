@@ -1,14 +1,21 @@
 import type { ReactNode } from 'react'
+import { motion } from 'motion/react'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 import { Button } from '@ari/ui/button'
+import { EASE_GLIDE } from '@ari/ui/motion'
 import { Titlebar } from '../../shell/Titlebar'
 import { DitherScene } from '../scene/DitherScene'
+import { useCalm } from './onboarding-motion'
 
-const STEPS = ['Your agents', 'Your projects', 'Ready to work']
+/** The steps the progress bars count; Welcome and Launch sit outside them. */
+export const PROGRESS_STEPS = ['Agent', 'Projects', 'Look'] as const
 
 /** Setup titles: the step heading in the wizard, the state heading in the gate. */
 export const ONBOARDING_TITLE_CLASS =
   'text-[24px] font-semibold leading-8 tracking-[-0.02em] text-fg outline-none'
+
+/** The one line under a step title. */
+export const ONBOARDING_LEAD_CLASS = 'mt-1.5 text-[13.5px] leading-5 text-fg-muted'
 
 /**
  * Full-window setup: the window chrome with the scene behind one centred
@@ -16,22 +23,23 @@ export const ONBOARDING_TITLE_CLASS =
  */
 export function OnboardingFrame({
   children,
-  step,
-  onStep,
+  progress = null,
+  brand = true,
   busy = false,
-  navigationLocked = false,
   onDismiss,
   dismissLabel,
 }: {
   children: ReactNode
-  step?: number
-  onStep?: (step: number) => void
+  /** Index into {@link PROGRESS_STEPS}; null hides the bars. */
+  progress?: number | null
+  /** The small wordmark; Welcome draws its own, larger. */
+  brand?: boolean
   busy?: boolean
-  navigationLocked?: boolean
-  onDismiss: () => void
-  dismissLabel: string
+  onDismiss?: () => void
+  dismissLabel?: string
 }) {
   const overlayRef = useOverlayRef()
+  const calm = useCalm()
   return (
     <div ref={overlayRef} className="ari-wallpaper-pane flex h-full flex-col bg-surface-0">
       <Titlebar minimal />
@@ -41,53 +49,50 @@ export function OnboardingFrame({
             z-index. The spacers sit the stage a little above the middle. */}
         <div className="ari-scroll relative flex h-full flex-col overflow-y-auto px-6">
           <div className="min-h-4 flex-[2]" aria-hidden="true" />
-          <div className="ari-stage mx-auto w-full max-w-[720px] shrink-0 p-10">
-            <header className="mb-8">
-              <div className="flex min-h-7 items-center gap-3">
+          <div className="ari-stage ari-onboarding-stage mx-auto w-full max-w-[560px] shrink-0 px-8 pb-6 pt-7">
+            <header className="mb-6 flex min-h-7 items-center gap-3">
+              {brand && (
                 <span className="text-[15px] font-semibold tracking-[-0.02em] text-fg">
                   Ari<span className="text-accent">.</span>
                 </span>
-                <div className="ml-auto flex items-center gap-3">
-                  {step !== undefined && (
-                    <nav aria-label="Setup progress" className="flex items-center gap-2">
-                      <ol className="flex items-center">
-                        {STEPS.map((label, index) => (
-                          <li key={label}>
-                            <button
-                              type="button"
-                              disabled={busy || navigationLocked}
-                              aria-current={step === index ? 'step' : undefined}
-                              aria-label={label}
-                              title={label}
-                              onClick={() => onStep?.(index)}
-                              className="flex size-5 items-center justify-center rounded-full transition-colors hover:bg-fg/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={`size-1.5 rounded-full ${step === index ? 'bg-fg' : 'bg-fg/25'}`}
-                              />
-                            </button>
-                          </li>
-                        ))}
-                      </ol>
-                      <span className="text-xs tabular-nums text-fg-subtle">
-                        {step + 1} of {STEPS.length}
-                      </span>
-                    </nav>
-                  )}
+              )}
+              <div className="ml-auto flex items-center gap-3">
+                {progress !== null && (
+                  <ol
+                    aria-label={`Setup progress: step ${progress + 1} of ${PROGRESS_STEPS.length}, ${PROGRESS_STEPS[progress]}`}
+                    className="flex items-center gap-1"
+                  >
+                    {PROGRESS_STEPS.map((label, index) => (
+                      <li
+                        key={label}
+                        aria-current={index === progress ? 'step' : undefined}
+                        className="relative h-[3px] w-[22px] overflow-hidden rounded-full bg-fg/16"
+                      >
+                        {index < progress && (
+                          <span aria-hidden="true" className="absolute inset-0 bg-fg/55" />
+                        )}
+                        {index === progress && (
+                          <motion.span
+                            aria-hidden="true"
+                            layoutId="onboarding-progress"
+                            className="absolute inset-0 rounded-full bg-fg"
+                            transition={
+                              calm ? { duration: 0 } : { duration: 0.32, ease: EASE_GLIDE }
+                            }
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {onDismiss && dismissLabel && (
                   <Button variant="ghost" size="sm" disabled={busy} onClick={onDismiss}>
                     {dismissLabel}
                   </Button>
-                </div>
+                )}
               </div>
-              <h1 className="mt-3 text-[13px] font-medium text-fg-muted">
-                Your agents. One workspace.
-              </h1>
-              <p className="mt-0.5 text-[13px] leading-5 text-fg-subtle">
-                Bring your coding tools and projects together. No new account. No moving your files.
-              </p>
             </header>
-            <section className="min-w-0">{children}</section>
+            <section className="relative min-w-0">{children}</section>
           </div>
           <div className="min-h-6 flex-[3]" aria-hidden="true" />
         </div>

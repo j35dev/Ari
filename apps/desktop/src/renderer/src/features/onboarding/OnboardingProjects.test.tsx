@@ -1,156 +1,166 @@
-import { StrictMode, useState } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiscoveredProject } from '@ari/contracts/project'
-import { OnboardingProjects } from './OnboardingProjects'
+import { OnboardingProjects, lastActive } from './OnboardingProjects'
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
+const { invoke } = vi.hoisted(() => ({
+  invoke: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(),
+}))
 vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
-const ari: DiscoveredProject = {
-  path: 'C:\\work\\Ari',
-  name: 'Ari',
+
+const now = Date.now()
+const day = 86_400_000
+const repo = (
+  name: string,
+  daysAgo: number,
+  branch: string | null = 'main',
+): DiscoveredProject => ({
+  path: `/work/${name}`,
+  name,
   sources: ['claude'],
-  lastUsedAt: 123,
-}
-const docs: DiscoveredProject = {
-  path: 'C:\\work\\Docs',
-  name: 'Docs',
-  sources: ['codex'],
-  lastUsedAt: null,
-}
-const discovery = { projects: [ari, docs], truncated: false, warnings: [] }
-function Picker() {
-  const [selected, onChange] = useState<DiscoveredProject[]>([])
-  return <OnboardingProjects selected={selected} onChange={onChange} />
-}
-beforeEach(() => {
-  invoke.mockReset()
-  invoke.mockImplementation(async (method: string) =>
-    method === 'project.discover' ? discovery : { path: null },
+  lastUsedAt: now - daysAgo * day,
+  branch,
+})
+let discovered: DiscoveredProject[]
+let chosen: DiscoveredProject[] = []
+const onContinue = vi.fn()
+
+function Harness() {
+  const [selected, setSelected] = useState<DiscoveredProject[]>([])
+  chosen = selected
+  return (
+    <OnboardingProjects
+      selected={selected}
+      onChange={setSelected}
+      onBack={vi.fn()}
+      onContinue={onContinue}
+      headingRef={() => undefined}
+      primaryRef={() => undefined}
+    />
   )
+}
+
+afterEach(cleanup)
+beforeEach(() => {
+  onContinue.mockReset()
+  discovered = [
+    repo('ari', 0),
+    repo('scratch', 0, null),
+    repo('kollect', 2, 'dev'),
+    repo('hop', 5),
+    repo('chimp', 15),
+  ]
+  invoke.mockReset()
+  invoke.mockImplementation(async (method, params) => {
+    if (method === 'project.discover')
+      return { projects: discovered, truncated: false, warnings: [] }
+    if (method === 'dialog.pickFolder') return { path: '/elsewhere/picked' }
+    if (method === 'project.create')
+      return {
+        projectId: 'p1',
+        name: (params as { name: string }).name,
+        path: '/home/me/Projects/new-thing',
+        created: true,
+      }
+    throw new Error(method)
+  })
 })
 
 describe('onboarding projects', () => {
-  it('requires explicit selection and never opens a folder while browsing suggestions', async () => {
-    render(<Picker />)
-    const checkbox = await screen.findByRole('checkbox', { name: /Add Ari/ })
-    expect(checkbox).not.toBeChecked()
-    fireEvent.click(screen.getByText('Ari'))
-    expect(checkbox).toBeChecked()
-    expect(invoke.mock.calls.every(([method]) => method === 'project.discover')).toBe(true)
+  it('lists Git folders most recent first with branch and time, ticking the newest three', async () => {
+    render(<Harness />)
+    const list = await screen.findByRole('list', { name: 'Projects' })
+    const rows = within(list).getAllByRole('checkbox')
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual([
+      'ari (/work/ari)',
+      'kollect (/work/kollect)',
+      'hop (/work/hop)',
+      'chimp (/work/chimp)',
+    ])
+    expect(rows.map((row) => row.getAttribute('aria-checked'))).toEqual([
+      'true',
+      'true',
+      'true',
+      'false',
+    ])
+    expect(within(rows[1]!).getByText('dev · 2d ago')).toBeInTheDocument()
+    expect(within(rows[3]!).getByText('main · 2w ago')).toBeInTheDocument()
+    expect(screen.queryByText('scratch')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add 3 projects' })).toBeInTheDocument()
+    // Nothing is imported until setup finishes.
+    expect(invoke.mock.calls.map(([method]) => method)).toEqual(['project.discover'])
   })
 
-  it('selects only search matches and preserves selections outside the filter', async () => {
-    render(<Picker />)
-    fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'docs' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Select matches' }))
-    expect(screen.getByRole('status')).toHaveTextContent('2 selected')
-    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
-    expect(screen.getByRole('status')).toHaveTextContent('1 selected')
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } })
-    expect(screen.getByRole('checkbox', { name: /Add Ari/ })).toBeChecked()
+  it('lets the user untick everything and skip', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await screen.findByRole('list', { name: 'Projects' })
+    for (const row of screen.getAllByRole('checkbox', { checked: true })) await user.click(row)
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }))
+    expect(onContinue).toHaveBeenCalledOnce()
+    expect(chosen).toEqual([])
   })
 
-  it('deduplicates manual Windows paths against discoveries and retains manual choices on rescan', async () => {
-    render(<Picker />)
-    await screen.findByRole('checkbox', { name: /Add Ari/ })
-    invoke.mockResolvedValueOnce({ path: 'c:/WORK/ari/' })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }))
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Add Ari/ })).toBeChecked())
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
-    invoke.mockResolvedValueOnce({ projects: [], truncated: false, warnings: [] })
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh projects' }))
-    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(1))
-    expect(screen.getByRole('checkbox')).toBeChecked()
+  it('adds a chosen folder ticked', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await screen.findByRole('list', { name: 'Projects' })
+    await user.click(screen.getByRole('button', { name: 'Choose another folder…' }))
+    const picked = await screen.findByRole('checkbox', { name: 'picked (/elsewhere/picked)' })
+    expect(picked).toHaveAttribute('aria-checked', 'true')
+    expect(chosen.map((p) => p.path)).toContain('/elsewhere/picked')
   })
 
-  it('keeps current selections when a folder dialog answers after a refresh', async () => {
-    render(<Picker />)
-    await screen.findByRole('checkbox', { name: /Add Ari/ })
-    let pick!: (value: { path: string }) => void
-    invoke.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          pick = resolve
-        }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /Add Docs/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh projects' }))
-    await act(async () => {
-      pick({ path: '/work/new' })
+  it('creates a new empty Git project and ticks it', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await screen.findByRole('list', { name: 'Projects' })
+    await user.click(screen.getByRole('button', { name: 'Create a new project' }))
+    await user.type(screen.getByRole('textbox', { name: 'New project name' }), 'New thing{Enter}')
+    expect(invoke).toHaveBeenCalledWith('project.create', { name: 'New thing' })
+    const created = await screen.findByRole('checkbox', {
+      name: 'New thing (/home/me/Projects/new-thing)',
     })
-    expect(screen.getByRole('checkbox', { name: /Add Docs/ })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /Add new/ })).toBeChecked()
-    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeEnabled()
+    expect(created).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('textbox', { name: 'New project name' })).toBeNull()
   })
 
-  it('treats picker cancellation as a no-op and offers retry after failure', async () => {
-    render(<Picker />)
-    await screen.findByRole('checkbox', { name: /Add Ari/ })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose folder' })).toBeEnabled())
-    expect(screen.getByRole('status')).toHaveTextContent('0 selected')
-    invoke.mockRejectedValueOnce(new Error('dialog unavailable'))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not open the folder picker')
-  })
-
-  it('offers browse and rescan after discovery fails', async () => {
-    invoke.mockRejectedValueOnce(new Error('offline'))
-    render(<Picker />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not find recent projects')
-    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh projects' }))
-    expect(await screen.findByRole('checkbox', { name: /Add Ari/ })).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('ignores stale StrictMode scans and surfaces partial results', async () => {
-    let first!: (value: typeof discovery) => void
-    invoke.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          first = resolve
-        }),
+  it('keeps a failed create recoverable', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation((method, params) =>
+      method === 'project.create'
+        ? Promise.reject(new Error('Choose a project folder outside system folders.'))
+        : base(method, params),
     )
-    invoke.mockResolvedValueOnce({
-      ...discovery,
-      truncated: true,
-      warnings: ['Some metadata could not be read.'],
-    })
-    render(
-      <StrictMode>
-        <Picker />
-      </StrictMode>,
-    )
-    await screen.findByText(/Showing a partial scan/)
-    await act(async () => {
-      first({ ...discovery, projects: [] })
-    })
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
-    expect(screen.getByText('Some metadata could not be read.')).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'missing' } })
-    expect(screen.getByText('No matching projects')).toBeInTheDocument()
+    const user = userEvent.setup()
+    render(<Harness />)
+    await screen.findByRole('list', { name: 'Projects' })
+    await user.click(screen.getByRole('button', { name: 'Create a new project' }))
+    await user.type(screen.getByRole('textbox', { name: 'New project name' }), 'x{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('outside system folders')
+    expect(screen.getByRole('textbox', { name: 'New project name' })).toHaveValue('x')
   })
 
-  it('does not apply a folder selected after leaving the step', async () => {
-    const onChange = vi.fn()
-    const { unmount } = render(<OnboardingProjects selected={[]} onChange={onChange} />)
-    await screen.findByRole('checkbox', { name: /Add Ari/ })
-    let pick!: (value: { path: string }) => void
-    invoke.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          pick = resolve
-        }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }))
-    unmount()
-    await act(async () => {
-      pick({ path: '/work/new' })
+  it('falls back to choosing a folder when discovery fails', async () => {
+    invoke.mockImplementation(async (method) => {
+      if (method === 'project.discover') throw new Error('denied')
+      return { path: null }
     })
-    expect(onChange).not.toHaveBeenCalled()
+    render(<Harness />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a folder instead')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Skip for now' })).toBeEnabled())
+  })
+})
+
+describe('lastActive', () => {
+  it('reads like a person would say it', () => {
+    expect(lastActive(now, now)).toBe('today')
+    expect(lastActive(now - day, now)).toBe('yesterday')
+    expect(lastActive(now - 3 * day, now)).toBe('3d ago')
+    expect(lastActive(now - 21 * day, now)).toBe('3w ago')
+    expect(lastActive(now - 90 * day, now)).toBe('3mo ago')
+    expect(lastActive(null, now)).toBeNull()
   })
 })

@@ -3,6 +3,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { ProvidersUpdateFrame, RpcResults } from '@ari/contracts/rpc'
 import { useToast } from '@ari/ui/toast'
 import { rpc } from '../../lib/rpc'
+import { isOnboardingShown, onOnboardingShownChange } from '../onboarding/onboarding-presence'
 
 type Detections = RpcResults['providers.detect']
 
@@ -22,6 +23,9 @@ function versionLabel(version: string | null | undefined): string | null {
  * Announces provider updates as toasts (T3-style, top-right): one per kind per
  * version per launch. Clicking Update runs the upgrade in place, then the
  * settle frame refreshes the toast and Settings auto-syncs the new version.
+ *
+ * Setup speaks for itself: while it covers the window, availability is held
+ * back until it closes, and installs started there report only on its stage.
  */
 export function useUpdateToasts(): void {
   const { toast, update } = useToast()
@@ -34,6 +38,9 @@ export function useUpdateToasts(): void {
     const toastByKind = new Map<DriverKind, number>()
     const inflight = new Set<DriverKind>()
     const settledKinds = new Set<DriverKind>()
+    /** Installs started while setup was shown; setup reports them itself. */
+    const quietKinds = new Set<DriverKind>()
+    let deferred: Detections | null = null
 
     const run = (kind: DriverKind, operation: 'install' | 'upgrade', id: number): void => {
       if (inflight.has(kind)) return
@@ -69,6 +76,10 @@ export function useUpdateToasts(): void {
 
     const announce = (detections: Detections): void => {
       if (cancelled) return
+      if (isOnboardingShown()) {
+        deferred = detections
+        return
+      }
       for (const detection of detections) {
         if (detection.updateAvailable !== true || detection.latestVersion == null) continue
         const kind = detection.kind as DriverKind
@@ -133,6 +144,12 @@ export function useUpdateToasts(): void {
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
       const frame = payload as ProvidersUpdateFrame
       if (frame.type === 'detections') announce(frame.detections)
+      if (frame.type === 'install.started' && isOnboardingShown() && !toastByKind.has(frame.kind))
+        quietKinds.add(frame.kind)
+      if (frame.type !== 'detections' && 'kind' in frame && quietKinds.has(frame.kind)) {
+        if (frame.type === 'install.settled') quietKinds.delete(frame.kind)
+        return
+      }
       if (frame.type === 'install.started') {
         settledKinds.delete(frame.kind)
         inflight.add(frame.kind)
@@ -161,10 +178,18 @@ export function useUpdateToasts(): void {
         .catch(() => undefined)
     }, GRACE_MS)
 
+    const unwatch = onOnboardingShownChange((shown) => {
+      if (shown || deferred === null) return
+      const held = deferred
+      deferred = null
+      announce(held)
+    })
+
     return () => {
       cancelled = true
       clearTimeout(grace)
       unsubscribe()
+      unwatch()
     }
   }, [])
 }
