@@ -31,6 +31,54 @@ const started: NativeLine = {
 }
 
 describe('Claude native tasks', () => {
+  it('tracks PowerShell background work and SDK tool progress through its native task ID', () => {
+    const tasks = new ClaudeBackgroundTasks()
+    tasks.observe({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'powershell',
+            name: 'PowerShell',
+            input: { command: 'Start-Sleep 30', run_in_background: true },
+          },
+        ],
+      },
+    })
+    tasks.observe({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'shell',
+      tool_use_id: 'powershell',
+      task_type: 'local_bash',
+      is_backgrounded: true,
+    })
+    expect(
+      tasks.observe({
+        type: 'tool_progress',
+        tool_use_id: 'shell',
+        tool_name: 'PowerShell',
+        elapsed_time_seconds: 5,
+      }),
+    ).toMatchObject([
+      {
+        type: 'background-task',
+        id: 'powershell',
+        kind: 'shell',
+        status: 'running',
+        detail: 'PowerShell (5s)',
+      },
+    ])
+    expect(
+      tasks.observe({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'shell',
+        status: 'completed',
+      }),
+    ).toMatchObject([{ type: 'background-task', id: 'powershell', status: 'completed' }])
+  })
   it('tracks concurrent Agent and Task calls and attributes child activity', () => {
     const tasks = new ClaudeBackgroundTasks()
     tasks.observe({ type: 'system', subtype: 'init', session_id: 'thread' })

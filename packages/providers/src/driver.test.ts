@@ -8,6 +8,8 @@ import {
 import type { AdapterSession, Driver, ProviderAdapter } from './driver'
 import { CodexDriver } from './codex/codex-driver'
 import { ClaudeDriver } from './claude/claude-driver'
+import { AsyncQueue } from './claude/async-queue'
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { PiDriver } from './pi/pi-driver'
 import { OpencodeDriver } from './opencode/opencode-driver'
 import { GrokDriver } from './grok/grok-driver'
@@ -95,11 +97,18 @@ describe('provider capability discovery', () => {
   })
 
   it('reports Claude native child visibility and process continuity without unsupported controls', async () => {
-    const driver = new ClaudeDriver('/bin/claude')
+    const stream = new AsyncQueue<SDKMessage>()
+    const driver = new ClaudeDriver('/bin/claude', {
+      query: () => ({
+        ...{ [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator]() },
+        interrupt: async () => undefined,
+        close: () => stream.end(),
+      }),
+    })
     const adapter = await driver.create(SESSION)
     expect(getProviderCapabilities(adapter)).toMatchObject({
       steering: 'live',
-      liveResponses: 'approvals',
+      liveResponses: 'approvals-and-input',
       responsesAfterReconnect: false,
       processContinuity: 'between-turns',
       nativeFork: false,

@@ -24,11 +24,13 @@ vi.mock('@ari/providers/acp/launches', () => ({
 }))
 
 beforeEach(() => {
+  vi.stubEnv('ARI_CLAUDE_TRANSPORT', 'acp')
   vi.resetAllMocks()
   fakes.connect.mockResolvedValue(fakes.acp)
   fakes.acp.onSessionUpdate = null
 })
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.useRealTimers()
 })
 

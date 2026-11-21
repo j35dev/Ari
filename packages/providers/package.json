@@ -29,6 +29,7 @@
     "./acp/modes": "./src/acp/modes.ts",
     "./claude": "./src/claude/claude-driver.ts",
     "./claude/mapper": "./src/claude/mapper.ts",
+    "./claude/catalog": "./src/claude/catalog.ts",
     "./codex": "./src/codex/codex-driver.ts",
     "./codex/mapper": "./src/codex/mapper.ts",
     "./codex/appserver-connection": "./src/codex/appserver-connection.ts",
@@ -49,6 +50,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.330",
     "@ari/contracts": "workspace:*",
     "@ari/shared": "workspace:*"
   }
