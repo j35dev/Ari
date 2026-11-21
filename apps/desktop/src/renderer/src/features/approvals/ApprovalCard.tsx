@@ -169,7 +169,7 @@ function approvalCss(colors: Record<string, string>): string {
 .headline{display:flex;flex:1 1 0%;min-width:0;align-items:center;gap:6px}
 .label{flex-shrink:0;font-size:12px;color:${c('fg-subtle')}}
 code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;background:${wash(9)};padding:1px 6px;font:12.5px/1.45 ui-monospace,monospace}
-.choices{margin-left:auto;display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+.choices{margin-left:auto;display:flex;flex:0 1 auto;min-width:0;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
 summary{display:flex;height:28px;cursor:pointer;user-select:none;list-style:none;align-items:center;gap:4px;border-radius:6px;padding:0 6px;font-size:12px;color:${c('fg-subtle')}}
 summary::-webkit-details-marker{display:none}
 summary:hover{color:${c('fg')}}
@@ -236,7 +236,9 @@ export function ApprovalCard({
       <Shielded css={approvalCss(colors)}>
         <div className="card">
           {/* One row when it fits; the choices drop under the request when the
-              pane is too narrow to hold both. */}
+              pane is too narrow to hold both. The choices row stays shrinkable
+              so its buttons wrap inside the strip instead of running past the
+              composer's right edge at narrow widths. */}
           <div className="row">
             <div className="ask">
               <span aria-hidden="true" className="dot" />
