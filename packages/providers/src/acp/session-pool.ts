@@ -6,10 +6,15 @@ import type { AcpConfigOption, AcpRequestPermission, AcpUpdateFolder } from './p
 
 const log = createLogger('providers:acp-pool')
 
-/** An idle connection with no activity this long is closed. */
-const IDLE_MS = 30 * 60_000
+/**
+ * An idle connection with no activity this long is closed. Each parked agent
+ * is a whole CLI process (often 500 MB or more), so this trades a second of
+ * process start after a break for that memory; anything with background work
+ * running is never closed.
+ */
+const IDLE_MS = 10 * 60_000
 /** Idle connections kept at once; the least recently active close first. */
-const MAX_IDLE = 12
+const MAX_IDLE = 3
 const REAP_EVERY_MS = 60_000
 
 /**

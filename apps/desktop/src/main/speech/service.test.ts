@@ -517,7 +517,31 @@ it('transcribes more than five minutes of valid audio with a duration-scaled fai
   child.emit('message', { id: request.id, result: { text: 'Full long dictation' } })
   expect(await pending).toEqual({ text: 'Full long dictation' })
   await vi.advanceTimersByTimeAsync(speechRequestTimeout('transcribe', pcm.length))
+  // The failure budget ended with the result. The one stop left is the quiet
+  // idle exit, which reports no error.
+  expect(child.kill).toHaveBeenCalledTimes(1)
+  expect(service.status()).toMatchObject({ ready: true })
+  expect(service.status().error ?? null).toBeNull()
+})
+
+it('ends an idle worker after five minutes and starts a new one for the next dictation', async () => {
+  const { dir, service } = await setup()
+  const path = join(dir, 'custom.gguf')
+  await writeFile(path, 'gguf')
+  await selectReady(service, { path })
+  const child = mocks.fork.mock.results[0]!.value
+  // Only timeouts are faked, so the worker round trip still settles normally.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+  await vi.advanceTimersByTimeAsync(5 * 60_000 - 1)
   expect(child.kill).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  // The process and its model memory go away; nothing reports a failure.
+  expect(child.kill).toHaveBeenCalledTimes(1)
+  expect(service.status().error ?? null).toBeNull()
+  vi.useRealTimers()
+  expect(await service.transcribe(new Float32Array([0]))).toEqual({ text: 'local transcript' })
+  expect(mocks.fork).toHaveBeenCalledTimes(2)
 })
 
 it.each([
