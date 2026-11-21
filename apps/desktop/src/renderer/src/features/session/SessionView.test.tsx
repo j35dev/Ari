@@ -201,8 +201,10 @@ describe('SessionView question panel', () => {
       await screen.findByRole('heading', { name: 'Make room for your next idea.' }),
     ).toBeVisible()
     expect(screen.getByTestId('scene')).toHaveAttribute('data-kind', 'session')
-    fireEvent.click(screen.getByRole('button', { name: 'Explore this project' }))
-    expect(editor).toHaveValue('Explore this project and explain its architecture.')
+    fireEvent.click(screen.getByRole('button', { name: 'Explain this codebase' }))
+    expect(editor).toHaveValue(
+      'Explain this codebase: what it does, how it is organised, and where to start reading.',
+    )
     expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
       0,
     )
@@ -218,7 +220,12 @@ describe('SessionView question panel', () => {
         sessionId: 'sess_1',
         turnId: 'turn_1',
         role: 'user',
-        parts: [{ type: 'text', text: 'Explore this project and explain its architecture.' }],
+        parts: [
+          {
+            type: 'text',
+            text: 'Explain this codebase: what it does, how it is organised, and where to start reading.',
+          },
+        ],
         createdAt: 1,
       },
     })
@@ -228,7 +235,7 @@ describe('SessionView question panel', () => {
     expect(screen.getByLabelText('Message')).toBe(editor)
     expect((editor as HTMLTextAreaElement).selectionStart).toBe(4)
     expect((editor as HTMLTextAreaElement).selectionEnd).toBe(8)
-    expect(screen.queryByRole('button', { name: 'Explore this project' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Explain this codebase' })).not.toBeInTheDocument()
     // The scene belongs to the empty stage; a conversation does not keep it.
     expect(screen.queryByTestId('scene')).not.toBeInTheDocument()
   })

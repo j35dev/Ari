@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn(() => () => 
 vi.mock('./lib/rpc', () => ({ rpc: mocks }))
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
-    children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null }),
+    children({
+      onOpenSetup: () => undefined,
+      setupCovered: false,
+      onboardingOutcome: null,
+      onLanded: () => undefined,
+    }),
 }))
 vi.mock('./features/focus', () => ({ FocusPill: () => null }))
 vi.mock('./features/usage/ProviderUsagePill', () => ({ ProviderUsagePill: () => null }))

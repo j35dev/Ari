@@ -7,19 +7,31 @@ import { rpc } from '../../lib/rpc'
 import { saveLastPick } from '../composer/last-pick'
 import { visibleProjects, visibleSessions } from '../aria/visibility'
 import { ONBOARDING_TITLE_CLASS, OnboardingFrame } from './OnboardingFrame'
-import { OnboardingWizard } from './OnboardingWizard'
+import { OnboardingWizard, type OnboardingFinish } from './OnboardingWizard'
 import type { OnboardingOutcome } from './onboarding-completion'
+import { noteSetupDisplayed, setOnboardingShown } from './onboarding-presence'
+import './onboarding.css'
 
 const log = createLogger('onboarding:gate')
 const LOAD_TIMEOUT_MS = 15_000
+/** How long the stage takes to zoom away into the workspace (matches onboarding.css). */
+export const ONBOARDING_EXIT_MS = 420
+/** The longest the finished stage waits for the workspace to land before zooming anyway. */
+export const ONBOARDING_LAND_TIMEOUT_MS = 10_000
 
-type GateState =
-  | { status: 'loading' | 'error' | 'closed' }
-  | { status: 'setup'; settings: Settings; returning: boolean; createFirstSession: boolean }
+type SetupState = {
+  status: 'setup'
+  settings: Settings
+  returning: boolean
+  createFirstSession: boolean
+}
+type GateState = { status: 'loading' | 'error' | 'closed' } | SetupState
 export interface OnboardingWorkspaceProps {
   onOpenSetup: () => void
   setupCovered: boolean
   onboardingOutcome: OnboardingOutcome | null
+  /** The workspace has opened what setup chose; the finished stage may zoom away. */
+  onLanded: () => void
 }
 
 /** Waits for authoritative boot data and keeps an established workspace mounted during re-entry. */
@@ -31,6 +43,15 @@ export function OnboardingGate({
   const [state, setState] = useState<GateState>({ status: 'loading' })
   const [mounted, setMounted] = useState(false)
   const [outcome, setOutcome] = useState<OnboardingOutcome | null>(null)
+  /**
+   * The finished setup, kept on top until the workspace has landed under it
+   * (`zooming` false), then while it zooms away into it.
+   */
+  const [exiting, setExiting] = useState<{ setup: SetupState; zooming: boolean } | null>(null)
+  /** Counts setup runs, so running it again starts a fresh wizard. */
+  const [run, setRun] = useState(0)
+  const stateRef = useRef(state)
+  stateRef.current = state
   const generation = useRef(0)
   const previousFocus = useRef<HTMLElement | null>(null)
   const load = useCallback(async (returning = false) => {
@@ -92,14 +113,35 @@ export function OnboardingGate({
       generation.current++
     }
   }, [load])
-  const leave = useCallback((result: OnboardingOutcome = { sessionId: null, projectId: null, driverKind: null }) => {
-    generation.current++
-    if (result.driverKind !== null)
-      saveLastPick({ driverKind: result.driverKind, modelId: null, effort: null })
-    setOutcome(result)
-    setMounted(true)
-    setState({ status: 'closed' })
+  const leave = useCallback(
+    (
+      result: OnboardingOutcome = { sessionId: null, projectId: null, driverKind: null },
+      finish: OnboardingFinish = { animate: false },
+    ) => {
+      generation.current++
+      if (result.driverKind !== null)
+        saveLastPick({ driverKind: result.driverKind, modelId: null, effort: null })
+      const current = stateRef.current
+      if (finish.animate && current.status === 'setup')
+        setExiting({ setup: current, zooming: false })
+      setOutcome(result)
+      setMounted(true)
+      setState({ status: 'closed' })
+    },
+    [],
+  )
+  const landed = useCallback(() => {
+    setExiting((prev) => (prev && !prev.zooming ? { ...prev, zooming: true } : prev))
   }, [])
+  // The zoom is decoration over a workspace that is already live underneath;
+  // a workspace that never reports landing still gets it after a ceiling.
+  useEffect(() => {
+    if (exiting === null) return
+    const timer = exiting.zooming
+      ? setTimeout(() => setExiting(null), ONBOARDING_EXIT_MS)
+      : setTimeout(landed, ONBOARDING_LAND_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [exiting, landed])
   useEffect(() => {
     if (
       state.status === 'closed' &&
@@ -112,24 +154,51 @@ export function OnboardingGate({
   const open = useCallback(() => {
     previousFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // A new run replaces a finished stage that may still be zooming away.
+    setExiting(null)
+    setRun((prev) => prev + 1)
     void load(true)
   }, [load])
   const covered = state.status !== 'closed'
+  useEffect(() => {
+    setOnboardingShown(covered)
+  }, [covered])
+  useEffect(() => () => setOnboardingShown(false), [])
+  useEffect(() => {
+    if (state.status === 'setup') noteSetupDisplayed()
+  }, [state.status])
+  const setup = state.status === 'setup' ? state : (exiting?.setup ?? null)
+  const leaving = state.status !== 'setup' && exiting !== null
   return (
     <>
       {mounted && (
         <div className={covered ? 'hidden' : 'h-full'} hidden={covered} inert={covered}>
-          {children({ onOpenSetup: open, setupCovered: covered, onboardingOutcome: outcome })}
+          {children({
+            onOpenSetup: open,
+            setupCovered: covered,
+            onboardingOutcome: outcome,
+            onLanded: landed,
+          })}
         </div>
       )}
-      {state.status === 'setup' ? (
-        <OnboardingWizard
-          settings={state.settings}
-          returning={state.returning}
-          createFirstSession={state.createFirstSession}
-          onFinished={leave}
-          onLeave={() => leave()}
-        />
+      {setup ? (
+        // One wrapper either way, so the wizard keeps its state as it zooms away.
+        <div
+          className={
+            leaving ? `ari-onboarding-exit${exiting?.zooming ? '' : ' is-holding'}` : 'h-full'
+          }
+          aria-hidden={leaving || undefined}
+          inert={leaving}
+        >
+          <OnboardingWizard
+            key={run}
+            settings={setup.settings}
+            returning={setup.returning}
+            createFirstSession={setup.createFirstSession}
+            onFinished={leave}
+            onLeave={() => leave()}
+          />
+        </div>
       ) : (
         covered && (
           <OnboardingFrame

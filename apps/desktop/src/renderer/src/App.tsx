@@ -9,6 +9,7 @@ import { applyAppearance, cacheAppearance } from './lib/appearance'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
+import { focusComposerWhenReady } from './features/onboarding/landing-focus'
 import { useAppUpdateToast } from './features/updates'
 import type {
   BrowserTabState,
@@ -202,7 +203,12 @@ export interface SessionDefaults {
   workspaceMode?: 'auto' | 'isolated' | 'shared'
 }
 
-function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
+function Shell({
+  onOpenSetup,
+  setupCovered,
+  onboardingOutcome,
+  onLanded,
+}: OnboardingWorkspaceProps) {
   const { machines, local, inventoryReady, refreshInventory } = useMachines()
   const reducedMotion = useReducedMotionConfig()
   const engineSettings = useEngineSettings()
@@ -1066,7 +1072,10 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         paneId: activePaneOf(owner),
         sessionId: activeSessionOf(owner),
       })
-    } else setOnboardingDraft(null)
+    } else {
+      setOnboardingDraft(null)
+      onLanded()
+    }
     refreshProjects()
     void refreshInventory()
     void reloadSessions()
@@ -1085,7 +1094,15 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     return () => {
       cancelled = true
     }
-  }, [onboardingOutcome, reloadSessions, refreshProjects, refreshInventory, rememberPick, toast])
+  }, [
+    onboardingOutcome,
+    reloadSessions,
+    refreshProjects,
+    refreshInventory,
+    rememberPick,
+    toast,
+    onLanded,
+  ])
 
   // Sidebar order is the stored registry order: slot the project before
   // `beforeId` (null = last). Applied optimistically so the spring tracks the
@@ -1439,6 +1456,9 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     if (!group) return
     setOnboardingDraft(null)
     openProjectDraft(group, false, 'local')
+    // Setup promised a ready composer: the caret waits in the new session,
+    // and the finished stage zooms away only once it is there.
+    focusComposerWhenReady(onLanded)
   }, [
     onboardingDraft,
     navigation.groups,
@@ -1447,6 +1467,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     layout,
     inventoryReady,
     local,
+    onLanded,
   ])
   const createSession = useCallback(
     (projectId: string, overrides?: Partial<SessionDefaults>) => {

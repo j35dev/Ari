@@ -4,13 +4,17 @@ import { motion, useReducedMotion } from 'motion/react'
 import { AriaMark } from '@ari/ui/aria-mark'
 import { transitions } from '@ari/ui/motion'
 
+/** First prompts for a codebase; the last one leaves its subject to the user. */
 const starters = [
-  { label: 'Explore this project', prompt: 'Explore this project and explain its architecture.' },
-  { label: 'Build something', prompt: 'Help me plan and build a new feature in this project.' },
   {
-    label: 'Find improvements',
-    prompt: 'Review this project and suggest the most useful improvements.',
+    label: 'Explain this codebase',
+    prompt: 'Explain this codebase: what it does, how it is organised, and where to start reading.',
   },
+  {
+    label: 'Find something to fix',
+    prompt: 'Find one real bug or rough edge in this project worth fixing, and explain why.',
+  },
+  { label: 'Write tests for …', prompt: 'Write tests for ' },
 ]
 
 /**

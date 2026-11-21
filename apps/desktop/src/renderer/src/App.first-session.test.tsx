@@ -21,7 +21,7 @@ vi.mock('./lib/rpc', () => ({ rpc }))
 vi.mock('./features/focus/FocusPill', () => ({ FocusPill: () => null }))
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
-    children({ onOpenSetup: () => {}, setupCovered: false, onboardingOutcome: null }),
+    children({ onOpenSetup: () => {}, setupCovered: false, onboardingOutcome: null, onLanded: () => undefined }),
 }))
 vi.mock('./features/session/SessionView', () => ({ SessionView: ({ sessionId, scope, defaults }: {
   sessionId: string; scope?: { kind: string }; defaults?: { driverKind: string; modelId: string | null }

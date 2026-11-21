@@ -38,7 +38,12 @@ const { invoke, subscribe } = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi
 vi.mock('./lib/rpc', () => ({ rpc: { invoke, subscribe } }))
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
-    children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null }),
+    children({
+      onOpenSetup: () => undefined,
+      setupCovered: false,
+      onboardingOutcome: null,
+      onLanded: () => undefined,
+    }),
 }))
 vi.mock('./features/session/SessionView', () => ({
   SessionView: ({ scope, hidden }: { scope: SessionScope; hidden: boolean }) => (
