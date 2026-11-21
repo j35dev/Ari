@@ -21,7 +21,6 @@ import {
 } from './features/composer/draft-recovery-store'
 import { dropDraftTextMemory, DRAFTS_STORAGE_KEY } from './features/composer/use-drafts'
 import { localSnapshotFixture } from './features/machines/fixtures.test-support'
-import { terminalWorkspaceActions } from './features/terminal/terminal-workspace-state'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -166,7 +165,6 @@ describe('ParentSessionLink', () => {
 describe('Shell session navigation keys', () => {
   const NOW = Date.now()
   beforeEach(() => {
-    terminalWorkspaceActions.reset()
     dropDraftIntentMemory()
     dropDraftTextMemory()
     localStorage.clear()
@@ -239,19 +237,6 @@ describe('Shell session navigation keys', () => {
     )
     act(() => changed![2]({}))
     expect(await screen.findByText('Garden planner')).toBeInTheDocument()
-  })
-
-  it('switches to the terminal workspace and back without replacing the session layout', async () => {
-    const user = userEvent.setup()
-    render(<App />)
-    await screen.findByText('Alpha', {}, { timeout: 10_000 })
-    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
-    const previous = splitLayoutSnapshot()
-    await user.click(screen.getByRole('button', { name: 'Terminals workspace' }))
-    expect(await screen.findByRole('button', { name: 'New terminal' })).toBeInTheDocument()
-    expect(splitLayoutSnapshot()).toBe(previous)
-    await user.click(screen.getByRole('button', { name: 'Sessions workspace' }))
-    expect(splitLayoutSnapshot()).toBe(previous)
   })
 
   it('cleans durable draft entries only after confirmed session deletion', async () => {
@@ -418,7 +403,6 @@ describe('Shell session navigation keys', () => {
   })
 
   it('returns to a recent session without reloading or resubscribing it', async () => {
-    const subscriptionsStart = rpcMocks.subscribe.mock.calls.length
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })
     const loadsOf = (sessionId: string) =>
@@ -427,13 +411,11 @@ describe('Shell session navigation keys', () => {
           method === 'session.load' && (params as { sessionId?: string }).sessionId === sessionId,
       ).length
     const subscriptionsOf = (sessionId: string) =>
-      rpcMocks.subscribe.mock.calls
-        .slice(subscriptionsStart)
-        .filter(
-          (call) =>
-            (call as unknown[])[0] === 'session.events' &&
-            ((call as unknown[])[1] as { sessionId?: string }).sessionId === sessionId,
-        ).length
+      rpcMocks.subscribe.mock.calls.filter(
+        (call) =>
+          (call as unknown[])[0] === 'session.events' &&
+          ((call as unknown[])[1] as { sessionId?: string }).sessionId === sessionId,
+      ).length
 
     fireEvent.keyDown(window, { key: '1', ctrlKey: true })
     await vi.waitFor(() => expect(loadsOf('sess_alpha')).toBe(1), { timeout: 10_000 })
@@ -1702,18 +1684,30 @@ describe('Shell live sidebar feed', () => {
           expect.objectContaining({ projectId: 'proj-ari', permissionMode: 'full' }),
         )
         expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-          command: { type: 'turn.start', sessionId: 'sess_new', text: 'Test draft first prompt', attachments: [] },
+          command: {
+            type: 'turn.start',
+            sessionId: 'sess_new',
+            text: 'Test draft first prompt',
+            attachments: [],
+          },
         })
       })
-      expect(invokeMock.mock.calls.some(([method, params]) => method === 'command.dispatch' &&
-        (params as { command?: { type?: string } })?.command?.type === 'session.update')).toBe(false)
+      expect(
+        invokeMock.mock.calls.some(
+          ([method, params]) =>
+            method === 'command.dispatch' &&
+            (params as { command?: { type?: string } })?.command?.type === 'session.update',
+        ),
+      ).toBe(false)
       await vi.waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_new' }),
       )
       const created = invokeMock.mock.calls.findIndex(([method]) => method === 'session.create')
       const sent = invokeMock.mock.calls.findIndex(([method]) => method === 'command.dispatch')
-      const loaded = invokeMock.mock.calls.findIndex(([method, params]) => method === 'session.load' &&
-        (params as { sessionId?: string })?.sessionId === 'sess_new')
+      const loaded = invokeMock.mock.calls.findIndex(
+        ([method, params]) =>
+          method === 'session.load' && (params as { sessionId?: string })?.sessionId === 'sess_new',
+      )
       expect(created).toBeLessThan(sent)
       expect(sent).toBeLessThan(loaded)
     })

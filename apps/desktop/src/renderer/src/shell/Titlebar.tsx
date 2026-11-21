@@ -39,7 +39,6 @@ export function Titlebar({
   minimal = false,
   git,
   usage,
-  viewSwitch,
   leading,
   leadingWidth,
   machineLabel,
@@ -56,8 +55,6 @@ export function Titlebar({
   git?: ReactNode
   /** The provider allowance for the active session: a ring, the provider, how much is used. */
   usage?: ReactNode
-  /** Switches between the conversation desk and native terminal workspace. */
-  viewSwitch?: ReactNode
   /** The sidebar's header, shown while the sidebar is open. */
   leading?: ReactNode
   /** Width of the leading zone in pixels; follows the sidebar as it resizes. */
@@ -133,12 +130,6 @@ export function Titlebar({
       {git ? (
         <div className="mr-1 shrink-0" style={NO_DRAG}>
           {git}
-        </div>
-      ) : null}
-
-      {viewSwitch && !minimal ? (
-        <div className="mr-2 shrink-0" style={NO_DRAG}>
-          {viewSwitch}
         </div>
       ) : null}
 

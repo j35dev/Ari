@@ -96,12 +96,10 @@ import {
 import { WorktreeRoots } from './worktree-roots'
 import {
   TerminalService,
-  defaultShell,
   ptyUnavailableReason,
   type PtyFactory,
   type PtyLike,
 } from './terminal-service'
-import { loginCommandLine } from '../shared/provider-login-command'
 import { BrowserService, hideGuestsOnShellReset } from './browser-service'
 import { hostedBrowserGuestFactory } from './browser-electron'
 import { startBrowserMcpServer, writeBrowserMcpProxy, type BrowserMcpHandle } from './browser-mcp'
@@ -1532,14 +1530,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       name: options.name,
       cwd: options.cwd,
       env: options.env,
-      ...(options.cols === undefined ? {} : { cols: options.cols }),
-      ...(options.rows === undefined ? {} : { rows: options.rows }),
     })
     // Bridge node-pty's event properties onto the service's callback style.
     const dataListeners: ((data: string) => void)[] = []
     const exitListeners: ((code: number) => void)[] = []
     raw.onData((data) => dataListeners.forEach((l) => l(data)))
-    raw.onExit((event) => exitListeners.forEach((listener) => listener(event.exitCode)))
+    raw.onExit((_e) => exitListeners.forEach((l) => l(0)))
     const pty: PtyLike = {
       get pid() {
         // ConPTY sets this asynchronously once its output worker connects.
@@ -1549,7 +1545,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       resize: (cols, rows) => raw.resize(cols, rows),
       kill: () => raw.kill(),
       onData: (cb) => dataListeners.push(cb),
-      onExit: (cb) => exitListeners.push(cb),
+      onExit: (cb) => exitListeners.push(() => cb(0)),
     }
     return pty
   }
@@ -1558,12 +1554,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       onData: (id, data) => rpcRegistry.publish('terminal.data', { id, data }),
       // A shell that exits instantly (bad cwd, killed binary) used to leave a
       // blank xterm with a blinking cursor; name the exit so it reads as one.
-      onExit: (id, exitCode) =>
+      onExit: (id) =>
         rpcRegistry.publish('terminal.data', {
           id,
-          data: '',
-          exited: true,
-          exitCode,
+          data: '\r\n[Shell exited — open a new terminal with +]\r\n',
         }),
     },
     ptyFactory,
@@ -2618,79 +2612,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // shell cannot run without it), so its working directory must stay
     // inside the jail — otherwise any renderer compromise becomes a shell
     // anywhere on the machine.
-    const environment = await resolveDetectionEnvironment()
-    let initialCommand = params.initialCommand
-    if (initialCommand === 'claude' || initialCommand === 'codex') {
-      const detection = (await rawDetections()).find((entry) => entry.kind === initialCommand)
-      if (detection?.binaryPath)
-        initialCommand = loginCommandLine(
-          { command: detection.binaryPath, args: [] },
-          process.platform,
-        )
-    }
-    const created = terminals.create(params.id, await jailPath(params.cwd), initialCommand, {
-      cols: params.cols,
-      rows: params.rows,
-      pathEnv: environment.pathEnv,
-    })
-    return { created }
-  })
-
-  r.register('terminal.info', (params) => terminals.info(params.id))
-
-  r.register('terminal.profiles', async () => {
-    const detections = await rawDetections()
-    const environment = await resolveDetectionEnvironment()
-    const shell = defaultShell(environment.pathEnv).file
-    return {
-      platform: process.platform,
-      shell,
-      profiles: [
-        {
-          id: 'shell' as const,
-          label:
-            process.platform === 'win32'
-              ? shell.toLowerCase().includes('pwsh')
-                ? 'PowerShell 7'
-                : 'PowerShell'
-              : 'Shell',
-          available: true,
-        },
-        ...(['claude', 'codex'] as const).map((id) => ({
-          id,
-          label: id === 'claude' ? 'Claude Code' : 'Codex',
-          available: detections.some((entry) => entry.kind === id && entry.binaryPath !== null),
-        })),
-      ],
-    }
-  })
-
-  r.register('terminal.launch', async (params) => {
-    const cwd = await jailPath(params.cwd)
-    const existing = terminals.info(params.id)
-    if (existing) {
-      if (existing.cwd !== resolve(cwd))
-        throw new Error('This terminal belongs to another workspace.')
-      return existing
-    }
-    const mod = await loadPtyModule()
-    if (!mod) throw new Error('The terminal backend is unavailable.')
-    ptyModule = mod
-    let command: string | undefined
-    if (params.profile === 'custom') {
-      if (!params.command?.trim()) throw new Error('Enter a command to start this terminal.')
-      command = params.command
-    } else if (params.profile !== 'shell') {
-      const detection = (await rawDetections()).find((entry) => entry.kind === params.profile)
-      if (!detection?.binaryPath)
-        throw new Error(
-          `${params.profile === 'claude' ? 'Claude Code' : 'Codex'} is not installed on this computer.`,
-        )
-      command = loginCommandLine({ command: detection.binaryPath, args: [] }, process.platform)
-    }
-    const environment = await resolveDetectionEnvironment()
-    terminals.create(params.id, cwd, command, { pathEnv: environment.pathEnv, cols: 120, rows: 36 })
-    return terminals.info(params.id)!
+    terminals.create(params.id, await jailPath(params.cwd))
+    return { created: true }
   })
 
   r.register('terminal.write', (params) => {
@@ -3310,14 +3233,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (params.name === 'terminal.data') {
       const terminalId = params.params['id']
       if (typeof terminalId === 'string') {
-        const info = terminals.info(terminalId)
         const scrollback = terminals.replay(terminalId)
-        if (scrollback.length > 0 || info?.exited)
-          rpcRegistry.sendTo(params.id, {
-            id: terminalId,
-            data: scrollback,
-            ...(info?.exited ? { exited: true, exitCode: info.exitCode ?? 0 } : {}),
-          })
+        if (scrollback.length > 0) {
+          rpcRegistry.publish('terminal.data', { id: terminalId, data: scrollback })
+        }
       }
     }
     if (params.name === 'providers.updates') {

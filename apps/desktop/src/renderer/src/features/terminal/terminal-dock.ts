@@ -22,11 +22,6 @@ export interface TerminalTab {
   cwd: string
   /** First command written into the shell after spawn (presets, run scripts). */
   command?: string
-  /** A terminal workspace owns its presentation independently of the inspector rail. */
-  workspaceTaskId?: string
-  profile?: 'shell' | 'claude' | 'codex' | 'custom'
-  /** Saved for an explicit restart only; never dispatched on a view mount. */
-  launchCommand?: string
   /** Absent only for legacy/local shells. Never infer remote ownership from cwd. */
   owner?: TerminalOwner
   /** Set once from the authenticated host's confirmed creation result. */
@@ -79,9 +74,6 @@ function load(): TerminalDockState {
         owner: rawOwner,
         hostTerminalId,
         creationAttempted,
-        workspaceTaskId,
-        profile,
-        launchCommand,
       } = entry as Record<string, unknown>
       if (typeof id !== 'string' || typeof title !== 'string' || typeof cwd !== 'string') continue
       const owner = parseOwner(rawOwner)
@@ -90,8 +82,6 @@ function load(): TerminalDockState {
       if (hostTerminalId !== undefined && (owner.kind !== 'remote' || !validId(hostTerminalId)))
         continue
       if (creationAttempted !== undefined && typeof creationAttempted !== 'boolean') continue
-      if (workspaceTaskId !== undefined && (!validId(workspaceTaskId) || owner.kind !== 'local'))
-        continue
       tabs.push({
         id,
         title,
@@ -99,11 +89,6 @@ function load(): TerminalDockState {
         ...(owner.kind === 'remote' ? { owner } : {}),
         ...(typeof hostTerminalId === 'string' ? { hostTerminalId } : {}),
         ...(owner.kind === 'remote' ? { creationAttempted: creationAttempted !== false } : {}),
-        ...(typeof workspaceTaskId === 'string' ? { workspaceTaskId } : {}),
-        ...(['shell', 'claude', 'codex', 'custom'].includes(String(profile))
-          ? { profile: profile as TerminalTab['profile'] }
-          : {}),
-        ...(typeof launchCommand === 'string' ? { launchCommand } : {}),
       })
     }
     if (tabs.length === 0) return EMPTY
@@ -132,13 +117,6 @@ function persist(next: TerminalDockState, required = false): void {
           id: tab.id,
           title: tab.title,
           cwd: tab.cwd,
-          ...(tab.workspaceTaskId
-            ? {
-                workspaceTaskId: tab.workspaceTaskId,
-                profile: tab.profile,
-                launchCommand: tab.launchCommand,
-              }
-            : {}),
           ...(tab.owner?.kind === 'remote' ? { owner: tab.owner } : {}),
           ...(tab.hostTerminalId !== undefined ? { hostTerminalId: tab.hostTerminalId } : {}),
           ...(tab.owner?.kind === 'remote'
@@ -326,15 +304,6 @@ export function closeTerminalTab(id: string): void {
 export function activateTerminalTab(id: string): void {
   if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return
   commit({ tabs: state.tabs, activeId: id })
-}
-
-export function renameTerminalTab(id: string, title: string): void {
-  const trimmed = title.trim().slice(0, 100)
-  if (!trimmed || !state.tabs.some((tab) => tab.id === id)) return
-  commit({
-    ...state,
-    tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, title: trimmed } : tab)),
-  })
 }
 
 /** Test seam: forgets every tab so each case starts from an empty rail. */
