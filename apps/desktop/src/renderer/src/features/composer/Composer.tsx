@@ -18,6 +18,15 @@ import { countBadge, cx, iconButton, iconButtonActive, rowAction } from '../../l
 import { activeTokenAt } from './active-token'
 import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
+import { SlashPopup } from './SlashPopup'
+import {
+  ARI_SLASH_COMMANDS,
+  TUI_ONLY_SLASH_COMMANDS,
+  filterSlashCommands,
+  findSlashCommand,
+  parseSlashCommand,
+  type SlashCommand,
+} from '@ari/contracts/slash-commands'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
 import {
@@ -117,6 +126,15 @@ export interface ComposerProps {
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
+   * The "/" menu's commands: Ari's own plus the session provider's. Absent
+   * offers Ari's own only.
+   */
+  commands?: readonly SlashCommand[]
+  /** A line under the "/" menu, e.g. that the provider's list is still loading. */
+  commandsNote?: string | null
+  /** The "/" menu opened; the owner may refresh `commands`. */
+  onCommandMenu?: () => void
+  /**
    * Context chips inside the plate (agent picker, permission). Lives with
    * the draft so the next turn's agent is visible without leaving the box.
    */
@@ -202,6 +220,9 @@ export function Composer({
   onRemoveQueued,
   onEditQueued,
   suggestions,
+  commands = ARI_SLASH_COMMANDS,
+  commandsNote = null,
+  onCommandMenu,
   leading,
   belowControls,
   draftOnly = false,
@@ -375,6 +396,20 @@ export function Composer({
     () => (mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : []),
     [mentionQuery, suggestions],
   )
+  const commandQuery = token?.kind === 'command' ? token.raw.slice(1) : null
+  const commandItems = useMemo(
+    () => (commandQuery !== null ? filterSlashCommands(commands, commandQuery) : []),
+    [commandQuery, commands],
+  )
+  const commandMenuOpen = commandQuery !== null && !dismissed
+  const onCommandMenuRef = useRef(onCommandMenu)
+  onCommandMenuRef.current = onCommandMenu
+  useEffect(() => {
+    if (commandMenuOpen) onCommandMenuRef.current?.()
+  }, [commandMenuOpen])
+  /** Why the typed command was not sent; cleared as soon as the draft changes. */
+  const [commandIssue, setCommandIssue] = useState<string | null>(null)
+  useEffect(() => setCommandIssue(null), [text])
 
   const syncCaret = useCallback((el: HTMLTextAreaElement) => {
     setCaret(el.selectionStart ?? 0)
@@ -506,6 +541,20 @@ export function Composer({
     const trimmed = text.trim()
     if ((trimmed.length === 0 && intents.length === 0) || disabled || sendPending || missingImages)
       return
+    // A command Ari cannot run stays in the field with the reason, instead of
+    // reaching the model as plain text. The engine refuses it as well.
+    const invocation = parseSlashCommand(trimmed)
+    if (invocation !== null) {
+      const known = findSlashCommand(commands, invocation.name)
+      if (known?.run === 'unsupported') {
+        setCommandIssue(known.reason ?? `/${invocation.name} isn't available in Ari.`)
+        return
+      }
+      if (known === undefined && TUI_ONLY_SLASH_COMMANDS.has(invocation.name.toLowerCase())) {
+        setCommandIssue(`/${invocation.name} only works in the agent's own terminal app.`)
+        return
+      }
+    }
     const accepted = intents.some((image) => image.ref)
       ? onSend(trimmed, [...images], intents)
       : onSend(trimmed, [...images])
@@ -526,6 +575,7 @@ export function Composer({
     onSend,
     clear,
     setText,
+    commands,
   ])
 
   /**
@@ -806,6 +856,21 @@ export function Composer({
 
   const closePopup = useCallback(() => setDismissed(true), [])
 
+  /**
+   * Replace the leading `/partial` with the chosen command and a space, ready
+   * for its arguments. Choosing never sends: the user presses Enter.
+   */
+  const handleCommandSelect = useCallback(
+    (command: SlashCommand) => {
+      if (token?.kind !== 'command') return
+      const insert = `/${command.name} `
+      setText((prev) => insert + prev.slice(caret).replace(/^[^\S\n]+/, ''))
+      setCaret(insert.length)
+      refocus(insert.length)
+    },
+    [token, caret, refocus, setText],
+  )
+
   /** Replace the `@partial` token with the chosen path plus a word break. */
   const handleMentionSelect = useCallback(
     (path: string) => {
@@ -918,6 +983,16 @@ export function Composer({
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
           </div>
         )}
+        {commandMenuOpen && (commandItems.length > 0 || (commandsNote && commandQuery === '')) && (
+          <div className="absolute bottom-full left-0 right-0 z-popover mb-1.5">
+            <SlashPopup
+              items={commandItems}
+              note={commandQuery === '' ? commandsNote : null}
+              onSelect={handleCommandSelect}
+              onClose={closePopup}
+            />
+          </div>
+        )}
         {(intents.length > 0 ||
           draftIntent.reattachRequired ||
           draftIntent.delivery ||
@@ -1007,26 +1082,16 @@ export function Composer({
                 : 'px-[18px] pb-1.5 pt-4'
             }`}
           />
-          {/^\/ari(?:\s|$)/i.test(text) && (
-            <div className="px-4 pb-2 text-xs text-fg-subtle">
-              {/^\/ari\s*$/i.test(text) ? (
-                <button
-                  type="button"
-                  className="rounded-md px-2 py-1 text-fg hover:bg-fg/6"
-                  onClick={() => {
-                    setText('/ari theme ')
-                    textareaRef.current?.focus()
-                  }}
-                >
-                  /ari theme — Design a custom theme for Ari
-                </button>
-              ) : (
-                <span>
-                  Your agent will build a theme for your library. Try /ari theme followed by a
-                  design idea.
-                </span>
-              )}
-            </div>
+          {/^\/ari\s+theme(?:\s|$)/i.test(text) && !commandMenuOpen && (
+            <p className="px-[18px] pb-2 text-xs text-fg-subtle">
+              Your agent will build a theme for your library. Try /ari theme followed by a design
+              idea.
+            </p>
+          )}
+          {commandIssue && (
+            <p role="status" className="px-[18px] pb-2 text-xs text-fg-muted">
+              {commandIssue}
+            </p>
           )}
         </div>
         <div

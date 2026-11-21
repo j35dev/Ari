@@ -39,6 +39,9 @@ import {
   type ProviderAdapter,
 } from '@ari/providers/driver'
 import type { CoordinationMessage } from '@ari/contracts/coordination'
+import type { SessionCommands } from '@ari/contracts/rpc'
+import { ARI_SLASH_COMMANDS } from '@ari/contracts/slash-commands'
+import { SessionCommandCache, routeSlashCommand, sessionCommands } from './slash-commands'
 
 const log = createLogger('desktop:engine')
 
@@ -258,6 +261,9 @@ const PENDING_SEQ = Number.MAX_SAFE_INTEGER
  */
 export class Engine {
   readonly #commands = new Map<string, Promise<unknown>>()
+  /** Each session's last provider command list, for the "/" menu and routing. */
+  readonly #slash = new SessionCommandCache()
+  readonly #slashDiscovery = new Map<string, Promise<SessionCommands>>()
   #admission: Promise<unknown> = Promise.resolve()
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
@@ -404,6 +410,10 @@ export class Engine {
     }
     state.at = now
     for (const event of events) {
+      if (event.type === 'commands') {
+        this.#slash.record(sessionId, null, null, event.commands)
+        continue
+      }
       if (event.type === 'approval-requested') {
         const grant = this.#deps.autoApprove?.(event) ?? null
         const adapter = this.#deps.backgroundAdapter?.(sessionId)
@@ -982,6 +992,52 @@ export class Engine {
     return (await this.#deps.store.load(session.parentSessionId)).session?.title ?? null
   }
 
+  /**
+   * The "/" menu for a session: Ari's commands and its provider's. Answers
+   * from the cache when the provider already reported a list; otherwise asks
+   * a driver that can list commands without a turn, once at a time per
+   * session. `env` is the process environment such a listing runs with.
+   */
+  async slashCommands(
+    sessionId: string,
+    options: {
+      refresh?: boolean
+      env?: (kind: DriverKind) => Record<string, string | undefined>
+    } = {},
+  ): Promise<SessionCommands> {
+    const { session } = await this.#deps.store.load(sessionId)
+    if (!session)
+      return { commands: [...ARI_SLASH_COMMANDS], driverKind: null, complete: true, note: null }
+    const kind = session.driverKind
+    const cached = options.refresh ? null : this.#slash.get(sessionId, kind)
+    if (cached !== null) return sessionCommands(kind, cached, true)
+    const pending = this.#slashDiscovery.get(sessionId)
+    if (pending) return pending
+    const discovery = (async (): Promise<SessionCommands> => {
+      const driver = this.#deps.registry.get(kind)
+      const workspace = await this.workspace(session)
+      if (!driver?.listCommands || workspace === null)
+        return sessionCommands(kind, this.#slash.forScope(kind, workspace), false)
+      try {
+        const listed = await driver.listCommands({
+          sessionId,
+          workspacePath: workspace,
+          ...(options.env ? { runtimeEnv: options.env(kind) } : {}),
+        })
+        // A turn may have reported a fresher list while this one was read.
+        const current = this.#slash.get(sessionId, kind)
+        if (current !== null && !options.refresh) return sessionCommands(kind, current, true)
+        this.#slash.record(sessionId, kind, workspace, listed)
+        return sessionCommands(kind, listed, true)
+      } catch (error) {
+        log.warn('provider commands could not be listed', { kind, error: String(error) })
+        return sessionCommands(kind, this.#slash.forScope(kind, workspace), true)
+      }
+    })().finally(() => this.#slashDiscovery.delete(sessionId))
+    this.#slashDiscovery.set(sessionId, discovery)
+    return discovery
+  }
+
   /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
   workspace(session: Session): Promise<string | null> {
     return resolveSessionWorkspace(
@@ -1009,6 +1065,22 @@ export class Engine {
       return
     }
     const { resumeOf, handoff, contextSeq } = providerContext
+    // A slash command the provider would treat as a terminal-only or Ari-owned
+    // command is answered here: sent as text it would reach the model instead.
+    const slash = routeSlashCommand(
+      prompt,
+      session.driverKind,
+      this.#slash.get(session.id, session.driverKind),
+    )
+    if (slash.kind === 'blocked') {
+      await this.#append(session.id, {
+        type: 'assistant.parts.appended',
+        messageId: newTypedId('msg'),
+        parts: [{ type: 'text', text: `\n\nℹ ${slash.message}` }],
+      })
+      await this.#settle(session.id, turnId, 'completed', null)
+      return
+    }
     const releaseError = (error: unknown): void =>
       log.warn('provider connection release failed', {
         sessionId: session.id,
@@ -1155,9 +1227,15 @@ export class Engine {
         : null
       const inbox = hasControl ? coordinationContext(await this.#deps.store.load(session.id)) : null
       inboxMessageIds = inbox?.messageIds ?? []
-      const body = [handoff, context, inbox?.text ?? null, themeAuthoringPrompt(prompt)]
-        .filter((part) => part !== null)
-        .join('\n\n')
+      // A provider only expands a slash command that opens the prompt, so a
+      // command turn goes out exactly as typed, without history or context.
+      const command = slash.kind === 'rpc' || slash.kind === 'verbatim' ? slash.invocation : null
+      const body =
+        command !== null
+          ? prompt.trim()
+          : [handoff, context, inbox?.text ?? null, themeAuthoringPrompt(prompt)]
+              .filter((part) => part !== null)
+              .join('\n\n')
       const resolvedAttachments =
         attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
       await waitForProviderRelease()
@@ -1165,7 +1243,8 @@ export class Engine {
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt: preamble === null || viaSystem ? body : `${preamble}\n\n${body}`,
+        prompt:
+          preamble === null || viaSystem || command !== null ? body : `${preamble}\n\n${body}`,
         ...(handoff ? { handoff } : {}),
         ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
@@ -1173,6 +1252,7 @@ export class Engine {
         effort: session.effort ?? null,
         resumeOf,
         ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
+        ...(slash.kind === 'rpc' ? { command: slash.invocation } : {}),
       })
       // Adapter creation accepted the prompt. Consumption still requires the recipient's ack.
       for (const id of inboxMessageIds) {
@@ -1479,6 +1559,9 @@ export class Engine {
               usedTokens: event.usedTokens,
               windowTokens: event.windowTokens,
             })
+            break
+          case 'commands':
+            this.#slash.record(session.id, session.driverKind, workspacePath, event.commands)
             break
           case 'status':
             await append({

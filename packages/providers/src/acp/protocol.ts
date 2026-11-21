@@ -3,6 +3,7 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
 import { BackgroundTaskTracker } from './background-tasks'
+import { acpCommandsFromUpdate } from '../slash-commands'
 
 /**
  * Structural types for the subset of the Agent Client Protocol (ACP) v1
@@ -478,9 +479,15 @@ export class AcpUpdateFolder {
             windowTokens: typeof update.size === 'number' && update.size > 0 ? update.size : null,
           },
         ]
+      case 'available_commands_update': {
+        // The agent's slash commands for this session; the composer's menu
+        // caches them. A malformed list degrades to none, never a crash.
+        const commands = acpCommandsFromUpdate(update)
+        return commands === null ? [] : [{ type: 'commands', commands }]
+      }
       default:
-        // user_message_chunk / plan / mode / config / commands updates have
-        // no transcript surface yet (plan needs a dedicated event + UI).
+        // user_message_chunk / plan / mode / config updates have no
+        // transcript surface yet (plan needs a dedicated event + UI).
         return []
     }
   }

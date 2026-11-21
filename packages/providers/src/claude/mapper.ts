@@ -1,6 +1,7 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
+import { claudeSlashCommands, type ClaudeSdkCommand } from '../slash-commands'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
 /**
@@ -64,7 +65,13 @@ export interface NativeLine {
   user_message_uuid?: string
   user_message_uuids?: string[]
   origin?: { kind?: string }
-  message?: { id?: string; content?: ContentBlock[]; usage?: Record<string, unknown> }
+  message?: {
+    id?: string
+    /** `<synthetic>` marks text the CLI wrote itself, e.g. a local command's output. */
+    model?: string
+    content?: ContentBlock[]
+    usage?: Record<string, unknown>
+  }
   event?: {
     type?: string
     delta?: StreamDelta
@@ -92,6 +99,13 @@ export interface NativeLine {
   tasks?: NativeLine[]
   errors?: string[]
   terminal_reason?: string
+  /** `local_command_output`: what a local slash command printed. */
+  content?: unknown
+  /** `commands_changed`: the session's full command list, replacing the last one. */
+  commands?: ClaudeSdkCommand[]
+  /** `system/init`: commands bound to the terminal, and the skills loaded. */
+  terminal_slash_commands?: string[]
+  skills?: string[]
   num_turns?: number
   permissionMode?: string
   tool_name?: string
@@ -344,6 +358,9 @@ export class ClaudeMessageMapper {
   #cost = 0
   #modelTotals = new Map<string, { input: number; output: number; cached: number }>()
   #contextCall: Record<string, unknown> | undefined
+  #terminalCommands: string[] = []
+  #skills: string[] = []
+  #lastCommands: readonly ClaudeSdkCommand[] | null = null
 
   /** Cold resume reports cumulative historical totals; establish the baseline before sending. */
   seedUsage(cost: number, models: NativeLine['modelUsage']): void {
@@ -391,7 +408,15 @@ export class ClaudeMessageMapper {
           events.push({ type: 'context-usage', usedTokens: used, windowTokens: null })
       }
     }
-    if (native.type === 'assistant' && !native.error) {
+    if (native.type === 'assistant' && !native.error && native.message?.model === '<synthetic>') {
+      // A local slash command (/context, /usage) answers without the model:
+      // the CLI's own report reads as a notice, not as the assistant talking.
+      const output = (native.message.content ?? [])
+        .map((block) => (block.type === 'text' ? (block.text ?? '') : ''))
+        .join('')
+        .trim()
+      if (output.length > 0) events.push({ type: 'notice', message: output })
+    } else if (native.type === 'assistant' && !native.error) {
       if (native.message?.usage) this.#contextCall = native.message.usage
       const id = native.message?.id ?? this.#messageId
       const streamId = this.#streamed.has(id) ? id : this.#messageId
@@ -508,12 +533,42 @@ export class ClaudeMessageMapper {
     }
     if (native.type === 'system' && native.subtype === 'compact_boundary')
       events.push({ type: 'notice', message: 'Claude compacted the conversation context.' })
+    // A local command's output (/context, /usage) is the CLI talking, not
+    // the model: it renders as a notice, never as assistant prose.
+    if (native.type === 'system' && native.subtype === 'local_command_output') {
+      const output = typeof native.content === 'string' ? native.content.trim() : ''
+      if (output.length > 0) events.push({ type: 'notice', message: output })
+    }
+    if (native.type === 'system' && native.subtype === 'init') {
+      this.#terminalCommands = native.terminal_slash_commands ?? this.#terminalCommands
+      this.#skills = native.skills ?? this.#skills
+      // Init names the skills and terminal-bound commands; restate the list with them.
+      if (this.#lastCommands !== null) events.push(this.commandsEvent(this.#lastCommands))
+    }
+    if (
+      native.type === 'system' &&
+      native.subtype === 'commands_changed' &&
+      Array.isArray(native.commands)
+    )
+      events.push(this.commandsEvent(native.commands))
     return events.filter((event) => {
       if (event.type !== 'tool-started') return true
       if (this.#tools.has(event.callId)) return false
       this.#remember(this.#tools, event.callId)
       return true
     })
+  }
+
+  /** The session's commands as Ari runs them, with what init said about them. */
+  commandsEvent(commands: readonly ClaudeSdkCommand[], skills: readonly string[] = []): AgentEvent {
+    this.#lastCommands = commands
+    return {
+      type: 'commands',
+      commands: claudeSlashCommands(commands, {
+        terminal: this.#terminalCommands,
+        skills: [...this.#skills, ...skills],
+      }),
+    }
   }
 
   #remember(set: Set<string>, id: string): void {

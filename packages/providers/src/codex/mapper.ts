@@ -211,6 +211,7 @@ interface AppServerItem {
   savedPath?: string | null
   summary?: { text?: string }[] | null
   content?: { text?: string }[] | null
+  review?: string
 }
 
 /** Stateful mapper: one instance per connection, fed every inbound line. */
@@ -350,6 +351,16 @@ export function createAppServerMapper(): AppServerMapper {
         const image = codexImageOutput(item.result)
         return image === null ? [] : [image]
       }
+      // `/review`: the reviewer's findings arrive whole on leaving review mode.
+      case 'exitedReviewMode':
+        return complete && typeof item.review === 'string' && item.review.trim().length > 0
+          ? [{ type: 'text-delta', text: item.review }]
+          : []
+      // `/compact` (or Codex compacting on its own) finished summarizing.
+      case 'contextCompaction':
+        return complete
+          ? [{ type: 'notice', message: 'Codex compacted the conversation context.' }]
+          : []
       default:
         return []
     }

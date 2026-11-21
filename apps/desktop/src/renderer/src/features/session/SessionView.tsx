@@ -27,7 +27,12 @@ import type { Session } from '@ari/contracts/session'
 import { hasProviderContext } from '@ari/contracts/session'
 import { canSwitchProvider, isHelmSession } from '@ari/contracts/helm'
 import type { ProviderSwitch } from '../transcript/types'
-import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
+import type {
+  CatalogModelInfo,
+  SessionCommands,
+  SessionEventFrame,
+  SessionSummary,
+} from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
@@ -419,6 +424,7 @@ function SessionViewContent({
   const { toast } = useToast()
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
+  const [slashCommands, setSlashCommands] = useState<SessionCommands | null>(null)
   const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
   const draftIntent = useSessionDraftIntent(viewKey)
@@ -500,6 +506,22 @@ function SessionViewContent({
   hiddenRef.current = hidden
   const onDefaultsChangeRef = useRef(onDefaultsChange)
   onDefaultsChangeRef.current = onDefaultsChange
+
+  // The "/" menu: Ari's commands plus the provider's, answered from the main
+  // process's per-session cache. Asked for each time the menu opens, never
+  // before: a session nobody types "/" in must not start a provider to list
+  // them. A remote host does not offer the listing.
+  const loadCommands = useCallback(() => {
+    if (remote) return
+    const requested = sessionId
+    void rpc
+      .invoke('session.commands', { sessionId })
+      .then((result) => {
+        if (sessionIdRef.current === requested) setSlashCommands(result)
+      })
+      .catch(() => undefined)
+  }, [remote, rpc, sessionId])
+  useEffect(() => setSlashCommands(null), [sessionId])
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
@@ -1959,6 +1981,15 @@ function SessionViewContent({
         onEditQueued={handleEditQueued}
         seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+        {...(slashCommands ? { commands: slashCommands.commands } : {})}
+        commandsNote={
+          remote
+            ? 'The agent’s own commands are not listed for a chat on another computer.'
+            : slashCommands === null
+              ? 'Loading the agent’s commands…'
+              : slashCommands.note
+        }
+        onCommandMenu={loadCommands}
         attentionRequired={composerAttentionRequired}
         history={sentPrompts}
         above={

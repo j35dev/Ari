@@ -21,6 +21,7 @@
     "./background-task": "./src/background-task.ts",
     "./attachments": "./src/attachments.ts",
     "./commands": "./src/commands.ts",
+    "./slash-commands": "./src/slash-commands.ts",
     "./events": "./src/events.ts",
     "./rpc": "./src/rpc.ts",
     "./source-control-providers": "./src/source-control-providers.ts",
