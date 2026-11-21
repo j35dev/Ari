@@ -18,7 +18,7 @@ describe('AwakenSplash', () => {
   it('renders the launch screen in the window, not a separate surface', () => {
     const { rerender } = render(<AwakenSplash ready={false} onDone={() => undefined} />)
     expect(splash()).toHaveAttribute('aria-label', 'Ari is starting')
-    expect(screen.getByTestId('awaken-word')).toHaveTextContent('Ari.')
+    expect(screen.getByTestId('awaken-word')).toHaveTextContent('ari')
     expect(screen.getByText('starting')).toBeInTheDocument()
     rerender(<AwakenSplash ready={true} onDone={() => undefined} />)
     expect(screen.getByText('ready')).toBeInTheDocument()
