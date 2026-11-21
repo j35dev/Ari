@@ -2,7 +2,13 @@ import { StrictMode, useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '@ari/contracts/settings'
-import { OnboardingGate, type OnboardingWorkspaceProps } from './OnboardingGate'
+import {
+  ONBOARDING_EXIT_MS,
+  ONBOARDING_LAND_TIMEOUT_MS,
+  OnboardingGate,
+  type OnboardingWorkspaceProps,
+} from './OnboardingGate'
+import { isOnboardingShown } from './onboarding-presence'
 
 const { invoke } = vi.hoisted(() => ({
   invoke: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(),
@@ -11,19 +17,35 @@ vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
 // The frame's scene art reads the theme and paints a canvas; neither is under test here.
 vi.mock('../scene/DitherScene', () => ({ DitherScene: () => null }))
 vi.mock('./OnboardingWizard', () => ({
-  OnboardingWizard: ({ returning, onLeave }: { returning: boolean; onLeave: () => void }) => (
+  OnboardingWizard: ({
+    returning,
+    onLeave,
+    onFinished,
+  }: {
+    returning: boolean
+    onLeave: () => void
+    onFinished: (outcome: unknown, finish: { animate: boolean }) => void
+  }) => (
     <div>
       <h2>{returning ? 'Run setup again' : 'First setup'}</h2>
       <button onClick={onLeave}>Leave wizard</button>
+      <button
+        onClick={() =>
+          onFinished({ sessionId: null, projectId: 'p1', driverKind: null }, { animate: true })
+        }
+      >
+        Finish wizard
+      </button>
     </div>
   ),
 }))
-function Workspace({ onOpenSetup }: OnboardingWorkspaceProps) {
+function Workspace({ onOpenSetup, onLanded }: OnboardingWorkspaceProps) {
   const [count, setCount] = useState(0)
   return (
     <main aria-label="Workspace">
       <button onClick={() => setCount(count + 1)}>Count {count}</button>
       <button onClick={onOpenSetup}>Open setup</button>
+      <button onClick={onLanded}>Land</button>
     </main>
   )
 }
@@ -191,5 +213,37 @@ describe('first-run gate', () => {
         ['settings.get', 'project.list', 'session.list'].includes(method),
       ),
     ).toBe(true)
+  })
+
+  it('marks setup as shown, then zooms it away over the live workspace', async () => {
+    mount()
+    expect(await screen.findByText('First setup')).toBeInTheDocument()
+    expect(isOnboardingShown()).toBe(true)
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish wizard' }))
+    expect(isOnboardingShown()).toBe(false)
+    expect(screen.getByRole('main', { name: 'Workspace' })).toBeVisible()
+    // The finished stage holds on top, inert, until the workspace has landed.
+    const exit = document.querySelector('.ari-onboarding-exit')
+    expect(exit).toHaveClass('is-holding')
+    expect(exit).toHaveAttribute('inert')
+    act(() => vi.advanceTimersByTime(ONBOARDING_EXIT_MS * 2))
+    expect(exit).toHaveClass('is-holding')
+    fireEvent.click(screen.getByRole('button', { name: 'Land' }))
+    expect(exit).not.toHaveClass('is-holding')
+    act(() => vi.advanceTimersByTime(ONBOARDING_EXIT_MS))
+    expect(document.querySelector('.ari-onboarding-exit')).toBeNull()
+    expect(screen.queryByText('First setup')).not.toBeInTheDocument()
+  })
+
+  it('zooms anyway when the workspace never reports landing', async () => {
+    mount()
+    expect(await screen.findByText('First setup')).toBeInTheDocument()
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish wizard' }))
+    act(() => vi.advanceTimersByTime(ONBOARDING_LAND_TIMEOUT_MS))
+    expect(document.querySelector('.ari-onboarding-exit')).not.toHaveClass('is-holding')
+    act(() => vi.advanceTimersByTime(ONBOARDING_EXIT_MS))
+    expect(document.querySelector('.ari-onboarding-exit')).toBeNull()
   })
 })

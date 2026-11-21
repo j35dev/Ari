@@ -156,10 +156,10 @@ import {
   thoughtEffortsFromSession,
 } from '@ari/providers/acp/thought'
 import { createUpdateChecker } from '@ari/providers/updates'
-import { planFor } from '@ari/providers/package-manager'
+import { missingPrerequisite, planFor } from '@ari/providers/package-manager'
 import { ProviderProbes, ProviderUpdates } from './provider-updates'
 import { providerUpdateSessions } from './provider-update-sessions'
-import { runInstall } from '@ari/providers/install'
+import { programOnPath, runInstall } from '@ari/providers/install'
 import { checkNativeLatest, nativeCheckCommand } from './provider-update-checks'
 import {
   AcpDriver,
@@ -2565,7 +2565,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('providers.plan', async (params) => {
     const detections = await probeAllDetections()
     const binaryPath = detections.find((d) => d.kind === params.kind)?.binaryPath ?? null
-    return planFor(params.kind, binaryPath)
+    const plan = planFor(params.kind, binaryPath)
+    if (plan === null) return null
+    // Checked against the same PATH the install itself will run with.
+    const { pathEnv } = await resolveDetectionEnvironment()
+    const argv = binaryPath === null ? plan.installCommand : plan.upgradeCommand
+    return {
+      ...plan,
+      prerequisite: missingPrerequisite(argv, (program) => programOnPath(program, pathEnv)),
+    }
   })
 
   r.register('providers.install', (params) => {
@@ -2712,11 +2720,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('theme.export', ({ id }) => themeLibrary.exportTheme(id))
   r.register('theme.remove', ({ id }) => themeLibrary.remove(id))
 
-  r.register('providers.setupTerminal', async ({ kind }) => {
+  r.register('providers.setupTerminal', async ({ kind, methodId }) => {
     ptyModule = await loadPtyModule()
     if (!ptyModule) return { ok: false as const, error: 'The terminal backend is unavailable.' }
     const result = await openProviderSetupTerminal({
-      signIn: () => accounts.signIn(kind, accounts.activeId(kind)),
+      signIn: async () => {
+        if (methodId === undefined && (kind === 'claude' || kind === 'codex'))
+          return accounts.signIn(kind, accounts.activeId(kind))
+        // Other agents: the login they advertise, exactly as `providers.login` listed it.
+        const { logins } = await resolveProviderLogins(kind, authProbeDeps, providerAuth)
+        const login = logins.find((entry) => methodId === undefined || entry.methodId === methodId)
+        if (login === undefined) return null
+        providerAuth.clear(kind)
+        return { title: login.name, command: login.command, args: login.args, env: login.env ?? {} }
+      },
       terminals,
       homeDir: homedir(),
       platform: process.platform,
@@ -2799,6 +2816,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Opening is add + mark-open: the store canonicalizes the path so the same
   // folder never yields two sidebar groups.
+  // The renderer's counterpart to Aria's `project create`, with no progress stream.
+  r.register('project.create', async ({ name }) => {
+    const result = await createProject(
+      { projects: getProjectStore(), home: homedir(), userData: app.getPath('userData') },
+      { name },
+    )
+    const project = getProjectStore().get(result.projectId)
+    if (project?.status === 'ok') void ensureProjectWatched(project)
+    void refreshProjectContext()
+    rpcRegistry.publish('projects.changed', {})
+    return result
+  })
+
   r.register('project.open', async (params) => {
     const project = await getProjectStore().open(params.path, params.name)
     if (project.status === 'ok') void ensureProjectWatched(project)
@@ -3024,7 +3054,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // report itself broken.
     const apiKey = params.apiKey ?? (params.id !== undefined ? store.apiKeyFor(params.id) : null)
     const base = params.baseUrl.replace(/\/+$/, '')
-    const url = `${base}${modelsPathFor(params.flavor)}`
+    const url = `${base}${modelsPathFor(params.flavor, base, apiKey)}`
     const headers: Record<string, string> =
       params.flavor === 'anthropic-messages'
         ? { 'x-api-key': apiKey ?? '', 'anthropic-version': '2023-06-01' }

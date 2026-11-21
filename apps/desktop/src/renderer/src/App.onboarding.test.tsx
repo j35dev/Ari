@@ -10,7 +10,13 @@ import { loadLastPick } from './features/composer/last-pick'
 import { activeSessionOf } from './features/split/split-layout'
 import type { SessionScope } from './features/session/session-client'
 import { readProjectDrafts } from './features/machines/project-draft-registry'
-import { localSnapshotFixture, desktopMachineFixture, projectCatalogFixture, catalogFixture, versionFixture } from './features/machines/fixtures.test-support'
+import {
+  localSnapshotFixture,
+  desktopMachineFixture,
+  projectCatalogFixture,
+  catalogFixture,
+  versionFixture,
+} from './features/machines/fixtures.test-support'
 import { spaceActions, spaceStoreSnapshot } from './features/spaces'
 import { keepAliveActions } from './features/session/session-keep-alive'
 import { dropDraftIntentMemory } from './features/composer/draft-recovery-store'
@@ -197,13 +203,25 @@ beforeEach(() => {
   })
 })
 
+/** Welcome → the detected agent → the pre-ticked project → look, up to Finish setup. */
+async function walkFirstRun() {
+  await screen.findByRole('heading', { name: 'Welcome to Ari' })
+  await screen.findByText('Found Claude Code')
+  fireEvent.click(screen.getByRole('button', { name: 'Get started' }))
+  await screen.findByRole('radio', { name: 'Claude Code', checked: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await screen.findByRole('checkbox', { name: /^Ari /, checked: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 project' }))
+  await screen.findByRole('heading', { name: 'Make it yours' })
+}
+
+/** Finishes setup and waits out the launch checklist and the zoom into the workspace. */
 async function finishFirstRun() {
-  await screen.findByRole('heading', { name: 'Meet your coding agents.' })
-  await screen.findByText('Sign-in found')
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
+  await walkFirstRun()
+  fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+  await waitFor(() => expect(screen.queryByRole('main', { name: 'Ari setup' })).toBeNull(), {
+    timeout: 5000,
+  })
 }
 
 describe('App onboarding integration', () => {
@@ -212,25 +230,40 @@ describe('App onboarding integration', () => {
     const host = desktopMachineFixture()
     const remote = projectCatalogFixture()
     let release!: () => void
-    const gate = new Promise<void>((done) => { release = done })
+    const gate = new Promise<void>((done) => {
+      release = done
+    })
     let localArrived = false
     invoke.mockImplementation(async (method, params) => {
       if (method === 'machines.list') return [host]
       if (method === 'machines.localSnapshot') {
-        const snapshot = await base(method, params) as ReturnType<typeof localSnapshotFixture>
-        snapshot.catalog.projects = snapshot.catalog.projects.map((entry) => ({ ...entry,
-          repositoryIdentity: remote.projects[0]!.repositoryIdentity }))
+        const snapshot = (await base(method, params)) as ReturnType<typeof localSnapshotFixture>
+        snapshot.catalog.projects = snapshot.catalog.projects.map((entry) => ({
+          ...entry,
+          repositoryIdentity: remote.projects[0]!.repositoryIdentity,
+        }))
         if (snapshot.catalog.projects.some((entry) => entry.id === project.id)) localArrived = true
         return snapshot
       }
       if (method === 'machines.query') {
         const op = (params as { query: { op: string } }).query.op
-        if (op === 'project.catalog') { await gate; return { ok: true, result: remote } }
+        if (op === 'project.catalog') {
+          await gate
+          return { ok: true, result: remote }
+        }
         if (op === 'session.list') return { ok: true, result: [] }
         if (op === 'models.list') return { ok: true, result: catalogFixture }
         if (op === 'host.version') return { ok: true, result: versionFixture }
-        if (op === 'host.permissions') return { ok: true, result: { deviceId: 'device',
-          projectScope: { kind: 'all' }, allowTerminal: false, managedLeaseExpiresAt: null } }
+        if (op === 'host.permissions')
+          return {
+            ok: true,
+            result: {
+              deviceId: 'device',
+              projectScope: { kind: 'all' },
+              allowTerminal: false,
+              managedLeaseExpiresAt: null,
+            },
+          }
       }
       return base(method, params)
     })
@@ -242,14 +275,19 @@ describe('App onboarding integration', () => {
     await act(async () => release())
     fireEvent.click(await screen.findByRole('button', { name: 'Execution machine' }))
     expect(await screen.findByRole('menuitem', { name: /Studio computer/ })).toBeEnabled()
-    expect(readProjectDrafts()[0]?.group.checkouts.map((entry) => entry.hostId)).toEqual(['local', host.id])
+    expect(readProjectDrafts()[0]?.group.checkouts.map((entry) => entry.hostId)).toEqual([
+      'local',
+      host.id,
+    ])
     expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
   })
 
   it('drops a delayed setup handoff after space navigation without a pointer or key event', async () => {
     const base = invoke.getMockImplementation()!
     let release!: () => void
-    const gate = new Promise<void>((done) => { release = done })
+    const gate = new Promise<void>((done) => {
+      release = done
+    })
     let waiting = false
     invoke.mockImplementation(async (method, params) => {
       if (method === 'machines.localSnapshot' && projects.length > 0) {
@@ -264,7 +302,9 @@ describe('App onboarding integration', () => {
     act(() => spaceActions.create())
     const newerSpace = spaceStoreSnapshot().activeSpaceId
     await act(async () => release())
-    await waitFor(() => expect(invoke.mock.calls.some(([method]) => method === 'project.list')).toBe(true))
+    await waitFor(() =>
+      expect(invoke.mock.calls.some(([method]) => method === 'project.list')).toBe(true),
+    )
     expect(spaceStoreSnapshot().activeSpaceId).toBe(newerSpace)
     expect(readProjectDrafts()).toHaveLength(0)
     expect(screen.queryByRole('button', { name: 'Execution machine' })).toBeNull()
@@ -524,12 +564,7 @@ describe('App onboarding integration', () => {
   it('finishes first run into an agent draft, retains it through setup, and creates only on first Send', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: 'Meet your coding agents.' })
-    await screen.findByText('Sign-in found')
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
+    await finishFirstRun()
     await screen.findByRole('button', { name: 'Execution machine' })
     const input = screen.getByRole('textbox', { name: 'Message' })
     expect(settings.onboarding?.completedAt).toBeGreaterThan(0)
@@ -537,8 +572,8 @@ describe('App onboarding integration', () => {
     expect(loadLastPick()?.driverKind).toBe('claude')
     expect(activeSessionOf(splitLayoutSnapshot())).toBeNull()
     expect(
-      invoke.mock.calls.some(
-        ([method]) => ['session.create', 'command.dispatch', 'aria.open'].includes(method),
+      invoke.mock.calls.some(([method]) =>
+        ['session.create', 'command.dispatch', 'aria.open'].includes(method),
       ),
     ).toBe(false)
     await user.type(input, 'Keep this first prompt through setup')
@@ -548,7 +583,7 @@ describe('App onboarding integration', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Run setup again' }))
-    await screen.findByRole('heading', { name: 'Meet your coding agents.' })
+    await screen.findByRole('heading', { name: 'Welcome to Ari' })
     expect(input).not.toBeVisible()
     const count = invoke.mock.calls.length
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
@@ -612,14 +647,9 @@ describe('App onboarding integration', () => {
       },
     ]
     render(<App />)
-    await screen.findByRole('heading', { name: 'Meet your coding agents.' })
-    await screen.findByText('Sign-in found')
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(screen.getByRole('checkbox', { name: 'Open a new chat in Ari' })).not.toBeChecked()
+    await walkFirstRun()
     expect(settings.onboarding?.completedAt).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
     await waitFor(() => expect(settings.onboarding?.completedAt).toBeGreaterThan(0))
     expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
     expect(sessions[0]?.id).toBe('sess_existing_first')
@@ -627,7 +657,7 @@ describe('App onboarding integration', () => {
 
   it('remembers a skip across remounts without requiring an agent or project', async () => {
     const first = render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip setup' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
     await screen.findByText('Opened session sess_aria')
     first.unmount()
     render(<App />)
