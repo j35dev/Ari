@@ -2,8 +2,8 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
-import { setOnboardingShown } from '../onboarding/onboarding-presence'
-import { useUpdateToasts } from './use-update-toasts'
+import { noteSetupDisplayed, setOnboardingShown } from '../onboarding/onboarding-presence'
+import { AFTER_SETUP_QUIET_MS, useUpdateToasts } from './use-update-toasts'
 
 const { invokeFn, subscribeFn } = vi.hoisted(() => ({
   invokeFn: vi.fn(),
@@ -206,6 +206,47 @@ describe('useUpdateToasts', () => {
       expect(screen.queryByText(/Claude installed/)).toBeNull()
     } finally {
       setOnboardingShown(false)
+    }
+  })
+
+  // Last: marking setup as displayed is module state for the rest of the file.
+  it('keeps the first minutes after a completed setup quiet, then announces', () => {
+    vi.useFakeTimers()
+    // The periodic detect finds nothing new; only the held frame should show.
+    invokeFn.mockResolvedValue([])
+    let onFrame!: (payload: unknown) => void
+    subscribeFn.mockImplementation((_name, _params, cb) => {
+      onFrame = cb
+      return () => undefined
+    })
+    setOnboardingShown(true)
+    noteSetupDisplayed()
+    try {
+      render(
+        <ToastProvider>
+          <Watcher />
+        </ToastProvider>,
+      )
+      act(() =>
+        onFrame({
+          type: 'detections',
+          detections: [{ kind: 'codex', updateAvailable: true, latestVersion: '1.0.0' }],
+        }),
+      )
+      act(() => setOnboardingShown(false))
+      // The landing session appears with no toast over it.
+      expect(screen.queryByText('Codex 1.0.0 available')).toBeNull()
+      act(() => {
+        vi.advanceTimersByTime(AFTER_SETUP_QUIET_MS - 1_000)
+      })
+      expect(screen.queryByText('Codex 1.0.0 available')).toBeNull()
+      act(() => {
+        vi.advanceTimersByTime(1_000)
+      })
+      expect(screen.getByText('Codex 1.0.0 available')).toBeInTheDocument()
+    } finally {
+      setOnboardingShown(false)
+      vi.useRealTimers()
     }
   })
 })

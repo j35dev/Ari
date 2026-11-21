@@ -3,12 +3,18 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { ProvidersUpdateFrame, RpcResults } from '@ari/contracts/rpc'
 import { useToast } from '@ari/ui/toast'
 import { rpc } from '../../lib/rpc'
-import { isOnboardingShown, onOnboardingShownChange } from '../onboarding/onboarding-presence'
+import {
+  isOnboardingShown,
+  onOnboardingShownChange,
+  wasSetupDisplayed,
+} from '../onboarding/onboarding-presence'
 
 type Detections = RpcResults['providers.detect']
 
 /** Grace after launch so the toast never races the boot splash's own scan. */
 const GRACE_MS = 30_000
+/** After a setup the user went through, their first minutes in the workspace stay quiet. */
+export const AFTER_SETUP_QUIET_MS = 90_000
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
@@ -41,6 +47,8 @@ export function useUpdateToasts(): void {
     /** Installs started while setup was shown; setup reports them itself. */
     const quietKinds = new Set<DriverKind>()
     let deferred: Detections | null = null
+    let quietUntil = 0
+    let quietTimer: ReturnType<typeof setTimeout> | undefined
 
     const run = (kind: DriverKind, operation: 'install' | 'upgrade', id: number): void => {
       if (inflight.has(kind)) return
@@ -78,6 +86,17 @@ export function useUpdateToasts(): void {
       if (cancelled) return
       if (isOnboardingShown()) {
         deferred = detections
+        return
+      }
+      const wait = quietUntil - Date.now()
+      if (wait > 0) {
+        deferred = detections
+        clearTimeout(quietTimer)
+        quietTimer = setTimeout(() => {
+          const held = deferred
+          deferred = null
+          if (held) announce(held)
+        }, wait)
         return
       }
       for (const detection of detections) {
@@ -179,7 +198,10 @@ export function useUpdateToasts(): void {
     }, GRACE_MS)
 
     const unwatch = onOnboardingShownChange((shown) => {
-      if (shown || deferred === null) return
+      if (shown) return
+      // The first session just appeared; let the user start before talking.
+      if (wasSetupDisplayed()) quietUntil = Date.now() + AFTER_SETUP_QUIET_MS
+      if (deferred === null) return
       const held = deferred
       deferred = null
       announce(held)
@@ -188,6 +210,7 @@ export function useUpdateToasts(): void {
     return () => {
       cancelled = true
       clearTimeout(grace)
+      clearTimeout(quietTimer)
       unsubscribe()
       unwatch()
     }

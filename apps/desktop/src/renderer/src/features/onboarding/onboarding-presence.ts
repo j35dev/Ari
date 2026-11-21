@@ -6,7 +6,17 @@
  * is still possible, and anything announced in that window would land on it.
  */
 let shown = true
+/** True once setup has actually been on screen this launch, not just possible. */
+let displayed = false
 const listeners = new Set<(shown: boolean) => void>()
+
+export function noteSetupDisplayed(): void {
+  displayed = true
+}
+
+export function wasSetupDisplayed(): boolean {
+  return displayed
+}
 
 export function isOnboardingShown(): boolean {
   return shown
