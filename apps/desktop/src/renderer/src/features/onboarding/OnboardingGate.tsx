@@ -9,7 +9,7 @@ import { visibleProjects, visibleSessions } from '../aria/visibility'
 import { ONBOARDING_TITLE_CLASS, OnboardingFrame } from './OnboardingFrame'
 import { OnboardingWizard, type OnboardingFinish } from './OnboardingWizard'
 import type { OnboardingOutcome } from './onboarding-completion'
-import { setOnboardingShown } from './onboarding-presence'
+import { noteSetupDisplayed, setOnboardingShown } from './onboarding-presence'
 import './onboarding.css'
 
 const log = createLogger('onboarding:gate')
@@ -164,6 +164,9 @@ export function OnboardingGate({
     setOnboardingShown(covered)
   }, [covered])
   useEffect(() => () => setOnboardingShown(false), [])
+  useEffect(() => {
+    if (state.status === 'setup') noteSetupDisplayed()
+  }, [state.status])
   const setup = state.status === 'setup' ? state : (exiting?.setup ?? null)
   const leaving = state.status !== 'setup' && exiting !== null
   return (

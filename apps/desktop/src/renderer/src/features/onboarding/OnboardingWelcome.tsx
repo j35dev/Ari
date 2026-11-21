@@ -1,14 +1,13 @@
-import type { Ref } from 'react'
+import { useId, type Ref } from 'react'
 import { motion } from 'motion/react'
 import { EASE_OUT_EXPO } from '@ari/ui/motion'
+import { ARI_MARK_FOLD_PATH, ARI_MARK_PATH, ARI_MARK_VIEWBOX } from '@ari/ui/brand/ari-mark'
 import { ProviderLogo } from '../composer/provider-logo'
 import { agentName, usableAgents, type Detection } from './agent-catalog'
 import { DrawnCheck, listItem, staggerList, useCalm } from './onboarding-motion'
 
-const WORD = ['A', 'r', 'i']
-
 /**
- * The first frame: the wordmark lands while detection is already running, and
+ * The first frame: the mark lands while detection is already running, and
  * each agent found appears as one line with a check that draws itself.
  */
 export function OnboardingWelcome({
@@ -21,6 +20,7 @@ export function OnboardingWelcome({
   headingRef: Ref<HTMLHeadingElement>
 }) {
   const calm = useCalm()
+  const clipId = `ari-welcome-${useId().replace(/:/g, '')}`
   const found = usableAgents(detections)
   const settled = detections !== null && !scanning
   return (
@@ -29,31 +29,33 @@ export function OnboardingWelcome({
         ref={headingRef}
         tabIndex={-1}
         aria-label="Welcome to Ari"
-        className="flex items-baseline text-[56px] font-semibold leading-none tracking-[-0.045em] text-fg outline-none"
+        className="flex flex-col items-center outline-none"
       >
-        {WORD.map((letter, index) => (
-          <motion.span
-            key={letter}
-            aria-hidden="true"
-            initial={calm ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: EASE_OUT_EXPO, delay: 0.06 * index }}
-          >
-            {letter}
-          </motion.span>
-        ))}
-        <motion.span
+        {/* The app icon's mark rises in, the same one the launch screen draws. */}
+        <motion.svg
           aria-hidden="true"
-          className="text-accent"
-          initial={calm ? false : { opacity: 0, scale: 0.2 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, ease: EASE_OUT_EXPO, delay: 0.3 }}
+          viewBox={`0 0 ${ARI_MARK_VIEWBOX.width} ${ARI_MARK_VIEWBOX.height}`}
+          className="h-[50px] w-auto text-fg"
+          initial={calm ? false : { opacity: 0, y: 14, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.6, ease: EASE_OUT_EXPO, delay: 0.04 }}
         >
-          .
-        </motion.span>
+          <defs>
+            <clipPath id={clipId}>
+              <path d={ARI_MARK_PATH} />
+            </clipPath>
+          </defs>
+          <path d={ARI_MARK_PATH} fill="currentColor" />
+          <path
+            d={ARI_MARK_FOLD_PATH}
+            fill="var(--ari-bg)"
+            fillOpacity={0.14}
+            clipPath={`url(#${clipId})`}
+          />
+        </motion.svg>
       </h2>
       <motion.p
-        className="mt-4 text-[14px] leading-5 text-fg-muted"
+        className="mt-5 text-[14px] leading-5 text-fg-muted"
         initial={calm ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4, delay: 0.45 }}
