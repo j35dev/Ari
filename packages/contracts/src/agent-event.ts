@@ -6,6 +6,7 @@ import {
   timestampSchema,
 } from './common'
 import { backgroundTaskKindSchema, backgroundTaskStatusSchema } from './background-task'
+import { slashCommandListSchema } from './slash-commands'
 
 /**
  * Normalized stream events emitted by every provider adapter. Native CLI
@@ -109,6 +110,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     detail: z.string().nullable().optional(),
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
+  /**
+   * The slash commands the provider offers this session now, replacing any
+   * list it reported before (ACP `available_commands_update`, Claude's
+   * `commands_changed`). Cached per session for the composer's "/" menu;
+   * never journaled.
+   */
+  z.object({ type: z.literal('commands'), commands: slashCommandListSchema }),
   /**
    * Something the user must know that did not fail the turn — a requested
    * model the harness does not offer, so the reply came from a different one.

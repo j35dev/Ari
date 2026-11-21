@@ -2,7 +2,14 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
-import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type { SlashCommand } from '@ari/contracts/slash-commands'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  CommandListRequest,
+  Driver,
+  ProviderAdapter,
+} from '../driver'
 import { getProviderCapabilities, UNKNOWN_PROVIDER_CAPABILITIES } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
 import { acpSessionPool, type AcpSessionPool } from './session-pool'
@@ -1445,6 +1452,17 @@ export class AcpDriver implements Driver {
     // Both paths must take them: a turn may start over ACP or fall back to the CLI.
     this.systemInstructions =
       systemInstructionsMeta(kind, 'probe') !== null && fallback?.systemInstructions === true
+  }
+
+  /**
+   * ACP agents advertise commands only inside an open session, so the list
+   * arrives with the first turn. Before that, a fallback that can list its
+   * commands without a turn (Codex's app-server) speaks for the provider; an
+   * ACP adapter handles the same names when they are sent as the prompt.
+   */
+  async listCommands(request: CommandListRequest): Promise<SlashCommand[]> {
+    if (!this.fallback?.listCommands) return []
+    return this.fallback.listCommands(request)
   }
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {

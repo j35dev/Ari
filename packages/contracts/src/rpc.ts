@@ -7,6 +7,7 @@ import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
+import type { SlashCommand } from './slash-commands'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
 import type { Project, ProjectDiscovery } from './project'
@@ -66,6 +67,20 @@ export type {
  * The RPC surface between renderer and engine. Method names are an allowlist;
  * every payload is validated in the main process before a handler runs.
  */
+
+/** What `session.commands` answers: the menu's entries and where they came from. */
+export interface SessionCommands {
+  commands: SlashCommand[]
+  /** The provider the list belongs to. */
+  driverKind: DriverKind | null
+  /**
+   * False when the provider's own commands are not known yet, e.g. an ACP
+   * agent that only advertises them once a session is open.
+   */
+  complete: boolean
+  /** A sentence for the menu when the list is partial or the provider gives none. */
+  note: string | null
+}
 
 /** One redeemable reset. Several can be banked with different expiries. */
 export interface ProviderResetCredit {
@@ -803,6 +818,15 @@ export const rpcParams = {
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
+  /**
+   * The "/" menu's commands for this session: Ari's own, then what its
+   * provider offers. Answers from the per-session cache when it has one;
+   * `refresh` asks the provider again (no model turn is started).
+   */
+  'session.commands': z.object({
+    sessionId: z.string().min(1),
+    refresh: z.boolean().optional(),
+  }),
   /** The children this session delegated to, with their state and last report. */
   'session.tasks': z.object({ sessionId: z.string().min(1) }),
   /** Stop every running session below this one; the session itself is left alone. */
@@ -1273,6 +1297,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }
+  'session.commands': SessionCommands
   'session.tasks': ChildTask[]
   'session.stopChildren': { stopped: number }
   'session.resume.schedule': { at: number }

@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import type { SlashCommand } from '@ari/contracts/slash-commands'
 import type { Detection } from './types'
 
 /** Supported by Ari's transport, not merely by the provider's native CLI. */
@@ -100,6 +101,19 @@ export interface AdapterSession {
    * (or empty) when the turn carries none.
    */
   attachments?: SessionAttachment[]
+  /**
+   * Set when this turn is a slash command the provider runs through its own
+   * method instead of as prompt text (a `run: 'rpc'` entry). `prompt` still
+   * holds the command as typed. Drivers without such methods never get one.
+   */
+  command?: { name: string; args: string }
+}
+
+/** Where a driver looks for a session's slash commands before a turn has run. */
+export interface CommandListRequest {
+  sessionId: string
+  workspacePath: string
+  runtimeEnv?: Record<string, string | undefined>
 }
 
 export interface ProviderAdapter {
@@ -164,6 +178,12 @@ export interface Driver {
   /** True when {@link AdapterSession.instructions} reaches the provider's system prompt. */
   systemInstructions?: boolean
   create(session: AdapterSession): Promise<ProviderAdapter>
+  /**
+   * The provider's slash commands without starting a model turn. Adapters
+   * report later changes as `commands` events. Absent when the provider only
+   * advertises them inside a running session.
+   */
+  listCommands?(request: CommandListRequest): Promise<SlashCommand[]>
 }
 
 export type { Detection }

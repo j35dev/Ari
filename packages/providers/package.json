@@ -18,6 +18,7 @@
     "./install": "./src/install.ts",
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
+    "./slash-commands": "./src/slash-commands.ts",
     "./attachments": "./src/attachments.ts",
     "./spawn-cli": "./src/spawn-cli.ts",
     "./shell-env": "./src/shell-env.ts",

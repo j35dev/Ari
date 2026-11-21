@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
+import { parseSlashCommand } from '@ari/contracts/slash-commands'
 import type { z } from 'zod'
 import type { remoteAttachmentSchema } from '@ari/contracts/remote'
 import { Markdown } from '../../components/Markdown'
@@ -94,6 +95,7 @@ export function Conversation({
                   <Part
                     key={`${message.id}:${block.sourceIndex}`}
                     part={block.part}
+                    user={user}
                     sessionId={sessionId}
                     streaming={
                       running &&
@@ -127,16 +129,77 @@ export function Conversation({
 
 function Part({
   part,
+  user = false,
   sessionId,
   streaming,
 }: {
   part: Extract<Message['parts'][number], { type: 'text' | 'image' }>
+  user?: boolean
   sessionId: string
   streaming: boolean
 }): ReactNode {
-  if (part.type === 'text') return <Markdown text={part.text} streaming={streaming} />
+  if (part.type === 'text') {
+    const command = user ? parseSlashCommand(part.text) : null
+    if (command) return <CommandChip name={command.name} args={command.args} />
+    if (!user && NOTICE_MARKER.test(part.text))
+      return <Notice text={part.text.replace(NOTICE_MARKER, '')} />
+    return <Markdown text={part.text} streaming={streaming} />
+  }
   return <ImageAttachment sessionId={sessionId} id={part.attachmentId} name={part.name} />
 }
+/** What Ari or a command reported, marked by the engine with a leading ℹ. */
+const NOTICE_MARKER = /^\s*ℹ\s?/
+const FOLD_CHARS = 400
+
+/** A slash command the user sent: its name, then its arguments, folded when long. */
+function CommandChip({ name, args }: { name: string; args: string }): ReactNode {
+  const [open, setOpen] = useState(false)
+  const long = args.length > FOLD_CHARS || args.includes('\n')
+  return (
+    <p data-slash-command={name} className="whitespace-pre-wrap break-words text-[14px]">
+      <span className="font-medium">/{name}</span>
+      {args ? (
+        <span className="text-fg-muted">
+          {' '}
+          {long && !open ? `${args.slice(0, FOLD_CHARS).split('\n')[0]}…` : args}
+        </span>
+      ) : null}
+      {long ? (
+        <button
+          type="button"
+          className="ml-1.5 text-[12px] text-fg-subtle underline"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
+    </p>
+  )
+}
+
+/** A notice row: muted, wrapped, and folded past a few lines. */
+function Notice({ text }: { text: string }): ReactNode {
+  const [open, setOpen] = useState(false)
+  const body = text.trim()
+  const long = body.length > FOLD_CHARS || body.split('\n').length > 6
+  return (
+    <div role="note" className="my-1 text-[13px] text-fg-muted">
+      <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+        {long && !open ? `${body.split('\n').slice(0, 6).join('\n').slice(0, FOLD_CHARS)}…` : body}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          className="mt-0.5 text-[12px] text-fg-subtle underline"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function CopyMessage({ text }: { text: string }): ReactNode {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   return (

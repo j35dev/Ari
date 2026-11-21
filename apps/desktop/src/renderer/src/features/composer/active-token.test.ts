@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { activeTokenAt } from './active-token'
 
 describe('activeTokenAt', () => {
-  it('ignores slash text now that the slash popup is removed', () => {
-    expect(activeTokenAt('/mo', 3)).toBeNull()
+  it('detects a command only at the start of the draft, while its name is typed', () => {
+    expect(activeTokenAt('/mo', 3)).toEqual({ kind: 'command', raw: '/mo', start: 0 })
+    expect(activeTokenAt('/', 1)).toEqual({ kind: 'command', raw: '/', start: 0 })
+    expect(activeTokenAt('/superpowers:brain', 18)?.kind).toBe('command')
+    expect(activeTokenAt('/$imagegen', 10)?.kind).toBe('command')
+    // Ari's own command is two words.
+    expect(activeTokenAt('/ari th', 7)).toEqual({ kind: 'command', raw: '/ari th', start: 0 })
+    expect(activeTokenAt('/compact ', 9)).toBeNull()
+    expect(activeTokenAt('/compact now', 3)).toEqual({ kind: 'command', raw: '/co', start: 0 })
     expect(activeTokenAt('run /cle', 8)).toBeNull()
     expect(activeTokenAt('abc/', 4)).toBeNull()
+    expect(activeTokenAt(' /mo', 4)).toBeNull()
   })
 
   it('detects a mention token with path characters', () => {
