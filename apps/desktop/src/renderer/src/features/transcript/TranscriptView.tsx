@@ -536,10 +536,11 @@ export function TranscriptView({
             setAtBottom(true)
             if (el) scrollToBottom(el, 'smooth')
           }}
-          className="absolute bottom-4 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-md border border-border-strong bg-surface-1 px-2.5 text-[13px] text-fg-muted shadow-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          aria-label="Jump to latest"
+          className="ari-jump-latest absolute bottom-4 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border-strong bg-surface-1 px-2.5 text-[13px] text-fg-muted shadow-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <ArrowDown size={14} aria-hidden="true" />
-          Jump to latest
+          <span className="ari-jump-latest-label">Jump to latest</span>
         </button>
       ) : null}
     </div>
