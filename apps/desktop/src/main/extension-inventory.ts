@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults } from '@ari/contracts/rpc'
-import { discoverExtensions, type ExtensionRecord } from '@ari/providers/extensions'
+import { discoverExtensions, redactArgs, type ExtensionRecord } from '@ari/providers/extensions'
 import { realDetectEnvironment, type DetectEnvironment } from '@ari/providers/types'
 import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
 import { sanitizeMcpSegment } from '@ari/ari-core/mcp-tools'
@@ -77,9 +77,13 @@ function coreMcpRecords(servers: McpServerConfig[]): ExtensionRecord[] {
     sourcePath: null,
     transport: 'stdio' as const,
     command: basename(server.command),
+    ...(server.args.length > 0 ? { args: redactArgs(server.args) } : {}),
+    ...(Object.keys(server.env).length > 0 ? { envKeys: Object.keys(server.env) } : {}),
     disabled: server.disabled,
     delivery: 'hosted' as const,
-    ...(sanitizeMcpSegment(server.name) === 'ari_browser' ? { problem: 'duplicate-name' as const } : {}),
+    ...(sanitizeMcpSegment(server.name) === 'ari_browser'
+      ? { problem: 'duplicate-name' as const }
+      : {}),
   }))
 }
 
