@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { existsSync } from 'node:fs'
-import { win32 } from 'node:path'
+import { posix, win32 } from 'node:path'
 import { createLogger } from '@ari/shared/logger'
 import { teardownChild } from './teardown'
 import { buildShellSpawnArgs, needsWindowsShell } from './spawn-cli'
@@ -56,6 +56,25 @@ export function resolveInstallProgram(program: string, env: NodeJS.ProcessEnv): 
     }
   }
   return program
+}
+
+/** True when `program` resolves on `pathEnv`, the way a spawn of the bare name would. */
+export function programOnPath(
+  program: string,
+  pathEnv: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const windows = platform === 'win32'
+  const paths = windows ? win32 : posix
+  const extensions = windows ? ['.exe', '.com', '.cmd', '.bat', '.ps1'] : ['']
+  return pathEnv
+    .split(windows ? ';' : ':')
+    .filter((directory) => directory.length > 0)
+    .some((directory) =>
+      extensions.some((extension) =>
+        existsSync(paths.join(directory.replace(/^"|"$/g, ''), `${program}${extension}`)),
+      ),
+    )
 }
 
 export interface InstallRunnerOptions {

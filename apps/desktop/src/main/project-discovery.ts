@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs'
-import { open, opendir, realpath, stat } from 'node:fs/promises'
+import { open, opendir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import {
@@ -37,6 +37,24 @@ function excluded(path: string, roots: ReadonlySet<string>): boolean {
       key,
     ) || [...roots].some((prefix) => key === prefix || key.startsWith(`${prefix}/`))
   )
+}
+
+/** The branch a working tree has checked out, read from HEAD without running Git. */
+export async function readGitBranch(folder: string): Promise<string | null> {
+  try {
+    let gitDir = join(folder, '.git')
+    if ((await stat(gitDir)).isFile()) {
+      // A linked worktree or submodule: `.git` names the real directory.
+      const pointer = /^gitdir:\s*(.+)$/m.exec(await readFile(gitDir, 'utf8'))?.[1]?.trim()
+      if (!pointer) return null
+      gitDir = resolve(folder, pointer)
+    }
+    const head = (await readFile(join(gitDir, 'HEAD'), 'utf8')).trim()
+    const ref = /^ref:\s*refs\/heads\/(.+)$/.exec(head)?.[1]
+    return ref ?? (/^[0-9a-f]{7,64}$/i.test(head) ? head.slice(0, 7) : null)
+  } catch {
+    return null
+  }
 }
 
 /** Discovers existing folders from bounded Claude/Codex metadata; never imports or starts agents. */
@@ -224,10 +242,12 @@ export async function discoverAgentProjects(
     }),
   ])
   if (stop) signal.removeEventListener('abort', stop)
+  const projects = [...found.values()]
+    .map((project) => ({ ...project, sources: [...project.sources] }))
+    .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || a.name.localeCompare(b.name))
+  const branches = await Promise.all(projects.map((project) => readGitBranch(project.path)))
   return {
-    projects: [...found.values()]
-      .map((project) => ({ ...project, sources: [...project.sources] }))
-      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || a.name.localeCompare(b.name)),
+    projects: projects.map((project, index) => ({ ...project, branch: branches[index] ?? null })),
     truncated,
     warnings: [...warnings],
   }

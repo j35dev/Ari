@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inferManager, planFor } from './package-manager'
+import { inferManager, missingPrerequisite, planFor } from './package-manager'
 
 describe('inferManager', () => {
   it('infers npm from the win32 global prefix layout', () => {
@@ -206,5 +206,42 @@ describe('planFor', () => {
     expect(
       planFor('codex', '/opt/homebrew/Caskroom/codex/0.1/codex', 'darwin')?.upgradeCommand,
     ).toEqual(['brew', 'upgrade', '--cask', 'codex'])
+  })
+})
+
+describe('first installs', () => {
+  it('prefers the vendor installer when nothing is installed yet', () => {
+    expect(inferManager(null, 'claude')).toBe('native')
+    expect(planFor('claude', null, 'win32')?.installCommand.at(-1)).toContain(
+      'https://claude.ai/install.ps1',
+    )
+    expect(planFor('claude', null, 'linux')?.installCommand).toEqual([
+      'bash',
+      '-c',
+      'curl -fsSL https://claude.ai/install.sh | bash',
+    ])
+    // Codex has no vendor script, so npm stays its channel.
+    expect(planFor('codex', null)?.installCommand.slice(0, 3)).toEqual(['npm', 'install', '-g'])
+  })
+})
+
+describe('missingPrerequisite', () => {
+  it('names Node.js when an npm install cannot find npm', () => {
+    expect(missingPrerequisite(['npm', 'install', '-g', '@openai/codex'], () => false)).toEqual({
+      program: 'npm',
+      label: 'Node.js',
+      url: 'https://nodejs.org/en/download',
+    })
+    expect(missingPrerequisite(['npm', 'install', '-g', 'x'], () => true)).toBeNull()
+  })
+
+  it('checks the download tool inside a vendor shell script', () => {
+    const argv = ['bash', '-c', 'curl -fsSL https://claude.ai/install.sh | bash']
+    expect(missingPrerequisite(argv, (program) => program !== 'curl')?.label).toBe('curl')
+    expect(missingPrerequisite(argv, () => true)).toBeNull()
+  })
+
+  it('does not second-guess programs every machine has', () => {
+    expect(missingPrerequisite(['powershell.exe', '-Command', 'x'], () => false)).toBeNull()
   })
 })

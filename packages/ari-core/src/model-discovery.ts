@@ -45,9 +45,28 @@ const defaultDiscoveryFetch: DiscoveryFetch = async (url, init) => {
   }
 }
 
-/** Path appended to the endpoint base URL for each flavor's model listing. */
-export function modelsPathFor(flavor: EndpointFlavor): string {
-  return flavor === 'ollama' ? '/api/tags' : '/models'
+/**
+ * Path appended to the endpoint base URL for each flavor's model listing.
+ * OpenRouter's public `/models` answers any key, so with a key the listing
+ * comes from `/models/user`, which refuses one that does not work.
+ */
+export function modelsPathFor(
+  flavor: EndpointFlavor,
+  baseUrl?: string,
+  apiKey?: string | null,
+): string {
+  if (flavor === 'ollama') return '/api/tags'
+  if (apiKey && baseUrl && isOpenRouter(baseUrl)) return '/models/user'
+  return '/models'
+}
+
+function isOpenRouter(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname
+    return host === 'openrouter.ai' || host.endsWith('.openrouter.ai')
+  } catch {
+    return false
+  }
 }
 
 function authHeaders(
@@ -135,7 +154,7 @@ export async function discoverModels(
   discoveryFetch: DiscoveryFetch = defaultDiscoveryFetch,
 ): Promise<DiscoverModelsResult> {
   const base = request.baseUrl.replace(/\/+$/, '')
-  const url = `${base}${modelsPathFor(request.flavor)}`
+  const url = `${base}${modelsPathFor(request.flavor, request.baseUrl, request.apiKey)}`
   const headers = authHeaders(request.flavor, request.apiKey, request.headers)
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let response

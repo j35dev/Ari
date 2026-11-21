@@ -29,9 +29,12 @@ function paths(path: string) {
   return /^[a-z]:[\\/]|\\\\/i.test(path) ? win32 : posix
 }
 
+/** Providers whose vendor ships its own installer, preferred for a first install. */
+const VENDOR_INSTALLERS: ReadonlySet<DriverKind> = new Set(['claude', 'grok'])
+
 /** Evidence from the selected install wins over the provider's usual distribution. */
 export function inferManager(binaryPath: string | null, kind: DriverKind): PackageManager {
-  if (!binaryPath) return kind === 'grok' ? 'native' : NPM_PACKAGES[kind] ? 'npm' : 'native'
+  if (!binaryPath) return VENDOR_INSTALLERS.has(kind) || !NPM_PACKAGES[kind] ? 'native' : 'npm'
   const segments = binaryPath.split(/[\\/]/).map((s) => s.toLowerCase())
   // Pi's managed installer owns a versioned release tree, not npm's global prefix.
   if (kind === 'pi' && /[\\/]\.pi[\\/]agent[\\/](?:bin|install)[\\/]/i.test(binaryPath))
@@ -208,4 +211,39 @@ export function planFor(
     upgradeCommand: commands.upgrade,
     display: commands.upgrade.join(' '),
   }
+}
+
+/** A program an install command needs that may not be on this computer. */
+export interface InstallPrerequisite {
+  program: string
+  /** What the user installs to get it. */
+  label: string
+  /** Where its official installer lives. */
+  url: string
+}
+
+const PREREQUISITES: Record<string, Omit<InstallPrerequisite, 'program'>> = {
+  npm: { label: 'Node.js', url: 'https://nodejs.org/en/download' },
+  pnpm: { label: 'pnpm', url: 'https://pnpm.io/installation' },
+  bun: { label: 'Bun', url: 'https://bun.sh' },
+  brew: { label: 'Homebrew', url: 'https://brew.sh' },
+  uv: { label: 'uv', url: 'https://docs.astral.sh/uv/getting-started/installation/' },
+  scoop: { label: 'Scoop', url: 'https://scoop.sh' },
+  winget: { label: 'App Installer', url: 'https://aka.ms/getwinget' },
+  curl: { label: 'curl', url: 'https://curl.se/download.html' },
+}
+
+/** The first program the command needs that `has` cannot find; null when all are present. */
+export function missingPrerequisite(
+  argv: readonly string[],
+  has: (program: string) => boolean,
+): InstallPrerequisite | null {
+  const programs = [argv[0] ?? '']
+  // `bash -c "curl … | bash"`: the download tool is the one machines lack.
+  if (argv[0] === 'bash' && /\bcurl\b/.test(argv.at(-1) ?? '')) programs.push('curl')
+  for (const program of programs) {
+    const known = PREREQUISITES[program]
+    if (known && !has(program)) return { program, ...known }
+  }
+  return null
 }
