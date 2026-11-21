@@ -2584,7 +2584,13 @@ export function EffortChip({
         aria-expanded={open}
         className={PICKER}
       >
-        <span>{unknownEffort ? effort : sentenceCase(current.label)}</span>
+        {/* A narrow pane shows the level's bars; the name stays in the label. */}
+        <span aria-hidden className="ari-picker-glyph">
+          <EffortGlyph {...(levels[options.indexOf(current)] ?? { filled: 1, bars: 2 })} />
+        </span>
+        <span className="ari-picker-label">
+          {unknownEffort ? effort : sentenceCase(current.label)}
+        </span>
         <ChevronDown
           size={12}
           aria-hidden
@@ -2772,7 +2778,10 @@ export function PermissionModeChip({
         aria-expanded={open}
         className={PICKER}
       >
-        <span>{current.label}</span>
+        <span aria-hidden className="ari-picker-glyph">
+          <ModeMark mode={current.value} />
+        </span>
+        <span className="ari-picker-label">{current.label}</span>
         <ChevronDown
           size={12}
           aria-hidden

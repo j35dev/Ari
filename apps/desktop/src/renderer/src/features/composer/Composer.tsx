@@ -1043,7 +1043,9 @@ export function Composer({
               comes back. */}
           <div
             className={
-              resting || dictating ? 'hidden' : 'flex min-w-0 flex-1 flex-wrap items-center gap-0.5'
+              // One row at every width: in a narrow pane the model picker
+              // truncates its label instead of the pickers stacking.
+              resting || dictating ? 'hidden' : 'flex min-w-0 flex-1 items-center gap-0.5'
             }
           >
             {leading}
@@ -1077,7 +1079,16 @@ export function Composer({
                 : 'ms-auto flex shrink-0 items-center gap-0.5 self-end'
             }
           >
-            <div ref={setStashAnchor} className={resting || dictating ? 'hidden' : 'relative'}>
+            <div
+              ref={setStashAnchor}
+              className={
+                resting || dictating
+                  ? 'hidden'
+                  : // Mod+S still reaches it when the narrowest pane hides it;
+                    // saved messages to restore keep it on screen.
+                    cx('relative', recoveries.length === 0 && 'ari-composer-stash')
+              }
+            >
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
