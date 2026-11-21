@@ -174,25 +174,55 @@ describe('provider allowance pill', () => {
     )
   })
 
-  it('refetches every 60 seconds, on same-provider session switches, and clears timers on unmount', async () => {
+  it('re-reads the session provider every 60 seconds and on session switches, others when stale', async () => {
+    const reads = () =>
+      invoke.mock.calls
+        .filter(([method]) => method === 'providers.allowance')
+        .map(([, params]) => (params as { kind: string }).kind)
     const hook = renderHook(({ id }) => useProviderAllowance(id, 'codex'), {
       initialProps: { id: 'one' },
     })
     await settle()
-    expect(invoke.mock.calls.filter(([method]) => method === 'providers.allowance')).toHaveLength(3)
+    expect(reads()).toHaveLength(3)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000)
     })
-    expect(invoke.mock.calls.filter(([method]) => method === 'providers.allowance')).toHaveLength(6)
+    // Each probe launches a CLI: background ticks only re-read the session's provider.
+    expect(reads().slice(3)).toEqual(['codex'])
     hook.rerender({ id: 'two' })
     await settle()
-    expect(invoke.mock.calls.filter(([method]) => method === 'providers.allowance')).toHaveLength(9)
+    expect(reads().slice(4)).toEqual(['codex'])
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+    })
+    expect(new Set(reads().slice(5))).toEqual(new Set(reads().slice(0, 3)))
     hook.unmount()
     const count = invoke.mock.calls.length
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000)
     })
     expect(invoke.mock.calls).toHaveLength(count)
+  })
+
+  it('does not probe while Ari is hidden and refreshes when it returns', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    renderHook(() => useProviderAllowance('one', 'codex'))
+    await settle()
+    const allowance = () =>
+      invoke.mock.calls.filter(([method]) => method === 'providers.allowance').length
+    const initial = allowance()
+    hidden.mockReturnValue(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+    })
+    expect(allowance()).toBe(initial)
+    hidden.mockReturnValue(false)
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    expect(allowance()).toBeGreaterThan(initial)
+    hidden.mockRestore()
   })
 
   it('prefers provider-suffixed 5h windows for pi', async () => {
