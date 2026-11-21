@@ -13,7 +13,11 @@
 }
 
 .ari-forge-cell {
-  animation: ari-forge-cell 1.2s linear infinite;
+  /* Stepped, not linear: the compositor draws a frame only when a step lands,
+     about seven a second, instead of every refresh (144 a second on a 144 Hz
+     screen) for as long as any session works. The cells' start offsets are
+     multiples of one step (1.2 s / 8), so all of them change together. */
+  animation: ari-forge-cell 1.2s steps(8) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -45,15 +45,20 @@ function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; t
   return block.type === 'text' && typeof block.text === 'string'
 }
 
-function imageData(block: Record<string, unknown>): { data: string; mimeType: string } | null {
+function imageData(
+  block: Record<string, unknown>,
+): { data: string; mimeType: string; url?: string } | null {
   const source =
     block['source'] !== null && typeof block['source'] === 'object'
       ? (block['source'] as Record<string, unknown>)
       : block
-  const data = source['data']
   const mimeType = source['media_type'] ?? source['mimeType']
-  if (typeof data !== 'string' || data.length === 0) return null
   if (typeof mimeType !== 'string' || !IMAGE_MIME.test(mimeType)) return null
+  // Large images arrive here as Blob URLs (session/image-blobs.ts); only those are trusted.
+  const url = source['url']
+  if (typeof url === 'string' && url.startsWith('blob:')) return { data: '', mimeType, url }
+  const data = source['data']
+  if (typeof data !== 'string' || data.length === 0) return null
   return { data, mimeType }
 }
 
@@ -66,6 +71,7 @@ function toContentItem(block: Record<string, unknown>): McpContentItem {
   if (block.type === 'image') {
     const image = imageData(block)
     if (image === null) return { kind: 'placeholder', label: 'Image' }
+    if (image.url !== undefined) return { kind: 'image', dataUrl: image.url, label: 'Image' }
     if (image.data.length > MAX_IMAGE_BASE64)
       return { kind: 'placeholder', label: 'Image too large' }
     return {

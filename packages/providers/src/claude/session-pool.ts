@@ -14,9 +14,11 @@ export class ClaudeSessionPool {
   onBackground: ((sessionId: string, events: AgentEvent[]) => void) | null = null
   onEnded: ((sessionId: string) => void | Promise<void>) | null = null
 
+  // Same limits as the ACP pool (see acp/session-pool.ts): a parked Claude
+  // process is several hundred MB, kept only while a quick follow-up is likely.
   constructor(
-    private readonly idleMs = 30 * 60_000,
-    private readonly maxIdle = 12,
+    private readonly idleMs = 10 * 60_000,
+    private readonly maxIdle = 3,
   ) {}
 
   take(sessionId: string, key: string, resumeOf: string | null): ClaudeSessionProcess | null {
