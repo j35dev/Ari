@@ -111,6 +111,8 @@ export function buildClaudeOptions(session: AdapterSession, binaryPath: string):
     permissionMode: sdkMode(session.permissionMode),
     ...(session.permissionMode === 'full' ? { allowDangerouslySkipPermissions: true } : {}),
     includePartialMessages: true,
+    // Subagent prose is journaled into the subagent's own transcript, never the parent's.
+    forwardSubagentText: true,
     env: session.runtimeEnv ?? { ...process.env },
   }
 }
@@ -256,6 +258,8 @@ function openClaudeSession(
           },
         ])
       } else {
+        // A subagent's request stays answerable here, and says whose it is.
+        const taskId = tasks.taskIdOf(callback.agentID)
         emit([
           {
             type: 'approval-requested',
@@ -265,6 +269,7 @@ function openClaudeSession(
             options: [...CLAUDE_APPROVAL_OPTIONS],
             ...(sessionRef ? { providerThreadId: sessionRef } : {}),
             providerItemId: callback.toolUseID,
+            ...(taskId ? { taskId } : {}),
           },
         ])
       }
@@ -353,7 +358,12 @@ function openClaudeSession(
         else if (native.origin) streamIsAutonomous = native.origin.kind !== 'human'
         const otherTurn = !!turn && streamIsAutonomous
         const target = otherTurn ? null : turn
-        if (!target && (native.type === 'assistant' || native.type === 'stream_event'))
+        // A background subagent's own output is not the parent waking up.
+        if (
+          !target &&
+          native.parent_tool_use_id == null &&
+          (native.type === 'assistant' || native.type === 'stream_event')
+        )
           autonomousRunning = true
         const events = [...tasks.observe(native), ...mapper.map(message)]
         if (native.type === 'result' && target?.interrupted) {
@@ -608,6 +618,19 @@ function openClaudeSession(
       endedHandler = handler
     },
     shutdown,
+    stopSubagents: () => {
+      if (closed) return 0
+      const stopped = tasks.interruptSubagents()
+      emit(stopped.events)
+      for (const taskId of stopped.nativeIds) {
+        void runtime
+          .stopTask?.(taskId)
+          .catch((error: unknown) =>
+            log.warn('Claude subagent stop failed', { error: String(error) }),
+          )
+      }
+      return stopped.events.length
+    },
     beginTurn: (prompt, park, continuing = false) => {
       if (closed || active) throw new Error('Claude query is unavailable for a new turn')
       const turn: Turn = {

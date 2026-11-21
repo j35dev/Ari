@@ -69,6 +69,12 @@ export class ClaudeSessionPool {
     return !!process && !process.closed && process.transport === transport
   }
 
+  /** Stops a parked query's native subagents; its conversation stays open. */
+  stopSubagents(sessionId: string): number {
+    const process = this.#idle.get(sessionId)?.process
+    return process && !process.closed ? (process.stopSubagents?.() ?? 0) : 0
+  }
+
   controls(sessionId: string): ClaudeSessionProcess | null {
     const process = this.#idle.get(sessionId)?.process
     return process && !process.closed && process.hasPendingResponses !== false ? process : null

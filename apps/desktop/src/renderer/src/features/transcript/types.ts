@@ -26,7 +26,20 @@ export interface ProviderSwitchRow {
 }
 
 /** What grouping a message list yields, before delegated work is placed among it. */
-export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
+export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow | SubagentCallRow
+
+/**
+ * The call that started a native sub-agent (Claude Code's Agent/Task tool), as
+ * one row of its own: the sub-agent's work lives in its own view, and its
+ * result is this row's to show rather than a tool result in a run.
+ */
+export interface SubagentCallRow {
+  kind: 'subagent'
+  /** `subagent:` plus the call block's key. */
+  key: string
+  call: TranscriptBlock
+  result?: TranscriptBlock
+}
 
 export type DelegatedChildState =
   | 'working'

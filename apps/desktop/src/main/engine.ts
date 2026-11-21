@@ -63,7 +63,37 @@ function backgroundTaskUpdated(
     ...(event.providerThreadId !== undefined ? { providerThreadId: event.providerThreadId } : {}),
     ...(event.providerTurnId !== undefined ? { providerTurnId: event.providerTurnId } : {}),
     ...(event.providerItemId !== undefined ? { providerItemId: event.providerItemId } : {}),
+    ...(event.subagentType !== undefined ? { subagentType: event.subagentType } : {}),
+    ...(event.prompt !== undefined ? { prompt: event.prompt } : {}),
+    ...(event.model !== undefined ? { model: event.model } : {}),
+    ...(event.result !== undefined ? { result: event.result } : {}),
   }
+}
+
+/** A sub-agent's activity as one part of its own transcript. */
+function subagentPartsAppended(
+  event: Extract<AgentEvent, { type: 'subagent-activity' }>,
+): UnstampedEvent {
+  const activity = event.event
+  const part: MessagePart =
+    activity.type === 'text-delta'
+      ? { type: 'text', text: activity.text }
+      : activity.type === 'thinking-delta'
+        ? { type: 'thinking', text: activity.text }
+        : activity.type === 'tool-started'
+          ? {
+              type: 'tool-call',
+              callId: activity.callId,
+              name: activity.name,
+              argsJson: activity.argsJson,
+            }
+          : {
+              type: 'tool-result',
+              callId: activity.callId,
+              resultJson: activity.resultJson,
+              isError: activity.isError,
+            }
+  return { type: 'background.task.parts.appended', taskId: event.taskId, parts: [part] }
 }
 
 function attributedInput(text: string, origin?: MessageOrigin): string {
@@ -423,11 +453,16 @@ export class Engine {
         }
       }
       const last = state.parts[state.parts.length - 1]
-      if (event.type === 'background-task') {
-        // Journaled at once, in order with the parts flushed before it.
+      if (event.type === 'background-task' || event.type === 'subagent-activity') {
+        // Journaled at once, in order with the parts flushed before it. A
+        // sub-agent's output goes to its own transcript, never this message.
         const current = state
+        const recorded =
+          event.type === 'background-task'
+            ? backgroundTaskUpdated(event)
+            : subagentPartsAppended(event)
         current.flushing = current.flushing
-          .then(() => this.#append(sessionId, backgroundTaskUpdated(event)).then(() => undefined))
+          .then(() => this.#append(sessionId, recorded).then(() => undefined))
           .catch((error: unknown) =>
             log.warn('background task could not be journaled', { sessionId, error: String(error) }),
           )
@@ -1598,6 +1633,7 @@ export class Engine {
               ...(event.providerItemId !== undefined
                 ? { providerItemId: event.providerItemId }
                 : {}),
+              ...(event.taskId !== undefined ? { taskId: event.taskId } : {}),
             })
             break
           }
@@ -1621,6 +1657,10 @@ export class Engine {
             break
           case 'background-task':
             await append(backgroundTaskUpdated(event))
+            break
+          case 'subagent-activity':
+            // The sub-agent's transcript, beside the parent's and never in it.
+            await append(subagentPartsAppended(event))
             break
           case 'notice':
             // Shown, but deliberately not recorded as `firstErrorMessage`:

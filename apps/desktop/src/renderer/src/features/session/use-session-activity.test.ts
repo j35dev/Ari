@@ -59,7 +59,7 @@ describe('useSessionActivity', () => {
     expect(api().attentionCountOf('s1')).toBe(0)
   })
 
-  it('keeps the sidebar working after a reply ends until all native agents finish', () => {
+  it('settles the sidebar with the reply while native agents run on, and marks their finish', () => {
     vi.useFakeTimers()
     const { api, fire } = renderActivity(['s1'])
     const native = (taskId: string, status: string, at: number) =>
@@ -77,11 +77,12 @@ describe('useSessionActivity', () => {
     native('a', 'running', 11)
     native('b', 'running', 12)
     fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
-    expect(api().activityOf('s1')).toEqual({ phase: 'working', startedAt: 11 })
+    // The parent is not busy once its own turn ends.
+    expect(api().activityOf('s1')).toEqual({ phase: 'done', startedAt: null, settledAt: 20 })
     act(() => vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS * 2))
-    expect(api().activityOf('s1')?.phase).toBe('working')
+    expect(api().activityOf('s1')).toBeUndefined()
     native('a', 'completed', 21)
-    expect(api().activityOf('s1')?.phase).toBe('working')
+    expect(api().activityOf('s1')).toBeUndefined()
     native('b', 'completed', 22)
     expect(api().activityOf('s1')).toEqual({ phase: 'done', startedAt: null, settledAt: 22 })
     act(() => vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS))
@@ -133,7 +134,7 @@ describe('useSessionActivity', () => {
     native('a', 'running')
     native('b', 'running')
     native('a', 'failed')
-    expect(api().activityOf('s1')?.phase).toBe('working')
+    expect(api().activityOf('s1')).toBeUndefined()
     native('b', 'completed')
     expect(api().activityOf('s1')?.phase).toBe('error')
     act(() => api().acknowledge('s1'))
