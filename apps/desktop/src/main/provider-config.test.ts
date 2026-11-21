@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   listProviderConfigFiles,
+  providerRevealTarget,
   readProviderConfig,
   writeProviderConfig,
 } from './provider-config'
@@ -28,7 +29,7 @@ afterEach(() => {
 })
 
 describe('listProviderConfigFiles', () => {
-  it('reports which of the agent\'s files exist and how big they are', async () => {
+  it("reports which of the agent's files exist and how big they are", async () => {
     await writeFile(join(dir, 'settings.json'), '{"quietStartup":true}', 'utf8')
     const listed = await listProviderConfigFiles('pi')
     expect(listed.dir).toBe(dir)
@@ -68,7 +69,9 @@ describe('writeProviderConfig', () => {
   it('saves a settings file and reads back what it wrote', async () => {
     const result = await writeProviderConfig('pi', 'settings', '{\n  "quietStartup": true\n}\n')
     expect(result).toMatchObject({ ok: true })
-    expect(await readFile(join(dir, 'settings.json'), 'utf8')).toBe('{\n  "quietStartup": true\n}\n')
+    expect(await readFile(join(dir, 'settings.json'), 'utf8')).toBe(
+      '{\n  "quietStartup": true\n}\n',
+    )
   })
 
   it('creates a file the agent has never written', async () => {
@@ -81,7 +84,10 @@ describe('writeProviderConfig', () => {
     await writeFile(join(dir, 'settings.json'), '{"keep":"me"}', 'utf8')
     const result = await writeProviderConfig('pi', 'settings', '{ "quietStartup": tru')
     expect(result).toMatchObject({ ok: false })
-    expect(result).toHaveProperty('error', expect.stringContaining('settings.json is not valid JSON'))
+    expect(result).toHaveProperty(
+      'error',
+      expect.stringContaining('settings.json is not valid JSON'),
+    )
     // The file on disk is untouched.
     expect(await readFile(join(dir, 'settings.json'), 'utf8')).toBe('{"keep":"me"}')
   })
@@ -91,7 +97,9 @@ describe('writeProviderConfig', () => {
   })
 
   it('does not check syntax for markdown', async () => {
-    expect(await writeProviderConfig('pi', 'agents', '{ not json at all')).toMatchObject({ ok: true })
+    expect(await writeProviderConfig('pi', 'agents', '{ not json at all')).toMatchObject({
+      ok: true,
+    })
   })
 
   it('answers with an error instead of throwing for an unknown file id', async () => {
@@ -101,5 +109,42 @@ describe('writeProviderConfig', () => {
 
   it('refuses a kind Ari has no layout for', async () => {
     expect(await writeProviderConfig('hermes', 'settings', 'x')).toMatchObject({ ok: false })
+  })
+})
+
+describe('providerRevealTarget', () => {
+  const skill = join('/elsewhere', 'skills', 'ship', 'SKILL.md')
+  const inventory = {
+    truncated: false,
+    records: [
+      {
+        kind: 'skill' as const,
+        scope: 'user' as const,
+        provider: 'pi' as const,
+        id: 'x',
+        name: 'ship',
+        sourcePath: skill,
+        disabled: false,
+        delivery: 'delegated' as const,
+      },
+    ],
+  }
+
+  it('opens the config folder when no path is given', () => {
+    expect(providerRevealTarget('pi', null, inventory)).toEqual({ path: dir, folder: true })
+    expect(providerRevealTarget('hermes', null, inventory)).toBeNull()
+  })
+
+  it('shows a declared config file or a listed skill', () => {
+    expect(providerRevealTarget('pi', join(dir, 'settings.json'), inventory)).toMatchObject({
+      folder: false,
+    })
+    expect(providerRevealTarget('pi', skill, inventory)).toEqual({ path: skill, folder: false })
+  })
+
+  it('refuses any other path', () => {
+    expect(() => providerRevealTarget('pi', join(dir, '..', 'secret.txt'), inventory)).toThrow(
+      /does not belong/,
+    )
   })
 })
