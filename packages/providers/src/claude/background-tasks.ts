@@ -43,7 +43,15 @@ export class ClaudeBackgroundTasks {
   observe(line: NativeLine): AgentEvent[] {
     if (line.subtype === 'init') this.#sessionId = text(line.session_id)
     const events: AgentEvent[] = []
-    if (line.type === 'result') {
+    if (line.type === 'tool_progress') {
+      const task = this.#find(line.parent_tool_use_id) ?? this.#find(line.tool_use_id)
+      if (!task || task.status !== 'running') return []
+      task.detail = brief(
+        `${line.tool_name ?? 'Working'}${typeof line.elapsed_time_seconds === 'number' ? ` (${Math.floor(line.elapsed_time_seconds)}s)` : ''}`,
+      )
+      return this.#emit(task)
+    }
+    if (line.type === 'result' && line.parent_tool_use_id == null) {
       for (const task of this.#tasks.values()) {
         if (task.background || task.status !== 'running') continue
         task.status = line.is_error ? 'failed' : 'completed'
@@ -110,12 +118,19 @@ export class ClaudeBackgroundTasks {
           task.detail ??= text(input?.['subagent_type'])
           task.background ||= input?.['run_in_background'] === true
           events.push(...this.#emit(task))
-        } else if (block.name === 'Bash' && input?.['run_in_background'] === true) {
+        } else if (
+          (block.name === 'Bash' || block.name === 'PowerShell') &&
+          input?.['run_in_background'] === true
+        ) {
           const task = this.#find(block.id) ?? this.#open(block.id, 'shell')
           task.background = true
           task.label = brief(text(input['description']) ?? text(input['command']) ?? task.label)
           events.push(...this.#emit(task))
-        } else if (block.name === 'TaskStop' || block.name === 'KillShell') {
+        } else if (
+          block.name === 'TaskStop' ||
+          block.name === 'KillShell' ||
+          block.name === 'KillBash'
+        ) {
           const target = text(input?.['task_id']) ?? text(input?.['shell_id'])
           if (target) this.#stops.set(block.id, target)
         }
@@ -128,9 +143,16 @@ export class ClaudeBackgroundTasks {
         const task = this.#find(stopped ?? block.tool_use_id)
         if (!task || task.status !== 'running') continue
         const response = record(line.tool_use_result)
-        if (response?.['isAsync'] === true || response?.['status'] === 'async_launched') {
+        if (
+          response?.['isAsync'] === true ||
+          response?.['status'] === 'async_launched' ||
+          text(response?.['backgroundTaskId'])
+        ) {
           task.background = true
-          const id = text(response['agentId']) ?? text(response['backgroundTaskId'])
+          const id =
+            text(response?.['agentId']) ??
+            text(response?.['backgroundTaskId']) ??
+            text(response?.['shellId'])
           if (id) this.#aliases.set(id, task.id)
         }
         if (stopped) {
@@ -149,6 +171,19 @@ export class ClaudeBackgroundTasks {
     return [...this.#tasks.values()]
       .filter((task) => task.status === 'running')
       .map((task) => this.#event(task))
+  }
+
+  interruptSubagents(): { nativeIds: string[]; events: AgentEvent[] } {
+    const nativeIds: string[] = []
+    const events: AgentEvent[] = []
+    for (const task of this.#tasks.values()) {
+      if (task.kind !== 'subagent' || task.status !== 'running') continue
+      if (task.nativeId) nativeIds.push(task.nativeId)
+      task.status = 'stopped'
+      task.detail = 'Stopped with the turn'
+      events.push(...this.#emit(task))
+    }
+    return { nativeIds, events }
   }
 
   #find(id: string | null | undefined): Task | undefined {
@@ -187,7 +222,8 @@ export class ClaudeBackgroundTasks {
       const kind =
         line.task_type === 'local_agent' || line.subagent_type
           ? 'subagent'
-          : line.task_type === 'local_bash' && line.is_backgrounded !== false
+          : (line.task_type === 'local_bash' || line.task_type === 'local_powershell') &&
+              line.is_backgrounded !== false
             ? 'shell'
             : null
       if (!kind) return null

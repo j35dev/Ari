@@ -691,6 +691,33 @@ describe('decideCommand', () => {
     expect(result.reason).toContain('unknown or already-answered')
   })
 
+  it('accepts an input response for a background agent question between turns', () => {
+    const model = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [
+        {
+          type: 'input.requested',
+          inputId: 'background-question',
+          prompt: 'Which target?',
+          choicesJson: null,
+        },
+      ],
+    })
+    expect(model.activeTurnId).toBeNull()
+    expect(
+      decideCommand(
+        model,
+        {
+          type: 'input.respond',
+          sessionId: 'sess_1',
+          inputId: 'background-question',
+          value: 'Desktop',
+        },
+        ids,
+      ).accepted,
+    ).toBe(true)
+  })
+
   it('accepts checkpoint.revert when a checkpoint exists for the turn', () => {
     let model = modelWithSession()
     model = previewDispatch(model, {

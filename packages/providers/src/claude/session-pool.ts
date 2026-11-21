@@ -1,12 +1,12 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import type { ClaudeControlProcess } from './claude-driver'
+import type { ClaudeSessionProcess } from './session'
 
 interface Entry {
   key: string
-  process: ClaudeControlProcess
+  process: ClaudeSessionProcess
 }
 
-/** Park native stream-json processes so Claude's built-in agents survive replies. */
+/** Park Claude queries so native agents survive replies; pending work prevents reaping. */
 export class ClaudeSessionPool {
   readonly #idle = new Map<string, Entry>()
   readonly #releases = new Set<Promise<void>>()
@@ -19,7 +19,7 @@ export class ClaudeSessionPool {
     private readonly maxIdle = 12,
   ) {}
 
-  take(sessionId: string, key: string, resumeOf: string | null): ClaudeControlProcess | null {
+  take(sessionId: string, key: string, resumeOf: string | null): ClaudeSessionProcess | null {
     const entry = this.#idle.get(sessionId)
     if (!entry) return null
     this.#idle.delete(sessionId)
@@ -32,13 +32,13 @@ export class ClaudeSessionPool {
       !resumeOf ||
       entry.process.sessionRef !== resumeOf
     ) {
-      void entry.process.shutdown()
+      this.#track(entry.process.shutdown())
       return null
     }
     return entry.process
   }
 
-  put(sessionId: string, key: string, process: ClaudeControlProcess): boolean {
+  put(sessionId: string, key: string, process: ClaudeSessionProcess): boolean {
     if (process.closed) return false
     void this.release(sessionId)
     const entry = { key, process }
@@ -46,6 +46,7 @@ export class ClaudeSessionPool {
     process.onEnded = () => {
       if (this.#idle.get(sessionId) !== entry) return
       this.#idle.delete(sessionId)
+      this.#track(process.shutdown())
       this.#disarmWhenEmpty()
       void this.onEnded?.(sessionId)
     }
@@ -63,6 +64,15 @@ export class ClaudeSessionPool {
   has(sessionId: string): boolean {
     return this.#idle.get(sessionId)?.process.closed === false
   }
+  hasTransport(sessionId: string, transport: 'sdk' | 'cli'): boolean {
+    const process = this.#idle.get(sessionId)?.process
+    return !!process && !process.closed && process.transport === transport
+  }
+
+  controls(sessionId: string): ClaudeSessionProcess | null {
+    const process = this.#idle.get(sessionId)?.process
+    return process && !process.closed && process.hasPendingResponses !== false ? process : null
+  }
 
   release(sessionId: string): Promise<void> {
     const entry = this.#idle.get(sessionId)
@@ -72,10 +82,17 @@ export class ClaudeSessionPool {
     entry.process.onEnded = null
     const ended = this.onEnded?.(sessionId)
     const release = Promise.all([entry.process.shutdown(), ended]).then(() => undefined)
-    this.#releases.add(release)
-    void release.finally(() => this.#releases.delete(release))
+    this.#track(release)
     this.#disarmWhenEmpty()
     return release
+  }
+
+  #track(release: Promise<void>): void {
+    this.#releases.add(release)
+    const finished = (): void => {
+      this.#releases.delete(release)
+    }
+    void release.then(finished, finished)
   }
 
   #disarmWhenEmpty(): void {

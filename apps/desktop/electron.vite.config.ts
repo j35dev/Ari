@@ -1,14 +1,18 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
+import { mainCommonjsShimPlugin } from './packaging/main-commonjs-shim'
 
 export default defineConfig({
   main: {
+    plugins: [mainCommonjsShimPlugin()],
     build: {
       rollupOptions: {
         // Bundle workspace sources (@ari/*) into out/main — Node's runtime
         // loader cannot execute the raw TS sources, and the packaged asar
         // only ships out/**. Only true runtime externals stay external.
+        // Claude Agent SDK is pure JS and declared as a desktop devDependency
+        // so it is bundled here. It always launches the user's detected CLI.
         external: [
           /^node:/,
           'electron',

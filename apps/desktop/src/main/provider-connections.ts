@@ -39,6 +39,8 @@ export async function detectConnection(
       : {}
   const detection = await detect(kind, env, options)
   if (detection.binaryPath === null) return detection
+  if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp')
+    return { ...detection, transport: { mode: 'cli', label: 'Claude Agent SDK', available: true } }
   // Described against the process environment, as the launch itself resolves.
   return { ...detection, transport: describe(kind, detection.binaryPath) }
 }

@@ -1421,6 +1421,9 @@ export function systemInstructionsMeta(
 }
 
 export class AcpDriver implements Driver {
+  hasLiveSession(sessionId: string): boolean {
+    return acpSessionPool.has(sessionId) || (this.fallback?.hasLiveSession?.(sessionId) ?? false)
+  }
   readonly kind: DriverKind
   readonly systemInstructions: boolean
 

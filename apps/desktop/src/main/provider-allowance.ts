@@ -7,12 +7,14 @@ import { AcpConnection } from '@ari/providers/acp/connection'
 import { probeLaunch, resolveAcpLaunch, type BundledAcpRuntime } from '@ari/providers/acp/launches'
 import { AppServerConnection } from '@ari/providers/codex/appserver-connection'
 import { createLogger } from '@ari/shared/logger'
+import { withClaudeQuery } from '@ari/providers/claude'
 
 import {
   parseAllowance,
   parseCodexResetCredits,
   parsePiAnthropicUsage,
   parsePiCodexUsage,
+  parseClaudeSdkAllowance,
 } from './allowance-windows'
 import { providerEnvironment } from './provider-env'
 import { resetCreditService } from './reset-credits'
@@ -157,6 +159,20 @@ export async function fetchAllowance(
   bundledRuntime?: BundledAcpRuntime,
 ): Promise<Windows> {
   if (kind === 'pi') return fetchPiAllowance()
+  if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
+    return withClaudeQuery(
+      binaryPath,
+      homedir(),
+      { ...process.env, ...providerEnvironment(kind) },
+      async (runtime) =>
+        parseClaudeSdkAllowance(
+          await runtime.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+            skipBehaviors: true,
+          }),
+        ),
+      15_000,
+    )
+  }
   if (kind === 'codex') {
     // Ari's pinned ACP /status reads a stale snapshot. The underlying native
     // account request actively fetches limits, even without an active turn.
