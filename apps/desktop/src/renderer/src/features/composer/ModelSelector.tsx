@@ -588,7 +588,7 @@ export function ModelSelector({
   const noteClasses = 'border-t border-border px-2.5 py-2 text-[11px] leading-4 text-fg-subtle'
 
   return (
-    <div ref={setAnchor} className="relative min-w-0">
+    <div ref={setAnchor} className="relative min-w-8">
       <button
         type="button"
         onClick={() => {
@@ -604,9 +604,13 @@ export function ModelSelector({
         aria-haspopup="listbox"
         disabled={disabled}
         aria-expanded={open}
-        className={cx(textButton, 'w-full max-w-56', open && 'bg-fg/6')}
+        // Squeezed by a narrow pane it keeps the logo and clips the name,
+        // never painting under the next chip.
+        className={cx(textButton, 'w-full min-w-8 max-w-56 overflow-hidden', open && 'bg-fg/6')}
       >
-        <ProviderLogo kind={driverKind} size={13} />
+        <span className="flex shrink-0">
+          <ProviderLogo kind={driverKind} size={13} />
+        </span>
         <span className="min-w-0 flex-1 truncate font-medium text-fg">{triggerLabel}</span>
         <ChevronDown
           size={13}

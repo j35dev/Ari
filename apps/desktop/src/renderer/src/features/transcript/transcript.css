@@ -174,9 +174,14 @@
   padding: 0.45rem 1.25rem 0.45rem 0;
   text-align: left;
   vertical-align: top;
+  /* In a narrow pane the table scrolls sideways (it is its own scroller)
+     rather than breaking words mid-letter to fit. */
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .ari-md th {
+  white-space: nowrap;
   border-bottom-color: var(--ari-border-strong);
   color: var(--ari-fg-muted);
   font-weight: 500;
