@@ -10,27 +10,42 @@ img{display:block;width:100%;height:100%;object-fit:cover}
 #receipt img{width:28px;height:28px;border-radius:6px;flex-shrink:0}#label{white-space:nowrap}
 </style></head><body><div id="preview" aria-hidden="true"><div id="viewport"><img id="image" alt=""></div></div><div id="receipt" role="status"><img id="thumb" alt=""><span id="label">Saved to Ari</span></div>
 <script>
-let presentation, started=false, savedLabel='Saved to Ari';
-window.updateSnapshotDestination = function(value){if(!started)presentation=value};
-window.snapshotAttached = function(){savedLabel='Added to draft';document.getElementById('label').textContent=savedLabel};
-window.beginSnapshotFeedback = async function(value){
+let presentation, started=false, savedLabel='Saved to Ari', generation=0, animations=[];
+function stopAnimations(){for(const animation of animations){try{animation.cancel()}catch{}}animations=[]}
+function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+window.updateSnapshotDestination=function(value){if(!started)presentation=value};
+window.snapshotAttached=function(){savedLabel='Added to draft';document.getElementById('label').textContent=savedLabel};
+window.resetSnapshotFeedback=function(){
+  generation++;stopAnimations();
+  started=false;presentation=undefined;savedLabel='Saved to Ari';
+  document.getElementById('preview').style.opacity='0';document.getElementById('receipt').style.opacity='0';
+  document.getElementById('label').textContent=savedLabel;
+  document.getElementById('image').removeAttribute('src');document.getElementById('thumb').removeAttribute('src');
+};
+window.beginSnapshotFeedback=async function(value){
+  const run=generation;
   presentation=value;
   const preview=document.getElementById('preview'),viewport=document.getElementById('viewport'),receipt=document.getElementById('receipt');
+  preview.style.opacity='';receipt.style.opacity='';
   document.getElementById('image').src=value.image;document.getElementById('thumb').src=value.image;
   if(value.sound){try{const context=new AudioContext(),oscillator=context.createOscillator(),gain=context.createGain();oscillator.type='triangle';oscillator.frequency.setValueAtTime(900,context.currentTime);oscillator.frequency.exponentialRampToValueAtTime(340,context.currentTime+.06);gain.gain.setValueAtTime(.025,context.currentTime);gain.gain.exponentialRampToValueAtTime(.0001,context.currentTime+.085);oscillator.connect(gain).connect(context.destination);oscillator.start();oscillator.stop(context.currentTime+.09);oscillator.onended=()=>context.close()}catch{}}
-  if(!value.animation){await new Promise(resolve=>setTimeout(resolve,200));return}
+  if(!value.animation){await delay(200);return}
   await document.getElementById('image').decode().catch(()=>{});
-  await new Promise(resolve=>setTimeout(resolve,160));
+  await delay(160);
+  if(run!==generation)return;
   started=true;const p=presentation;
   Object.assign(preview.style,{left:p.left+'px',top:p.top+'px',width:p.width+'px',height:p.width+'px'});
   viewport.style.height=p.height+'px';
   Object.assign(receipt.style,{left:p.receipt.x+'px',top:p.receipt.y+'px'});
   document.getElementById('label').textContent=savedLabel;
-  if(p.reducedMotion||matchMedia('(prefers-reduced-motion: reduce)').matches){receipt.style.opacity='1';await new Promise(resolve=>setTimeout(resolve,950));return}
+  if(p.reducedMotion||matchMedia('(prefers-reduced-motion: reduce)').matches){receipt.style.opacity='1';await delay(950);return}
   const timing={duration:p.duration,easing:'linear',fill:'forwards'};
   const flight=preview.animate(p.frames.flight,timing),crop=viewport.animate(p.frames.crop,timing);
+  animations=[flight,crop];
   const receiptAnimation=p.composer?null:receipt.animate(p.frames.handoff,timing);
-  await Promise.all([flight.finished,crop.finished,...(receiptAnimation?[receiptAnimation.finished]:[])]);
-  if(!p.composer){await new Promise(resolve=>setTimeout(resolve,850));await receipt.animate([{opacity:1},{opacity:0}],{duration:180,fill:'forwards'}).finished}
+  if(receiptAnimation)animations.push(receiptAnimation);
+  await Promise.all([flight.finished,crop.finished,...(receiptAnimation?[receiptAnimation.finished]:[])]).catch(()=>{});
+  if(run!==generation)return;
+  if(!p.composer){await delay(850);if(run!==generation)return;const fade=receipt.animate([{opacity:1},{opacity:0}],{duration:180,fill:'forwards'});animations.push(fade);await fade.finished.catch(()=>{})}
 };
 </script></body></html>`
