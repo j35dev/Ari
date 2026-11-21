@@ -39,11 +39,22 @@ const BINARY_NAMES: Record<DriverKind, string[]> = {
  * directories are searched; missing ones are skipped silently.
  */
 export function wellKnownDirs(env: DetectEnvironment): string[] {
-  const dirs: string[] = []
+  const dirs: string[] = [
+    join(env.homeDir, '.local', 'bin'),
+    join(env.homeDir, '.grok', 'bin'),
+    join(env.homeDir, '.bun', 'bin'),
+    join(env.homeDir, '.pi', 'agent', 'bin'),
+  ]
   if (env.platform === 'win32') {
     if (env.localAppData) {
-      dirs.push(join(env.localAppData, 'Programs'), join(env.localAppData, 'Programs', 'npm'))
+      dirs.push(
+        join(env.localAppData, 'Programs'),
+        join(env.localAppData, 'Programs', 'npm'),
+        join(env.localAppData, 'pnpm'),
+        join(env.localAppData, 'hermes', 'bin'),
+      )
     }
+    if (env.appData) dirs.push(join(env.appData, 'npm'))
   } else {
     dirs.push(join(env.homeDir, '.local', 'bin'), '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin')
   }

@@ -501,6 +501,97 @@ describe('ProvidersView', () => {
     expect(await within(rowFor('Codex')).findByText('v0.160.0')).toBeInTheDocument()
   })
 
+  it('disables Update and shows queued, downloading and verifying phases inline', async () => {
+    settings.providers.pi.enabled = true
+    answers['providers.install'] = { started: true }
+    const publish = captureSubscribers()
+    await renderLoaded()
+    const pi = await open('Pi')
+    await userEvent.click(within(pi).getByRole('button', { name: 'Update' }))
+    expect(await within(pi).findByRole('button', { name: 'Updating…' })).toBeDisabled()
+    for (const [phase, message] of [
+      ['waiting', 'Will update when the current turns finish.'],
+      ['downloading', 'Downloading the update…'],
+      ['verifying', 'Checking the installed CLI version…'],
+    ]) {
+      publish({ type: 'install.phase', kind: 'pi', phase, message })
+      expect(within(pi).getByRole('status')).toHaveTextContent(message!)
+    }
+    // Switching to another settings row stays available during an update.
+    await open('Claude')
+    expect(editorFor('Claude')).toBeInTheDocument()
+  })
+
+  it('shows a verified new version and a brief success state', async () => {
+    settings.providers.pi.enabled = true
+    const publish = captureSubscribers()
+    await renderLoaded()
+    const pi = await open('Pi')
+    publish({ type: 'install.started', kind: 'pi', operation: 'upgrade' })
+    publish({
+      type: 'detections',
+      detections: detections.map((d) =>
+        d.kind === 'pi' ? { ...d, version: '1.0.0', updateAvailable: false } : d,
+      ),
+    })
+    publish({
+      type: 'install.settled',
+      kind: 'pi',
+      operation: 'upgrade',
+      ok: true,
+      reason: null,
+      version: '1.0.0',
+      truncated: false,
+    })
+    expect(await within(rowFor('Pi')).findByText('v1.0.0')).toBeInTheDocument()
+    expect(within(pi).getByText('Updated.')).toBeInTheDocument()
+    expect(within(pi).queryByRole('button', { name: 'Updating…' })).toBeNull()
+  })
+
+  it('keeps a failure inline with details and a working Retry', async () => {
+    settings.providers.pi.enabled = true
+    answers['providers.install'] = { started: true }
+    const publish = captureSubscribers()
+    await renderLoaded()
+    const pi = await open('Pi')
+    publish({ type: 'install.started', kind: 'pi', operation: 'upgrade' })
+    publish({
+      type: 'install.settled',
+      kind: 'pi',
+      operation: 'upgrade',
+      ok: false,
+      reason: 'The CLI is still in use. Let its sessions finish, then retry.',
+      truncated: false,
+      details: 'npm ERR! EBUSY rename pi.exe',
+    })
+    expect(within(pi).getByRole('alert')).toHaveTextContent('still in use')
+    expect(within(rowFor('Pi')).getByText('Update failed')).toBeInTheDocument()
+    const details = within(pi).getByText('Details')
+    await userEvent.click(details)
+    expect(details.closest('details')).toHaveAttribute('open')
+    expect(within(pi).getByText(/npm ERR! EBUSY/)).toBeInTheDocument()
+    await userEvent.click(within(pi).getByRole('button', { name: 'Retry' }))
+    expect(invokeFn).toHaveBeenCalledWith('providers.install', { kind: 'pi', operation: 'upgrade' })
+    expect(await within(pi).findByRole('button', { name: 'Updating…' })).toBeDisabled()
+  })
+
+  it('offers Update all for several outdated providers and disables it while queued', async () => {
+    settings.providers.pi.enabled = true
+    detections = detections.map((d) =>
+      d.kind === 'claude' ? { ...d, updateAvailable: true, latestVersion: '2.2.0' } : d,
+    )
+    answers['providers.install'] = { started: true }
+    await renderLoaded()
+    const all = screen.getByRole('button', { name: 'Update all (2)' })
+    await userEvent.click(all)
+    expect(invokeFn).toHaveBeenCalledWith('providers.install', {
+      kind: 'claude',
+      operation: 'upgrade',
+    })
+    expect(invokeFn).toHaveBeenCalledWith('providers.install', { kind: 'pi', operation: 'upgrade' })
+    expect(all).toBeDisabled()
+  })
+
   it('follows a detection round published after an update', async () => {
     settings.providers.pi.enabled = true
     const publish = captureSubscribers()

@@ -5,15 +5,14 @@ import type { Detection } from './types'
 const log = createLogger('providers:updates')
 
 /**
- * Update awareness for installed CLIs (PLAN §4.1): each npm-distributed kind
- * is checked against its package's `latest` dist-tag so the providers grid
- * can flag stale installs. Kinds distributed outside npm (grok installer,
- * hermes pip) are absent — their update channel is unknown by design.
+ * npm distributions used for installs and latest-version checks. Native
+ * vendors can supply a read-only check for their own release channel.
  */
 export const NPM_PACKAGES: Partial<Record<DriverKind, string>> = {
   claude: '@anthropic-ai/claude-code',
   codex: '@openai/codex',
   opencode: 'opencode-ai',
+  grok: '@xai-official/grok',
   pi: '@earendil-works/pi-coding-agent',
 }
 
@@ -65,6 +64,8 @@ export interface UpdateCheckerOptions {
   /** How long a successful pkg→latest answer stays fresh. Default 1h. */
   ttlMs?: number
   timeoutMs?: number
+  /** Vendor read-only checks may override npm's dist-tag (e.g. Grok stable/alpha). */
+  latestFor?: (detection: Detection) => Promise<string | null | undefined>
 }
 
 export interface InstallSettleInput {
@@ -73,6 +74,47 @@ export interface InstallSettleInput {
   failure: string | null
   before: Pick<Detection, 'installed' | 'version'> | undefined
   after: Pick<Detection, 'installed' | 'version' | 'latestVersion'> | undefined
+}
+
+/** Keep diagnostics in Details; the first sentence should tell the user what to do. */
+export function installFailureReason(
+  details: string,
+  fallback = 'The update could not finish. Try again.',
+): string {
+  if (/EBUSY|text file busy|being used by another process|sharing violation/i.test(details)) {
+    return 'The CLI is still in use. Let its sessions finish, then retry.'
+  }
+  if (
+    /EPERM|EACCES|permission denied|access (?:is )?denied|operation not permitted/i.test(details)
+  ) {
+    return 'Windows may have locked the CLI, or its install folder is not writable. Close external CLI sessions, check folder permissions, then retry.'
+  }
+  if (
+    /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|network|unable to resolve|certificate/i.test(
+      details,
+    )
+  ) {
+    return 'The download failed. Check your connection or proxy, then retry.'
+  }
+  if (
+    /ENOENT|not recognized|command not found|could not find.*(?:npm|pnpm|bun|uv|brew|scoop|winget)/i.test(
+      details,
+    )
+  ) {
+    return 'The updater or package manager was not found. Install it or check PATH, then retry.'
+  }
+  if (/timed? out|timeout/i.test(details))
+    return 'The update took too long. Check your connection, then retry.'
+  if (/cancelled/i.test(details)) return 'The update was cancelled. Retry when ready.'
+  return fallback
+}
+
+/** Only infer a phase when the updater actually reports one. */
+export function installPhase(text: string): 'downloading' | 'installing' | null {
+  if (/installing|extracting|unpacking|linking|added \d+|changed \d+|replacing/i.test(text))
+    return 'installing'
+  if (/downloading|fetching|resolving|download|fetch/i.test(text)) return 'downloading'
+  return null
 }
 
 /**
@@ -117,10 +159,33 @@ export function evaluateInstallSettle(input: InstallSettleInput): {
   if (beforeVersion !== null && afterVersion !== null && beforeVersion === afterVersion) {
     return {
       ok: false,
-      reason: `Still on ${afterVersion} after the update. The package manager may have skipped install scripts.`,
+      reason: `Still on ${afterVersion} after the update. Check that Settings points to the install you updated, then retry.`,
     }
   }
-  return { ok: true, reason: null }
+  return {
+    ok: false,
+    reason: 'The updated version could not be verified. Check the CLI in a terminal, then retry.',
+  }
+}
+
+/** Re-detect, bypassing caches, until a newly activated binary is visible. */
+export async function verifyInstall(
+  input: Omit<InstallSettleInput, 'after'>,
+  detect: () => Promise<InstallSettleInput['after']>,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<{
+  outcome: ReturnType<typeof evaluateInstallSettle>
+  after: InstallSettleInput['after']
+}> {
+  let after: InstallSettleInput['after']
+  let outcome = evaluateInstallSettle({ ...input, after })
+  for (const delay of [0, 500, 1500]) {
+    if (delay) await wait(delay)
+    after = await detect()
+    outcome = evaluateInstallSettle({ ...input, after })
+    if (outcome.ok || input.failure || input.exitCode !== 0) break
+  }
+  return { outcome, after }
 }
 
 /**
@@ -161,9 +226,17 @@ export function createUpdateChecker(options: UpdateCheckerOptions = {}): UpdateC
       return Promise.all(
         detections.map(async (detection): Promise<Detection> => {
           const pkg = NPM_PACKAGES[detection.kind]
-          if (!pkg || !detection.binaryPath) return detection
+          if (!detection.binaryPath) return detection
+          let vendorLatest: string | null | undefined
+          try {
+            vendorLatest = await options.latestFor?.(detection)
+          } catch {
+            vendorLatest = null
+          }
+          if (!pkg && vendorLatest === undefined) return detection
           const installed = parseVersionToken(detection.version)
-          const latest = await latestVersion(pkg)
+          const latest =
+            vendorLatest !== undefined ? vendorLatest : pkg ? await latestVersion(pkg) : null
           if (latest === null) {
             return { ...detection, latestVersion: null, updateAvailable: null }
           }

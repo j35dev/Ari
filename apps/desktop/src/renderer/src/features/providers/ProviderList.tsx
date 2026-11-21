@@ -1,5 +1,6 @@
 import type { DriverKind } from '@ari/contracts/common'
 import { Switch } from '@ari/ui/switch'
+import { Spinner } from '@ari/ui/spinner'
 import { driverLabel } from '../composer/agent-mark'
 import { ProviderLogo } from '../composer/provider-logo'
 import { StatusDot } from './StatusDot'
@@ -57,8 +58,14 @@ export function ProviderList({ rows, selected, onSelect, onEnabledChange }: Prov
                   )}
                 </span>
                 <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-5 text-fg-subtle">
-                  <StatusDot tone={row.status.tone} />
-                  <span className="truncate">{row.status.headline}</span>
+                  {row.status.tone === 'busy' ? (
+                    <Spinner aria-hidden className="mt-1 h-3 w-3 shrink-0" />
+                  ) : (
+                    <StatusDot tone={row.status.tone} />
+                  )}
+                  <span className="truncate" title={row.status.detail ?? undefined}>
+                    {row.status.headline}
+                  </span>
                 </span>
               </span>
             </button>
