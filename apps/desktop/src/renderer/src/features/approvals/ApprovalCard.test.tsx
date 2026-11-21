@@ -178,6 +178,30 @@ describe('ApprovalCard', () => {
     expect(card().getByRole('button', { name: /Deny/ }).className).toBe('refuse')
   })
 
+  // A narrow strip must keep the buttons inside the composer: the choices row
+  // wraps within the card instead of overflowing past its right edge. The old
+  // flex-shrink:0 forced the row's full button width, pushing the buttons over
+  // whatever sat to the right of the card.
+  it('lets the choices row wrap when the strip is narrow', () => {
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
+        onRespond={vi.fn()}
+      />,
+    )
+    const sheet =
+      document.querySelector('[data-approval-id] [data-ari-shield]')!.shadowRoot!.querySelector(
+        'style',
+      )!.textContent
+    const rule = sheet.match(/\.choices\{[^}]*\}/)?.[0] ?? ''
+    expect(rule).toContain('flex-wrap:wrap')
+    expect(rule).toContain('min-width:0')
+    expect(rule).not.toContain('flex-shrink:0')
+  })
+
   it('humanizes underscored tool names', () => {
     render(
       <ApprovalCard
