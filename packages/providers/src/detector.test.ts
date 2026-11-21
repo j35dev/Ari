@@ -8,6 +8,7 @@ import {
   detectDriver,
   findBinaries,
   findBinary,
+  forgetVersions,
   readAuthStatus,
   wellKnownDirs,
 } from './detector'
@@ -413,6 +414,40 @@ describe('detectDriver', () => {
     // The same file does run once the provider is on, so the check above means something.
     await detectDriver('codex', { ...makeEnv(), pathEnv: binDir })
     expect(existsSync(ran)).toBe(true)
+  })
+
+  it('reads a version once per binary and again only when it changes or is forgotten', async () => {
+    const binDir = join(dir, 'versioned')
+    await mkdir(binDir, { recursive: true })
+    const cli = join(binDir, cliName('codex'))
+    const runs = join(binDir, 'runs.txt')
+    // Prints a version and leaves one line behind per run.
+    const script = (version: string, padding = ''): string =>
+      process.platform === 'win32'
+        ? `@echo off\r\necho run>>"%~dp0runs.txt"\r\necho codex-cli ${version}\r\n${padding}`
+        : `#!/bin/sh\necho run >> "$(dirname "$0")/runs.txt"\necho codex-cli ${version}\n${padding}`
+    const count = async (): Promise<number> => {
+      const { readFile } = await import('node:fs/promises')
+      return existsSync(runs) ? (await readFile(runs, 'utf8')).trim().split(/\r?\n/).length : 0
+    }
+    await writeExecutable(cli, script('1.0.0'))
+    const env = { ...makeEnv(), pathEnv: binDir }
+
+    expect((await detectDriver('codex', env)).version).toBe('codex-cli 1.0.0')
+    expect((await detectDriver('codex', env)).version).toBe('codex-cli 1.0.0')
+    // Starting a CLI blocks Ari's main thread, so an unchanged binary is not run again.
+    expect(await count()).toBe(1)
+
+    // A new binary (an update replaced the file) is read again.
+    await writeExecutable(cli, script('1.1.0', process.platform === 'win32' ? 'rem\r\n' : '#\n'))
+    expect((await detectDriver('codex', env)).version).toBe('codex-cli 1.1.0')
+    expect(await count()).toBe(2)
+
+    // A launcher that stays the same while the install behind it changes is
+    // read again when a rescan or an update's verification asks for it.
+    forgetVersions(['codex'])
+    await detectDriver('codex', env)
+    expect(await count()).toBe(3)
   })
 
   it('uses the path the user chose over the one on PATH', async () => {

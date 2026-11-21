@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { basename, delimiter, join, posix, win32 } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
@@ -385,6 +386,48 @@ export interface DetectOptions {
   binaryPath?: string
 }
 
+/**
+ * Versions already read, per kind and binary, with the file stamp they were
+ * read from. Starting a process blocks the calling thread on Windows (some
+ * single-file CLIs take seconds), and detection runs on Ari's main thread
+ * every time the cache behind `providers.detect` expires. A version only
+ * changes when the binary does, so it is read again only then, or when a
+ * caller asks for fresh versions (a rescan, or verifying an update whose
+ * launcher stays the same while the install behind it changes).
+ */
+const versions = new Map<string, { stamp: string; version: string }>()
+
+/** Makes the next detection of `kinds` (or of every kind) read versions again. */
+export function forgetVersions(kinds?: readonly DriverKind[]): void {
+  if (kinds === undefined) {
+    versions.clear()
+    return
+  }
+  for (const key of [...versions.keys()])
+    if (kinds.some((kind) => key.startsWith(`${kind}\0`))) versions.delete(key)
+}
+
+async function stampOf(path: string): Promise<string | null> {
+  try {
+    const info = await stat(path)
+    return `${info.size}:${info.mtimeMs}`
+  } catch {
+    return null
+  }
+}
+
+async function versionOf(kind: DriverKind, binaryPath: string): Promise<string | null> {
+  const key = `${kind}\0${binaryPath}`
+  const stamp = await stampOf(binaryPath)
+  const known = versions.get(key)
+  if (stamp !== null && known?.stamp === stamp) return known.version
+  const version = await probeVersion(binaryPath)
+  // An unanswered probe is not remembered: the next detection tries again.
+  if (stamp !== null && version !== null) versions.set(key, { stamp, version })
+  else versions.delete(key)
+  return version
+}
+
 export async function detectDriver(
   kind: DriverKind,
   env: DetectEnvironment = realDetectEnvironment(),
@@ -442,7 +485,7 @@ export async function detectDriver(
       authReason: 'Not installed - Ari cannot check credentials until the CLI is present.',
     }
   }
-  const version = await probeVersion(binaryPath)
+  const version = await versionOf(kind, binaryPath)
   const probe = readAuthStatus(kind, env)
   const custom = configured.length > 0
   return {
