@@ -1933,6 +1933,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return allowanceReader.read(
         kind,
         detections.find((row) => row.kind === kind)?.binaryPath ?? null,
+        30_000,
       )
     })
   }
