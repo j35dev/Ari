@@ -4,6 +4,9 @@ import {
   createUpdateChecker,
   evaluateInstallSettle,
   parseVersionToken,
+  installFailureReason,
+  installPhase,
+  verifyInstall,
 } from './updates'
 import type { FetchLike, NPM_PACKAGES } from './updates'
 import type { Detection } from './types'
@@ -77,7 +80,7 @@ describe('createUpdateChecker', () => {
   it('leaves kinds without an npm package untouched', async () => {
     const fetchImpl = vi.fn()
     const checker = createUpdateChecker({ fetchImpl: fetchImpl as never })
-    const enriched = first(await checker.enrich([detection('grok', '1.0.5')]))
+    const enriched = first(await checker.enrich([detection('muse', '1.0.5')]))
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(enriched.latestVersion).toBeUndefined()
     expect(enriched.updateAvailable).toBeUndefined()
@@ -182,5 +185,79 @@ describe('evaluateInstallSettle', () => {
         after: { installed: true, version: '1.0.0', latestVersion: '2.0.0' },
       }).ok,
     ).toBe(false)
+  })
+})
+
+describe('install diagnostics and verification', () => {
+  it('uses a vendor channel in preference to the npm dist-tag', async () => {
+    const fetchImpl = vi.fn()
+    const checker = createUpdateChecker({
+      fetchImpl: fetchImpl as never,
+      latestFor: async () => '1.0.92',
+    })
+    const enriched = first(await checker.enrich([detection('grok', '1.0.92')]))
+    expect(enriched.updateAvailable).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('adds update awareness for a native provider without an npm package', async () => {
+    const checker = createUpdateChecker({ latestFor: async () => '1.1.94' })
+    const enriched = first(await checker.enrich([detection('qoder', '1.1.92')]))
+    expect(enriched).toMatchObject({ latestVersion: '1.1.94', updateAvailable: true })
+  })
+  it.each([
+    ['EBUSY rename cli.exe', /still in use/],
+    ['EPERM unlink', /locked the CLI/],
+    ['EACCES permission denied', /permissions/],
+    ['fetch failed ECONNRESET', /connection or proxy/],
+    ['spawn npm ENOENT', /package manager was not found/],
+    ['Timed out after 15 minutes', /too long/],
+    ['Cancelled', /cancelled/],
+  ])('maps %s to an actionable reason', (output, reason) => {
+    expect(installFailureReason(output)).toMatch(reason)
+  })
+
+  it('does not guess a phase from an unrelated output line', () => {
+    expect(installPhase('Downloading package')).toBe('downloading')
+    expect(installPhase('Extracting archive')).toBe('installing')
+    expect(installPhase('Checking version')).toBeNull()
+  })
+
+  it('retries fresh detection when the activated version appears later', async () => {
+    const detect = vi
+      .fn()
+      .mockResolvedValueOnce({ installed: true, version: '1.0.0' })
+      .mockResolvedValueOnce({ installed: true, version: '2.0.0' })
+    const wait = vi.fn(async () => undefined)
+    const result = await verifyInstall(
+      {
+        operation: 'upgrade',
+        exitCode: 0,
+        failure: null,
+        before: { installed: true, version: '1.0.0' },
+      },
+      detect,
+      wait,
+    )
+    expect(result.outcome.ok).toBe(true)
+    expect(detect).toHaveBeenCalledTimes(2)
+    expect(wait).toHaveBeenCalledWith(500)
+  })
+
+  it('fails when the version cannot be read, even after a zero exit', async () => {
+    const detect = vi.fn(async () => ({ installed: true, version: null }))
+    const result = await verifyInstall(
+      {
+        operation: 'upgrade',
+        exitCode: 0,
+        failure: null,
+        before: { installed: true, version: '1.0.0' },
+      },
+      detect,
+      async () => undefined,
+    )
+    expect(result.outcome.ok).toBe(false)
+    expect(result.outcome.reason).toContain('could not be verified')
+    expect(detect).toHaveBeenCalledTimes(3)
   })
 })

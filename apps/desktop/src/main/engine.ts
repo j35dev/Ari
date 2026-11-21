@@ -970,13 +970,13 @@ export class Engine {
     const needsRelease = this.#providerReleases.has(session.id) || providerContext.handoffPending
     if (needsRelease) await waitForProviderRelease()
     const driver = this.#deps.registry.get(session.driverKind)
-    if (!driver) {
-      const reason = await this.#deps
-        .driverUnavailable?.(session.driverKind)
-        .catch((error: unknown) => {
-          log.warn('could not explain a missing driver', { error: String(error) })
-          return null
-        })
+    const reason = await this.#deps
+      .driverUnavailable?.(session.driverKind)
+      .catch((error: unknown) => {
+        log.warn('could not check provider availability', { error: String(error) })
+        return null
+      })
+    if (!driver || reason) {
       await this.#settle(
         session.id,
         turnId,

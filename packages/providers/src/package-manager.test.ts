@@ -30,8 +30,11 @@ describe('inferManager', () => {
     )
   })
 
-  it('falls back to npm for npm-distributed kinds in unknown dirs', () => {
-    expect(inferManager('/home/u/.local/bin/claude', 'claude')).toBe('npm')
+  it('does not mistake native or unknown installs for npm', () => {
+    expect(inferManager('/home/u/.local/bin/claude', 'claude')).toBe('native')
+    expect(inferManager('C:\\Users\\u\\.local\\bin\\claude.exe', 'claude')).toBe('native')
+    expect(inferManager('C:\\Users\\u\\.pi\\agent\\bin\\pi.cmd', 'pi')).toBe('native')
+    expect(inferManager('/somewhere/codex', 'codex')).toBe('native')
     expect(inferManager(null, 'pi')).toBe('npm')
   })
 })
@@ -46,10 +49,11 @@ describe('planFor', () => {
     expect(planFor('muse', null, 'win32')?.installCommand).toEqual([
       'powershell.exe',
       '-NoProfile',
+      '-NonInteractive',
       '-ExecutionPolicy',
       'Bypass',
       '-Command',
-      "Invoke-RestMethod 'https://dev.meta.ai/install.ps1' | Invoke-Expression",
+      "$ErrorActionPreference = 'Stop'; Invoke-RestMethod 'https://dev.meta.ai/install.ps1' | Invoke-Expression",
     ])
     expect(planFor('qoder', '/opt/qodercli', 'linux')?.upgradeCommand).toEqual([
       '/opt/qodercli',
@@ -64,14 +68,18 @@ describe('planFor', () => {
       'npm',
       'install',
       '-g',
-      '--allow-scripts=@openai/codex',
+      '--ignore-scripts=false',
+      '--prefix',
+      'C:\\Users\\u\\AppData\\Roaming\\npm',
       '@openai/codex',
     ])
     expect(plan?.upgradeCommand).toEqual([
       'npm',
       'install',
       '-g',
-      '--allow-scripts=@openai/codex',
+      '--ignore-scripts=false',
+      '--prefix',
+      'C:\\Users\\u\\AppData\\Roaming\\npm',
       '@openai/codex@latest',
     ])
     expect(plan?.installCommand.every((part) => !part.includes('&&'))).toBe(true)
@@ -100,13 +108,13 @@ describe('planFor', () => {
 
   it('uses vendor self-upgrade for grok and hermes', () => {
     expect(planFor('grok', 'C:\\Users\\u\\.grok\\bin\\grok.exe')?.upgradeCommand).toEqual([
-      'grok',
+      'C:\\Users\\u\\.grok\\bin\\grok.exe',
       'update',
     ])
     const hermes = planFor('hermes', null)
     expect(hermes?.manager).toBe('native')
     expect(hermes?.upgradeCommand).toEqual(['hermes', 'update'])
-    expect(hermes?.installCommand[0]).toBe('uv')
+    expect(hermes?.installCommand[0]).toBe(process.platform === 'win32' ? 'powershell.exe' : 'bash')
   })
 
   it('exposes a display string matching the upgrade argv', () => {
@@ -116,5 +124,87 @@ describe('planFor', () => {
 
   it('has no plan for the built-in core', () => {
     expect(planFor('ari-core', null)).toBeNull()
+  })
+
+  it.each([
+    [
+      'claude',
+      'C:\\Users\\u\\.local\\bin\\claude.exe',
+      ['C:\\Users\\u\\.local\\bin\\claude.exe', 'update'],
+    ],
+    [
+      'qoder',
+      'C:\\Users\\u\\.qoder\\bin\\qodercli.exe',
+      ['C:\\Users\\u\\.qoder\\bin\\qodercli.exe', 'update'],
+    ],
+    [
+      'pi',
+      'C:\\Users\\u\\.pi\\agent\\bin\\pi.cmd',
+      ['C:\\Users\\u\\.pi\\agent\\bin\\pi.cmd', 'update', '--self'],
+    ],
+    [
+      'hermes',
+      'C:\\Users\\u\\.local\\bin\\hermes.exe',
+      ['C:\\Users\\u\\.local\\bin\\hermes.exe', 'update'],
+    ],
+    [
+      'opencode',
+      'C:\\Users\\u\\.opencode\\bin\\opencode.exe',
+      ['C:\\Users\\u\\.opencode\\bin\\opencode.exe', 'upgrade'],
+    ],
+  ] as const)('uses the selected native %s updater on Windows', (kind, path, command) => {
+    expect(planFor(kind, path, 'win32')?.upgradeCommand).toEqual(command)
+  })
+
+  it('uses the Grok PowerShell installer without sh on Windows', () => {
+    expect(planFor('grok', null, 'win32')?.installCommand).toEqual([
+      'powershell.exe',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference = 'Stop'; Invoke-RestMethod 'https://x.ai/cli/install.ps1' | Invoke-Expression",
+    ])
+  })
+
+  it('keeps npm, uv, Scoop and WinGet installs on their actual channel', () => {
+    expect(planFor('grok', 'C:/Users/u/AppData/Roaming/npm/grok.cmd', 'win32')?.manager).toBe('npm')
+    expect(
+      planFor('hermes', 'C:/Users/u/.local/share/uv/tools/hermes-cli/Scripts/hermes.exe', 'win32')
+        ?.upgradeCommand,
+    ).toEqual(['uv', 'tool', 'upgrade', 'hermes-cli'])
+    expect(
+      planFor('claude', 'C:/Users/u/scoop/apps/claude-code/current/claude.exe', 'win32')
+        ?.upgradeCommand,
+    ).toEqual(['scoop', 'update', 'claude-code'])
+    expect(
+      planFor(
+        'codex',
+        'C:/Users/u/AppData/Local/Microsoft/WinGet/Packages/OpenAI.Codex_Microsoft.Winget.Source_8wekyb3d8bbwe/codex.exe',
+        'win32',
+      )?.upgradeCommand,
+    ).toEqual(['winget', 'upgrade', '--id', 'OpenAI.Codex', '--exact', '--disable-interactivity'])
+    expect(planFor('codex', 'C:/unknown/codex.exe', 'win32')).toBeNull()
+  })
+
+  it('targets the owning npm prefix when the selected executable is inside its package', () => {
+    expect(
+      planFor(
+        'codex',
+        'C:/Users/u/AppData/Roaming/npm/node_modules/@openai/codex/vendor/codex.exe',
+        'win32',
+      )?.upgradeCommand,
+    ).toContain('C:/Users/u/AppData/Roaming/npm')
+    expect(
+      planFor('claude', '/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js', 'linux')
+        ?.upgradeCommand,
+    ).toContain('/opt/node')
+  })
+
+  it('keeps Homebrew casks on the cask channel', () => {
+    expect(
+      planFor('codex', '/opt/homebrew/Caskroom/codex/0.1/codex', 'darwin')?.upgradeCommand,
+    ).toEqual(['brew', 'upgrade', '--cask', 'codex'])
   })
 })

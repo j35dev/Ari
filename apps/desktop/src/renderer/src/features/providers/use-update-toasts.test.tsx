@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
@@ -31,10 +31,12 @@ describe('useUpdateToasts', () => {
 
   it('shows an Update toast and runs providers.install on click', async () => {
     let onFrame: ((payload: unknown) => void) | undefined
-    subscribeFn.mockImplementation((_name: string, _params: unknown, cb: (payload: unknown) => void) => {
-      onFrame = cb
-      return () => undefined
-    })
+    subscribeFn.mockImplementation(
+      (_name: string, _params: unknown, cb: (payload: unknown) => void) => {
+        onFrame = cb
+        return () => undefined
+      },
+    )
     invokeFn.mockResolvedValue({ started: true })
     render(
       <ToastProvider>
@@ -75,7 +77,78 @@ describe('useUpdateToasts', () => {
       truncated: false,
       version: '2.2.0 (Claude Code)',
     })
-    expect(await screen.findByText('Claude is up to date')).toBeInTheDocument()
+    expect(await screen.findByText('Claude updated')).toBeInTheDocument()
     expect(screen.getByText('2.2.0 (Claude Code)')).toBeInTheDocument()
+  })
+
+  it('reports phases and a retryable failure for an update started in Settings', async () => {
+    let onFrame!: (payload: unknown) => void
+    subscribeFn.mockImplementation((_name, _params, cb) => {
+      onFrame = cb
+      return () => undefined
+    })
+    invokeFn.mockResolvedValue({ started: true })
+    render(
+      <ToastProvider>
+        <Watcher />
+      </ToastProvider>,
+    )
+    act(() => onFrame({ type: 'install.started', kind: 'codex', operation: 'upgrade' }))
+    expect(await screen.findByText('Updating Codex…')).toBeInTheDocument()
+    act(() =>
+      onFrame({
+        type: 'install.phase',
+        kind: 'codex',
+        phase: 'waiting',
+        message: 'Will update when the current turns finish.',
+      }),
+    )
+    expect(screen.getByText('Will update when the current turns finish.')).toBeInTheDocument()
+    act(() =>
+      onFrame({
+        type: 'install.settled',
+        kind: 'codex',
+        operation: 'upgrade',
+        ok: false,
+        reason: 'The CLI is still in use.',
+        truncated: false,
+      }),
+    )
+    expect(await screen.findByText('Could not update Codex')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(invokeFn).toHaveBeenCalledWith('providers.install', {
+      kind: 'codex',
+      operation: 'upgrade',
+    })
+    expect(screen.getByText('Updating Codex…')).toBeInTheDocument()
+  })
+
+  it('handles a rejected RPC request and lets Retry reconnect', async () => {
+    let onFrame!: (payload: unknown) => void
+    subscribeFn.mockImplementation((_name, _params, cb) => {
+      onFrame = cb
+      return () => undefined
+    })
+    invokeFn
+      .mockRejectedValueOnce(new Error('IPC disconnected'))
+      .mockResolvedValue({ started: true })
+    render(
+      <ToastProvider>
+        <Watcher />
+      </ToastProvider>,
+    )
+    act(() =>
+      onFrame({
+        type: 'detections',
+        detections: [{ kind: 'codex', updateAvailable: true, latestVersion: '1.0.0' }],
+      }),
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Update' }))
+    expect(
+      await screen.findByText('The update request failed. Retry to reconnect.'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(invokeFn).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Updating Codex…')).toBeInTheDocument()
   })
 })
