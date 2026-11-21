@@ -26,10 +26,9 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 - **Drive many agents at once.** Every installed CLI is detected automatically and driven
   through its native protocol (ACP where available, structured CLI fallbacks elsewhere).
   Your existing logins are reused — Ari never asks you to re-authenticate.
-- **A workspace for native CLIs.** Switch between Sessions and Terminals from the
-  header. Open project spaces, split panes right or down, and run Claude Code in one
-  pane and Codex in another. Layout presets, terminal typography and shared Ari themes
-  keep the workspace adjustable while hidden panes retain their running processes.
+- **A real terminal room.** A full-page terminal workspace with herdr-style panes: split
+  any pane right or down, drag dividers (or nudge them with arrow keys), and run Claude
+  Code in one pane, Codex in another, while everything stays live in the background.
 - **Sessions you can trust.** Every turn is appended to an event-sourced journal with
   git-backed checkpoints, so you can review, revert a single turn, or resume exactly
   where an agent left off.
@@ -41,7 +40,7 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 | Area       | What you get                                                                                                                                 |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes — auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                 |
-| Terminals  | Sessions/Terminals switch, project spaces, direct CLI launch, split panes, layout presets, search and live shared themes                     |
+| Terminals  | Full-page pane workspace: binary splits, draggable/keyboard dividers, agent-CLI launcher, per-pane scrollback that survives remounts         |
 | Sessions   | Event-sourced journals, realtime streaming deltas, session resume, edit-and-resend                                                           |
 | References | `@file` mentions with a ranked popup; drag files from the explorer or Changes list straight into the prompt                                  |
 | Review     | Per-turn diffs, checkpoint list with per-turn revert, worktree status                                                                        |
@@ -52,17 +51,17 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 
 ## Supported agents
 
-| Agent            | Transport                        | Notes                                                            |
-| ---------------- | -------------------------------- | ---------------------------------------------------------------- |
-| Claude Code      | ACP + CLI fallback               | Detected via `claude` on PATH                                    |
-| Codex CLI        | App-server + CLI fallback        | Detected via `codex` on PATH                                     |
-| OpenCode         | ACP + CLI fallback               |                                                                  |
-| Grok CLI         | ACP + CLI fallback               |                                                                  |
-| Pi               | ACP + CLI fallback               |                                                                  |
-| Hermes           | ACP + CLI fallback               |                                                                  |
-| Qoder CLI        | Native ACP                       | Optional; uses the existing Qoder login                          |
-| Muse Code        | Native ACP                       | Optional; Muse account; upstream ACP is experimental             |
-| Ari Core         | Direct harness                   | Any OpenAI/Anthropic/Ollama-compatible endpoint                  |
+| Agent       | Transport                 | Notes                                                |
+| ----------- | ------------------------- | ---------------------------------------------------- |
+| Claude Code | ACP + CLI fallback        | Detected via `claude` on PATH                        |
+| Codex CLI   | App-server + CLI fallback | Detected via `codex` on PATH                         |
+| OpenCode    | ACP + CLI fallback        |                                                      |
+| Grok CLI    | ACP + CLI fallback        |                                                      |
+| Pi          | ACP + CLI fallback        |                                                      |
+| Hermes      | ACP + CLI fallback        |                                                      |
+| Qoder CLI   | Native ACP                | Optional; uses the existing Qoder login              |
+| Muse Code   | Native ACP                | Optional; Muse account; upstream ACP is experimental |
+| Ari Core    | Direct harness            | Any OpenAI/Anthropic/Ollama-compatible endpoint      |
 
 Claude Code, Codex, Grok, and OpenCode are enabled by default. Enable Qoder, Muse Code,
 Pi, or Hermes in **Settings → Providers** when you want to use them.
@@ -96,21 +95,6 @@ so it can sit next to an installed Ari. Sessions and settings are not shared.
 
 First launch detects installed CLIs automatically; anything missing is simply not
 offered. Point Ari at a project folder and start a session.
-
-### Native terminal workspace
-
-Choose the terminal icon beside usage in the header. A project's first terminal
-space opens a shell immediately. **New space** (`Ctrl/Cmd+Shift+N`) creates an
-independent pane layout; **New terminal** (`Ctrl/Cmd+Shift+T`) adds a shell to the
-current space. The program menu launches Claude Code or Codex directly. Right-click
-a terminal to split right/down, or use the pane controls to resize, move or zoom it.
-
-Terminal desk, Agent desk and Workbench presets adjust the layout. Ari's themes
-apply to both views, with separate terminal font/cursor/history preferences. Native
-CLIs retain their own authentication, model choices, permissions and histories.
-Spaces use their registered project's checkout; an existing worktree can be opened
-as a project. Parking a pane or space keeps its process running, while **Stop** ends
-it. Processes remain owned by the desktop and stop when Ari quits.
 
 ## Remote control from your phone
 

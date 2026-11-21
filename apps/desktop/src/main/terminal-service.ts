@@ -1,8 +1,6 @@
 import { exec } from 'node:child_process'
-import { delimiter, join, resolve } from 'node:path'
-import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { isWithinRoot } from '@ari/shared/paths'
-import type { TerminalInfo } from '@ari/contracts/rpc'
 
 const MAX_SCROLLBACK = 1024 * 1024
 /**
@@ -28,36 +26,17 @@ export interface PtySpawnOptions {
   cwd: string
   env: Record<string, string>
   windowsHide: boolean
-  cols?: number
-  rows?: number
 }
 
 export type PtyFactory = (file: string, args: string[], options: PtySpawnOptions) => PtyLike
 
 export interface TerminalEvents {
   onData: (id: string, data: string) => void
-  onExit: (id: string, exitCode: number) => void
+  onExit: (id: string) => void
 }
 
-/** Restore shell input after a TUI exits without restoring its mouse modes. */
-export const POWERSHELL_PROMPT_INTEGRATION = [
-  '$__AriPrompt = Get-Command prompt -CommandType Function -ErrorAction SilentlyContinue',
-  '$global:__AriOriginalPrompt = if ($__AriPrompt) { $__AriPrompt.ScriptBlock } else { $null }',
-  "function global:prompt { [Console]::Write(([char]27) + '[?9;1000;1002;1003;1004;1005;1006;1015;1016l'); if ($global:__AriOriginalPrompt) { & $global:__AriOriginalPrompt } else { 'PS ' + $executionContext.SessionState.Path.CurrentLocation + '> ' } }",
-].join('; ')
-
-export function defaultShell(pathEnv = process.env.PATH ?? ''): { file: string; args: string[] } {
-  if (process.platform === 'win32') {
-    const pwsh = pathEnv
-      .split(delimiter)
-      .filter(Boolean)
-      .map((directory) => join(directory, 'pwsh.exe'))
-      .find((file) => existsSync(file))
-    return {
-      file: pwsh ?? 'powershell.exe',
-      args: ['-NoLogo', '-NoExit', '-Command', POWERSHELL_PROMPT_INTEGRATION],
-    }
-  }
+export function defaultShell(): { file: string; args: string[] } {
+  if (process.platform === 'win32') return { file: 'powershell.exe', args: [] }
   if (process.platform === 'darwin') return { file: '/bin/zsh', args: ['-l'] }
   return { file: '/bin/bash', args: [] }
 }
@@ -102,9 +81,6 @@ interface Session {
   scrollback: string
   exited: boolean
   cwd: string
-  exitCode: number | null
-  cols: number
-  rows: number
 }
 
 /**
@@ -126,40 +102,20 @@ export class TerminalService {
   }
 
   /** Interactive shell inside a jailed project directory. */
-  create(
-    id: string,
-    cwd: string,
-    initialCommand?: string,
-    options: { cols?: number; rows?: number; pathEnv?: string } = {},
-  ): boolean {
-    if (this.#sessions.has(id)) return false
-    const shell = defaultShell(options.pathEnv)
+  create(id: string, cwd: string): void {
+    const shell = defaultShell()
     const env: Record<string, string> = {}
     for (const [name, value] of Object.entries(process.env)) {
       if (typeof value === 'string') env[name] = value
     }
-    if (options.pathEnv) env.PATH = options.pathEnv
-    env.COLORTERM ??= 'truecolor'
-    env.TERM_PROGRAM = 'Ari'
-    this.spawn(id, shell.file, shell.args, cwd, env, options)
-    // This is part of creation, never attachment. Remounting a view cannot
-    // resend a CLI or a run script to an already-running shell.
-    if (initialCommand) this.write(id, `${initialCommand}\r`)
-    return true
+    this.spawn(id, shell.file, shell.args, cwd, env)
   }
 
   /**
    * A specific program, not a shell. Sign-in uses this so keystrokes are
    * stdin for that program and cannot start another command.
    */
-  spawn(
-    id: string,
-    file: string,
-    args: string[],
-    cwd: string,
-    env: Record<string, string>,
-    size: { cols?: number; rows?: number } = {},
-  ): void {
+  spawn(id: string, file: string, args: string[], cwd: string, env: Record<string, string>): void {
     if (this.#closed) throw new Error('Ari is shutting down')
     if (this.#sessions.has(id)) return
     const pty = this.#spawnPty(file, args, {
@@ -167,18 +123,8 @@ export class TerminalService {
       cwd,
       env,
       windowsHide: true,
-      ...(size.cols === undefined ? {} : { cols: size.cols }),
-      ...(size.rows === undefined ? {} : { rows: size.rows }),
     })
-    const session: Session = {
-      pty,
-      scrollback: '',
-      exited: false,
-      cwd: resolve(cwd),
-      exitCode: null,
-      cols: size.cols ?? 80,
-      rows: size.rows ?? 24,
-    }
+    const session: Session = { pty, scrollback: '', exited: false, cwd: resolve(cwd) }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -187,10 +133,9 @@ export class TerminalService {
       }
       this.#events.onData(id, data)
     })
-    pty.onExit((exitCode) => {
+    pty.onExit(() => {
       session.exited = true
-      session.exitCode = exitCode
-      this.#events.onExit(id, exitCode)
+      this.#events.onExit(id)
     })
   }
 
@@ -200,11 +145,7 @@ export class TerminalService {
 
   resize(id: string, cols: number, rows: number): void {
     try {
-      const session = this.#sessions.get(id)
-      if (!session || session.exited) return
-      session.pty.resize(cols, rows)
-      session.cols = cols
-      session.rows = rows
+      this.#sessions.get(id)?.pty.resize(cols, rows)
     } catch {
       // resizing a dead session is a no-op
     }
@@ -255,19 +196,5 @@ export class TerminalService {
 
   has(id: string): boolean {
     return this.#sessions.has(id)
-  }
-
-  info(id: string): TerminalInfo | null {
-    const session = this.#sessions.get(id)
-    return session
-      ? {
-          id,
-          cwd: session.cwd,
-          exited: session.exited,
-          exitCode: session.exitCode,
-          cols: session.cols,
-          rows: session.rows,
-        }
-      : null
   }
 }
