@@ -22,6 +22,7 @@
     "./slash-commands": "./src/slash-commands.ts",
     "./attachments": "./src/attachments.ts",
     "./spawn-cli": "./src/spawn-cli.ts",
+    "./off-thread": "./src/off-thread.ts",
     "./shell-env": "./src/shell-env.ts",
     "./acp": "./src/acp/acp-driver.ts",
     "./acp/connection": "./src/acp/connection.ts",

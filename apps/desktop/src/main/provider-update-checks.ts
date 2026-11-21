@@ -1,4 +1,4 @@
-import { runInstall } from '@ari/providers/install'
+import { runCaptured } from '@ari/providers/off-thread'
 import { planFor } from '@ari/providers/package-manager'
 import { parseVersionToken } from '@ari/providers/updates'
 import type { Detection } from '@ari/providers/types'
@@ -30,23 +30,17 @@ export function parseNativeLatest(detection: Detection, output: string): string 
   return null
 }
 
+/**
+ * Runs the native updater's check off the main thread: starting grok.exe or
+ * qodercli.exe blocks the starting thread for seconds on Windows.
+ */
 export async function checkNativeLatest(
   detection: Detection,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null | undefined> {
   const command = nativeCheckCommand(detection)
   if (!command) return undefined
-  let output = ''
-  let clean = false
-  const handle = runInstall(
-    command,
-    (event) => {
-      if (event.type === 'progress' && event.line.stream === 'stdout')
-        output = `${output}${event.line.text}\n`.slice(-10_240)
-      if (event.type === 'exit') clean = event.code === 0 && !event.timedOut
-    },
-    { env, timeoutMs: 15_000 },
-  )
-  await handle.done
-  return clean ? parseNativeLatest(detection, output) : null
+  const [file, ...args] = command
+  const result = await runCaptured(file!, args, { env, timeoutMs: 15_000 })
+  return result?.code === 0 ? parseNativeLatest(detection, result.stdout ?? '') : null
 }
