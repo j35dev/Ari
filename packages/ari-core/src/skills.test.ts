@@ -14,6 +14,19 @@ import {
 } from './skills'
 
 describe('Ari Core skills', () => {
+  it('lists home skills once when the workspace is home', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ari-skills-home-'))
+    try {
+      const home = join(root, 'home')
+      await mkdir(join(home, '.agents', 'skills', 'hello'), { recursive: true })
+      await writeFile(join(home, '.agents', 'skills', 'hello', 'SKILL.md'), '---\nname: hello\n---\n')
+      const skills = await listAriCoreSkills(home, [], { homeDir: home })
+      expect(skills.map((skill) => [skill.name, skill.scope, skill.trusted])).toEqual([['hello', 'user', true]])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('loads user skills and hides untrusted project skills from the active set', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ari-skills-'))
     try {

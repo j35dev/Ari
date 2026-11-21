@@ -3,7 +3,122 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { DetectEnvironment } from '../types'
-import { discoverExtensions, projectDirs, scanTomlMcp } from './inventory'
+import {
+  SECRET_MASK,
+  discoverExtensions,
+  parseSkillFrontmatter,
+  projectDirs,
+  redactArgs,
+  sanitizeUrl,
+  scanTomlMcp,
+} from './inventory'
+
+describe('parseSkillFrontmatter', () => {
+  const parse = (yaml: string) => parseSkillFrontmatter(`---\n${yaml}\n---\nbody\n`, 'dir')
+
+  it('reads a plain one-line description', () => {
+    expect(parse('name: hello\ndescription: Says hello')).toEqual({
+      name: 'hello',
+      summary: 'Says hello',
+    })
+  })
+
+  it('folds a > block scalar into one line', () => {
+    expect(
+      parse('name: fold\ndescription: >\n  Turns a stream\n  into clips.\nlicense: MIT').summary,
+    ).toBe('Turns a stream into clips.')
+  })
+
+  it('reads | and chomping or indent indicators instead of showing the marker', () => {
+    expect(parse('description: |\n  Line one\n  line two').summary).toBe('Line one line two')
+    expect(parse('description: >-\n    Kept short\n\n    Second para').summary).toBe(
+      'Kept short Second para',
+    )
+    expect(parse('description: |+ # keep\n  Trailing').summary).toBe('Trailing')
+    expect(parse('description: >2\n  Two spaces').summary).toBe('Two spaces')
+  })
+
+  it('joins a plain or quoted value continued on indented lines', () => {
+    expect(parse('description: Starts here\n  and goes on').summary).toBe('Starts here and goes on')
+    expect(parse('description: "Quoted \\"bit\\"\n  wraps"').summary).toBe('Quoted "bit" wraps')
+    expect(parse("description: 'It''s fine'").summary).toBe("It's fine")
+  })
+
+  it('handles CRLF files and ignores nested keys', () => {
+    const raw =
+      '---\r\nname: crlf\r\nmetadata:\r\n  description: nested\r\ndescription: >\r\n  Top\r\n---\r\n'
+    expect(parseSkillFrontmatter(raw, 'dir')).toEqual({ name: 'crlf', summary: 'Top' })
+  })
+
+  it('leaves an empty block scalar without a summary', () => {
+    expect(parse('name: empty\ndescription: >')).toEqual({ name: 'empty' })
+  })
+})
+
+describe('MCP detail redaction', () => {
+  it('masks credentials in args but keeps the rest readable', () => {
+    expect(
+      redactArgs([
+        '-y',
+        '@scope/server',
+        '--api-key',
+        'abc',
+        '--token=xyz',
+        'GITHUB_TOKEN=ghp_123',
+        'Authorization: Bearer abc',
+        'sk-live-123',
+        'https://u:p@host.dev/mcp?key=1',
+        '--port',
+        '3000',
+      ]),
+    ).toEqual([
+      '-y',
+      '@scope/server',
+      '--api-key',
+      SECRET_MASK,
+      `--token=${SECRET_MASK}`,
+      `GITHUB_TOKEN=${SECRET_MASK}`,
+      `Authorization: ${SECRET_MASK}`,
+      SECRET_MASK,
+      'https://host.dev/mcp',
+      '--port',
+      '3000',
+    ])
+  })
+
+  it('strips query and credentials from URLs', () => {
+    expect(sanitizeUrl('https://user:pw@mcp.example.com/sse?token=1#x')).toBe(
+      'https://mcp.example.com/sse',
+    )
+    expect(sanitizeUrl('not a url')).toBeNull()
+  })
+
+  it('reads args and env key names from Codex TOML, never env values', () => {
+    const hits = scanTomlMcp(
+      [
+        '[mcp_servers.docs]',
+        'command = "npx"',
+        'args = [',
+        '  "-y",',
+        '  "docs-mcp",',
+        ']',
+        'env = { "API_KEY" = "hidden", REGION = "eu" }',
+        '[mcp_servers.remote]',
+        'url = "https://mcp.example.com/mcp?token=hidden"',
+      ].join('\n'),
+      'config.toml',
+      'user',
+    )
+    expect(hits[0]).toMatchObject({
+      name: 'docs',
+      transport: 'stdio',
+      args: ['-y', 'docs-mcp'],
+      envKeys: ['API_KEY', 'REGION'],
+    })
+    expect(hits[1]).toMatchObject({ transport: 'http', url: 'https://mcp.example.com/mcp' })
+    expect(JSON.stringify(hits)).not.toContain('hidden')
+  })
+})
 
 function env(home: string): DetectEnvironment {
   return {
@@ -102,14 +217,37 @@ describe('discoverExtensions', () => {
         command: 'npx',
         transport: 'stdio',
       })
+      // Env key names go out for the details view; their values never do.
+      expect(server).toMatchObject({ args: ['srv'], envKeys: ['TOKEN'] })
       expect(JSON.stringify(server)).not.toContain('secret')
-      expect(JSON.stringify(server)).not.toContain('srv')
       expect(listed.records.find((row) => row.name === 'ari-browser')?.problem).toBe(
         'duplicate-name',
       )
       expect(listed.records.find((row) => row.name === '.claude.json')?.problem).toBe('unreadable')
       expect(listed.records.find((row) => row.name === 'demo')?.kind).toBe('plugin')
       expect(listed.records.filter((row) => row.name === 'filesystem')).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('lists a home skill once when the workspace is home itself', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ari-inv-home-'))
+    try {
+      const home = join(root, 'home')
+      await mkdir(join(home, '.claude', 'skills', 'hello'), { recursive: true })
+      await writeFile(
+        join(home, '.claude', 'skills', 'hello', 'SKILL.md'),
+        '---\nname: hello\ndescription: Hi\n---\n',
+      )
+      const listed = await discoverExtensions({
+        provider: 'claude',
+        workspacePath: home,
+        env: env(home),
+      })
+      const rows = listed.records.filter((row) => row.name === 'hello')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.scope).toBe('user')
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -182,6 +320,7 @@ describe('discoverExtensions', () => {
         problem: 'missing-binary',
         command: 'missing-bin',
       })
+      expect(demo?.envKeys).toContain('TOKEN')
       expect(JSON.stringify(demo)).not.toContain('secret')
       expect(listed.records.some((row) => row.name === 'inline' || row.command === 'nope')).toBe(
         false,

@@ -1,4 +1,4 @@
-﻿import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -6,6 +6,7 @@ import type { Settings } from '@ari/contracts/settings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { SettingsWorkspace, SETTINGS_SECTIONS } from './SettingsWorkspace'
+import { createLeaveGuardStore } from './settings-leave-guard'
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
@@ -96,6 +97,37 @@ describe('SettingsWorkspace', () => {
     )
     expect(screen.getByText(/Every shortcut the workspace responds to/)).toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: 'Dark' })).not.toBeInTheDocument()
+  })
+
+  it('holds section changes and closing while a page guards unsaved edits', async () => {
+    const onBack = vi.fn()
+    const user = userEvent.setup()
+    const leaveGuard = createLeaveGuardStore()
+    const held: (() => void)[] = []
+    leaveGuard.current = (proceed) => {
+      held.push(proceed)
+      return true
+    }
+    render(
+      <ThemeProvider>
+        <SettingsWorkspace onBack={onBack} leaveGuard={leaveGuard} />
+      </ThemeProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Keybindings' }))
+    await user.click(screen.getByRole('button', { name: 'Close settings' }))
+    expect(screen.getByRole('button', { name: 'Appearance' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(onBack).not.toHaveBeenCalled()
+
+    // Discarding runs the held navigation.
+    act(() => held[0]?.())
+    expect(screen.getByRole('button', { name: 'Keybindings' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('closes from the close button', async () => {
