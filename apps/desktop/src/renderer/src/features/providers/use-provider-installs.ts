@@ -10,6 +10,9 @@ type Detection = RpcResults['providers.detect'][number]
 
 export interface InstallState {
   operation: 'install' | 'upgrade'
+  phase?: Extract<ProvidersUpdateFrame, { type: 'install.phase' }>['phase']
+  message?: string
+  details?: string
   /** Set once the settle frame arrives; null while still running. */
   outcome: { ok: boolean; reason: string | null; truncated: boolean } | null
 }
@@ -54,11 +57,26 @@ export function useProviderInstalls(
         }))
         return
       }
+      if (frame.type === 'install.phase' || frame.type === 'install.progress') {
+        setInstalls((current) => {
+          const state = current[frame.kind]
+          if (!state || state.outcome !== null) return current
+          return {
+            ...current,
+            [frame.kind]:
+              frame.type === 'install.phase'
+                ? { ...state, phase: frame.phase, message: frame.message }
+                : { ...state, details: `${state.details ?? ''}${frame.text}\n`.slice(-10_240) },
+          }
+        })
+        return
+      }
       if (frame.type === 'install.settled') {
         setInstalls((current) => ({
           ...current,
           [frame.kind]: {
             operation: frame.operation,
+            details: frame.details ?? current[frame.kind]?.details ?? '',
             outcome: { ok: frame.ok, reason: frame.reason, truncated: frame.truncated },
           },
         }))
@@ -69,13 +87,13 @@ export function useProviderInstalls(
 
   // Settled status fades out so a finished install doesn't clutter forever.
   useEffect(() => {
-    const settled = Object.entries(installs).filter(([, state]) => state?.outcome != null)
+    const settled = Object.entries(installs).filter(([, state]) => state?.outcome?.ok === true)
     if (settled.length === 0) return
     const timer = setTimeout(() => {
       setInstalls((current) => {
         const next = { ...current }
         for (const kind of settled.map(([entryKind]) => entryKind)) {
-          if (next[kind as DriverKind]?.outcome != null) delete next[kind as DriverKind]
+          if (next[kind as DriverKind]?.outcome?.ok === true) delete next[kind as DriverKind]
         }
         return next
       })

@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { InstallEvent } from './install'
-import { ringTail, runInstall } from './install'
+import { resolveInstallProgram, ringTail, runInstall } from './install'
 
 function collect(): { events: InstallEvent[]; onEvent: (event: InstallEvent) => void } {
   const events: InstallEvent[] = []
@@ -13,6 +16,67 @@ afterEach(() => {
 })
 
 describe('runInstall', () => {
+  it.skipIf(process.platform !== 'win32')(
+    'resolves the enriched PATH rather than a stale mixed-case Path',
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'ari-install-path-'))
+      try {
+        await writeFile(join(directory, 'updater.cmd'), '')
+        expect(
+          resolveInstallProgram('updater', { Path: 'C:/missing/old-path', PATH: directory }),
+        ).toBe(join(directory, 'updater.cmd'))
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    },
+  )
+  it('emits exactly one terminal event when the updater cannot spawn', async () => {
+    const { events, onEvent } = collect()
+    await runInstall(['ari-provider-updater-that-does-not-exist.exe'], onEvent).done
+    expect(events.filter((event) => event.type === 'failed' || event.type === 'exit')).toHaveLength(
+      1,
+    )
+    const last = events.at(-1)
+    expect(last?.type).toBe('failed')
+    if (last?.type === 'failed') expect(last.reason).toContain('ENOENT')
+  })
+
+  it('reports a synchronous spawn error as a terminal failure', async () => {
+    const { events, onEvent } = collect()
+    await runInstall([process.execPath, '\u0000'], onEvent).done
+    expect(events).toHaveLength(1)
+    const last = events[0]
+    expect(last?.type).toBe('failed')
+    if (last?.type === 'failed') expect(last.reason).toContain('null bytes')
+  })
+
+  it('keeps the last diagnostic even without a newline', async () => {
+    const { events, onEvent } = collect()
+    await runInstall(
+      [process.execPath, '-e', 'process.stderr.write("EBUSY locked executable"); process.exit(1)'],
+      onEvent,
+    ).done
+    expect(events).toContainEqual({
+      type: 'progress',
+      line: { stream: 'stderr', text: 'EBUSY locked executable' },
+    })
+  })
+
+  it.skipIf(process.platform !== 'win32')(
+    'runs npm install --help through the actual Windows shim without mangling arguments',
+    async () => {
+      const { events, onEvent } = collect()
+      await runInstall(['npm', 'install', '--help'], onEvent, { timeoutMs: 30_000 }).done
+      expect(events.at(-1)).toMatchObject({ type: 'exit', code: 0 })
+      const output = events
+        .filter((event) => event.type === 'progress')
+        .map((event) => event.line.text)
+        .join('\n')
+      expect(output).toContain('npm install')
+      expect(output).not.toContain('Unknown command')
+    },
+    35_000,
+  )
   it('rejects an empty argv without spawning', async () => {
     const { events, onEvent } = collect()
     const handle = runInstall([], onEvent)

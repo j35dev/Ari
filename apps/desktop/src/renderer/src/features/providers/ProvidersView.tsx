@@ -169,6 +169,15 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
   }
 
   const row = rows.find((entry) => entry.kind === selected) ?? rows[0]
+  const outdated =
+    detections?.filter(
+      (d) =>
+        d.updateAvailable === true &&
+        d.enabled !== false &&
+        d.installed &&
+        connectionOf(d.kind as DriverKind)?.enabled !== false,
+    ) ?? []
+  const updating = Object.values(installs).some((state) => state?.outcome === null)
 
   return (
     <section aria-label="Providers" className="flex flex-col">
@@ -179,20 +188,35 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
             Choose which agents Ari uses and which install of each it runs.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={scanning}
-          title="Look for every provider again"
-          onClick={() => void scan('providers.rescan')}
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`}
-            strokeWidth={1.7}
-            aria-hidden
-          />
-          {scanning || checkedAt === null ? 'Checking…' : `Checked ${checkedAgo(checkedAt, now)}`}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {outdated.length > 1 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={updating}
+              onClick={() => {
+                // The main process owns the serial queue across every entry point.
+                for (const detection of outdated) run(detection.kind as DriverKind, 'upgrade')
+              }}
+            >
+              Update all ({outdated.length})
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={scanning}
+            title="Look for every provider again"
+            onClick={() => void scan('providers.rescan')}
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`}
+              strokeWidth={1.7}
+              aria-hidden
+            />
+            {scanning || checkedAt === null ? 'Checking…' : `Checked ${checkedAgo(checkedAt, now)}`}
+          </Button>
+        </div>
       </div>
 
       {error != null && (

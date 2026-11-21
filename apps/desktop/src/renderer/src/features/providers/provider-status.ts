@@ -54,7 +54,14 @@ export function providerStatus({
     return {
       tone: 'busy',
       headline: install.operation === 'install' ? 'Installing' : 'Updating',
-      detail: null,
+      detail: install.message ?? null,
+    }
+  }
+  if (install?.outcome?.ok === false) {
+    return {
+      tone: 'error',
+      headline: install.operation === 'install' ? 'Install failed' : 'Update failed',
+      detail: install.outcome.reason,
     }
   }
   if (!detection.installed) {

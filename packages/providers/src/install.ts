@@ -1,4 +1,7 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
+import { existsSync } from 'node:fs'
+import { win32 } from 'node:path'
 import { createLogger } from '@ari/shared/logger'
 import { teardownChild } from './teardown'
 import { buildShellSpawnArgs, needsWindowsShell } from './spawn-cli'
@@ -37,7 +40,23 @@ export interface InstallHandle {
 /** Bounded cap on kept output; the oldest lines drop when exceeded. */
 const OUTPUT_TAIL_BYTES = 10 * 1024
 /** Hard ceiling on an install or upgrade attempt. */
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000
+
+/** Resolve the executable before dispatch so .cmd/.ps1 shims use the right Windows shell. */
+export function resolveInstallProgram(program: string, env: NodeJS.ProcessEnv): string {
+  if (process.platform !== 'win32' || /[\\/]/.test(program)) return program
+  const pathEnv =
+    env['PATH'] ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? ''
+  for (const directory of pathEnv.split(';')) {
+    for (const extension of /\.[a-z]+$/i.test(program)
+      ? ['']
+      : ['.exe', '.com', '.cmd', '.bat', '.ps1']) {
+      const candidate = win32.join(directory.replace(/^"|"$/g, ''), `${program}${extension}`)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return program
+}
 
 export interface InstallRunnerOptions {
   /** Per-stream tail cap in bytes; older lines are dropped when exceeded. */
@@ -76,7 +95,8 @@ export function runInstall(
     return { done: Promise.resolve(), cancel: () => Promise.resolve() }
   }
 
-  const program = argv[0] ?? ''
+  const childEnv = sanitizeNpmEnv({ ...process.env, ...env })
+  const program = resolveInstallProgram(argv[0] ?? '', childEnv)
   const args = argv.slice(1)
   const startedAt = Date.now()
   // Reuse spawnCli's shell dispatch so .cmd shims (npm/pnpm) get the
@@ -87,13 +107,19 @@ export function runInstall(
     process.platform === 'win32' && needsWindowsShell(program)
       ? buildShellSpawnArgs(program, args)
       : { file: program, args, windowsVerbatimArguments: false as const }
-  const child = spawn(wrapped.file, wrapped.args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-    ...(wrapped.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-    ...(cwd !== undefined ? { cwd } : {}),
-    env: sanitizeNpmEnv({ ...process.env, ...env }),
-  })
+  let child: ChildProcessByStdio<null, Readable, Readable>
+  try {
+    child = spawn(wrapped.file, wrapped.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...(wrapped.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
+      env: childEnv,
+    })
+  } catch (error) {
+    onEvent({ type: 'failed', reason: stringify(error), durationMs: Date.now() - startedAt })
+    return { done: Promise.resolve(), cancel: () => Promise.resolve() }
+  }
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
 
@@ -114,8 +140,13 @@ export function runInstall(
   }, timeoutMs)
 
   const done = new Promise<void>((resolveDone) => {
+    let terminal = false
     child.once('close', (code, signal) => {
       clearTimeout(timer)
+      if (terminal) return
+      terminal = true
+      stdout.flush(onEvent, 'stdout')
+      stderr.flush(onEvent, 'stderr')
       onEvent({
         type: 'exit',
         code,
@@ -128,6 +159,8 @@ export function runInstall(
     })
     child.once('error', (error) => {
       clearTimeout(timer)
+      if (terminal) return
+      terminal = true
       onEvent({ type: 'failed', reason: stringify(error), durationMs: Date.now() - startedAt })
       resolveDone()
     })
@@ -171,6 +204,11 @@ export function ringTail(maxBytes: number) {
   let overflowed = false
   return {
     overflowed: (): boolean => overflowed,
+    flush(emit: (event: InstallEvent) => void, stream: 'stdout' | 'stderr'): void {
+      if (buffer.trim())
+        emit({ type: 'progress', line: { stream, text: buffer.replace(/\r$/, '') } })
+      buffer = ''
+    },
     push(chunk: string, emit: (event: InstallEvent) => void, stream: 'stdout' | 'stderr'): void {
       buffer += chunk
       // Count the whole stream, not the current read. A pipe coalesces writes

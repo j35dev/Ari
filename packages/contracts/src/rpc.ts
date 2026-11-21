@@ -510,6 +510,12 @@ export type ProvidersUpdateFrame =
   | { type: 'auth.required'; kind: DriverKind; label: string; logins: ProviderLoginMethod[] }
   /** Install/upgrade accepted; Settings and toasts can show a spinner immediately. */
   | { type: 'install.started'; kind: DriverKind; operation: 'install' | 'upgrade' }
+  | {
+      type: 'install.phase'
+      kind: DriverKind
+      phase: 'queued' | 'waiting' | 'preparing' | 'downloading' | 'installing' | 'verifying'
+      message: string
+    }
   /** One line of live install/upgrade output. */
   | { type: 'install.progress'; kind: DriverKind; stream: 'stdout' | 'stderr'; text: string }
   /** Operation finished; `ok` reflects the post-run re-detect, not just exit code. */
@@ -520,6 +526,8 @@ export type ProvidersUpdateFrame =
       ok: boolean
       reason: string | null
       truncated: boolean
+      /** Bounded raw updater output for the optional Details disclosure. */
+      details?: string
       /** First line of `--version` after the mandatory re-probe. */
       version?: string | null
     }
