@@ -466,25 +466,6 @@ export interface SessionEventFrame {
 export interface TerminalDataFrame {
   id: string
   data: string
-  exited?: boolean
-  exitCode?: number
-}
-
-export interface TerminalInfo {
-  id: string
-  cwd: string
-  exited: boolean
-  exitCode: number | null
-  cols: number
-  rows: number
-}
-
-export type TerminalProfile = 'shell' | 'claude' | 'codex' | 'custom'
-
-export interface TerminalProfiles {
-  platform: string
-  shell: string
-  profiles: { id: Exclude<TerminalProfile, 'custom'>; label: string; available: boolean }[]
 }
 
 /** One account a provider can run as. */
@@ -960,26 +941,7 @@ export const rpcParams = {
     .strict(),
   'theme.export': z.object({ id: customThemeIdSchema }).strict(),
   'theme.remove': z.object({ id: customThemeIdSchema }).strict(),
-  'terminal.create': z.object({
-    id: z.string().min(1),
-    cwd: z.string().min(1),
-    initialCommand: z.string().max(16_384).optional(),
-    cols: z.number().int().min(2).max(1000).optional(),
-    rows: z.number().int().min(2).max(1000).optional(),
-  }),
-  'terminal.profiles': z.object({}).strict().default({}),
-  'terminal.info': z.object({ id: z.string().min(1).max(200) }).strict(),
-  'terminal.launch': z
-    .object({
-      id: z
-        .string()
-        .regex(/^term_[a-zA-Z0-9_-]+$/)
-        .max(200),
-      cwd: z.string().min(1).max(4096),
-      profile: z.enum(['shell', 'claude', 'codex', 'custom']),
-      command: z.string().min(1).max(16_384).optional(),
-    })
-    .strict(),
+  'terminal.create': z.object({ id: z.string().min(1), cwd: z.string().min(1) }),
   'terminal.write': z.object({ id: z.string().min(1), data: z.string() }),
   'terminal.resize': z.object({
     id: z.string().min(1),
@@ -1538,9 +1500,6 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'theme.export': { theme: CustomTheme; assetData: Record<string, string> }
   'theme.remove': ThemeLibraryEvent
   'terminal.create': { created: boolean }
-  'terminal.profiles': TerminalProfiles
-  'terminal.info': TerminalInfo | null
-  'terminal.launch': TerminalInfo
   'providers.setupTerminal': { ok: true; id: string; cwd: string } | { ok: false; error: string }
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
