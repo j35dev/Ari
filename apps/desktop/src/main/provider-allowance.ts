@@ -257,10 +257,16 @@ export class ProviderAllowanceReader {
     }
   }
 
-  read(kind: DriverKind, binaryPath: string | null): Promise<ProviderAllowance> {
+  /**
+   * `maxAgeMs` reuses a recent sample: every read launches the provider's CLI,
+   * and the pill, session switches and paired phones all ask.
+   */
+  read(kind: DriverKind, binaryPath: string | null, maxAgeMs = 0): Promise<ProviderAllowance> {
     const key = `${kind}:${binaryPath ?? ''}`
     const pending = this.#pending.get(key)
     if (pending) return pending
+    const last = this.#last.get(key)
+    if (last && this.now() - last.checkedAt < maxAgeMs) return Promise.resolve(last)
     const read: Promise<ProviderAllowance> = this.#read(kind, binaryPath, key).finally(() => {
       if (this.#pending.get(key) === read) this.#pending.delete(key)
     })

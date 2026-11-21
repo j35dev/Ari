@@ -190,19 +190,11 @@ export class RemoteService {
   /** A metadata-only local RPC; no local privileged RPC is exported to a remote client. */
   async localSnapshot(params?: { sampleResources?: boolean }): Promise<MachinesLocalSnapshot> {
     if (!this.#identity) throw new Error(IDENTITY_ERROR)
-    const host = createRemoteHost({
-      engine: this.#deps.engine,
-      store: this.#deps.store,
-      driverKinds: this.#deps.driverKinds,
-      defaultPermissionMode: this.#deps.defaultPermissionMode,
-      defaultDriverKind: this.#deps.defaultDriverKind,
-      hasProject: this.#deps.hasProject,
-      listProjects: this.#deps.listProjects,
-      listModels: this.#deps.listModels,
-      pairing: this.#pairing,
-      mintSessionId: this.#deps.mintSessionId,
-      ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
-    })
+    // Reused across polls so the host's repository identity cache survives;
+    // a fresh host would launch git for every project on every poll.
+    if (this.#localHost?.pairing !== this.#pairing)
+      this.#localHost = { pairing: this.#pairing, host: this.#createLocalHost() }
+    const host = this.#localHost.host
     const caller = { deviceId: 'local', projectIds: [], allProjects: true }
     const [catalog, resources, version, models] = await Promise.all([
       host.query(caller, 'project.catalog', {}),
@@ -226,6 +218,24 @@ export class RemoteService {
       resources,
       version,
       models,
+    })
+  }
+
+  #localHost: { pairing: unknown; host: ReturnType<typeof createRemoteHost> } | null = null
+
+  #createLocalHost(): ReturnType<typeof createRemoteHost> {
+    return createRemoteHost({
+      engine: this.#deps.engine,
+      store: this.#deps.store,
+      driverKinds: this.#deps.driverKinds,
+      defaultPermissionMode: this.#deps.defaultPermissionMode,
+      defaultDriverKind: this.#deps.defaultDriverKind,
+      hasProject: this.#deps.hasProject,
+      listProjects: this.#deps.listProjects,
+      listModels: this.#deps.listModels,
+      pairing: this.#pairing,
+      mintSessionId: this.#deps.mintSessionId,
+      ...(this.#deps.desktop ? { desktop: this.#deps.desktop } : {}),
     })
   }
 

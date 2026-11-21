@@ -11,6 +11,10 @@ import { err, ok, type Result } from '@ari/shared/result'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('ui:allowance')
+/** Each probe launches the provider's CLI, so providers other than the session's are re-read rarely. */
+const OTHER_PROVIDERS_MS = 5 * 60_000
+const TICK_MS = 60_000
+const RETURN_DELAY_MS = 3_000
 
 /** Refresh account quotas independently, keeping failures local to each provider. */
 export function useProviderAllowance(sessionId: string | null, kind: DriverKind) {
@@ -29,6 +33,11 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
   // A read that began before a redemption finished may predate it; the count of
   // redemptions per provider lets that read be dropped instead of applied.
   const redeemed = useRef(new Map<string, number>())
+  const focus = useRef(kind)
+  focus.current = kind
+  const latest = useRef(rows)
+  latest.current = rows
+  const lastPass = useRef(0)
 
   const refresh = useCallback(async function pass(onTimer = false): Promise<void> {
     // Slow provider CLIs can keep a pass going past the minute timer. Starting
@@ -72,9 +81,19 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
         ),
       )
       known.current = kinds
-      setChecking(kinds)
+      // Background passes re-read the session's provider and only stale others.
+      const due = onTimer
+        ? kinds.filter(
+            (provider) =>
+              provider === focus.current ||
+              Date.now() - (latest.current.find((row) => row.kind === provider)?.checkedAt ?? 0) >=
+                OTHER_PROVIDERS_MS,
+          )
+        : kinds
+      lastPass.current = Date.now()
+      setChecking(due)
       await Promise.all(
-        kinds.map(async (provider) => {
+        due.map(async (provider) => {
           const before = redeemed.current.get(provider)
           const fresh = () =>
             current === generation.current && redeemed.current.get(provider) === before
@@ -117,19 +136,32 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
         setChecking([])
         if (tickOwed.current) {
           tickOwed.current = false
-          void pass()
+          void pass(true)
         }
       }
     }
   }, [])
 
   useEffect(() => {
-    void refresh()
+    void refresh(true)
+    // Nothing is probed while Ari is minimized or hidden; a stale pill refreshes on return.
     const interval = setInterval(() => {
-      void refresh(true)
-    }, 60_000)
+      if (!document.hidden) void refresh(true)
+    }, TICK_MS)
+    // On return, wait a moment: launching a CLI must not compete with the window repainting.
+    let returning: ReturnType<typeof setTimeout> | undefined
+    const visible = (): void => {
+      clearTimeout(returning)
+      if (document.hidden) return
+      returning = setTimeout(() => {
+        if (!document.hidden && Date.now() - lastPass.current >= TICK_MS) void refresh(true)
+      }, RETURN_DELAY_MS)
+    }
+    document.addEventListener('visibilitychange', visible)
     return () => {
+      clearTimeout(returning)
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', visible)
       generation.current++
       tickOwed.current = false
     }

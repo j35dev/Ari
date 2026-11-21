@@ -1,5 +1,5 @@
 import { dirname } from 'node:path'
-import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { statSync } from 'node:fs'
 import { projectSchema, projectAgentSchema } from '@ari/contracts/project'
@@ -200,9 +200,17 @@ function diskStatus(folderPath: string): ProjectStatus {
   }
 }
 
-function withStatus(project: StoredProject): Project {
-  return { ...project, status: diskStatus(project.path) }
+/** The same check off the main thread; a stalled disk must not freeze the app. */
+async function diskStatusAsync(folderPath: string): Promise<ProjectStatus> {
+  try {
+    return (await stat(folderPath)).isDirectory() ? 'ok' : 'missing'
+  } catch {
+    return 'missing'
+  }
 }
+
+/** Folder checks younger than this are reused by `load()`. */
+const FOLDER_CHECK_MS = 2_000
 
 /**
  * A project the user removed. Removal is deliberately not a hard delete:
@@ -247,6 +255,11 @@ export class ProjectStore {
   #loaded = false
   #loading: Promise<Project[]> | null = null
   #persistTail: Promise<void> = Promise.resolve()
+  // Folder statuses from the last asynchronous check. `list()` reads these so
+  // listing every project never blocks on the disk.
+  readonly #statuses = new Map<string, ProjectStatus>()
+  #checkedAt = 0
+  #checking: Promise<void> | null = null
 
   readonly #builtIn: ProjectStoreOptions['builtIn']
 
@@ -256,7 +269,7 @@ export class ProjectStore {
   }
 
   load(): Promise<Project[]> {
-    if (this.#loaded) return Promise.resolve(this.list())
+    if (this.#loaded) return this.#checkFolders().then(() => this.list())
     this.#loading ??= this.#read().finally(() => {
       this.#loading = null
     })
@@ -298,7 +311,33 @@ export class ProjectStore {
     }
     this.#loaded = true
     await this.#seed()
+    await this.#checkFolders()
     return this.list()
+  }
+
+  /** A live check of one folder, which also refreshes what `list()` reports. */
+  #withStatus(project: StoredProject): Project {
+    const status = diskStatus(project.path)
+    this.#statuses.set(project.path, status)
+    return { ...project, status }
+  }
+
+  #checkFolders(): Promise<void> {
+    if (this.#checking) return this.#checking
+    if (Date.now() - this.#checkedAt < FOLDER_CHECK_MS) return Promise.resolve()
+    const checking = Promise.all(
+      this.#projects.map(async ({ path }) => {
+        this.#statuses.set(path, await diskStatusAsync(path))
+      }),
+    )
+      .then(() => {
+        this.#checkedAt = Date.now()
+      })
+      .finally(() => {
+        if (this.#checking === checking) this.#checking = null
+      })
+    this.#checking = checking
+    return checking
   }
 
   async #seed(): Promise<void> {
@@ -326,7 +365,10 @@ export class ProjectStore {
 
   /** All known projects, each stamped with its live on-disk status. */
   list(): Project[] {
-    return this.#projects.map((p) => withStatus(p))
+    return this.#projects.map((p) => {
+      const status = this.#statuses.get(p.path)
+      return status ? { ...p, status } : this.#withStatus(p)
+    })
   }
 
   /** Projects currently occupying a sidebar group. */
@@ -347,14 +389,14 @@ export class ProjectStore {
     await this.load()
     const canonical = await canonicalizeFolder(folderPath)
     const existing = this.#findByPath(canonical)
-    if (existing) return withStatus(existing)
+    if (existing) return this.#withStatus(existing)
     const tombstone = this.#findRemovedByPath(canonical)
     if (tombstone) {
       const restored: StoredProject = { ...tombstone.project, name: name ?? tombstone.project.name }
       this.#removed = this.#removed.filter((r) => r !== tombstone)
       this.#projects = [...this.#projects, restored]
       await this.#persist()
-      return withStatus(restored)
+      return this.#withStatus(restored)
     }
     const project = projectSchema.parse({
       id: newTypedId('proj'),
@@ -367,7 +409,7 @@ export class ProjectStore {
     })
     this.#projects = [...this.#projects, project]
     await this.#persist()
-    return withStatus(project)
+    return this.#withStatus(project)
   }
 
   /**
@@ -416,7 +458,7 @@ export class ProjectStore {
     if (index === -1) return null
     this.#projects = [...without.slice(0, index), moved, ...without.slice(index)]
     await this.#persist()
-    return withStatus(moved)
+    return this.#withStatus(moved)
   }
 
   /**
@@ -442,7 +484,7 @@ export class ProjectStore {
 
   get(id: string): Project | null {
     const found = this.#projects.find((p) => p.id === id)
-    return found ? withStatus(found) : null
+    return found ? this.#withStatus(found) : null
   }
 
   #findByPath(canonicalPath: string): StoredProject | null {
@@ -462,7 +504,7 @@ export class ProjectStore {
     const updated: StoredProject = { ...target, ...fields }
     this.#projects = this.#projects.map((p) => (p.id === id ? updated : p))
     await this.#persist()
-    return withStatus(updated)
+    return this.#withStatus(updated)
   }
 
   #persist(): Promise<void> {
