@@ -2399,6 +2399,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { path: session ? await engine.workspace(session) : null }
   })
 
+  // No model turn: a listing reads the provider's control channel only.
+  r.register('session.commands', ({ sessionId, refresh }) =>
+    engine.slashCommands(sessionId, {
+      ...(refresh ? { refresh } : {}),
+      env: (kind) => ({ ...process.env, ...providerEnvironment(kind) }),
+    }),
+  )
+
   r.register('session.tasks', async ({ sessionId }) =>
     (await controlReady).service.tasks(sessionId),
   )
