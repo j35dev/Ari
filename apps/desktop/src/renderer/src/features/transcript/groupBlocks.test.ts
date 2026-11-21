@@ -4,6 +4,7 @@ import {
   describeActivity,
   formatToolSummary,
   groupBlocks,
+  rowTurnId,
   summarizeToolRun,
 } from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
@@ -33,6 +34,36 @@ function assistantMessage(parts: Message['parts']): Message {
 }
 
 describe('groupBlocks', () => {
+  it('gives a subagent call its own row, holding its result, between the runs around it', () => {
+    const parts: Message['parts'] = [
+      { type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' },
+      { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+      { type: 'tool-call', callId: 'agent', name: 'Agent', argsJson: '{}' },
+      { type: 'tool-call', callId: 'acp', name: 'think', argsJson: '{}' },
+      { type: 'tool-result', callId: 'agent', resultJson: '"found"', isError: false },
+      { type: 'tool-result', callId: 'acp', resultJson: '"done"', isError: false },
+      { type: 'tool-call', callId: 'c2', name: 'Read', argsJson: '{}' },
+    ]
+    const blocks = splitBlocks([assistantMessage(parts)])
+    const rows = groupBlocks(blocks, undefined, undefined, new Set(['acp']))
+    expect(rows.map((row) => row.kind)).toEqual([
+      'tool-group',
+      'subagent',
+      'subagent',
+      'tool-group',
+    ])
+    const [, agent, acp, after] = rows
+    if (agent?.kind !== 'subagent' || acp?.kind !== 'subagent' || after?.kind !== 'tool-group')
+      throw new Error('unexpected rows')
+    expect(agent.call.callId).toBe('agent')
+    expect(agent.result?.resultJson).toBe('"found"')
+    expect(acp.result?.resultJson).toBe('"done"')
+    // Neither subagent's result joins the run after it.
+    expect(after.blocks.map((block) => block.callId)).toEqual(['c2'])
+    // An unchanged row keeps its identity across a pass.
+    expect(groupBlocks(blocks, undefined, rows, new Set(['acp']))[1]).toBe(agent)
+  })
+
   it('wraps a lone in-flight tool call in an activity row so it never changes shape', () => {
     const rows = groupBlocks(
       splitBlocks([
@@ -151,7 +182,7 @@ describe('groupBlocks', () => {
       turnId: 'turn_1',
     }
     const rows = groupBlocks(splitBlocks([turnMessage]))
-    expect(rows.every((r) => r.kind !== 'tool-group' && r.turnId === 'turn_1')).toBe(true)
+    expect(rows.every((r) => rowTurnId(r) === 'turn_1')).toBe(true)
   })
 })
 

@@ -4,7 +4,12 @@ import type { DelegatedChild, DelegationRow, TranscriptRow } from './types'
 function rowPosition(row: TranscriptRow): { messageId: string; partIndex: number } | null {
   if (row.kind === 'turn-diff' || row.kind === 'delegation' || row.kind === 'provider-switch')
     return null
-  const key = row.kind === 'tool-group' ? row.blocks[0]?.key : row.key
+  const key =
+    row.kind === 'tool-group'
+      ? row.blocks[0]?.key
+      : row.kind === 'subagent'
+        ? row.call.key
+        : row.key
   if (key === undefined) return null
   const split = key.lastIndexOf('#')
   if (split === -1) return null

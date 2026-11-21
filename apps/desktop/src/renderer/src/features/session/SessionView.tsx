@@ -9,6 +9,8 @@ import {
   type ComponentProps,
 } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
+import { SubagentView } from './SubagentView'
+import { SubagentLinksContext } from '../transcript/SubagentRow'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
 import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
@@ -118,6 +120,8 @@ interface PendingApproval {
   summaryJson: string
   /** The choices the provider offered; empty on pre-option journals. */
   options: ApprovalOption[]
+  /** The native sub-agent that asked, as its background task id. */
+  taskId?: string
 }
 
 /** A question the agent is waiting on (drives the QuestionPanel mount). */
@@ -213,6 +217,11 @@ function StoreTranscript({
 }
 
 const EMPTY_BACKGROUND = { tasks: [] as BackgroundTask[], reporting: false, since: null }
+
+/** Who an approval is from when a Claude sub-agent asked, for its card. */
+function subagentRequester(task: BackgroundTask | undefined): string {
+  return task?.label ? `Claude subagent · ${task.label}` : 'Claude subagent'
+}
 const EMPTY_PROVIDER_CONTEXT = {
   hasMessages: false,
   hasTurns: false,
@@ -480,6 +489,11 @@ function SessionViewContent({
     since: number | null
   }>(EMPTY_BACKGROUND)
   const reportingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // A native sub-agent opened in place of the conversation, by background
+  // task id, and a tick that moves whenever any sub-agent's transcript grows.
+  const [openSubagent, setOpenSubagent] = useState<string | null>(null)
+  const [subagentRevision, setSubagentRevision] = useState(0)
+  const [stoppingSubagents, setStoppingSubagents] = useState(false)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
   const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
@@ -601,6 +615,8 @@ function SessionViewContent({
     stopChildrenKeyRef.current = null
     setStoppingChildren(false)
     setBackground(EMPTY_BACKGROUND)
+    setOpenSubagent(null)
+    setStoppingSubagents(false)
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
     lastPartRef.current = null
@@ -737,6 +753,7 @@ function SessionViewContent({
               : null,
           )
           setTelemetry(telemetry)
+          setSubagentRevision((revision) => revision + 1)
           setApprovals(model.pendingApprovals)
           setPendingQuestion(model.pendingInputs.at(-1) ?? null)
           if (attempt > 1 || continuedReplay) {
@@ -976,6 +993,11 @@ function SessionViewContent({
           tasks: foldBackgroundTask(prev.tasks, event, event.at),
         }))
         break
+      case 'background.task.parts.appended':
+        // Read from the history journal by the sub-agent's view; this only
+        // tells an open view to read again.
+        setSubagentRevision((revision) => revision + 1)
+        break
       case 'turn.started':
         setProviderContext((previous) =>
           previous.hasTurns ? previous : { ...previous, hasTurns: true },
@@ -987,6 +1009,9 @@ function SessionViewContent({
           setRunning(true)
           activeTurnIdRef.current = event.turnId
           setBackground((prev) => ({ ...prev, reporting: false, since: event.at }))
+        } else {
+          // History, too, lists only the work of the latest turn as finished.
+          setBackground((prev) => (prev.since === event.at ? prev : { ...prev, since: event.at }))
         }
         setTelemetry((t) => ({
           ...t,
@@ -1069,6 +1094,7 @@ function SessionViewContent({
             toolName: event.toolName,
             summaryJson: event.summaryJson,
             options: event.options,
+            ...(event.taskId !== undefined ? { taskId: event.taskId } : {}),
           },
         ])
         if (!live || hiddenRef.current) break
@@ -1888,6 +1914,64 @@ function SessionViewContent({
       })
   }, [sessionId, rpc, remote, toast, stoppingChildren, hostBlocked])
 
+  // Claude's own sub-agents list with the children: those running, and those
+  // that finished since the latest turn began. Shells keep their own rail.
+  const subagents = useMemo(
+    () =>
+      background.tasks.filter(
+        (task) =>
+          task.kind === 'subagent' &&
+          (task.status === 'running' ||
+            background.since === null ||
+            (task.endedAt ?? task.updatedAt) >= background.since),
+      ),
+    [background.tasks, background.since],
+  )
+  const shellTasks = useMemo(
+    () => background.tasks.filter((task) => task.kind === 'shell'),
+    [background.tasks],
+  )
+  const subagentIdsKey = background.tasks
+    .filter((task) => task.kind === 'subagent')
+    .map((task) => task.id)
+    .join('\n')
+  const subagentCalls = useMemo(
+    () => new Set(subagentIdsKey.length > 0 ? subagentIdsKey.split('\n') : []),
+    [subagentIdsKey],
+  )
+  const subagentLinks = useMemo(() => {
+    const byId = new Map(background.tasks.map((task) => [task.id, task]))
+    return {
+      taskOf: (callId: string) => byId.get(callId),
+      open: (callId: string) => setOpenSubagent(callId),
+    }
+  }, [background.tasks])
+  const subagentsLive = subagents.some((task) => task.status === 'running')
+  // A parent whose turn ended keeps no Stop, yet its sub-agents may run on.
+  const stopSubagents = useCallback(() => {
+    if (stoppingSubagents || hostBlocked) return
+    setStoppingSubagents(true)
+    void rpc
+      .invoke('session.stopChildren', { sessionId })
+      .catch(() => toast({ tone: 'danger', title: 'Could not stop the subagents' }))
+      .finally(() => {
+        setStoppingSubagents(false)
+        setReceiptRevision((value) => value + 1)
+      })
+  }, [sessionId, rpc, toast, stoppingSubagents, hostBlocked])
+  const stopAllBelow = useCallback(() => {
+    if (delegatedWorkLive) stopChildren()
+    if (subagentsLive) stopSubagents()
+  }, [delegatedWorkLive, subagentsLive, stopChildren, stopSubagents])
+  const openSubagentTask =
+    openSubagent === null ? undefined : background.tasks.find((task) => task.id === openSubagent)
+  const openSubagentParts = useMemo(
+    () =>
+      openSubagent === null ? [] : (historyJournalRef.current?.subagentParts(openSubagent) ?? []),
+    // The revision moves whenever a sub-agent's transcript grows.
+    [openSubagent, subagentRevision],
+  )
+
   useEffect(() => {
     if (childSessions.length > 0) refreshTasksRef.current()
   }, [childSessions.length])
@@ -1939,7 +2023,8 @@ function SessionViewContent({
     pendingPlan === null &&
     turnError === null
 
-  const backgroundShown = backgroundSummary(background.tasks, background.reporting) !== null
+  const backgroundShown = backgroundSummary(shellTasks, background.reporting) !== null
+  const childrenShown = childSessions.length > 0 || subagents.length > 0
   const queuedForComposer = useMemo(
     () =>
       queued.map((message) => ({
@@ -1996,7 +2081,7 @@ function SessionViewContent({
           // A plan approval is answered in the side panel, so it mounts no
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
-          composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
+          composerAttentionRequired || childrenShown || backgroundShown ? (
             <fieldset
               disabled={hostBlocked}
               className="min-w-0"
@@ -2023,7 +2108,7 @@ function SessionViewContent({
                       onCancel={cancelQuestion}
                     />
                   </fieldset>
-                  {approvals.length > 0 || childSessions.length > 0 ? (
+                  {approvals.length > 0 || childrenShown ? (
                     <div className="border-t border-border" />
                   ) : null}
                 </>
@@ -2053,30 +2138,39 @@ function SessionViewContent({
                         options={a.options}
                         position={i + 1}
                         total={approvals.length}
+                        requester={
+                          a.taskId === undefined
+                            ? undefined
+                            : subagentRequester(subagentLinks.taskOf(a.taskId))
+                        }
                         onRespond={(answer) => respondApproval(a.approvalId, answer)}
                       />
                     </fieldset>
                   ))}
                 </div>
               ) : null}
-              {childSessions.length > 0 ? (
+              {childrenShown ? (
                 <ChildSessionActivity
                   sessions={childSessions}
                   activityOf={activityOf}
                   onOpen={onOpenSession}
+                  subagents={subagents}
+                  onOpenSubagent={setOpenSubagent}
                   // While this session runs, its own Stop reaches the children.
-                  onStopAll={!running && delegatedWorkLive ? stopChildren : undefined}
-                  stopping={stoppingChildren}
+                  onStopAll={
+                    !running && (delegatedWorkLive || subagentsLive) ? stopAllBelow : undefined
+                  }
+                  stopping={stoppingChildren || stoppingSubagents}
                 />
               ) : null}
               {backgroundShown ? (
                 <>
-                  {composerAttentionRequired || childSessions.length > 0 ? (
+                  {composerAttentionRequired || childrenShown ? (
                     <div className="border-t border-border" />
                   ) : null}
                   <BackgroundWork
                     providerLabel={defaults.driverKind === 'claude' ? 'Claude' : undefined}
-                    tasks={background.tasks}
+                    tasks={shellTasks}
                     reporting={background.reporting}
                     since={background.since}
                   />
@@ -2164,6 +2258,13 @@ function SessionViewContent({
       delegatedWorkLive,
       stopChildren,
       stoppingChildren,
+      subagents,
+      subagentsLive,
+      subagentLinks,
+      stopAllBelow,
+      stoppingSubagents,
+      childrenShown,
+      shellTasks,
       backgroundShown,
       background,
       defaults.driverKind,
@@ -2202,11 +2303,30 @@ function SessionViewContent({
       })
     : []
 
+  const subagentOpen = openSubagent !== null
   const view = (
     <div className="ari-session-workspace relative flex h-full min-h-0">
+      {/* An opened sub-agent takes the pane; the conversation stays mounted
+          behind it, so Back returns to it as it was. */}
+      {openSubagent !== null ? (
+        <SubagentView
+          parentSession={{ id: sessionId, title: sessionTitleRef.current }}
+          taskId={openSubagent}
+          task={openSubagentTask}
+          parts={openSubagentParts}
+          onBack={() => setOpenSubagent(null)}
+          onStop={!running && subagentsLive ? stopSubagents : undefined}
+          stopping={stoppingSubagents}
+          chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
+        />
+      ) : null}
       <div
         ref={canvasRef}
-        className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
+        className={cx(
+          'ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col',
+          subagentOpen && 'hidden',
+        )}
+        inert={subagentOpen}
       >
         {/* The scene belongs to the empty stage: it is mounted only while it
             shows, so a conversation never paints or holds the art. It comes
@@ -2271,31 +2391,34 @@ function SessionViewContent({
           </button>
         ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
-          <StoreTranscript
-            readAloud={readAloud}
-            sessionId={sessionId}
-            store={store}
-            loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}
-            turnDiffs={turnDiffs}
-            onEditUserMessage={handleEditMessage}
-            onQuoteAssistant={handleQuoteAssistant}
-            onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
-            regenerateDisabled={running || sendPending}
-            running={running}
-            chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
-            header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
-            onDiffComment={handleDiffComment}
-            onRetryTurnDiff={retryTurnDiff}
-            onUndoTurn={remote ? undefined : undoTurn}
-            working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
-            delegations={delegations}
-            providerSwitches={providerSwitches}
-            modelLabel={modelLabel}
-            sessionTitle={sessionTitle}
-            onOpenSession={onOpenSession}
-            onTurnInView={handleTurnInView}
-            hidden={hidden}
-          />
+          <SubagentLinksContext.Provider value={subagentLinks}>
+            <StoreTranscript
+              readAloud={readAloud}
+              sessionId={sessionId}
+              store={store}
+              loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}
+              turnDiffs={turnDiffs}
+              onEditUserMessage={handleEditMessage}
+              onQuoteAssistant={handleQuoteAssistant}
+              onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
+              regenerateDisabled={running || sendPending}
+              running={running}
+              chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
+              header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
+              onDiffComment={handleDiffComment}
+              onRetryTurnDiff={retryTurnDiff}
+              onUndoTurn={remote ? undefined : undoTurn}
+              working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+              delegations={delegations}
+              providerSwitches={providerSwitches}
+              modelLabel={modelLabel}
+              sessionTitle={sessionTitle}
+              onOpenSession={onOpenSession}
+              onTurnInView={handleTurnInView}
+              hidden={hidden || subagentOpen}
+              subagentCalls={subagentCalls}
+            />
+          </SubagentLinksContext.Provider>
         </div>
         {historyFailureSession === sessionId ? (
           <div role="status" className={NOTICE_ROW}>

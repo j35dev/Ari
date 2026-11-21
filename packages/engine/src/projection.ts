@@ -55,6 +55,8 @@ export interface SessionReadModel {
     providerThreadId?: string
     providerTurnId?: string
     providerItemId?: string
+    /** The native sub-agent that asked, as its background task id. */
+    taskId?: string
     toolName: string
     summaryJson: string
     options: ApprovalOption[]
@@ -267,6 +269,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
             : {}),
           ...(event.providerTurnId !== undefined ? { providerTurnId: event.providerTurnId } : {}),
           ...(event.providerItemId !== undefined ? { providerItemId: event.providerItemId } : {}),
+          ...(event.taskId !== undefined ? { taskId: event.taskId } : {}),
           toolName: event.toolName,
           summaryJson: event.summaryJson,
           options: event.options,
@@ -378,6 +381,11 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
     case 'background.task.updated':
       next.backgroundTasks = foldBackgroundTask(state.backgroundTasks ?? [], event, event.at)
+      break
+
+    // A sub-agent's transcript is read from the journal by its own view; the
+    // parent's messages never carry it.
+    case 'background.task.parts.appended':
       break
 
     case 'session.updated': {

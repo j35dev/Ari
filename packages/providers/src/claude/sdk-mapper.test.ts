@@ -268,7 +268,7 @@ describe('Claude SDK message mapping', () => {
     ).toEqual([{ type: 'permission-mode', mode: 'allow-edits' }])
   })
 
-  it('keeps child prose out of the parent transcript', () => {
+  it('keeps child prose out of the parent transcript, in the subagent’s own', () => {
     expect(
       new ClaudeMessageMapper().map(
         message({
@@ -277,6 +277,12 @@ describe('Claude SDK message mapping', () => {
           message: { content: [{ type: 'text', text: 'Private child reply' }] },
         }),
       ),
-    ).toEqual([])
+    ).toEqual([
+      {
+        type: 'subagent-activity',
+        taskId: 'agent-call',
+        event: { type: 'text-delta', text: 'Private child reply' },
+      },
+    ])
   })
 })

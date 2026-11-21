@@ -425,7 +425,7 @@ export class AcpUpdateFolder {
             ...imageOutputEvents(update.rawOutput),
           )
         }
-        return [...events, ...this.#background.observe(update)]
+        return [...ownedBy(update, events), ...this.#background.observe(update)]
       }
       case 'tool_call_update': {
         const callId = typeof update.toolCallId === 'string' ? update.toolCallId : null
@@ -436,7 +436,7 @@ export class AcpUpdateFolder {
         // a later update, so an open call is announced again when it changes.
         if (!terminal) {
           return this.#open.has(callId)
-            ? [...this.#announce(callId, update), ...background]
+            ? [...ownedBy(update, this.#announce(callId, update)), ...background]
             : background
         }
         // Some agents finalize without a prior create — synthesize the start.
@@ -444,10 +444,12 @@ export class AcpUpdateFolder {
           this.#open.has(callId) || !this.#started.has(callId) ? this.#announce(callId, update) : []
         this.#open.delete(callId)
         return [
-          ...started,
-          toCompleted(callId, update),
-          ...imageOutputEvents(update.content),
-          ...imageOutputEvents(update.rawOutput),
+          ...ownedBy(update, [
+            ...started,
+            toCompleted(callId, update),
+            ...imageOutputEvents(update.content),
+            ...imageOutputEvents(update.rawOutput),
+          ]),
           ...background,
         ]
       }
@@ -533,6 +535,30 @@ export class AcpUpdateFolder {
       ...imageOutputEvents(block),
     ])
   }
+}
+
+/**
+ * A call Claude Code's adapter stamps with `parentToolUseId` was made by the
+ * sub-agent that call started: it goes to that sub-agent's transcript, not the
+ * parent's. The adapter forwards no sub-agent prose, so only its tool traffic
+ * is there; its images are not shown anywhere.
+ */
+function ownedBy(update: AcpToolCallUpdate, events: AgentEvent[]): AgentEvent[] {
+  const meta = update._meta
+  const claude =
+    meta !== null && typeof meta === 'object'
+      ? (meta as Record<string, unknown>)['claudeCode']
+      : undefined
+  const parent =
+    claude !== null && typeof claude === 'object'
+      ? (claude as Record<string, unknown>)['parentToolUseId']
+      : undefined
+  if (typeof parent !== 'string' || parent.length === 0) return events
+  return events.flatMap((event) =>
+    event.type === 'tool-started' || event.type === 'tool-completed'
+      ? [{ type: 'subagent-activity' as const, taskId: parent, event }]
+      : [],
+  )
 }
 
 function chunkToDeltas(text: string, kind: 'text-delta' | 'thinking-delta'): AgentEvent[] {

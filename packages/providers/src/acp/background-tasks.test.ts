@@ -14,6 +14,52 @@ function feed(folder: AcpUpdateFolder, updates: AcpSessionUpdate[]): AgentEvent[
   return updates.flatMap((update) => folder.fold({ sessionId: 'agent_1', update }))
 }
 
+describe('Claude subagent tool calls over ACP', () => {
+  it('puts calls stamped with parentToolUseId in the subagent’s transcript, not the parent’s', () => {
+    const folder = new AcpUpdateFolder()
+    const events = feed(folder, [
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'agent_1',
+        status: 'pending',
+        title: 'Task',
+        rawInput: { description: 'Survey the repo', subagent_type: 'Explore' },
+        _meta: claude('Agent'),
+      },
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'child_1',
+        status: 'pending',
+        title: 'Read src/a.ts',
+        kind: 'read',
+        rawInput: { file_path: 'src/a.ts' },
+        _meta: claude('Read', { parentToolUseId: 'agent_1' }),
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'child_1',
+        status: 'completed',
+        rawOutput: 'export {}',
+        _meta: claude('Read', { parentToolUseId: 'agent_1' }),
+      },
+    ])
+    expect(
+      events.flatMap((event) => (event.type === 'tool-started' ? [event.callId] : [])),
+    ).toEqual(['agent_1'])
+    expect(events.some((event) => event.type === 'tool-completed')).toBe(false)
+    expect(
+      events.flatMap((event) =>
+        event.type === 'subagent-activity' ? [[event.taskId, event.event.type]] : [],
+      ),
+    ).toEqual([
+      ['agent_1', 'tool-started'],
+      ['agent_1', 'tool-completed'],
+    ])
+    // The roster still follows the child call as the subagent's activity line.
+    expect(background(events).at(-1)).toMatchObject({ id: 'agent_1', detail: 'Read src/a.ts' })
+  })
+})
+
 describe('background work from Claude tool calls', () => {
   it('follows a sub-agent from its call to its result, with its latest child tool', () => {
     const folder = new AcpUpdateFolder()
@@ -77,9 +123,9 @@ describe('background work from Claude tool calls', () => {
       expect.objectContaining({ status: 'completed', detail: 'Read src/a.ts' }),
     ])
     // The call is announced again once its input arrives; downstream the
-    // repeat replaces the first part.
+    // repeat replaces the first part. The child's call is the subagent's own.
     const started = events.filter((event) => event.type === 'tool-started')
-    expect(started.map((event) => event.callId)).toEqual(['agent_1', 'agent_1', 'child_1'])
+    expect(started.map((event) => event.callId)).toEqual(['agent_1', 'agent_1'])
     expect(JSON.parse(started[1]?.argsJson ?? '{}')).toMatchObject({
       input: { description: 'Survey the repo' },
     })
