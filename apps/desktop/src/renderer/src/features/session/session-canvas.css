@@ -65,6 +65,39 @@
   .ari-status-capsule-duration {
     display: none;
   }
+
+  /* The arrow alone; the button keeps its accessible name. */
+  .ari-jump-latest-label {
+    display: none;
+  }
+}
+
+/* Effort and permission chips show their word; a narrow pane shows the mark. */
+.ari-picker-glyph {
+  display: none;
+}
+
+@container (max-width: 340px) {
+  .ari-picker-glyph {
+    display: inline-flex;
+  }
+
+  .ari-picker-label {
+    display: none;
+  }
+}
+
+@container (max-width: 280px) {
+  .ari-composer-stash {
+    display: none;
+  }
+}
+
+/* The hint stays one line in a narrow pane instead of growing the composer. */
+.ari-composer-field::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @container (max-height: 420px) {

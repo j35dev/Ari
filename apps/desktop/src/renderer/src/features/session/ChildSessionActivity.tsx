@@ -87,7 +87,10 @@ export function ChildSessionActivity({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={transitions.morph}
-            className="overflow-hidden"
+            // A parent with many children in a short split pane scrolls its
+            // list instead of pushing the composer out of the pane. `cqh` is
+            // the session canvas, which is a size container.
+            className="ari-scroll max-h-[min(18rem,40cqh)] overflow-y-auto overflow-x-hidden overscroll-contain"
           >
             {sessions.map((session, index) => {
               const activity = activityOf?.(session.id)
