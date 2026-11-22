@@ -180,6 +180,59 @@ export function projectMoveFromOrder(
 }
 
 /**
+ * One live row box, in viewport px: where the drag's drop target is measured
+ * against. Only the rows that stay in place matter — the dragged row's own
+ * box is excluded (it carries the pointer's offset while it travels).
+ */
+export interface ProjectRowBox {
+  top: number
+  height: number
+}
+
+/**
+ * The slot a drag resolves to: the first row (in list order, dragged row
+ * excluded) whose midline the pointer has passed, else the tail. Rows do not
+ * move until the drop commits, so this is a pure function of the pointer and
+ * the live row boxes — no velocity, no stale layout, no feedback to chase.
+ *
+ * `targetIndex` is where `draggedId` lands in `ids` after the move; `beforeId`
+ * is the row it slots ahead of (null = last). Null when the pointer resolves
+ * to the row's own current slot (a drop in place).
+ */
+export interface ProjectDropSlot {
+  targetIndex: number
+  beforeId: string | null
+}
+
+export function projectDropTarget(
+  ids: readonly string[],
+  draggedId: string,
+  pointerY: number,
+  boxes: ReadonlyMap<string, ProjectRowBox>,
+): ProjectDropSlot | null {
+  const draggedIndex = ids.indexOf(draggedId)
+  if (draggedIndex === -1) return null
+  let beforeId: string | null = null
+  for (const id of ids) {
+    if (id === draggedId) continue
+    const box = boxes.get(id)
+    if (box === undefined) continue
+    if (pointerY < box.top + box.height / 2) {
+      beforeId = id
+      break
+    }
+  }
+  // "Slot before X" is defined on the list without the dragged row: inserting
+  // before the row that already follows the dragged row is a no-op, so a drop
+  // back in place reports null.
+  const without = ids.filter((id) => id !== draggedId)
+  const insertAt = beforeId === null ? without.length : without.indexOf(beforeId)
+  const next = [...without.slice(0, insertAt), draggedId, ...without.slice(insertAt)]
+  if (next.every((id, i) => id === (ids[i] as string))) return null
+  return { targetIndex: insertAt, beforeId }
+}
+
+/**
  * The move for a one-slot nudge (the project menu's Move up / Move down, the
  * keyboard path). Null at the edges where there is no neighbour to swap with.
  */
