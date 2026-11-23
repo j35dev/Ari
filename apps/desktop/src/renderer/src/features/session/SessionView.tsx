@@ -71,6 +71,7 @@ import {
   type DraftImage,
 } from '../composer/draft-recovery-store'
 import { ModelSelector } from '../composer/ModelSelector'
+import { requestTriage } from '../triage/events'
 import { ApprovalCard, type ApprovalAnswer } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
@@ -1495,6 +1496,14 @@ function SessionViewContent({
       dispatchSend(text, [], files, true, images),
     [dispatchSend],
   )
+  const handleTriage = useCallback(
+    (description: string): boolean => {
+      if (hostBlocked || hiddenRef.current || sessionIdRef.current !== sessionId) return false
+      requestTriage(description, { ...defaultsRef.current })
+      return true
+    },
+    [hostBlocked, sessionId],
+  )
 
   const handleTurnInView = useCallback(
     (turnId: string) => {
@@ -2056,6 +2065,7 @@ function SessionViewContent({
         }
         sessionId={viewKey}
         onSend={handleSend}
+        onTriage={handleTriage}
         sendPending={sendPending}
         recoveries={recoveries}
         onRecover={recoverMessage}
@@ -2234,6 +2244,7 @@ function SessionViewContent({
       onComposerReady,
       sessionId,
       handleSend,
+      handleTriage,
       sendPending,
       recoveries,
       recoverMessage,

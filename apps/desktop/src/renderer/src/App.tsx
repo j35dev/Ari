@@ -88,6 +88,7 @@ import { ProviderUsagePill } from './features/usage/ProviderUsagePill'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { TriageDialog } from './features/triage/TriageDialog'
+import { projectAgentSchema, type ProjectAgent } from '@ari/contracts/project'
 import { TRIAGE_EVENT, requestTriage } from './features/triage/events'
 import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
@@ -273,12 +274,20 @@ function Shell({
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
   // the pane the user is actually in rather than the last row they clicked.
   const layout = useSplitLayout()
-  const [triageRequest, setTriageRequest] = useState<{ description: string } | null>(null)
+  const [triageRequest, setTriageRequest] = useState<{
+    description: string
+    agent?: ProjectAgent
+    nonce: number
+  } | null>(null)
+  const triageRequestNonce = useRef(0)
   useEffect(() => {
     const open = (event: Event) => {
-      const detail = (event as CustomEvent<{ description?: string }>).detail
+      const detail = (event as CustomEvent<{ description?: string; agent?: unknown }>).detail
+      const pick = projectAgentSchema.safeParse(detail?.agent)
       setTriageRequest({
         description: typeof detail?.description === 'string' ? detail.description : '',
+        ...(pick.success ? { agent: pick.data } : {}),
+        nonce: ++triageRequestNonce.current,
       })
       setPaletteOpen(false)
     }
@@ -2635,12 +2644,13 @@ function Shell({
       />
       {setupCovered ? null : <KeyboardCheatSheet />}
       <TriageDialog
+        key={triageRequest?.nonce}
         open={triageRequest !== null}
         onOpenChange={(open) => {
           if (!open) setTriageRequest(null)
         }}
         initialDescription={triageRequest?.description}
-        defaults={defaults}
+        defaults={triageRequest?.agent ?? defaults}
         onOpenSession={(id) => {
           selectSession(id)
           setTriageRequest(null)

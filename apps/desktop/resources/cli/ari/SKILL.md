@@ -74,6 +74,20 @@ original receipt; retry never republishes a successful or uncertain request.
 An `uncertain_outcome` may include `details.appOpen` with its preserved target and
 last validated receipt. Do not choose a fresh key to resend an unknown action.
 
+## Ari Triage
+
+In a local Ari desktop conversation, `/ari triage [what went wrong]` opens the
+dedicated triage workflow with that conversation's current agent, model, effort,
+and permissions. The user reviews diagnostic context before starting the
+investigation. It can produce an editable GitHub issue or prepare a verified
+source fix and draft PR. Keep the user's project separate from Ari source fixes.
+
+When Ari cannot start, its standalone recovery commands are `ari triage --export`
+and `ari triage --agent claude|codex [--profile <affected-profile-directory>]`.
+The agent option starts an interactive terminal agent; do not launch that bootstrap
+inside an already running in-app agent tool call. Use the desktop slash command
+for the in-app workflow.
+
 ## Inline visualizations
 
 When a visualization makes an answer easier to understand, place an `ari-viz`

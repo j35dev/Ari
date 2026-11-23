@@ -9,6 +9,8 @@ describe('activeTokenAt', () => {
     expect(activeTokenAt('/$imagegen', 10)?.kind).toBe('command')
     // Ari's own command is two words.
     expect(activeTokenAt('/ari th', 7)).toEqual({ kind: 'command', raw: '/ari th', start: 0 })
+    expect(activeTokenAt('/ari tri', 8)).toEqual({ kind: 'command', raw: '/ari tri', start: 0 })
+    expect(activeTokenAt('/ari triage ', 12)).toBeNull()
     expect(activeTokenAt('/compact ', 9)).toBeNull()
     expect(activeTokenAt('/compact now', 3)).toEqual({ kind: 'command', raw: '/co', start: 0 })
     expect(activeTokenAt('run /cle', 8)).toBeNull()

@@ -56,6 +56,12 @@ Settings → Advanced, or **Report with Triage** beside an error. Describe the
 problem, review the diagnostic context, and select your agent. Each case has its
 own workspace and stays available for follow-ups.
 
+You can also type `/ari triage` or `/ari triage <what went wrong>` in a local
+agent conversation. The slash menu lists it alongside `/ari theme`. It opens
+triage with the current agent, model, effort, and permissions; review the
+diagnostics and start the investigation there. The current project conversation
+stays intact. Add screenshots in the triage conversation after starting it.
+
 The agent can prepare an editable issue for `j35dev/Ari`, or work on a fix in a
 separate source checkout. Triage runs `pnpm verify` against the fix before it can
 publish a draft PR. It uses your connected GitHub account, creating a contributor
