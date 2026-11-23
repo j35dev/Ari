@@ -43,7 +43,7 @@ const SUBAGENT_PHASE: Record<BackgroundTask['status'], SessionActivityPhase> = {
   stopped: 'done',
 }
 
-/** One row of the list: an Ari child session or a Claude sub-agent. */
+/** One row of the list: an Ari child session or a native sub-agent. */
 interface Entry {
   id: string
   title: string
@@ -60,7 +60,7 @@ interface Entry {
  * Delegated sessions as one row on the composer: who is out there, the state
  * in words, and how long the oldest has been working. Opened, the children
  * list above the row inside the same tab, so it reads as part of the
- * composer, not a floating menu. Claude's own sub-agents list here too, the
+ * composer, not a floating menu. Native sub-agents list here too, the
  * same way, each opening its own read-only view.
  */
 export function ChildSessionActivity({
@@ -68,6 +68,7 @@ export function ChildSessionActivity({
   activityOf,
   onOpen,
   subagents = [],
+  nativeDriverKind = 'claude',
   onOpenSubagent,
   onStopAll,
   stopping = false,
@@ -77,6 +78,7 @@ export function ChildSessionActivity({
   onOpen?: (id: string) => void
   /** Native sub-agents of this session's agent, by background task. */
   subagents?: readonly BackgroundTask[]
+  nativeDriverKind?: SessionSummary['driverKind']
   onOpenSubagent?: (taskId: string) => void
   /**
    * Stops everything running below this session. Passed only while there is
@@ -98,13 +100,13 @@ export function ChildSessionActivity({
     ...subagents.map((task) => ({
       id: task.id,
       title: task.label || 'Subagent',
-      driverKind: 'claude',
+      driverKind: nativeDriverKind,
       activity: {
         phase: SUBAGENT_PHASE[task.status],
         startedAt: task.status === 'running' ? task.startedAt : null,
       },
       rest: task.status === 'completed' ? 'done' : task.status,
-      tag: 'Claude subagent',
+      tag: `${driverLabel(nativeDriverKind)} subagent`,
       open: onOpenSubagent ? () => onOpenSubagent(task.id) : undefined,
     })),
   ]

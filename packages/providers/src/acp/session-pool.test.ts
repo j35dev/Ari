@@ -382,7 +382,7 @@ describe('pooled ACP sessions', () => {
     )
     await vi.waitFor(() =>
       expect(background).toHaveBeenCalledWith('ari_1', [
-        { type: 'text-delta', text: 'All green.' },
+        expect.objectContaining({ type: 'text-delta', text: 'All green.' }),
         expect.objectContaining({ id: 'bg_1', status: 'completed' }),
       ]),
     )

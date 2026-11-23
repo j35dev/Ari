@@ -142,7 +142,7 @@ export async function createAcpAdapter(
   let permissionSeq = 0
   let inputSeq = 0
 
-  let folder = new AcpUpdateFolder()
+  let folder = new AcpUpdateFolder(Date.now, { preserveStreams: true })
   let nativeChildVisibility: 'lifecycle' | 'unknown' = 'unknown'
   let failed = false
   let disposed = false

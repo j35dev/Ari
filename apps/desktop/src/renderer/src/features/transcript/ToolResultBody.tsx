@@ -125,8 +125,8 @@ export function ToolResultBody({
     try {
       const value: unknown = JSON.parse(resultJson)
       return {
-        text: JSON.stringify(value, null, 2) ?? resultJson,
-        isJson: true,
+        text: typeof value === 'string' ? value : (JSON.stringify(value, null, 2) ?? resultJson),
+        isJson: typeof value !== 'string',
         content: mcpContentItems(value),
       }
     } catch {

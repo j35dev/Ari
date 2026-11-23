@@ -361,9 +361,16 @@ export class AcpUpdateFolder {
   /** Calls still running, with what was last announced for each. */
   readonly #open = new Map<string, OpenCall>()
   #startupInfo: string | null = null
+  readonly #completed = new Map<string, string>()
+  #streamTurn = 0
+  #streamRound = 0
+  #advanceStream = false
   readonly #background: BackgroundTaskTracker
 
-  constructor(now: () => number = Date.now) {
+  constructor(
+    now: () => number = Date.now,
+    private readonly options: { preserveStreams?: boolean } = {},
+  ) {
     this.#background = new BackgroundTaskTracker(now)
   }
 
@@ -379,6 +386,11 @@ export class AcpUpdateFolder {
   /** A turn starts on this folder (a reused connection's, too). */
   beginTurn(): void {
     this.#background.beginTurn()
+    this.#streamTurn++
+    this.#streamRound = 0
+    this.#advanceStream = false
+    this.#completed.clear()
+    this.#started.clear()
   }
 
   /** Permission requests may reference an earlier tool announcement by id only. */
@@ -410,20 +422,26 @@ export class AcpUpdateFolder {
     if (update === undefined || typeof update.sessionUpdate !== 'string') return []
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
-        return this.#messageChunk(update.content)
+        return this.#messageChunk(update.content, notification.sessionId)
       case 'agent_thought_chunk':
-        return chunkToDeltas(textOf(asBlocks(update.content)), 'thinking-delta')
+        return this.#chunk(
+          textOf(asBlocks(update.content)),
+          'thinking-delta',
+          notification.sessionId,
+        )
       case 'tool_call': {
         const callId = typeof update.toolCallId === 'string' ? update.toolCallId : null
         if (callId === null) return []
+        if (
+          this.#completed.has(callId) &&
+          (update.status === 'completed' || update.status === 'failed')
+        )
+          return ownedBy(update, this.#finish(callId, update))
         const events: AgentEvent[] = this.#announce(callId, update)
         if (update.status === 'completed' || update.status === 'failed') {
-          this.#open.delete(callId)
-          events.push(
-            toCompleted(callId, update),
-            ...imageOutputEvents(update.content),
-            ...imageOutputEvents(update.rawOutput),
-          )
+          events.push(...this.#finish(callId, update))
+        } else {
+          events.push(...this.#progress(callId, update))
         }
         return [...ownedBy(update, events), ...this.#background.observe(update)]
       }
@@ -436,22 +454,19 @@ export class AcpUpdateFolder {
         // a later update, so an open call is announced again when it changes.
         if (!terminal) {
           return this.#open.has(callId)
-            ? [...ownedBy(update, this.#announce(callId, update)), ...background]
+            ? [
+                ...ownedBy(update, [
+                  ...this.#announce(callId, update),
+                  ...this.#progress(callId, update),
+                ]),
+                ...background,
+              ]
             : background
         }
         // Some agents finalize without a prior create — synthesize the start.
         const started =
           this.#open.has(callId) || !this.#started.has(callId) ? this.#announce(callId, update) : []
-        this.#open.delete(callId)
-        return [
-          ...ownedBy(update, [
-            ...started,
-            toCompleted(callId, update),
-            ...imageOutputEvents(update.content),
-            ...imageOutputEvents(update.rawOutput),
-          ]),
-          ...background,
-        ]
+        return [...ownedBy(update, [...started, ...this.#finish(callId, update)]), ...background]
       }
       case 'error': {
         // Agent-reported fatal errors ride session/update like everything
@@ -500,6 +515,7 @@ export class AcpUpdateFolder {
    */
   #announce(callId: string, update: AcpToolCallUpdate): AgentEvent[] {
     const prev = this.#open.get(callId)
+    if (!prev && !this.#started.has(callId)) this.#advanceStream = true
     const title = typeof update.title === 'string' ? update.title : prev?.title
     const kind =
       typeof update.kind === 'string' && update.kind.length > 0 ? update.kind : prev?.kind
@@ -519,11 +535,56 @@ export class AcpUpdateFolder {
       prev.announced.name === started.name &&
       prev.announced.argsJson === started.argsJson
     this.#started.add(callId)
-    this.#open.set(callId, { title, kind, rawInput, announced: same ? prev.announced : started })
+    this.#open.set(callId, {
+      title,
+      kind,
+      rawInput,
+      announced: same ? prev.announced : started,
+      outputJson: prev?.outputJson,
+    })
     return same ? [] : [started]
   }
 
-  #messageChunk(content: AcpContentBlock | AcpContentBlock[] | undefined): AgentEvent[] {
+  #progress(callId: string, update: AcpToolCallUpdate): AgentEvent[] {
+    const open = this.#open.get(callId)
+    if (!open || (update.rawOutput === undefined && update.content === undefined)) return []
+    const output = resultJsonOf(update)
+    if (open.outputJson === output) return []
+    open.outputJson = output
+    return [{ type: 'tool-progress', callId, resultJson: output }]
+  }
+  #finish(callId: string, update: AcpToolCallUpdate): AgentEvent[] {
+    const complete = toCompleted(callId, update) as Extract<AgentEvent, { type: 'tool-completed' }>
+    if (update.rawOutput === undefined && update.content === undefined)
+      complete.resultJson = this.#open.get(callId)?.outputJson ?? complete.resultJson
+    this.#open.delete(callId)
+    const signature = `${complete.isError}:${complete.resultJson}`
+    if (this.#completed.get(callId) === signature) return []
+    this.#completed.set(callId, signature)
+    return [complete, ...imageOutputEvents(update.content), ...imageOutputEvents(update.rawOutput)]
+  }
+  #chunk(text: string, kind: 'text-delta' | 'thinking-delta', sessionId?: string): AgentEvent[] {
+    if (!text.length) return []
+    if (this.#advanceStream) {
+      this.#streamRound++
+      this.#advanceStream = false
+    }
+    return [
+      {
+        type: kind,
+        text,
+        ...(this.options.preserveStreams
+          ? {
+              streamId: `acp:${sessionId ?? 'session'}:${this.#streamTurn}:${this.#streamRound}:${kind}`,
+            }
+          : {}),
+      },
+    ]
+  }
+  #messageChunk(
+    content: AcpContentBlock | AcpContentBlock[] | undefined,
+    sessionId?: string,
+  ): AgentEvent[] {
     const blocks = asBlocks(content)
     const text = textOf(blocks)
     if (this.#startupInfo !== null && text === this.#startupInfo) {
@@ -531,7 +592,7 @@ export class AcpUpdateFolder {
       return imageOutputEvents(blocks)
     }
     return blocks.flatMap((block) => [
-      ...chunkToDeltas(block.type === 'text' ? (block.text ?? '') : '', 'text-delta'),
+      ...this.#chunk(block.type === 'text' ? (block.text ?? '') : '', 'text-delta', sessionId),
       ...imageOutputEvents(block),
     ])
   }
@@ -561,10 +622,6 @@ function ownedBy(update: AcpToolCallUpdate, events: AgentEvent[]): AgentEvent[] 
   )
 }
 
-function chunkToDeltas(text: string, kind: 'text-delta' | 'thinking-delta'): AgentEvent[] {
-  return text.length > 0 ? [{ type: kind, text }] : []
-}
-
 type ToolStarted = Extract<AgentEvent, { type: 'tool-started' }>
 
 interface OpenCall {
@@ -572,6 +629,7 @@ interface OpenCall {
   kind: string | undefined
   rawInput: unknown
   announced: ToolStarted
+  outputJson?: string
 }
 
 /** True for input worth showing: not missing, null, or an empty object. */

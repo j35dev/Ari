@@ -4,6 +4,7 @@ import { describeActivity, formatToolSummary } from './groupBlocks'
 import { ActivityStep, StepBody } from './ActivityStep'
 import { ImageGenerationActivity } from './ImageGenerationActivity'
 import { ThinkingBlock } from './ThinkingBlock'
+import { MarkdownBlock } from './MarkdownBlock'
 import { isImageGenerationCall } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
@@ -69,7 +70,7 @@ export function ActivityBurst({
   const live = useHeldLive(active)
   const activity = useMemo(() => describeActivity(row, live), [row, live])
   const { verb, subject, more, label, summary } = activity
-  const open = openOverride ?? (terminal || live)
+  const open = openOverride ?? terminal
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   // The lone-call shortcut trades the step list for the call's own body. Held
   // back while the turn runs: a burst grows from one call to many as the model
@@ -97,7 +98,7 @@ export function ActivityBurst({
     >
       <button
         type="button"
-        onClick={() => setOpenOverride((prev) => !(prev ?? (terminal || live)))}
+        onClick={() => setOpenOverride((prev) => !(prev ?? terminal))}
         aria-expanded={open}
         aria-label={named.join(' · ')}
         title={tally.length > 0 ? tally : undefined}
@@ -120,6 +121,9 @@ export function ActivityBurst({
           aria-hidden="true"
           className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
         />
+        {summary.errors > 0 ? (
+          <span className="ml-2 text-xs text-danger">{summary.errors} failed</span>
+        ) : null}
       </button>
       {open ? (
         lone !== undefined ? (
@@ -137,6 +141,7 @@ export function ActivityBurst({
                 step={step}
                 results={row.resultsByCallId}
                 terminal={terminal}
+                active={live}
               />
             ))}
           </div>
@@ -150,18 +155,27 @@ function BurstStep({
   step,
   results,
   terminal,
+  active,
 }: {
   step: TranscriptBlock
   results: Map<string, TranscriptBlock>
   terminal: boolean
+  active: boolean
 }) {
   if (step.kind === 'thinking')
     return <ThinkingBlock text={step.text ?? ''} compact expanded={terminal} />
+  if (step.kind === 'markdown')
+    return (
+      <div className="my-2 text-[13.5px] text-fg-muted">
+        <MarkdownBlock text={step.text ?? ''} />
+      </div>
+    )
   return (
     <ActivityStep
       call={step}
       result={step.callId ? results.get(step.callId) : undefined}
       expanded={terminal}
+      active={active}
     />
   )
 }

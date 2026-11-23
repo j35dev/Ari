@@ -31,6 +31,33 @@ const started: NativeLine = {
 }
 
 describe('Claude native tasks', () => {
+  it('binds a native-ID-first task to a later launch call', () => {
+    const tasks = new ClaudeBackgroundTasks('Qoder', { nativeBookends: true })
+    tasks.observe({ ...started, tool_use_id: undefined })
+    tasks.observe(started)
+    const reports = tasks.observe(launch({ prompt: 'Read this fixture.' }))
+    expect(tasks.taskIdOf('call')).toBe('agent')
+    expect(tasks.nativeIdOf('call')).toBe('agent')
+    expect(tasks.running()).toHaveLength(1)
+    expect(reports).toMatchObject([
+      { id: 'agent', providerItemId: 'call', prompt: 'Read this fixture.' },
+    ])
+  })
+
+  it('reconciles two provisional records only when the harness supplies their exact binding', () => {
+    const tasks = new ClaudeBackgroundTasks('Qoder', { nativeBookends: true })
+    tasks.observe({ ...started, tool_use_id: undefined })
+    tasks.observe(launch({ prompt: 'Read this fixture.' }))
+    expect(tasks.running()).toHaveLength(2)
+    const binding = tasks.observe(started)
+    expect(tasks.running()).toHaveLength(1)
+    expect(binding).toMatchObject([
+      { id: 'agent', providerItemId: 'call', prompt: 'Read this fixture.' },
+    ])
+    expect(tasks.taskIdOf('call')).toBe('agent')
+    expect(tasks.taskIdOf('agent')).toBe('agent')
+  })
+
   it('tracks PowerShell background work and SDK tool progress through its native task ID', () => {
     const tasks = new ClaudeBackgroundTasks()
     tasks.observe({

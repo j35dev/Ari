@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { BackgroundTask } from '@ari/contracts/background-task'
-import type { Message, MessagePart } from '@ari/contracts/message'
+import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts/message'
 import { cx, quietButton } from '../../lib/recipes'
 import { ElapsedSeconds, formatElapsed, WorkingGlyph } from '../moment'
 import { TranscriptView } from '../transcript'
@@ -43,7 +43,9 @@ export function subagentMessages(
       createdAt,
     })
   const work: MessagePart[] = []
-  for (const part of parts) {
+  const received: MessagePart[] = []
+  pushMessageParts(received, parts)
+  for (const part of received) {
     const last = work[work.length - 1]
     if (part.type === 'text' && last?.type === 'text')
       work[work.length - 1] = { type: 'text', text: `${last.text}\n\n${part.text}` }
@@ -57,7 +59,7 @@ export function subagentMessages(
     messages.push({
       id: `${taskId}:work`,
       sessionId: parentSessionId,
-      turnId: null,
+      turnId: taskId,
       role: 'assistant',
       parts: work,
       createdAt,
@@ -66,9 +68,9 @@ export function subagentMessages(
 }
 
 /**
- * A Claude sub-agent, opened from its parent: its own transcript with the
+ * A native sub-agent, opened from its parent: its own transcript with the
  * parent's transcript components, how it is going, and the way back. It is
- * read-only: Claude takes no messages for one sub-agent, only for its parent.
+ * read-only: steering messages go to its parent.
  */
 export function SubagentView({
   parentSession,
@@ -79,6 +81,7 @@ export function SubagentView({
   onStop,
   stopping = false,
   chatStyle,
+  providerLabel = 'Claude',
 }: {
   parentSession: { id: string; title: string }
   taskId: string
@@ -89,6 +92,7 @@ export function SubagentView({
   onStop?: () => void
   stopping?: boolean
   chatStyle?: 'conversation' | 'terminal'
+  providerLabel?: string
 }) {
   const messages = useMemo(
     () => subagentMessages(parentSession.id, taskId, task, parts),
@@ -102,7 +106,7 @@ export function SubagentView({
   return (
     <div
       className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
-      aria-label={`Claude subagent: ${title}`}
+      aria-label={`${providerLabel} subagent: ${title}`}
       role="region"
     >
       <ParentSessionLink parentSession={parentSession} onOpenSession={onBack} />
@@ -115,7 +119,7 @@ export function SubagentView({
         />
         <h2 className="min-w-0 truncate font-medium text-fg">{title}</h2>
         <span className="min-w-0 flex-1 truncate text-fg-subtle">
-          {['Claude subagent', ...facts].join(' · ')}
+          {[`${providerLabel} subagent`, ...facts].join(' · ')}
         </span>
         <span className="flex shrink-0 items-center gap-2 text-xs text-fg-subtle">
           <span>{task ? STATUS_WORD[task.status] : null}</span>

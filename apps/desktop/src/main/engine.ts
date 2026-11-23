@@ -56,6 +56,7 @@ function backgroundTaskUpdated(
   return {
     type: 'background.task.updated',
     taskId: event.id,
+    ...(event.nativeTaskId !== undefined ? { nativeTaskId: event.nativeTaskId } : {}),
     kind: event.kind,
     label: event.label,
     status: event.status,
@@ -77,9 +78,19 @@ function subagentPartsAppended(
   const activity = event.event
   const part: MessagePart =
     activity.type === 'text-delta'
-      ? { type: 'text', text: activity.text }
+      ? {
+          type: 'text',
+          text: activity.text,
+          ...(activity.streamId !== undefined ? { streamId: activity.streamId } : {}),
+          ...(activity.replace !== undefined ? { replace: activity.replace } : {}),
+        }
       : activity.type === 'thinking-delta'
-        ? { type: 'thinking', text: activity.text }
+        ? {
+            type: 'thinking',
+            text: activity.text,
+            ...(activity.streamId !== undefined ? { streamId: activity.streamId } : {}),
+            ...(activity.replace !== undefined ? { replace: activity.replace } : {}),
+          }
         : activity.type === 'tool-started'
           ? {
               type: 'tool-call',
@@ -91,7 +102,8 @@ function subagentPartsAppended(
               type: 'tool-result',
               callId: activity.callId,
               resultJson: activity.resultJson,
-              isError: activity.isError,
+              isError: activity.type === 'tool-completed' && activity.isError,
+              ...(activity.type === 'tool-progress' ? { isPartial: true } : {}),
             }
   return { type: 'background.task.parts.appended', taskId: event.taskId, parts: [part] }
 }
@@ -468,8 +480,15 @@ export class Engine {
           )
       } else if (event.type === 'text-delta' || event.type === 'thinking-delta') {
         const type = event.type === 'text-delta' ? 'text' : 'thinking'
-        if (last && last.type === type) last.text += event.text
-        else state.parts.push({ type, text: event.text })
+        if (last && last.type === type && last.streamId === event.streamId && !event.replace)
+          last.text += event.text
+        else
+          state.parts.push({
+            type,
+            text: event.text,
+            ...(event.streamId !== undefined ? { streamId: event.streamId } : {}),
+            ...(event.replace !== undefined ? { replace: event.replace } : {}),
+          })
       } else if (event.type === 'tool-started') {
         state.parts.push({
           type: 'tool-call',
@@ -477,12 +496,13 @@ export class Engine {
           name: event.name,
           argsJson: event.argsJson,
         })
-      } else if (event.type === 'tool-completed') {
+      } else if (event.type === 'tool-completed' || event.type === 'tool-progress') {
         state.parts.push({
           type: 'tool-result',
           callId: event.callId,
           resultJson: event.resultJson,
-          isError: event.isError,
+          isError: event.type === 'tool-completed' && event.isError,
+          ...(event.type === 'tool-progress' ? { isPartial: true } : {}),
         })
       } else if (event.type === 'notice' || event.type === 'error') {
         state.parts.push({
@@ -1419,7 +1439,12 @@ export class Engine {
     // Coalesced part buffer: text/thinking flush every TEXT_FLUSH_MS or on
     // non-text. Adjacent deltas of one kind merge, so a flush journals one
     // part per run instead of one per provider token.
-    let buffer: { type: 'text' | 'thinking'; text: string }[] = []
+    let buffer: {
+      type: 'text' | 'thinking'
+      text: string
+      streamId?: string
+      replace?: boolean
+    }[] = []
     let lastFlush = Date.now()
     let flushTimer: ReturnType<typeof setTimeout> | null = null
     const timedFlush: { error: Error | null; pending: Promise<void> | null } = {
@@ -1443,7 +1468,7 @@ export class Engine {
         buffer = []
         return
       }
-      const parts = buffer.map((b) => ({ type: b.type, text: b.text }) as const)
+      const parts = buffer.map((b) => ({ ...b }))
       buffer = []
       lastFlush = Date.now()
       await this.#append(session.id, {
@@ -1515,8 +1540,15 @@ export class Engine {
             if (event.type === 'text-delta' && event.text.length > 0) await acceptContext()
             const type = event.type === 'text-delta' ? 'text' : 'thinking'
             const last = buffer[buffer.length - 1]
-            if (last?.type === type) last.text += event.text
-            else buffer.push({ type, text: event.text })
+            if (last?.type === type && last.streamId === event.streamId && !event.replace)
+              last.text += event.text
+            else
+              buffer.push({
+                type,
+                text: event.text,
+                ...(event.streamId !== undefined ? { streamId: event.streamId } : {}),
+                ...(event.replace !== undefined ? { replace: event.replace } : {}),
+              })
             if (Date.now() - lastFlush >= TEXT_FLUSH_MS) await flush()
             else flushSoon()
             break
@@ -1558,10 +1590,11 @@ export class Engine {
             })
             break
           }
+          case 'tool-progress':
           case 'tool-completed': {
             await flush()
             const callMessageId = callMessageIds.get(event.callId) ?? messageId
-            callMessageIds.delete(event.callId)
+            if (event.type === 'tool-completed') callMessageIds.delete(event.callId)
             await append({
               type: 'assistant.parts.appended',
               messageId: callMessageId,
@@ -1570,7 +1603,8 @@ export class Engine {
                   type: 'tool-result',
                   callId: event.callId,
                   resultJson: event.resultJson,
-                  isError: event.isError,
+                  isError: event.type === 'tool-completed' && event.isError,
+                  ...(event.type === 'tool-progress' ? { isPartial: true } : {}),
                 },
               ],
             })

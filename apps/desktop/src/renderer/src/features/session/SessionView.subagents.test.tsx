@@ -90,10 +90,14 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderView(): void {
+function renderView(kind: 'claude' | 'qoder' = 'claude'): void {
   render(
     <ToastProvider>
-      <SessionView sessionId="sess_1" defaults={DEFAULTS} onDefaultsChange={() => undefined} />
+      <SessionView
+        sessionId="sess_1"
+        defaults={{ ...DEFAULTS, driverKind: kind }}
+        onDefaultsChange={() => undefined}
+      />
     </ToastProvider>,
   )
 }
@@ -152,6 +156,152 @@ function parentTurnWithBackgroundSubagent(): void {
 }
 
 describe('SessionView with Claude subagents', () => {
+  it('keeps a Qoder child’s native-ID approval answerable after the parent settles and on replay', async () => {
+    renderView('qoder')
+    await screen.findByRole('textbox', { name: 'Message' })
+    parentTurnWithBackgroundSubagent()
+    emit({
+      type: 'background.task.updated',
+      taskId: AGENT_CALL,
+      nativeTaskId: 'native-agent',
+      kind: 'subagent',
+      label: 'List files in working folder',
+      status: 'running',
+    })
+    emit({
+      type: 'approval.requested',
+      approvalId: 'child-approval',
+      taskId: 'native-agent',
+      toolName: 'Bash',
+      summaryJson: '{}',
+      options: [],
+    })
+    const label = 'Approval requested: Bash by Qoder subagent · List files in working folder'
+    expect(await screen.findByRole('group', { name: label })).toBeInTheDocument()
+    emit({ type: 'turn.started', turnId: 'turn_2' })
+    emit({ type: 'turn.settled', turnId: 'turn_2', stopReason: 'completed' })
+    expect(screen.getByRole('group', { name: label })).toBeInTheDocument()
+    act(() => listener?.({ sessionId: 'sess_1', replayStart: true }))
+    act(() => listener?.({ sessionId: 'sess_1', replay: true, events: [] }))
+    // The retry's history contains no new records; use resume semantics.
+    act(() =>
+      listener?.({
+        sessionId: 'sess_1',
+        replayDone: true,
+        replayOutcome: 'complete',
+        replayMode: 'resume',
+        liveTurnId: null,
+      }),
+    )
+    expect(screen.getByRole('group', { name: label })).toBeInTheDocument()
+    emit({
+      type: 'background.task.updated',
+      taskId: AGENT_CALL,
+      kind: 'subagent',
+      label: 'List files in working folder',
+      status: 'stopped',
+    })
+    expect(screen.queryByRole('group', { name: label })).not.toBeInTheDocument()
+  })
+  it('merges late launch/native binding without losing an open child transcript', async () => {
+    renderView('qoder')
+    await screen.findByRole('textbox', { name: 'Message' })
+    emit({ type: 'turn.started', turnId: 'turn_1' })
+    emit({
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ type: 'tool-call', callId: AGENT_CALL, name: 'Agent', argsJson: '{}' }],
+    })
+    for (const id of ['native', AGENT_CALL])
+      emit({
+        type: 'background.task.updated',
+        taskId: id,
+        providerItemId: id,
+        providerThreadId: 's',
+        kind: 'subagent',
+        label: 'Bound fixture',
+        status: 'running',
+      })
+    emit({
+      type: 'background.task.parts.appended',
+      taskId: AGENT_CALL,
+      parts: [{ type: 'text', text: 'Before binding.' }],
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open Qoder subagent: Bound fixture' }),
+    )
+    emit({
+      type: 'background.task.updated',
+      taskId: 'native',
+      providerItemId: AGENT_CALL,
+      providerThreadId: 's',
+      kind: 'subagent',
+      label: 'Bound fixture',
+      status: 'running',
+    })
+    emit({
+      type: 'background.task.parts.appended',
+      taskId: 'native',
+      parts: [{ type: 'text', text: 'After binding.' }],
+    })
+    const view = await screen.findByRole('region', { name: 'Qoder subagent: Bound fixture' })
+    expect(within(view).getByText(/Before binding/)).toBeInTheDocument()
+    expect(within(view).getByText(/After binding/)).toBeInTheDocument()
+    fireEvent.click(within(view).getByRole('button', { name: /Open parent session/ }))
+    expect(screen.getByRole('button', { name: 'Child sessions' })).toHaveTextContent('1 agent')
+  })
+  it('shows Qoder native agents in the same row/list/detail UI with Qoder labels', async () => {
+    renderView('qoder')
+    await screen.findByRole('textbox', { name: 'Message' })
+    parentTurnWithBackgroundSubagent()
+    const row = await screen.findByRole('button', {
+      name: 'Open Qoder subagent: List files in working folder',
+    })
+    expect(row).toHaveTextContent('Qoder subagent · general-purpose')
+    fireEvent.click(screen.getByRole('button', { name: 'Child sessions' }))
+    const list = await screen.findByRole('list', { name: 'Child sessions' })
+    expect(within(list).getByText('Qoder subagent')).toBeInTheDocument()
+    fireEvent.click(row)
+    const view = await screen.findByRole('region', {
+      name: 'Qoder subagent: List files in working folder',
+    })
+    expect(within(view).getByText('List the files here.')).toBeInTheDocument()
+    emit({
+      type: 'background.task.parts.appended',
+      taskId: AGENT_CALL,
+      parts: [{ type: 'text', text: 'Qoder fixture report.', streamId: 'qoder-child' }],
+    })
+    expect(await within(view).findByText('Qoder fixture report.')).toBeInTheDocument()
+    expect(within(view).queryByText('Claude subagent')).not.toBeInTheDocument()
+  })
+  it('opens the canonical task when its native ID differs from its launching call', async () => {
+    renderView('qoder')
+    await screen.findByRole('textbox', { name: 'Message' })
+    emit({ type: 'turn.started', turnId: 'turn_1' })
+    emit({
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ type: 'tool-call', callId: AGENT_CALL, name: 'Agent', argsJson: '{}' }],
+    })
+    emit({
+      type: 'background.task.updated',
+      taskId: 'native-task',
+      providerItemId: AGENT_CALL,
+      kind: 'subagent',
+      label: 'Native fixture',
+      status: 'running',
+    })
+    emit({
+      type: 'background.task.parts.appended',
+      taskId: 'native-task',
+      parts: [{ type: 'text', text: 'Canonical child content.' }],
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open Qoder subagent: Native fixture' }),
+    )
+    const view = await screen.findByRole('region', { name: 'Qoder subagent: Native fixture' })
+    expect(within(view).getByText('Canonical child content.')).toBeInTheDocument()
+  })
   it('keeps the parent sendable and its transcript free of the subagent’s work', async () => {
     renderView()
     const input = await screen.findByRole('textbox', { name: 'Message' })

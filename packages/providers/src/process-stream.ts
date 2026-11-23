@@ -109,6 +109,10 @@ export function streamProcessEvents(
       child.on('close', (code) => resolve(code))
     }).then((code) => {
       disarmHandshake()
+      // A valid final JSON record need not have a newline. Preserve it before
+      // publishing terminal status, instead of silently losing the last result.
+      if (buffer.trim().length > 0) for (const event of mapLine(buffer)) push(event)
+      buffer = ''
       closed = true
       if (code !== 0 && code !== null) {
         push({

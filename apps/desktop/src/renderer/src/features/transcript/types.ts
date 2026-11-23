@@ -101,6 +101,7 @@ export interface TranscriptBlock {
   argsJson?: string
   resultJson?: string
   isError?: boolean
+  isPartial?: boolean
   /** Staged images for `image` rows (one row per run of image parts). */
   images?: TranscriptImage[]
   /** Owning message id (assistant text rows) — drives the copy footer. */

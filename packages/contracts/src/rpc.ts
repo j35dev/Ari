@@ -1391,7 +1391,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
     /** Every install the PATH search found, the one it would use first. */
     candidates?: string[]
     /** How turns reach the CLI: over ACP, or as one-shot command line runs. */
-    transport?: { mode: 'acp' | 'cli'; label: string; note?: string; available?: boolean }
+    transport?: { mode: 'acp' | 'cli' | 'sdk'; label: string; note?: string; available?: boolean }
   }[]
   /** `providers.detect` without the cache: every CLI is looked for and probed again. */
   'providers.rescan': RpcResults['providers.detect']

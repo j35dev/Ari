@@ -18,6 +18,7 @@ interface Task {
   detail: string | null
   background: boolean
   nativeId: string | null
+  callId: string | null
   runId: string | null
   sent: string
   /** What a subagent was asked and answered; reported once each, when it changes. */
@@ -51,12 +52,16 @@ function terminal(value: unknown): BackgroundTaskStatus | null {
   return value === 'killed' ? 'stopped' : null
 }
 
-/** Claude's tool calls and SDK task bookends describe the same native work. */
+/** SDK tool calls and task bookends describe the same native work. */
 export class ClaudeBackgroundTasks {
   readonly #tasks = new Map<string, Task>()
   readonly #aliases = new Map<string, string>()
   readonly #stops = new Map<string, string>()
   #sessionId: string | null = null
+  constructor(
+    private readonly provider = 'Claude',
+    private readonly options: { nativeBookends?: boolean } = {},
+  ) {}
 
   observe(line: NativeLine): AgentEvent[] {
     if (line.subtype === 'init') this.#sessionId = text(line.session_id)
@@ -70,6 +75,7 @@ export class ClaudeBackgroundTasks {
       return this.#emit(task)
     }
     if (line.type === 'result' && line.parent_tool_use_id == null) {
+      if (this.options.nativeBookends) return []
       for (const task of this.#tasks.values()) {
         if (task.background || task.status !== 'running') continue
         task.status = line.is_error ? 'failed' : 'completed'
@@ -189,9 +195,13 @@ export class ClaudeBackgroundTasks {
         if (stopped) {
           if (block.is_error) continue
           task.status = 'stopped'
-          task.detail = 'Stopped by Claude'
+          task.detail = `Stopped by ${this.provider}`
         } else if (block.is_error) task.status = 'failed'
-        else if (task.kind === 'subagent' && !task.background) {
+        else if (
+          task.kind === 'subagent' &&
+          !task.background &&
+          (!this.options.nativeBookends || !task.nativeId)
+        ) {
           task.status = 'completed'
           const result = resultText(block.content)
           if (result) task.details.result = clipSubagentText(result)
@@ -211,6 +221,9 @@ export class ClaudeBackgroundTasks {
   /** The task a native agent or task id names, as its background task id. */
   taskIdOf(nativeId: string | null | undefined): string | null {
     return this.#find(nativeId)?.id ?? null
+  }
+  nativeIdOf(id: string): string | null {
+    return this.#find(id)?.nativeId ?? null
   }
 
   /** Whether any subagent is still running. */
@@ -241,11 +254,12 @@ export class ClaudeBackgroundTasks {
     const task: Task = {
       id,
       kind,
-      label: kind === 'subagent' ? 'Claude agent' : 'Shell command',
+      label: kind === 'subagent' ? `${this.provider} agent` : 'Shell command',
       status: 'running',
       detail: null,
       background: false,
       nativeId: null,
+      callId: null,
       runId: null,
       sent: '',
       details: { subagentType: null, prompt: null, model: null, result: null },
@@ -263,9 +277,23 @@ export class ClaudeBackgroundTasks {
 
   #lifecycle(line: NativeLine, open = true): Task | null {
     if (!text(line.task_id) || line.ambient || line.skip_transcript) return null
-    let task = this.#find(line.tool_use_id) ?? this.#find(line.task_id)
+    const callTask = this.#find(line.tool_use_id)
+    const nativeTask = this.#find(line.task_id)
+    let task = nativeTask ?? callTask
     const runId = text(line.run_id)
     if (task?.runId && runId && runId < task.runId) return null
+    // A native-only start and an independent streamed Agent call may both
+    // precede their explicit binding. Keep the native row's identity and merge
+    // the call's metadata only once the harness supplies that binding.
+    if (nativeTask && callTask && nativeTask !== callTask) {
+      task = nativeTask
+      task.background ||= callTask.background
+      for (const key of DETAIL_KEYS) task.details[key] ??= callTask.details[key]
+      this.#tasks.delete(callTask.id)
+      for (const [alias, target] of this.#aliases)
+        if (target === callTask.id) this.#aliases.set(alias, task.id)
+      this.#aliases.set(callTask.id, task.id)
+    }
     if (!task) {
       if (!open) return null
       const kind =
@@ -278,7 +306,10 @@ export class ClaudeBackgroundTasks {
       if (!kind) return null
       task = this.#open(line.tool_use_id ?? line.task_id!, kind)
     }
-    if (line.tool_use_id) this.#aliases.set(line.tool_use_id, task.id)
+    if (line.tool_use_id) {
+      this.#aliases.set(line.tool_use_id, task.id)
+      task.callId = line.tool_use_id
+    }
     task.nativeId = line.task_id!
     this.#aliases.set(line.task_id!, task.id)
     if (runId && runId !== task.runId) {
@@ -309,7 +340,8 @@ export class ClaudeBackgroundTasks {
       status: task.status,
       detail: task.detail,
       ...(this.#sessionId ? { providerThreadId: this.#sessionId } : {}),
-      providerItemId: task.id,
+      providerItemId: task.callId ?? task.id,
+      ...(task.nativeId ? { nativeTaskId: task.nativeId } : {}),
     }
   }
   /** Reports a change; subagent details ride along only when they changed. */

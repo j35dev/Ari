@@ -170,3 +170,98 @@ export function mapPiLine(line: string): AgentEvent[] {
 export function mapPiStream(lines: Iterable<string>): AgentEvent[] {
   return Array.from(lines).flatMap((line) => mapPiLine(line))
 }
+
+/** Stateful print-mode stream: preserve channel/block identity and reconcile message_end. */
+export class PiMessageMapper {
+  #session = 'session'
+  #round = 0
+  #active = false
+  #lastEnd = ''
+  readonly #blocks = new Map<number, string>()
+  mapLine(line: string): AgentEvent[] {
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      return mapPiLine(line)
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+      return [{ type: 'error', message: 'Unexpected Pi stream record.', rawJson: null }]
+    const message = parsed.message as (Message & { timestamp?: number }) | undefined
+    if (parsed.type === 'session' && typeof parsed.id === 'string') this.#session = parsed.id
+    if (parsed.type === 'message_start' && message?.role === 'assistant') {
+      this.#round++
+      this.#active = true
+      this.#blocks.clear()
+      return []
+    }
+    if (parsed.type === 'message_update' && this.#active) {
+      const event = parsed.assistantMessageEvent as
+        { type?: string; delta?: unknown; contentIndex?: number } | undefined
+      if (
+        event &&
+        (event.type === 'text_delta' || event.type === 'thinking_delta') &&
+        typeof event.delta === 'string'
+      ) {
+        const kind = event.type === 'text_delta' ? 'text-delta' : 'thinking-delta'
+        const index = event.contentIndex ?? 0
+        this.#blocks.set(index, (this.#blocks.get(index) ?? '') + event.delta)
+        return [
+          {
+            type: kind,
+            text: event.delta,
+            streamId: `pi:${this.#session}:${this.#round}:${kind}:${event.contentIndex ?? 0}`,
+          },
+        ]
+      }
+    }
+    if (parsed.type === 'message_end' && message?.role === 'assistant') {
+      if (message.stopReason === 'error') {
+        this.#active = false
+        return mapPiLine(line)
+      }
+      const signature =
+        typeof message.timestamp === 'number'
+          ? `${message.timestamp}:${JSON.stringify(message.content)}`
+          : ''
+      if (!this.#active && signature && signature === this.#lastEnd) return []
+      if (!this.#active) {
+        this.#round++
+        this.#blocks.clear()
+      }
+      this.#active = false
+      this.#lastEnd = signature
+      return (message.content ?? []).flatMap((block, index): AgentEvent[] => {
+        if (block.type !== 'text' && block.type !== 'thinking') return []
+        const value = block.type === 'text' ? block.text : block.thinking
+        if (typeof value !== 'string') return []
+        const kind = block.type === 'text' ? 'text-delta' : 'thinking-delta'
+        const prior = this.#blocks.get(index) ?? ''
+        const append = value.startsWith(prior)
+        const remaining = append ? value.slice(prior.length) : value
+        if (!remaining && append) return []
+        return [
+          {
+            type: kind,
+            text: remaining,
+            streamId: `pi:${this.#session}:${this.#round}:${kind}:${index}`,
+            ...(!append ? { replace: true } : {}),
+          },
+        ]
+      })
+    }
+    if (
+      parsed.type === 'tool_execution_update' &&
+      typeof parsed.toolCallId === 'string' &&
+      parsed.partialResult !== undefined
+    )
+      return [
+        {
+          type: 'tool-progress',
+          callId: parsed.toolCallId,
+          resultJson: JSON.stringify(parsed.partialResult),
+        },
+      ]
+    return mapPiLine(line)
+  }
+}

@@ -33,7 +33,7 @@ describe('ActivityStep', () => {
     expect(await screen.findByText('Ari Run')).toBeInTheDocument()
     expect(container.textContent).toContain('git status --short')
     expect(screen.queryByText(/"command": "git status --short"/)).not.toBeInTheDocument()
-    expect(screen.getByText('"done"')).toBeInTheDocument()
+    expect(screen.getByText('done')).toBeInTheDocument()
   })
 
   it('words a targetless generic step plainly instead of doubling verb + name', () => {
