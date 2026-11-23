@@ -1,0 +1,1361 @@
+{
+  "capturedBy": "Isolated hidden native Electron fixture renderer, not live Ari chat",
+  "checks": [
+    "same-sequence before/after",
+    "11 isolated rows to one group",
+    "tool expansion pauses following",
+    "exact output present",
+    "reconnect idempotence",
+    "failure remains visible",
+    "approval resolution simulation",
+    "180-line output bounded to 350px",
+    "two active tools",
+    "disconnect retains pending status",
+    "21 selectable scenarios",
+    "play/pause/reset/step",
+    "scroll-up held on next event",
+    "960 and 640px no document overflow",
+    "no renderer errors"
+  ],
+  "errors": [],
+  "results": [
+    {
+      "name": "01-before-reference-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "reference",
+        "mode": "before",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": false,
+        "reconnects": 0,
+        "uniqueEvents": 24,
+        "deliveredEvents": 24,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:2",
+            "count": 11
+          }
+        ],
+        "tools": [
+          {
+            "id": "command-1",
+            "key": "review-turn:command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-2",
+            "key": "review-turn:command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-3",
+            "key": "review-turn:command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-4",
+            "key": "review-turn:command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-5",
+            "key": "review-turn:command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-6",
+            "key": "review-turn:command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-7",
+            "key": "review-turn:command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-8",
+            "key": "review-turn:command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-9",
+            "key": "review-turn:command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-10",
+            "key": "review-turn:command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-11",
+            "key": "review-turn:command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "02-after-reference-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "reference",
+        "mode": "after",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": false,
+        "reconnects": 0,
+        "uniqueEvents": 24,
+        "deliveredEvents": 24,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:2",
+            "count": 11
+          }
+        ],
+        "tools": [
+          {
+            "id": "command-1",
+            "key": "review-turn:command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-2",
+            "key": "review-turn:command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-3",
+            "key": "review-turn:command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-4",
+            "key": "review-turn:command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-5",
+            "key": "review-turn:command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-6",
+            "key": "review-turn:command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-7",
+            "key": "review-turn:command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-8",
+            "key": "review-turn:command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-9",
+            "key": "review-turn:command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-10",
+            "key": "review-turn:command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-11",
+            "key": "review-turn:command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "03-expanded-command-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "reference",
+        "mode": "after",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": false,
+        "reconnects": 0,
+        "uniqueEvents": 24,
+        "deliveredEvents": 24,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:2",
+            "count": 11
+          }
+        ],
+        "tools": [
+          {
+            "id": "command-1",
+            "key": "review-turn:command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-2",
+            "key": "review-turn:command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-3",
+            "key": "review-turn:command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-4",
+            "key": "review-turn:command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-5",
+            "key": "review-turn:command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-6",
+            "key": "review-turn:command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-7",
+            "key": "review-turn:command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-8",
+            "key": "review-turn:command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-9",
+            "key": "review-turn:command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-10",
+            "key": "review-turn:command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-11",
+            "key": "review-turn:command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "04-current-source-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "reference",
+        "mode": "source",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": false,
+        "reconnects": 1,
+        "uniqueEvents": 24,
+        "deliveredEvents": 48,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:2",
+            "count": 11
+          }
+        ],
+        "tools": [
+          {
+            "id": "command-1",
+            "key": "review-turn:command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-2",
+            "key": "review-turn:command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-3",
+            "key": "review-turn:command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-4",
+            "key": "review-turn:command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-5",
+            "key": "review-turn:command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-6",
+            "key": "review-turn:command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-7",
+            "key": "review-turn:command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-8",
+            "key": "review-turn:command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-9",
+            "key": "review-turn:command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-10",
+            "key": "review-turn:command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-11",
+            "key": "review-turn:command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": "Replayed the same journal sequence. Tools and counts stay unchanged. No provider callback was restored."
+      }
+    },
+    {
+      "name": "05-failure-and-approval-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "stress",
+        "mode": "after",
+        "cursor": 16,
+        "total": 25,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 16,
+        "deliveredEvents": 16,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:1",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "shared:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-1",
+            "key": "shared:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "shared:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "shared:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "shared:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "06-bounded-output-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "stress",
+        "mode": "after",
+        "cursor": 16,
+        "total": 25,
+        "playing": false,
+        "following": false,
+        "reconnects": 0,
+        "uniqueEvents": 16,
+        "deliveredEvents": 16,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:1",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "shared:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-1",
+            "key": "shared:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "shared:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "shared:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "shared:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "07-parallel-running-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "stress",
+        "mode": "after",
+        "cursor": 11,
+        "total": 25,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 11,
+        "deliveredEvents": 11,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:1",
+            "count": 4
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-1",
+            "key": "shared:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "shared:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "shared:turn-1:test-1",
+            "status": "running",
+            "category": "command",
+            "outputLines": 3
+          },
+          {
+            "id": "test-2",
+            "key": "shared:turn-1:test-2",
+            "status": "running",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "08-disconnected-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "stress",
+        "mode": "after",
+        "cursor": 19,
+        "total": 25,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 19,
+        "deliveredEvents": 19,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:1",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "shared:turn-1:approval-1"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:17",
+            "count": 1
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-1",
+            "key": "shared:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "shared:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "shared:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "shared:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "retry-1",
+            "key": "shared:turn-1:retry-1",
+            "status": "running",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": false,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "09-narrow-960x760",
+      "size": {
+        "width": 960,
+        "height": 760
+      },
+      "state": {
+        "scenario": "stress",
+        "mode": "after",
+        "cursor": 16,
+        "total": 25,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 16,
+        "deliveredEvents": 16,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "shared:turn-1:activity:1",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "shared:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "shared:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-1",
+            "key": "shared:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "shared:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "shared:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "shared:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 960,
+          "height": 760
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "10-narrow-640x760",
+      "size": {
+        "width": 640,
+        "height": 760
+      },
+      "state": {
+        "scenario": "reference",
+        "mode": "after",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 24,
+        "deliveredEvents": 24,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:2",
+            "count": 11
+          }
+        ],
+        "tools": [
+          {
+            "id": "command-1",
+            "key": "review-turn:command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-2",
+            "key": "review-turn:command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-3",
+            "key": "review-turn:command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-4",
+            "key": "review-turn:command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-5",
+            "key": "review-turn:command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-6",
+            "key": "review-turn:command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-7",
+            "key": "review-turn:command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-8",
+            "key": "review-turn:command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-9",
+            "key": "review-turn:command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-10",
+            "key": "review-turn:command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "id": "command-11",
+            "key": "review-turn:command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 0,
+        "viewport": {
+          "width": 640,
+          "height": 760
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "11-pi-before-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "pi-acp",
+        "mode": "before",
+        "cursor": 21,
+        "total": 30,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 21,
+        "deliveredEvents": 21,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:message:0"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:1",
+            "count": 1
+          },
+          {
+            "kind": "narration",
+            "key": "review-turn:message:2"
+          },
+          {
+            "kind": "narration",
+            "key": "pi-acp:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "pi-acp:turn-1:activity:6",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "pi-acp:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "pi-acp:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-a",
+            "key": "review-turn:read-a",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 1
+          },
+          {
+            "id": "read-1",
+            "key": "pi-acp:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "pi-acp:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "pi-acp:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "pi-acp:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 1,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "11-pi-after-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "pi-acp",
+        "mode": "after",
+        "cursor": 21,
+        "total": 30,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 21,
+        "deliveredEvents": 21,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:message:0"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:1",
+            "count": 1
+          },
+          {
+            "kind": "narration",
+            "key": "review-turn:message:2"
+          },
+          {
+            "kind": "narration",
+            "key": "pi-acp:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "pi-acp:turn-1:activity:6",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "pi-acp:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "pi-acp:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-a",
+            "key": "review-turn:read-a",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 1
+          },
+          {
+            "id": "read-1",
+            "key": "pi-acp:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "pi-acp:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "pi-acp:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "pi-acp:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 26,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "12-opencode-before-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "opencode-acp",
+        "mode": "before",
+        "cursor": 21,
+        "total": 30,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 21,
+        "deliveredEvents": 21,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:message:0"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:1",
+            "count": 1
+          },
+          {
+            "kind": "narration",
+            "key": "review-turn:message:2"
+          },
+          {
+            "kind": "narration",
+            "key": "opencode-acp:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "opencode-acp:turn-1:activity:6",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "opencode-acp:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "opencode-acp:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-a",
+            "key": "review-turn:read-a",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 1
+          },
+          {
+            "id": "read-1",
+            "key": "opencode-acp:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "opencode-acp:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "opencode-acp:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "opencode-acp:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 1,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "12-opencode-after-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "scenario": "opencode-acp",
+        "mode": "after",
+        "cursor": 21,
+        "total": 30,
+        "playing": false,
+        "following": true,
+        "reconnects": 0,
+        "uniqueEvents": 21,
+        "deliveredEvents": 21,
+        "rows": [
+          {
+            "kind": "narration",
+            "key": "review-turn:message:0"
+          },
+          {
+            "kind": "activity",
+            "key": "review-turn:activity:1",
+            "count": 1
+          },
+          {
+            "kind": "narration",
+            "key": "review-turn:message:2"
+          },
+          {
+            "kind": "narration",
+            "key": "opencode-acp:turn-1:intro"
+          },
+          {
+            "kind": "activity",
+            "key": "opencode-acp:turn-1:activity:6",
+            "count": 4
+          },
+          {
+            "kind": "narration",
+            "key": "opencode-acp:turn-1:finding"
+          },
+          {
+            "kind": "decision",
+            "key": "opencode-acp:turn-1:approval-1"
+          }
+        ],
+        "tools": [
+          {
+            "id": "read-a",
+            "key": "review-turn:read-a",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 1
+          },
+          {
+            "id": "read-1",
+            "key": "opencode-acp:turn-1:read-1",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 4
+          },
+          {
+            "id": "search-1",
+            "key": "opencode-acp:turn-1:search-1",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 2
+          },
+          {
+            "id": "test-1",
+            "key": "opencode-acp:turn-1:test-1",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 180
+          },
+          {
+            "id": "test-2",
+            "key": "opencode-acp:turn-1:test-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "connected": true,
+        "settled": false,
+        "scrollTop": 26,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    }
+  ]
+}

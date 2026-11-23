@@ -1,0 +1,1813 @@
+{
+  "capture": "Isolated native Electron fixture renderer, not live third-party clients",
+  "checks": [
+    "same events in three variants and baseline",
+    "two parallel active commands",
+    "failures retained after success",
+    "pending decision always available above composer",
+    "exact 132-line output bounded",
+    "detail selection/expansion retained on reconnect",
+    "22 scenarios × 3 variants",
+    "play/pause/reset/step",
+    "explicit expansion pauses following",
+    "scroll anchor held on next event",
+    "jump to latest resumes following",
+    "960 and 640px no document overflow",
+    "10 source entries distinguish reports and older tutorials",
+    "zero renderer errors"
+  ],
+  "errors": [],
+  "snapshots": [
+    {
+      "name": "01-quiet-working-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "04-quiet-needs-you-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 30,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 30,
+        "uniqueEvents": 30,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": "rerun",
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "07-quiet-finished-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 42,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 42,
+        "uniqueEvents": 42,
+        "connected": true,
+        "settled": true,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:retry",
+            "id": "retry",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          },
+          {
+            "key": "navigation-review:activity:31",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:result",
+            "kind": "narration"
+          }
+        ],
+        "scrollTop": 93,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "02-split-working-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "split",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "05-split-needs-you-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "split",
+        "scenario": "navigation-lab",
+        "cursor": 30,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 30,
+        "uniqueEvents": 30,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": "rerun",
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "08-split-finished-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "split",
+        "scenario": "navigation-lab",
+        "cursor": 42,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 42,
+        "uniqueEvents": 42,
+        "connected": true,
+        "settled": true,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:retry",
+            "id": "retry",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          },
+          {
+            "key": "navigation-review:activity:31",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:result",
+            "kind": "narration"
+          }
+        ],
+        "scrollTop": 44,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "03-outline-working-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "outline",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "06-outline-needs-you-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "outline",
+        "scenario": "navigation-lab",
+        "cursor": 30,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 30,
+        "uniqueEvents": 30,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": "rerun",
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          }
+        ],
+        "scrollTop": 197,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "09-outline-finished-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "outline",
+        "scenario": "navigation-lab",
+        "cursor": 42,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 42,
+        "uniqueEvents": 42,
+        "connected": true,
+        "settled": true,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:retry",
+            "id": "retry",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          },
+          {
+            "key": "navigation-review:activity:31",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:result",
+            "kind": "narration"
+          }
+        ],
+        "scrollTop": 342,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "10-before-same-sequence-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "before",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "11-live-output-work-log-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": false,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "12-failure-output-expanded-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 30,
+        "total": 42,
+        "playing": false,
+        "following": false,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 60,
+        "uniqueEvents": 30,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [
+          "test-projection"
+        ],
+        "pending": "rerun",
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "failed",
+            "category": "command",
+            "outputLines": 132
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 3
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:checking",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:rerun",
+            "kind": "decision"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": "Replayed the same journal. Counts, selected details and narration remain unchanged."
+      }
+    },
+    {
+      "name": "13-split-narrow-960x760",
+      "size": {
+        "width": 960,
+        "height": 760
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "split",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": true,
+        "selected": "navigation-review:test-projection",
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 960,
+          "height": 760
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "14-quiet-narrow-640x760",
+      "size": {
+        "width": 640,
+        "height": 760
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 640,
+          "height": 760
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "15-research-sources-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "navigation-lab",
+        "cursor": 22,
+        "total": 42,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": true,
+        "deliveredEvents": 22,
+        "uniqueEvents": 22,
+        "connected": true,
+        "settled": false,
+        "active": [
+          "test-projection",
+          "test-sidebar"
+        ],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "navigation-review:read-app",
+            "id": "read-app",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 3
+          },
+          {
+            "key": "navigation-review:read-sidebar",
+            "id": "read-sidebar",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:search-consumers",
+            "id": "search-consumers",
+            "status": "completed",
+            "category": "search",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:read-projection",
+            "id": "read-projection",
+            "status": "completed",
+            "category": "read",
+            "outputLines": 2
+          },
+          {
+            "key": "navigation-review:test-projection",
+            "id": "test-projection",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          },
+          {
+            "key": "navigation-review:test-sidebar",
+            "id": "test-sidebar",
+            "status": "running",
+            "category": "command",
+            "outputLines": 4
+          }
+        ],
+        "rows": [
+          {
+            "key": "navigation-review:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:4",
+            "kind": "activity"
+          },
+          {
+            "key": "navigation-review:finding",
+            "kind": "narration"
+          },
+          {
+            "key": "navigation-review:activity:16",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "16-quiet-eleven-commands-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "quiet",
+        "scenario": "reference",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": true,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 24,
+        "uniqueEvents": 24,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "review-turn:command-1",
+            "id": "command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-2",
+            "id": "command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-3",
+            "id": "command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-4",
+            "id": "command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-5",
+            "id": "command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-6",
+            "id": "command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-7",
+            "id": "command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-8",
+            "id": "command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-9",
+            "id": "command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-10",
+            "id": "command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-11",
+            "id": "command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "rows": [
+          {
+            "key": "review-turn:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "review-turn:activity:2",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    },
+    {
+      "name": "17-before-eleven-commands-1592x897",
+      "size": {
+        "width": 1592,
+        "height": 897
+      },
+      "state": {
+        "fixture": "Ari streaming design lab v2",
+        "layout": "before",
+        "scenario": "reference",
+        "cursor": 24,
+        "total": 26,
+        "playing": false,
+        "following": false,
+        "logOpen": false,
+        "selected": null,
+        "sourcesOpen": false,
+        "deliveredEvents": 24,
+        "uniqueEvents": 24,
+        "connected": true,
+        "settled": false,
+        "active": [],
+        "failed": [],
+        "pending": null,
+        "tools": [
+          {
+            "key": "review-turn:command-1",
+            "id": "command-1",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-2",
+            "id": "command-2",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-3",
+            "id": "command-3",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-4",
+            "id": "command-4",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-5",
+            "id": "command-5",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-6",
+            "id": "command-6",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-7",
+            "id": "command-7",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-8",
+            "id": "command-8",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-9",
+            "id": "command-9",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-10",
+            "id": "command-10",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          },
+          {
+            "key": "review-turn:command-11",
+            "id": "command-11",
+            "status": "completed",
+            "category": "command",
+            "outputLines": 1
+          }
+        ],
+        "rows": [
+          {
+            "key": "review-turn:intro",
+            "kind": "narration"
+          },
+          {
+            "key": "review-turn:activity:2",
+            "kind": "activity"
+          }
+        ],
+        "scrollTop": 0,
+        "viewport": {
+          "width": 1592,
+          "height": 897
+        },
+        "notice": ""
+      }
+    }
+  ]
+}
