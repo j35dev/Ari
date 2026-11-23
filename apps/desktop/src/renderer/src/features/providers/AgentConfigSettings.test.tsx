@@ -318,6 +318,17 @@ describe('MCP servers', () => {
 })
 
 describe('editor', () => {
+  it('takes the keyboard as the file opens, so typing lands in it', async () => {
+    const user = await openClaudePage()
+    await user.click(screen.getByRole('button', { name: 'Edit settings.json' }))
+
+    const editor = await screen.findByRole('textbox', { name: 'settings.json contents' })
+    expect(editor).toHaveFocus()
+
+    await user.keyboard('x')
+    expect(editor).toHaveValue('x{\n  "model": "opus"\n}\n')
+  })
+
   it('opens a file in place of the tabs and saves with Ctrl+S', async () => {
     const user = await openClaudePage()
     await user.click(screen.getByRole('button', { name: 'Edit settings.json' }))
