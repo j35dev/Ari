@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./triage": "./src/triage.ts",
     "./external": "./src/external.ts",
     "./questions": "./src/questions.ts",
     "./slack": "./src/slack.ts",

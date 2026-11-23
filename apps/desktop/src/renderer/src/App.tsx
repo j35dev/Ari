@@ -87,6 +87,8 @@ import { UsagePage } from './features/usage/UsagePage'
 import { ProviderUsagePill } from './features/usage/ProviderUsagePill'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
+import { TriageDialog } from './features/triage/TriageDialog'
+import { TRIAGE_EVENT, requestTriage } from './features/triage/events'
 import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
@@ -271,6 +273,18 @@ function Shell({
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
   // the pane the user is actually in rather than the last row they clicked.
   const layout = useSplitLayout()
+  const [triageRequest, setTriageRequest] = useState<{ description: string } | null>(null)
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ description?: string }>).detail
+      setTriageRequest({
+        description: typeof detail?.description === 'string' ? detail.description : '',
+      })
+      setPaletteOpen(false)
+    }
+    window.addEventListener(TRIAGE_EVENT, open)
+    return () => window.removeEventListener(TRIAGE_EVENT, open)
+  }, [])
   const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
   const activeSessionScope = activeSessionId ? parseSessionViewKey(activeSessionId) : null
@@ -964,6 +978,7 @@ function Shell({
   }, [])
 
   const commands = useCommands({
+    onOpenTriage: () => requestTriage(),
     onOpenAria: ariaEnabled
       ? () => {
           openAria()
@@ -2619,6 +2634,18 @@ function Shell({
         scope={remoteActive ? null : activeScope}
       />
       {setupCovered ? null : <KeyboardCheatSheet />}
+      <TriageDialog
+        open={triageRequest !== null}
+        onOpenChange={(open) => {
+          if (!open) setTriageRequest(null)
+        }}
+        initialDescription={triageRequest?.description}
+        defaults={defaults}
+        onOpenSession={(id) => {
+          selectSession(id)
+          setTriageRequest(null)
+        }}
+      />
       <NewSessionLauncher
         open={newSessionRequest !== null}
         projects={navigation.sidebarProjects

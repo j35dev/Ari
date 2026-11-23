@@ -87,6 +87,7 @@ export interface CommandsContext {
   onOpenGallery: () => void
   onOpenSearch: () => void
   onOpenAria?: () => void
+  onOpenTriage?: () => void
   panes?: PaneCommands
   spaces?: SpaceCommands
 }
@@ -190,6 +191,9 @@ function spaceCommands(spaces: SpaceCommands): PaletteCommand[] {
 export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
   const { panes, spaces } = ctx
   return [
+    ...(ctx.onOpenTriage
+      ? [{ id: 'support.triage', label: 'Triage an Ari issue', run: ctx.onOpenTriage }]
+      : []),
     ...(ctx.onOpenAria
       ? [{ id: 'nav.aria', label: 'Open Aria', hint: 'Mod+0', run: ctx.onOpenAria }]
       : []),
@@ -268,9 +272,18 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch, onOpenAria, onOpenTriage, panes, spaces } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces }),
-    [onNavigate, onOpenGallery, onOpenSearch, onOpenAria, panes, spaces],
+    () =>
+      buildAppCommands({
+        onNavigate,
+        onOpenGallery,
+        onOpenSearch,
+        onOpenAria,
+        onOpenTriage,
+        panes,
+        spaces,
+      }),
+    [onNavigate, onOpenGallery, onOpenSearch, onOpenAria, onOpenTriage, panes, spaces],
   )
 }

@@ -44,6 +44,14 @@ import { createSession, type SessionCreateDeps } from './session-create'
 import { launchEffortLookup } from './launch-efforts'
 import { createProject } from './project-create'
 import { AriaThread } from './aria-thread'
+import { TriageService } from './triage/service'
+import { TriageCaseStore } from './triage/case-store'
+import { TriageSource } from './triage/source'
+import { TriageGitHub } from './triage/github'
+import { collectContext } from './triage/diagnostics'
+import { triageLog, runTriageChecks, stopTriageChecks, saveTriageBuild } from './triage/runtime'
+
+declare const __ARI_BUILD_COMMIT__: string | null
 import { createExternalTaskHost } from './external/task-host'
 import { SlackService } from './integrations/slack/service'
 import { ProjectContextCache, ProjectSelection } from './project-context'
@@ -2342,6 +2350,51 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
+
+  const triageRoot = join(app.getPath('userData'), 'triage')
+  void saveTriageBuild(
+    typeof __ARI_BUILD_COMMIT__ === 'undefined' ? null : __ARI_BUILD_COMMIT__,
+  ).catch(() => undefined)
+  const triage = new TriageService({
+    store: new TriageCaseStore(triageRoot),
+    source: new TriageSource(triageRoot),
+    github: new TriageGitHub(getHostingService().api),
+    context: async () =>
+      collectContext({
+        appVersion: app.getVersion(),
+        buildCommit: typeof __ARI_BUILD_COMMIT__ === 'undefined' ? null : __ARI_BUILD_COMMIT__,
+        profile: app.isPackaged ? 'Ari' : 'Ari Dev',
+        log: triageLog(),
+        providers: (await rawDetections()).map((row) => ({
+          kind: row.kind,
+          version: row.version ?? null,
+          status: row.binaryPath ? (row.authStatus ?? 'unknown') : 'not installed',
+        })),
+      }),
+    project: async (path, name) => (await getProjectStore().add(path, name)).id,
+    session: async (projectId, title, agent) =>
+      (await createSession(sessionDeps, { ...agent, projectId, title, workspaceMode: 'shared' }))
+        .sessionId,
+    prompt: async (sessionId, text) => {
+      const result = await engine.dispatch({ type: 'turn.start', sessionId, text, attachments: [] })
+      if (!result.accepted)
+        throw new Error(
+          'The agent could not start. Its triage session was preserved; select a working agent or resume it in the conversation.',
+        )
+    },
+    busy: (id) =>
+      engine.hasLiveTurn(id) ||
+      claudeSessionPool.hasBackgroundWork(id) ||
+      acpSessionPool.hasBackgroundWork(id),
+    exists: async (id) => (await getSessionStore().load(id)).session !== null,
+    checks: runTriageChecks,
+  })
+  triage.register(r)
+  r.register('triage.captureError', ({ area, message }) => {
+    triageLog().record(area, message)
+    return { recorded: true }
+  })
+  shutdownTasks.push(stopTriageChecks)
 
   const aria = new AriaThread({
     ...sessionDeps,

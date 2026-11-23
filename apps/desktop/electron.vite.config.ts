@@ -1,10 +1,32 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { mainCommonjsShimPlugin } from './packaging/main-commonjs-shim'
+
+function buildCommit(): string | null {
+  try {
+    if (
+      execFileSync('git', ['status', '--porcelain'], {
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+      }).trim()
+    )
+      return null
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+    }).trim()
+  } catch {
+    return null
+  }
+}
 
 export default defineConfig({
   main: {
+    define: { __ARI_BUILD_COMMIT__: JSON.stringify(buildCommit()) },
     plugins: [mainCommonjsShimPlugin()],
     build: {
       rollupOptions: {
