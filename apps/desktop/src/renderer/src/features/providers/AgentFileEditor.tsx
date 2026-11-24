@@ -116,6 +116,16 @@ export function AgentFileEditor({
     return () => clearTimeout(timer)
   }, [savedAt])
 
+  // The row that opened this file is unmounted with the tabs, so without this
+  // focus falls to the document and typing goes nowhere (or, in settings, to
+  // the search field).
+  const focusOnLoad = useRef(true)
+  useEffect(() => {
+    if (loaded === null || !focusOnLoad.current) return
+    focusOnLoad.current = false
+    fieldRef.current?.focus()
+  }, [loaded])
+
   const readOnly = target.type === 'skill' || loaded === null || loaded.truncated
   const dirty = loaded !== null && draft !== saved
   const problem = useMemo(() => configProblem(format, draft), [format, draft])

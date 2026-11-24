@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
 // Controls taken out of the tab order (a roving radio group's unchecked items)
@@ -30,6 +30,13 @@ export interface OverlayFocusOptions {
  * close or unmount.
  */
 export function useOverlayFocus({ active, panelRef, onEscape }: OverlayFocusOptions): void {
+  // Read through a ref so a new callback identity does not tear the effect
+  // down and run it again: re-running would restore the pre-open focus and
+  // then focus the first control, yanking the caret out of whatever the user
+  // selected after opening.
+  const escape = useRef(onEscape)
+  escape.current = onEscape
+
   useEffect(() => {
     if (!active) return
     const panel = panelRef.current
@@ -42,7 +49,7 @@ export function useOverlayFocus({ active, panelRef, onEscape }: OverlayFocusOpti
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onEscape()
+        escape.current()
         return
       }
       if (event.key !== 'Tab') return
@@ -74,5 +81,5 @@ export function useOverlayFocus({ active, panelRef, onEscape }: OverlayFocusOpti
       document.removeEventListener('keydown', onKeyDown)
       previous?.focus()
     }
-  }, [active, panelRef, onEscape])
+  }, [active, panelRef])
 }
