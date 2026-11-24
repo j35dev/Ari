@@ -20,6 +20,7 @@ import {
   RECOVERY_STORAGE_KEY,
 } from './features/composer/draft-recovery-store'
 import { dropDraftTextMemory, DRAFTS_STORAGE_KEY } from './features/composer/use-drafts'
+import { resetTerminalDock } from './features/terminal/terminal-dock'
 import { localSnapshotFixture } from './features/machines/fixtures.test-support'
 
 function ToastProbe() {
@@ -136,6 +137,45 @@ async function sendProjectDraft() {
 vi.mock('./features/onboarding/OnboardingGate', () => ({
   OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
     children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null, onLanded: () => undefined }),
+}))
+
+// The pane-hosted terminals in the split suites mount a real TerminalPane; the
+// xterm grid needs a canvas jsdom cannot give it, so the pane is a stand-in and
+// the pty traffic is what those tests assert on.
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class {
+    options: Record<string, unknown>
+    cols = 80
+    rows = 24
+    constructor(options: Record<string, unknown>) {
+      this.options = { ...options }
+    }
+    loadAddon(): void {}
+    open(): void {}
+    write(): void {}
+    writeln(): void {}
+    reset(): void {}
+    focus(): void {}
+    dispose(): void {}
+    getSelection(): string {
+      return ''
+    }
+    paste(): void {}
+    input(): void {}
+    attachCustomKeyEventHandler(): void {}
+    onSelectionChange(): { dispose: () => void } {
+      return { dispose: () => undefined }
+    }
+    onData(): { dispose: () => void } {
+      return { dispose: () => undefined }
+    }
+  },
+}))
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class {
+    fit(): void {}
+    dispose(): void {}
+  },
 }))
 
 const invokeMock = rpcMocks.invoke as unknown as Mock<
@@ -562,6 +602,7 @@ describe('Shell split panes', () => {
 
   beforeEach(() => {
     splitLayoutActions.reset()
+    resetTerminalDock()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
       switch (method) {
@@ -901,6 +942,72 @@ describe('Shell split panes', () => {
       await screen.findByText(`A layout holds at most ${String(MAX_PANES)} panes`),
     ).toBeInTheDocument()
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(blanks)
+  })
+
+  it('opens a terminal in a blank split pane, in the space active session workspace', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return [
+            {
+              id: 'sess_alpha',
+              projectId: 'adhoc',
+              title: 'Alpha',
+              updatedAt: NOW - 60_000,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
+        case 'providers.detect':
+        case 'providers.models':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'endpoints.list':
+          return []
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        case 'session.workspace':
+          return { path: '/projects/ari' }
+        case 'terminal.create':
+          return { created: true }
+        case 'terminal.resize':
+          return { resized: true }
+        case 'terminal.write':
+          return { written: true }
+        case 'settings.update':
+          return undefined
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+
+    // One session, split right: the new pane is blank and focused, so it
+    // borrows Alpha as the space's active session for its terminal.
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sess_alpha')
+    splitLayoutActions.split(first, 'right')
+    render(<App />)
+
+    const pane = await screen.findByRole('region', { name: 'Empty pane' }, { timeout: 10_000 })
+    const button = within(pane).getByRole('button', { name: 'Open terminal' })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith(
+          'terminal.create',
+          expect.objectContaining({ cwd: '/projects/ari' }),
+        )
+      },
+      { timeout: 10_000 },
+    )
   })
 
   it('leaves the pane chords alone while another view has the screen', async () => {
