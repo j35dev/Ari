@@ -531,6 +531,7 @@ function request(method, params, timeoutMs, env = process.env) {
 }
 
 async function main(argv) {
+  if (argv[0] === 'triage') return require('./triage.cjs').run(argv.slice(1))
   if (argv.length === 1 && argv[0] === '--skill') {
     process.stdout.write(await fs.readFile(skillPath, 'utf8'))
     return

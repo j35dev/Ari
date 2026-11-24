@@ -1,0 +1,816 @@
+.triage-dialog {
+  width: min(1180px, 96vw) !important;
+  height: min(820px, 90vh) !important;
+  padding: 0 !important;
+  overflow: hidden;
+  background: var(--ari-surface-0) !important;
+}
+.triage-workspace {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  color: var(--ari-fg);
+  font-family: var(--ari-font-ui);
+}
+.triage-workspace button,
+.triage-workspace input,
+.triage-workspace textarea,
+.triage-workspace select {
+  font: inherit;
+}
+.triage-workspace button {
+  cursor: pointer;
+}
+.triage-workspace button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+.triage-workspace button:focus-visible,
+.triage-workspace a:focus-visible {
+  outline: 2px solid var(--ari-accent-ring);
+  outline-offset: 3px;
+}
+.triage-sidebar {
+  width: 228px;
+  padding: 24px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--ari-border);
+  background: var(--ari-surface-1);
+  flex-shrink: 0;
+}
+.triage-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0 9px;
+}
+.triage-brand svg {
+  color: var(--ari-accent);
+}
+.triage-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--ari-border);
+  border-radius: 6px;
+  background: var(--ari-surface-0);
+  color: var(--ari-fg);
+  font-size: 12px !important;
+  padding: 10px 5px;
+  margin: 26px 0 30px;
+}
+.triage-new:hover {
+  border-color: var(--ari-fg-subtle);
+}
+.triage-kicker {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ari-fg-subtle);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  padding: 0 9px 12px;
+}
+.triage-case-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.triage-case {
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--ari-fg-muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 11px 9px;
+  margin-bottom: 4px;
+}
+.triage-case:hover,
+.triage-case.is-selected {
+  background: var(--ari-surface-2);
+  color: var(--ari-fg);
+}
+.triage-case.is-selected {
+  border-color: var(--ari-border);
+}
+.triage-case-title {
+  display: block;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.triage-case-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--ari-fg-subtle);
+  margin-top: 7px;
+  gap: 8px;
+}
+.triage-empty-cases {
+  color: var(--ari-fg-subtle);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 3px 9px;
+  max-width: 170px;
+}
+.triage-sidebar-footer {
+  display: flex;
+  gap: 9px;
+  padding: 16px 8px 0;
+  border-top: 1px solid var(--ari-border);
+  color: var(--ari-fg-subtle);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.triage-sidebar-footer svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.triage-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  background: var(--ari-surface-0);
+  overflow: hidden;
+}
+.triage-topbar {
+  height: 65px;
+  flex-shrink: 0;
+  padding: 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ari-fg-subtle);
+  font-size: 12px;
+}
+.triage-topbar > span,
+.triage-topbar > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.triage-topbar > span > span {
+  color: var(--ari-fg-muted);
+}
+.triage-machine {
+  font-size: 11px;
+}
+.triage-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ari-fg-muted);
+}
+.triage-icon:hover {
+  background: var(--ari-surface-2);
+  color: var(--ari-fg);
+}
+.triage-intro {
+  padding: 34px 54px 30px;
+  overflow: auto;
+}
+.triage-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--ari-fg-subtle);
+}
+.triage-eyebrow > span:not(.triage-version) {
+  width: 5px;
+  height: 5px;
+  background: var(--ari-accent);
+  border-radius: 50%;
+}
+.triage-intro h1 {
+  font-size: clamp(30px, 3.6vw, 43px);
+  letter-spacing: -0.045em;
+  line-height: 1.12;
+  margin: 22px 0 19px;
+  font-weight: 500;
+}
+.triage-lead {
+  color: var(--ari-fg-muted);
+  font-size: 14px;
+  line-height: 1.75;
+  margin-bottom: 31px;
+}
+.triage-label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ari-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+.triage-label > span {
+  color: var(--ari-fg-subtle);
+  font-weight: 400;
+  font-size: 10px;
+}
+.triage-description {
+  display: block;
+  width: 100%;
+  height: 142px;
+  resize: vertical;
+  border: 1px solid var(--ari-border);
+  border-radius: 7px;
+  background: var(--ari-surface-1);
+  color: var(--ari-fg);
+  padding: 15px;
+  font-size: 13px !important;
+  line-height: 1.75;
+}
+.triage-description::placeholder,
+.triage-workspace input::placeholder {
+  color: var(--ari-fg-subtle);
+}
+.triage-description:focus,
+.triage-draft-title:focus,
+.triage-draft-body:focus,
+.triage-search-row input:focus {
+  outline: 1px solid var(--ari-accent-ring);
+  border-color: var(--ari-accent);
+}
+.triage-intro-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 17px;
+}
+.triage-intro-actions > span {
+  color: var(--ari-fg-subtle);
+  font-size: 11px;
+}
+.triage-primary,
+.triage-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px !important;
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.triage-primary {
+  color: var(--ari-surface-0);
+  background: var(--ari-fg);
+  border: 1px solid var(--ari-fg);
+}
+.triage-primary:hover {
+  opacity: 0.88;
+}
+.triage-secondary {
+  background: var(--ari-surface-1);
+  color: var(--ari-fg);
+  border: 1px solid var(--ari-border);
+  padding: 8px 11px;
+}
+.triage-intro-foot {
+  border-top: 1px solid var(--ari-border);
+  margin-top: 40px;
+  padding-top: 25px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.triage-intro-foot > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--ari-fg-subtle);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.triage-intro-foot svg {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.triage-intro-foot strong {
+  display: block;
+  color: var(--ari-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+.triage-error,
+.triage-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 0 24px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ari-border);
+  border-radius: 6px;
+  color: var(--ari-fg-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--ari-surface-1);
+}
+.triage-error {
+  color: var(--ari-danger);
+}
+.triage-error button {
+  border: 0;
+  color: inherit;
+  background: none;
+}
+.triage-case-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 30px 22px;
+  flex-shrink: 0;
+}
+.triage-case-heading h2 {
+  margin: 10px 0 0;
+  font-size: 19px;
+  letter-spacing: -0.025em;
+  font-weight: 500;
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.triage-version {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--ari-fg-subtle);
+  font-weight: 400;
+}
+.triage-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  color: var(--ari-fg-muted);
+  font-size: 11px !important;
+  white-space: nowrap;
+}
+.triage-text:hover {
+  color: var(--ari-fg);
+}
+.triage-tabs {
+  display: flex;
+  gap: 23px;
+  border-bottom: 1px solid var(--ari-border);
+  padding: 0 30px;
+  flex-shrink: 0;
+}
+.triage-tabs button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: none;
+  color: var(--ari-fg-subtle);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 12px 0 13px;
+  font-size: 12px !important;
+}
+.triage-tabs button.is-active {
+  color: var(--ari-fg);
+  border-bottom-color: var(--ari-fg);
+}
+.triage-setup {
+  padding: 31px 35px;
+  overflow: auto;
+}
+.triage-setup h3,
+.triage-fix-intro h3 {
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin: 0 0 10px;
+}
+.triage-setup-copy p,
+.triage-fix-intro > p {
+  font-size: 13px;
+  color: var(--ari-fg-muted);
+  line-height: 1.8;
+  max-width: 510px;
+}
+.triage-facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  border-top: 1px solid var(--ari-border);
+  border-bottom: 1px solid var(--ari-border);
+  padding: 21px 0;
+  margin: 27px 0;
+}
+.triage-facts span,
+.triage-facts strong {
+  display: block;
+  font-size: 11px;
+  color: var(--ari-fg-subtle);
+  font-weight: 400;
+}
+.triage-facts strong {
+  font-size: 13px;
+  color: var(--ari-fg);
+  margin-top: 8px;
+}
+.triage-log-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+}
+.triage-log-toggle input {
+  accent-color: var(--ari-fg);
+  margin-top: 3px;
+}
+.triage-log-toggle small {
+  display: block;
+  font-size: 11px;
+  color: var(--ari-fg-subtle);
+  line-height: 1.7;
+  margin-top: 5px;
+}
+.triage-log-preview {
+  margin: 17px 0;
+  color: var(--ari-fg-muted);
+  font-size: 11px;
+}
+.triage-workspace summary {
+  cursor: pointer;
+}
+.triage-log-preview pre,
+.triage-review pre {
+  max-height: 210px;
+  overflow: auto;
+  font-family: var(--ari-font-mono);
+  font-size: 10px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: var(--ari-surface-1);
+  border: 1px solid var(--ari-border);
+  margin-top: 10px;
+  border-radius: 5px;
+}
+.triage-privacy {
+  display: flex;
+  gap: 9px;
+  color: var(--ari-fg-subtle);
+  margin: 22px 0;
+  max-width: 560px;
+}
+.triage-privacy svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.triage-privacy p {
+  font-size: 11px;
+  line-height: 1.8;
+}
+.triage-agent-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 13px;
+  border-top: 1px solid var(--ari-border);
+  padding-top: 24px;
+}
+.triage-agent-row select {
+  color: var(--ari-fg-muted);
+  font-size: 11px !important;
+  background: var(--ari-surface-1);
+  border: 1px solid var(--ari-border);
+  border-radius: 5px;
+  padding: 8px;
+}
+.triage-agent-row .triage-primary {
+  margin-left: auto;
+}
+.triage-conversation {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.triage-conversation .triage-notice {
+  margin: 10px 20px 0;
+}
+.triage-fix-intro {
+  padding: 38px 45px;
+  overflow: auto;
+}
+.triage-fix-icon {
+  margin-bottom: 21px;
+  color: var(--ari-fg-subtle);
+}
+.triage-fix-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 25px 0 32px;
+  font-size: 12px;
+  color: var(--ari-fg-muted);
+}
+.triage-fix-steps span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.triage-fix-intro .triage-primary {
+  margin-left: 20px;
+}
+.triage-small {
+  font-size: 11px !important;
+  color: var(--ari-fg-subtle) !important;
+  margin-top: 24px;
+}
+.triage-draft-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.triage-fix-chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  border-right: 1px solid var(--ari-border);
+}
+.triage-fix-chat > .triage-text {
+  align-self: center;
+  margin: 7px 0;
+}
+.triage-draft-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 30px 25px;
+  overflow: auto;
+}
+.triage-fix-chat + .triage-draft-panel {
+  width: 46%;
+  flex: none;
+  padding: 20px;
+}
+.triage-draft-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 21px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ari-fg-subtle);
+}
+.triage-draft-title,
+.triage-draft-body {
+  display: block;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--ari-border);
+  border-radius: 5px;
+  background: var(--ari-surface-1);
+  color: var(--ari-fg);
+  font-size: 12px !important;
+}
+.triage-draft-title {
+  margin-bottom: 20px;
+}
+.triage-draft-body {
+  min-height: 230px;
+  resize: vertical;
+  font-family: var(--ari-font-mono) !important;
+  font-size: 11px !important;
+  line-height: 1.8;
+}
+.triage-save-state {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ari-fg-subtle);
+  font-size: 10px;
+  margin: 9px 0 18px;
+}
+.triage-known {
+  padding-top: 17px;
+  border-top: 1px solid var(--ari-border);
+}
+.triage-search-row {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--ari-border);
+  border-radius: 5px;
+  padding-right: 5px;
+}
+.triage-search-row input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 10px;
+  background: none;
+  color: var(--ari-fg);
+  font-size: 11px !important;
+}
+.triage-known p,
+.triage-review p {
+  font-size: 11px;
+  color: var(--ari-fg-subtle);
+  line-height: 1.7;
+  margin: 10px 0;
+}
+.triage-known ul {
+  list-style: none;
+  padding: 0;
+  margin-top: 10px;
+}
+.triage-known li a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  color: var(--ari-fg-muted);
+  font-size: 11px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--ari-border);
+}
+.triage-known li a span {
+  color: var(--ari-fg-subtle);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.triage-known li a svg {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.triage-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.triage-review details {
+  color: var(--ari-fg-muted);
+  font-size: 11px;
+  margin: 12px 0;
+}
+.triage-passed {
+  color: var(--ari-success);
+}
+.triage-publish {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 18px;
+  margin-top: 20px;
+  border-top: 1px solid var(--ari-border);
+}
+.triage-publish > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--ari-fg-subtle);
+}
+.triage-spin {
+  animation: triage-spin 1s linear infinite;
+}
+@keyframes triage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.triage-retry-agent {
+  flex-shrink: 0;
+  padding: 10px 24px;
+  border-top: 1px solid var(--ari-border);
+  color: var(--ari-fg-subtle);
+  font-size: 11px;
+}
+.triage-retry-agent > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+@media (max-height: 700px) {
+  .triage-intro {
+    padding-top: 20px;
+  }
+  .triage-intro h1 {
+    font-size: 32px;
+    margin: 16px 0;
+  }
+  .triage-lead {
+    margin-bottom: 20px;
+  }
+  .triage-description {
+    height: 120px;
+  }
+  .triage-intro-foot {
+    margin-top: 28px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .triage-spin {
+    animation: none;
+  }
+}
+@media (max-width: 900px) {
+  .triage-sidebar {
+    width: 190px;
+  }
+  .triage-intro {
+    padding: 24px 30px;
+  }
+  .triage-fix-chat {
+    display: flex;
+    height: 420px;
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--ari-border);
+  }
+  .triage-with-fix {
+    flex-direction: column;
+    overflow: auto;
+  }
+  .triage-fix-chat + .triage-draft-panel {
+    width: 100%;
+    flex: none;
+    overflow: visible;
+  }
+}
+@media (max-width: 620px) {
+  .triage-sidebar {
+    display: none;
+  }
+  .triage-intro {
+    padding: 20px 24px;
+  }
+  .triage-intro h1 {
+    font-size: 32px;
+  }
+  .triage-intro-foot {
+    gap: 12px;
+  }
+  .triage-intro-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .triage-machine {
+    display: none;
+  }
+  .triage-case-heading {
+    padding: 12px 22px 18px;
+  }
+  .triage-case-heading h2 {
+    max-width: 240px;
+  }
+  .triage-case-heading > button {
+    display: none;
+  }
+  .triage-setup {
+    padding: 24px;
+  }
+  .triage-agent-row .triage-primary {
+    margin: 8px 0 0;
+  }
+  .triage-facts {
+    gap: 10px;
+  }
+  .triage-tabs {
+    gap: 19px;
+    padding: 0 22px;
+  }
+  .triage-draft-panel {
+    padding: 20px 22px;
+  }
+  .triage-fix-intro {
+    padding: 30px 24px;
+  }
+  .triage-publish {
+    flex-wrap: wrap;
+  }
+}

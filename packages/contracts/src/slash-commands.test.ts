@@ -41,6 +41,11 @@ describe('parseSlashCommand', () => {
       args: 'neon cyan',
     })
     expect(parseSlashCommand('/ARI theme')).toEqual({ name: 'ari theme', args: '' })
+    expect(parseSlashCommand('/ari triage')).toEqual({ name: 'ari triage', args: '' })
+    expect(parseSlashCommand('/ARI\tTRIAGE Ari hangs\nwhen switching')).toEqual({
+      name: 'ari triage',
+      args: 'Ari hangs\nwhen switching',
+    })
   })
 
   it('leaves paths and slashes inside prose alone', () => {
@@ -94,7 +99,11 @@ describe('filterSlashCommands', () => {
     const names = filterSlashCommands(list, '').map((c) => c.name)
     expect(names[0]).toBe('ari theme')
     expect(names.indexOf('model')).toBeGreaterThan(names.indexOf('usage'))
-    expect(filterSlashCommands(list, 'ari t').map((c) => c.name)).toEqual(['ari theme'])
+    expect(filterSlashCommands(list, 'ari t').map((c) => c.name)).toEqual([
+      'ari theme',
+      'ari triage',
+    ])
+    expect(filterSlashCommands(list, 'triage').map((c) => c.name)).toEqual(['ari triage'])
   })
 
   it('finds commands by alias, ignoring case', () => {

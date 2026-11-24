@@ -93,7 +93,21 @@ export class HostingApi {
           options.body !== undefined ? { input: JSON.stringify(options.body) } : undefined,
         )
         return options.raw ? stdout : JSON.parse(stdout)
-      } catch {
+      } catch (error) {
+        const stderr =
+          typeof error === 'object' &&
+          error !== null &&
+          'stderr' in error &&
+          typeof error.stderr === 'string'
+            ? error.stderr
+            : ''
+        const status = /HTTP (\d{3})/.exec(stderr)?.[1]
+        if (status && !signal.aborted)
+          throw new HostingError(
+            Number(status) === 429 ? 'rate-limited' : 'failed',
+            `The hosting service returned HTTP ${status}.`,
+            Number(status),
+          )
         throw new HostingError(
           signal.aborted ? 'unavailable' : 'unauthenticated',
           signal.aborted

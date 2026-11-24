@@ -9,6 +9,7 @@ import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { SETTINGS_HINT_CLASS, SETTINGS_LABEL_CLASS, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
+import { requestTriage } from '../triage/events'
 
 const log = createLogger('settings:advanced')
 
@@ -233,6 +234,14 @@ export function AdvancedSettings() {
       </SettingsSection>
 
       <SettingsSection title="Data">
+        <SettingsRow
+          label="Ari Triage"
+          hint="Investigate an Ari problem with your agent, report it, or prepare a fix."
+        >
+          <Button size="sm" onClick={() => requestTriage()}>
+            Triage an issue
+          </Button>
+        </SettingsRow>
         <SettingsRow
           label="Diagnostics"
           hint="Export app version, user agent, and active theme as JSON for bug reports."

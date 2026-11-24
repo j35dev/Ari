@@ -33,6 +33,7 @@ import { deleteSessionDraftText, dropDraftTextMemory } from '../composer/use-dra
 import { SessionKeepAlive } from './SessionKeepAlive'
 import { keepAliveActions } from './session-keep-alive'
 import { ContextMeter, formatCompactTokens, formatTurnDuration } from './SessionStatusCapsule'
+import { TRIAGE_EVENT } from '../triage/events'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -178,6 +179,46 @@ describe('SessionView question panel', () => {
     expect(screen.queryByText('Done today')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Work' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Work details')).not.toBeInTheDocument()
+  })
+  it('opens triage with the current agent selection without creating a project turn', async () => {
+    const pick: SessionDefaults = {
+      driverKind: 'codex',
+      modelId: 'gpt-6.2',
+      effort: 'high',
+      permissionMode: 'allow-edits',
+    }
+    const implementation = invokeMock.getMockImplementation()!
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.load'
+        ? { session: { ...SESSION, ...pick }, activeTurnId: null }
+        : implementation(method, params),
+    )
+    const open = vi.fn()
+    window.addEventListener(TRIAGE_EVENT, open)
+    try {
+      render(
+        <ToastProvider>
+          <SessionView sessionId="sess_1" defaults={pick} onDefaultsChange={() => undefined} />
+        </ToastProvider>,
+      )
+      const input = await screen.findByLabelText('Message')
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_1' }),
+      )
+      emitReplayDone()
+      fireEvent.change(input, { target: { value: '/ari triage Ari freezes' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(open).toHaveBeenCalledOnce()
+      expect((open.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+        description: 'Ari freezes',
+        agent: pick,
+      })
+      expect(
+        invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch'),
+      ).toHaveLength(0)
+    } finally {
+      window.removeEventListener(TRIAGE_EVENT, open)
+    }
   })
 
   it('centers only after history has replayed and keeps the editor when docking', async () => {

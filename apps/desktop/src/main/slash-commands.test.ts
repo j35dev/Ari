@@ -39,6 +39,9 @@ describe('routeSlashCommand', () => {
   })
 
   it('blocks what Ari answers natively and terminal-only commands', () => {
+    expect(
+      routeSlashCommand('/ari triage Ari crashes', 'codex', [entry('ari triage')]),
+    ).toMatchObject({ kind: 'blocked', invocation: { name: 'ari triage', args: 'Ari crashes' } })
     expect(routeSlashCommand('/model opus', 'claude', claude)).toEqual({
       kind: 'blocked',
       invocation: { name: 'model', args: 'opus' },
@@ -75,11 +78,15 @@ describe('SessionCommandCache', () => {
 
   it('answers the menu with Ari’s commands first and says when the list is pending', () => {
     const pending = sessionCommands('opencode', null, false)
-    expect(pending.commands.map((c) => c.name)).toEqual(['ari theme'])
+    expect(pending.commands.map((c) => c.name)).toEqual(['ari theme', 'ari triage'])
     expect(pending.complete).toBe(false)
     expect(pending.note).toContain('after its first reply')
     const known = sessionCommands('codex', [entry('goal', { run: 'rpc' })], true)
-    expect(known.commands.map((c) => c.name).slice(0, 2)).toEqual(['ari theme', 'goal'])
+    expect(known.commands.map((c) => c.name).slice(0, 3)).toEqual([
+      'ari theme',
+      'ari triage',
+      'goal',
+    ])
     expect(known.commands.some((c) => c.name === 'model' && c.run === 'unsupported')).toBe(true)
   })
 })
@@ -163,6 +170,16 @@ describe('engine slash command turns', () => {
         },
       ])
       expect(model.lastTurn?.stopReason).toBe('completed')
+    } finally {
+      await h.close()
+    }
+  })
+  it('does not forward an app-owned triage command to an agent from direct dispatch', async () => {
+    const h = await harness()
+    try {
+      await h.send('/ari triage Ari crashes')
+      expect(h.created).toHaveLength(0)
+      expect((await h.store.load('s')).lastTurn?.stopReason).toBe('completed')
     } finally {
       await h.close()
     }

@@ -64,6 +64,40 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 | Desktop    | Command palette, prompt stash, usage dashboard (ccusage), file explorer with editor, theme engine                                            |
 | Phone      | Installable PWA that drives sessions from anywhere: prompts, queues, approvals with the provider's own choices, interruptions, live activity |
 
+## Ari Triage
+
+Choose **Triage an Ari issue** from the command palette, **Triage an issue** in
+Settings → Advanced, or **Report with Triage** beside an error. Describe the
+problem, review the diagnostic context, and select your agent. Each case has its
+own workspace and stays available for follow-ups.
+
+You can also type `/ari triage` or `/ari triage <what went wrong>` in a local
+agent conversation. The slash menu lists it alongside `/ari theme`. It opens
+triage with the current agent, model, effort, and permissions; review the
+diagnostics and start the investigation there. The current project conversation
+stays intact. Add screenshots in the triage conversation after starting it.
+
+The agent can prepare an editable issue for `j35dev/Ari`, or work on a fix in a
+separate source checkout. Triage runs `pnpm verify` against the fix before it can
+publish a draft PR. It uses your connected GitHub account, creating a contributor
+fork when needed. You review the public draft, account, and changes before
+publishing. Installing a fixed Ari build is a separate action.
+
+If Ari cannot start, the bundled CLI can export diagnostics or launch an installed
+Claude Code or Codex independently:
+
+```sh
+ari triage --export
+ari triage --agent codex
+ari triage --agent claude --profile /path/to/affected/Ari/profile
+```
+
+When the `ari` CLI launcher is not on your terminal PATH, run the same commands
+with Node against the installed `resources/agent-cli/ari.cjs` script. Terminal
+agent launches exclude logs by default; diagnostic exports include recent
+sanitized warnings and errors. The affected app version is read from its saved
+profile metadata and is reported as unknown when unavailable.
+
 ## Supported agents
 
 | Agent       | Transport                 | Notes                                                |

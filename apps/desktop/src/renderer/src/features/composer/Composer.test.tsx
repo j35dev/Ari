@@ -1392,6 +1392,40 @@ describe('Composer mention highlight', () => {
 })
 
 describe('Composer slash commands', () => {
+  it('hands triage to the app without sending a project prompt', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn(),
+      onTriage = vi.fn()
+    render(<Composer onSend={onSend} onTriage={onTriage} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, '/ari triage Ari freezes on session switch')
+    expect(screen.getByText(/Opens Ari Triage with your agent/)).toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(onTriage).toHaveBeenCalledWith('Ari freezes on session switch')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).toHaveValue('')
+  })
+  it('accepts a bare triage command and preserves a draft when opening is refused', async () => {
+    const user = userEvent.setup(),
+      onSend = vi.fn(),
+      onTriage = vi.fn(() => false)
+    render(<Composer onSend={onSend} onTriage={onTriage} />)
+    await user.type(screen.getByLabelText('Message'), '/ari triage {Enter}')
+    expect(onTriage).toHaveBeenCalledWith('')
+    expect(screen.getByLabelText('Message')).toHaveValue('/ari triage ')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+  it('does not run local triage against a remote session', async () => {
+    const user = userEvent.setup(),
+      onSend = vi.fn(),
+      onTriage = vi.fn()
+    render(<Composer onSend={onSend} onTriage={onTriage} remoteInput />)
+    await user.type(screen.getByLabelText('Message'), '/ari triage remote bug{Enter}')
+    expect(onTriage).not.toHaveBeenCalled()
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('local conversation')
+    expect(screen.getByLabelText('Message')).toHaveValue('/ari triage remote bug')
+  })
   const commands: SlashCommand[] = [
     ...ARI_SLASH_COMMANDS,
     {
@@ -1421,6 +1455,7 @@ describe('Composer slash commands', () => {
     expect(onCommandMenu).toHaveBeenCalledOnce()
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       expect.stringContaining('/ari theme'),
+      expect.stringContaining('/ari triage'),
       expect.stringContaining('/compact'),
       expect.stringContaining('/model'),
     ])
@@ -1466,6 +1501,7 @@ describe('Composer slash commands', () => {
     await user.type(screen.getByLabelText('Message'), '/')
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       expect.stringContaining('/ari theme'),
+      expect.stringContaining('/ari triage'),
     ])
     expect(screen.getByText('Loading the agent’s commands…')).toBeInTheDocument()
     await user.keyboard('{Tab}')

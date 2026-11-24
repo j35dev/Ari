@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { triageRpcParams, type TriageRpcResults } from './triage'
 import { slackConfigureSchema, type SlackSnapshot, type SlackMutationResult } from './slack'
 import { machinesRpcParams, type MachinesRpcResults } from './machines'
 import { orchestrationParams, type OrchestrationResults } from './orchestration'
@@ -788,6 +789,7 @@ export interface UpdateStart {
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
 export const rpcParams = {
+  ...triageRpcParams,
   'slack.get': z.undefined(),
   'slack.configure': slackConfigureSchema,
   'slack.disconnect': z.undefined(),
@@ -1276,7 +1278,7 @@ export const rpcParams = {
 
 export type RpcMethod = keyof typeof rpcParams
 
-export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
+export interface RpcResults extends OrchestrationResults, MachinesRpcResults, TriageRpcResults {
   'slack.get': SlackSnapshot
   'slack.configure': SlackMutationResult
   'slack.disconnect': SlackMutationResult

@@ -93,6 +93,8 @@ const fixture = await vi.hoisted(async () => {
     widgetConfigure: vi.fn(async () => undefined),
     startUpdates: vi.fn(),
     presenceStop: vi.fn(),
+    closeTriageLogs: vi.fn(async () => undefined),
+    startTriageLogs: vi.fn(),
   }
 })
 
@@ -106,6 +108,7 @@ vi.mock('electron', () => ({
   },
 }))
 vi.mock('./dev-instance', () => ({ isolateDevInstance: vi.fn() }))
+vi.mock('./triage/runtime', () => ({ startTriageLogging: fixture.startTriageLogs }))
 vi.mock('./discord-presence', () => ({
   DiscordPresence: class {
     setRunningCount = vi.fn()
@@ -154,6 +157,7 @@ async function boot(platform = 'win32') {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  fixture.startTriageLogs.mockReturnValue(fixture.closeTriageLogs)
   fixture.app.removeAllListeners()
   fixture.powerMonitor.removeAllListeners()
   fixture.windows.length = 0
@@ -240,6 +244,8 @@ describe('main window lifetime', () => {
     expect(fixture.shutdown).toHaveBeenCalledOnce()
     expect(fixture.tray.destroy).toHaveBeenCalledOnce()
     expect(fixture.presenceStop).toHaveBeenCalledOnce()
+    expect(fixture.startTriageLogs).toHaveBeenCalledOnce()
+    expect(fixture.closeTriageLogs).toHaveBeenCalledOnce()
     expect(fixture.widgetClose).toHaveBeenCalled()
   })
 

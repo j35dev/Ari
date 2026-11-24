@@ -100,6 +100,13 @@ export function routeSlashCommand(
   providerCommands: readonly SlashCommand[] | null,
 ): SlashRouting {
   const invocation = parseSlashCommand(prompt)
+  if (invocation?.name === 'ari triage')
+    return {
+      kind: 'blocked',
+      invocation,
+      message:
+        '/ari triage opens the dedicated Ari Triage workflow from the desktop composer. It was not sent to the provider.',
+    }
   if (invocation === null || invocation.name === 'ari theme') return { kind: 'prompt' }
   const label = providerLabel(driverKind)
   const entry = findSlashCommand(

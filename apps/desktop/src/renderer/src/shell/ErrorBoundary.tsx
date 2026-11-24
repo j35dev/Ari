@@ -1,5 +1,7 @@
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
+import { rpc } from '../lib/rpc'
+import { requestTriage } from '../features/triage/events'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -25,6 +27,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('[ari] pane crashed:', this.props.label, error, info.componentStack)
+    void rpc
+      .invoke('triage.captureError', {
+        area: this.props.label ?? 'View',
+        message: (error.stack ?? error.message).slice(0, 8000),
+      })
+      .catch(() => undefined)
   }
 
   private reset = (): void => {
@@ -47,6 +55,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             Try again
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              requestTriage(
+                `${this.props.label ?? 'A view'} in Ari crashed:\n\n${this.state.error?.message ?? ''}`,
+              )
+            }
+            className="text-xs text-fg-muted underline underline-offset-4"
+          >
+            Report with Triage
           </button>
         </div>
       )

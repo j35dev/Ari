@@ -6,6 +6,13 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 const levelWeight: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 }
+const observers = new Set<NonNullable<LoggerOptions['sink']>>()
+
+/** Optional diagnostic sinks must never break the operation being logged. */
+export function observeLogs(sink: NonNullable<LoggerOptions['sink']>): () => void {
+  observers.add(sink)
+  return () => observers.delete(sink)
+}
 
 export interface Logger {
   debug(message: string, data?: unknown): void
@@ -42,6 +49,13 @@ export function createLogger(scope: string, options: LoggerOptions = {}): Logger
   const emit = (level: LogLevel, message: string, data?: unknown): void => {
     if (levelWeight[level] < threshold) return
     sink(level, scope, message, data)
+    for (const observer of observers) {
+      try {
+        observer(level, scope, message, data)
+      } catch {
+        /* logging remains best effort */
+      }
+    }
   }
 
   return {

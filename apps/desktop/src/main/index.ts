@@ -2,6 +2,7 @@ import { app, powerMonitor } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
+import { startTriageLogging } from './triage/runtime'
 import { DiscordPresence } from './discord-presence'
 import { openSpeechSettings, registerRpc, startAppUpdateChecks } from './rpc'
 import { AriaWidget } from './aria-widget'
@@ -25,6 +26,10 @@ app.commandLine.appendSwitch('disable-quic')
 // the mutex (and every userData store) off app name. Installed Ari stays on
 // its own profile so both can run at once.
 isolateDevInstance(app)
+const closeTriageLogging = startTriageLogging()
+app.once('will-quit', () => {
+  void closeTriageLogging()
+})
 registerThemeAssetScheme()
 
 const gotLock = app.requestSingleInstanceLock()
