@@ -1,0 +1,961 @@
+import { join } from 'node:path'
+import {
+  sessionHierarchySummarySchema,
+  type SessionHierarchySummary,
+  type Session,
+} from '@ari/contracts/session'
+import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
+import { newTypedId } from '@ari/shared/ids'
+import { isHelmSession } from '@ari/contracts/helm'
+import { createLogger } from '@ari/shared/logger'
+import { Journal } from './journal'
+import {
+  diagnosticsOf,
+  replayEntries,
+  type RejectedLine,
+  type ReplayDiagnostics,
+} from './journal-replay'
+import type { Message } from '@ari/contracts/message'
+import {
+  applyEvent,
+  initialReadModel,
+  type SessionReadModel,
+  type UnstampedEvent,
+} from './projection'
+
+const log = createLogger('engine:session-store')
+
+/** Sibling file that quarantines journal lines rejected during replay. */
+const REJECTED_NAME = 'journal.rejected.jsonl'
+
+export interface SessionStoreOptions {
+  /** Root directory, e.g. `<userData>/sessions`. */
+  rootDir: string
+}
+
+/**
+ * Sidebar listing fields mirrored into `<sessionId>/index.json` so
+ * `listSessions()` never has to full-replay every journal. `journalBytes` is
+ * the on-disk size the entry was computed at: any mismatch (crash between
+ * journal append and index write, external mutation) falls back to one
+ * authoritative replay that repairs the index. The M18.5 token/cost fields
+ * feed `usageSummary()` from the same sidecar.
+ */
+export interface SessionIndex {
+  version: 5
+  hierarchy: SessionHierarchySummary
+  lastSeq: number
+  hasSession: boolean
+  projectId: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  /**
+   * Last text the session produced, whitespace-collapsed; null when the
+   * session has no text yet.
+   */
+  lastMessagePreview: string | null
+  archived: boolean
+  pinned: boolean
+  driverKind: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+  journalBytes: number
+  leadIdentityRead?: true
+}
+
+export interface SessionListEntry extends SessionHierarchySummary {
+  id: string
+  projectId: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  lastMessagePreview: string | null
+  archived: boolean
+  pinned: boolean
+}
+
+/** One per-session row of the usage dashboard. */
+export interface UsageRow {
+  sessionId: string
+  title: string
+  /** Driver that ran the session, mirrored from the session record. */
+  driverKind: string
+  updatedAt: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+}
+
+export interface UsageSummary {
+  rows: UsageRow[]
+  totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
+}
+
+// Old v5 sidecars gain immutable lead identity from their first journal line;
+// other optional metadata is filled when journal growth requires a rebuild.
+const INDEX_VERSION = 5
+
+/** Longest preview stored in the index. */
+const PREVIEW_MAX_CHARS = 160
+
+/**
+ * Preview for a session row: the most recent text any message carries,
+ * whitespace-collapsed. Thinking parts and tool-only turns are skipped so a
+ * session that ended on a tool call still previews the last thing it said.
+ *
+ * Candidates are truncated before collapsing: the streaming append path runs
+ * here on every part flush, and a candidate can be megabytes of transcript —
+ * the regex would then sweep megabytes fifty times a second. Leading
+ * whitespace is dropped as parts accumulate so it can't use up that window.
+ */
+function lastMessagePreview(messages: Message[]): string | null {
+  const collapseTail = (text: string): string | null => {
+    if (text.length === 0) return null
+    const collapsed = text
+      .slice(0, PREVIEW_MAX_CHARS * 2)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, PREVIEW_MAX_CHARS)
+    return collapsed.length > 0 ? collapsed : null
+  }
+  for (let index = messages.length - 1; index >= 0; index--) {
+    let text = ''
+    for (const part of messages[index]?.parts ?? []) {
+      if (part.type === 'text') text += text.length === 0 ? part.text.trimStart() : part.text
+      // Candidates stop scanning parts early too once the cap is sure; carry
+      // on reading a long already-capped text's parts would add nothing.
+      if (text.length >= PREVIEW_MAX_CHARS * 2) break
+    }
+    const collapsed = collapseTail(text)
+    if (collapsed !== null) return collapsed
+  }
+  return null
+}
+
+export function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex {
+  return {
+    version: INDEX_VERSION,
+    hierarchy: {
+      parentSessionId: model.session?.parentSessionId ?? null,
+      rootSessionId: model.session?.rootSessionId ?? model.session?.id ?? null,
+      // Says who started a session, so the sidebar can show what Aria began.
+      ...(model.session
+        ? { createdBy: model.session.createdBy ?? { kind: 'human' as const } }
+        : {}),
+      ...(model.session
+        ? {
+            driverKind: model.session.driverKind,
+            status: model.session.status,
+            createdAt: model.session.createdAt,
+            permissionMode: model.session.permissionMode,
+            effort: model.session.effort ?? null,
+            lead: model.session.lead ?? false,
+          }
+        : {}),
+      modelId: model.session?.modelId ?? null,
+      ...(model.session?.role ? { role: model.session.role } : {}),
+      workspaceKind: model.session?.workspace?.kind ?? 'project',
+      workspacePath:
+        model.session?.workspace?.kind === 'managed-worktree' ? model.session.workspace.path : null,
+      branch:
+        model.session?.workspace?.kind === 'managed-worktree'
+          ? model.session.workspace.branch
+          : null,
+    },
+    lastSeq: model.lastSeq,
+    hasSession: model.session !== null,
+    projectId: model.session?.projectId ?? '',
+    title: model.session?.title ?? '',
+    updatedAt: model.session?.updatedAt ?? 0,
+    messageCount: model.messages.length,
+    lastMessagePreview: lastMessagePreview(model.messages),
+    archived: model.session?.archived ?? false,
+    pinned: model.session?.pinned ?? false,
+    driverKind: model.session?.driverKind ?? '',
+    inputTokens: model.usage.inputTokens,
+    outputTokens: model.usage.outputTokens,
+    costUsd: model.usage.costUsd,
+    journalBytes,
+  }
+}
+
+export function parseSessionIndex(raw: string): SessionIndex | null {
+  let value: Record<string, unknown>
+  try {
+    value = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return null
+  }
+  const cost = value['costUsd']
+  const preview = value['lastMessagePreview']
+  const hierarchy = sessionHierarchySummarySchema.safeParse(value['hierarchy'])
+  if (
+    value['version'] !== INDEX_VERSION ||
+    !hierarchy.success ||
+    typeof value['lastSeq'] !== 'number' ||
+    typeof value['hasSession'] !== 'boolean' ||
+    typeof value['projectId'] !== 'string' ||
+    typeof value['title'] !== 'string' ||
+    typeof value['updatedAt'] !== 'number' ||
+    typeof value['messageCount'] !== 'number' ||
+    !(preview === null || typeof preview === 'string') ||
+    typeof value['archived'] !== 'boolean' ||
+    typeof value['pinned'] !== 'boolean' ||
+    typeof value['driverKind'] !== 'string' ||
+    typeof value['inputTokens'] !== 'number' ||
+    typeof value['outputTokens'] !== 'number' ||
+    !(cost === null || typeof cost === 'number') ||
+    typeof value['journalBytes'] !== 'number'
+  ) {
+    return null
+  }
+  return {
+    version: INDEX_VERSION,
+    hierarchy: hierarchy.data,
+    lastSeq: value['lastSeq'],
+    hasSession: value['hasSession'],
+    projectId: value['projectId'],
+    title: value['title'],
+    updatedAt: value['updatedAt'],
+    messageCount: value['messageCount'],
+    lastMessagePreview: preview,
+    archived: value['archived'],
+    pinned: value['pinned'],
+    driverKind: value['driverKind'],
+    inputTokens: value['inputTokens'],
+    outputTokens: value['outputTokens'],
+    costUsd: cost,
+    journalBytes: value['journalBytes'],
+    ...(value['leadIdentityRead'] === true ? { leadIdentityRead: true as const } : {}),
+  }
+}
+
+/**
+ * Owns per-session journals on disk: `<rootDir>/<sessionId>/journal.jsonl`.
+ * All writes go through the append-only journal; reads fold events into the
+ * read model via {@link applyEvent}.
+ */
+export class LegacySessionStore {
+  readonly #operations = new Map<string, Promise<unknown>>()
+  readonly #listeners = new Set<(event: JournalEvent) => void>()
+
+  /** Event-driven observation; subscriptions never load or duplicate transcripts. */
+  subscribe(listener: (event: JournalEvent) => void): () => void {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #serial<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const result = (this.#operations.get(id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(operation)
+    this.#operations.set(id, result)
+    void result
+      .finally(() => {
+        if (this.#operations.get(id) === result) this.#operations.delete(id)
+      })
+      .catch(() => undefined)
+    return result
+  }
+  readonly #rootDir: string
+  readonly #journals = new Map<string, Journal<JournalEvent>>()
+  /** First opens still in flight, so concurrent callers share one handle. */
+  readonly #openingJournals = new Map<string, Promise<Journal<JournalEvent>>>()
+  /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
+  readonly #indexCache = new Map<string, SessionIndex>()
+  readonly #rebuildingIndexes = new Map<string, Promise<SessionIndex | null>>()
+  readonly #indexEpochs = new Map<string, number>()
+  readonly #knownSessions = new Set<string>()
+  readonly #createdSessions = new Map<string, Promise<Session | null>>()
+  readonly #helmSessions = new Map<string, { updatedAt: number; archived: boolean }>()
+  #findingHelmSession: Promise<void> | null = null
+  /** Last replay diagnostic per session, surfaced to the UI. */
+  readonly #diagnostics = new Map<string, ReplayDiagnostics>()
+  /** Raw lines already quarantined this process, so replays never duplicate. */
+  readonly #quarantined = new Map<string, Set<string>>()
+  /**
+   * In-memory read model per session. `append` is on the realtime path (every
+   * streamed delta flush lands here), so it folds the event into the cached
+   * model instead of replaying the whole journal from disk each time.
+   * simplification: single-writer assumption — another process appending to a
+   * journal while it is open here would go unseen until closeJournal/destroy
+   * drops the cache; the upgrade path is a cheap byte-size staleness check.
+   */
+  readonly #models = new Map<string, SessionReadModel>()
+  /** Sessions whose sidecar on disk trails the cached index; see `#append`. */
+  readonly #indexBehind = new Set<string>()
+
+  constructor(options: SessionStoreOptions) {
+    this.#rootDir = options.rootDir
+  }
+
+  #dirFor(sessionId: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('invalid session id')
+    return join(this.#rootDir, sessionId)
+  }
+
+  /** A leftover directory is not a session until its creation was journaled. */
+  async exists(sessionId: string): Promise<boolean> {
+    if (
+      this.#knownSessions.has(sessionId) ||
+      this.#models.get(sessionId)?.session ||
+      this.#indexCache.get(sessionId)?.hasSession
+    )
+      return true
+    return (await this.#createdSession(sessionId)) !== null
+  }
+
+  async #createdSession(sessionId: string): Promise<Session | null> {
+    const existing = this.#createdSessions.get(sessionId)
+    if (existing) return existing
+    const reading = this.#readCreatedSession(sessionId)
+    this.#createdSessions.set(sessionId, reading)
+    try {
+      const session = await reading
+      if (this.#createdSessions.get(sessionId) === reading) {
+        if (session) this.#knownSessions.add(sessionId)
+        else this.#createdSessions.delete(sessionId)
+      }
+      return session
+    } catch (error) {
+      if (this.#createdSessions.get(sessionId) === reading) this.#createdSessions.delete(sessionId)
+      throw error
+    }
+  }
+
+  async #readCreatedSession(sessionId: string): Promise<Session | null> {
+    const { open, readdir } = await import('node:fs/promises')
+    const dir = this.#dirFor(sessionId)
+    let segments: string[]
+    try {
+      segments = (await readdir(dir)).filter((name) => /^journal\.\d{4}\.jsonl$/.test(name)).sort()
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return null
+      throw error
+    }
+    if (!segments[0]) return null
+    const reader = await open(join(dir, segments[0]), 'r').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null
+      throw error
+    })
+    if (!reader) return null
+    const chunks: Buffer[] = []
+    try {
+      for (;;) {
+        const buffer = Buffer.alloc(4096)
+        const { bytesRead } = await reader.read(buffer)
+        const newline = buffer.subarray(0, bytesRead).indexOf(0x0a)
+        chunks.push(buffer.subarray(0, newline < 0 ? bytesRead : newline))
+        if (newline >= 0 || bytesRead === 0) break
+      }
+    } finally {
+      await reader.close()
+    }
+    try {
+      const event = journalEventSchema.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      return event.success &&
+        event.data.type === 'session.created' &&
+        event.data.session.id === sessionId
+        ? event.data.session
+        : null
+    } catch {
+      return null
+    }
+  }
+
+  async loadExisting(sessionId: string): Promise<SessionReadModel | null> {
+    return this.#serial(sessionId, async () =>
+      (await this.exists(sessionId)) ? this.#modelFor(sessionId) : null,
+    )
+  }
+
+  /** Cold report routing discovers Aria once; listings and writes keep the answer current. */
+  async currentHelmSession(): Promise<string | null> {
+    const current = this.#cachedHelmSession()
+    if (current) return current
+    const finding = (this.#findingHelmSession ??= this.listSessions().then(() => undefined))
+    try {
+      await finding
+    } catch (error) {
+      if (this.#findingHelmSession === finding) this.#findingHelmSession = null
+      throw error
+    }
+    return this.#cachedHelmSession()
+  }
+
+  #cachedHelmSession(): string | null {
+    let current: string | null = null
+    let updatedAt = -1
+    for (const [id, session] of this.#helmSessions) {
+      if (!session.archived && session.updatedAt > updatedAt) {
+        current = id
+        updatedAt = session.updatedAt
+      }
+    }
+    return current
+  }
+
+  #rememberSession(session: Pick<Session, 'id' | 'projectId' | 'updatedAt' | 'archived'>): void {
+    this.#knownSessions.add(session.id)
+    if (isHelmSession(session))
+      this.#helmSessions.set(session.id, {
+        updatedAt: session.updatedAt,
+        archived: session.archived ?? false,
+      })
+  }
+
+  #cacheIndex(id: string, entry: SessionIndex): void {
+    this.#indexCache.set(id, entry)
+    if (entry.hasSession)
+      this.#rememberSession({
+        id,
+        projectId: entry.projectId,
+        updatedAt: entry.updatedAt,
+        archived: entry.archived,
+      })
+  }
+
+  #journalFor(sessionId: string): Journal<JournalEvent> {
+    return new Journal<JournalEvent>({
+      dir: this.#dirFor(sessionId),
+      name: 'journal',
+      fsync: 'batch',
+    })
+  }
+
+  /**
+   * The session's journal, opened once. Callers that arrive while the first
+   * open is still in flight await that same one: a check-then-open race used to
+   * hand out two journals, and the loser's file handle leaked until GC.
+   */
+  async openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
+    const existing = this.#journals.get(sessionId)
+    if (existing) return existing
+    const inFlight = this.#openingJournals.get(sessionId)
+    if (inFlight) return inFlight
+    const opening = this.#openJournal(sessionId)
+    this.#openingJournals.set(sessionId, opening)
+    try {
+      return await opening
+    } finally {
+      if (this.#openingJournals.get(sessionId) === opening) this.#openingJournals.delete(sessionId)
+    }
+  }
+
+  async #openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
+    // Batched fsync: `#append` places the durability barrier itself.
+    const journal = this.#journalFor(sessionId)
+    await journal.open()
+    try {
+      if ((await journal.ensureTrailingNewline()) > 0) this.#indexCache.delete(sessionId)
+    } catch (error) {
+      await journal.close()
+      throw error
+    }
+    this.#journals.set(sessionId, journal)
+    return journal
+  }
+
+  async closeJournal(sessionId: string): Promise<void> {
+    return this.#serial(sessionId, () => this.#closeJournal(sessionId))
+  }
+
+  async #closeJournal(sessionId: string): Promise<void> {
+    // An open still in flight would land in the cache after this ran and never
+    // be closed; wait for it so the caller's close is the last word.
+    const opening = this.#openingJournals.get(sessionId)
+    if (opening) await opening.catch(() => undefined)
+    const journal = this.#journals.get(sessionId)
+    if (!journal) return
+    const entry = this.#indexCache.get(sessionId)
+    if (this.#indexBehind.delete(sessionId) && entry) await this.#writeIndex(sessionId, entry)
+    await journal.close()
+    this.#journals.delete(sessionId)
+    // The journal may be reopened after outside writes; never trust a model
+    // folded across that boundary.
+    this.#models.delete(sessionId)
+  }
+
+  /** Cached read model when fresh in this process; otherwise a full replay. */
+  async #modelFor(sessionId: string): Promise<SessionReadModel> {
+    const cached = this.#models.get(sessionId)
+    return cached ?? this.#load(sessionId)
+  }
+
+  /** Next sequence number for a session (max known seq + 1). */
+  async nextSeq(sessionId: string): Promise<number> {
+    const model = await this.#modelFor(sessionId)
+    return model.lastSeq + 1
+  }
+
+  /**
+   * Appends one event, stamping `seq` and `at` if the caller omitted them.
+   * Returns the event as written. The sidecar index is refreshed *before*
+   * the journal line lands so nothing observes a journaled event whose index
+   * entry is still pending; a crash in between leaves the index ahead of the
+   * journal, which the byte-mismatch replay path repairs.
+   */
+  async append(
+    sessionId: string,
+    event: UnstampedEvent & { seq?: number; at?: number },
+  ): Promise<JournalEvent> {
+    return this.#serial(sessionId, () => this.#append(sessionId, event))
+  }
+
+  async #append(
+    sessionId: string,
+    event: UnstampedEvent & { seq?: number; at?: number },
+  ): Promise<JournalEvent> {
+    const journal = await this.openJournal(sessionId)
+    const model = await this.#modelFor(sessionId)
+    const stamped = {
+      ...event,
+      seq: event.seq ?? model.lastSeq + 1,
+      at: event.at ?? Date.now(),
+      sessionId,
+    }
+    const cachedBytes = this.#indexCache.get(sessionId)?.journalBytes
+    const prevBytes = cachedBytes ?? (await this.#measureJournalBytes(sessionId))
+    // Fold what a replay would fold — schema-stripped and defaulted — so the
+    // cached model `load` serves never drifts from the journal on disk.
+    const parsed = journalEventSchema.safeParse(stamped)
+    const post = applyEvent(model, parsed.success ? parsed.data : stamped)
+    const line = JSON.stringify(stamped)
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1
+    const entry = entryFrom(post, prevBytes + lineBytes)
+    // A streaming turn appends parts many times a second. Paying a sidecar
+    // rewrite and an fsync for each one made the stream wait on the disk, so
+    // those ride on the next event that is not a part — every turn ends in
+    // one. A crash in between leaves a stale sidecar (the listing replays) and
+    // at worst an unsynced tail of the reply that was still being written.
+    const streamed = stamped.type === 'assistant.parts.appended'
+    if (streamed) {
+      this.#indexBehind.add(sessionId)
+    } else {
+      await this.#writeIndex(sessionId, entry)
+      this.#indexBehind.delete(sessionId)
+    }
+    await journal.append(stamped, line)
+    if (!streamed) await journal.flush()
+    this.#cacheIndex(sessionId, entry)
+    this.#models.set(sessionId, post)
+    for (const listener of this.#listeners) {
+      try {
+        listener(stamped)
+      } catch {
+        log.error('session event observer failed')
+      }
+    }
+    return stamped
+  }
+
+  /**
+   * Current read model for a session. Served from memory while the journal is
+   * open in this process (appends keep it folded); otherwise the full journal
+   * is replayed. Every replayed line is validated against
+   * `journalEventSchema`: invalid lines are neither applied nor dropped — they
+   * are quarantined in `journal.rejected.jsonl` and reported by
+   * {@link replayDiagnostics} while the valid lines still fold.
+   *
+   * The returned model is shared with the store and must be treated as
+   * read-only; appends replace it rather than mutate it.
+   */
+  async load(sessionId: string): Promise<SessionReadModel> {
+    return this.#serial(sessionId, () => this.#modelFor(sessionId))
+  }
+
+  /** Desktop stream barrier: metadata/sequence only, without materializing journal history. */
+  readReplayState(
+    sessionId: string,
+    runtime: () => string | null,
+  ): Promise<{
+    session: Session | null
+    seq: number
+    liveTurnId: string | null
+    incomplete: boolean
+  }> {
+    return this.#serial(sessionId, async () => {
+      const cached = this.#models.get(sessionId)
+      if (cached)
+        return {
+          session: cached.session,
+          seq: cached.lastSeq,
+          liveTurnId: runtime(),
+          incomplete: (this.#diagnostics.get(sessionId)?.rejectedCount ?? 0) > 0,
+        }
+      let model = initialReadModel()
+      let seq = -1
+      let expected = 0
+      let incomplete = false
+      if (!(await this.exists(sessionId)))
+        return { session: null, seq, liveTurnId: runtime(), incomplete }
+      try {
+        const journal = await this.openJournal(sessionId)
+        for await (const chunk of journal.readStrictByChunk()) {
+          for (const entry of chunk) {
+            if (entry.kind !== 'value') {
+              incomplete = true
+              continue
+            }
+            const parsed = journalEventSchema.safeParse(entry.value)
+            if (!parsed.success || parsed.data.sessionId !== sessionId) {
+              incomplete = true
+              continue
+            }
+            const event = parsed.data
+            if (event.seq !== expected) incomplete = true
+            expected = event.seq + 1
+            seq = Math.max(seq, event.seq)
+            if (event.type.startsWith('session.')) model = applyEvent(model, event)
+          }
+        }
+      } catch {
+        incomplete = true
+      }
+      return { session: model.session, seq, liveTurnId: runtime(), incomplete }
+    })
+  }
+
+  /** Full journal replay, bypassing and then refreshing the cached model. */
+  async #load(sessionId: string): Promise<SessionReadModel> {
+    const journal = await this.openJournal(sessionId)
+    return this.#replay(sessionId, journal, true)
+  }
+
+  async #replay(
+    sessionId: string,
+    journal: Journal<JournalEvent>,
+    cache: boolean,
+  ): Promise<SessionReadModel> {
+    const entries = await journal.readAll()
+    const { model, rejected } = replayEntries(entries)
+    this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
+    if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
+    if (cache) this.#models.set(sessionId, model)
+    if (model.session) this.#rememberSession(model.session)
+    return model
+  }
+
+  /**
+   * Count and first reason of the lines rejected by the most recent replay of
+   * this session; zero-count when the journal replayed cleanly or was never
+   * loaded in this process.
+   */
+  replayDiagnostics(sessionId: string): ReplayDiagnostics {
+    return this.#diagnostics.get(sessionId) ?? { rejectedCount: 0, firstReason: null }
+  }
+
+  /** Absolute path of the quarantine file for a session. */
+  rejectedPath(sessionId: string): string {
+    return join(this.#dirFor(sessionId), REJECTED_NAME)
+  }
+
+  /**
+   * Appends rejected lines verbatim to the sibling quarantine file, skipping
+   * lines already recorded (a journal may be replayed many times) so a corrupt journal
+   * cannot grow the file without bound.
+   */
+  async #quarantine(sessionId: string, rejected: RejectedLine[]): Promise<void> {
+    const { appendFile, mkdir, readFile } = await import('node:fs/promises')
+    let seen = this.#quarantined.get(sessionId)
+    if (!seen) {
+      seen = new Set<string>()
+      try {
+        for (const line of (await readFile(this.rejectedPath(sessionId), 'utf8')).split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed.length > 0) seen.add(trimmed)
+        }
+      } catch {
+        // No quarantine file yet — nothing recorded.
+      }
+      this.#quarantined.set(sessionId, seen)
+    }
+    const fresh = rejected.filter((entry) => !seen.has(entry.raw))
+    if (fresh.length === 0) return
+    for (const entry of fresh) seen.add(entry.raw)
+    log.warn('journal lines rejected on replay', {
+      sessionId,
+      count: fresh.length,
+      firstReason: fresh[0]?.reason ?? null,
+    })
+    try {
+      await mkdir(this.#dirFor(sessionId), { recursive: true })
+      await appendFile(
+        this.rejectedPath(sessionId),
+        `${fresh.map((entry) => entry.raw).join('\n')}\n`,
+        'utf8',
+      )
+    } catch (e) {
+      log.error('failed to write journal quarantine file', { sessionId, error: String(e) })
+    }
+  }
+
+  /**
+   * Lightweight index for the sidebar: served from `<sessionId>/index.json`
+   * (kept fresh by {@link append}) and only falling back to a full journal
+   * replay when the index is missing, corrupt, or stale relative to the
+   * journal bytes on disk. The fallback also repairs the sidecar.
+   */
+  async listSessions(excluded: ReadonlySet<string> = new Set()): Promise<SessionListEntry[]> {
+    const { readdir, stat } = await import('node:fs/promises')
+    let dirs: string[]
+    try {
+      dirs = await readdir(this.#rootDir)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      log.warn('session registry could not be read', { error: String(error) })
+      throw error
+    }
+    const out: SessionListEntry[] = []
+    let unreadable = false
+    for (const id of dirs) {
+      if (excluded.has(id)) continue
+      try {
+        const info = await stat(join(this.#rootDir, id))
+        // A stray file, or a name that cannot be a session id, is not a
+        // session. Treating it as unreadable blocks first-run setup whenever
+        // the sessions root has no real journals.
+        if (!info.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) continue
+        const entry = await this.#listingFor(id)
+        if (entry) out.push({ id, ...entry })
+      } catch (error) {
+        log.warn('session could not be listed', { sessionId: id, error: String(error) })
+        unreadable = true
+      }
+    }
+    if (unreadable && out.length === 0) throw new Error('Saved sessions could not be read.')
+    out.sort((a, b) => b.updatedAt - a.updatedAt)
+    return out
+  }
+
+  /** Sidebar fields for one session; null when no session ever existed. */
+  async #listingFor(id: string): Promise<Omit<SessionListEntry, 'id'> | null> {
+    const entry = await this.#indexFor(id)
+    return entry ? this.#fields(entry) : null
+  }
+
+  /**
+   * Fresh sidecar index for one session directory: served from the in-memory
+   * cache or disk when the journal size matches, else one authoritative
+   * replay that also repairs the sidecar. Null when no session ever existed.
+   */
+  #indexFor(id: string): Promise<SessionIndex | null> {
+    return this.#readIndex(id)
+  }
+
+  async #readIndex(id: string, rebuilding = false): Promise<SessionIndex | null> {
+    const epoch = this.#indexEpochs.get(id) ?? 0
+    const bytes = await this.#measureJournalBytes(id)
+    if (bytes === 0) return null
+    const cached = this.#indexCache.get(id)
+    if (cached && cached.journalBytes === bytes) return this.#leadIdentity(id, cached, rebuilding)
+    const { readFile } = await import('node:fs/promises')
+    let disk: SessionIndex | null
+    try {
+      disk = parseSessionIndex(await readFile(this.#indexPath(id), 'utf8'))
+    } catch {
+      disk = null
+    }
+    if (disk && disk.journalBytes === bytes) {
+      if (this.#indexCache.get(id) === cached && (this.#indexEpochs.get(id) ?? 0) === epoch)
+        this.#cacheIndex(id, disk)
+      return this.#leadIdentity(id, disk, rebuilding)
+    }
+    if (!rebuilding) {
+      const existing = this.#rebuildingIndexes.get(id)
+      if (existing) return existing
+      const rebuilding = this.#serial(id, () => this.#readIndex(id, true))
+      this.#rebuildingIndexes.set(id, rebuilding)
+      try {
+        return await rebuilding
+      } finally {
+        if (this.#rebuildingIndexes.get(id) === rebuilding) this.#rebuildingIndexes.delete(id)
+      }
+    }
+    if (!(await this.#createdSession(id))) return null
+    // Stale, missing, corrupt, or old-version index: one replay, then repair.
+    // A size mismatch means the journal changed behind this process, so the
+    // cached model cannot be trusted either.
+    // A listing must not retain a full transcript or an append handle. Closed
+    // journals can be replayed read-only; only an existing model is refreshed.
+    const journal =
+      this.#journals.get(id) ?? (await this.#openingJournals.get(id)) ?? this.#journalFor(id)
+    const model = await this.#replay(id, journal, this.#models.has(id))
+    if (!model.session) return null
+    const entry = entryFrom(model, bytes)
+    this.#cacheIndex(id, entry)
+    await this.#writeIndex(id, entry)
+    return model.session ? entry : null
+  }
+
+  async #leadIdentity(
+    id: string,
+    entry: SessionIndex,
+    serialized = false,
+  ): Promise<SessionIndex | null> {
+    if (!entry.hasSession) return null
+    if (
+      entry.leadIdentityRead ||
+      (entry.hierarchy.lead !== undefined && entry.hierarchy.createdBy !== undefined)
+    )
+      return entry
+    let session: Session | null
+    try {
+      session = await this.#createdSession(id)
+    } catch (error) {
+      log.warn('session lead identity could not be read', { sessionId: id, error: String(error) })
+      return entry
+    }
+    const enriched = {
+      ...entry,
+      leadIdentityRead: true as const,
+      hierarchy: session
+        ? {
+            ...entry.hierarchy,
+            lead: session.lead ?? false,
+            createdBy: session.createdBy ?? { kind: 'human' as const },
+          }
+        : entry.hierarchy,
+    }
+    const persist = async () => {
+      if (this.#indexCache.get(id) !== entry) return this.#indexCache.get(id) ?? enriched
+      this.#cacheIndex(id, enriched)
+      await this.#writeIndex(id, enriched)
+      return enriched
+    }
+    return serialized ? persist() : this.#serial(id, persist)
+  }
+
+  /**
+   * Token totals for the usage dashboard, served from the same sidecar
+   * indexes as {@link listSessions} — no journal replay on the warm path.
+   * Rows cover only sessions that actually recorded tokens, newest first.
+   */
+  async usageSummary(excluded: ReadonlySet<string> = new Set()): Promise<UsageSummary> {
+    const emptyTotals: UsageSummary['totals'] = {
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: null,
+    }
+    const { readdir } = await import('node:fs/promises')
+    let dirs: string[]
+    try {
+      dirs = await readdir(this.#rootDir)
+    } catch {
+      return { rows: [], totals: emptyTotals }
+    }
+    const rows: UsageRow[] = []
+    const totals = { ...emptyTotals }
+    for (const id of dirs) {
+      if (excluded.has(id)) continue
+      try {
+        const entry = await this.#indexFor(id)
+        if (!entry || (entry.inputTokens === 0 && entry.outputTokens === 0)) continue
+        rows.push({
+          sessionId: id,
+          title: entry.title,
+          driverKind: entry.driverKind,
+          updatedAt: entry.updatedAt,
+          inputTokens: entry.inputTokens,
+          outputTokens: entry.outputTokens,
+          costUsd: entry.costUsd,
+        })
+        totals.inputTokens += entry.inputTokens
+        totals.outputTokens += entry.outputTokens
+        if (entry.costUsd !== null) totals.costUsd = (totals.costUsd ?? 0) + entry.costUsd
+      } catch {
+        // unreadable dir — skip rather than break the summary
+      }
+    }
+    rows.sort((a, b) => b.updatedAt - a.updatedAt)
+    return { rows, totals }
+  }
+
+  #fields(entry: SessionIndex): Omit<SessionListEntry, 'id'> {
+    return {
+      ...entry.hierarchy,
+      projectId: entry.projectId,
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+      messageCount: entry.messageCount,
+      lastMessagePreview: entry.lastMessagePreview,
+      archived: entry.archived,
+      pinned: entry.pinned,
+    }
+  }
+
+  #indexPath(sessionId: string): string {
+    return join(this.#dirFor(sessionId), 'index.json')
+  }
+
+  /** Total on-disk size of every journal segment for a session. */
+  async #measureJournalBytes(sessionId: string): Promise<number> {
+    const { readdir, stat } = await import('node:fs/promises')
+    const dir = this.#dirFor(sessionId)
+    const pattern = /^journal\.\d{4}\.jsonl$/
+    let names: string[]
+    try {
+      names = await readdir(dir)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+      throw error
+    }
+    let total = 0
+    for (const name of names) {
+      if (!pattern.test(name)) continue
+      total += (await stat(join(dir, name))).size
+    }
+    return total
+  }
+
+  /** Atomic sidecar write (temp file + rename) so readers never see a torn JSON. */
+  async #writeIndex(sessionId: string, entry: SessionIndex): Promise<void> {
+    const { rename, writeFile } = await import('node:fs/promises')
+    const target = this.#indexPath(sessionId)
+    const tmp = `${target}.tmp`
+    try {
+      await writeFile(tmp, JSON.stringify(entry), 'utf8')
+      await rename(tmp, target)
+    } catch {
+      // Index maintenance is best-effort; staleness falls back to replay.
+    }
+  }
+
+  mintTurnId(): string {
+    return newTypedId('turn')
+  }
+
+  mintMessageId(): string {
+    return newTypedId('msg')
+  }
+
+  async destroy(sessionId: string): Promise<void> {
+    return this.#serial(sessionId, () => this.#destroy(sessionId))
+  }
+
+  async #destroy(sessionId: string): Promise<void> {
+    await this.#closeJournal(sessionId)
+    this.#indexBehind.delete(sessionId)
+    this.#indexCache.delete(sessionId)
+    this.#diagnostics.delete(sessionId)
+    this.#quarantined.delete(sessionId)
+    const { rm, stat } = await import('node:fs/promises')
+    try {
+      await stat(this.#dirFor(sessionId))
+    } catch {
+      const error = new Error('Session not found.') as Error & { code: string }
+      error.code = 'session_not_found'
+      throw error
+    }
+    await rm(this.#dirFor(sessionId), { recursive: true, force: true })
+    this.#indexEpochs.set(sessionId, (this.#indexEpochs.get(sessionId) ?? 0) + 1)
+    this.#indexCache.delete(sessionId)
+    this.#knownSessions.delete(sessionId)
+    this.#createdSessions.delete(sessionId)
+    this.#helmSessions.delete(sessionId)
+  }
+}

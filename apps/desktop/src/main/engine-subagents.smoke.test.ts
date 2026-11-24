@@ -27,7 +27,7 @@ it.skipIf(process.env['ARI_CLAUDE_SUBAGENT_SMOKE'] !== '1')(
     await writeFile(join(cwd, 'alpha.txt'), 'alpha\n')
     await writeFile(join(cwd, 'beta.md'), '# beta\n')
     const sessionId = 'sess_subagent_smoke'
-    const store = new SessionStore({ rootDir: root })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: root })
     await store.append(sessionId, {
       type: 'session.created',
       session: {

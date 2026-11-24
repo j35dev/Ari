@@ -28,7 +28,7 @@ it.skipIf(!process.env.ARI_REAL_PROVIDER_SMOKE)(
     await writeFile(join(repo, 'base.txt'), 'base\n')
     git('add', '.')
     git('commit', '-qm', 'base')
-    const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const registry = new DriverRegistry()
     registry.register(new ClaudeDriver(process.env.ARI_REAL_PROVIDER_SMOKE!))
     const engine = new Engine({

@@ -16,7 +16,7 @@ afterEach(async () => {
 it('journals SDK background usage and routes approvals and questions to a parked query', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-sdk-background-'))
   scratch.push(dir)
-  const store = new SessionStore({ rootDir: dir })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   const sessionId = 'sess_sdk_background'
   await store.append(sessionId, {
     type: 'session.created',

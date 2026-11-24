@@ -38,7 +38,7 @@ afterEach(async () => {
 async function tempStore(): Promise<SessionStore> {
   const root = await mkdtemp(join(tmpdir(), 'ari-remote-host-'))
   roots.push(root)
-  return new SessionStore({ rootDir: root })
+  return new SessionStore({ storage: 'jsonl', rootDir: root })
 }
 
 /** A device the user paired and granted two projects. */
@@ -230,7 +230,10 @@ describe('remote host capabilities', () => {
 
 /** Mirrors the contract's own lists, so a typo in a capability is caught here. */
 function commandOrReadExists(op: string): boolean {
-  return remoteOperationSchema.safeParse(op).success || machinesExtensionOperationSchema.safeParse(op).success
+  return (
+    remoteOperationSchema.safeParse(op).success ||
+    machinesExtensionOperationSchema.safeParse(op).success
+  )
 }
 
 describe('reading sessions', () => {

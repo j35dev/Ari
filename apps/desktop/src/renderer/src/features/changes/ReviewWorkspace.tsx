@@ -11,8 +11,7 @@ import { ChangedFiles } from './ChangedFiles'
 import { ChangeRequests } from './ChangeRequests'
 import { FileSection, PatchCache, type FileAction } from './FileStack'
 import { useGitMutations } from './ReviewActions'
-import { BasePicker, ScopeMenu, type ScopeTurn } from './ScopeMenu'
-import { TurnRevert } from './TurnRevert'
+import { BasePicker, ScopeMenu } from './ScopeMenu'
 import { useReviewPreferences } from './use-review-preferences'
 import { useSourceControl } from './use-source-control'
 
@@ -62,30 +61,6 @@ export function automaticBase(refs: readonly string[]): string {
   )
 }
 
-function ago(timestamp: number, now = Date.now()): string {
-  const minutes = Math.floor(Math.max(0, now - timestamp) / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-/** When each turn started, from the session's messages; a turn's first message wins. */
-function turnStarts(model: unknown): Record<string, number> {
-  const messages =
-    typeof model === 'object' && model !== null ? (model as { messages?: unknown }).messages : null
-  const starts: Record<string, number> = {}
-  if (!Array.isArray(messages)) return starts
-  for (const message of messages) {
-    if (typeof message !== 'object' || message === null) continue
-    const { turnId, createdAt } = message as { turnId?: unknown; createdAt?: unknown }
-    if (typeof turnId !== 'string' || typeof createdAt !== 'number') continue
-    starts[turnId] = Math.min(starts[turnId] ?? createdAt, createdAt)
-  }
-  return starts
-}
-
 /**
  * Worktree-aware review: one header row picks the scope and lays out the
  * diffs, and the changed files stack below it, each opening inline.
@@ -133,8 +108,16 @@ function ScopedReview({
     requests ? null : comparison,
   )
   useEffect(() => {
-    if (initialComparison) preferences.change({ comparison: initialComparison })
+    if (initialComparison)
+      preferences.change({
+        comparison:
+          initialComparison.kind === 'turn' ? { kind: 'working-tree' } : initialComparison,
+      })
   }, [JSON.stringify(initialComparison)])
+  useEffect(() => {
+    if (comparison.kind === 'session' && context?.workspace?.kind === 'project')
+      preferences.change({ comparison: { kind: 'working-tree' } })
+  }, [comparison.kind, context?.workspace?.kind])
 
   // Layout: split and wrap follow Settings until toggled here; both persist.
   const { settings } = useEngineSettings()
@@ -304,31 +287,6 @@ function ScopedReview({
     return { staged: paths('staged'), unstaged: paths('unstaged') }
   }, [allFiles, status])
 
-  // Turn labels follow capture order; the menu lists the newest first.
-  const [turnTimes, setTurnTimes] = useState<Record<string, number>>({})
-  const turnIds = context?.turns ?? []
-  const turnLabel = (turnId: string): string => {
-    const index = turnIds.findIndex((turn) => turn.turnId === turnId)
-    return index >= 0 ? `Turn ${index + 1}` : 'Turn'
-  }
-  const turns: ScopeTurn[] = turnIds
-    .map((turn, index) => ({
-      turnId: turn.turnId,
-      label: `Turn ${index + 1}`,
-      stable: turn.stable,
-      ...(turn.error ? { error: turn.error } : {}),
-      ...(turnTimes[turn.turnId] !== undefined ? { when: ago(turnTimes[turn.turnId]!) } : {}),
-    }))
-    .reverse()
-  const loadTurnTimes = (): void => {
-    if (!scope.sessionId || remote || rpc.readOnly) return
-    if (turnIds.every((turn) => turn.turnId in turnTimes)) return
-    void rpc
-      .invoke('session.load', { sessionId: scope.sessionId })
-      .then((model) => setTurnTimes(turnStarts(model)))
-      .catch((error: unknown) => log.debug('Turn times unavailable', { error: String(error) }))
-  }
-
   const refs = context?.refs ?? []
   // Once a branch review has loaded, its base label names the ref the engine
   // actually resolved; before that, the same rule the engine uses.
@@ -350,7 +308,7 @@ function ScopedReview({
             : comparison.kind === 'session'
               ? 'This session'
               : comparison.kind === 'turn'
-                ? turnLabel(comparison.turnId)
+                ? 'Working tree'
                 : `Commit ${comparison.ref.slice(0, 7)}`
   const hostReason = remote ? 'Branch and commit comparisons are unavailable on this host.' : null
 
@@ -366,9 +324,8 @@ function ScopedReview({
         comparison={comparison}
         requests={requests}
         totals={allFiles.length ? totals : null}
-        sessionScoped={Boolean(scope.sessionId)}
+        sessionScoped={Boolean(scope.sessionId && context?.workspace?.kind === 'managed-worktree')}
         branchLabel={`Branch vs ${comparison.kind === 'branch' && comparison.base ? comparison.base : auto}`}
-        turns={turns}
         commits={(context?.commits ?? []).slice(0, 5)}
         hostReason={hostReason}
         requestsReason={administrationReason}
@@ -397,7 +354,6 @@ function ScopedReview({
               }
             : null
         }
-        onOpen={loadTurnTimes}
         onComparison={changeComparison}
         onRequests={() => onViewChange?.('requests')}
       />
@@ -420,18 +376,6 @@ function ScopedReview({
       <div className="min-w-2 flex-1" />
       {!requests ? (
         <>
-          {comparison.kind === 'turn' && scope.sessionId ? (
-            <TurnRevert
-              sessionId={scope.sessionId}
-              turnId={comparison.turnId}
-              label={turnLabel(comparison.turnId)}
-              disabledReason={administrationReason}
-              onReverted={() => {
-                preferences.change({ comparison: { kind: 'working-tree' } })
-                refresh()
-              }}
-            />
-          ) : null}
           <button
             type="button"
             aria-label="Split view"
@@ -609,7 +553,9 @@ function ScopedReview({
               ) : manifest ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2.5 p-8 text-center text-[13px] text-fg-subtle">
                   <p>{clean}</p>
-                  {scope.sessionId && comparison.kind === 'working-tree' ? (
+                  {scope.sessionId &&
+                  context?.workspace?.kind === 'managed-worktree' &&
+                  comparison.kind === 'working-tree' ? (
                     <button
                       type="button"
                       onClick={() => changeComparison({ kind: 'session' })}

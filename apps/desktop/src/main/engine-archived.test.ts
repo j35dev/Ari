@@ -21,7 +21,7 @@ let release: () => void
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-archived-'))
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   stores = [store]
   published = []
   providers = []
@@ -154,7 +154,7 @@ describe('archived session reprompts', () => {
         expect(published[restoration + 1]?.type).toBe('turn.started')
 
         await store.closeJournal('target')
-        const reloaded = new SessionStore({ rootDir: join(dir, 'sessions') })
+        const reloaded = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
         stores.push(reloaded)
         expect((await reloaded.load('target')).session).toMatchObject({
           archived: false,
@@ -196,7 +196,7 @@ describe('archived session reprompts', () => {
         expect(published).toEqual([])
         expect(providers).toEqual([])
         await store.closeJournal('target')
-        const reloaded = new SessionStore({ rootDir: join(dir, 'sessions') })
+        const reloaded = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
         stores.push(reloaded)
         expect(await reloaded.load('target')).toEqual(before)
       },

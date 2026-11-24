@@ -18,6 +18,7 @@ import {
   type SessionDefaults,
 } from './SessionView'
 import {
+  appendReviewNote,
   dropReviewDraftMemory,
   readReviewDrafts,
   rememberReviewRange,
@@ -722,9 +723,6 @@ describe('SessionView question panel', () => {
   })
 })
 
-const TURN_DIFF =
-  'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
-
 describe('SessionView edit and resend', () => {
   beforeEach(() => {
     invokeMock.mockReset()
@@ -1054,260 +1052,6 @@ describe('SessionView regenerate and retry', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('no prompt ever sent')
     expect(screen.queryByRole('button', { name: 'Retry last message' })).not.toBeInTheDocument()
-  })
-})
-
-describe('SessionView per-turn diff cards', () => {
-  beforeEach(() => {
-    invokeMock.mockReset()
-    invokeMock.mockImplementation(async (method, params) => {
-      if (method === 'settings.get') return SETTINGS
-      if (method === 'project.list') return [PROJECT]
-      if (method === 'session.workspace') return { path: PROJECT.path }
-      if (method === 'files.index') return { paths: [] }
-      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
-      if (method === 'providers.detect') return []
-      if (method === 'providers.models') return []
-      if (method === 'endpoints.list') return []
-      if (method === 'command.dispatch') return { accepted: true }
-      if (method === 'git.turnDiff') {
-        const p = params as { turnId: string }
-        return p.turnId === 'turn_1' ? { diffText: TURN_DIFF } : { diffText: null }
-      }
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
-    rpcMocks.subscribe.mockImplementation(
-      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        if (name === 'session.events') {
-          sessionListener = onEvent
-          emitReplayDone()
-        }
-        return () => undefined
-      },
-    )
-  })
-
-  afterEach(() => {
-    sessionListener = null
-    vi.clearAllMocks()
-  })
-
-  function replaySettledTurn(): void {
-    emitSessionEvent({
-      seq: 1,
-      at: 1,
-      sessionId: 'sess_1',
-      type: 'user.message.added',
-      message: {
-        id: 'm1',
-        sessionId: 'sess_1',
-        turnId: 'turn_1',
-        role: 'user',
-        parts: [{ type: 'text', text: 'edit the file' }],
-        createdAt: 1,
-      },
-    })
-    emitSessionEvent({ seq: 2, at: 2, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
-    emitSessionEvent({
-      seq: 3,
-      at: 3,
-      sessionId: 'sess_1',
-      type: 'assistant.parts.appended',
-      messageId: 'm2',
-      parts: [{ type: 'text', text: 'Done.' }],
-    })
-    emitSessionEvent({
-      seq: 4,
-      at: 4,
-      sessionId: 'sess_1',
-      type: 'turn.settled',
-      turnId: 'turn_1',
-      stopReason: 'completed',
-      errorMessage: null,
-    })
-  }
-
-  it('queries git.turnDiff after settle and shows a collapsed card', async () => {
-    renderView()
-    await screen.findByLabelText('Message')
-
-    replaySettledTurn()
-
-    await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('git.turnDiff', {
-        sessionId: 'sess_1',
-        turnId: 'turn_1',
-      })
-    })
-    expect(
-      await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
-    ).toBeInTheDocument()
-  })
-
-  it('renders a large turn summary and loads a file only when expanded', async () => {
-    const user = userEvent.setup()
-    const original = invokeMock.getMockImplementation()!
-    const summary = {
-      baseOid: 'a'.repeat(40),
-      headOid: 'b'.repeat(40),
-      files: [
-        {
-          path: 'src/app.ts',
-          kind: 'modified',
-          additions: 10000,
-          deletions: 2,
-          binary: false,
-          staged: false,
-          unstaged: false,
-        },
-      ],
-    }
-    invokeMock.mockImplementation(async (method, params) => {
-      if (method === 'git.turnDiff') return { diffText: null, summary }
-      if (method === 'git.turnDiffFile') return { diffText: TURN_DIFF }
-      return original(method, params)
-    })
-    renderView()
-    await screen.findByLabelText('Message')
-    replaySettledTurn()
-    const toggle = await screen.findByRole('button', { name: 'Turn diff: 1 file changed' })
-    expect(screen.getByText('+10000')).toBeInTheDocument()
-    expect(invokeMock.mock.calls.filter(([method]) => method === 'git.turnDiffFile')).toHaveLength(
-      0,
-    )
-    await user.click(toggle)
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('git.turnDiffFile', {
-        sessionId: 'sess_1',
-        baseOid: summary.baseOid,
-        headOid: summary.headOid,
-        path: 'src/app.ts',
-      }),
-    )
-    expect(await screen.findByLabelText('Changed file')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Retry turn diff' })).not.toBeInTheDocument()
-  })
-
-  it('queries a replayed turn only once the transcript brings it into view', async () => {
-    const observed: Element[] = []
-    let notify: (entries: Partial<IntersectionObserverEntry>[]) => void = () => undefined
-    class FakeObserver {
-      constructor(callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
-        notify = callback
-      }
-      observe(node: Element): void {
-        observed.push(node)
-      }
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    vi.stubGlobal('IntersectionObserver', FakeObserver)
-    try {
-      renderView()
-      await screen.findByLabelText('Message')
-      const events = [
-        {
-          type: 'user.message.added',
-          message: {
-            id: 'm1',
-            sessionId: 'sess_1',
-            turnId: 'turn_1',
-            role: 'user',
-            parts: [{ type: 'text', text: 'edit the file' }],
-            createdAt: 1,
-          },
-        },
-        { type: 'turn.started', turnId: 'turn_1' },
-        {
-          type: 'assistant.parts.appended',
-          messageId: 'm2',
-          parts: [{ type: 'text', text: 'Done.' }],
-        },
-        { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed', errorMessage: null },
-      ].map((event, i) => ({ seq: i + 1, at: i + 1, sessionId: 'sess_1', ...event }))
-      act(() => {
-        sessionListener?.({ sessionId: 'sess_1', replay: true, events })
-      })
-      expect(await screen.findByText('Done.')).toBeInTheDocument()
-      expect(invokeMock).not.toHaveBeenCalledWith('git.turnDiff', expect.anything())
-
-      const end = observed.find((node) => (node as HTMLElement).dataset.turnEnd === 'turn_1')
-      expect(end).toBeDefined()
-      act(() => notify([{ target: end, isIntersecting: true }]))
-      expect(
-        await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
-      ).toBeInTheDocument()
-      expect(invokeMock.mock.calls.filter(([method]) => method === 'git.turnDiff')).toHaveLength(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('shows the failure and retries a turn whose diff could not be read', async () => {
-    const user = userEvent.setup()
-    let attempts = 0
-    invokeMock.mockImplementation(async (method, params) => {
-      if (method === 'git.turnDiff') {
-        attempts += 1
-        return attempts === 1
-          ? { diffText: null, error: 'no checkpoint for that turn' }
-          : { diffText: TURN_DIFF }
-      }
-      if (method === 'settings.get') return SETTINGS
-      if (method === 'project.list') return [PROJECT]
-      if (method === 'session.workspace') return { path: PROJECT.path }
-      if (method === 'files.index') return { paths: [] }
-      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
-      if (method === 'providers.detect') return []
-      if (method === 'providers.models') return []
-      if (method === 'endpoints.list') return []
-      if (method === 'command.dispatch') return { accepted: true }
-      if (method === 'git.status') return { isRepo: true, branch: 'main', files: [] }
-      throw new Error(`unexpected method: ${String(method)} ${JSON.stringify(params)}`)
-    })
-    renderView()
-    await screen.findByLabelText('Message')
-    replaySettledTurn()
-    expect(await screen.findByText('no checkpoint for that turn')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Retry turn diff' }))
-    expect(
-      await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
-    ).toBeInTheDocument()
-    expect(attempts).toBe(2)
-  })
-
-  it('shows no card when the settled turn has a null diff', async () => {
-    renderView()
-    await screen.findByLabelText('Message')
-
-    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_2' })
-    emitSessionEvent({
-      seq: 2,
-      at: 2,
-      sessionId: 'sess_1',
-      type: 'assistant.parts.appended',
-      messageId: 'm2',
-      parts: [{ type: 'text', text: 'No edits here.' }],
-    })
-    emitSessionEvent({
-      seq: 3,
-      at: 3,
-      sessionId: 'sess_1',
-      type: 'turn.settled',
-      turnId: 'turn_2',
-      stopReason: 'completed',
-      errorMessage: null,
-    })
-
-    await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith(
-        'git.turnDiff',
-        expect.objectContaining({ turnId: 'turn_2' }),
-      )
-    })
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Turn diff/ })).not.toBeInTheDocument()
-    })
   })
 })
 
@@ -2970,7 +2714,7 @@ describe('SessionView refused sends with review notes', () => {
     sessionStorage.clear()
     dropReviewDraftMemory()
     invokeMock.mockReset()
-    invokeMock.mockImplementation(async (method, params) => {
+    invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'session.workspace') return { path: PROJECT.path }
@@ -2980,10 +2724,6 @@ describe('SessionView refused sends with review notes', () => {
       if (method === 'providers.models') return []
       if (method === 'endpoints.list') return []
       if (method === 'command.dispatch') return { accepted: false, reason: 'over capacity' }
-      if (method === 'git.turnDiff') {
-        const p = params as { turnId: string }
-        return p.turnId === 'turn_1' ? { diffText: TURN_DIFF } : { diffText: null }
-      }
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
@@ -3009,7 +2749,7 @@ describe('SessionView refused sends with review notes', () => {
     renderView()
     await screen.findByLabelText('Message')
 
-    // One settled turn with a diff, so a line note has something to attach to.
+    // A settled turn, then a line note attached to the session's next message.
     emitSessionEvent({
       seq: 1,
       at: 1,
@@ -3034,11 +2774,7 @@ describe('SessionView refused sends with review notes', () => {
       stopReason: 'completed',
       errorMessage: null,
     })
-    await user.click(await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }))
-    // Both diff lines carry the same line number in this fixture.
-    await user.click((await screen.findAllByRole('button', { name: 'Comment on src/a.ts:1' }))[0]!)
-    await user.type(screen.getByLabelText('Review note for src/a.ts'), 'extract a helper')
-    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    appendReviewNote('sess_1', { path: 'src/a.ts', line: 1, text: 'extract a helper' })
     expect(
       await screen.findByLabelText('Review notes attached to next message'),
     ).toBeInTheDocument()
@@ -3081,10 +2817,7 @@ describe('SessionView refused sends with review notes', () => {
       stopReason: 'completed',
       errorMessage: null,
     })
-    await user.click(await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }))
-    await user.click((await screen.findAllByRole('button', { name: 'Comment on src/a.ts:1' }))[0]!)
-    await user.type(screen.getByLabelText('Review note for src/a.ts'), 'extract a helper')
-    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    appendReviewNote('sess_1', { path: 'src/a.ts', line: 1, text: 'extract a helper' })
     expect(sessionStorage.getItem('ari:review-drafts:sess_1')).toContain('extract a helper')
 
     cleanup()

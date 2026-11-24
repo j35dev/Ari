@@ -370,7 +370,7 @@ beforeEach(async () => {
   userData = join(dir, 'data')
   await mkdir(home)
   projects = new ProjectStore({ dir: userData })
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append('aria', {
     type: 'session.created',
     session: {
@@ -401,7 +401,7 @@ async function close(): Promise<void> {
 
 async function reload(): Promise<void> {
   await close()
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   projects = new ProjectStore({ dir: userData })
   await projects.load()
   await start()

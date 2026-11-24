@@ -12,7 +12,7 @@ let deps: SessionCreateDeps
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-desktop-session-create-'))
-  sessions = new SessionStore({ rootDir: join(dir, 'sessions') })
+  sessions = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   created = []
   deps = {
     loadProject: async (id) => {

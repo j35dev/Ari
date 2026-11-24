@@ -204,12 +204,9 @@ export function decideCommand(
     }
 
     case 'checkpoint.revert': {
-      if (command.sessionId !== model.session.id) return reject('session id mismatch')
-      const checkpoint = model.checkpoints.find((c) => c.turnId === command.turnId)
-      if (!checkpoint) return reject('no checkpoint captured for that turn')
-      return accept([
-        { type: 'checkpoint.reverted', turnId: command.turnId, gitRef: checkpoint.gitRef },
-      ])
+      return reject(
+        'Checkpoint undo has been removed. Use source control to review or restore files.',
+      )
     }
 
     case 'session.provider.switch': {

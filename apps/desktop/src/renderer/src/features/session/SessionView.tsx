@@ -19,7 +19,7 @@ import { PICKER, PickerOption, sentenceCase } from './TextPicker'
 import { ModeMark } from './mode-mark'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
-import type { DelegatedChild, TurnDiffValue } from '../transcript/types'
+import type { DelegatedChild } from '../transcript/types'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -395,7 +395,6 @@ function SessionViewContent({
   const updateReason = actionReason('session.update')
   const [readAloud, setReadAloud] = useState(false)
   const store = useMemo(() => transcriptStore(viewKey), [viewKey])
-  const turnsInView = useMemo(() => new Set<string>(), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   const [metadataReadySession, setMetadataReadySession] = useState<string | null>(null)
   const [workspaceInfo, setWorkspaceInfo] = useState<{
@@ -435,7 +434,6 @@ function SessionViewContent({
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [slashCommands, setSlashCommands] = useState<SessionCommands | null>(null)
-  const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
   const draftIntent = useSessionDraftIntent(viewKey)
   const sendPending = draftIntent.pendingId !== undefined || hostBlocked || sendReason !== null
@@ -459,9 +457,6 @@ function SessionViewContent({
   const reviewNotes = useReviewDrafts(viewKey)
   const elementPicks = draftIntent.picks
   const sessionTitleRef = useRef('Session')
-  const fetchedTurnIdsRef = useRef(new Set<string>())
-  const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
-  const settledTurnIdsRef = useRef(new Set<string>())
   // Stream ordering guards (M23.12): the journal replay on (re)subscribe races
   // live events, so frames are sequenced by journal `seq` — replayed frames
   // apply immediately, live frames buffer until the replay sentinel, and any
@@ -610,7 +605,6 @@ function SessionViewContent({
     errorTurnIdRef.current = null
     dismissedErrorTurnIdRef.current = null
     setTelemetry(EMPTY_TELEMETRY)
-    setTurnDiffs({})
     setSpawns([])
     setTasks(null)
     stopChildrenKeyRef.current = null
@@ -621,8 +615,6 @@ function SessionViewContent({
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
     lastPartRef.current = null
-    fetchedTurnIdsRef.current = new Set()
-    settledTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
     // Task snapshots trail the journal: a burst of child events (replay, or
@@ -736,10 +728,7 @@ function SessionViewContent({
             frame.replayOutcome !== 'incomplete',
             (frame as SessionEventFrame & { replayMode?: 'full' | 'resume' }).replayMode,
           )
-          const { model, telemetry, settledTurnIds } = history.controls()
-          settledTurnIdsRef.current = settledTurnIds
-          for (const turnId of turnsInView)
-            if (settledTurnIds.has(turnId)) fetchTurnDiffRef.current(turnId)
+          const { model, telemetry } = history.controls()
           // Retry can recover a settlement that never reached the live applier.
           // Derive its banner without replaying notifications or undoing dismissal.
           const failure =
@@ -806,39 +795,6 @@ function SessionViewContent({
     }
     retryHistoryRef.current = subscribeHistory
     subscribeHistory()
-
-    // Per-turn diff cards: query once after settle. An empty diff stays silent.
-    // A failure stays on screen with its reason so it cannot look like a clean turn.
-    const fetchTurnDiff = (turnId: string): void => {
-      if (fetchedTurnIdsRef.current.has(turnId)) return
-      fetchedTurnIdsRef.current.add(turnId)
-      void rpc
-        .invoke('git.turnDiff', { sessionId, turnId })
-        .then((result) => {
-          if (cancelled) return
-          const failure = result.error
-          if (typeof failure === 'string' && failure.length > 0) {
-            setTurnDiffs((prev) => ({ ...prev, [turnId]: { error: failure } }))
-            return
-          }
-          const diffText = result.diffText
-          const summary = result.summary
-          if (summary && summary.files.length > 0) {
-            setTurnDiffs((prev) => ({ ...prev, [turnId]: { summary, sessionId } }))
-          } else if (typeof diffText === 'string' && diffText.length > 0) {
-            setTurnDiffs((prev) => ({ ...prev, [turnId]: diffText }))
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setTurnDiffs((prev) => ({
-              ...prev,
-              [turnId]: { error: 'Could not load this turn’s diff.' },
-            }))
-          }
-        })
-    }
-    fetchTurnDiffRef.current = fetchTurnDiff
 
     // Metadata only — message history comes exclusively from the replayed
     // stream above, so this can never clobber or duplicate it.
@@ -908,7 +864,7 @@ function SessionViewContent({
       unsubscribe?.()
       retiring?.stop()
     }
-  }, [sessionId, store, turnsInView, rpc, rpc.availability])
+  }, [sessionId, store, rpc, rpc.availability])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
@@ -1037,11 +993,6 @@ function SessionViewContent({
             t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
           startedAt: live ? null : t.startedAt,
         }))
-        // History turns query their diff once the transcript scrolls them
-        // near view (see handleTurnInView); a session with N past turns would
-        // otherwise spawn N git diffs on open.
-        settledTurnIdsRef.current.add(event.turnId)
-        if (live) fetchTurnDiffRef.current(event.turnId)
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
           // Raw text is kept: the banner's Details disclosure shows it verbatim.
@@ -1503,52 +1454,6 @@ function SessionViewContent({
       return true
     },
     [hostBlocked, sessionId],
-  )
-
-  const handleTurnInView = useCallback(
-    (turnId: string) => {
-      turnsInView.add(turnId)
-      if (historyReadySession === sessionId && settledTurnIdsRef.current.has(turnId))
-        fetchTurnDiffRef.current(turnId)
-    },
-    [historyReadySession, sessionId, turnsInView],
-  )
-
-  const retryTurnDiff = useCallback((turnId: string) => {
-    fetchedTurnIdsRef.current.delete(turnId)
-    setTurnDiffs((prev) => {
-      const next = { ...prev }
-      delete next[turnId]
-      return next
-    })
-    fetchTurnDiffRef.current(turnId)
-  }, [])
-
-  /** Restores the workspace to the checkpoint taken when the turn began. */
-  const undoTurn = useCallback(
-    async (turnId: string): Promise<boolean> => {
-      try {
-        const result = await rpc.invoke('command.dispatch', {
-          command: { type: 'checkpoint.revert', sessionId, turnId },
-        })
-        if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
-        toast({
-          title: 'Changes undone',
-          description: 'Files are back to before that turn.',
-          tone: 'success',
-        })
-        return true
-      } catch (err) {
-        toast({
-          title: 'Couldn’t undo',
-          description: err instanceof Error ? err.message : String(err),
-          tone: 'danger',
-          durationMs: 6000,
-        })
-        return false
-      }
-    },
-    [sessionId, toast],
   )
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
@@ -2409,7 +2314,6 @@ function SessionViewContent({
               sessionId={sessionId}
               store={store}
               loading={loading || (historyFailureSession === sessionId && transcriptEmpty)}
-              turnDiffs={turnDiffs}
               onEditUserMessage={handleEditMessage}
               onQuoteAssistant={handleQuoteAssistant}
               onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
@@ -2418,15 +2322,12 @@ function SessionViewContent({
               chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
               header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
               onDiffComment={handleDiffComment}
-              onRetryTurnDiff={retryTurnDiff}
-              onUndoTurn={remote ? undefined : undoTurn}
               working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
               delegations={delegations}
               providerSwitches={providerSwitches}
               modelLabel={modelLabel}
               sessionTitle={sessionTitle}
               onOpenSession={onOpenSession}
-              onTurnInView={handleTurnInView}
               hidden={hidden || subagentOpen}
               subagentCalls={subagentCalls}
             />

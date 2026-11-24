@@ -26,7 +26,7 @@ async function withRuntime(
   ) => Promise<void>,
 ): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'ari-coordination-startup-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   registry.register(driver)
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | undefined
@@ -179,7 +179,7 @@ it('keeps a prompt inbox receipt uncertain when adapter creation fails rather th
 
 it('delivers worker questions through a lead to idle Aria, routes CLI answers and carries buffered inbox into the next real provider turn', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-runtime-coordination-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   const prompts: { id: string; text: string }[] = []
   let releaseLead!: () => void

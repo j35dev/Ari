@@ -207,12 +207,7 @@ export class SourceControlHost {
         workspace: { kind: model?.session?.workspace?.kind ?? 'project', path: review.git.cwd },
         refs: refs.value,
         ...history.value,
-        turns:
-          model?.checkpoints.map((checkpoint) => ({
-            turnId: checkpoint.turnId,
-            stable: !!checkpoint.endRef,
-            ...(checkpoint.endError ? { error: checkpoint.endError } : {}),
-          })) ?? [],
+        turns: [],
       })
     })
   }
@@ -221,19 +216,25 @@ export class SourceControlHost {
     return this.#read(params, params.requestId, async (review, signal) => {
       const model = params.sessionId ? await this.deps.session(params.sessionId) : null
       const comparison = params.comparison
-      const checkpoint =
-        comparison.kind === 'turn'
-          ? model?.checkpoints.find((entry) => entry.turnId === comparison.turnId)
-          : null
-      if (checkpoint?.endError) return err({ code: 'unavailable', message: checkpoint.endError })
+      if (comparison.kind === 'turn')
+        return err({
+          code: 'unavailable',
+          message: 'Per-turn checkpoint history has been removed.',
+        })
       const workspace = model?.session?.workspace
+      if (comparison.kind === 'session' && workspace?.kind !== 'managed-worktree')
+        return err({
+          code: 'unavailable',
+          message:
+            'Shared workspaces no longer capture a session baseline. Review the working tree instead.',
+        })
       const base =
         comparison.kind === 'session'
-          ? (model?.sessionBaselineRef ??
-            (workspace?.kind === 'managed-worktree' ? workspace.baseCommit : undefined) ??
-            model?.checkpoints[0]?.gitRef)
-          : checkpoint?.gitRef
-      return review.manifest(comparison, { base, head: checkpoint?.endRef }, signal)
+          ? workspace?.kind === 'managed-worktree'
+            ? workspace.baseCommit
+            : undefined
+          : undefined
+      return review.manifest(comparison, { base }, signal)
     })
   }
 

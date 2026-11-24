@@ -23,7 +23,7 @@ const sessionId = 'core-response'
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-engine-core-responses-'))
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   engine = undefined
   events = []
 })
@@ -445,7 +445,7 @@ describe('Engine commands with the actual AriCoreDriver', () => {
     const requests: ChatRequest[] = []
     await startCore(rounds([writeCall()], requests))
     const request = await approval()
-    const coldStore = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const coldStore = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const cold = new Engine({
       store: coldStore,
       registry: new DriverRegistry(),

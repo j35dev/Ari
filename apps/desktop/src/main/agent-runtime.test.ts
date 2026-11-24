@@ -73,7 +73,7 @@ it('removes the socket directory when startup fails after creating it', async ()
   // A directory where the launcher file belongs, so the write — which runs
   // after the socket directory exists — is the step that rejects.
   await mkdir(join(bin, process.platform === 'win32' ? 'ari.cmd' : 'ari'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const engine = new Engine({
     store,
     registry: new DriverRegistry(),
@@ -117,7 +117,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
   await writeFile(join(repo, 'base.txt'), 'base\n')
   git('add', '.')
   git('commit', '-qm', 'base')
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   const seen: AdapterSession[] = []
   registry.register({
@@ -370,7 +370,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
       result: { destroyed: true },
     })
     expect((await store.listSessions()).map((session) => session.id)).toEqual(['root'])
-    const replay = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const replay = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     expect((await replay.load(child.id)).session).toBeNull()
   } finally {
     schedule.close()
@@ -385,7 +385,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
 
 it('wakes an idle parent with its child report and stops children with their parent', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-deliver-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   const seen: AdapterSession[] = []
   const held = new Map<string, () => void>()
@@ -498,7 +498,7 @@ it('wakes an idle parent with its child report and stops children with their par
 
 it('revokes archive access, releases parked agents, and keeps workspace handles until destruction', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-drop-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   registry.register({
     kind: 'claude',
@@ -599,7 +599,7 @@ it('revokes archive access, releases parked agents, and keeps workspace handles 
 
 it('makes control ready while the orphan sweep runs and releases even if resource cleanup fails', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-background-sweep-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
   let finish!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -664,7 +664,7 @@ it('makes control ready while the orphan sweep runs and releases even if resourc
 
 it('closes without waiting for a stuck retry and starts no cleanup after cancellation', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-retry-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
   let finish!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -725,7 +725,7 @@ it('closes without waiting for a stuck retry and starts no cleanup after cancell
 
 it('does not schedule recovered orchestration after shutdown interrupts its session read', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-cancel-recovery-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append('root', {
     type: 'session.created',
     session: {
@@ -838,7 +838,7 @@ it('awaits session teardown before release and retries failed removals during st
   const old = new Date(Date.now() - 10 * 60_000)
   await utimes(orphan, old, old)
   await writeFile(join(live, 'keep.txt'), 'live\n')
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const engine = new Engine({
     store,
     registry: new DriverRegistry(),

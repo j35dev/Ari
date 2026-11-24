@@ -276,7 +276,7 @@ describe('SessionView history recovery', () => {
     expect(screen.queryByRole('button', { name: 'Dismiss error' })).toBeNull()
   })
 
-  it('loads the diff for a settled turn recovered by history retry when it enters view', async () => {
+  it('reopens recovered conversation text without querying retired turn diffs', async () => {
     vi.stubGlobal('IntersectionObserver', undefined)
     const fallback = rpc.invoke.getMockImplementation()!
     rpc.invoke.mockImplementation(async (method: string, params) => {
@@ -327,24 +327,14 @@ describe('SessionView history recovery', () => {
       })
       emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
       expect(await screen.findByText('Recovered work completed')).toBeVisible()
-      await waitFor(() =>
-        expect(rpc.invoke).toHaveBeenCalledWith('git.turnDiff', {
-          sessionId,
-          turnId: 'recovered-turn',
-        }),
-      )
+      expect(rpc.invoke).not.toHaveBeenCalledWith('git.turnDiff', expect.anything())
       rendered.unmount()
       rpc.invoke.mockClear()
       render(view())
       await screen.findByLabelText('Message')
       emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
       expect(await screen.findByText('Recovered work completed')).toBeVisible()
-      await waitFor(() =>
-        expect(rpc.invoke).toHaveBeenCalledWith('git.turnDiff', {
-          sessionId,
-          turnId: 'recovered-turn',
-        }),
-      )
+      expect(rpc.invoke).not.toHaveBeenCalledWith('git.turnDiff', expect.anything())
     } finally {
       vi.unstubAllGlobals()
     }

@@ -83,11 +83,25 @@ export class HistoryJournal {
     if (this.#disposed) return raw
     const event = compactEventImages(raw, this.#images)
     this.#observed.add(event.seq)
-    const previous = this.#events.get(event.seq)
-    if (previous) {
-      if (JSON.stringify(previous) === JSON.stringify(event)) return previous
-      this.#rebuild = true
+    const stored = this.#events.get(event.seq)
+    if (stored && JSON.stringify(stored) === JSON.stringify(event)) return stored
+    if (event.type === 'assistant.parts.appended' && event.replayFromSeq !== undefined) {
+      // A partial retry may compact previously cached live deltas. Replace the
+      // represented range immediately, even when the rest of that retry fails.
+      if (event.replayFromSeq > event.seq) throw new Error('Invalid compact conversation range')
+      for (const [seq, previous] of this.#events) {
+        if (
+          seq >= event.replayFromSeq &&
+          seq <= event.seq &&
+          previous.type === 'assistant.parts.appended' &&
+          previous.messageId === event.messageId
+        ) {
+          this.#events.delete(seq)
+          this.#rebuild = true
+        }
+      }
     }
+    if (stored) this.#rebuild = true
     this.#events.set(event.seq, event)
     if (event.seq < this.#tail) this.#rebuild = true
     this.#tail = Math.max(this.#tail, event.seq)

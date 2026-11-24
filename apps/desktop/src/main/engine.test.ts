@@ -32,7 +32,7 @@ let dirs: string[]
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-engine-e2e-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   published = []
   dirs = []
 })
@@ -530,11 +530,13 @@ describe('Aria provider switching', () => {
       await engine.dispatch({ type: 'session.update', sessionId: 'aria', title: 'Responsive' }),
     ).toEqual({ accepted: true })
     expect(created).toHaveLength(1)
-    expect(captureCheckpoint).toHaveBeenCalledOnce()
+    expect(captureCheckpoint).not.toHaveBeenCalled()
     expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('running')
     release()
     await engine.quiesce('aria')
     expect(created).toHaveLength(2)
+    expect(await readFile(join(dir, 'late-write.txt'), 'utf8')).toBe('Old process finished')
+    expect((await store.load('aria')).backgroundTasks?.[0]?.status).toBe('stopped')
     expect(created[1]!.resumeOf).toBeNull()
     expect(
       published
@@ -1141,7 +1143,7 @@ describe('engine end-to-end with scripted driver', () => {
       await engine.quiesce('identity')
       expect((await store.load('identity')).lastTurn?.stopReason).toBe(stopReason)
       await store.closeJournal('identity')
-      const replayed = await new SessionStore({ rootDir: dir }).load('identity')
+      const replayed = await new SessionStore({ storage: 'jsonl', rootDir: dir }).load('identity')
       expect(replayed.backgroundTasks?.[0]).toMatchObject(identity)
       expect(replayed.lastTurn?.stopReason).toBe(stopReason)
     },
@@ -1508,125 +1510,6 @@ describe('engine end-to-end with scripted driver', () => {
     const model = await store.load(sessionId)
     expect(model.activeTurnId).toBeNull()
     expect(model.status).toBe('idle')
-  }, 10000)
-
-  it('emits checkpoint.pruned when the capturer reports GC deletions', async () => {
-    const registry = new DriverRegistry()
-    registry.register(scriptedDriver({ echo: 'gc run' }))
-    const prunedRefs = ['refs/ari/sess_gc_e2e/turn_old1', 'refs/ari/sess_gc_e2e/turn_old2']
-    const pruneCalls: { turnIds: readonly string[]; maxPerSession: number }[] = []
-    const engine = new Engine({
-      store,
-      registry,
-      publish: (sessionId, event) => published.push({ sessionId, event }),
-      git: {
-        captureCheckpoint: async () => ({
-          ok: true,
-          value: 'refs/ari/sess_gc_e2e/turn_new',
-        }),
-        pruneCheckpoints: async (_cwd, _sessionId, turnIds, maxPerSession) => {
-          pruneCalls.push({ turnIds, maxPerSession })
-          return { ok: true, value: [...prunedRefs] }
-        },
-      },
-    })
-
-    const sessionId = 'sess_gc_e2e'
-    await seedSession(store, sessionId)
-    const result = await engine.dispatch({
-      type: 'turn.start',
-      sessionId,
-      text: 'run with gc',
-    } as Command)
-    expect(result.accepted).toBe(true)
-
-    // The turn runs async; wait for settle.
-    for (let i = 0; i < 150; i++) {
-      const model = await store.load(sessionId)
-      if (model.activeTurnId === null) break
-      await new Promise((r) => setTimeout(r, 20))
-    }
-
-    const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
-    const captured = events.find((e) => e.type === 'checkpoint.captured')
-    expect(captured).toBeDefined()
-    // GC is told the capture order, ending with the checkpoint just captured.
-    expect(pruneCalls).toEqual([{ turnIds: [captured?.turnId], maxPerSession: 50 }])
-    const prunedEvents = events.filter((e) => e.type === 'checkpoint.pruned')
-    expect(prunedEvents.map((e) => e.gitRef)).toEqual(prunedRefs)
-    expect(prunedEvents[0]?.turnId).toBe('turn_old1')
-
-    // Projection fold: pruned checkpoints leave the read model.
-    const model = await store.load(sessionId)
-    expect(model.checkpoints.some((c) => c.gitRef.includes('turn_old'))).toBe(false)
-  }, 10000)
-
-  it('reports checkpoint.revert failures to the caller and keeps the checkpoint', async () => {
-    const repo = await mkdtemp(join(tmpdir(), 'ari-engine-revert-'))
-    dirs.push(repo)
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
-    git('init', '-q')
-    // The revert below restores through the checkout filter, which rewrites LF
-    // to CRLF on Windows unless the repo opts out. Every other git-backed suite
-    // pins it; this one did not.
-    git('config', 'core.autocrlf', 'false')
-    await writeFile(join(repo, 'a.txt'), 'committed\n')
-    git('add', '.')
-    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
-    await writeFile(join(repo, 'a.txt'), 'pre-turn work\n')
-    const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
-    const sessionId = 'sess_revert'
-    await seedSession(store, sessionId, repo)
-    const { GitService } = await import('@ari/engine/git')
-    for (const turnId of ['turn_ok', 'turn_gone']) {
-      const ref = await new GitService().captureCheckpoint(repo, sessionId, turnId)
-      if (!ref.ok || ref.value === null) throw new Error('checkpoint not captured')
-      await store.append(sessionId, { type: 'checkpoint.captured', turnId, gitRef: ref.value })
-    }
-    git('update-ref', '-d', `refs/ari/${sessionId}/turn_gone`)
-
-    const failed = await engine.dispatch({
-      type: 'checkpoint.revert',
-      sessionId,
-      turnId: 'turn_gone',
-    })
-    expect(failed.accepted).toBe(false)
-    expect(failed.reason).toMatch(/^revert failed: /)
-    expect((await store.load(sessionId)).checkpoints.map((c) => c.turnId)).toEqual([
-      'turn_ok',
-      'turn_gone',
-    ])
-
-    await writeFile(join(repo, 'a.txt'), 'agent edit\n')
-    const reverted = await engine.dispatch({
-      type: 'checkpoint.revert',
-      sessionId,
-      turnId: 'turn_ok',
-    })
-    expect(reverted).toEqual({ accepted: true })
-    expect(await readFile(join(repo, 'a.txt'), 'utf8')).toBe('pre-turn work\n')
-  }, 30000)
-
-  it('skips GC silently when the capturer has no pruneCheckpoints', async () => {
-    const registry = new DriverRegistry()
-    registry.register(scriptedDriver({ echo: 'no gc' }))
-    const engine = new Engine({
-      store,
-      registry,
-      publish: (sessionId, event) => published.push({ sessionId, event }),
-      git: { captureCheckpoint: async () => ({ ok: true, value: 'refs/ari/sess_nogc/turn_1' }) },
-    })
-    const sessionId = 'sess_nogc'
-    await seedSession(store, sessionId)
-    await engine.dispatch({ type: 'turn.start', sessionId, text: 'x' } as Command)
-    for (let i = 0; i < 150; i++) {
-      const model = await store.load(sessionId)
-      if (model.activeTurnId === null) break
-      await new Promise((r) => setTimeout(r, 20))
-    }
-    const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
-    expect(events.some((e) => e.type === 'checkpoint.captured')).toBe(true)
-    expect(events.some((e) => e.type === 'checkpoint.pruned')).toBe(false)
   }, 10000)
 
   it('settles the turn as error when a provider emits an error event', async () => {
@@ -2008,7 +1891,11 @@ describe('engine end-to-end with scripted driver', () => {
         attachments: [],
       }),
     ).toMatchObject({ accepted: true })
-    for (let i = 0; i < 150 && (await store.load(sessionId)).lastTurn?.stopReason !== 'completed'; i++)
+    for (
+      let i = 0;
+      i < 150 && (await store.load(sessionId)).lastTurn?.stopReason !== 'completed';
+      i++
+    )
       await new Promise((resolve) => setTimeout(resolve, 20))
     const done = await store.load(sessionId)
     expect(done.lastTurn?.stopReason).toBe('completed')
