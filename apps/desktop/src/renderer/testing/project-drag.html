@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Project drag browser regression</title>
+    <style>
+      body {
+        margin: 8px;
+        font: 14px system-ui;
+      }
+      .list {
+        width: 250px;
+        border: 1px solid #888;
+        margin-bottom: 12px;
+        overflow-anchor: none;
+      }
+      .row {
+        position: relative;
+        box-sizing: border-box;
+        padding: 12px;
+        background: #eee;
+        border-bottom: 1px solid #888;
+        touch-action: none;
+        user-select: none;
+      }
+      button {
+        margin: 8px 8px 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./project-drag.tsx"></script>
+  </body>
+</html>
