@@ -11,8 +11,10 @@
  */
 
 import {
+  activeSessionOf,
   clearPane,
   initialLayout,
+  leaves,
   paneIdForSession,
   paneIdForTerminal,
   parseLayout,
@@ -96,6 +98,23 @@ export function activeLayoutOf(store: SpaceStore): SplitLayout {
 
 export function spaceById(store: SpaceStore, spaceId: string): Space | null {
   return store.spaces.find((space) => space.id === spaceId) ?? null
+}
+
+/**
+ * The session that jails the terminal a pane opens. A pane holding a session
+ * opens in that session's workspace; a blank one — the neighbour "Split
+ * right" or "Split down" just made — has none of its own, so it borrows the
+ * session its space treats as active: the focused pane's, or the first
+ * on-screen one while the blank pane holds the focus. A space with no session
+ * anywhere answers null, and the shell keeps asking for a project first.
+ */
+export function terminalContextSessionOf(store: SpaceStore, paneId: string): string | null {
+  for (const space of store.spaces) {
+    const leaf = leaves(space.layout.root).find((entry) => entry.paneId === paneId)
+    if (leaf === undefined) continue
+    return leaf.sessionId ?? activeSessionOf(space.layout)
+  }
+  return null
 }
 
 /**

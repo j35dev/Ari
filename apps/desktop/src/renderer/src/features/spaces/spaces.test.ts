@@ -18,6 +18,7 @@ import {
   selectSpaceAt,
   serializeSpaceStore,
   setSpaceLayout,
+  terminalContextSessionOf,
   updateActiveLayoutOf,
   withoutSession,
   withoutTerminal,
@@ -27,6 +28,7 @@ import {
   activePaneOf,
   assignSession,
   assignTerminal,
+  focusPane,
   leaves,
   pruneSessions,
   splitPane,
@@ -223,6 +225,53 @@ describe('space store model', () => {
     expect(pruneSpaceSessions(pruned, new Set(['sB']))).toBe(pruned)
     // pruneSessions is the per-layout primitive this wraps.
     expect(leaves(pruneSessions(layoutOf(store, 'space1'), new Set()).root)).toHaveLength(1)
+  })
+})
+
+describe('terminalContextSessionOf', () => {
+  it('answers a pane holding a session with that session', () => {
+    const { store } = freshStore()
+    const withSession = putSession(store, 'space1', 'sAlpha')
+    const paneId = activePaneOf(layoutOf(withSession, 'space1'))
+    expect(terminalContextSessionOf(withSession, paneId)).toBe('sAlpha')
+  })
+
+  it('borrows the space active session for the blank pane a split just made', () => {
+    const { store } = freshStore()
+    const layout = layoutOf(store, 'space1')
+    const original = activePaneOf(layout)
+    const splitStore = updateActiveLayoutOf(
+      setSpaceLayout(store, 'space1', assignSession(layout, original, 'sAlpha')),
+      (next) => splitPane(next, original, 'right'),
+    )
+    const layoutAfter = activeLayoutOf(splitStore)
+    const blankPane = layoutAfter.focusedPaneId
+    expect(leaves(layoutAfter.root).find((leaf) => leaf.paneId === blankPane)?.sessionId).toBeNull()
+    // The blank pane holds the focus, so the space answers its first
+    // on-screen session — the one the pane was split from.
+    expect(terminalContextSessionOf(splitStore, blankPane)).toBe('sAlpha')
+  })
+
+  it('borrows the pane own space session, not the one on screen', () => {
+    const { store: first, spaceId, paneId } = freshStore()
+    let store = createSpace(first, spaceId, paneId)
+    store = putSession(store, 'space1', 'sAlpha')
+    // Space 2 (the one on screen) splits and holds Beta; its blank neighbour
+    // must borrow Beta even though the hidden space shows Alpha.
+    const layout = layoutOf(store, 'space2')
+    const original = activePaneOf(layout)
+    let space2 = splitPane(layout, original, 'right')
+    const blankPane = space2.focusedPaneId
+    space2 = focusPane(assignSession(space2, original, 'sBeta'), blankPane)
+    store = setSpaceLayout(store, 'space2', space2)
+
+    expect(terminalContextSessionOf(store, blankPane)).toBe('sBeta')
+  })
+
+  it('answers null for a space with no session and for an unknown pane', () => {
+    const { store } = freshStore()
+    expect(terminalContextSessionOf(store, activePaneOf(activeLayoutOf(store)))).toBeNull()
+    expect(terminalContextSessionOf(store, 'pane99')).toBeNull()
   })
 })
 

@@ -105,6 +105,7 @@ import {
   spaceActions,
   spaceStoreSnapshot,
   spaceStatus,
+  terminalContextSessionOf,
   useSpaces,
   useSpaceSwipe,
 } from './features/spaces'
@@ -1818,11 +1819,9 @@ function Shell({
     [spaceStore.spaces],
   )
   const canOpenTerminalInPane = (paneId: string): boolean => {
-    const pane = spaceStore.spaces
-      .flatMap((space) => leaves(space.layout.root))
-      .find((leaf) => leaf.paneId === paneId)
-    if (!pane?.sessionId) return false
-    const scope = parseSessionViewKey(pane.sessionId)
+    const key = terminalContextSessionOf(spaceStore, paneId)
+    if (key === null) return false
+    const scope = parseSessionViewKey(key)
     return (
       scope !== null &&
       (scope.kind === 'local' ||
@@ -1832,13 +1831,13 @@ function Shell({
   }
   const openTerminalInPane = useCallback(
     (paneId: string) => {
-      const origin = spaceStoreSnapshot().spaces.find((space) =>
+      const store = spaceStoreSnapshot()
+      const origin = store.spaces.find((space) =>
         leaves(space.layout.root).some((pane) => pane.paneId === paneId),
       )
-      const key =
-        origin && leaves(origin.layout.root).find((pane) => pane.paneId === paneId)?.sessionId
-      const scope = key ? parseSessionViewKey(key) : null
-      if (!origin || !scope) return
+      const key = origin === undefined ? null : terminalContextSessionOf(store, paneId)
+      const scope = key === null ? null : parseSessionViewKey(key)
+      if (origin === undefined || key === null || scope === null) return
       const client = createSessionClient(scope)
       const reason = client.capabilityReason('terminal.create')
       if (reason) {
@@ -1853,10 +1852,10 @@ function Shell({
               : (await client.invoke('session.workspace', { sessionId: scope.sessionId })).path
           if (!cwd || client.capabilityReason('terminal.create')) return
           // A late workspace result cannot replace a different pane or follow focus to another host.
-          const current = spaceStoreSnapshot().spaces.find((space) => space.id === origin.id)
+          const current = spaceStoreSnapshot()
           if (
-            !current ||
-            leaves(current.layout.root).find((pane) => pane.paneId === paneId)?.sessionId !== key
+            current.spaces.find((space) => space.id === origin.id) === undefined ||
+            terminalContextSessionOf(current, paneId) !== key
           )
             return
           const id = openTerminalTab({

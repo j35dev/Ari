@@ -8,6 +8,7 @@ export {
   parseLegacyLayout,
   parseSpaceStore,
   serializeSpaceStore,
+  terminalContextSessionOf,
   type Space,
   type SpaceStore,
 } from './spaces'
