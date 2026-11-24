@@ -129,8 +129,13 @@ export class Journal<T> {
    * Chunk boundaries follow `raw` text length, so they stay near
    * `maxChunkChars` and only split between lines.
    */
-  async *readByChunk(maxChunkChars = 256 * 1024): AsyncGenerator<ParsedLine<T>[]> {
-    const segments = await this.#listSegments()
+  async *readByChunk(
+    maxChunkChars = 256 * 1024,
+    requireReadableSegments = false,
+  ): AsyncGenerator<ParsedLine<T>[]> {
+    const segments = await this.#listSegments(requireReadableSegments)
+    if (requireReadableSegments && segments.some((segment, index) => segment.index !== index))
+      throw new Error('journal segment gap')
     let chunk: ParsedLine<T>[] = []
     let bytes = 0
     const take = (): ParsedLine<T>[] => {
@@ -145,6 +150,7 @@ export class Journal<T> {
       try {
         content = await readFile(segment.path, 'utf8')
       } catch (e) {
+        if (requireReadableSegments) throw e
         log.warn('segment unreadable, skipping', { path: segment.path, error: String(e) })
         continue
       }
@@ -266,12 +272,13 @@ export class Journal<T> {
     return join(this.#opts.dir, `${this.#opts.name}.${String(index).padStart(4, '0')}.jsonl`)
   }
 
-  async #listSegments(): Promise<SegmentInfo[]> {
+  async #listSegments(requireReadable = false): Promise<SegmentInfo[]> {
     const pattern = new RegExp(`^${this.#opts.name}\\.(\\d{4})\\.jsonl$`)
     let names: string[]
     try {
       names = await readdir(this.#opts.dir)
-    } catch {
+    } catch (error) {
+      if (requireReadable) throw error
       return []
     }
     const segments: SegmentInfo[] = []

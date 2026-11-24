@@ -37,7 +37,7 @@ const extraEngines: Engine[] = []
 const extraStores: SessionStore[] = []
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'ari-desktop-wire-'))
-  store = new SessionStore({ rootDir: join(root, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(root, 'sessions') })
   engine = new Engine({
     store,
     registry: new DriverRegistry(),
@@ -502,7 +502,7 @@ describe('desktop host wire', () => {
 
   it('keeps two real engines and gateways one-way and preserves session ownership after restart', async () => {
     await engine.createSession({ ...fixture(), title: 'Host A' })
-    const otherStore = new SessionStore({ rootDir: join(root, 'other-sessions') })
+    const otherStore = new SessionStore({ storage: 'jsonl', rootDir: join(root, 'other-sessions') })
     const otherEngine = new Engine({
       store: otherStore,
       registry: new DriverRegistry(),
@@ -551,7 +551,7 @@ describe('desktop host wire', () => {
     gateways.splice(gateways.indexOf(first), 1)
     await engine.shutdown()
     for (const row of await store.listSessions()) await store.closeJournal(row.id)
-    store = new SessionStore({ rootDir: join(root, 'sessions') })
+    store = new SessionStore({ storage: 'jsonl', rootDir: join(root, 'sessions') })
     engine = new Engine({
       store,
       registry: new DriverRegistry(),
@@ -723,28 +723,43 @@ describe('desktop host wire', () => {
   it('filters both names of a sensitive rename from normal SCM status', async () => {
     const repo = join(root, 'scm-repo')
     await mkdir(repo)
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, windowsHide: true, stdio: 'pipe' })
-    git('init', '-q'); git('config', 'user.email', 'fixture@example.test'); git('config', 'user.name', 'Fixture')
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: repo, windowsHide: true, stdio: 'pipe' })
+    git('init', '-q')
+    git('config', 'user.email', 'fixture@example.test')
+    git('config', 'user.name', 'Fixture')
     await writeFile(join(repo, '.env'), 'SECRET=fixture')
-    git('add', '.env'); git('commit', '-qm', 'private fixture'); git('mv', '.env', 'safe.txt')
+    git('add', '.env')
+    git('commit', '-qm', 'private fixture')
+    git('mv', '.env', 'safe.txt')
     await engine.createSession(fixture())
     vi.spyOn(engine, 'workspace').mockResolvedValue(repo)
     const scm = new SourceControlHost(new RpcRegistry({ send: () => undefined }), {
-      root: async () => repo, session: (id) => store.load(id),
+      root: async () => repo,
+      session: (id) => store.load(id),
     })
     try {
       const local = await scm.status({ sessionId: 's' })
-      expect(local.ok && local.value.status.files.some((file) => file.oldPath === '.env')).toBe(true)
+      expect(local.ok && local.value.status.files.some((file) => file.oldPath === '.env')).toBe(
+        true,
+      )
       const deps = desktop()
       deps.scm.status = (sessionId) => scm.status({ sessionId })
       const gateway = await start(makeHost({ desktop: deps }))
       const token = await pair(gateway)
-      const remote = await call(gateway, '/query', { op: 'scm.desktop.status', sessionId: 's' }, token)
+      const remote = await call(
+        gateway,
+        '/query',
+        { op: 'scm.desktop.status', sessionId: 's' },
+        token,
+      )
       expect(remote.status).toBe(200)
       expect(remote.body.result).toMatchObject({ ok: true, value: { status: { files: [] } } })
       expect(JSON.stringify(remote.body.result)).not.toContain('.env')
       expect(JSON.stringify(remote.body.result)).not.toContain(root)
-    } finally { scm.close() }
+    } finally {
+      scm.close()
+    }
   })
 })
 

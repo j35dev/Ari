@@ -70,7 +70,7 @@ describe('SessionNotifier', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'ari-notifier-'))
-    store = new SessionStore({ rootDir: dir })
+    store = new SessionStore({ storage: 'jsonl', rootDir: dir })
     await store.append('root', { type: 'session.created', session: session('root') })
     await store.append('child', { type: 'session.created', session: session('child', 'root') })
     shown = []
@@ -132,7 +132,10 @@ describe('SessionNotifier', () => {
     })
     await notifier.observe('root', settled('completed'))
     expect(shown).toEqual([
-      { sessionId: 'root', notice: { title: 'Ship settings finished', body: 'The turn is complete.' } },
+      {
+        sessionId: 'root',
+        notice: { title: 'Ship settings finished', body: 'The turn is complete.' },
+      },
     ])
   })
 })

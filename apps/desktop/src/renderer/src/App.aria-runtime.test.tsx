@@ -41,7 +41,7 @@ it.each(['idle', 'responding'] as const)(
     splitLayoutActions.reset()
     keepAliveActions.reset()
     const dir = await mkdtemp(join(tmpdir(), 'ari-aria-navigation-'))
-    const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const project: Project = {
       id: 'project',
       name: 'Demo',

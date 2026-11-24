@@ -11,7 +11,7 @@ import { Engine, type EngineDeps } from './engine'
 describe('provider update turn gate', () => {
   it('refuses a registered provider while updating and allows retry after it settles', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'ari-provider-update-gate-'))
-    const store = new SessionStore({ rootDir: directory })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: directory })
     const registry = new DriverRegistry()
     const create = vi.fn(async () => ({
       start: () =>

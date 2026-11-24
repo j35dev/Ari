@@ -105,7 +105,7 @@ async function hostFixture(root: string, name: string, utilization: number, mess
     ['remote', 'add', 'origin', 'https://user:fixture-secret@github.com/Acme/Shared.git'],
     { cwd: repo, windowsHide: true },
   )
-  const store = new SessionStore({ rootDir: join(root, name, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(root, name, 'sessions') })
   const directory = join(root, name, 'sessions', wireId)
   await mkdir(directory, { recursive: true })
   const events: JournalEvent[] = [

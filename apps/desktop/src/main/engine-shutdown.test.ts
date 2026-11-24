@@ -22,7 +22,7 @@ let registry: DriverRegistry
 let engine: Engine
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'ari-shutdown-'))
-  store = new SessionStore({ rootDir: join(directory, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(directory, 'sessions') })
   registry = new DriverRegistry()
   engine = new Engine({
     store,

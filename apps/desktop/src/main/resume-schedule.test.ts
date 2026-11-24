@@ -88,7 +88,7 @@ async function runTurn(stopReason: 'completed' | 'error'): Promise<string> {
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-resume-'))
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append('s', {
     type: 'session.created',
     session: {

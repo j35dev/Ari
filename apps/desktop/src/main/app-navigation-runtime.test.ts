@@ -18,7 +18,7 @@ import { RpcRegistry } from './rpc-registry'
 const execute = promisify(execFile)
 it('threads the shipped CLI through authenticated runtime/Engine and targeted RPC acknowledgement without disturbing a running turn', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-nav-runtime-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const drivers = new DriverRegistry()
   let finishTurn!: () => void
   const turnGate = new Promise<void>((done) => {

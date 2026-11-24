@@ -55,7 +55,7 @@ function gate(): { promise: Promise<void>; release: () => void } {
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-control-visibility-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   releases = []
   created = []
   createdProviders = []
@@ -183,7 +183,7 @@ const switchTo = (targetSessionId = 'work', idempotencyKey = 'switch') => ({
 async function reload(): Promise<void> {
   await engine.shutdown()
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
   host = makeHost(store, engine)
   service = new AgentControlService(host)

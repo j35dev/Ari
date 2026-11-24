@@ -84,7 +84,7 @@ async function reply(id: string, turnId: string, text: string): Promise<void> {
 beforeEach(async () => {
   running = new Set()
   dir = await mkdtemp(join(tmpdir(), 'ari-helm-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   for (const session of [helm, web, api, apiChild])
     await store.append(session.id, { type: 'session.created', session })
   projects = [
@@ -1078,7 +1078,7 @@ it.each(['lead', 'createdBy'])(
     const index = JSON.parse(await readFile(path, 'utf8')) as { hierarchy: Record<string, unknown> }
     delete index.hierarchy[field]
     await writeFile(path, JSON.stringify(index))
-    store = new SessionStore({ rootDir: dir })
+    store = new SessionStore({ storage: 'jsonl', rootDir: dir })
     service.host.store = store
     const load = vi.spyOn(store, 'loadExisting')
     expect(
@@ -1151,7 +1151,7 @@ it('discovers an orphaned lead from an old sidecar without replaying known non-l
     delete index.hierarchy.createdBy
     await writeFile(path, JSON.stringify(index))
   }
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   service.host.store = store
   const load = vi.spyOn(store, 'loadExisting')
   expect((await service.tasks('helm2')).map((task) => task.sessionId)).toEqual([id])
@@ -1286,7 +1286,7 @@ it.each(['empty', 'archived'])(
         session: { ...helm, id: aria, updatedAt, archived },
       })
     for (const row of await store.listSessions()) await store.closeJournal(row.id)
-    const cold = new SessionStore({ rootDir: dir })
+    const cold = new SessionStore({ storage: 'jsonl', rootDir: dir })
     if (cache === 'archived') {
       await cold.loadExisting('helm2')
       await cold.closeJournal('helm2')

@@ -197,7 +197,7 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     ).toMatchObject({ ok: false, error: { code: 'unavailable' } })
   })
 
-  it('routes stable turn/session endpoints and permits bounded file loading', async () => {
+  it('keeps commit review and bounded file loading while retiring turn endpoints', async () => {
     const before = run('rev-parse', 'HEAD')
     run('update-ref', 'refs/ari-baselines/sess', before)
     await writeFile(join(root, 'a.txt'), 'after\n')
@@ -220,9 +220,15 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
       checkpoints: [{ turnId: 't', gitRef: before, endRef: end }],
     }
     const { registry } = fixture({ session: async () => model })
+    expect(
+      await registry.invoke('scm.review', {
+        sessionId: 's',
+        comparison: { kind: 'turn', turnId: 't' },
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'unavailable' } })
     const result = (await registry.invoke('scm.review', {
       sessionId: 's',
-      comparison: { kind: 'turn', turnId: 't' },
+      comparison: { kind: 'commit', ref: end },
     })) as { ok: true; value: { id: string; live: boolean } }
     expect(result.ok && result.value.live).toBe(false)
     const diff = (await registry.invoke('scm.diff', {
@@ -232,6 +238,27 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     })) as { ok: boolean; value: string }
     expect(diff.ok).toBe(true)
     expect(diff.value).toContain('+after')
+    expect(
+      await registry.invoke('scm.review', { sessionId: 's', comparison: { kind: 'session' } }),
+    ).toMatchObject({ ok: false, error: { code: 'unavailable' } })
+    model.session = {
+      id: 's',
+      projectId: 'p',
+      title: 'Managed session',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+      workspace: {
+        kind: 'managed-worktree',
+        path: root,
+        branch: 'feature',
+        baseRef: before,
+        baseCommit: before,
+      },
+    }
     expect(
       await registry.invoke('scm.review', { sessionId: 's', comparison: { kind: 'session' } }),
     ).toMatchObject({ ok: true })

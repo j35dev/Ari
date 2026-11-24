@@ -34,7 +34,7 @@ const applied = (target: AppOpenTarget, requestId: string): AppOpenReceipt => ({
 })
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-app-control-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   for (const value of [session('aria', 'helm'), session('s'), session('worker')])
     await store.append(value.id, { type: 'session.created', session: value })
   host = {
@@ -65,7 +65,7 @@ afterEach(async () => {
 const open = (params: object, caller = 'aria', key = JSON.stringify(params)) =>
   service.invoke(caller, 'app.open', { ...params, idempotencyKey: key })
 const reload = () => {
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   host.store = store
   service = new AgentControlService(host)
 }

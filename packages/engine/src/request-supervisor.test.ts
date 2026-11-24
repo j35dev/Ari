@@ -71,7 +71,7 @@ async function ready(): Promise<void> {
 async function restart(): Promise<void> {
   await supervisor.close()
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   host.store = store
   service = new AgentControlService({ ...service.host, store })
   supervisor = new RequestSupervisor(host)
@@ -116,7 +116,7 @@ async function surfaces(callerId: string, targetId: string) {
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-request-sync-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   for (const row of [session('aria'), session('lead'), session('worker', 'lead')])
     await store.append(row.id, { type: 'session.created', session: row })
   host = {

@@ -9,7 +9,7 @@ import { Engine } from './engine'
 
 it('expands a theme command for the agent while preserving the original user message', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-theme-turn-'))
-  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   const registry = new DriverRegistry()
   let providerPrompt = ''
   let settle!: () => void

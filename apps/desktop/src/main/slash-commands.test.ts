@@ -87,7 +87,7 @@ describe('SessionCommandCache', () => {
 describe('engine slash command turns', () => {
   async function harness(listCommands?: Driver['listCommands']) {
     const dir = await mkdtemp(join(tmpdir(), 'ari-slash-turn-'))
-    const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const registry = new DriverRegistry()
     const created: AdapterSession[] = []
     let settle: () => void = () => undefined

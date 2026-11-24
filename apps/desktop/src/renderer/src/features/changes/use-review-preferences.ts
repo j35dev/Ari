@@ -55,7 +55,10 @@ function load(key: string): Preferences {
           ) as Record<string, number>)
         : {}
     return {
-      comparison: comparison.success ? comparison.data : { kind: 'working-tree' },
+      comparison:
+        comparison.success && comparison.data.kind !== 'turn'
+          ? comparison.data
+          : { kind: 'working-tree' },
       path: path.success ? path.data : null,
       filter: typeof value['filter'] === 'string' ? value['filter'].slice(0, 256) : '',
       scroll,

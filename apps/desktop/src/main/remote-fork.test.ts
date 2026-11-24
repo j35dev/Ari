@@ -61,7 +61,7 @@ it('creates a real managed worktree using native policy, approval and durable re
   await writeFile(join(dir, 'file.txt'), 'base\n')
   git('add', '.')
   git('commit', '-qm', 'base')
-  const store = new SessionStore({ rootDir: join(dir, '.ari-test-sessions') })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, '.ari-test-sessions') })
   roots.push({ dir, store })
   const parent: Session = {
     id: 'root',

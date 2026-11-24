@@ -70,7 +70,6 @@ import { streamSessionReplay } from './session-replay'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
-import { queryTurnDiff, queryTurnDiffFile } from './turn-diff'
 import { SourceControlHost } from './source-control-host'
 import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
@@ -1132,11 +1131,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (shutdownPromise) return shutdownPromise
     stopping = true
     shutdownPromise = Promise.allSettled(shutdownTasks.map(async (close) => close())).then(
-      (results) => {
+      async (results) => {
         for (const result of results) {
           if (result.status === 'rejected')
             log.warn('runtime resource failed to close', { error: result.reason as unknown })
         }
+        // All producers have stopped before the final conversation save and worker close.
+        await getSessionStore().close()
       },
     )
     return shutdownPromise
@@ -3194,29 +3195,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { diffText: result.value }
   })
 
-  // Per-turn diff (M8.4): diffs the turn's checkpoint against the next one —
-  // including the live worktree tree for the newest turn — inside the
-  // session's own workspace, so no working directory crosses IPC.
-  r.register('git.turnDiff', async (params) => {
-    const { GitService } = await import('@ari/engine/git')
-    const { session, checkpoints } = await getSessionStore().load(params.sessionId)
-    if (!session) return { diffText: null, error: 'unknown session' }
-    const workspace = await engine.workspace(session)
-    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
-    return queryTurnDiff(new GitService(), {
-      path: workspace,
-      turnId: params.turnId,
-      checkpoints,
-    })
-  })
-
-  r.register('git.turnDiffFile', async (params) => {
-    const { session } = await getSessionStore().load(params.sessionId)
-    if (!session) return { diffText: null, error: 'unknown session' }
-    const workspace = await engine.workspace(session)
-    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
-    return queryTurnDiffFile(workspace, params)
-  })
+  // Older clients receive an explicit response rather than starting Git snapshots.
+  r.register('git.turnDiff', () =>
+    Promise.resolve({
+      diffText: null,
+      error: 'Per-turn checkpoint history has been removed.',
+    }),
+  )
+  r.register('git.turnDiffFile', () =>
+    Promise.resolve({
+      diffText: null,
+      error: 'Per-turn checkpoint history has been removed.',
+    }),
+  )
 
   // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing
   // directory and maps every failure into a `{ ok: false, error }` result so

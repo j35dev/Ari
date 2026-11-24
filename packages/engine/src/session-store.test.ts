@@ -31,7 +31,7 @@ const session: Session = {
 
 beforeEach(async () => {
   rootDir = await mkdtemp(join(tmpdir(), 'ari-store-'))
-  store = new SessionStore({ rootDir })
+  store = new SessionStore({ rootDir, storage: 'jsonl' })
 })
 
 afterEach(async () => {
@@ -43,7 +43,7 @@ describe('SessionStore', () => {
   it('does not treat an unreadable session root as a new installation', async () => {
     const path = join(rootDir, 'not-a-directory')
     await writeFile(path, 'preserve')
-    const broken = new SessionStore({ rootDir: path })
+    const broken = new SessionStore({ storage: 'jsonl', rootDir: path })
     await expect(broken.listSessions()).rejects.toThrow()
     await rm(path)
     expect(await broken.listSessions()).toEqual([])
@@ -101,7 +101,7 @@ describe('SessionStore', () => {
         })
       }
 
-      const cold = new SessionStore({ rootDir })
+      const cold = new SessionStore({ storage: 'jsonl', rootDir })
       try {
         // Exercise both replay-built and disk-read negative indexes, then
         // their cached paths. A missing session must never become a blank
@@ -228,7 +228,7 @@ describe('SessionStore', () => {
       expect(flush).toHaveBeenCalledTimes(1)
       expect((await sidecar()).journalBytes).toBeGreaterThan(before.journalBytes)
       // Caught up: a cold reader trusts the sidecar without replaying.
-      const cold = new SessionStore({ rootDir })
+      const cold = new SessionStore({ storage: 'jsonl', rootDir })
       const replay = vi.spyOn(await cold.openJournal(session.id), 'readAll')
       expect(await cold.listSessions()).toHaveLength(1)
       expect(replay).not.toHaveBeenCalled()
@@ -326,13 +326,13 @@ describe('SessionStore', () => {
     await writeFile(join(rootDir, session.id, 'index.json'), '{corrupt', 'utf8')
 
     // Cold store (crash survivor): falls back to replay, serves correct data.
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const list = await fresh.listSessions()
     expect(list).toHaveLength(1)
     expect(list[0]?.title).toBe('Test session')
 
     // The repair persisted: yet another cold reader sees the same data.
-    const fresher = new SessionStore({ rootDir })
+    const fresher = new SessionStore({ storage: 'jsonl', rootDir })
     expect(await fresher.listSessions()).toHaveLength(1)
   })
 
@@ -413,7 +413,7 @@ describe('SessionStore', () => {
     await writeFile(indexPath, JSON.stringify(legacy), 'utf8')
 
     // Cold reader rejects the old version, replays once, and still answers.
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const summary = await fresh.usageSummary()
     expect(summary.totals.inputTokens).toBe(7)
     expect(summary.totals.outputTokens).toBe(3)
@@ -446,7 +446,7 @@ describe('SessionStore', () => {
       delete old.hierarchy[key]
     await writeFile(path, JSON.stringify(old))
     await store.closeJournal(lead.id)
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const replay = vi.spyOn(Journal.prototype, 'readAll')
     const opening = vi.spyOn(fresh, 'openJournal')
     try {
@@ -460,7 +460,9 @@ describe('SessionStore', () => {
         hierarchy: { ...old.hierarchy, lead: true, createdBy: lead.createdBy },
       })
       const head = vi.spyOn(fs, 'open')
-      expect((await new SessionStore({ rootDir }).listSessions())[0]).toMatchObject({
+      expect(
+        (await new SessionStore({ storage: 'jsonl', rootDir }).listSessions())[0],
+      ).toMatchObject({
         lead: true,
         createdBy: lead.createdBy,
       })
@@ -501,7 +503,7 @@ describe('SessionStore', () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.closeJournal(session.id)
     await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const replay = vi.spyOn(Journal.prototype, 'readAll')
     const opening = vi.spyOn(fresh, 'openJournal')
     try {
@@ -521,7 +523,7 @@ describe('SessionStore', () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.closeJournal(session.id)
     await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const opened = await fresh.openJournal(session.id)
     const replay = vi.spyOn(opened, 'readAll')
     try {
@@ -546,7 +548,7 @@ describe('SessionStore', () => {
     async (kind) => {
       await store.append(session.id, { type: 'session.created', session })
       await store.closeJournal(session.id)
-      const fresh = kind === 'cached' ? store : new SessionStore({ rootDir })
+      const fresh = kind === 'cached' ? store : new SessionStore({ storage: 'jsonl', rootDir })
       if (kind === 'listed') await fresh.listSessions()
       if (kind === 'loaded') await fresh.load(session.id)
       const open = vi.spyOn(fs, 'open')
@@ -564,7 +566,7 @@ describe('SessionStore', () => {
   it('shares and caches positive head reads until the session is destroyed', async () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.closeJournal(session.id)
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const open = vi.spyOn(fs, 'open')
     expect(
       await Promise.all([
@@ -577,7 +579,7 @@ describe('SessionStore', () => {
     expect(open).toHaveBeenCalledTimes(1)
     await fresh.destroy(session.id)
     expect(await fresh.exists(session.id)).toBe(false)
-    const replacement = new SessionStore({ rootDir })
+    const replacement = new SessionStore({ storage: 'jsonl', rootDir })
     await replacement.append(session.id, { type: 'session.created', session })
     await replacement.closeJournal(session.id)
     open.mockClear()
@@ -606,7 +608,7 @@ describe('SessionStore', () => {
       }
       return text
     })
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const listing = fresh.listSessions()
     try {
       await reading
@@ -633,7 +635,7 @@ describe('SessionStore', () => {
       })
       await store.closeJournal(id)
     }
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     await fresh.listSessions()
     const listing = vi.spyOn(fresh, 'listSessions')
     expect(await fresh.currentHelmSession()).toBe('aria2')
@@ -669,7 +671,7 @@ describe('SessionStore', () => {
       const open = vi.spyOn(fs, 'open')
       if (failure !== 'invalid-head')
         open.mockRejectedValueOnce(Object.assign(new Error('Busy head'), { code: failure }))
-      const fresh = new SessionStore({ rootDir })
+      const fresh = new SessionStore({ storage: 'jsonl', rootDir })
       const [row] = await fresh.listSessions()
       expect(row).toMatchObject({ id: session.id, title: session.title })
       expect(row).not.toHaveProperty('lead')
@@ -688,7 +690,9 @@ describe('SessionStore', () => {
         leadIdentityRead: true,
       })
       open.mockClear()
-      expect(await new SessionStore({ rootDir }).listSessions()).toEqual([finalRow])
+      expect(await new SessionStore({ storage: 'jsonl', rootDir }).listSessions()).toEqual([
+        finalRow,
+      ])
       expect(open).not.toHaveBeenCalled()
     },
   )
@@ -699,7 +703,7 @@ describe('SessionStore', () => {
     const journal = join(rootDir, session.id, 'journal.0000.jsonl')
     await writeFile(journal, '{broken}\n' + (await fs.readFile(journal, 'utf8')))
     await writeFile(join(rootDir, session.id, 'index.json'), '{bad')
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const open = vi.spyOn(fresh, 'openJournal')
     const replay = vi.spyOn(Journal.prototype, 'readAll')
     expect(await fresh.listSessions()).toEqual([])
@@ -721,7 +725,7 @@ describe('SessionStore', () => {
       return readdir(path, options)
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    await expect(new SessionStore({ rootDir }).listSessions()).rejects.toThrow(
+    await expect(new SessionStore({ storage: 'jsonl', rootDir }).listSessions()).rejects.toThrow(
       'Saved sessions could not be read.',
     )
     expect(warn).toHaveBeenCalledWith(
@@ -792,7 +796,7 @@ describe('SessionStore', () => {
       )
       return events
     })
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     try {
       expect((await fresh.listSessions())[0]?.title).toBe(session.title)
       expect(
@@ -843,7 +847,7 @@ describe('SessionStore', () => {
     legacy['botId'] = 'bot_ada'
     await writeFile(indexPath, JSON.stringify(legacy), 'utf8')
 
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const [row] = await fresh.listSessions()
     expect(row?.id).toBe(session.id)
     expect(row).not.toHaveProperty('botId')
@@ -876,14 +880,14 @@ describe('SessionStore', () => {
 
     // Cold reader: the preview lives in the index, so it survives a restart
     // without replaying the journal behind it.
-    const cold = new SessionStore({ rootDir })
+    const cold = new SessionStore({ storage: 'jsonl', rootDir })
     expect((await cold.listSessions())[0]?.lastMessagePreview).toBe('Read the file and fixed it.')
   })
 
   it('destroy removes the journal directory entirely', async () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.destroy(session.id)
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const model = await fresh.load(session.id)
     expect(model.session).toBeNull()
   })
@@ -891,7 +895,7 @@ describe('SessionStore', () => {
   it('reopens journals across store instances (persistence)', async () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.closeJournal(session.id)
-    const second = new SessionStore({ rootDir })
+    const second = new SessionStore({ storage: 'jsonl', rootDir })
     const model = await second.load(session.id)
     expect(model.session?.id).toBe(session.id)
   })
@@ -910,7 +914,7 @@ describe('SessionStore', () => {
     expect(listed[0]?.pinned).toBe(true)
 
     // Cold reader: flags survive via replay and land in a fresh sidecar.
-    const cold = new SessionStore({ rootDir })
+    const cold = new SessionStore({ storage: 'jsonl', rootDir })
     const again = await cold.listSessions()
     expect(again[0]?.archived).toBe(true)
     expect(again[0]?.pinned).toBe(true)
@@ -947,7 +951,7 @@ describe('SessionStore', () => {
 
     // The stale version forces one authoritative replay that repairs to the
     // current index version.
-    const fresh = new SessionStore({ rootDir })
+    const fresh = new SessionStore({ storage: 'jsonl', rootDir })
     const list = await fresh.listSessions()
     expect(list).toHaveLength(1)
     expect(list[0]?.title).toBe('Test session')
@@ -1016,7 +1020,7 @@ describe('SessionStore', () => {
     expect(spy).not.toHaveBeenCalled()
 
     await store.closeJournal(session.id)
-    expect(await new SessionStore({ rootDir }).load(session.id)).toEqual(after)
+    expect(await new SessionStore({ storage: 'jsonl', rootDir }).load(session.id)).toEqual(after)
   })
 
   it('caches the schema-parsed event so memory matches a replay', async () => {
@@ -1036,7 +1040,7 @@ describe('SessionStore', () => {
     const live = await store.load(session.id)
     expect(live.messages[0]?.parts).toEqual([image])
     await store.closeJournal(session.id)
-    expect(await new SessionStore({ rootDir }).load(session.id)).toEqual(live)
+    expect(await new SessionStore({ storage: 'jsonl', rootDir }).load(session.id)).toEqual(live)
   })
 
   it('waits for an in-flight append before serving the cached model', async () => {

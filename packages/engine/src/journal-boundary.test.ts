@@ -73,7 +73,7 @@ describe('journal line boundaries', () => {
         createdAt: 1,
         updatedAt: 1,
       }
-      const store = new SessionStore({ rootDir: dir })
+      const store = new SessionStore({ storage: 'jsonl', rootDir: dir })
       await store.append(session.id, { type: 'session.created', session })
       await store.closeJournal(session.id)
       const path = join(dir, session.id, 'journal.0000.jsonl')

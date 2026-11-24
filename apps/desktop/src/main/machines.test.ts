@@ -152,7 +152,7 @@ async function realHost(label: string, copiedMachineId?: string): Promise<Runnin
       resolveWorkspace: async () => project,
     })
   }
-  let store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  let store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   let engine = makeEngine(store)
   const profile = join(dir, 'remote')
   const identity = loadMachineIdentity(profile, 'test-1')
@@ -213,7 +213,7 @@ async function realHost(label: string, copiedMachineId?: string): Promise<Runnin
       await gateway.close()
       await engine.shutdown()
       await store.closeJournal('sess_same')
-      store = new SessionStore({ rootDir: join(dir, 'sessions') })
+      store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
       engine = makeEngine(store)
       gateway = await start(port)
       Object.assign(host, { store, engine, gateway })
@@ -613,7 +613,7 @@ describe('Machines with two real gateways and engines', () => {
     expect(await machines.remove(machineB)).toEqual({ removed: true })
     expect(b.gateway.pairing.devices()).toEqual([])
     expect(readFileSync(join(profile, 'machines.json'), 'utf8')).not.toContain(machineB)
-  // Two engines, git fixtures, restart and PTY cleanup run below normal priority under the gate.
+    // Two engines, git fixtures, restart and PTY cleanup run below normal priority under the gate.
   }, 90_000)
 
   it('rejects version mismatch before a pairing request and missing capabilities before commands', async () => {

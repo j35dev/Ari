@@ -44,7 +44,7 @@ beforeEach(async () => {
   const workspace = await manager.isolate(parent, repo, 'child')
   if (workspace.kind !== 'managed-worktree') throw new Error('Expected isolated workspace')
   childPath = workspace.path
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append(parent.id, { type: 'session.created', session: parent })
   await store.append('child', {
     type: 'session.created',

@@ -10,7 +10,7 @@ import { Engine } from './engine'
 
 it('disabling stops Aria cleanly, keeps its queued words, and leaves project work running', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-experiment-'))
-  const store = new SessionStore({ rootDir: dir })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   const registry = new DriverRegistry()
   let enabled = true
   const finish = new Map<string, () => void>()

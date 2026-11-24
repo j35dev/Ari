@@ -46,7 +46,7 @@ const ask = {
 beforeEach(async () => {
   seq = 0
   dir = await mkdtemp(join(tmpdir(), 'ari-launch-options-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   await store.append('aria', {
     type: 'session.created',
     session: { ...base, id: 'aria', projectId: HELM_PROJECT_ID },

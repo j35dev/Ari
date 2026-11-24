@@ -266,7 +266,7 @@ it.each(['codex', 'acp'] as const)(
   '%s retains an uncertain runtime inbox identity across service reconstruction without resend',
   async (transport) => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-steering-receipt-'))
-    const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const fixture = wire(transport, 'timeout')
     const registry = new DriverRegistry()
     registry.register({ kind: 'codex', create: fixture.create })
@@ -325,7 +325,7 @@ it.each(['codex', 'acp'] as const)(
       vi.useRealTimers()
       expect(engine.hasLiveTurn('worker')).toBe(true)
       expect(await runtime.service.invoke('aria', 'session.message', params)).toEqual(await receipt)
-      replay = new SessionStore({ rootDir: join(dir, 'sessions') })
+      replay = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
       const reconstructed = new AgentControlService({ ...runtime.service.host, store: replay })
       expect(await reconstructed.invoke('aria', 'session.message', params)).toEqual(await receipt)
       const pending = runtime.service as AgentControlService & {

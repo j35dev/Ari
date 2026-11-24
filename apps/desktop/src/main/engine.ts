@@ -161,15 +161,6 @@ export interface CheckpointCapturer {
 }
 
 /** Upper bound on stored checkpoints per session before oldest are pruned. */
-const MAX_CHECKPOINTS_PER_SESSION = 50
-/**
- * How long a turn waits on one snapshot step. Snapshots are best-effort, but a
- * git child whose pipes never close (an LFS filter, say) left the turn waiting
- * forever, and every later turn queued behind it.
- */
-const CHECKPOINT_TIMEOUT_MS = 60_000
-type CaptureResult<T> = { ok: true; value: T } | { ok: false; error: { message: string } }
-
 export interface EngineDeps {
   /** Dynamic application experiment setting; ordinary sessions never consult it. */
   ariaEnabled?: () => boolean
@@ -177,9 +168,9 @@ export interface EngineDeps {
   registry: DriverRegistry
   /** Delivers a journal event to live subscribers of that session. */
   publish: (sessionId: string, event: JournalEvent) => void
-  /** Checkpoint source; defaults to the real GitService. */
+  /** @deprecated Automatic Git checkpoints have been removed. */
   git?: CheckpointCapturer
-  /** Overrides how long a turn waits on one snapshot step (tests). */
+  /** @deprecated Automatic Git checkpoints have been removed. */
   checkpointTimeoutMs?: number
   /**
    * Maps a session's projectId to a workspace folder. Absent for tests: the
@@ -730,22 +721,6 @@ export class Engine {
       return { accepted: false, reason: decision.reason }
     }
     if (model.session) admissionGuard?.(model.session)
-    if (command.type === 'checkpoint.revert') {
-      // Revert before journaling `checkpoint.reverted`: a failed revert keeps
-      // the checkpoint and reaches the caller as a rejection.
-      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
-      const ws = model.session === null ? null : await this.workspace(model.session)
-      if (ref === undefined || ws === null) {
-        return { accepted: false, reason: 'checkpoint workspace is unavailable' }
-      }
-      const { GitService } = await import('@ari/engine/git')
-      const result = await new GitService().revertToRef(ws, ref)
-      if (!result.ok) {
-        log.error('checkpoint revert failed', { error: result.error.message })
-        return { accepted: false, reason: `revert failed: ${result.error.message}` }
-      }
-    }
-
     // A `message.enqueue` decided with no active turn is promoted to a turn
     // start (see decideCommand), so the turn lifecycle keys off the decision
     // and never off the command type.
@@ -1165,68 +1140,12 @@ export class Engine {
       )
       return
     }
-    // Bracket the turn with a checkpoint when the workspace is a git repo
-    // (PLAN §3). captureCheckpoint returns null outside repos; failures are
-    // non-fatal — checkpoints are best-effort.
-    const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
-    const captured = await this.#bounded(
-      git.captureCheckpoint(workspacePath, session.id, turnId),
-      'Turn snapshot',
-    )
-    if (captured.ok && captured.value !== null) {
-      const model = await this.#deps.store.load(session.id)
-      const baseline = model.sessionBaselineRef
-        ? undefined
-        : git.pinSessionBaseline &&
-          (await this.#bounded(
-            git.pinSessionBaseline(
-              workspacePath,
-              session.id,
-              model.checkpoints[0]?.gitRef ?? captured.value,
-            ),
-            'Session baseline',
-          ))
-      if (baseline && !baseline.ok)
-        log.warn('session baseline capture failed', { error: baseline.error.message })
-      await this.#append(session.id, {
-        type: 'checkpoint.captured',
-        turnId,
-        gitRef: captured.value,
-        ...(baseline?.ok ? { baselineRef: baseline.value } : {}),
-      })
-      // M8.10: cap stored checkpoints per session. Pruning is event-sourced
-      // (checkpoint.pruned folds the projection) and best-effort. The
-      // projection lists checkpoints in capture order, so this turn's is last.
-      const prune = git.pruneCheckpoints?.bind(git)
-      if (prune) {
-        const model = await this.#deps.store.load(session.id)
-        const pruned = await this.#bounded(
-          prune(
-            workspacePath,
-            session.id,
-            model.checkpoints.map((c) => c.turnId),
-            MAX_CHECKPOINTS_PER_SESSION,
-          ),
-          'Checkpoint pruning',
-        )
-        if (pruned.ok) {
-          for (const ref of pruned.value) {
-            const turnId = ref.slice(ref.lastIndexOf('/') + 1)
-            if (turnId.length > 0) {
-              await this.#append(session.id, { type: 'checkpoint.pruned', turnId, gitRef: ref })
-            }
-          }
-        }
-      }
-    }
-
     let adapter
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
     let inboxMessageIds: string[] = []
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
-        await this.#captureTurnEnd(session.id, turnId)
         return
       }
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
@@ -1327,7 +1246,6 @@ export class Engine {
         }),
       )
       await this.#settle(session.id, turnId, 'error', String(e))
-      await this.#captureTurnEnd(session.id, turnId)
       return
     }
 
@@ -1356,7 +1274,6 @@ export class Engine {
       await adapter.dispose()
       await this.#releaseProviderConnection(session.id, contextSeq)
       if (this.#closing) await this.#settle(session.id, turnId, 'interrupted', null)
-      await this.#captureTurnEnd(session.id, turnId)
       return
     }
 
@@ -1704,9 +1621,8 @@ export class Engine {
     } finally {
       if (flushTimer !== null) clearTimeout(flushTimer)
     }
-    // The reply reads as done as soon as it ends; process teardown and the end
-    // snapshot follow. Disposal still fences the snapshot against late provider
-    // writes, and the next turn on this session waits for both (#turnTasks).
+    // The reply reads as done as soon as it ends; the next turn still waits
+    // for provider teardown so an old process cannot mutate its new context.
     try {
       // Opening a thread does not prove the prompt reached the provider.
       // Output or a completed turn acknowledges delivery, including ref-less CLIs.
@@ -1749,45 +1665,6 @@ export class Engine {
         error: String(error),
       })
     }
-    await this.#captureTurnEnd(session.id, turnId)
-  }
-
-  /** Settles a snapshot step as failed once it outlives the deadline. */
-  async #bounded<T>(work: Promise<CaptureResult<T>>, what: string): Promise<CaptureResult<T>> {
-    const ms = this.#deps.checkpointTimeoutMs ?? CHECKPOINT_TIMEOUT_MS
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const deadline = new Promise<CaptureResult<T>>((resolve) => {
-      timer = setTimeout(() => {
-        const message = `${what} did not finish within ${Math.round(ms / 1000)}s`
-        log.warn('snapshot step abandoned', { what, ms })
-        resolve({ ok: false, error: { message } })
-      }, ms)
-    })
-    try {
-      return await Promise.race([work, deadline])
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  async #captureTurnEnd(sessionId: string, turnId: string): Promise<void> {
-    const model = await this.#deps.store.load(sessionId)
-    const checkpoint = model.checkpoints.find((entry) => entry.turnId === turnId)
-    if (!model.session || !checkpoint || checkpoint.endRef || checkpoint.endError) return
-    const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
-    if (!git.captureTurnEnd) return
-    const cwd = await this.workspace(model.session)
-    const captured = cwd
-      ? await this.#bounded(git.captureTurnEnd(cwd, sessionId, turnId), 'Turn-end snapshot')
-      : null
-    const gitRef = captured?.ok ? captured.value : null
-    const error = gitRef
-      ? null
-      : captured && !captured.ok
-        ? captured.error.message
-        : 'Turn-end snapshot is unavailable.'
-    if (error) log.warn('turn-end checkpoint capture failed', { sessionId, turnId, error })
-    await this.#append(sessionId, { type: 'checkpoint.completed', turnId, gitRef, error })
   }
 
   async #settle(
@@ -2045,9 +1922,13 @@ export class Engine {
   /** Live tail: replays the journal, then forwards appended events. */
   async replaySession(sessionId: string): Promise<JournalEvent[]> {
     const events: JournalEvent[] = []
-    await this.replaySessionChunks(sessionId, (chunk) => {
-      events.push(...chunk)
-    })
+    await this.replaySessionChunks(
+      sessionId,
+      (chunk) => {
+        events.push(...chunk)
+      },
+      { compact: false },
+    )
     return events
   }
 
@@ -2059,7 +1940,12 @@ export class Engine {
   async replaySessionChunks(
     sessionId: string,
     onChunk: (events: JournalEvent[]) => void,
+    options: { compact?: boolean } = {},
   ): Promise<void> {
+    if (options.compact !== false) {
+      for await (const events of this.#deps.store.readConversationChunks(sessionId)) onChunk(events)
+      return
+    }
     const journal = await this.#deps.store.openJournal(sessionId)
     for await (const chunk of journal.readByChunk()) {
       const events = chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : []))

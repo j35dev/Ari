@@ -111,6 +111,8 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('assistant.parts.appended'),
     messageId: z.string(),
     parts: z.array(messagePartSchema),
+    /** Local full-history prose replacing this contiguous range of streamed events. */
+    replayFromSeq: z.number().int().nonnegative().optional(),
   }),
   eventBase.extend({
     type: z.literal('turn.started'),

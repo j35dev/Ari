@@ -2,7 +2,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { DriverRegistry } from '@ari/providers/registry'
 import { Engine, type CheckpointCapturer } from './engine'
@@ -12,7 +12,7 @@ let store: SessionStore
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-checkpoint-deadline-'))
-  store = new SessionStore({ rootDir: join(dir, '.journals') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, '.journals') })
   await store.append('sess_1', {
     type: 'session.created',
     session: {
@@ -34,11 +34,11 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
 })
 
-it('runs and settles turns when snapshot capture never returns', async () => {
+it('never starts a stalled snapshot when processing follow-up turns', async () => {
   // A git child whose pipes never close leaves both captures pending forever.
   const stalled: CheckpointCapturer = {
-    captureCheckpoint: () => new Promise(() => undefined),
-    captureTurnEnd: () => new Promise(() => undefined),
+    captureCheckpoint: vi.fn(() => new Promise<never>(() => undefined)),
+    captureTurnEnd: vi.fn(() => new Promise<never>(() => undefined)),
   }
   let started = 0
   const registry = new DriverRegistry()
@@ -71,6 +71,8 @@ it('runs and settles turns when snapshot capture never returns', async () => {
     await engine.quiesce('sess_1')
   }
   expect(started).toBe(2)
+  expect(stalled.captureCheckpoint).not.toHaveBeenCalled()
+  expect(stalled.captureTurnEnd).not.toHaveBeenCalled()
   const model = await store.load('sess_1')
   expect(model.activeTurnId).toBeNull()
   expect(model.checkpoints).toEqual([])

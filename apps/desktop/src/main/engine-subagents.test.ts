@@ -82,7 +82,7 @@ afterEach(async () => {
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), 'ari-subagents-'))
   scratch.push(dir)
-  const store = new SessionStore({ rootDir: dir })
+  const store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   await store.append(SESSION_ID, {
     type: 'session.created',
     session: {
@@ -218,7 +218,7 @@ it('journals a subagent’s work under its parent by task, durably and apart fro
     closed = true
 
     // A fresh store, as after an app restart, replays the same journal.
-    const reopened = new SessionStore({ rootDir: h.dir })
+    const reopened = new SessionStore({ storage: 'jsonl', rootDir: h.dir })
     const model = await reopened.load(SESSION_ID)
     expect(reopened.replayDiagnostics(SESSION_ID).rejectedCount).toBe(0)
     const parentParts = model.messages.flatMap((message) => message.parts)
