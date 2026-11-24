@@ -7,6 +7,71 @@ import {
 } from './background-task'
 
 describe('foldBackgroundTask', () => {
+  it('joins explicitly bound native and launch records, preserving metadata and first start', () => {
+    let tasks: BackgroundTask[] = []
+    tasks = foldBackgroundTask(
+      tasks,
+      {
+        taskId: 'native',
+        providerItemId: 'native',
+        providerThreadId: 'thread',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'running',
+        model: 'model',
+      },
+      1,
+    )
+    tasks = foldBackgroundTask(
+      tasks,
+      {
+        taskId: 'call',
+        providerItemId: 'call',
+        providerThreadId: 'thread',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'running',
+        prompt: 'Inspect the fixture.',
+      },
+      2,
+    )
+    tasks = foldBackgroundTask(
+      tasks,
+      {
+        taskId: 'other-thread',
+        providerItemId: 'call',
+        providerThreadId: 'other',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'running',
+      },
+      3,
+    )
+    expect(tasks).toHaveLength(3)
+    tasks = foldBackgroundTask(
+      tasks,
+      {
+        taskId: 'native',
+        providerItemId: 'call',
+        providerThreadId: 'thread',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'completed',
+        result: 'Done.',
+      },
+      4,
+    )
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0]).toMatchObject({
+      id: 'native',
+      startedAt: 1,
+      endedAt: 4,
+      prompt: 'Inspect the fixture.',
+      model: 'model',
+      result: 'Done.',
+    })
+    expect(tasks[1]?.id).toBe('other-thread')
+  })
   it('keeps the first start and end times while later reports change the rest', () => {
     let tasks: BackgroundTask[] = []
     tasks = foldBackgroundTask(

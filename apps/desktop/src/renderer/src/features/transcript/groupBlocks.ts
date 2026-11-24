@@ -126,8 +126,9 @@ export function groupBlocks(
   turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
   previous?: GroupedRow[],
   subagentCalls?: ReadonlySet<string>,
+  groupProgress = false,
 ): GroupedRow[] {
-  const rows = buildRows(blocks, turnDiffs, subagentCalls)
+  const rows = buildRows(blocks, turnDiffs, subagentCalls, groupProgress)
   if (previous === undefined || previous.length === 0) return rows
   const prior = new Map(previous.map((row) => [row.key, row]))
   return rows.map((row) => {
@@ -163,6 +164,7 @@ function buildRows(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
   subagentCalls?: ReadonlySet<string>,
+  groupProgress = false,
 ): GroupedRow[] {
   const rows: GroupedRow[] = []
   let run: TranscriptBlock[] = []
@@ -206,7 +208,27 @@ function buildRows(
     run = []
   }
 
-  for (const block of blocks) {
+  // Only confirmed intermediate narration is folded: the latest/final prose
+  // stays visible. Errors, notices, child handoffs and turn boundaries stop a run.
+  const toolAhead = new Set<number>()
+  let upcomingTurn: string | null = null
+  if (groupProgress)
+    for (let index = blocks.length - 1; index >= 0; index--) {
+      const block = blocks[index]!
+      if (
+        block.role !== 'assistant' ||
+        (block.kind !== 'markdown' && !isActivityBlock(block)) ||
+        isSubagentCall(block, subagentCalls)
+      )
+        upcomingTurn = null
+      else {
+        if (upcomingTurn !== (block.turnId ?? null)) upcomingTurn = null
+        if (block.kind === 'tool-call' && block.turnId) upcomingTurn = block.turnId
+        if (upcomingTurn) toolAhead.add(index)
+      }
+    }
+  for (const [index, block] of blocks.entries()) {
+    if (run.length && run[0]?.turnId !== block.turnId) flush()
     if (block.callId !== undefined && subagents.has(block.callId)) {
       if (block.kind !== 'tool-call') continue
       flush()
@@ -218,6 +240,16 @@ function buildRows(
         ...(result ? { result } : {}),
       })
     } else if (isActivityBlock(block)) {
+      run.push(block)
+    } else if (
+      groupProgress &&
+      block.kind === 'markdown' &&
+      block.role === 'assistant' &&
+      block.turnId &&
+      run.length > 0 &&
+      hasToolTraffic(run) &&
+      toolAhead.has(index)
+    ) {
       run.push(block)
     } else {
       flush()
@@ -284,7 +316,7 @@ export function summarizeToolRun(
     }
 
     const result = call.callId ? resultsByCallId.get(call.callId) : undefined
-    if (!result) summary.pending += 1
+    if (!result || result.isPartial) summary.pending += 1
     else if (result.isError) summary.errors += 1
   }
   summary.edited = editedPaths.size + editedUnknown

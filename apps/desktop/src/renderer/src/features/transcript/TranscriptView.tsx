@@ -212,12 +212,13 @@ export function TranscriptView({
       turnDiffs,
       groupedRef.current,
       subagentCalls,
+      chatStyle !== 'terminal',
     )
     return insertProviderSwitchRows(
       insertDelegationRows(groupedRef.current, delegations ?? []),
       providerSwitches ?? [],
     )
-  }, [messages, turnDiffs, delegations, providerSwitches, subagentCalls])
+  }, [messages, turnDiffs, delegations, providerSwitches, subagentCalls, chatStyle])
   // A task card sits below the burst that spawned it, so while a turn waits on
   // its children the burst is no longer the last row. It is still the row the
   // turn is on, and the one that reads as live.
@@ -226,6 +227,11 @@ export function TranscriptView({
       if (rows[i]?.kind !== 'delegation' && rows[i]?.kind !== 'provider-switch') return i
     return -1
   }, [rows])
+  const activeRow = rows[activeIndex]
+  const activeTurnId =
+    activeRow && activeRow.kind !== 'delegation' && activeRow.kind !== 'provider-switch'
+      ? rowTurnId(activeRow)
+      : null
   // The last row of each turn, keyed by row key: where its diff card attaches.
   const turnEnds = useMemo(() => {
     const ends = new Map<string, string>()
@@ -498,7 +504,19 @@ export function TranscriptView({
                   }
                   readAloud={readAloud}
                   regenerateDisabled={regenerateDisabled}
-                  active={running && index === activeIndex}
+                  active={
+                    running &&
+                    (index === activeIndex ||
+                      (row.kind === 'tool-group' &&
+                        rowTurnId(row) !== null &&
+                        rowTurnId(row) === activeTurnId &&
+                        row.calls.some(
+                          (call) =>
+                            !call.callId ||
+                            !row.resultsByCallId.get(call.callId) ||
+                            row.resultsByCallId.get(call.callId)?.isPartial === true,
+                        )))
+                  }
                   terminal={chatStyle === 'terminal'}
                   onDiffComment={onDiffComment}
                   onRetryTurnDiff={onRetryTurnDiff}

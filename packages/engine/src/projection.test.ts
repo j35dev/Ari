@@ -25,6 +25,48 @@ function ev(seq: number, partial: UnstampedEvent): JournalEvent {
 }
 
 describe('session projection', () => {
+  it('retains only a running native child’s approval after parent settlement, until the child stops', () => {
+    const state = projectEvents([
+      ev(1, { type: 'turn.started', turnId: 'turn' }),
+      ev(2, {
+        type: 'background.task.updated',
+        taskId: 'call',
+        nativeTaskId: 'native',
+        providerItemId: 'call',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'running',
+      }),
+      ev(3, {
+        type: 'approval.requested',
+        approvalId: 'root',
+        toolName: 'Bash',
+        summaryJson: '{}',
+        options: [],
+      }),
+      ev(4, {
+        type: 'approval.requested',
+        approvalId: 'child',
+        taskId: 'native',
+        toolName: 'Bash',
+        summaryJson: '{}',
+        options: [],
+      }),
+      ev(5, { type: 'turn.settled', turnId: 'turn', stopReason: 'completed', errorMessage: null }),
+    ])
+    expect(state.pendingApprovals.map((a) => a.approvalId)).toEqual(['child'])
+    const stopped = applyEvent(
+      state,
+      ev(6, {
+        type: 'background.task.updated',
+        taskId: 'call',
+        kind: 'subagent',
+        label: 'Fixture',
+        status: 'stopped',
+      }),
+    )
+    expect(stopped.pendingApprovals).toEqual([])
+  })
   it('does not regress confirmed delivery, consumption or request resolution under stale updates', () => {
     const message = {
       messageId: 'inbox',

@@ -110,10 +110,13 @@ export class HistoryJournal {
   }
 
   /** One native sub-agent's transcript, in journal order; never part of the session's messages. */
-  subagentParts(taskId: string): MessagePart[] {
+  subagentParts(taskId: string, launchCallId?: string): MessagePart[] {
     const events: Extract<JournalEvent, { type: 'background.task.parts.appended' }>[] = []
     for (const event of this.#events.values())
-      if (event.type === 'background.task.parts.appended' && event.taskId === taskId)
+      if (
+        event.type === 'background.task.parts.appended' &&
+        (event.taskId === taskId || event.taskId === launchCallId)
+      )
         events.push(event)
     const parts: MessagePart[] = []
     for (const event of events.sort((a, b) => a.seq - b.seq)) pushMessageParts(parts, event.parts)

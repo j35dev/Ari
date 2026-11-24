@@ -17,8 +17,18 @@ import { slashCommandListSchema } from './slash-commands'
  * output is mapped onto this union in `@ari/providers`; the engine and UI
  * never see provider-specific shapes.
  */
-const textDeltaSchema = z.object({ type: z.literal('text-delta'), text: z.string() })
-const thinkingDeltaSchema = z.object({ type: z.literal('thinking-delta'), text: z.string() })
+const textDeltaSchema = z.object({
+  type: z.literal('text-delta'),
+  text: z.string(),
+  streamId: z.string().optional(),
+  replace: z.boolean().optional(),
+})
+const thinkingDeltaSchema = z.object({
+  type: z.literal('thinking-delta'),
+  text: z.string(),
+  streamId: z.string().optional(),
+  replace: z.boolean().optional(),
+})
 const toolStartedSchema = z.object({
   type: z.literal('tool-started'),
   callId: z.string(),
@@ -31,12 +41,18 @@ const toolCompletedSchema = z.object({
   resultJson: z.string(),
   isError: z.boolean(),
 })
+const toolProgressSchema = z.object({
+  type: z.literal('tool-progress'),
+  callId: z.string(),
+  resultJson: z.string(),
+})
 
 /** What a native sub-agent did; it belongs in the sub-agent's transcript, not the parent's. */
 export const subagentActivitySchema = z.discriminatedUnion('type', [
   textDeltaSchema,
   thinkingDeltaSchema,
   toolStartedSchema,
+  toolProgressSchema,
   toolCompletedSchema,
 ])
 export type SubagentActivity = z.infer<typeof subagentActivitySchema>
@@ -57,6 +73,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     name: z.string().min(1),
   }),
   toolStartedSchema,
+  toolProgressSchema,
   toolCompletedSchema,
   /**
    * Output of a native sub-agent (Claude Code's Agent/Task tool), keyed by the
@@ -128,6 +145,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('background-task'),
+    nativeTaskId: z.string().optional(),
     providerThreadId: z.string().optional(),
     providerTurnId: z.string().optional(),
     providerItemId: z.string().optional(),

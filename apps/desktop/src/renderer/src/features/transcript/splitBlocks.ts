@@ -72,6 +72,7 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
         callId: part.callId,
         resultJson: part.resultJson,
         isError: part.isError,
+        ...(part.isPartial !== undefined ? { isPartial: part.isPartial } : {}),
         ...meta,
       }
     case 'image':
@@ -115,6 +116,7 @@ function sameBlock(a: TranscriptBlock, b: TranscriptBlock): boolean {
     a.argsJson === b.argsJson &&
     a.resultJson === b.resultJson &&
     a.isError === b.isError &&
+    a.isPartial === b.isPartial &&
     a.messageId === b.messageId &&
     a.messageCreatedAt === b.messageCreatedAt &&
     a.isLastOfMessage === b.isLastOfMessage &&
@@ -148,6 +150,10 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
     const blocks: TranscriptBlock[] = []
     let mergeIndex: number | null = null
     let mergeKind: 'markdown' | 'thinking' | null = null
+    // Public prose and private activity are independent lanes. A private chunk
+    // between "sub" and "scription" must not turn one reply into two rows.
+    let textLane: number | null = null
+    let thinkingLane: number | null = null
     // A message's images render as one thumbnail strip, not one row per
     // file; user messages are journaled whole, so the run never grows later.
     let imageStart: number | null = null
@@ -165,6 +171,8 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
       })
       mergeIndex = blocks.length - 1
       mergeKind = null
+      textLane = null
+      thinkingLane = null
       imageStart = null
       imageRun = []
     }
@@ -179,9 +187,33 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
           size: part.size,
         })
         mergeKind = null
+        textLane = null
+        thinkingLane = null
         return
       }
       flushImages()
+      const notice =
+        part.type === 'text' && (ERROR_MARKER.test(part.text) || NOTICE_MARKER.test(part.text))
+      if (
+        message.role === 'assistant' &&
+        !notice &&
+        (part.type === 'text' || part.type === 'thinking')
+      ) {
+        const lane = part.type === 'text' ? textLane : thinkingLane
+        const target = lane === null ? undefined : blocks[lane]
+        if (target && (target.kind === 'markdown' || target.kind === 'thinking')) {
+          target.text = (target.text ?? '') + part.text
+          return
+        }
+        blocks.push(partToBlock(message, part, partIndex))
+        if (part.type === 'text') textLane = blocks.length - 1
+        else thinkingLane = blocks.length - 1
+        mergeIndex = blocks.length - 1
+        mergeKind = part.type === 'text' ? 'markdown' : 'thinking'
+        return
+      }
+      textLane = null
+      thinkingLane = null
       // An error note or a notice is its own block: the marker check lives in
       // partToBlock, but the merge must not swallow the part before it gets there.
       if (
@@ -212,7 +244,9 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
 
     // The message footer attaches to the final markdown or error-note block,
     // whichever part came last.
-    const last = blocks[blocks.length - 1]
+    let lastIndex = blocks.length - 1
+    while (lastIndex >= 0 && blocks[lastIndex]?.kind === 'thinking') lastIndex--
+    const last = blocks[lastIndex]
     if (
       message.role === 'assistant' &&
       last !== undefined &&
@@ -245,7 +279,7 @@ export function pendingToolCallIds(blocks: TranscriptBlock[]): Set<string> {
   const answered = new Set<string>()
   for (const block of blocks) {
     if (block.kind === 'tool-call' && block.callId) called.add(block.callId)
-    if (block.kind === 'tool-result' && block.callId) answered.add(block.callId)
+    if (block.kind === 'tool-result' && block.callId && !block.isPartial) answered.add(block.callId)
   }
   for (const callId of answered) called.delete(callId)
   return called

@@ -718,7 +718,7 @@ describe('TranscriptView tool bursts', () => {
     expect(screen.getByText('Ari Read')).toBeInTheDocument()
   })
 
-  it('keeps the live row open across the turn, then folds it once the turn settles', async () => {
+  it('keeps live activity compact across the turn while retaining its current-action headline', async () => {
     const { rerender } = render(
       createElement(TranscriptView, {
         sessionId: 'sess_1',
@@ -729,12 +729,12 @@ describe('TranscriptView tool bursts', () => {
 
     expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
       'aria-expanded',
-      'true',
+      'false',
     )
     expect(document.querySelector('[data-activity="working"]')).not.toBeNull()
     // Live, the body is the step timeline: the lone-call shortcut is a
     // settled-state affordance, so the row's shape cannot change mid-turn.
-    expect(screen.getByRole('button', { name: 'Reading src/a.ts' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reading src/a.ts' })).not.toBeInTheDocument()
 
     rerender(
       createElement(TranscriptView, {
@@ -748,7 +748,7 @@ describe('TranscriptView tool bursts', () => {
     // next message cannot make it flicker shut and open again.
     expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
       'aria-expanded',
-      'true',
+      'false',
     )
 
     const settled = await screen.findByRole('button', { name: 'Read a.ts · Read 1 file' })

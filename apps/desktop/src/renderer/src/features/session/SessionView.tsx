@@ -12,11 +12,16 @@ import { ChildSessionActivity } from './ChildSessionActivity'
 import { SubagentView } from './SubagentView'
 import { SubagentLinksContext } from '../transcript/SubagentRow'
 import { BackgroundWork, backgroundSummary } from './BackgroundWork'
-import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
+import {
+  foldBackgroundTask,
+  hasRunningNativeTask,
+  type BackgroundTask,
+} from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { EffortGlyph, effortLevels } from './effort-level'
 import { PICKER, PickerOption, sentenceCase } from './TextPicker'
 import { ModeMark } from './mode-mark'
+import { driverLabel } from '../composer/agent-mark'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
 import type { DelegatedChild } from '../transcript/types'
@@ -220,8 +225,8 @@ function StoreTranscript({
 const EMPTY_BACKGROUND = { tasks: [] as BackgroundTask[], reporting: false, since: null }
 
 /** Who an approval is from when a Claude sub-agent asked, for its card. */
-function subagentRequester(task: BackgroundTask | undefined): string {
-  return task?.label ? `Claude subagent · ${task.label}` : 'Claude subagent'
+function subagentRequester(task: BackgroundTask | undefined, providerLabel: string): string {
+  return task?.label ? `${providerLabel} subagent · ${task.label}` : `${providerLabel} subagent`
 }
 const EMPTY_PROVIDER_CONTEXT = {
   hasMessages: false,
@@ -758,7 +763,11 @@ function SessionViewContent({
             setRunning(frame.liveTurnId !== null)
             if (frame.liveTurnId === null) {
               setPendingQuestion(null)
-              setApprovals([])
+              setApprovals(
+                model.pendingApprovals.filter((approval) =>
+                  hasRunningNativeTask(model.backgroundTasks ?? [], approval.taskId),
+                ),
+              )
               setTelemetry((prev) => ({ ...prev, startedAt: null }))
             }
           }
@@ -946,6 +955,8 @@ function SessionViewContent({
       }
       case 'background.task.updated':
         refreshTasksRef.current()
+        if (event.status !== 'running')
+          setApprovals(historyJournalRef.current?.controls().model.pendingApprovals ?? [])
         setBackground((prev) => ({
           ...prev,
           tasks: foldBackgroundTask(prev.tasks, event, event.at),
@@ -978,13 +989,12 @@ function SessionViewContent({
         }))
         break
       case 'turn.settled': {
-        // A settled turn owns no live prompts: stopping (or failing) while
-        // a question or approval is parked unmounts its card at once, so a
-        // later answer can never strand a card no dispatch can satisfy.
+        // Parent prompts end here; native children retain their own live
+        // permission callbacks on the parked provider connection.
         if (live) {
           setRunning(false)
           setPendingQuestion(null)
-          setApprovals([])
+          setApprovals(historyJournalRef.current?.controls().model.pendingApprovals ?? [])
           activeTurnIdRef.current = null
         }
         setTelemetry((t) => ({
@@ -1842,13 +1852,14 @@ function SessionViewContent({
       ),
     [background.tasks, background.since],
   )
+  const nativeProviderLabel = driverLabel(defaults.driverKind)
   const shellTasks = useMemo(
     () => background.tasks.filter((task) => task.kind === 'shell'),
     [background.tasks],
   )
   const subagentIdsKey = background.tasks
     .filter((task) => task.kind === 'subagent')
-    .map((task) => task.id)
+    .flatMap((task) => [task.id, ...(task.providerItemId ? [task.providerItemId] : [])])
     .join('\n')
   const subagentCalls = useMemo(
     () => new Set(subagentIdsKey.length > 0 ? subagentIdsKey.split('\n') : []),
@@ -1856,11 +1867,14 @@ function SessionViewContent({
   )
   const subagentLinks = useMemo(() => {
     const byId = new Map(background.tasks.map((task) => [task.id, task]))
+    for (const task of background.tasks)
+      for (const alias of [task.providerItemId, task.nativeTaskId]) if (alias) byId.set(alias, task)
     return {
       taskOf: (callId: string) => byId.get(callId),
-      open: (callId: string) => setOpenSubagent(callId),
+      open: (callId: string) => setOpenSubagent(byId.get(callId)?.id ?? callId),
+      providerLabel: nativeProviderLabel,
     }
-  }, [background.tasks])
+  }, [background.tasks, nativeProviderLabel])
   const subagentsLive = subagents.some((task) => task.status === 'running')
   // A parent whose turn ended keeps no Stop, yet its sub-agents may run on.
   const stopSubagents = useCallback(() => {
@@ -1878,13 +1892,17 @@ function SessionViewContent({
     if (delegatedWorkLive) stopChildren()
     if (subagentsLive) stopSubagents()
   }, [delegatedWorkLive, subagentsLive, stopChildren, stopSubagents])
-  const openSubagentTask =
-    openSubagent === null ? undefined : background.tasks.find((task) => task.id === openSubagent)
+  const openSubagentTask = openSubagent === null ? undefined : subagentLinks.taskOf(openSubagent)
   const openSubagentParts = useMemo(
     () =>
-      openSubagent === null ? [] : (historyJournalRef.current?.subagentParts(openSubagent) ?? []),
+      openSubagent === null
+        ? []
+        : (historyJournalRef.current?.subagentParts(
+            openSubagentTask?.id ?? openSubagent,
+            openSubagentTask?.providerItemId,
+          ) ?? []),
     // The revision moves whenever a sub-agent's transcript grows.
-    [openSubagent, subagentRevision],
+    [openSubagent, openSubagentTask?.id, openSubagentTask?.providerItemId, subagentRevision],
   )
 
   useEffect(() => {
@@ -2057,7 +2075,7 @@ function SessionViewContent({
                         requester={
                           a.taskId === undefined
                             ? undefined
-                            : subagentRequester(subagentLinks.taskOf(a.taskId))
+                            : subagentRequester(subagentLinks.taskOf(a.taskId), nativeProviderLabel)
                         }
                         onRespond={(answer) => respondApproval(a.approvalId, answer)}
                       />
@@ -2071,6 +2089,7 @@ function SessionViewContent({
                   activityOf={activityOf}
                   onOpen={onOpenSession}
                   subagents={subagents}
+                  nativeDriverKind={defaults.driverKind}
                   onOpenSubagent={setOpenSubagent}
                   // While this session runs, its own Stop reaches the children.
                   onStopAll={
@@ -2085,7 +2104,7 @@ function SessionViewContent({
                     <div className="border-t border-border" />
                   ) : null}
                   <BackgroundWork
-                    providerLabel={defaults.driverKind === 'claude' ? 'Claude' : undefined}
+                    providerLabel={nativeProviderLabel}
                     tasks={shellTasks}
                     reporting={background.reporting}
                     since={background.since}
@@ -2228,13 +2247,14 @@ function SessionViewContent({
       {openSubagent !== null ? (
         <SubagentView
           parentSession={{ id: sessionId, title: sessionTitleRef.current }}
-          taskId={openSubagent}
+          taskId={openSubagentTask?.id ?? openSubagent}
           task={openSubagentTask}
           parts={openSubagentParts}
           onBack={() => setOpenSubagent(null)}
           onStop={!running && subagentsLive ? stopSubagents : undefined}
           stopping={stoppingSubagents}
           chatStyle={engineSettings?.appearance.chatStyle ?? 'conversation'}
+          providerLabel={nativeProviderLabel}
         />
       ) : null}
       <div

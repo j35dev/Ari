@@ -16,6 +16,22 @@ const TASK: BackgroundTask = {
 }
 
 describe('subagentMessages', () => {
+  it('reconciles SDK stream chunks in the child without splitting a word', () => {
+    const messages = subagentMessages(
+      'parent',
+      'agent',
+      { ...TASK, status: 'running', result: null },
+      [
+        { type: 'text', text: 'sub', streamId: 'sdk-text' },
+        { type: 'thinking', text: 'opaque', streamId: 'sdk-private' },
+        { type: 'text', text: 'scription', streamId: 'sdk-text' },
+      ],
+    )
+    expect(messages[1]?.parts.filter((part) => part.type === 'text')).toEqual([
+      { type: 'text', text: 'subscription', streamId: 'sdk-text' },
+    ])
+    expect(messages[1]?.turnId).toBe('agent')
+  })
   it('reads as the parent’s ask, then the work, ending in the result once', () => {
     const messages = subagentMessages('parent', 'agent', TASK, [
       { type: 'text', text: 'Looking.' },

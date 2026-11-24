@@ -151,11 +151,14 @@ describe('resolveAcpLaunch', () => {
     const launch = resolveAcpLaunch(kind, { cliBinaryPath: command }, ENV)
     expect(launch).toMatchObject({ label: `${kind} (native ACP)`, command, args })
     expect(probeLaunch(launch!)).toEqual(launch)
-    expect(describeTransport(kind, command, ENV)).toMatchObject({ mode: 'acp' })
+    expect(describeTransport(kind, command, ENV)).toMatchObject({
+      mode: kind === 'qoder' ? 'sdk' : 'acp',
+    })
   })
 
   it('reports ACP-only transports unavailable when ACP is disabled', () => {
     process.env['ARI_ACP_QODER'] = '0'
+    process.env['ARI_QODER_TRANSPORT'] = 'acp'
     try {
       expect(resolveAcpLaunch('qoder', { cliBinaryPath: '/opt/qodercli' }, ENV)).toBeNull()
       expect(describeTransport('qoder', '/opt/qodercli', ENV)).toMatchObject({
@@ -165,6 +168,7 @@ describe('resolveAcpLaunch', () => {
       })
     } finally {
       delete process.env['ARI_ACP_QODER']
+      delete process.env['ARI_QODER_TRANSPORT']
     }
   })
 
