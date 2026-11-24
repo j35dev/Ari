@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Titlebar } from './Titlebar'
@@ -117,5 +117,31 @@ describe('Titlebar workspace tools', () => {
     rerender(<Titlebar onExpandSidebar={onExpand} />)
     await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
     expect(onExpand).toHaveBeenCalledOnce()
+  })
+
+  it('reserves the native button row plus the maximized overflow on Windows', async () => {
+    stubUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+    const invoke = vi.fn().mockResolvedValue({ overflow: 30 })
+    Object.defineProperty(window, 'ari', {
+      configurable: true,
+      value: { invoke, subscribe: vi.fn() },
+    })
+    try {
+      const { container } = render(<Titlebar onTogglePanel={() => undefined} />)
+      const spacer = () =>
+        container.querySelector('header[data-ari-part="titlebar"] > div.shrink-0')
+      // 138px of buttons plus the 30px the maximized window runs past the display.
+      await waitFor(() => {
+        expect(spacer()).toHaveStyle({ width: '168px' })
+      })
+      // Re-measured on resize, so restoring the window drops back to 138px.
+      invoke.mockResolvedValue({ overflow: 0 })
+      window.dispatchEvent(new Event('resize'))
+      await waitFor(() => {
+        expect(spacer()).toHaveStyle({ width: '138px' })
+      })
+    } finally {
+      Reflect.deleteProperty(window, 'ari')
+    }
   })
 })
