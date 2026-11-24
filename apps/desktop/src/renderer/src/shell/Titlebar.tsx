@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { FolderOpen, Monitor, PanelLeftOpen, PanelRight } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import { cx, iconButton, iconButtonActive } from '../lib/recipes'
@@ -66,6 +66,27 @@ export function Titlebar({
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
+  // When maximized, Windows pins the native overlay buttons to the visible display edge
+  // while the window's bounds run past it; reserve that overflow on top of the button row.
+  const [captionOverflow, setCaptionOverflow] = useState(0)
+  useEffect(() => {
+    if (platform !== 'win32') return
+    let live = true
+    const measure = (): void => {
+      void rpc
+        .invoke('window.captionMetrics')
+        .then((result) => {
+          if (live) setCaptionOverflow(result.overflow)
+        })
+        .catch(() => undefined)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => {
+      live = false
+      window.removeEventListener('resize', measure)
+    }
+  }, [platform])
 
   return (
     <header
@@ -179,9 +200,10 @@ export function Titlebar({
             </svg>
           </WindowButton>
         </div>
-      ) : // Reserve space for native Windows overlay buttons.
+      ) : // Reserve space for native Windows overlay buttons; a maximized window
+      // runs past the display edge the buttons are pinned to, so add that overflow.
       platform === 'win32' ? (
-        <div className="shrink-0" style={{ width: 138 }} />
+        <div className="shrink-0" style={{ width: 138 + captionOverflow }} />
       ) : (
         <div className="w-2" />
       )}

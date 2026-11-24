@@ -1,11 +1,12 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen } from 'electron'
 import type { WebContents } from 'electron'
 import { oklchToHex } from '@ari/ui/color'
 import { themeOf } from '@ari/ui/themes'
 import type { Theme } from '@ari/ui/themes'
 import { resolveCustomTheme } from '@ari/ui/custom-themes'
 import { appDisplayName } from './dev-instance'
+import { captionOverflow } from './caption-overflow'
 import { attachAppShellNavigationGuard } from './app-shell-guard'
 import { getSettingsStore } from './store'
 import type { RpcRegistry } from './rpc-registry'
@@ -26,6 +27,12 @@ export function registerWindowControls(contents: WebContents, registry: RpcRegis
   registry.register('window.close', () => {
     BrowserWindow.fromWebContents(contents)?.close()
     return { done: true }
+  })
+  registry.register('window.captionMetrics', () => {
+    const win = BrowserWindow.fromWebContents(contents)
+    if (!win || process.platform !== 'win32' || !win.isMaximized()) return { overflow: 0 }
+    const bounds = win.getBounds()
+    return { overflow: captionOverflow(bounds, screen.getDisplayMatching(bounds).bounds) }
   })
 }
 
