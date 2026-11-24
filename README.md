@@ -1,34 +1,49 @@
 # Ari
 
+[![Stars](https://img.shields.io/github/stars/j35dev/Ari?style=social)](https://github.com/j35dev/Ari/stargazers) [![Forks](https://img.shields.io/github/forks/j35dev/Ari)](https://github.com/j35dev/Ari/forks) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![Release](https://img.shields.io/github/v/release/j35dev/Ari)](https://github.com/j35dev/Ari/releases) [![Verify](https://github.com/j35dev/Ari/actions/workflows/verify.yml/badge.svg)](https://github.com/j35dev/Ari/actions/workflows/verify.yml) [![Contributors](https://img.shields.io/github/contributors/j35dev/Ari)](https://github.com/j35dev/Ari/graphs/contributors)
+
+**Ari is an open, local-first agent development environment (ADE)** for Windows, macOS and Linux.
+
+Ari is a fast, beautiful control surface for the coding agents already installed and
+authenticated on your machine: Claude Code, Codex, OpenCode, Grok, Pi, Hermes. A built-in
+harness (**Ari Core**) turns any OpenAI/Anthropic/Ollama-compatible endpoint into a full
+coding agent. No accounts. No OAuth flows. No cloud middleman: sessions, journals and
+checkpoints live on your disk.
+
+<img width="1917" height="1015" alt="Ari desktop" src="https://github.com/user-attachments/assets/4bfd4225-4628-4a35-bcb9-08db759068d9" />
+
+> Status: **pre-alpha, under active construction.**
+
 Aria, the shared coordinator chat, is an optional experiment. Enable it in
 **Settings → Experimental → Aria**. It is off by default; chat history and saved
 choices are preserved. General dictation works independently of this setting.
 
-[![Stars](https://img.shields.io/github/stars/j35dev/Ari?style=social)](https://github.com/j35dev/Ari/stargazers) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+## Contents
 
-**Ari** — an open, local-first **agent development environment (ADE)** for Windows, macOS and Linux.
-
-Ari is a fast, beautiful control surface for the coding agents already installed and
-authenticated on your machine — Claude Code, Codex, OpenCode, Grok, Pi, Hermes — plus a
-built-in harness (**Ari Core**) that turns any OpenAI/Anthropic/Ollama-compatible endpoint
-into a full coding agent. No accounts. No OAuth flows. No cloud middleman: sessions,
-journals and checkpoints live on your disk.
-
-<img width="1917" height="1015" alt="image" src="https://github.com/user-attachments/assets/4bfd4225-4628-4a35-bcb9-08db759068d9" />
-
-> Status: **pre-alpha, under active construction.**
+- [Why Ari](#why-ari)
+- [Features](#features)
+- [Supported agents](#supported-agents)
+- [Quick start](#quick-start)
+- [Remote control from your phone](#remote-control-from-your-phone)
+- [Build from source](#build-from-source)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Star history](#star-history)
+- [Project status](#project-status)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Why Ari
 
-Coding agents became powerful CLIs — and typing into one terminal at a time is the
+Coding agents became powerful CLIs, and typing into one terminal at a time is the
 bottleneck. Ari wraps the agents you already have in a real desktop environment:
 
 - **Drive many agents at once.** Every installed CLI is detected automatically and driven
   through its native protocol (ACP where available, structured CLI fallbacks elsewhere).
-  Your existing logins are reused — Ari never asks you to re-authenticate.
+  Your existing logins are reused: Ari never asks you to re-authenticate.
 - **A real terminal room.** A full-page terminal workspace with herdr-style panes: split
   any pane right or down, drag dividers (or nudge them with arrow keys), and run Claude
-  Code in one pane, Codex in another, while everything stays live in the background.
+  Code in one pane while Codex runs in another, everything staying live in the background.
 - **Sessions you can trust.** Every turn is appended to an event-sourced journal with
   git-backed checkpoints, so you can review, revert a single turn, or resume exactly
   where an agent left off.
@@ -39,7 +54,7 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 
 | Area       | What you get                                                                                                                                 |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes — auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                 |
+| Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes: auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                 |
 | Terminals  | Full-page pane workspace: binary splits, draggable/keyboard dividers, agent-CLI launcher, per-pane scrollback that survives remounts         |
 | Sessions   | Event-sourced journals, realtime streaming deltas, session resume, edit-and-resend                                                           |
 | References | `@file` mentions with a ranked popup; drag files from the explorer or Changes list straight into the prompt                                  |
@@ -74,7 +89,7 @@ levels from the installed runtime. Qoder uses `qoder login`; Muse uses `muse log
 
 ## Quick start
 
-Prerequisites: **Node ≥ 22.13** (pnpm needs it) and **pnpm** — CI and the
+Prerequisites: **Node ≥ 22.13** (pnpm needs it) and **pnpm**. CI and the
 lockfile are pinned to the version in `packageManager`, so `corepack enable`
 picks the right one up for you.
 
@@ -100,7 +115,7 @@ offered. Point Ari at a project folder and start a session.
 
 A paired phone is a remote control for the desktop: it creates sessions, sends
 prompts and follow-ups, answers approvals with the provider's exact choices,
-interrupts turns, and watches the conversation — while the agents keep running
+interrupts turns, and watches the conversation, while the agents keep running
 on the computer. Closing the phone changes nothing about the work.
 
 Two independent ways to reach the desktop; neither needs the other:
@@ -116,7 +131,7 @@ Because both ends are on the tailnet, the phone can be on cellular while the
 computer is on home Wi-Fi.
 
 Every device is approved at the computer, by name and a short confirmation
-code, and each approval carries a project grant — a phone reaches only the
+code, and each approval carries a project grant: a phone reaches only the
 projects you picked, and revocation is immediate. The phone's key never leaves
 it: pairing stores a non-extractable browser key, not a password.
 
@@ -142,7 +157,7 @@ pnpm exec electron-builder --linux --x64     # AppImage + deb   (needs Linux)
 Native modules use the locked Node-API prebuilds; do not run `install-app-deps` or
 override the packaging configuration's disabled native rebuild.
 
-Bundles land in `dist/`. Code signing is scaffolded but optional — unsigned builds work;
+Bundles land in `dist/`. Code signing is scaffolded but optional: unsigned builds work;
 signing env vars (`CSC_LINK` / `CSC_KEY_PASSWORD`) are picked up automatically when set.
 
 ## Architecture
@@ -151,12 +166,12 @@ A pnpm monorepo of small, strict packages:
 
 | Package          | Role                                                                            |
 | ---------------- | ------------------------------------------------------------------------------- |
-| `@ari/contracts` | Zod schemas + typed RPC channel definitions — parse, don't validate twice       |
-| `@ari/shared`    | Result types, JSONL utilities, logger — the boring, load-bearing code           |
+| `@ari/contracts` | Zod schemas + typed RPC channel definitions: parse, don't validate twice        |
+| `@ari/shared`    | Result types, JSONL utilities, logger: the boring, load-bearing code            |
 | `@ari/ui`        | Design system: tokens, primitives, motion                                       |
 | `@ari/providers` | Driver registry: ACP transports, CLI adapters, detection, model catalogs        |
 | `@ari/engine`    | Sessions, event-sourced journals, git service (diffs, checkpoints, worktrees)   |
-| `@ari/ari-core`  | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent |
+| `@ari/ari-core`  | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent  |
 | `apps/desktop`   | The Electron shell: sandboxed renderer, typed IPC, React UI                     |
 
 Design invariants worth knowing before you dig in:
@@ -165,7 +180,7 @@ Design invariants worth knowing before you dig in:
   it, so replay is deterministic and resume is free.
 - **The renderer is sandboxed.** Every privileged operation is a typed RPC handled in the
   main process; the file explorer and editor are jailed to the workspace.
-- **One adapter interface.** Adding an agent means implementing one driver — detection,
+- **One adapter interface.** Adding an agent means implementing one driver: detection,
   transport and model catalog slot in around it.
 
 ## Development
@@ -180,13 +195,20 @@ pnpm format       # prettier write
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development and pull-request guidelines.
 
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=j35dev%2FAri&type=Date)](https://www.star-history.com/#j35dev/Ari)
+
+A star on the repo genuinely helps: it is how new users discover Ari, and it keeps
+the project visible while it is still moving fast.
+
 ## Project status
 
 Installers for each platform are available from [Releases](https://github.com/j35dev/Ari/releases).
 
 ## Contributing
 
-Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). For substantial
+Issues and PRs are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md). For substantial
 changes, open an issue first to discuss the scope. Keep diffs small, match the existing
 style, and make sure `pnpm verify` is green before pushing.
 
