@@ -7,6 +7,34 @@ function msg(id: string, parts: MessagePart[], role: Message['role'] = 'assistan
 }
 
 describe('splitBlocks', () => {
+  it('does not split a word into separate rows when private deltas interleave', () => {
+    const blocks = splitBlocks([
+      msg('qoder', [
+        { type: 'text', text: 'sub' },
+        { type: 'thinking', text: 'opaque fixture' },
+        { type: 'text', text: 'scription' },
+        { type: 'thinking', text: ' more' },
+      ]),
+    ])
+    expect(blocks.map((block) => block.kind)).toEqual(['markdown', 'thinking'])
+    expect(blocks[0]).toMatchObject({ key: 'qoder#0', text: 'subscription', isLastOfMessage: true })
+    expect(blocks[1]?.text).toBe('opaque fixture more')
+  })
+  it('keeps partial results pending until authoritative completion', () => {
+    const blocks = splitBlocks([
+      msg('pi', [
+        { type: 'tool-call', callId: 't', name: 'Bash', argsJson: '{}' },
+        {
+          type: 'tool-result',
+          callId: 't',
+          resultJson: 'running',
+          isError: false,
+          isPartial: true,
+        },
+      ]),
+    ])
+    expect(pendingToolCallIds(blocks)).toEqual(new Set(['t']))
+  })
   it('maps each part to a block with a stable msgId#partIndex key', () => {
     const blocks = splitBlocks([
       msg('m1', [
@@ -50,7 +78,7 @@ describe('splitBlocks', () => {
     after.slice(0, 3).forEach((block, index) => expect(block).toBe(before[index]))
   })
 
-  it('rebuilds a block that hands the message footer to a later one', () => {
+  it('keeps public prose and its footer together across private chunks', () => {
     const before = splitBlocks([msg('a1', [{ type: 'text', text: 'intro' }])])
     const after = splitBlocks(
       [
@@ -65,8 +93,9 @@ describe('splitBlocks', () => {
 
     expect(before[0]?.isLastOfMessage).toBe(true)
     expect(after[0]).not.toBe(before[0])
-    expect(after[0]?.isLastOfMessage).toBe(false)
-    expect(after[2]?.isLastOfMessage).toBe(true)
+    expect(after[0]?.text).toBe('introoutro')
+    expect(after[0]?.isLastOfMessage).toBe(true)
+    expect(after).toHaveLength(2)
   })
 
   it('rebuilds only the block whose text grew', () => {

@@ -38,6 +38,8 @@ export default defineConfig({
         external: [
           /^node:/,
           'electron',
+          // The Qoder SDK loads daemon/session resources relative to its package.
+          '@qoder-ai/qoder-agent-sdk',
           // Keep ws's guarded optional native peer loading at runtime. Vite's
           // development placeholder otherwise throws before Ari can start.
           'ws',

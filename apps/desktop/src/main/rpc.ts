@@ -140,6 +140,7 @@ import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
+import { QoderDriver, qoderSessionPool } from '@ari/providers/qoder'
 import { HermesDriver } from '@ari/providers/hermes'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { resolveLocalHtml } from './local-html'
@@ -1033,23 +1034,68 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
             candidate.kind === 'claude'
               ? new ClaudeCliDriver(detection.binaryPath)
               : (candidate.make?.(detection.binaryPath) ?? null)
-          if (launch === null && fallback === null) {
+          const useQoderSdk =
+            candidate.kind === 'qoder' && process.env['ARI_QODER_TRANSPORT'] !== 'acp'
+          if (launch === null && fallback === null && !useQoderSdk) {
             registry.unregister(candidate.kind)
             return
           }
+          const acpDriver = new AcpDriver(
+            candidate.kind,
+            launch,
+            fallback,
+            (wall) => publishAuthWall(candidate.kind, wall),
+            (session) => browserAcpServers(session),
+          )
           registry.register(
-            new AcpDriver(
-              candidate.kind,
-              launch,
-              fallback,
-              (wall) => publishAuthWall(candidate.kind, wall),
-              (session) => browserAcpServers(session),
-            ),
+            useQoderSdk
+              ? new QoderDriver(detection.binaryPath, {
+                  fallback: acpDriver,
+                  mcpServers: (session) =>
+                    Object.fromEntries(
+                      browserAcpServers(session).flatMap((server) =>
+                        'type' in server && server.type === 'http'
+                          ? [
+                              [
+                                server.name,
+                                {
+                                  type: 'http' as const,
+                                  url: server.url,
+                                  headers: Object.fromEntries(
+                                    server.headers.map((header) => [header.name, header.value]),
+                                  ),
+                                },
+                              ],
+                            ]
+                          : [],
+                      ),
+                    ),
+                  onAuthRequired: () =>
+                    publishAuthWall('qoder', {
+                      label: 'Qoder sign-in expired. Sign in again with the detected CLI.',
+                      logins: [
+                        {
+                          methodId: 'qoder-login',
+                          name: 'Sign in to Qoder',
+                          description: 'Use the CLI login to restore this account.',
+                          command: detection.binaryPath!,
+                          args: ['login'],
+                        },
+                      ],
+                    }),
+                })
+              : acpDriver,
           )
           log.info('driver registered', {
             kind: candidate.kind,
             version: detection.version,
-            transport: launch === null ? 'cli' : fallback === null ? 'acp' : 'acp+fallback',
+            transport: useQoderSdk
+              ? 'qoder-agent-sdk'
+              : launch === null
+                ? 'cli'
+                : fallback === null
+                  ? 'acp'
+                  : 'acp+fallback',
           })
         } catch (error) {
           log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
@@ -1424,14 +1470,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const firstRuntime = !agentRuntimeStarted
   agentRuntimeStarted = true
   const releaseProviderConnections = async (sessionId: string): Promise<void> => {
-    await Promise.all([acpSessionPool.release(sessionId), claudeSessionPool.release(sessionId)])
+    await Promise.all([
+      acpSessionPool.release(sessionId),
+      claudeSessionPool.release(sessionId),
+      qoderSessionPool.release(sessionId),
+    ])
   }
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
     publish: publishSessionEvent,
     releaseProviderConnection: releaseProviderConnections,
-    backgroundAdapter: (sessionId) => claudeSessionPool.controls(sessionId),
+    backgroundAdapter: (sessionId) =>
+      qoderSessionPool.controls(sessionId) ?? claudeSessionPool.controls(sessionId),
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
@@ -1503,12 +1554,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       list: () => getSessionStore().listSessions(),
       liveTurn: (id) => engine.hasLiveTurn(id),
       backgroundWork: (id) =>
-        claudeSessionPool.hasBackgroundWork(id) || acpSessionPool.hasBackgroundWork(id),
+        claudeSessionPool.hasBackgroundWork(id) ||
+        qoderSessionPool.hasBackgroundWork(id) ||
+        acpSessionPool.hasBackgroundWork(id),
       probesBusy: (kind) => providerProbes.busy(kind),
       release: async (id) => {
         if (
           engine.hasLiveTurn(id) ||
           claudeSessionPool.hasBackgroundWork(id) ||
+          qoderSessionPool.hasBackgroundWork(id) ||
           acpSessionPool.hasBackgroundWork(id)
         )
           return false
@@ -1535,7 +1589,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   shutdownTasks.push(() => providerUpdatesRef?.shutdown())
   // Agent connections outlive their turn so background shells and sub-agents
   // keep running; what they report between turns lands in the transcript.
-  for (const pool of [acpSessionPool, claudeSessionPool]) {
+  for (const pool of [acpSessionPool, claudeSessionPool, qoderSessionPool]) {
     pool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
     // A parked process that ends takes its background shells and sub-agents along.
     pool.onEnded = (sessionId) => {
@@ -1550,7 +1604,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // ACP dispose parks its transport; the process owner closes it before
     // waiting for the cancelled turn's stream and again after late startup.
     await engine.shutdown(async () => {
-      await Promise.all([acpSessionPool.shutdownAll(), claudeSessionPool.shutdownAll()])
+      await Promise.all([
+        acpSessionPool.shutdownAll(),
+        claudeSessionPool.shutdownAll(),
+        qoderSessionPool.shutdownAll(),
+      ])
     })
   })
   const sessionDeps: SessionCreateDeps = {
@@ -2153,7 +2211,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           stopChildren: async (sessionId) => ({
             stopped:
               (await (await controlReady).supervisor.stopBelow(sessionId)) +
-              claudeSessionPool.stopSubagents(sessionId),
+              claudeSessionPool.stopSubagents(sessionId) +
+              qoderSessionPool.stopSubagents(sessionId),
           }),
           resume: {
             get: async (sessionId) => {
@@ -2486,7 +2545,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.stopChildren', async ({ sessionId }) => ({
     stopped:
       (await (await controlReady).supervisor.stopBelow(sessionId)) +
-      claudeSessionPool.stopSubagents(sessionId),
+      claudeSessionPool.stopSubagents(sessionId) +
+      qoderSessionPool.stopSubagents(sessionId),
   }))
 
   r.register('session.resume.schedule', async ({ sessionId, at }) => {
@@ -3453,7 +3513,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         // Without a parked agent process nothing can still be running the
         // background work the journal shows open (Ari restarted, say).
         const settled =
-          acpSessionPool.has(sessionId) || claudeSessionPool.has(sessionId)
+          acpSessionPool.has(sessionId) ||
+          claudeSessionPool.has(sessionId) ||
+          qoderSessionPool.has(sessionId)
             ? Promise.resolve()
             : engine
                 .releaseBackgroundTasks(sessionId, 'The agent process ended')

@@ -9,7 +9,11 @@ import type { ApprovalOption } from '@ari/contracts/common'
 import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts/message'
 import type { QueuedMessage } from '@ari/contracts/attachments'
 import type { Session, SessionStatus } from '@ari/contracts/session'
-import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
+import {
+  foldBackgroundTask,
+  hasRunningNativeTask,
+  type BackgroundTask,
+} from '@ari/contracts/background-task'
 
 /** Omit that distributes over unions — required for discriminated events. */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -242,11 +246,12 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       }
       next.activeTurnId = null
       next.streamingMessageId = null
-      // A settled turn owns no live prompts: stopping (or failing) while a
-      // question or approval is parked must not leave it answerable forever.
-      // `input.respond` after settle rejects, and replay never resurrects it.
+      // Parent prompts end with the turn. A running native child still owns
+      // its permission callback on the parked provider connection.
       next.pendingInputs = []
-      next.pendingApprovals = []
+      next.pendingApprovals = state.pendingApprovals.filter((approval) =>
+        hasRunningNativeTask(state.backgroundTasks ?? [], approval.taskId),
+      )
       break
 
     case 'usage.recorded':
@@ -379,9 +384,17 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       next.providerHandoffPending = true
       break
 
-    case 'background.task.updated':
+    case 'background.task.updated': {
       next.backgroundTasks = foldBackgroundTask(state.backgroundTasks ?? [], event, event.at)
+      const task = next.backgroundTasks.find((entry) => entry.id === event.taskId)
+      if (task && task.status !== 'running')
+        next.pendingApprovals = state.pendingApprovals.filter(
+          (approval) =>
+            approval.taskId === undefined ||
+            ![task.id, task.providerItemId, task.nativeTaskId].includes(approval.taskId),
+        )
       break
+    }
 
     // A sub-agent's transcript is read from the journal by its own view; the
     // parent's messages never carry it.

@@ -288,6 +288,17 @@ export function describeTransport(
   cliBinaryPath: string,
   detectEnv: DetectEnvironment = realDetectEnvironment(),
 ): ProviderTransport {
+  if (
+    kind === 'qoder' &&
+    (detectEnv.vars?.['ARI_QODER_TRANSPORT'] ?? process.env['ARI_QODER_TRANSPORT']) !== 'acp'
+  ) {
+    return {
+      mode: 'sdk',
+      label: 'Qoder Agent SDK',
+      available: true,
+      note: 'Uses the detected CLI. Existing ACP sessions retain their transport; compatibility fallback is limited to startup failures.',
+    }
+  }
   const launch = resolveAcpLaunch(kind, { cliBinaryPath }, detectEnv)
   if (launch === null) {
     if (isAcpOnlyKind(kind)) {

@@ -231,6 +231,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
    */
   eventBase.extend({
     type: z.literal('background.task.updated'),
+    nativeTaskId: z.string().optional(),
     providerThreadId: z.string().optional(),
     providerTurnId: z.string().optional(),
     providerItemId: z.string().optional(),

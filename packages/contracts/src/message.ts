@@ -55,11 +55,15 @@ export type WakePriority = z.infer<typeof wakePrioritySchema>
 export const textPartSchema = z.object({
   type: z.literal('text'),
   text: z.string(),
+  streamId: z.string().optional(),
+  replace: z.boolean().optional(),
 })
 
 export const thinkingPartSchema = z.object({
   type: z.literal('thinking'),
   text: z.string(),
+  streamId: z.string().optional(),
+  replace: z.boolean().optional(),
 })
 
 export const toolCallPartSchema = z.object({
@@ -75,6 +79,7 @@ export const toolResultPartSchema = z.object({
   callId: z.string(),
   resultJson: z.string(),
   isError: z.boolean(),
+  isPartial: z.boolean().optional(),
 })
 
 /**
@@ -118,14 +123,32 @@ export type Message = z.infer<typeof messageSchema>
  */
 export function pushMessageParts(parts: MessagePart[], incoming: readonly MessagePart[]): void {
   for (const part of incoming) {
-    if (part.type === 'tool-call') {
+    if ((part.type === 'text' || part.type === 'thinking') && part.streamId !== undefined) {
+      const index = parts.findIndex(
+        (previous) => previous.type === part.type && previous.streamId === part.streamId,
+      )
+      const previous = parts[index]
+      if (index >= 0 && previous && (previous.type === 'text' || previous.type === 'thinking')) {
+        parts[index] = { ...part, text: part.replace ? part.text : previous.text + part.text }
+        continue
+      }
+    }
+    if (part.type === 'tool-call' || part.type === 'tool-result') {
       let index = parts.length - 1
       while (index >= 0) {
         const prev = parts[index]
-        if (prev?.type === 'tool-call' && prev.callId === part.callId) break
+        if (prev?.type === part.type && prev.callId === part.callId) break
         index--
       }
       if (index >= 0) {
+        const previous = parts[index]
+        if (
+          part.type === 'tool-result' &&
+          part.isPartial &&
+          previous?.type === 'tool-result' &&
+          !previous.isPartial
+        )
+          continue
         parts[index] = part
         continue
       }

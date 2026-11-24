@@ -52,26 +52,33 @@ export function ActivityStep({
   call,
   result,
   expanded = false,
+  active,
 }: {
   call: TranscriptBlock
   result: TranscriptBlock | undefined
   expanded?: boolean
+  active?: boolean
 }) {
   const [openOverride, setOpenOverride] = useState<boolean | null>(null)
   const open = openOverride ?? expanded
+  const pending = (result === undefined || result.isPartial === true) && active !== false
   const step = useMemo(() => {
-    const { kind, verb, target } = describeToolCall(call, result === undefined)
+    const { kind, verb, target } = describeToolCall(call, pending)
     const nameOnly = target.length === 0
     return {
       kind,
       verb,
       target,
       nameOnly,
-      label: nameOnly ? namelessStepLabel(call, result === undefined) : `${verb} ${target}`,
+      label: nameOnly ? namelessStepLabel(call, pending) : `${verb} ${target}`,
       stat: kind === 'edit' && !nameOnly ? editDiffStat(call.argsJson) : null,
-      hint: resultHint(kind, result?.resultJson, result?.isError === true),
+      hint: result?.isPartial
+        ? active === false
+          ? 'Output incomplete'
+          : 'Streaming output'
+        : resultHint(kind, result?.resultJson, result?.isError === true),
     }
-  }, [call, result])
+  }, [call, result, pending, active])
   const { verb, target, nameOnly, label, stat, hint } = step
   const Icon = KIND_ICON[step.kind]
   const failed = result?.isError === true
@@ -105,7 +112,7 @@ export function ActivityStep({
           ) : null}
           {hint !== null ? <span className="min-w-0 truncate">{hint}</span> : null}
           {failed ? <span className="ari-status" data-status="error" aria-hidden="true" /> : null}
-          {result === undefined ? (
+          {pending ? (
             <span className="ari-status" data-status="working" aria-hidden="true" />
           ) : null}
         </span>

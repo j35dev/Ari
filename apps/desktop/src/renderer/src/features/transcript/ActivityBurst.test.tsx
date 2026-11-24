@@ -79,20 +79,20 @@ describe('ActivityBurst collapsed', () => {
     expect(toggle.querySelector('.ari-status')).toBeNull()
   })
 
-  it('opens the live timeline and names the newest call while the turn is on this row', () => {
+  it('keeps live work compact while naming the newest call', () => {
     const { container } = render(<ActivityBurst row={row(RUN.slice(0, 5))} active />)
 
     const toggle = screen.getByRole('button', {
-      expanded: true,
+      expanded: false,
       name: /^Working: Editing desktop\/main\.ts/,
     })
     expect(toggle.querySelector('.ari-status[data-status="working"]')).not.toBeNull()
     expect(toggle).toHaveTextContent('Editing')
-    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ran git status --short' })).not.toBeInTheDocument()
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
   })
 
-  it('stays open on a call that has come back, so chained calls never fold the row', () => {
+  it('stays compact between chained calls without losing its live headline', () => {
     // An answered call whose turn is still running is the state that used to
     // slam the row shut in the gap between every pair of chained calls.
     const answered = [
@@ -103,14 +103,14 @@ describe('ActivityBurst collapsed', () => {
     const { container } = render(<ActivityBurst row={row(answered)} active />)
 
     const toggle = screen.getByRole('button', {
-      expanded: true,
+      expanded: false,
       name: /^Working: Running git status --short/,
     })
     expect(toggle).toHaveTextContent('Running')
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
   })
 
-  it('hides tool errors from the collapsed headline', () => {
+  it('keeps tool errors visible in the collapsed headline', () => {
     const { container } = render(
       <ActivityBurst
         row={row([call('c1', 'Bash', '{"command":"pnpm verify"}'), result('c1', true)])}
@@ -120,7 +120,7 @@ describe('ActivityBurst collapsed', () => {
 
     const toggle = screen.getByRole('button', { expanded: false })
     expect(toggle).toHaveAccessibleName('Ran pnpm verify · Ran 1 command')
-    expect(toggle.textContent).not.toMatch(/failed/)
+    expect(toggle.textContent).toMatch(/1 failed/)
     expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
     expect(container.querySelector('[data-activity="failed"]')).toBeNull()
   })

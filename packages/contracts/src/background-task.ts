@@ -15,6 +15,8 @@ export interface ProviderTaskIdentity {
   providerThreadId?: string
   providerTurnId?: string
   providerItemId?: string
+  /** Harness task/agent ID when it differs from the call that launched it. */
+  nativeTaskId?: string
 }
 
 /** Longest sub-agent prompt or result a report carries; the rest is cut. */
@@ -81,7 +83,29 @@ export function foldBackgroundTask(
   report: BackgroundTaskReport,
   at: number,
 ): BackgroundTask[] {
-  const previous = tasks.find((task) => task.id === report.taskId)
+  // A provider can announce its native task before it knows the launch-call
+  // binding. A later report with the exact same provider item joins those
+  // records, without inferring identity from labels or arrival order.
+  const matching = tasks.filter(
+    (task) =>
+      task.id === report.taskId ||
+      (report.providerItemId !== undefined &&
+        task.providerItemId === report.providerItemId &&
+        task.providerThreadId === report.providerThreadId &&
+        task.kind === report.kind),
+  )
+  const previous = matching.reduce<BackgroundTask | undefined>(
+    (merged, task) =>
+      merged
+        ? {
+            ...merged,
+            ...task,
+            ...subagentDetails(merged, task),
+            startedAt: Math.min(merged.startedAt, task.startedAt),
+          }
+        : task,
+    undefined,
+  )
   const running = report.status === 'running'
   const next: BackgroundTask = {
     id: report.taskId,
@@ -91,6 +115,8 @@ export function foldBackgroundTask(
     ...(report.providerThreadId !== undefined ? { providerThreadId: report.providerThreadId } : {}),
     ...(report.providerTurnId !== undefined ? { providerTurnId: report.providerTurnId } : {}),
     ...(report.providerItemId !== undefined ? { providerItemId: report.providerItemId } : {}),
+    ...(previous?.nativeTaskId ? { nativeTaskId: previous.nativeTaskId } : {}),
+    ...(report.nativeTaskId !== undefined ? { nativeTaskId: report.nativeTaskId } : {}),
     kind: report.kind,
     label: report.label.length > 0 ? report.label : (previous?.label ?? ''),
     status: report.status,
@@ -100,7 +126,10 @@ export function foldBackgroundTask(
     updatedAt: at,
     endedAt: running ? null : previous?.endedAt != null ? previous.endedAt : at,
   }
-  const list = previous ? tasks.map((task) => (task === previous ? next : task)) : [...tasks, next]
+  const first = matching[0]
+  const list = first
+    ? tasks.flatMap((task) => (task === first ? [next] : matching.includes(task) ? [] : [task]))
+    : [...tasks, next]
   let excess = list.length - MAX_BACKGROUND_TASKS
   if (excess <= 0) return list
   // Finished tasks go first; running ones only when nothing else is left.
@@ -129,4 +158,19 @@ function subagentDetails(
 /** The tasks still running, oldest first. */
 export function runningBackgroundTasks(tasks: readonly BackgroundTask[]): BackgroundTask[] {
   return tasks.filter((task) => task.status === 'running')
+}
+
+/** Whether an explicitly identified native child still owns live work. */
+export function hasRunningNativeTask(
+  tasks: readonly BackgroundTask[],
+  id: string | undefined,
+): boolean {
+  return (
+    id !== undefined &&
+    tasks.some(
+      (task) =>
+        task.status === 'running' &&
+        (task.id === id || task.providerItemId === id || task.nativeTaskId === id),
+    )
+  )
 }

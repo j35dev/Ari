@@ -10,6 +10,7 @@ export interface SubagentLinks {
   taskOf: (callId: string) => BackgroundTask | undefined
   /** Opens the sub-agent's own view; absent where there is none to open. */
   open?: (callId: string) => void
+  providerLabel?: string
 }
 
 const NO_LINKS: SubagentLinks = { taskOf: () => undefined }
@@ -82,14 +83,21 @@ function callResult(resultJson: string | undefined): string | null {
  * The sub-agent's own work is in its view, which the row opens.
  */
 export function SubagentRow({ row }: { row: SubagentCallRow }) {
-  const { taskOf, open } = useContext(SubagentLinksContext)
+  const { taskOf, open, providerLabel = 'Claude' } = useContext(SubagentLinksContext)
   const callId = row.call.callId ?? ''
   const task = taskOf(callId)
   const args = callArgs(row.call.argsJson)
   const title = task?.label || args.description || 'Subagent'
   const type = task?.subagentType ?? args.subagentType ?? null
   const status: BackgroundTask['status'] | null =
-    task?.status ?? (row.result ? (row.result.isError ? 'failed' : 'completed') : null)
+    task?.status ??
+    (row.result
+      ? row.result.isPartial
+        ? 'running'
+        : row.result.isError
+          ? 'failed'
+          : 'completed'
+      : null)
   const result = task?.result ?? callResult(row.result?.resultJson)
   const said =
     status === 'running'
@@ -113,7 +121,9 @@ export function SubagentRow({ row }: { row: SubagentCallRow }) {
         {said}
       </span>
       <span className="flex shrink-0 items-center gap-2 text-xs text-fg-subtle">
-        <span className="truncate">{type ? `Claude subagent · ${type}` : 'Claude subagent'}</span>
+        <span className="truncate">
+          {type ? `${providerLabel} subagent · ${type}` : `${providerLabel} subagent`}
+        </span>
         {task && status === 'running' ? (
           <ElapsedSeconds startedAt={task.startedAt} />
         ) : task && task.endedAt !== null ? (
@@ -133,7 +143,7 @@ export function SubagentRow({ row }: { row: SubagentCallRow }) {
         <button
           type="button"
           onClick={() => open(callId)}
-          aria-label={`Open Claude subagent: ${title}`}
+          aria-label={`Open ${providerLabel} subagent: ${title}`}
           className={`${className} -mx-1.5 w-[calc(100%+0.75rem)] px-1.5 transition-colors hover:bg-fg/5`}
         >
           {body}

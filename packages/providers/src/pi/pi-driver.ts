@@ -1,6 +1,6 @@
 import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { mapPiLine } from './mapper'
+import { PiMessageMapper } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
@@ -57,7 +57,8 @@ export class PiDriver implements Driver {
     // pi reads piped stdin as its initial message before entering print mode.
     writeCliPrompt(child.stdin, promptWithAttachments(session))
 
-    const iterator = streamProcessEvents(child, mapPiLine, {
+    const mapper = new PiMessageMapper()
+    const iterator = streamProcessEvents(child, (line) => mapper.mapLine(line), {
       label: 'pi',
       stderrLog: (text) => log.debug('pi stderr', { text: text.slice(0, 500) }),
     })[Symbol.asyncIterator]()

@@ -73,12 +73,12 @@ export function activitySteps(parts: readonly ConversationPart[], live: boolean)
           input: null,
           output: readable(part.resultJson),
           failed: part.isError,
-          pending: false,
+          pending: part.isPartial === true,
         })
       else {
         step.output = readable(part.resultJson)
         step.failed = part.isError
-        step.pending = false
+        step.pending = part.isPartial === true
       }
     }
   }
