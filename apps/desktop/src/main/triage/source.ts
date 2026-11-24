@@ -1,5 +1,5 @@
 import { mkdir, access, realpath, readFile, appendFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, resolve, relative, sep, isAbsolute } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { GitService, ManagedWorkspaces } from '@ari/engine/git'
@@ -153,7 +153,12 @@ export class TriageSource {
   async assertFix(directory: string, item: TriageCase): Promise<string> {
     const path = join(directory, 'fix')
     const actual = await realpath(path)
-    if (actual.toLowerCase() !== resolve(path).toLowerCase())
+    // Resolve the workspace root as well: it may sit under a symlinked or
+    // short-named parent (macOS /var/folders, Windows 8.3 temp), so the
+    // lexical resolve() of `path` is not a stable reference point.
+    const home = await realpath(directory)
+    const rel = relative(home, actual)
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))
       throw new Error('The fix checkout moved outside its triage workspace.')
     if ((await this.run(path, ['rev-parse', '--show-toplevel'])) !== actual.replaceAll('\\', '/')) {
       // Git may preserve native separators on some builds.
