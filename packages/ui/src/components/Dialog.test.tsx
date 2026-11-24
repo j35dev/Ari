@@ -63,6 +63,28 @@ describe('Dialog', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it('keeps focus where the user put it when the dialog re-renders', async () => {
+    function Controlled() {
+      return (
+        <Dialog open onOpenChange={() => undefined}>
+          <Dialog.Content>
+            <Dialog.Title>Confirm</Dialog.Title>
+            <Dialog.Close>Cancel</Dialog.Close>
+            <button>Extra</button>
+          </Dialog.Content>
+        </Dialog>
+      )
+    }
+    const user = userEvent.setup()
+    const view = render(<Controlled />)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Extra' }))
+    view.rerender(<Controlled />)
+
+    expect(screen.getByRole('button', { name: 'Extra' })).toHaveFocus()
+  })
+
   it('cycles Tab within the panel without escaping it', async () => {
     const user = userEvent.setup()
     render(<Harness />)
