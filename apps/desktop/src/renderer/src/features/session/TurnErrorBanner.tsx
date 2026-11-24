@@ -3,6 +3,7 @@ import { ChevronRight, X } from 'lucide-react'
 import { cx, iconButton, outlineButton } from '../../lib/recipes'
 import { friendlyErrorText } from '../moment'
 import { classifyTurnError, UNCLASSIFIED_TITLE } from './turnError'
+import { requestTriage } from '../triage/events'
 
 export interface TurnResume {
   /** When the provider's exhausted usage window reopens; null when unknown. */
@@ -155,6 +156,13 @@ export function TurnErrorBanner({
           {message}
         </pre>
       ) : null}
+      <button
+        type="button"
+        className="ml-6 mt-1 text-xs text-fg-subtle hover:text-fg"
+        onClick={() => requestTriage(`An agent turn failed in Ari:\n\n${message}`)}
+      >
+        Report with Triage
+      </button>
     </div>
   )
 }

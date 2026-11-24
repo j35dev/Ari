@@ -19,6 +19,7 @@ import { activeTokenAt } from './active-token'
 import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
 import { SlashPopup } from './SlashPopup'
+import { requestTriage } from '../triage/events'
 import {
   ARI_SLASH_COMMANDS,
   TUI_ONLY_SLASH_COMMANDS,
@@ -107,6 +108,8 @@ export interface ComposerProps {
   onReady?: (input: HTMLTextAreaElement) => void
   /** Called with the message text and pending image files when the user sends. */
   onSend: (text: string, files: File[], images?: DraftImage[]) => boolean | void
+  /** Opens local triage with the session's current agent; standalone drafts use app defaults. */
+  onTriage?: (description: string) => boolean | void
   /** Waiting for preparation/dispatch; typing and Stop remain available. */
   sendPending?: boolean
   recoveries?: ComposerRecovery[]
@@ -213,6 +216,7 @@ const TOP_TAB = 'mx-3.5 border border-b-0 border-border-strong bg-bg'
  */
 export function Composer({
   onSend,
+  onTriage,
   onStop,
   running = false,
   queued = [],
@@ -555,6 +559,33 @@ export function Composer({
         return
       }
     }
+    if (invocation?.name === 'ari triage') {
+      if (remote) {
+        setCommandIssue(
+          'Ari Triage currently runs on this desktop. Use a local conversation to start triage.',
+        )
+        return
+      }
+      if (intents.length > 0 || images.length > 0) {
+        setCommandIssue(
+          'Open triage without attachments, then add screenshots in its conversation. Your attachments have been kept.',
+        )
+        return
+      }
+      if (invocation.args.length > 16_000) {
+        setCommandIssue(
+          'Keep the initial triage description under 16,000 characters. You can add more details in the triage conversation.',
+        )
+        return
+      }
+      const accepted = onTriage ? onTriage(invocation.args) : requestTriage(invocation.args)
+      if (accepted === false) return
+      setText('')
+      setCaret(0)
+      if (sessionId)
+        updateSessionDraftIntent(sessionId, (prev) => ({ ...prev, delivery: undefined }))
+      return
+    }
     const accepted = intents.some((image) => image.ref)
       ? onSend(trimmed, [...images], intents)
       : onSend(trimmed, [...images])
@@ -573,6 +604,8 @@ export function Composer({
     missingImages,
     sessionId,
     onSend,
+    onTriage,
+    remote,
     clear,
     setText,
     commands,
@@ -1086,6 +1119,11 @@ export function Composer({
             <p className="px-[18px] pb-2 text-xs text-fg-subtle">
               Your agent will build a theme for your library. Try /ari theme followed by a design
               idea.
+            </p>
+          )}
+          {/^\/ari[ \t]+triage(?:[ \t]|$)/i.test(text) && !commandMenuOpen && (
+            <p className="px-[18px] pb-2 text-xs text-fg-subtle">
+              Opens Ari Triage with your agent. Add what went wrong after /ari triage.
             </p>
           )}
           {commandIssue && (

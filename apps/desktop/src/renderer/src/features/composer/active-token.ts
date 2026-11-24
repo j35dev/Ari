@@ -14,7 +14,7 @@ const MENTION_TOKEN_RE = /(?:^|\s)(@[\w\\/.-]*)$/
 /**
  * A slash command is only a command at the very start of the draft, and only
  * while its name is being typed: the first space ends it, except after `ari`,
- * whose own command is the two words `ari theme`.
+ * whose own commands include `ari theme` and `ari triage`.
  */
 const COMMAND_TOKEN_RE = /^\/(?:ari )?\$?[\w:.@-]*$/i
 

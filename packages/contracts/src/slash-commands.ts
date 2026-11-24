@@ -22,9 +22,10 @@ export type SlashCommandSource = z.infer<typeof slashCommandSourceSchema>
  * How Ari runs a command once it is sent.
  * - `prompt-text`: the turn prompt is the command, verbatim; the provider expands it.
  * - `rpc`: Ari calls the provider's own method for it (Codex app-server).
+ * - `app`: Ari opens an application workflow instead of starting a provider turn.
  * - `unsupported`: listed so the user learns why it does nothing here; never sent.
  */
-export const slashCommandRunSchema = z.enum(['prompt-text', 'rpc', 'unsupported'])
+export const slashCommandRunSchema = z.enum(['prompt-text', 'rpc', 'app', 'unsupported'])
 export type SlashCommandRun = z.infer<typeof slashCommandRunSchema>
 
 export const slashCommandSchema = z.object({
@@ -53,6 +54,13 @@ export const ARI_SLASH_COMMANDS: readonly SlashCommand[] = Object.freeze([
     argumentHint: '<design idea>',
     source: 'ari',
     run: 'prompt-text',
+  },
+  {
+    name: 'ari triage',
+    description: 'Investigate an Ari issue with your agent, report it, or prepare a fix',
+    argumentHint: '[Ari issue]',
+    source: 'ari',
+    run: 'app',
   },
 ])
 
@@ -129,17 +137,17 @@ export interface SlashInvocation {
 
 // `$name` is how Codex names skills; its ACP adapter lists them that way.
 const SLASH_RE = /^\/(\$?[A-Za-z0-9][\w:.@-]*)(?:[ \t]+([\s\S]*))?$/
-const ARI_RE = /^\/ari[ \t]+theme(?:[ \t]+([\s\S]*))?$/i
+const ARI_RE = /^\/ari[ \t]+(theme|triage)(?:[ \t]+([\s\S]*))?$/i
 
 /**
  * Reads a message that is a slash command: `/name` at the very start, then
  * arguments after a space. Text that merely contains a slash (`/usr/bin`,
- * `see /docs`) is not one. Ari's `/ari theme` comes back as `ari theme`.
+ * `see /docs`) is not one. Ari's two-word commands retain their full name.
  */
 export function parseSlashCommand(text: string): SlashInvocation | null {
   const trimmed = text.replace(/^\s+/, '').replace(/\s+$/, '')
   const ari = ARI_RE.exec(trimmed)
-  if (ari) return { name: 'ari theme', args: (ari[1] ?? '').trim() }
+  if (ari) return { name: `ari ${ari[1]!.toLowerCase()}`, args: (ari[2] ?? '').trim() }
   const match = SLASH_RE.exec(trimmed)
   if (!match?.[1]) return null
   return { name: match[1], args: (match[2] ?? '').trim() }
