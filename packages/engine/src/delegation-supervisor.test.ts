@@ -93,7 +93,7 @@ const notices = async (id: string) =>
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-supervisor-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   policy = delegationSettingsSchema.parse({})
   waiting.clear()
   refuse.clear()

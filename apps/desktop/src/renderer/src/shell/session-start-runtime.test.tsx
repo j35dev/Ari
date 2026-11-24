@@ -41,7 +41,7 @@ it.each(['pointer', 'search Enter', 'Lead button'] as const)(
     dropDraftTextMemory()
     localStorage.clear()
     const dir = await mkdtemp(join(tmpdir(), 'ari-session-start-runtime-'))
-    const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
     const project: Project = {
       id: 'project',
       name: 'Demo',
@@ -275,7 +275,7 @@ it.each(['pointer', 'search Enter', 'Lead button'] as const)(
       expect(settled.lastTurn?.stopReason).toBe('completed')
       expect(settled.activeTurnId).toBeNull()
       expect(settled.providerSessionId).toBe(`fresh-${sessionId}`)
-      const disk = new SessionStore({ rootDir: join(dir, 'sessions') })
+      const disk = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
       try {
         expect((await disk.load(sessionId)).lastTurn?.stopReason).toBe('completed')
         expect(disk.replayDiagnostics(sessionId).rejectedCount).toBe(0)

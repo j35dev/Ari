@@ -43,7 +43,10 @@ beforeEach(async () => {
   const projects = new ProjectStore({ dir: ariRoot })
   await projects.load()
   await projects.add(projectPath)
-  deps = { sessions: new SessionStore({ rootDir: join(ariRoot, 'sessions') }), projects }
+  deps = {
+    sessions: new SessionStore({ storage: 'jsonl', rootDir: join(ariRoot, 'sessions') }),
+    projects,
+  }
 })
 
 afterEach(() => {

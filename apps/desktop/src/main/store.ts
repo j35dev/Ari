@@ -35,7 +35,7 @@ export function getHostingService(): HostingService {
   return hostingService
 }
 
-/** Root for all per-session journals: <userData>/sessions/<sessionId>/. */
+/** Conversation database and legacy per-session data live under <userData>/sessions/. */
 export function sessionsRoot(): string {
   return join(app.getPath('userData'), 'sessions')
 }

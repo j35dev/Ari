@@ -83,7 +83,7 @@ beforeEach(async () => {
   await writeFile(join(repo, 'file.txt'), 'base\n')
   git(repo, 'add', '.')
   git(repo, 'commit', '-qm', 'base')
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append('root', { type: 'session.created', session: root })
   workspaces = new ManagedWorkspaces(join(dir, 'workers'))
   seq = 0

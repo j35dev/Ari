@@ -65,7 +65,7 @@ beforeEach(async () => {
   projectId = project.id
   await projects.setDefaultAgent(projectId, saved)
   registryBefore = await readFile(join(dir, 'projects.json'), 'utf8')
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await store.append(caller.id, { type: 'session.created', session: caller })
   seq = 0
   catalog = available
@@ -121,7 +121,7 @@ afterEach(async () => {
 
 async function reload(): Promise<void> {
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   projects = new ProjectStore({ dir })
   await projects.load()
   host.store = store

@@ -24,7 +24,7 @@ const session = (id: string, parentSessionId?: string): Session => ({
 })
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-inbox-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   for (const row of [session('root'), session('a', 'root'), session('b', 'root'), session('other')])
     await store.append(row.id, { type: 'session.created', session: row })
   host = {
@@ -73,7 +73,7 @@ const busy = async (id: string) =>
   )
 const reload = async () => {
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   host.store = store
   service = new AgentControlService(host)
 }

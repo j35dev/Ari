@@ -200,11 +200,11 @@ describe('ReviewWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Split view' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Review scope: Pull requests' }))
-    await user.click(screen.getByRole('menuitemradio', { name: 'This session' }))
+    await user.click(screen.getByRole('menuitemradio', { name: /Working tree/ }))
     expect(screen.queryByTestId('requests')).not.toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledWith(
       'scm.review',
-      expect.objectContaining({ comparison: { kind: 'session' } }),
+      expect.objectContaining({ comparison: { kind: 'working-tree' } }),
     )
   })
 
@@ -267,9 +267,8 @@ describe('ReviewWorkspace', () => {
     expect(screen.queryByRole('button', { name: /Discard changes/ })).not.toBeInTheDocument()
   })
 
-  it('reverts to before the turn under review from the header', async () => {
+  it('resets a retired turn comparison and never offers checkpoint undo', async () => {
     turns = [{ turnId: 't1', stable: true }]
-    const user = userEvent.setup()
     render(
       <ToastProvider>
         <ReviewWorkspace
@@ -278,15 +277,11 @@ describe('ReviewWorkspace', () => {
         />
       </ToastProvider>,
     )
-    await user.click(await screen.findByRole('button', { name: 'Revert to before this turn' }))
-    expect(screen.getByText('Revert to before Turn 1?')).toBeInTheDocument()
+    await screen.findByText('a.ts:patch')
+    expect(
+      screen.queryByRole('button', { name: 'Revert to before this turn' }),
+    ).not.toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalledWith('command.dispatch', expect.anything())
-    await user.click(screen.getByRole('button', { name: 'Revert' }))
-    await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'checkpoint.revert', sessionId: 's', turnId: 't1' },
-      }),
-    )
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Review scope: Working tree' }),
@@ -294,7 +289,7 @@ describe('ReviewWorkspace', () => {
     )
   })
 
-  it('lists turns newest first in the scope menu', async () => {
+  it('does not request or offer legacy turn history in the scope menu', async () => {
     turns = [
       { turnId: 't1', stable: true },
       { turnId: 't2', stable: false },
@@ -303,26 +298,20 @@ describe('ReviewWorkspace', () => {
     render(<ReviewWorkspace scope={{ sessionId: 's' }} />)
     await screen.findByText('a.ts:patch')
     await user.click(screen.getByRole('button', { name: 'Review scope: Working tree' }))
-    const group = screen.getByRole('group', { name: 'Turns' })
-    const items = within(group).getAllByRole('menuitemradio')
-    expect(items.map((item) => item.textContent)).toEqual(['Turn 2unavailable', 'Turn 1'])
-    expect(items[0]).toBeDisabled()
-    expect(mocks.invoke).toHaveBeenCalledWith('session.load', { sessionId: 's' })
+    expect(screen.queryByRole('group', { name: 'Turns' })).not.toBeInTheDocument()
+    expect(mocks.invoke).not.toHaveBeenCalledWith('session.load', { sessionId: 's' })
   })
 
-  it('says a clean working tree is clean and offers the session view', async () => {
+  it('does not imply that a shared workspace has an isolated session baseline', async () => {
     files = []
-    const user = userEvent.setup()
     render(<ReviewWorkspace scope={{ sessionId: 's' }} />)
     expect(await screen.findByText('Working tree is clean.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: "Show this session's changes" }))
-    expect(mocks.invoke).toHaveBeenCalledWith(
-      'scm.review',
-      expect.objectContaining({ comparison: { kind: 'session' } }),
-    )
+    expect(
+      screen.queryByRole('button', { name: "Show this session's changes" }),
+    ).not.toBeInTheDocument()
   })
 
-  it('names a turn with no net changes', async () => {
+  it('shows the working tree for an obsolete turn selection with no changes', async () => {
     files = []
     turns = [{ turnId: 't1', stable: true }]
     render(
@@ -333,7 +322,7 @@ describe('ReviewWorkspace', () => {
         />
       </ToastProvider>,
     )
-    expect(await screen.findByText('No changes in this turn.')).toBeInTheDocument()
+    expect(await screen.findByText('Working tree is clean.')).toBeInTheDocument()
   })
 
   it('opens and reveals a file picked in the file tree', async () => {

@@ -718,7 +718,7 @@ describe('decideCommand', () => {
     ).toBe(true)
   })
 
-  it('accepts checkpoint.revert when a checkpoint exists for the turn', () => {
+  it('rejects retired checkpoint undo even when a legacy checkpoint exists', () => {
     let model = modelWithSession()
     model = previewDispatch(model, {
       accepted: true,
@@ -729,10 +729,9 @@ describe('decideCommand', () => {
       { type: 'checkpoint.revert', sessionId: 'sess_1', turnId: 't1' },
       ids,
     )
-    expect(result.accepted).toBe(true)
-    expect(result.events[0]?.type).toBe('checkpoint.reverted')
-    const reverted = previewDispatch(model, result)
-    expect(reverted.checkpoints).toHaveLength(0)
+    expect(result.accepted).toBe(false)
+    expect(result.reason).toContain('removed')
+    expect(result.events).toEqual([])
   })
 
   it('rejects checkpoint.revert without a captured checkpoint', () => {
@@ -742,7 +741,7 @@ describe('decideCommand', () => {
       ids,
     )
     expect(result.accepted).toBe(false)
-    expect(result.reason).toContain('no checkpoint')
+    expect(result.reason).toContain('removed')
   })
 
   it('pins, archives, and unpins through session.update patches', () => {

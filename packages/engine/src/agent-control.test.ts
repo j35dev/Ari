@@ -105,7 +105,7 @@ it('keeps ordinary worker control available while refusing Aria callers when the
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-control-'))
-  store = new SessionStore({ rootDir: dir })
+  store = new SessionStore({ storage: 'jsonl', rootDir: dir })
   await store.append(root.id, { type: 'session.created', session: root })
   host = {
     store,

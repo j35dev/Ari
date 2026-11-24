@@ -22,7 +22,7 @@ describe('session subscription replay terminal path', () => {
   it.each([false, true])(
     'reports a read failure (partial chunk: %s) and completes a later retry',
     async (partial) => {
-      const store = new SessionStore({ rootDir: 'unused' })
+      const store = new SessionStore({ storage: 'jsonl', rootDir: 'unused' })
       let fail = true
       // Exercise Engine.replaySessionChunks, including the read iterator throwing
       // after delivering a chunk. No substitute replay-outcome reducer is used.
@@ -92,7 +92,7 @@ describe('session subscription replay terminal path', () => {
   })
 
   it('reports runtime execution at the boundary instead of a journaled turn start', async () => {
-    const store = new SessionStore({ rootDir: 'unused' })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: 'unused' })
     vi.spyOn(store, 'openJournal').mockResolvedValue({
       async *readByChunk() {
         yield [{ kind: 'value', value: event }]
@@ -120,7 +120,7 @@ describe('session subscription replay terminal path', () => {
     const target = relative(resolve(process.cwd()), resolve(root))
     if (target.startsWith('..') || isAbsolute(target))
       throw new Error('Scratch root escaped checkout')
-    const store = new SessionStore({ rootDir: root })
+    const store = new SessionStore({ storage: 'jsonl', rootDir: root })
     let start!: () => void
     let dispose!: () => void
     let disposing!: () => void

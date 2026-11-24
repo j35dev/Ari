@@ -49,7 +49,7 @@ beforeEach(async () => {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, file.base64 ? Buffer.from(file.base64, 'base64') : relocate(file.utf8!))
   }
-  store = new SessionStore({ rootDir: join(profile, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(profile, 'sessions') })
 })
 
 afterEach(async () => {

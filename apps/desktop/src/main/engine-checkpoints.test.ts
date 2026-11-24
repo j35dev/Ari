@@ -1,48 +1,34 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitService } from '@ari/engine/git'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { DriverRegistry } from '@ari/providers/registry'
-import type { AgentEvent } from '@ari/contracts/agent-event'
+import type { AdapterSession } from '@ari/providers/driver'
 import type { JournalEvent } from '@ari/contracts/events'
 import { Engine } from './engine'
-import { queryTurnDiff } from './turn-diff'
 
 let repo: string
 let store: SessionStore
-const git = new GitService()
-const run = (...args: string[]): string =>
+const git = (...args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8' })
-
 beforeEach(async () => {
-  repo = await mkdtemp(join(tmpdir(), 'ari-turn-snapshots-'))
-  store = new SessionStore({ rootDir: join(repo, '.journals') })
-  run('init', '-q')
-  run('config', 'core.autocrlf', 'false')
-  await writeFile(join(repo, '.gitignore'), '.journals/\n')
-  await writeFile(join(repo, 'a.txt'), 'before\n')
-  run('add', '.')
-  run(
-    '-c',
-    'user.name=test',
-    '-c',
-    'user.email=test@ari.dev',
-    '-c',
-    'commit.gpgsign=false',
-    'commit',
-    '-qm',
-    'initial',
-  )
-  await store.append('sess_1', {
+  repo = await mkdtemp(join(tmpdir(), 'ari-no-checkpoints-'))
+  store = new SessionStore({ rootDir: join(repo, '.conversations') })
+  git('init', '-q')
+  git('config', 'core.autocrlf', 'false')
+  await writeFile(join(repo, '.gitignore'), '.conversations/\n')
+  await writeFile(join(repo, 'file.txt'), 'User staged work\n')
+  git('add', '.')
+  await writeFile(join(repo, 'file.txt'), 'User uncommitted work\n')
+  await store.append('s', {
     type: 'session.created',
     session: {
-      id: 'sess_1',
+      id: 's',
       projectId: repo,
-      title: 'Snapshots',
+      title: 'Fast conversation',
       driverKind: 'claude',
       modelId: null,
       permissionMode: 'ask',
@@ -51,204 +37,131 @@ beforeEach(async () => {
       updatedAt: 1,
     },
   })
-}, 30_000)
-
+})
 afterEach(async () => {
-  await store.closeJournal('sess_1')
+  await store.close()
   await rm(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
-}, 30_000)
+})
 
-function engine(
-  start: () => AsyncGenerator<AgentEvent>,
-  dispose: () => Promise<void>,
-  capturer = git,
-) {
+it('starts and completes a conversation without calling Git capture, baseline or pruning', async () => {
+  const index = git('write-tree')
+  const captures = {
+    captureCheckpoint: vi.fn(() => new Promise<never>(() => {})),
+    captureTurnEnd: vi.fn(() => new Promise<never>(() => {})),
+    pinSessionBaseline: vi.fn(() => new Promise<never>(() => {})),
+    pruneCheckpoints: vi.fn(() => new Promise<never>(() => {})),
+  }
   const registry = new DriverRegistry()
   registry.register({
     kind: 'claude',
-    create: async () => ({ start, dispose, interrupt: () => undefined }),
-  })
-  const events: JournalEvent[] = []
-  return {
-    events,
-    engine: new Engine({
-      store,
-      registry,
-      git: capturer,
-      publish: (_id, event) => events.push(event),
+    create: async () => ({
+      start: async function* () {
+        yield { type: 'text-delta' as const, text: 'Immediate provider reply' }
+        yield { type: 'session-ref' as const, ref: 'native-thread' }
+        yield { type: 'done' as const }
+      },
+      dispose: async () => {
+        await writeFile(join(repo, 'new.txt'), 'Provider edit\n')
+      },
+      interrupt: () => {},
     }),
-  }
-}
-
-const done = async function* (): AsyncGenerator<AgentEvent> {
-  yield { type: 'done' }
-}
-
-describe('immutable turn snapshots', { timeout: 30_000 }, () => {
-  it('settles first, then captures after disposal, excluding later manual and committed edits', async () => {
-    const { engine: host, events } = engine(done, async () => {
-      await writeFile(join(repo, 'a.txt'), 'final provider write\n')
-      await writeFile(join(repo, 'new.txt'), 'new provider file\n')
-    })
-    const index = run('write-tree')
-    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'edit', attachments: [] })
-    await host.quiesce('sess_1')
-    const model = await store.load('sess_1')
-    const checkpoint = model.checkpoints[0]!
-    expect(checkpoint.endRef).toMatch(/^refs\/ari-turn-ends\/sess_1\//)
-    // The reply reads as done without waiting on process teardown or git.
-    expect(events.findIndex((event) => event.type === 'turn.settled')).toBeLessThan(
-      events.findIndex((event) => event.type === 'checkpoint.completed'),
-    )
-    expect(run('write-tree')).toBe(index)
-    await writeFile(join(repo, 'a.txt'), 'manual after turn\n')
-    run('add', '.')
-    run(
-      '-c',
-      'user.name=test',
-      '-c',
-      'user.email=test@ari.dev',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '-qm',
-      'later',
-    )
-    const diff = await queryTurnDiff(git, {
-      path: repo,
-      turnId: checkpoint.turnId,
-      checkpoints: model.checkpoints,
-    })
-    expect(diff.diffText).toContain('+final provider write')
-    expect(diff.diffText).toContain('+new provider file')
-    expect(diff.diffText).not.toContain('manual after turn')
-    await store.closeJournal('sess_1')
-    expect((await store.load('sess_1')).checkpoints).toEqual(model.checkpoints)
   })
+  const host = new Engine({ store, registry, git: captures, publish: () => {} })
+  expect(
+    (await host.dispatch({ type: 'turn.start', sessionId: 's', text: 'Hello', attachments: [] }))
+      .accepted,
+  ).toBe(true)
+  await host.quiesce('s')
+  for (const capture of Object.values(captures)) expect(capture).not.toHaveBeenCalled()
+  expect((await store.load('s')).checkpoints).toEqual([])
+  expect(
+    git(
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/ari',
+      'refs/ari-baselines',
+      'refs/ari-turn-ends',
+    ),
+  ).toBe('')
+  expect(git('write-tree')).toBe(index)
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('User uncommitted work\n')
+  await store.closeJournal('s')
+  const reopened = await store.load('s')
+  expect(reopened.providerSessionId).toBe('native-thread')
+  expect(reopened.messages.at(-1)?.parts).toEqual([
+    { type: 'text', text: 'Immediate provider reply' },
+  ])
+  const resumed: JournalEvent[] = []
+  const outcome = await host.replaySessionRangeChunks(
+    's',
+    { afterSeq: 2, throughSeq: reopened.lastSeq },
+    async (events) => {
+      resumed.push(...events)
+    },
+  )
+  expect(outcome.outcome).toBe('complete')
+  expect(resumed.map((event) => event.seq)).toEqual(
+    Array.from({ length: reopened.lastSeq - 2 }, (_, index) => index + 3),
+  )
+})
 
-  it('starts the next turn only after the previous end snapshot', async () => {
-    let turn = 0
-    const { engine: host } = engine(
-      async function* () {
-        turn += 1
-        if (turn === 2) await writeFile(join(repo, 'a.txt'), 'second turn edit\n')
-        yield { type: 'done' }
-      },
-      async () => {
-        if (turn === 1) await writeFile(join(repo, 'a.txt'), 'first turn cleanup\n')
-      },
-    )
-    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'one', attachments: [] })
-    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'two', attachments: [] })
-    await host.quiesce('sess_1')
-    const model = await store.load('sess_1')
-    const first = await queryTurnDiff(git, {
-      path: repo,
-      turnId: model.checkpoints[0]!.turnId,
-      checkpoints: model.checkpoints,
-    })
-    expect(first.diffText).toContain('+first turn cleanup')
-    expect(first.diffText).not.toContain('second turn edit')
+it('refuses an old undo command without changing any workspace files', async () => {
+  await store.append('s', {
+    type: 'checkpoint.captured',
+    turnId: 'legacy',
+    gitRef: 'refs/ari/s/legacy',
   })
+  const host = new Engine({ store, registry: new DriverRegistry(), publish: () => {} })
+  const result = await host.dispatch({
+    type: 'checkpoint.revert',
+    sessionId: 's',
+    turnId: 'legacy',
+  })
+  expect(result.accepted).toBe(false)
+  expect(result.reason).toContain('removed')
+  expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('User uncommitted work\n')
+})
 
-  it('waits for interrupted provider disposal and retains a stable endpoint', async () => {
-    let release!: () => void
-    const waiting = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    let started!: () => void
-    const ready = new Promise<void>((resolve) => {
-      started = resolve
-    })
-    const { engine: host } = engine(
-      async function* () {
-        started()
-        await waiting
-        yield { type: 'done' }
-      },
-      async () => {
-        await writeFile(join(repo, 'a.txt'), 'interrupted cleanup\n')
-      },
-    )
-    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'edit', attachments: [] })
-    await ready
-    await host.dispatch({ type: 'turn.interrupt', sessionId: 'sess_1' })
-    expect(host.hasLiveTurn('sess_1')).toBe(true)
-    release()
-    await host.quiesce('sess_1')
-    const model = await store.load('sess_1')
-    expect(model.lastTurn?.stopReason).toBe('interrupted')
-    const diff = await queryTurnDiff(git, {
-      path: repo,
-      turnId: model.checkpoints[0]!.turnId,
-      checkpoints: model.checkpoints,
-    })
-    expect(diff.diffText).toContain('+interrupted cleanup')
-    expect(host.hasLiveTurn('sess_1')).toBe(false)
+it('continues a reopened conversation on its original native provider thread', async () => {
+  const received: AdapterSession[] = []
+  const registry = new DriverRegistry()
+  registry.register({
+    kind: 'claude',
+    create: async (session) => {
+      received.push(session)
+      return {
+        start: async function* () {
+          yield { type: 'session-ref' as const, ref: 'persistent-native-thread' }
+          yield { type: 'text-delta' as const, text: 'Saved reply' }
+          yield { type: 'done' as const }
+        },
+        dispose: async () => {},
+        interrupt: () => {},
+      }
+    },
   })
-
-  it('captures error turns and records unavailable end snapshots without a live fallback', async () => {
-    const captureEnd = vi.spyOn(git, 'captureTurnEnd').mockResolvedValueOnce({
-      ok: false,
-      error: { code: 'command_failed', message: 'snapshot failed' },
-    })
-    const { engine: host } = engine(
-      async function* () {
-        await writeFile(join(repo, 'a.txt'), 'partial edit\n')
-        yield { type: 'error', message: 'provider failed', rawJson: null }
-      },
-      async () => undefined,
-    )
-    try {
-      await host.dispatch({
-        type: 'turn.start',
-        sessionId: 'sess_1',
-        text: 'edit',
-        attachments: [],
-      })
-      await host.quiesce('sess_1')
-      const model = await store.load('sess_1')
-      expect(model.lastTurn?.stopReason).toBe('error')
-      expect(model.checkpoints[0]?.endError).toBe('snapshot failed')
-      expect(
-        await queryTurnDiff(git, {
-          path: repo,
-          turnId: model.checkpoints[0]!.turnId,
-          checkpoints: model.checkpoints,
-        }),
-      ).toEqual({ diffText: null, error: 'snapshot failed' })
-    } finally {
-      captureEnd.mockRestore()
-    }
+  const first = new Engine({ store, registry, publish: () => {} })
+  await first.dispatch({
+    type: 'turn.start',
+    sessionId: 's',
+    text: 'First message',
+    attachments: [],
   })
-
-  it('never repins endpoints or the session baseline and prunes turn pairs without losing the baseline', async () => {
-    const before = await git.captureCheckpoint(repo, 'sess_1', 'turn_1')
-    if (!before.ok || !before.value) throw new Error('missing checkpoint')
-    const baseline = await git.pinSessionBaseline(repo, 'sess_1', before.value)
-    if (!baseline.ok) throw new Error('missing baseline')
-    const initial = run('rev-parse', baseline.value)
-    await writeFile(join(repo, 'a.txt'), 'turn one\n')
-    const end = await git.captureTurnEnd(repo, 'sess_1', 'turn_1')
-    if (!end.ok || !end.value) throw new Error('missing end')
-    const endpoint = run('rev-parse', end.value)
-    await writeFile(join(repo, 'a.txt'), 'turn two\n')
-    const next = await git.captureCheckpoint(repo, 'sess_1', 'turn_2')
-    if (!next.ok || !next.value) throw new Error('missing checkpoint')
-    expect(await git.captureTurnEnd(repo, 'sess_1', 'turn_1')).toEqual(end)
-    await git.pinSessionBaseline(repo, 'sess_1', next.value)
-    expect(run('rev-parse', baseline.value)).toBe(initial)
-    expect(run('rev-parse', end.value)).toBe(endpoint)
-    await git.pruneCheckpoints(repo, 'sess_1', ['turn_1', 'turn_2'], 1)
-    expect(run('for-each-ref', '--format=%(refname)', 'refs/ari-turn-ends/sess_1/')).toBe('')
-    expect(run('rev-parse', baseline.value)).toBe(initial)
-    expect(await git.captureTurnEnd(repo, '../bad', 'turn')).toMatchObject({
-      ok: false,
-      error: { code: 'invalid_ref' },
-    })
-    expect(await git.pinSessionBaseline(repo, 'sess_1', '--all')).toMatchObject({
-      ok: false,
-      error: { code: 'invalid_ref' },
-    })
+  await first.quiesce('s')
+  await store.close()
+  store = new SessionStore({ rootDir: join(repo, '.conversations') })
+  const second = new Engine({ store, registry, publish: () => {} })
+  await second.dispatch({
+    type: 'turn.start',
+    sessionId: 's',
+    text: 'Continue our conversation',
+    attachments: [],
   })
+  await second.quiesce('s')
+  expect(received).toHaveLength(2)
+  expect(received[1]?.resumeOf).toBe('persistent-native-thread')
+  expect(received[1]?.permissionMode).toBe('ask')
+  expect(
+    (await store.load('s')).messages.filter((message) => message.role === 'user'),
+  ).toHaveLength(2)
 })

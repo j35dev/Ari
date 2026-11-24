@@ -18,7 +18,7 @@ const waitForJournal = (assertion: () => unknown | Promise<unknown>) =>
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'ari-background-'))
-  store = new SessionStore({ rootDir: root })
+  store = new SessionStore({ storage: 'jsonl', rootDir: root })
   await store.append('sess_1', {
     type: 'session.created',
     session: {

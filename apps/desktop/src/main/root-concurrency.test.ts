@@ -117,7 +117,7 @@ beforeEach(async () => {
   folders.set('p', repo)
   folders.set('alias', repo)
   folders.set('helm', dir)
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await boot()
   await engine.createSession({ ...base, id: 'aria', projectId: 'helm', title: 'Aria' })
 })
@@ -423,7 +423,7 @@ it('automatically gives Aria a root worktree alongside a busy human folder and r
   await runtime.close()
   await engine.shutdown()
   for (const row of await store.listSessions()) await store.closeJournal(row.id)
-  store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(dir, 'sessions') })
   await boot(true)
   expect(await runtime.service.invoke('aria', 'session.spawn', launch)).toMatchObject({
     ok: true,

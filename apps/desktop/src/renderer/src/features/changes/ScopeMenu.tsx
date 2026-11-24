@@ -137,15 +137,6 @@ function Menu({
   )
 }
 
-export interface ScopeTurn {
-  turnId: string
-  label: string
-  stable: boolean
-  error?: string
-  /** "2m ago" once the session's history has been read. */
-  when?: string
-}
-
 /** The header's scope picker: what to compare, which turn or commit, or pull requests. */
 export function ScopeMenu({
   label,
@@ -155,7 +146,6 @@ export function ScopeMenu({
   totals,
   sessionScoped,
   branchLabel,
-  turns,
   commits,
   hostReason,
   requestsReason,
@@ -172,7 +162,6 @@ export function ScopeMenu({
   totals: { additions: number; deletions: number } | null
   sessionScoped: boolean
   branchLabel: string
-  turns: ScopeTurn[]
   commits: GitHistoryEntry[]
   /** Why branch and commit comparisons are off (a remote host); null when on. */
   hostReason: string | null
@@ -249,35 +238,6 @@ export function ScopeMenu({
         >
           This session
         </MenuItem>
-      ) : null}
-      {turns.length ? (
-        <div role="group" aria-label="Turns">
-          <p className={cx(sectionLabel, 'px-2 pb-1 pl-[30px] pt-2 text-[11px]')} aria-hidden>
-            Turns
-          </p>
-          {turns.map((turn) => (
-            <MenuItem
-              key={turn.turnId}
-              checked={!requests && comparison.kind === 'turn' && comparison.turnId === turn.turnId}
-              disabled={!turn.stable}
-              title={
-                turn.stable ? undefined : (turn.error ?? 'This turn has no stable checkpoint.')
-              }
-              onSelect={() => pick({ kind: 'turn', turnId: turn.turnId })}
-              detail={
-                !turn.stable ? (
-                  'unavailable'
-                ) : comparison.kind === 'turn' && comparison.turnId === turn.turnId && totals ? (
-                  <Totals {...totals} />
-                ) : (
-                  turn.when
-                )
-              }
-            >
-              {turn.label}
-            </MenuItem>
-          ))}
-        </div>
       ) : null}
       {commits.length || comparison.kind === 'commit' ? (
         <div role="group" aria-label="Recent commits">

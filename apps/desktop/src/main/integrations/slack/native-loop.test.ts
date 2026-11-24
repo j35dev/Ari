@@ -71,7 +71,7 @@ beforeEach(async () => {
   await writeFile(join(repository, 'task.txt'), 'original\n')
   git('add', 'task.txt')
   git('commit', '-m', 'Initial fixture')
-  store = new SessionStore({ rootDir: join(directory, 'sessions') })
+  store = new SessionStore({ storage: 'jsonl', rootDir: join(directory, 'sessions') })
   const workspaces = new ManagedWorkspaces(join(directory, 'worktrees'))
   const registry = new DriverRegistry()
   runs = []
