@@ -972,6 +972,7 @@ export const rpcParams = {
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
+  'window.captionMetrics': z.undefined(),
   'theme.apply': z.object({ themeId: themeIdSchema, customTheme: customThemeSchema.optional() }),
   'theme.list': z.object({}).strict(),
   'theme.install': z
@@ -1551,6 +1552,8 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults {
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }
+  /** How far a maximized window's right edge runs past the display edge, in px. */
+  'window.captionMetrics': { overflow: number }
   /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
   'theme.apply': { applied: boolean }
   'theme.list': ThemeLibraryEvent
