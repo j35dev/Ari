@@ -1,6 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState, type Ref } from 'react'
-import { motion, Reorder, useDragControls } from 'motion/react'
-import type { DragControls } from 'motion/react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
+import { motion, type MotionValue } from 'motion/react'
 import {
   Archive,
   ArchiveRestore,
@@ -45,11 +44,11 @@ import { cx, iconButton, rowAction, rowSelected, sectionLabel } from '../lib/rec
 import { ContextMark } from './ContextMark'
 import {
   inboxSplit,
-  projectMoveFromOrder,
   sidebarGroups,
   UNFILED_GROUP_ID,
   type SidebarGroup,
 } from '../features/session/session-nav'
+import { useProjectDrag } from './use-project-drag'
 import { useProjectExpand } from './use-project-expand'
 import { useStableHandlers } from './use-stable-handlers'
 import { useSessionCollapse } from './use-session-collapse'
@@ -1096,7 +1095,7 @@ function ProjectGroupSection({
   handlers: SessionRowHandlers
   actions: ProjectActions
   /** Present on reorderable project groups; Unfiled is a derived trailing group. */
-  drag?: { controls: DragControls; onPressStart: () => void }
+  drag?: { onHeaderPointerDown: (event: React.PointerEvent) => void }
   canMoveUp?: boolean
   canMoveDown?: boolean
   bulk?: {
@@ -1164,8 +1163,7 @@ function ProjectGroupSection({
             onPointerDown={(e) => {
               if (e.button !== 0 || !drag) return
               pressOrigin.current = { x: e.clientX, y: e.clientY }
-              drag.onPressStart()
-              drag.controls.start(e)
+              drag.onHeaderPointerDown(e)
             }}
             onContextMenu={(e) => menu.open(menuId, e)}
             className={cx(BUCKET_ROW, missing && 'opacity-60')}
@@ -1443,10 +1441,10 @@ function ProjectNotice({
 }
 
 /**
- * One project group wrapped for drag-reorder. The drag starts on the group
- * header (`dragListener={false}` keeps session rows and nested controls
- * undraggable); `onPressStart` records which group the press began on so the
- * reorder callback can derive the persisted move.
+ * One project row wrapped for drag-reorder: a plain `layout`-animated shell
+ * that the `useProjectDrag` hook lifts by `y` while pinned to its slot. The
+ * target bar marks where a drop will land; the row itself is re-inserted
+ * into the DOM only when the drop commits.
  */
 function DraggableProjectGroup({
   group,
@@ -1458,8 +1456,13 @@ function DraggableProjectGroup({
   actions,
   canMoveUp,
   canMoveDown,
-  onPressStart,
+  onHeaderPointerDown,
   bulk,
+  raised,
+  animateLayout,
+  targetAt,
+  dragY,
+  registerRow,
 }: {
   group: SidebarGroup
   project: SidebarProject | null
@@ -1470,7 +1473,7 @@ function DraggableProjectGroup({
   actions: ProjectActions
   canMoveUp: boolean
   canMoveDown: boolean
-  onPressStart: () => void
+  onHeaderPointerDown: (event: React.PointerEvent) => void
   bulk?: {
     administrationReason?: string
     selecting: boolean
@@ -1481,16 +1484,32 @@ function DraggableProjectGroup({
     onArchiveAll: () => void
     onDeleteAll: () => void
   }
+  /** Elevated (zIndex) while lifted or settling, so the row clears its neighbours. */
+  raised: boolean
+  /** Disable layout projection across the list during drag/settle handoffs. */
+  animateLayout: boolean
+  /** Which edge of this row the drop target rides on. */
+  targetAt: 'top' | 'bottom' | null
+  dragY: MotionValue<number>
+  registerRow: (element: HTMLElement | null) => void
 }) {
-  const controls = useDragControls()
   return (
-    <Reorder.Item
-      value={group.id}
-      dragListener={false}
-      dragControls={controls}
-      layout="position"
+    <motion.div
+      ref={registerRow}
+      data-ari-project-row={group.id}
+      layout={animateLayout ? 'position' : false}
       transition={transitions.resort}
+      style={{ y: raised ? dragY : 0, zIndex: raised ? 'var(--ari-z-pane-chrome)' : undefined }}
+      className="relative"
     >
+      {targetAt !== null ? (
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute left-1 right-1 z-base h-0.5 rounded-full bg-accent ${
+            targetAt === 'top' ? '-top-[3px]' : '-bottom-[3px]'
+          }`}
+        />
+      ) : null}
       <ProjectGroupSection
         name={group.name}
         project={project}
@@ -1501,10 +1520,10 @@ function DraggableProjectGroup({
         actions={actions}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
-        drag={{ controls, onPressStart }}
+        drag={{ onHeaderPointerDown }}
         bulk={bulk}
       />
-    </Reorder.Item>
+    </motion.div>
   )
 }
 
@@ -1732,20 +1751,39 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     return () => window.removeEventListener('keydown', onKey)
   }, [selectingGroupId])
 
-  // Set on header pointer-down, consumed by the reorder it may trigger.
-  const pressedGroupId = useRef<string | null>(null)
-
-  const reorderFromDrag = (nextIds: string[]): void => {
-    const draggedId = pressedGroupId.current
-    pressedGroupId.current = null
-    if (!draggedId) return
-    const move = projectMoveFromOrder(
-      projectGroups.map((g) => g.id),
-      nextIds,
-      draggedId,
-    )
-    if (move) actions.onReorderProject?.(move.id, move.beforeId)
-  }
+  // Pointer-driven project reorder: the row lifts in place, the target bar
+  // shows the landing slot, and one commit lands it there (see
+  // use-project-drag for why Framer's live Reorder swaps oscillate here).
+  const navRef = useRef<HTMLElement | null>(null)
+  const rowRefs = useRef(new Map<string, HTMLElement>())
+  const registerRow =
+    (groupId: string) =>
+    (element: HTMLElement | null): void => {
+      if (element === null) rowRefs.current.delete(groupId)
+      else rowRefs.current.set(groupId, element)
+    }
+  const projectDrag = useProjectDrag({
+    order: projectGroups.map((g) => g.id),
+    rowAt: (id) => rowRefs.current.get(id) ?? null,
+    scrollRef: navRef,
+    onCommit: (id, beforeId) => actions.onReorderProject?.(id, beforeId),
+  })
+  // After a committed re-render the dragged row sits in its new slot still
+  // carrying the pointer's offset; re-base and glide it home before paint.
+  // Runs on every render on purpose: the hook's pending flag makes it a
+  // no-op unless a commit just landed.
+  useLayoutEffect(() => {
+    projectDrag.settleAfterCommit()
+  })
+  const draggedIndex =
+    projectDrag.draggingId === null
+      ? -1
+      : projectGroups.findIndex((g) => g.id === projectDrag.draggingId)
+  // Where the drop lands; null means "back in its own slot", so the bar hides.
+  const dragTargetIndex =
+    projectDrag.targetIndex !== null && projectDrag.targetIndex !== draggedIndex
+      ? projectDrag.targetIndex
+      : null
   const matches = useMemo(() => {
     if (!trimmed) return []
     const found = searchSessionTree(sessions, trimmed)
@@ -1860,30 +1898,45 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
       </>
     ) : (
       <>
-        <Reorder.Group
-          axis="y"
-          values={projectGroups.map((g) => g.id)}
-          onReorder={reorderFromDrag}
-          layout="position"
-          className="flex flex-col gap-px"
-        >
-          {projectGroups.map((group, index) => (
-            <DraggableProjectGroup
-              key={group.id}
-              group={group}
-              project={projects.find((p) => p.id === group.id) ?? null}
-              sessions={group.sessions}
-              expanded={isExpanded(group.id)}
-              onToggle={() => toggle(group.id)}
-              handlers={handlersFor(group.id)}
-              actions={actions}
-              canMoveUp={index > 0}
-              canMoveDown={index < projectGroups.length - 1}
-              onPressStart={() => (pressedGroupId.current = group.id)}
-              bulk={bulkFor(group.id)}
-            />
-          ))}
-        </Reorder.Group>
+        <div className="flex flex-col gap-px">
+          {projectGroups.map((group, index) => {
+            const isRaised =
+              projectDrag.draggingId === group.id || projectDrag.settlingId === group.id
+            const draggedIndex = projectGroups.findIndex((g) => g.id === projectDrag.draggingId)
+            // `dragTargetIndex` is the dragged row's NEW position in the list,
+            // so the boundary it crossed sits on the top edge of this row when
+            // it moved up and on the bottom edge when it moved down.
+            const targetAt: 'top' | 'bottom' | null =
+              draggedIndex === -1 || dragTargetIndex === draggedIndex
+                ? null
+                : dragTargetIndex === index
+                  ? dragTargetIndex < draggedIndex
+                    ? 'top'
+                    : 'bottom'
+                  : null
+            return (
+              <DraggableProjectGroup
+                key={group.id}
+                group={group}
+                project={projects.find((p) => p.id === group.id) ?? null}
+                sessions={group.sessions}
+                expanded={isExpanded(group.id)}
+                onToggle={() => toggle(group.id)}
+                handlers={handlersFor(group.id)}
+                actions={actions}
+                canMoveUp={index > 0}
+                canMoveDown={index < projectGroups.length - 1}
+                onHeaderPointerDown={(event) => projectDrag.start(group.id, event)}
+                bulk={bulkFor(group.id)}
+                raised={isRaised}
+                animateLayout={projectDrag.draggingId === null && projectDrag.settlingId === null}
+                targetAt={targetAt}
+                dragY={projectDrag.y}
+                registerRow={registerRow(group.id)}
+              />
+            )
+          })}
+        </div>
         {unfiled ? (
           <div className="mt-px">
             <ProjectGroupSection
@@ -1937,7 +1990,12 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           <Plus size={14} strokeWidth={1.75} aria-hidden />
         </button>
       </div>
-      <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Sessions">
+      <nav
+        ref={navRef}
+        style={{ overflowAnchor: 'none' }}
+        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2"
+        aria-label="Sessions"
+      >
         {body}
       </nav>
       {selectingGroupId !== null ? (

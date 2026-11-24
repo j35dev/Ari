@@ -3,6 +3,7 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import {
   inboxSplit,
   moveProjectInList,
+  projectDropTarget,
   projectMoveForDelta,
   projectMoveFromOrder,
   sessionsViewOrder,
@@ -56,6 +57,70 @@ describe('projectMoveFromOrder', () => {
   it('returns null for a press or a drop back onto the original slot', () => {
     expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'b', 'c'], 'b')).toBeNull()
     expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'b', 'c'], 'gone')).toBeNull()
+  })
+})
+
+describe('projectDropTarget', () => {
+  // Stacked, variable-height rows: a 40px, b 80px, c 40px, d 60px from y=0.
+  const ids = ['a', 'b', 'c', 'd']
+  const boxes = new Map(
+    ids.map((id, i) => [id, { top: [0, 40, 120, 160][i] ?? 0, height: [40, 80, 40, 60][i] ?? 0 }]),
+  )
+
+  it("slots the row into the first slot past the pointer's midlines", () => {
+    // Down: the pointer crossed c's midline (y=140) while b is dragged down.
+    expect(projectDropTarget(ids, 'b', 140, boxes)).toEqual({ targetIndex: 2, beforeId: 'd' })
+    // Up: still above a's midline (y=20).
+    expect(projectDropTarget(ids, 'b', 19, boxes)).toEqual({ targetIndex: 0, beforeId: 'a' })
+  })
+
+  it('moves several rows at once from a single drop', () => {
+    expect(projectDropTarget(ids, 'a', 200, boxes)).toEqual({ targetIndex: 3, beforeId: null })
+    expect(projectDropTarget(ids, 'd', 5, boxes)).toEqual({ targetIndex: 0, beforeId: 'a' })
+  })
+
+  it('lands at the top and the bottom', () => {
+    expect(projectDropTarget(ids, 'd', -50, boxes)).toEqual({ targetIndex: 0, beforeId: 'a' })
+    expect(projectDropTarget(ids, 'a', 500, boxes)).toEqual({ targetIndex: 3, beforeId: null })
+  })
+
+  it("stays put while the pointer is inside the row's own midline span", () => {
+    // b's home span runs from a's midline (y=20) to c's midline (y=140):
+    // anywhere in between resolves back to b's current slot.
+    expect(projectDropTarget(ids, 'b', 60, boxes)).toBeNull()
+    expect(projectDropTarget(ids, 'b', 139, boxes)).toBeNull()
+    expect(projectDropTarget(ids, 'a', 10, boxes)).toBeNull()
+    expect(projectDropTarget(ids, 'd', 200, boxes)).toBeNull()
+  })
+
+  it('is a pure function of the pointer: stepping down never flips back', () => {
+    // Regression for the oscillating Reorder: with the row pinned, the target
+    // can only walk as the pointer does — one slot per midline crossed, in
+    // order, and the same pointerY never yields two slots.
+    const seen: (string | null)[] = []
+    for (let y = 0; y <= 260; y += 1) {
+      const slot = projectDropTarget(ids, 'b', y, boxes)
+      seen.push(slot === null ? 'self' : slot.beforeId)
+    }
+    expect(seen).toEqual([
+      ...Array(20).fill('a'), // 0..19: above a's midline → slot 0
+      ...Array(120).fill('self'), // 20..139: b's own slot
+      ...Array(50).fill('d'), // 140..189: past c's midline, before d
+      ...Array(71).fill(null), // 190..260: past d's midline → last
+    ])
+  })
+
+  it('refuses an unknown dragged row', () => {
+    expect(projectDropTarget(ids, 'gone', 10, boxes)).toBeNull()
+  })
+
+  it('ignores rows without a measured box', () => {
+    const sparse = new Map(boxes)
+    sparse.delete('c')
+    // c's midline no longer votes: the pointer in the empty gap before d's
+    // midline still lands b before d, and past it b goes last.
+    expect(projectDropTarget(ids, 'b', 150, sparse)).toEqual({ targetIndex: 2, beforeId: 'd' })
+    expect(projectDropTarget(ids, 'a', 200, sparse)).toEqual({ targetIndex: 3, beforeId: null })
   })
 })
 
