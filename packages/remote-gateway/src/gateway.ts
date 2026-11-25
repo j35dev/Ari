@@ -4,10 +4,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo, Socket } from 'node:net'
 import { extname, join, resolve, sep } from 'node:path'
 import type { Duplex } from 'node:stream'
+import { createGzip, gzipSync } from 'node:zlib'
 import { z } from 'zod'
 import {
   REMOTE_PROTOCOL_VERSION,
   REMOTE_ANONYMOUS_OPERATIONS,
+  REMOTE_PONG,
   MAX_REMOTE_IMAGE_BYTES,
   pairingResolveSchema,
   remoteClientMessageSchema,
@@ -489,6 +491,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         return send(errorMessage('unsupported_capability', 'unsupported message'))
       }
 
+      if (message.data.type === 'events.ping') return send(REMOTE_PONG)
       if (message.data.type === 'events.unsubscribe') {
         subscriptions.get(message.data.sessionId)?.()
         subscriptions.delete(message.data.sessionId)
@@ -958,7 +961,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const result = await host.query(caller ?? callerOf(device), op, params)
     const fresh = requestCaller(req)
     if (!fresh) return reply(403, fail('access_revoked', 'Remote access ended before delivery.'))
-    if ('sessionId' in requested && (await host.getSession(fresh, requested.sessionId)) === undefined)
+    // The visibility re-check must not cost a second transcript read: on a long
+    // session that doubled the desktop's work for every phone refresh.
+    if (
+      'sessionId' in requested &&
+      !(host.sessionVisible
+        ? await host.sessionVisible(fresh, requested.sessionId)
+        : (await host.getSession(fresh, requested.sessionId)) !== undefined)
+    )
       return reply(404, fail('not_found', 'no such session'))
     if ('projectId' in requested && !hasProject(fresh, requested.projectId)) return reply(404, fail('not_found', 'no such project'))
     const schema = op === 'session.desktop.get' ? remoteDesktopSessionResultSchema :
@@ -1212,17 +1222,37 @@ function send(res: ServerResponse, status: number, body: unknown, origin?: strin
   // `JSON.stringify` returns undefined for a body that is not serializable,
   // and sizing that throws inside a header write turns a response into a
   // dropped connection. `null` is a body the client can parse.
-  const payload = JSON.stringify(body) ?? 'null'
+  const payload = Buffer.from(JSON.stringify(body) ?? 'null', 'utf8')
+  // A transcript is mostly repeated JSON keys and prose. Tailscale Serve
+  // passes bytes through unchanged, so compressing here is the only place a
+  // phone on a slow tailnet path gets the five-to-ten-fold saving.
+  const compress = payload.length >= COMPRESS_MIN_BYTES && acceptsGzip(res)
+  const bytes = compress ? gzipSync(payload, { level: 6 }) : payload
+  const cors = corsHeaders(origin)
   res.writeHead(status, {
     'content-type': 'application/json',
-    'content-length': Buffer.byteLength(payload),
+    'content-length': bytes.length,
     // No wildcard, and no credentials for a cross-origin caller: the origin
     // allowlist above is the only thing that decides, and it never echoes
     // anything that was not already on it.
     'cache-control': 'no-store',
-    ...corsHeaders(origin),
+    ...cors,
+    ...(compress ? { 'content-encoding': 'gzip' } : {}),
+    vary: cors.vary === undefined ? 'accept-encoding' : `${cors.vary}, accept-encoding`,
   })
-  res.end(payload)
+  res.end(bytes)
+}
+
+/** Below this a gzip header and the CPU cost outweigh the bytes saved. */
+const COMPRESS_MIN_BYTES = 1024
+
+function acceptsGzip(res: ServerResponse): boolean {
+  const accepted = res.req.headers['accept-encoding']
+  return (
+    typeof accepted === 'string' &&
+    /\bgzip\b/i.test(accepted) &&
+    !/\bgzip\s*;\s*q=0(?:\.0+)?(?![.\d])/i.test(accepted)
+  )
 }
 
 /**
@@ -1356,16 +1386,28 @@ async function sendFile(
   } catch {
     return notFound(res)
   }
+  // The app bundle is several hundred kilobytes of text; a phone fetching it
+  // over a relayed tailnet path after an update feels every one of them.
+  const compress = size >= COMPRESS_MIN_BYTES && COMPRESSIBLE.test(type) && acceptsGzip(res)
   res.writeHead(200, {
     'content-type': type,
-    'content-length': size,
+    ...(compress ? { 'content-encoding': 'gzip' } : { 'content-length': size }),
     'cache-control': cacheControl,
+    vary: 'accept-encoding',
   })
   const stream = createReadStream(path)
   stream.on('error', () => res.destroy())
   res.on('close', () => stream.destroy())
-  stream.pipe(res)
+  if (!compress) {
+    stream.pipe(res)
+    return
+  }
+  const gzip = createGzip({ level: 6 })
+  gzip.on('error', () => res.destroy())
+  stream.pipe(gzip).pipe(res)
 }
+
+const COMPRESSIBLE = /^(?:text\/|application\/(?:json|manifest\+json)|image\/svg\+xml)/
 
 function notFound(res: ServerResponse): void {
   send(res, 404, fail('not_found', 'no such file'))

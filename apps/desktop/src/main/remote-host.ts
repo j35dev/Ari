@@ -19,6 +19,7 @@ import type {
   RemoteOperation,
   RemoteProject,
   RemoteRedeem,
+  RemoteSessionSummary,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
 import { HELM_PROJECT_ID } from '@ari/contracts/helm'
@@ -86,6 +87,27 @@ function desktopEvent(event: JournalEvent): JournalEvent {
 }
 
 const defaultResources = new HostResourceSampler()
+
+/** How long a freshly running session counts as live before its turn task is seen. */
+const LIVE_GRACE_MS = 15_000
+
+/**
+ * The page of a transcript a remote client asked for: the newest `limit`
+ * messages, or those before `before`. Without `limit` every message is
+ * returned, which is what clients from before paging expect.
+ */
+export function pageMessages(
+  messages: Message[],
+  params: Record<string, unknown>,
+): { messages: Message[]; earlier?: number } {
+  const limit = typeof params['limit'] === 'number' ? params['limit'] : undefined
+  if (limit === undefined) return { messages }
+  const before = typeof params['before'] === 'string' ? params['before'] : undefined
+  const index = before === undefined ? -1 : messages.findIndex((message) => message.id === before)
+  const end = before === undefined ? messages.length : index < 0 ? 0 : index
+  const start = Math.max(0, end - limit)
+  return { messages: messages.slice(start, end), earlier: start }
+}
 
 export interface RemoteDesktopDeps {
   projects: () => Promise<Project[]>
@@ -532,6 +554,36 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     return all.filter((entry) => granted(caller, entry.projectId))
   }
 
+  /** When each running session was first seen without a turn executing. */
+  const idleSince = new Map<string, number>()
+
+  /**
+   * Whether a session the journal calls running has a turn executing here.
+   * A provider that dies without settling leaves `running` behind until the
+   * next restart; the phone must not show that as an agent at work. A short
+   * grace covers the moment between the status event and the turn starting.
+   */
+  function executing(entry: SessionSummary): boolean {
+    const hasLiveTurn = (engine as Partial<Pick<Engine, 'hasLiveTurn'>>).hasLiveTurn
+    if (hasLiveTurn === undefined || hasLiveTurn.call(engine, entry.id)) {
+      idleSince.delete(entry.id)
+      return true
+    }
+    const now = Date.now()
+    const since = idleSince.get(entry.id) ?? now
+    idleSince.set(entry.id, since)
+    return now - since < LIVE_GRACE_MS
+  }
+
+  async function listRemoteSessions(caller: RemoteCaller): Promise<RemoteSessionSummary[]> {
+    const rows = await listSessions(caller)
+    for (const id of idleSince.keys())
+      if (!rows.some((entry) => entry.id === id && entry.status === 'running')) idleSince.delete(id)
+    return rows.map((entry) =>
+      entry.status === 'running' ? { ...entry, live: executing(entry) } : entry,
+    )
+  }
+
   async function attention(
     caller: RemoteCaller,
     params: Record<string, unknown>,
@@ -812,9 +864,16 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       }
       switch (op) {
         case 'session.list':
-          return listSessions(caller)
-        case 'session.get':
-          return (await getSession(caller, String(params['sessionId']))) ?? null
+          return listRemoteSessions(caller)
+        case 'session.get': {
+          const result = await getSession(caller, String(params['sessionId']))
+          if (result === undefined) return null
+          const summary =
+            result.summary.status === 'running'
+              ? { ...result.summary, live: executing(result.summary) }
+              : result.summary
+          return { ...result, summary, ...pageMessages(result.messages, params) }
+        }
         case 'attention.list':
           return attention(caller, params)
         case 'attachments.read': {
