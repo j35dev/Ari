@@ -328,6 +328,8 @@ export class SessionStore extends LegacySessionStore {
     if (this.#timers.has(id)) return
     const timer = setTimeout(() => {
       this.#timers.delete(id)
+      // close() saves what is left itself; a late retry must not restart the worker.
+      if (this.#closing) return
       // Freeze one batch under the state lock, then release it while SQLite writes.
       void this.#serial(id, () => {
         if (!this.#writes.has(id)) void this.#startSave(id)
