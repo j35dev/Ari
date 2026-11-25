@@ -9,8 +9,16 @@ const log = createLogger('engine:watcher')
 export const WATCHER_DEBOUNCE_MS = 300
 
 /**
+ * Deepest folder level watched below a root: five nested folders, so files
+ * with up to six path segments, the reach of the @-mention file index (its
+ * only consumer). A huge repository must not stall the main process.
+ */
+export const WATCHER_MAX_DEPTH = 5
+
+/**
  * Directory names ignored at any depth. Dot-entries (`.env`, `.vscode/`) are
- * additionally ignored at depth 1 only, so nested dotfiles stay watchable.
+ * additionally ignored at depth 1, and dot-directories at any depth (caches
+ * such as `.cache/` or `.pnpm-store/`); nested dotfiles stay watchable.
  */
 export const DEFAULT_IGNORED_NAMES: readonly string[] = [
   'node_modules',
@@ -27,7 +35,30 @@ export const DEFAULT_IGNORED_NAMES: readonly string[] = [
   'vendor',
   '.next',
   '.turbo',
+  // .NET, Unity, CocoaPods, Gradle and Dart/Flutter output and caches.
+  'bin',
+  'obj',
+  'Library',
+  'Pods',
+  '.gradle',
+  '.dart_tool',
 ]
+
+/**
+ * The ignore rule shared by the watcher and the file index, for a path's
+ * segments below its root. `isDirectory` is unknown when the caller has no
+ * stats; everything inside an ignored folder is ignored either way.
+ */
+export function isIgnoredSegments(
+  segments: readonly string[],
+  ignoredNames: ReadonlySet<string>,
+  isDirectory?: boolean,
+): boolean {
+  const name = segments[segments.length - 1] ?? ''
+  if (segments.some((segment) => ignoredNames.has(segment))) return true
+  if (name.startsWith('.') && (segments.length === 1 || isDirectory === true)) return true
+  return segments.slice(0, -1).some((segment) => segment.startsWith('.'))
+}
 
 export interface WorkspaceWatcherEvents {
   /**
@@ -90,7 +121,8 @@ export class WorkspaceWatcher {
       this.#fsWatcher = watch(root, {
         ignoreInitial: true,
         persistent: true,
-        ignored: (candidate) => this.#isIgnored(candidate),
+        depth: WATCHER_MAX_DEPTH,
+        ignored: (candidate, stats) => this.#isIgnored(candidate, stats?.isDirectory()),
       })
       for (const event of ['add', 'change', 'unlink'] as const) {
         this.#fsWatcher.on(event, (path) => this.#schedule(path))
@@ -129,16 +161,14 @@ export class WorkspaceWatcher {
    * predicate forward-slashed paths regardless of platform, so both sides are
    * normalized before comparing.
    */
-  #isIgnored(candidate: string): boolean {
+  #isIgnored(candidate: string, isDirectory?: boolean): boolean {
     const normalized = candidate.replaceAll('\\', '/')
     for (const root of this.#rootDirs.values()) {
       const rootFwd = root.replaceAll('\\', '/')
       if (normalized === rootFwd) return false
       if (!normalized.startsWith(rootFwd + '/')) continue
       const segments = normalized.slice(rootFwd.length + 1).split('/')
-      const name = segments[segments.length - 1] ?? ''
-      if (this.#ignoredNames.has(name)) return true
-      if (segments.length === 1 && name.startsWith('.')) return true
+      if (isIgnoredSegments(segments, this.#ignoredNames, isDirectory)) return true
     }
     return false
   }

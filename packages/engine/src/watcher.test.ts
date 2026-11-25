@@ -110,6 +110,35 @@ describe('WorkspaceWatcher', () => {
     }
   })
 
+  it('stops at the file index depth and skips build output and nested dot-folders', async () => {
+    const collector = new BatchCollector()
+    const watcher = new WorkspaceWatcher({ events: { onChange: (p) => collector.push(p) } })
+    const deepest = join(dir, 'a', 'b', 'c', 'd', 'e')
+    try {
+      await mkdir(join(deepest, 'f'), { recursive: true })
+      await mkdir(join(dir, 'app', 'obj'), { recursive: true })
+      await mkdir(join(dir, 'app', 'bin'), { recursive: true })
+      await mkdir(join(dir, 'app', '.cache', 'inner'), { recursive: true })
+      watcher.watch(dir)
+      await sleep(SETTLE_MS)
+      await writeFile(join(deepest, 'f', 'too-deep.txt'), 'x')
+      await writeFile(join(dir, 'app', 'obj', 'out.dll'), 'x')
+      await writeFile(join(dir, 'app', 'bin', 'out.exe'), 'x')
+      await writeFile(join(dir, 'app', '.cache', 'inner', 'blob'), 'x')
+      await sleep(600)
+      expect(collector.batches).toHaveLength(0)
+      // Six segments deep is still watched, and a nested dotfile too.
+      await writeFile(join(deepest, 'six.txt'), 'x')
+      await writeFile(join(dir, 'app', '.eslintrc'), 'x')
+      await sleep(600)
+      expect(collector.batches.flat().sort()).toEqual(
+        [join(deepest, 'six.txt'), join(dir, 'app', '.eslintrc')].sort(),
+      )
+    } finally {
+      await watcher.close()
+    }
+  })
+
   it('close discards pending events and stops delivery', async () => {
     const collector = new BatchCollector()
     const watcher = new WorkspaceWatcher({ events: { onChange: (p) => collector.push(p) } })
