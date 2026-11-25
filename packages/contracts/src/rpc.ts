@@ -1003,7 +1003,11 @@ export const rpcParams = {
     id: z.string().min(1),
     action: z.enum(['back', 'forward', 'reload']),
   }),
-  'browser.close': z.object({ id: z.string().min(1) }),
+  'browser.close': z.object({
+    id: z.string().min(1),
+    /** Close only a tab with nothing loaded: main knows, a panel only guesses. */
+    ifBlank: z.boolean().optional(),
+  }),
   'browser.layout': z.object({
     id: z.string().min(1),
     visible: z.boolean(),
