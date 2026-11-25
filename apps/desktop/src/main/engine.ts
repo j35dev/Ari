@@ -287,8 +287,11 @@ interface SteeredMessage {
 /** Guard seq before the dequeue append resolves: always later than any snapshot. */
 const PENDING_SEQ = Number.MAX_SAFE_INTEGER
 
-/** Thrown inside a turn's startup when Stop arrived before the adapter existed. */
+/** What {@link untilAborted} yields when Stop arrived before the adapter existed. */
 const STARTUP_STOPPED: unique symbol = Symbol('startup stopped')
+
+/** Thrown inside a turn's startup once Stop gave up on it. */
+class StartupStopped extends Error {}
 
 /** The value, or {@link STARTUP_STOPPED} as soon as the signal aborts. */
 function untilAborted<T>(
@@ -296,20 +299,12 @@ function untilAborted<T>(
   signal: AbortSignal,
 ): Promise<T | typeof STARTUP_STOPPED> {
   if (signal.aborted) return Promise.resolve(STARTUP_STOPPED)
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => resolve(STARTUP_STOPPED)
+  let onAbort = (): void => undefined
+  const aborted = new Promise<typeof STARTUP_STOPPED>((resolve) => {
+    onAbort = () => resolve(STARTUP_STOPPED)
     signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    )
   })
+  return Promise.race([work, aborted]).finally(() => signal.removeEventListener('abort', onAbort))
 }
 
 /**
@@ -375,7 +370,9 @@ export class Engine {
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
     await this.#turnTasks.get(sessionId)
-    await Promise.allSettled(this.#abandonedStartups.get(sessionId) ?? [])
+    await Promise.allSettled([
+      ...(this.#abandonedStartups.get(sessionId) ?? new Set<Promise<void>>()),
+    ])
   }
 
   /** Includes providers still disposing after a durable settle. */
@@ -601,11 +598,7 @@ export class Engine {
    * A startup Stop gave up on: the turn moves on now, and whatever the driver
    * eventually returns is stopped and disposed. `quiesce` still waits for it.
    */
-  #abandonStartup(
-    sessionId: string,
-    creating: Promise<ProviderAdapter>,
-    contextSeq: number,
-  ): void {
+  #abandonStartup(sessionId: string, creating: Promise<ProviderAdapter>, contextSeq: number): void {
     const pending = this.#abandonedStartups.get(sessionId) ?? new Set<Promise<void>>()
     this.#abandonedStartups.set(sessionId, pending)
     const late: Promise<void> = creating
@@ -1289,7 +1282,7 @@ export class Engine {
       const resolvedAttachments =
         attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
       await waitForProviderRelease()
-      if (startup.controller.signal.aborted) throw STARTUP_STOPPED
+      if (startup.controller.signal.aborted) throw new StartupStopped()
       const creating = driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
@@ -1308,7 +1301,7 @@ export class Engine {
       const created = await untilAborted(creating, startup.controller.signal)
       if (created === STARTUP_STOPPED) {
         this.#abandonStartup(session.id, creating, contextSeq)
-        throw STARTUP_STOPPED
+        throw new StartupStopped()
       }
       adapter = created
       // Adapter creation accepted the prompt. Consumption still requires the recipient's ack.
@@ -1336,7 +1329,7 @@ export class Engine {
           }).catch(() => undefined)
       }
       // Stopped while starting: the interrupt already settled the turn.
-      if (e === STARTUP_STOPPED) return
+      if (e instanceof StartupStopped) return
       // A failed reuse can have closed the process that owned earlier tasks.
       // There is no adapter stream left to publish their terminal state.
       await this.#endBackgroundTasks(

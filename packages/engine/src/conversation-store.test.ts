@@ -271,11 +271,12 @@ describe('SQLite conversations', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method
     const save = ConversationDatabase.prototype.save
     let failing = true
-    const saves = vi
-      .spyOn(ConversationDatabase.prototype, 'save')
-      .mockImplementation(function (this: ConversationDatabase, commit) {
-        return failing ? Promise.reject(new Error('Disk full')) : save.call(this, commit)
-      })
+    const saves = vi.spyOn(ConversationDatabase.prototype, 'save').mockImplementation(function (
+      this: ConversationDatabase,
+      commit,
+    ) {
+      return failing ? Promise.reject(new Error('Disk full')) : save.call(this, commit)
+    })
     await store.append(session.id, {
       type: 'assistant.parts.appended',
       messageId: 'assistant1',

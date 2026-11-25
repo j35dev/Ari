@@ -75,11 +75,7 @@ describe('WorkspaceWatcher', () => {
         writeFile(join(dir, 'b.txt'), '3'),
       ])
       const batch = await pending
-      expect(batch).toEqual([
-        join(dir, 'a.txt'),
-        join(dir, 'b.txt'),
-        join(dir, 'c.txt'),
-      ])
+      expect(batch).toEqual([join(dir, 'a.txt'), join(dir, 'b.txt'), join(dir, 'c.txt')])
       expect(collector.batches).toHaveLength(1)
     } finally {
       await watcher.close()
