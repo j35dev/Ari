@@ -1,0 +1,62 @@
+: shape of a classic OpenCode /global/event stream: one turn with one sub-agent
+
+data: {"payload": {"id": "e0", "type": "server.connected", "properties": {}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_r1", "sessionID": "ses_root", "messageID": "msg_1", "type": "reasoning", "text": "", "time": {"start": 1}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.delta", "properties": {"sessionID": "ses_root", "messageID": "msg_1", "partID": "prt_r1", "field": "text", "delta": "Thinking"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_r1", "sessionID": "ses_root", "messageID": "msg_1", "type": "reasoning", "text": "Thinking", "time": {"start": 1, "end": 2}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_t1", "sessionID": "ses_root", "messageID": "msg_1", "type": "text", "text": "", "time": {"start": 2}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.delta", "properties": {"sessionID": "ses_root", "messageID": "msg_1", "partID": "prt_t1", "field": "text", "delta": "Hel"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.delta", "properties": {"sessionID": "ses_root", "messageID": "msg_1", "partID": "prt_t1", "field": "text", "delta": "lo"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_t1", "sessionID": "ses_root", "messageID": "msg_1", "type": "text", "text": "Hello world", "time": {"start": 2, "end": 3}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_s", "sessionID": "ses_root", "messageID": "msg_1", "type": "text", "text": "<system-reminder>", "synthetic": true}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_b", "sessionID": "ses_root", "messageID": "msg_1", "type": "tool", "callID": "call_1", "tool": "bash", "state": {"status": "pending", "input": {}, "raw": ""}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_b", "sessionID": "ses_root", "messageID": "msg_1", "type": "tool", "callID": "call_1", "tool": "bash", "state": {"status": "running", "input": {"command": "ls"}, "time": {"start": 3}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_b", "sessionID": "ses_root", "messageID": "msg_1", "type": "tool", "callID": "call_1", "tool": "bash", "state": {"status": "completed", "input": {"command": "ls"}, "output": "a\nb", "title": "ls", "metadata": {"exit": 0}, "time": {"start": 3, "end": 4}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_k", "sessionID": "ses_root", "messageID": "msg_1", "type": "tool", "callID": "call_2", "tool": "task", "state": {"status": "running", "input": {"description": "Explore", "subagent_type": "explore", "prompt": "look"}, "time": {"start": 4}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.created", "properties": {"sessionID": "ses_child", "info": {"id": "ses_child", "parentID": "ses_root", "title": "Explore (@explore subagent)", "directory": "D:\\work"}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_child", "part": {"id": "prt_c1", "sessionID": "ses_child", "messageID": "msg_c", "type": "text", "text": "", "time": {"start": 5}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.delta", "properties": {"sessionID": "ses_child", "messageID": "msg_1", "partID": "prt_c1", "field": "text", "delta": "found it"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_child", "part": {"id": "prt_c2", "sessionID": "ses_child", "messageID": "msg_c", "type": "tool", "callID": "call_c", "tool": "read", "state": {"status": "error", "input": {"filePath": "x"}, "error": "ENOENT", "time": {"start": 5, "end": 6}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_child", "part": {"id": "prt_cf", "sessionID": "ses_child", "messageID": "msg_c", "type": "step-finish", "reason": "stop", "cost": 0.001, "tokens": {"input": 10, "output": 2, "reasoning": 0, "cache": {"read": 0, "write": 0}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.idle", "properties": {"sessionID": "ses_child"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_k", "sessionID": "ses_root", "messageID": "msg_1", "type": "tool", "callID": "call_2", "tool": "task", "state": {"status": "completed", "input": {"description": "Explore"}, "output": "found it", "title": "Explore", "metadata": {}, "time": {"start": 4, "end": 7}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "message.part.updated", "properties": {"sessionID": "ses_root", "part": {"id": "prt_f", "sessionID": "ses_root", "messageID": "msg_1", "type": "step-finish", "reason": "tool-calls", "cost": 0.01, "tokens": {"input": 100, "output": 20, "reasoning": 5, "cache": {"read": 50, "write": 10}}}, "time": 1}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "permission.asked", "properties": {"id": "per_1", "sessionID": "ses_root", "permission": "bash", "patterns": ["rm -rf build"], "metadata": {"command": "rm -rf build"}, "always": ["rm *"], "tool": {"messageID": "msg_1", "callID": "call_3"}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "question.asked", "properties": {"id": "que_1", "sessionID": "ses_root", "questions": [{"question": "Which database?", "header": "Database", "options": [{"label": "Postgres", "description": "Relational"}, {"label": "SQLite", "description": "File"}], "multiple": false}, {"question": "Features?", "header": "Features", "options": [{"label": "Auth", "description": ""}, {"label": "Search", "description": ""}], "multiple": true}]}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.status", "properties": {"sessionID": "ses_root", "status": {"type": "retry", "attempt": 1, "message": "Rate limited", "next": 123}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.status", "properties": {"sessionID": "ses_root", "status": {"type": "retry", "attempt": 1, "message": "Rate limited", "next": 124}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.status", "properties": {"sessionID": "ses_root", "status": {"type": "busy"}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.idle", "properties": {"sessionID": "ses_other"}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.error", "properties": {"sessionID": "ses_root", "error": {"name": "MessageAbortedError", "data": {"message": "aborted"}}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.error", "properties": {"sessionID": "ses_root", "error": {"name": "APIError", "data": {"message": "Provider is overloaded"}}}}}
+
+data: {"directory": "D:\\work", "payload": {"id": "evt", "type": "session.idle", "properties": {"sessionID": "ses_root"}}}
+
