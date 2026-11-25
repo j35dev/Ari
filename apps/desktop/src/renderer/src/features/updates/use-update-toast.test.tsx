@@ -62,6 +62,24 @@ describe('useAppUpdateToast', () => {
     expect(invokeFn).not.toHaveBeenCalled()
   })
 
+  it('sends a build that cannot self-install to the release page, with no download', async () => {
+    const stream = captureStream()
+    invokeFn.mockResolvedValue({ started: true, reason: null })
+    renderWatcher()
+
+    stream.push({
+      type: 'available',
+      version: '0.4.0',
+      currentVersion: '0.3.0',
+      releaseUrl: 'https://github.com/j35dev/Ari/releases/tag/v0.4.0',
+    })
+    expect(await screen.findByText('Ari 0.4.0 is available')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Update' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Open release' }))
+    await waitFor(() => expect(invokeFn).toHaveBeenCalledWith('app.update.download'))
+    expect(screen.queryByText(/Downloading/)).toBeNull()
+  })
+
   it('walks offer → progress → restart, then installs on click', async () => {
     const stream = captureStream()
     invokeFn.mockResolvedValue({ started: true })
