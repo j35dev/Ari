@@ -138,4 +138,24 @@ describe('HTML files an agent names', () => {
     // A file link that is not HTML stays stripped by the sanitizer.
     expect(renderMarkdown('[run](file:///C:/tools/setup.exe)')).not.toContain('href')
   })
+
+  it('never links a page on another machine, which would leak the login hash', () => {
+    for (const path of [
+      '\\\\attacker\\share\\page.html',
+      '//attacker/share/page.html',
+      '\\\\?\\UNC\\attacker\\share\\page.html',
+      '%5C%5Cattacker%5Cshare%5Cpage.html',
+      'file://attacker/share/page.html',
+      'file:////attacker/share/page.html',
+      'file:\\\\attacker\\share\\page.html',
+    ])
+      expect(localHtmlHref(path), path).toBeNull()
+    expect(renderMarkdown('Open `\\\\attacker\\share\\page.html`.')).not.toContain(
+      LOCAL_HTML_PREFIX,
+    )
+    expect(renderMarkdown('[page](file://attacker/share/page.html)')).not.toContain('href')
+    // This computer's files still link.
+    expect(localHtmlHref('file://localhost/C:/site/page.html')).not.toBeNull()
+    expect(localHtmlHref('file:///C:/site/page.html')).not.toBeNull()
+  })
 })

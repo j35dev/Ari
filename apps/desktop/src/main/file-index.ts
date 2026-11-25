@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { DEFAULT_IGNORED_NAMES } from '@ari/engine/watcher'
+import { DEFAULT_IGNORED_NAMES, WATCHER_MAX_DEPTH, isIgnoredSegments } from '@ari/engine/watcher'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:file-index')
@@ -10,9 +10,10 @@ export const FILE_INDEX_CAP = 5000
 
 /**
  * Deepest indexed workspace-relative path, in path segments: a file whose
- * relative path has more segments than this is not indexed.
+ * relative path has more segments than this is not indexed. The watcher that
+ * keeps the index fresh reaches exactly this far.
  */
-export const FILE_INDEX_MAX_DEPTH = 6
+export const FILE_INDEX_MAX_DEPTH = WATCHER_MAX_DEPTH + 1
 
 export interface ProjectFileIndexOptions {
   /** Override {@link FILE_INDEX_CAP} (tests). */
@@ -48,11 +49,9 @@ function segmentNames(relativePath: string): string[] {
 
 const IGNORED_NAMES = new Set<string>(DEFAULT_IGNORED_NAMES)
 
-/** Mirrors the watcher's ignore predicate (see DEFAULT_IGNORED_NAMES). */
-function isIgnoredRelative(relativePath: string): boolean {
-  const segments = segmentNames(relativePath)
-  if (segments.length === 1 && segments[0]?.startsWith('.')) return true
-  return segments.some((name) => IGNORED_NAMES.has(name))
+/** The watcher's ignore predicate (see DEFAULT_IGNORED_NAMES). */
+function isIgnoredRelative(relativePath: string, isDirectory?: boolean): boolean {
+  return isIgnoredSegments(segmentNames(relativePath), IGNORED_NAMES, isDirectory)
 }
 
 /**
@@ -67,7 +66,7 @@ export async function walkWorkspaceFiles(rootDir: string, cap: number): Promise<
     if (found.length >= cap) return
     for (const entry of await listEntries(dir)) {
       const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
-      if (isIgnoredRelative(rel)) continue
+      if (isIgnoredRelative(rel, entry.type === 'dir')) continue
       if (entry.type === 'file') {
         found.push(rel)
         if (found.length >= cap) return

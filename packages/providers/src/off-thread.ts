@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process'
 import { Worker } from 'node:worker_threads'
 import { createLogger } from '@ari/shared/logger'
 import { buildShellSpawnArgs, needsWindowsShell } from './spawn-cli'
+import { interruptChild } from './teardown'
 
 const log = createLogger('providers:off-thread')
 
@@ -18,6 +19,15 @@ const WORKER_SOURCE = `
 const { parentPort } = require('node:worker_threads')
 const { spawn } = require('node:child_process')
 const LIMIT = 64 * 1024
+// A command behind a cmd.exe shim is the shim's child: only a tree kill,
+// while the shim still lives, reaches it.
+const killTree = (child) => {
+  try {
+    if (process.platform === 'win32' && child.pid)
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {})
+    else child.kill('SIGKILL')
+  } catch {}
+}
 parentPort.on('message', ({ id, file, args, verbatim, env, timeoutMs }) => {
   let stdout = ''
   let settled = false
@@ -32,7 +42,6 @@ parentPort.on('message', ({ id, file, args, verbatim, env, timeoutMs }) => {
       windowsVerbatimArguments: verbatim,
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
-      timeout: timeoutMs,
       ...(env ? { env } : {}),
     })
   } catch (error) {
@@ -44,9 +53,9 @@ parentPort.on('message', ({ id, file, args, verbatim, env, timeoutMs }) => {
   child.on('close', (code) => done({ code, stdout }))
   setTimeout(() => {
     if (settled) return
-    try { child.kill() } catch {}
+    killTree(child)
     done({ code: null, stdout: '' })
-  }, timeoutMs + 1000).unref()
+  }, timeoutMs).unref()
 })
 `
 
@@ -145,7 +154,6 @@ function runHere(
         windowsVerbatimArguments: line.verbatim,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
-        timeout: options.timeoutMs,
         ...(options.env ? { env: options.env } : {}),
       })
     } catch (error) {
@@ -159,9 +167,10 @@ function runHere(
     child.on('close', (code) => done({ code, stdout }))
     setTimeout(() => {
       if (!settled) {
-        child.kill()
+        // A bare kill() would end only a cmd.exe shim, not the command in it.
+        interruptChild(child)
         done({ code: null, stdout: '' })
       }
-    }, options.timeoutMs + 1000).unref?.()
+    }, options.timeoutMs).unref?.()
   })
 }

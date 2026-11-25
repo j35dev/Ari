@@ -33,6 +33,7 @@ const ariIdentity = {
   GIT_COMMITTER_NAME: 'Ari',
   GIT_COMMITTER_EMAIL: 'ari@localhost',
 }
+const SNAPSHOT_MESSAGE = 'Ari workspace snapshot'
 const SAVED_ON_DELETE = 'Saved by Ari when the session was deleted'
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
@@ -74,11 +75,7 @@ export class ManagedWorkspaces {
       GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
     }
     const commit = (
-      await this.#run(
-        cwd,
-        ['commit-tree', tree, '-p', parent ?? head, '-m', 'Ari workspace snapshot'],
-        env,
-      )
+      await this.#run(cwd, ['commit-tree', tree, '-p', parent ?? head, '-m', SNAPSHOT_MESSAGE], env)
     ).trim()
     await this.#run(cwd, ['update-ref', ref, commit])
     return commit
@@ -108,6 +105,31 @@ export class ManagedWorkspaces {
     }
   }
 
+  /** Whether `commit` is one of Ari's workspace snapshots rather than a user commit. */
+  async #isSnapshot(cwd: string, commit: string): Promise<boolean> {
+    const shown = await this.git.runPlumbing(cwd, [
+      'show',
+      '-s',
+      '--format=%ae%n%ce%n%s',
+      commit,
+      '--',
+    ])
+    return (
+      shown.ok &&
+      shown.value.stdout.trim() ===
+        `${ariIdentity.GIT_AUTHOR_EMAIL}\n${ariIdentity.GIT_COMMITTER_EMAIL}\n${SNAPSHOT_MESSAGE}`
+    )
+  }
+
+  /** Whether `user.name` and `user.email` are configured for this repository. */
+  async #hasIdentity(cwd: string): Promise<boolean> {
+    for (const key of ['user.name', 'user.email']) {
+      const value = await this.git.runPlumbing(cwd, ['config', '--get', key])
+      if (!value.ok || value.value.stdout.trim() === '') return false
+    }
+    return true
+  }
+
   /** Resolved object id, or null when the revision does not exist. */
   async #resolve(cwd: string, revision: string): Promise<string | null> {
     const result = await this.git.runPlumbing(cwd, [
@@ -135,11 +157,13 @@ export class ManagedWorkspaces {
     // another branch gets a session branch of its own, judged like any other.
     const owned = checkedOut !== '' && branchBelongsToSession(checkedOut, sessionId)
     if (!dirty && owned) return
+    // This commit is the user's to keep and merge, so it carries their own
+    // identity when the repository has one; Ari's only when none is set.
     const commit = dirty
       ? (
           await this.#run(path, ['commit-tree', tree, '-p', head, '-m', SAVED_ON_DELETE], {
             ...process.env,
-            ...ariIdentity,
+            ...((await this.#hasIdentity(path)) ? {} : ariIdentity),
           })
         ).trim()
       : head
@@ -169,8 +193,13 @@ export class ManagedWorkspaces {
     const base = await this.#resolve(repo, `${prefix}/base^{commit}`)
     if (base && (await this.git.runPlumbing(repo, ['merge-base', '--is-ancestor', tip, base])).ok)
       return true
+    // The branch starts at the real HEAD with the parent's unsaved files on
+    // top, so a session that did nothing saves exactly its base snapshot's
+    // tree. Judge by content, not ancestry.
+    const tipTree = await this.#resolve(repo, `${tip}^{tree}`)
+    if (base && tipTree === (await this.#resolve(repo, `${base}^{tree}`))) return true
     const integrated = await this.#resolve(repo, `${prefix}/integrated^{tree}`)
-    if (integrated && integrated === (await this.#resolve(repo, `${tip}^{tree}`))) return true
+    if (integrated && integrated === tipTree) return true
     const containing = await this.git.runPlumbing(repo, [
       'for-each-ref',
       '--format=%(refname)',
@@ -204,9 +233,19 @@ export class ManagedWorkspaces {
     const branch = await this.#uniqueBranch(cwd, orchestrationBranch(title, childId))
     await mkdir(join(this.rootDir, parent.projectId), { recursive: true })
     const workspace = { kind: 'managed-worktree' as const, path, branch, baseRef, baseCommit }
+    // The snapshot is Ari's internal record (fake identity, fixed date). The
+    // branch starts at the commit it was taken on, so merging the branch never
+    // brings it into the user's history; the parent's unsaved files follow as
+    // uncommitted changes instead.
+    // A pinned checkout freezes a real commit, which the branch starts on as is.
+    const head = (await this.#isSnapshot(cwd, baseCommit))
+      ? await this.#resolve(cwd, `${baseCommit}^1^{commit}`)
+      : baseCommit
+    if (!head) throw new ControlFailure('integration_failed', 'The base snapshot has no commit.')
     try {
-      const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', baseCommit)
+      const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', head)
       if (!result.ok) throw new Error('Worktree creation was not acknowledged.')
+      await this.#carryUnsavedFiles(path, head, baseCommit)
     } catch {
       // Git can create the checkout before failing or losing its acknowledgement.
       // The computed identity is recovery context, not proof the checkout exists.
@@ -223,6 +262,18 @@ export class ManagedWorkspaces {
       )
     }
     return workspace
+  }
+
+  /**
+   * Makes a fresh checkout of `head` hold the snapshot's files, with its index
+   * and branch left at `head`: additions, edits and deletions alike show as
+   * uncommitted changes.
+   */
+  async #carryUnsavedFiles(path: string, head: string, snapshot: string): Promise<void> {
+    const headTree = await this.#resolve(path, `${head}^{tree}`)
+    if (headTree === (await this.#resolve(path, `${snapshot}^{tree}`))) return
+    await this.#run(path, ['read-tree', '-u', '--reset', snapshot])
+    await this.#run(path, ['reset', '--quiet', '--mixed', head])
   }
 
   /**
