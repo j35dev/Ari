@@ -36,6 +36,10 @@ extraResources:
     to: icon.ico
   - from: build/icon.png
     to: icon.png
+  # Licenses of the third-party code inside Ari; regenerate with
+  # `node scripts/third-party-notices.mjs` before a release.
+  - from: ../../THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
 # Native dependencies must stay physical on disk
 # (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe, neither of
 # which works from inside an asar archive). `@lydell/node-pty` is only a

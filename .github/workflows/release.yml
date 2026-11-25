@@ -52,7 +52,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test the release checks
-        run: node --test scripts/release-artifacts.test.mjs scripts/release-native-audit.test.mjs
+        run: node --test scripts/release-artifacts.test.mjs scripts/release-native-audit.test.mjs scripts/third-party-notices.test.mjs
 
       - name: Build desktop bundle
         run: pnpm --filter @ari/desktop build
