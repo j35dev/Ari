@@ -10,6 +10,7 @@
     "./types": "./src/types.ts",
     "./health": "./src/health.ts",
     "./catalogs": "./src/catalogs.ts",
+    "./antigravity/policy": "./src/antigravity/policy.ts",
     "./catalog-service": "./src/catalog-service.ts",
     "./updates": "./src/updates.ts",
     "./package-manager": "./src/package-manager.ts",

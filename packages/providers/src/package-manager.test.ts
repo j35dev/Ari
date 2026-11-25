@@ -62,6 +62,22 @@ describe('planFor', () => {
     const muse = planFor('muse', null, 'linux')
     expect(muse?.upgradeCommand).toEqual(muse?.installCommand)
   })
+  it('uses the official Antigravity installer and updates the selected CLI', () => {
+    expect(planFor('antigravity', null, 'linux')?.installCommand).toEqual([
+      'bash',
+      '-c',
+      'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+    ])
+    expect(planFor('antigravity', null, 'win32')?.installCommand.at(-1)).toContain(
+      'https://antigravity.google/cli/install.ps1',
+    )
+    expect(planFor('antigravity', '/tools/agy', 'linux')?.upgradeCommand).toEqual([
+      '/tools/agy',
+      'update',
+    ])
+    expect(planFor('antigravity', null, 'linux')?.upgradeCommand).toEqual(['agy', 'update'])
+  })
+
   it('builds argv arrays, never shell strings', () => {
     const plan = planFor('codex', 'C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd')
     expect(plan?.installCommand).toEqual([

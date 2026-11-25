@@ -9,7 +9,7 @@ import {
 } from './settings'
 
 const PRIMARY = ['claude', 'codex', 'opencode', 'grok'] as const
-const OPTIONAL = ['pi', 'hermes', 'qoder', 'muse'] as const
+const OPTIONAL = ['pi', 'hermes', 'qoder', 'muse', 'antigravity'] as const
 
 describe('provider preferences', () => {
   it('enables only the four primary CLIs for a fresh settings file', () => {

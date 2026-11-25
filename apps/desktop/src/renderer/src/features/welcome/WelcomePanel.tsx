@@ -61,6 +61,7 @@ const CLI_LABELS: Record<string, string> = {
   hermes: 'Hermes',
   qoder: 'Qoder',
   muse: 'Muse Code',
+  antigravity: 'Antigravity',
 }
 
 const KEYBOARD_HINTS = [

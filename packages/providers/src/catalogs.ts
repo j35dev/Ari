@@ -2,6 +2,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import snapshot from './catalog-snapshot.json'
 import type { CatalogEffort, EffortCatalog } from './acp/thought'
 import type { AgentModeCatalog } from './acp/modes'
+import { antigravityModels, isAntigravityGeminiModel } from './antigravity/policy'
 
 export type { CatalogEffort, EffortCatalog } from './acp/thought'
 export type { CatalogAgentMode, AgentModeCatalog } from './acp/modes'
@@ -79,6 +80,7 @@ export const MODEL_CATALOGS: Record<DriverKind, CatalogModel[]> = {
   hermes: CLI_DEFAULT_MODELS,
   qoder: CLI_DEFAULT_MODELS,
   muse: CLI_DEFAULT_MODELS,
+  antigravity: CLI_DEFAULT_MODELS,
   'ari-core': [],
 }
 
@@ -118,6 +120,7 @@ export function setDynamicModels(
   source: CatalogSource,
   models: CatalogModel[],
 ): void {
+  if (kind === 'antigravity') models = antigravityModels(models)
   if (models.length === 0) return
   dynamic.set(kind, { source, models, at: Date.now() })
 }
@@ -176,6 +179,8 @@ const agentDefaults = new Map<DriverKind, string>()
  * Null forgets it.
  */
 export function setAgentDefaultModel(kind: DriverKind, modelId: string | null): void {
+  if (kind === 'antigravity' && modelId !== null && !isAntigravityGeminiModel(modelId))
+    modelId = null
   if (modelId === null || modelId.length === 0) agentDefaults.delete(kind)
   else agentDefaults.set(kind, modelId)
 }
