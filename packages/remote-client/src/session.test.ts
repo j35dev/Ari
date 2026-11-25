@@ -442,3 +442,114 @@ describe('RemoteSession uncertain mutation receipts', () => {
     expect(authorizations).toBe(2)
   })
 })
+
+describe('RemoteSession on a phone link', () => {
+  function counting(): { request: typeof fetch; paths: string[] } {
+    const paths: string[] = []
+    const request: typeof fetch = async (input) => {
+      const path = new URL(requestUrl(input)).pathname
+      paths.push(path)
+      if (path === '/info') return success(info)
+      if (path === '/device/challenge') return success({ nonce: 'fixture_nonce' })
+      return success(authorized)
+    }
+    return { request, paths }
+  }
+
+  it('resumes after a drop with one round trip, and authorizes in full if it drops again at once', async () => {
+    const { request, paths } = counting()
+    const session = new RemoteSession({
+      client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+      keyring: keyring(),
+    })
+    await session.connect()
+    expect(paths).toEqual(['/info', '/device/challenge', '/device/authorize'])
+    paths.length = 0
+    await expect(session.connect(undefined, { resume: true })).resolves.toBe('connected')
+    expect(paths).toEqual(['/info'])
+    expect(session.usable).toBe(true)
+    // A stream refused right after a resume must not loop on the same token.
+    paths.length = 0
+    await session.connect(undefined, { resume: true })
+    expect(paths).toEqual(['/info', '/device/challenge', '/device/authorize'])
+  })
+
+  it('never resumes without a token it obtained itself', async () => {
+    const { request, paths } = counting()
+    const session = new RemoteSession({
+      client: new GatewayClient({ origin: 'https://a.tailnet.ts.net', fetch: request }),
+      keyring: keyring(),
+    })
+    await session.connect(undefined, { resume: true })
+    expect(paths).toEqual(['/info', '/device/challenge', '/device/authorize'])
+  })
+
+  it('gives up on a request the network swallowed instead of waiting for the OS', async () => {
+    vi.useFakeTimers()
+    const hang: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'TimeoutError')),
+        )
+      })
+    const client = new GatewayClient({
+      origin: 'https://a.tailnet.ts.net',
+      fetch: hang,
+      requestTimeoutMs: 5000,
+    })
+    const pending = client.info()
+    const settled = expect(pending).rejects.toMatchObject({
+      code: 'unreachable',
+      message: 'Your computer did not answer in time.',
+    })
+    await vi.advanceTimersByTimeAsync(5001)
+    await settled
+  })
+
+  it('names an unreachable computer in words a person can use', async () => {
+    const client = new GatewayClient({
+      origin: 'https://a.tailnet.ts.net',
+      fetch: async () => {
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    await expect(client.info()).rejects.toMatchObject({
+      code: 'unreachable',
+      message: 'Could not reach your computer.',
+    })
+  })
+
+  it('pings an open stream and closes one that stopped answering', async () => {
+    vi.useFakeTimers()
+    const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+    const client = new GatewayClient({
+      origin: 'https://a.tailnet.ts.net',
+      webSocket: () => socket as unknown as WebSocket,
+      heartbeatMs: 1000,
+    })
+    client.token = 'fixture_token'
+    const onFrame = vi.fn()
+    const onClose = vi.fn()
+    client.subscribe('same', { onFrame, onClose })
+    socket.dispatchEvent(new Event('open'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'events.ping' }))
+    // An answer keeps it alive, and is not a frame the screen sees.
+    socket.dispatchEvent(
+      Object.assign(new Event('message'), { data: JSON.stringify({ type: 'events.pong' }) }),
+    )
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(onFrame).not.toHaveBeenCalled()
+    // Silence across two beats: the socket is dead even if the OS says open.
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(onClose).toHaveBeenCalledWith({
+      code: 4000,
+      reason: 'The event stream stopped answering.',
+    })
+    expect(socket.close).toHaveBeenCalledTimes(1)
+    const sent = socket.send.mock.calls.length
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(socket.send.mock.calls.length).toBe(sent)
+  })
+})
