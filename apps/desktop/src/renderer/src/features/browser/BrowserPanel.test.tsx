@@ -216,7 +216,9 @@ describe('BrowserPanel', () => {
     it('keeps a captured frame at its original CSS size when the covered panel resizes', async () => {
       const { container } = render(<BrowserPanel />)
       await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', STILL))
-      expect(container.querySelector('img')).toHaveStyle({ width: '400px', height: '600px' })
+      expect(container.querySelector('img')).toHaveStyle({ width: '400px' })
+      // Its height follows the image: a fitted desktop page is shorter than the panel.
+      expect(container.querySelector('img')?.style.height).toBe('')
 
       const release = registerOverlay(document.createElement('div'))
       await Promise.resolve()
@@ -239,7 +241,9 @@ describe('BrowserPanel', () => {
           expect.objectContaining({ width: 700, height: 300, visible: false }),
         ),
       )
-      expect(container.querySelector('img')).toHaveStyle({ width: '400px', height: '600px' })
+      expect(container.querySelector('img')).toHaveStyle({ width: '400px' })
+      // Its height follows the image: a fitted desktop page is shorter than the panel.
+      expect(container.querySelector('img')?.style.height).toBe('')
       release()
     })
 

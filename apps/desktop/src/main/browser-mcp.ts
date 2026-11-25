@@ -199,7 +199,7 @@ export const BROWSER_MCP_TOOLS = [
   {
     name: 'browser_screenshot',
     description:
-      'JPEG screenshot of the in-app browser viewport, one image pixel per viewport CSS pixel, so x,y read off it are the coordinates browser_pointer takes. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
+      'JPEG screenshot of the in-app browser viewport, one image pixel per viewport CSS pixel, so x,y read off it are the coordinates browser_pointer takes. The page lays out as a desktop window (at least 1280 CSS px wide) however narrow the panel showing it to the user is, and the screenshot is at that full size. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
