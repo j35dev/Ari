@@ -322,7 +322,18 @@ export class OpencodeSdkDriver implements Driver {
     const send = session.command
       ? wire.command(nativeId, directory, session.command.name, session.command.args, input)
       : wire.prompt(nativeId, directory, input)
-    send.catch((error: unknown) => fail(`OpenCode did not accept the prompt: ${String(error)}`))
+    send.catch((error: unknown) => {
+      // An HTTP error is a refusal. A timeout or dropped connection is not:
+      // the prompt may well be running, and if the session shows work the
+      // turn's own events end it.
+      if (!(error instanceof OcHttpError) && active) {
+        log.warn('OpenCode prompt request did not complete; following the session events', {
+          error: String(error),
+        })
+        return
+      }
+      fail(`OpenCode did not accept the prompt: ${String(error)}`)
+    })
 
     const release = () => {
       if (released) return

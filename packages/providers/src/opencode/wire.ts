@@ -185,6 +185,13 @@ export function tokensOf(value: unknown): OcTokens {
   }
 }
 
+/**
+ * How long prompt-path calls (model selection, prompt, command) may take to be
+ * admitted. Admission can wait on the server resolving the model and its
+ * provider package, which on a first use is far longer than a plain read.
+ */
+export const ADMISSION_TIMEOUT_MS = 10 * 60_000
+
 /** `ses_…` session ids only: anything else would be spliced into a URL path. */
 export function encodeId(id: string): string {
   return encodeURIComponent(id)

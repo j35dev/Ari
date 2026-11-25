@@ -326,6 +326,28 @@ describe('classic OpenCode turn', () => {
     ])
   })
 
+  it('follows the session when the prompt request times out after the work began', async () => {
+    let timeOut: (error: Error) => void = () => {}
+    const { driver, server } = setup('v1', {
+      'POST /session/ses_new/prompt_async': () =>
+        new Promise<never>((_resolve, reject) => {
+          timeOut = reject
+        }),
+    })
+    const adapter = await driver.create(base)
+    const events = await run(adapter, async () => {
+      server.emit(v1('session.status', { sessionID: 'ses_new', status: { type: 'busy' } }))
+      timeOut(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      server.emit(
+        v1('message.part.delta', { sessionID: 'ses_new', partID: 'p', field: 'text', delta: 'ok' }),
+      )
+      server.emit(v1('session.idle', { sessionID: 'ses_new' }))
+    })
+    expect(events.map((e) => e.type)).toEqual(['session-ref', 'text-delta', 'done'])
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'completed' })
+  })
+
   it('fails the turn when the server dies or refuses the prompt', async () => {
     const dying = setup('v1')
     const adapter = await dying.driver.create(base)

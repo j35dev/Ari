@@ -1,4 +1,3 @@
-import { basename } from 'node:path'
 import type { EffortCatalog } from '../acp/thought'
 import type { CatalogModel } from '../catalogs'
 import { opencodeServerPool } from './opencode-sdk-driver'
@@ -61,5 +60,7 @@ export function opencodeGeneration(
 ): OpencodeGeneration {
   const known = classifyOpencodeVersion(version)?.generation
   if (known) return known
-  return binaryPath !== null && /^opencode2(?:\.|$)/i.test(basename(binaryPath)) ? 'v2' : 'v1'
+  // Split on both separators: a Windows path read on posix is one segment to `basename`.
+  const name = binaryPath?.split(/[\\/]/).pop() ?? ''
+  return /^opencode2(?:\.|$)/i.test(name) ? 'v2' : 'v1'
 }

@@ -10,7 +10,15 @@ import type {
   OcQuestionShape,
   OpencodeWire,
 } from './wire'
-import { asRecord, encodeId, num, permissionRules, str, tokensOf } from './wire'
+import {
+  ADMISSION_TIMEOUT_MS,
+  asRecord,
+  encodeId,
+  num,
+  permissionRules,
+  str,
+  tokensOf,
+} from './wire'
 import { catalogModel, commandList } from './wire-v1'
 
 type FieldType = Extract<OcQuestionShape, { kind: 'v2' }>['fields'][string]
@@ -269,6 +277,7 @@ export class WireV2 implements OpencodeWire {
     if (!input.model) return
     await this.http.request('POST', `/api/session/${encodeId(sessionID)}/model`, {
       directory,
+      timeoutMs: ADMISSION_TIMEOUT_MS,
       body: {
         model: {
           id: input.model.modelID,
@@ -283,6 +292,7 @@ export class WireV2 implements OpencodeWire {
     if (!steer) await this.#model(sessionID, directory, input)
     await this.http.request('POST', `/api/session/${encodeId(sessionID)}/prompt`, {
       directory,
+      timeoutMs: ADMISSION_TIMEOUT_MS,
       body: {
         text: input.text,
         ...(input.files.length > 0
@@ -356,6 +366,7 @@ export class WireV2 implements OpencodeWire {
     if (input.model) await this.#model(sessionID, directory, input)
     await this.http.request('POST', `/api/session/${encodeId(sessionID)}/command`, {
       directory,
+      timeoutMs: ADMISSION_TIMEOUT_MS,
       body: {
         name,
         text: args,

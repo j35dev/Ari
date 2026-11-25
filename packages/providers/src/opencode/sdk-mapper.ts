@@ -74,6 +74,8 @@ export class OpencodeTurnMapper {
   readonly #sent = new Map<string, number>()
   readonly #tools = new Map<string, { started: boolean; name: string }>()
   #retry = -1
+  /** The root session reported an error: its idle then ends a failed turn. */
+  #failed = false
   #lastText = new Map<string, string>()
 
   constructor(readonly rootSessionID: string) {}
@@ -161,16 +163,20 @@ export class OpencodeTurnMapper {
         return { events: [] }
       case 'error':
         // A sub-agent's failure reaches the parent through its task tool.
-        return child
-          ? { events: [] }
-          : { events: [{ type: 'error', message: event.message, rawJson: null }] }
+        if (child) return { events: [] }
+        this.#failed = true
+        return { events: [{ type: 'error', message: event.message, rawJson: null }] }
       case 'idle': {
         if (child) return { events: this.#childEnded(sessionID, child, event.outcome, event.error) }
         const events: AgentEvent[] =
           event.outcome === 'error'
             ? [{ type: 'error', message: event.error ?? 'OpenCode run failed', rawJson: null }]
             : []
-        return { events, end: event.outcome }
+        // The classic server goes idle after a failed turn just as after a good one.
+        return {
+          events,
+          end: event.outcome === 'completed' && this.#failed ? 'error' : event.outcome,
+        }
       }
     }
   }

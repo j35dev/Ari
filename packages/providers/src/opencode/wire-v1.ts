@@ -12,6 +12,7 @@ import type {
   OpencodeWire,
 } from './wire'
 import {
+  ADMISSION_TIMEOUT_MS,
   asRecord,
   contextHint,
   encodeId,
@@ -33,6 +34,11 @@ export class WireV1 implements OpencodeWire {
   readonly eventPath = '/global/event'
   /** Part kinds by id: deltas name only the part, not whether it is reasoning. */
   readonly #parts = new Map<string, 'text' | 'reasoning'>()
+  /**
+   * Message roles by id, from `message.updated`. The user's own prompt arrives
+   * as a text part too; only assistant parts are the agent's output.
+   */
+  readonly #roles = new Map<string, 'user' | 'assistant'>()
 
   constructor(private readonly http: OcHttp) {}
 
@@ -59,10 +65,22 @@ export class WireV1 implements OpencodeWire {
           },
         ]
       }
+      case 'message.updated': {
+        const info = asRecord(props['info']) ?? {}
+        const id = str(info['id'])
+        const role = str(info['role'])
+        if (id && (role === 'user' || role === 'assistant')) {
+          this.#roles.set(id, role)
+          // Bounded: only the messages of recent turns matter.
+          if (this.#roles.size > 2000) this.#roles.delete(this.#roles.keys().next().value!)
+        }
+        return []
+      }
       case 'message.part.delta': {
         const partID = str(props['partID'])
         const delta = str(props['delta'])
         if (!partID || !delta || props['field'] !== 'text') return []
+        if (this.#roles.get(str(props['messageID']) ?? '') === 'user') return []
         return [{ type: this.#parts.get(partID) ?? 'text', sessionID, partID, delta }]
       }
       case 'message.part.updated':
@@ -138,6 +156,10 @@ export class WireV1 implements OpencodeWire {
         const kind = part['type']
         if (part['synthetic'] === true || part['ignored'] === true) return []
         const time = asRecord(part['time'])
+        const role = this.#roles.get(str(part['messageID']) ?? '')
+        // A user part: known by its message, or (role not yet seen) by having
+        // no timing, which only parts the model streamed carry.
+        if (role === 'user' || (role === undefined && kind === 'text' && time === null)) return []
         if (time?.['end'] !== undefined) this.#parts.delete(partID)
         else this.#parts.set(partID, kind)
         const text = str(part['text']) ?? ''
@@ -239,6 +261,7 @@ export class WireV1 implements OpencodeWire {
   async prompt(sessionID: string, directory: string, input: OcPromptInput): Promise<void> {
     await this.http.request('POST', `/session/${encodeId(sessionID)}/prompt_async`, {
       directory,
+      timeoutMs: ADMISSION_TIMEOUT_MS,
       body: this.#promptBody(input),
     })
   }
