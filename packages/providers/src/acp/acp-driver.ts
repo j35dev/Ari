@@ -48,6 +48,12 @@ import {
 } from '../attachments'
 import type { CatalogModel } from '../catalogs'
 import {
+  ANTIGRAVITY_MODEL_RESTRICTION,
+  antigravityModels,
+  antigravitySessionModel,
+  isAntigravityGeminiModel,
+} from '../antigravity/policy'
+import {
   liveCatalogOf,
   resolveOfferedModel,
   setDynamicEfforts,
@@ -120,6 +126,14 @@ export async function createAcpAdapter(
   /** Parks the connection between turns instead of ending it; null ends it. */
   pool: AcpSessionPool | null = null,
 ): Promise<AcpAdapter> {
+  const antigravity = /^antigravity\b/i.test(launch.label)
+  if (
+    antigravity &&
+    session.modelId !== null &&
+    session.modelId !== 'default' &&
+    !isAntigravityGeminiModel(session.modelId)
+  )
+    throw new Error(ANTIGRAVITY_MODEL_RESTRICTION)
   const pendingPermissions = new Map<
     string,
     {
@@ -393,6 +407,22 @@ export async function createAcpAdapter(
     // folder has the exact prelude before that notification can be folded.
     folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   }
+  if (antigravity) {
+    try {
+      const config = pooled?.selectors.configOptions ?? created.configOptions ?? []
+      session = {
+        ...session,
+        modelId: antigravitySessionModel(
+          session.modelId,
+          currentModelId(config),
+          modelsFromConfigOptions(config),
+        ),
+      }
+    } catch (error) {
+      connection.kill()
+      throw setupFailure(error)
+    }
+  }
   const sessionId = created.sessionId as string
   // The pick as the agent names it: a registry id resolves to the agent's row,
   // and the agent then reporting that row is the pick taking effect.
@@ -404,6 +434,7 @@ export async function createAcpAdapter(
           modelsFromConfigOptions(created.configOptions ?? []),
         ) ?? session.modelId)
   const drift = new ModelDriftWatch(pickedModel, currentModelId(created.configOptions ?? null))
+  let modelConfigured = !antigravity
   connection.onSessionUpdate = (notification) => {
     if (disposed || failed) return
     const events = folder.fold(notification)
@@ -420,6 +451,19 @@ export async function createAcpAdapter(
     // a model it switched to on its own is something the user has to hear.
     const moved = configOptionsFromUpdate(notification)
     if (moved !== null) {
+      // A resumed CLI can report its old default while the Gemini selector
+      // is being applied. No inference has started yet.
+      if (!modelConfigured) return
+      const modelId = currentModelId(moved)
+      if (antigravity && modelId !== null && !isAntigravityGeminiModel(modelId)) {
+        failed = true
+        connection.cancel(sessionId)
+        push([
+          { type: 'error', message: ANTIGRAVITY_MODEL_RESTRICTION, rawJson: null },
+          { type: 'done' },
+        ])
+        return
+      }
       const notice = drift.observe(moved)
       if (notice !== null) push([notice])
     }
@@ -442,6 +486,10 @@ export async function createAcpAdapter(
       lastApplied && lastApplied.modelId === session.modelId
         ? ({ kind: 'unchanged' } as const)
         : await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    if (antigravity && (applied.kind === 'unavailable' || applied.kind === 'skipped'))
+      throw new Error(
+        'Antigravity could not select the requested Gemini model; refusing to use another model.',
+      )
     // The pick did not reach the agent, so a different model is about to
     // answer. Say it in the transcript: the composer still shows the pick.
     if (applied.kind === 'unavailable' && session.modelId !== null) {
@@ -481,6 +529,12 @@ export async function createAcpAdapter(
         session.effort ?? null,
         launch.label,
       )
+    if (antigravity) {
+      const actualModel = currentModelId(selectors.configOptions)
+      if (actualModel !== null && !isAntigravityGeminiModel(actualModel))
+        throw new Error('Antigravity did not confirm a Gemini model for this session.')
+    }
+    modelConfigured = true
   } catch (error) {
     connection.kill()
     throw setupFailure(error)
@@ -826,7 +880,9 @@ export async function createAcpAdapter(
           ? { availableModes: selectors.availableModes }
           : undefined,
     }),
-    advertisedModels: modelsFromConfigOptions(selectors.configOptions),
+    advertisedModels: antigravity
+      ? antigravityModels(modelsFromConfigOptions(selectors.configOptions))
+      : modelsFromConfigOptions(selectors.configOptions),
   }
 }
 
@@ -1416,14 +1472,16 @@ export function publishAdvertisedEfforts(kind: DriverKind, efforts: EffortCatalo
 /**
  * The `_meta` an agent's `session/new`, `load` and `resume` take to add to its
  * system prompt, for the agents known to honour one. The Claude adapter
- * forwards `systemPrompt` preset options to the Agent SDK; ACP itself defines
+ * forwards `systemPrompt` preset options to the Agent SDK; Antigravity's
+ * native server advertises a namespaced append extension. ACP itself defines
  * no such field, so other agents get nothing here.
  */
 export function systemInstructionsMeta(
   kind: DriverKind,
   instructions: string | null | undefined,
 ): Record<string, unknown> | null {
-  if (kind !== 'claude' || !instructions) return null
+  if ((kind !== 'claude' && kind !== 'antigravity') || !instructions) return null
+  if (kind === 'antigravity') return { antigravity: { systemPrompt: { append: instructions } } }
   return { systemPrompt: { append: instructions } }
 }
 
@@ -1449,9 +1507,10 @@ export class AcpDriver implements Driver {
     private readonly mcpServers: (session: AdapterSession) => AcpMcpServer[] = () => [],
   ) {
     this.kind = kind
-    // Both paths must take them: a turn may start over ACP or fall back to the CLI.
+    // Every available path must take them, including an ACP-only provider.
     this.systemInstructions =
-      systemInstructionsMeta(kind, 'probe') !== null && fallback?.systemInstructions === true
+      systemInstructionsMeta(kind, 'probe') !== null &&
+      (fallback?.systemInstructions === true || (fallback === null && launch !== null))
   }
 
   /**

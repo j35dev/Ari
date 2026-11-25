@@ -294,6 +294,7 @@ const connectionsShape = <T extends z.ZodType>(
   hermes: field('hermes'),
   qoder: field('qoder'),
   muse: field('muse'),
+  antigravity: field('antigravity'),
 })
 
 export const providerConnectionsSchema = z.object(

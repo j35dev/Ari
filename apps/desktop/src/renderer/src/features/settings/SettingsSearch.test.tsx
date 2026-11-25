@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SETTINGS_SEARCH_INDEX, SettingsSearch, filterSettingsIndex } from './SettingsSearch'
 
 describe('filterSettingsIndex', () => {
-  it.each(['qoder', 'muse', 'optional'])(
+  it.each(['qoder', 'muse', 'antigravity', 'agy', 'optional'])(
     'finds optional provider controls for %s',
     (query) => {
       expect(
