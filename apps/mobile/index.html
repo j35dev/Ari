@@ -6,11 +6,12 @@
       The viewport has to allow the installed app to reach the top of the
       screen; the safe-area insets are handled per-element so the bottom
       navigation can paint under the home indicator while its buttons stay
-      above it.
+      above it. `resizes-content` makes Android shrink the page for the
+      keyboard, as iOS's visual viewport does, so the composer stays above it.
     -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#131320" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

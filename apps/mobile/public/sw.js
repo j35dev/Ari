@@ -1,5 +1,7 @@
 /* Public app files only. Account data and desktop operations always use the network. */
-const VERSION = 'ari-mobile-v5'
+const VERSION = 'ari-mobile-v6'
+/** How long a navigation waits for the network before opening the cached shell. */
+const SLOW_NETWORK_MS = 2500
 const SHELL = `${VERSION}-shell`
 const SHELL_FILES = [
   '/',
@@ -156,18 +158,27 @@ self.addEventListener('fetch', (event) => {
   const html = request.mode === 'navigate' || pathname === '/' || pathname === '/index.html'
   const file = SHELL_FILES.includes(pathname) && pathname !== '/'
   if (!html && !file) return
+  const key = html ? '/' : pathname
+  const kind = html ? 'html' : 'file'
+  const network = (async () => {
+    const response = await fetch(request)
+    if (cacheable(response, kind)) await remember(key, response.clone())
+    return response
+  })()
+  // The network copy still lands in the cache for next time.
+  event.waitUntil(network.catch(() => undefined))
   event.respondWith(
     (async () => {
-      const key = html ? '/' : pathname
-      const kind = html ? 'html' : 'file'
-      try {
-        const response = await fetch(request)
-        if (cacheable(response, kind)) await remember(key, response)
-        return response
-      } catch {
-        const previous = await cached(key)
-        return previous && cacheable(previous, kind) ? previous : Response.error()
-      }
+      const previous = await cached(key)
+      const fallback = previous && cacheable(previous, kind) ? previous : null
+      if (fallback === null) return network.catch(() => Response.error())
+      // A relayed tailnet path can take seconds to answer a cold request. The
+      // shell already on the phone opens the app at once when the network is
+      // slow; it is replaced by the fresh copy on the next open.
+      return Promise.race([
+        network.catch(() => fallback),
+        new Promise((resolve) => setTimeout(() => resolve(fallback), SLOW_NETWORK_MS)),
+      ])
     })(),
   )
 })
