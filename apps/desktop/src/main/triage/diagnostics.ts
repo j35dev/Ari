@@ -22,12 +22,27 @@ export function redact(text: string): string {
     .replace(/\/(?:home|Users)\/[^/\s"']+/g, '<home>')
 }
 
-/** Only warning/error messages are retained. Logger data can contain conversations. */
+/**
+ * The error a log call carries — the data itself or its `error` field — as
+ * its message and stack. Nothing else from the data: it can hold conversations.
+ */
+export function errorDetail(data: unknown): string | undefined {
+  const error =
+    data instanceof Error
+      ? data
+      : typeof data === 'object' && data !== null && 'error' in data
+        ? data.error
+        : undefined
+  if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`
+  return typeof error === 'string' && error.length > 0 ? error : undefined
+}
+
+/** Only warning/error messages and the errors they carry are retained. */
 export class TriageLog {
   private tail: Promise<void> = Promise.resolve()
   private pending = 0
   constructor(readonly path: string) {}
-  record(scope: string, message: string): void {
+  record(scope: string, message: string, error?: string): void {
     if (this.pending >= 256) return
     this.pending++
     const line =
@@ -35,6 +50,7 @@ export class TriageLog {
         at: Date.now(),
         scope: redact(scope.slice(0, 100)),
         message: redact(message.slice(0, 8000)),
+        ...(error ? { error: redact(error.slice(0, 8000)) } : {}),
       }) + '\n'
     this.tail = this.tail
       .then(async () => {
