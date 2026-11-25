@@ -914,7 +914,7 @@ describe('SessionView regenerate and retry', () => {
     })
   })
 
-  it('disables regenerate while a turn is running and enables it on settle', async () => {
+  it('hides regenerate while a turn is running and enables it on settle', async () => {
     renderView()
     await screen.findByLabelText('Message')
 
@@ -942,7 +942,9 @@ describe('SessionView regenerate and retry', () => {
       parts: [{ type: 'text', text: 'Streaming…' }],
     })
 
-    expect(await screen.findByRole('button', { name: 'Regenerate response' })).toBeDisabled()
+    // The reply's footer, regenerate included, waits for the reply to finish.
+    expect(await screen.findByText('Streaming…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).toBeNull()
 
     emitSessionEvent({
       seq: 4,

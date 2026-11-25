@@ -112,6 +112,23 @@ describe('createMarkdownStream', () => {
     expect(flat(stream.render(source).join(''))).toBe(flat(renderMarkdown(source)))
   })
 
+  it('keeps settled blocks when only the live block is rewritten', () => {
+    // A streamed reply closes its open markers anew on every flush, so the
+    // live block's tail changes without the text being appended to.
+    const parse = vi.spyOn(markdown.markdownProcessor, 'parse')
+    const stream = createMarkdownStream()
+    stream.render('first paragraph\n\nsecond **bo**')
+    const source = 'first paragraph\n\nsecond **bold te**'
+    const blocks = stream.render(source)
+
+    expect(parse.mock.calls.map(([text]) => text)).toEqual([
+      'first paragraph\n\nsecond **bo**',
+      'second **bold te**',
+    ])
+    expect(flat(blocks.join(''))).toBe(flat(renderMarkdown(source)))
+    parse.mockRestore()
+  })
+
   it('starts over when the text is replaced rather than appended to', () => {
     const stream = createMarkdownStream()
     stream.render('one\n\ntwo\n\nthree')
