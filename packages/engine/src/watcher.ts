@@ -36,7 +36,7 @@ export const DEFAULT_IGNORED_NAMES: readonly string[] = [
   '.next',
   '.turbo',
   // .NET, Unity, CocoaPods, Gradle and Dart/Flutter output and caches.
-  'bin',
+  // `bin` stays visible: many projects keep source scripts there.
   'obj',
   'Library',
   'Pods',
