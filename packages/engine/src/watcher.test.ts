@@ -119,16 +119,21 @@ describe('WorkspaceWatcher', () => {
       await sleep(SETTLE_MS)
       await writeFile(join(deepest, 'f', 'too-deep.txt'), 'x')
       await writeFile(join(dir, 'app', 'obj', 'out.dll'), 'x')
-      await writeFile(join(dir, 'app', 'bin', 'out.exe'), 'x')
       await writeFile(join(dir, 'app', '.cache', 'inner', 'blob'), 'x')
       await sleep(600)
       expect(collector.batches).toHaveLength(0)
-      // Six segments deep is still watched, and a nested dotfile too.
+      // Six segments deep is still watched, a nested dotfile too, and `bin`,
+      // where many projects keep source scripts.
       await writeFile(join(deepest, 'six.txt'), 'x')
       await writeFile(join(dir, 'app', '.eslintrc'), 'x')
+      await writeFile(join(dir, 'app', 'bin', 'run.sh'), 'x')
       await sleep(600)
       expect(collector.batches.flat().sort()).toEqual(
-        [join(deepest, 'six.txt'), join(dir, 'app', '.eslintrc')].sort(),
+        [
+          join(deepest, 'six.txt'),
+          join(dir, 'app', '.eslintrc'),
+          join(dir, 'app', 'bin', 'run.sh'),
+        ].sort(),
       )
     } finally {
       await watcher.close()
