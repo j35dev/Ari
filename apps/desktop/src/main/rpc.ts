@@ -144,6 +144,12 @@ import { probeClaudeCatalog } from '@ari/providers/claude/catalog'
 import { CodexDriver } from '@ari/providers/codex'
 import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
+import {
+  OpencodeSdkDriver,
+  opencodeServerPool,
+  resolveOpencodeTransport,
+} from '@ari/providers/opencode/sdk'
+import { opencodeGeneration, readOpencodeCatalog } from '@ari/providers/opencode/catalog'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
 import { QoderDriver, qoderSessionPool } from '@ari/providers/qoder'
@@ -222,6 +228,30 @@ import { todoFilenameFor } from '@ari/ari-core/todo'
 const log = createLogger('desktop:rpc')
 let speechService: SpeechService | null = null
 
+/** `ARI_OPENCODE_TRANSPORT`: `sdk` (default), `acp`, or `cli`. */
+function opencodeTransport(): ReturnType<typeof resolveOpencodeTransport> {
+  return resolveOpencodeTransport(process.env['ARI_OPENCODE_TRANSPORT'])
+}
+
+/** OpenCode's catalog from its shared server; null when the server cannot start. */
+async function probeOpencodeServerCatalog(
+  binaryPath: string,
+  version: string | null,
+  env: Record<string, string | undefined>,
+): Promise<Awaited<ReturnType<typeof readOpencodeCatalog>> | null> {
+  try {
+    return await readOpencodeCatalog({
+      binary: binaryPath,
+      generation: opencodeGeneration(version, binaryPath),
+      env,
+      directory: homedir(),
+    })
+  } catch (error) {
+    log.debug('OpenCode server catalog failed; trying ACP', { error: String(error) })
+    return null
+  }
+}
+
 /**
  * Kinds whose ACP server is probed for the agent's own model list. Adapters
  * resolve through npx and are probed with `--no-install` so background
@@ -231,7 +261,8 @@ function acpProbeKinds(): DriverKind[] {
   // Codex advertises its models over its own app-server protocol rather than
   // ACP, so opting out of the ACP transport must not take its discovery down
   // with it — probeAcpModels still skips the ACP fallback below.
-  if (process.env['ARI_ACP'] === '0') return ['codex']
+  if (process.env['ARI_ACP'] === '0')
+    return opencodeTransport() === 'sdk' ? ['codex', 'opencode'] : ['codex']
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
     return ALL_CLI_KINDS
   }
@@ -277,6 +308,21 @@ async function readAcpModels(
     setDynamicModes(kind, catalog.modes)
     setAgentDefaultModel(kind, catalog.defaultModelId)
     return catalog.models
+  }
+
+  if (kind === 'opencode' && opencodeTransport() === 'sdk') {
+    const catalog = await probeOpencodeServerCatalog(
+      detection.binaryPath,
+      detection.version,
+      probeEnv,
+    )
+    if (catalog !== null && catalog.models.length > 0) {
+      setDynamicEfforts(kind, catalog.efforts)
+      // Permissions are rules on the session here, not agent modes to pick.
+      setDynamicModes(kind, { currentId: null, options: [] })
+      setAgentDefaultModel(kind, catalog.defaultModelId)
+      return catalog.models
+    }
   }
 
   if (kind === 'codex') {
@@ -406,6 +452,18 @@ async function readEffortsForModel(
       )
     const model = catalog.models.find((model) => model.id === offered)
     return model?.efforts ?? catalog.efforts.options
+  }
+  if (kind === 'opencode' && opencodeTransport() === 'sdk') {
+    const catalog = await probeOpencodeServerCatalog(detection.binaryPath, detection.version, {
+      ...processEnvWithPath(environment.pathEnv),
+      ...providerEnvironment(kind),
+    })
+    if (catalog !== null) {
+      const id = modelId && modelId !== 'default' ? modelId : catalog.defaultModelId
+      const model = catalog.models.find((entry) => entry.id === id)
+      if (model !== undefined) return model.efforts ?? []
+      if (id === null) return catalog.efforts.options
+    }
   }
   if (process.env['ARI_ACP'] === '0') return []
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath }, environment)
@@ -1064,6 +1122,10 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
             })
             return
           }
+          if (candidate.kind === 'opencode') {
+            registry.register(opencodeDriver(detection.binaryPath, detection.version))
+            return
+          }
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
             cliBinaryPath: detection.binaryPath,
           })
@@ -1140,6 +1202,42 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
       }),
     ),
   )
+}
+
+/**
+ * OpenCode's driver chain: its own server (OpenCode 2 or classic, by the
+ * detected version), falling back to ACP when the server cannot start, and ACP
+ * in turn to one-shot `run --format json`. `ARI_OPENCODE_TRANSPORT` pins one.
+ */
+function opencodeDriver(binaryPath: string, version: string | null): Driver {
+  const transport = opencodeTransport()
+  const cli = new OpencodeDriver(binaryPath)
+  const launch =
+    transport === 'cli' ? null : resolveAcpLaunch('opencode', { cliBinaryPath: binaryPath })
+  const acp =
+    launch === null
+      ? cli
+      : new AcpDriver(
+          'opencode',
+          launch,
+          cli,
+          (wall) => publishAuthWall('opencode', wall),
+          (session) => browserAcpServers(session),
+        )
+  const generation = opencodeGeneration(version, binaryPath)
+  log.info('driver registered', {
+    kind: 'opencode',
+    version,
+    transport:
+      transport === 'sdk'
+        ? `opencode-${generation}-server+${launch === null ? 'cli' : 'acp'}`
+        : launch === null
+          ? 'cli'
+          : 'acp+fallback',
+  })
+  return transport === 'sdk'
+    ? new OpencodeSdkDriver(binaryPath, { generation, fallback: acp })
+    : acp
 }
 
 /**
@@ -1379,9 +1477,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     known: (kind, modelId) => {
       if (kind === 'ari-core') return []
       // These legacy transports cannot apply an effort selector.
+      const legacyOpencode =
+        kind === 'opencode' &&
+        (opencodeTransport() === 'cli' ||
+          (opencodeTransport() === 'acp' &&
+            (process.env['ARI_ACP'] === '0' || process.env['ARI_ACP_OPENCODE'] === '0')))
       if (
-        (kind === 'opencode' || kind === 'hermes') &&
-        (process.env['ARI_ACP'] === '0' || process.env[`ARI_ACP_${kind.toUpperCase()}`] === '0')
+        legacyOpencode ||
+        (kind === 'hermes' &&
+          (process.env['ARI_ACP'] === '0' || process.env['ARI_ACP_HERMES'] === '0'))
       )
         return []
       const model = modelsFor(kind).find(
@@ -1608,6 +1712,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       },
     }),
     prepare: async (kind) => {
+      // A running server holds the binary open, which blocks replacing it on Windows.
+      if (kind === 'opencode') await opencodeServerPool.shutdownAll()
       const rows = await redetect([kind])
       await enrichInFlight
       const before = rows.find((row) => row.kind === kind) as Detection | undefined
@@ -1645,6 +1751,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         acpSessionPool.shutdownAll(),
         claudeSessionPool.shutdownAll(),
         qoderSessionPool.shutdownAll(),
+        opencodeServerPool.shutdownAll(),
       ])
     })
   })

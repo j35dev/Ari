@@ -3,6 +3,8 @@ import { cliKindSchema } from '@ari/contracts/settings'
 import type { Settings } from '@ari/contracts/settings'
 import { describeTransport } from '@ari/providers/acp/launches'
 import { detectDriver } from '@ari/providers/detector'
+import { opencodeTransportLabel } from '@ari/providers/opencode/catalog'
+import { resolveOpencodeTransport } from '@ari/providers/opencode/sdk'
 import type { DetectEnvironment, Detection, ProviderTransport } from '@ari/providers/types'
 
 const LABELS: Record<DriverKind, string> = {
@@ -42,6 +44,18 @@ export async function detectConnection(
   if (detection.binaryPath === null) return detection
   if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp')
     return { ...detection, transport: { mode: 'cli', label: 'Claude Agent SDK', available: true } }
+  if (
+    kind === 'opencode' &&
+    resolveOpencodeTransport(process.env['ARI_OPENCODE_TRANSPORT']) === 'sdk'
+  )
+    return {
+      ...detection,
+      transport: {
+        mode: 'sdk',
+        label: opencodeTransportLabel(detection.version, detection.binaryPath),
+        available: true,
+      },
+    }
   // Described against the process environment, as the launch itself resolves.
   return { ...detection, transport: describe(kind, detection.binaryPath) }
 }

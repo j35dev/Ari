@@ -14,6 +14,29 @@ const found = (binaryPath: string | null): Detection => ({
 })
 
 describe('detectConnection', () => {
+  it('names the OpenCode server generation it will talk to, unless a transport is pinned', async () => {
+    const opencode = (version: string): Detection => ({
+      ...found('/bin/opencode'),
+      kind: 'opencode',
+      version,
+    })
+    const label = async (version: string) =>
+      (await detectConnection('opencode', ENV, defaultSettings, async () => opencode(version)))
+        .transport
+    expect(await label('opencode2 v0.0.0-beta-1')).toEqual({
+      mode: 'sdk',
+      label: 'OpenCode 2 server',
+      available: true,
+    })
+    expect((await label('1.19.6'))?.label).toBe('OpenCode server')
+    vi.stubEnv('ARI_OPENCODE_TRANSPORT', 'acp')
+    try {
+      expect((await label('1.19.6'))?.mode).not.toBe('sdk')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("hands the detector that provider's own settings", async () => {
     const detect = vi.fn(async () => found(null))
     const settings = {
