@@ -75,11 +75,7 @@ describe('WorkspaceWatcher', () => {
         writeFile(join(dir, 'b.txt'), '3'),
       ])
       const batch = await pending
-      expect(batch).toEqual([
-        join(dir, 'a.txt'),
-        join(dir, 'b.txt'),
-        join(dir, 'c.txt'),
-      ])
+      expect(batch).toEqual([join(dir, 'a.txt'), join(dir, 'b.txt'), join(dir, 'c.txt')])
       expect(collector.batches).toHaveLength(1)
     } finally {
       await watcher.close()
@@ -105,6 +101,40 @@ describe('WorkspaceWatcher', () => {
       // Nested dotfiles are past depth 1 and stay watchable.
       await writeFile(join(dir, 'nested', 'dot.dir', 'deep.txt'), 'd')
       expect(await collector.next()).toEqual([join(dir, 'nested', 'dot.dir', 'deep.txt')])
+    } finally {
+      await watcher.close()
+    }
+  })
+
+  it('stops at the file index depth and skips build output and nested dot-folders', async () => {
+    const collector = new BatchCollector()
+    const watcher = new WorkspaceWatcher({ events: { onChange: (p) => collector.push(p) } })
+    const deepest = join(dir, 'a', 'b', 'c', 'd', 'e')
+    try {
+      await mkdir(join(deepest, 'f'), { recursive: true })
+      await mkdir(join(dir, 'app', 'obj'), { recursive: true })
+      await mkdir(join(dir, 'app', 'bin'), { recursive: true })
+      await mkdir(join(dir, 'app', '.cache', 'inner'), { recursive: true })
+      watcher.watch(dir)
+      await sleep(SETTLE_MS)
+      await writeFile(join(deepest, 'f', 'too-deep.txt'), 'x')
+      await writeFile(join(dir, 'app', 'obj', 'out.dll'), 'x')
+      await writeFile(join(dir, 'app', '.cache', 'inner', 'blob'), 'x')
+      await sleep(600)
+      expect(collector.batches).toHaveLength(0)
+      // Six segments deep is still watched, a nested dotfile too, and `bin`,
+      // where many projects keep source scripts.
+      await writeFile(join(deepest, 'six.txt'), 'x')
+      await writeFile(join(dir, 'app', '.eslintrc'), 'x')
+      await writeFile(join(dir, 'app', 'bin', 'run.sh'), 'x')
+      await sleep(600)
+      expect(collector.batches.flat().sort()).toEqual(
+        [
+          join(deepest, 'six.txt'),
+          join(dir, 'app', '.eslintrc'),
+          join(dir, 'app', 'bin', 'run.sh'),
+        ].sort(),
+      )
     } finally {
       await watcher.close()
     }

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, readdir, rm, appendFile, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { Worker } from 'node:worker_threads'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -249,20 +250,90 @@ describe('SQLite conversations', () => {
     expect(await readdir(rootDir)).not.toContain('conversations.sqlite')
   })
 
-  it('does not publish a control transition whose database commit fails', async () => {
+  it('retries a control transition whose database commit fails once before publishing it', async () => {
     const store = createStore()
-    const observed: JournalEvent[] = []
-    store.subscribe((event) => observed.push(event))
-    vi.spyOn(ConversationDatabase.prototype, 'save').mockRejectedValueOnce(
-      new Error('Disk unavailable'),
-    )
-    await expect(store.append(session.id, { type: 'session.created', session })).rejects.toThrow(
-      'Disk unavailable',
-    )
-    expect(observed).toEqual([])
-    expect((await store.load(session.id)).session).toBeNull()
+    const saves = vi
+      .spyOn(ConversationDatabase.prototype, 'save')
+      .mockRejectedValueOnce(new Error('Disk unavailable'))
+    // Published only once it is saved: the failed attempt and the retry.
+    const savesWhenPublished: number[] = []
+    store.subscribe(() => savesWhenPublished.push(saves.mock.calls.length))
+    await store.append(session.id, { type: 'session.created', session })
+    expect(savesWhenPublished).toEqual([2])
     await store.close()
-    expect(await createStore().loadExisting(session.id)).toBeNull()
+    expect((await createStore().loadExisting(session.id))?.session?.title).toBe(session.title)
+  })
+
+  it('keeps a session working through failed saves and writes every lost batch later', async () => {
+    const store = createStore()
+    await createTurn(store)
+    // Called below with the database instance as its receiver.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const save = ConversationDatabase.prototype.save
+    let failing = true
+    const saves = vi.spyOn(ConversationDatabase.prototype, 'save').mockImplementation(function (
+      this: ConversationDatabase,
+      commit,
+    ) {
+      return failing ? Promise.reject(new Error('Disk full')) : save.call(this, commit)
+    })
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'assistant1',
+      parts: [{ type: 'text', text: 'Kept ' }],
+    })
+    // A turn still settles while every save fails.
+    await store.append(session.id, {
+      type: 'turn.settled',
+      turnId: 'turn1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+    expect((await store.load(session.id)).activeTurnId).toBeNull()
+    failing = false
+    // The background retry writes the batch that failed, without another append.
+    const calls = saves.mock.calls.length
+    await expect.poll(() => saves.mock.calls.length, { timeout: 5000 }).toBeGreaterThan(calls)
+    await store.flush(session.id)
+    // And later events save normally: the failure is not sticky.
+    await store.append(session.id, { type: 'session.updated', title: 'After the outage' })
+    const expected = await store.load(session.id)
+    await store.close()
+    const reader = createStore()
+    expect(await reader.load(session.id)).toEqual(expected)
+    expect((await reader.load(session.id)).messages.at(-1)?.parts).toEqual([
+      { type: 'text', text: 'Kept ' },
+    ])
+  })
+
+  it('restarts the database worker after it crashes', async () => {
+    const store = createStore()
+    await createTurn(store)
+    await store.close()
+    const database = new ConversationDatabase(join(rootDir, 'conversations.sqlite'))
+    try {
+      // The first request reaches a worker that dies before answering.
+      vi.spyOn(Worker.prototype, 'postMessage').mockImplementationOnce(function (this: Worker) {
+        void this.terminate()
+      })
+      await expect(database.list()).rejects.toThrow('worker exited')
+      expect((await database.list()).map((row) => row.id)).toEqual([session.id])
+    } finally {
+      await database.close()
+    }
+  })
+
+  it('lists every other conversation when one index row is unreadable', async () => {
+    const store = createStore()
+    await createTurn(store)
+    await store.append('other', { type: 'session.created', session: { ...session, id: 'other' } })
+    await store.close()
+    const raw = new DatabaseSync(join(rootDir, 'conversations.sqlite'))
+    raw.prepare('UPDATE conversations SET index_json=? WHERE id=?').run('null', 'other')
+    raw.close()
+    const reader = createStore()
+    expect((await reader.listSessions()).map((row) => row.id)).toEqual([session.id])
+    expect((await reader.usageSummary()).rows).toEqual([])
   })
 
   it('continues publishing live text while a background database save is stalled', async () => {

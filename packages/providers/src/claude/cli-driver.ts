@@ -17,7 +17,7 @@ import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
-import { teardownChild } from '../teardown'
+import { interruptChild, teardownChild } from '../teardown'
 
 const log = createLogger('providers:claude')
 const CLAUDE_CAPABILITIES = {
@@ -476,13 +476,15 @@ export function wireClaudeProcess(child: ControlProcessLike): ClaudeControlProce
           turn.interrupted = true
           if (child.killed || killFallback !== null) return
           const delivered = writeLine(buildInterruptFrame())
+          // The CLI runs under a cmd.exe shim on Windows: a bare kill() ends
+          // only the shim and leaves Claude and its tools running.
           killFallback = setTimeout(() => {
             killFallback = null
-            if (!child.killed) child.kill()
+            if (!child.killed) interruptChild(child)
           }, INTERRUPT_KILL_FALLBACK_MS)
           if (!delivered) {
             clearKillFallback()
-            if (!child.killed) child.kill()
+            if (!child.killed) interruptChild(child)
           }
         },
         dispose: async () => {

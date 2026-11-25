@@ -206,10 +206,9 @@ export interface ConversationSnapshot {
 export class ConversationDatabase {
   #worker: Worker | null = null
   #nextId = 0
-  #failure: Error | null = null
   readonly #pending = new Map<
     number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    { worker: Worker; resolve: (value: unknown) => void; reject: (error: Error) => void }
   >()
   constructor(readonly path: string) {}
 
@@ -225,7 +224,6 @@ export class ConversationDatabase {
   }
 
   #start(): Worker {
-    if (this.#failure) throw this.#failure
     if (this.#worker) return this.#worker
     const worker = new Worker(WORKER_SOURCE, { eval: true, workerData: { path: this.path } })
     this.#worker = worker
@@ -235,20 +233,21 @@ export class ConversationDatabase {
       this.#pending.delete(message.id)
       if (message.error) pending.reject(new Error(message.error))
       else pending.resolve(message.result)
-      if (this.#pending.size === 0) worker.unref()
+      if (![...this.#pending.values()].some((entry) => entry.worker === worker)) worker.unref()
     })
+    // A crashed worker fails only the requests it held. The next request
+    // starts a fresh one, so one crash does not stop every later save.
     const fail = (error: Error): void => {
-      this.#failure = error
-      for (const pending of this.#pending.values()) pending.reject(error)
-      this.#pending.clear()
+      if (this.#worker === worker) this.#worker = null
+      for (const [id, pending] of this.#pending)
+        if (pending.worker === worker) {
+          this.#pending.delete(id)
+          pending.reject(error)
+        }
       worker.unref()
     }
     worker.on('error', fail)
-    worker.on('exit', (code) => {
-      if (this.#worker === worker) this.#worker = null
-      if (this.#pending.size || code !== 0)
-        fail(new Error(`Conversation database worker exited (${code})`))
-    })
+    worker.on('exit', (code) => fail(new Error(`Conversation database worker exited (${code})`)))
     worker.unref()
     return worker
   }
@@ -257,7 +256,7 @@ export class ConversationDatabase {
     const worker = this.#start()
     const id = ++this.#nextId
     return new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, { resolve: (value) => resolve(value as T), reject })
+      this.#pending.set(id, { worker, resolve: (value) => resolve(value as T), reject })
       worker.ref()
       worker.postMessage({ id, op, args })
     })

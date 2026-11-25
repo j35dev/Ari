@@ -34,10 +34,34 @@ const HTML_FILE = /^[^\s<>"|*]+\.html?(?:[#?][^\s]*)?$/i
 export function localHtmlHref(target: string, needsFolder = false): string | null {
   const text = target.trim()
   if (!HTML_FILE.test(text) || /^(?:https?|mailto):/i.test(text)) return null
+  if (isNetworkPath(text)) return null
   const local = /^file:/i.test(text)
   if (!local && /^[a-z][a-z0-9+.-]{1,}:/i.test(text)) return null
   if (needsFolder && !local && !/[\\/]/.test(text)) return null
   return LOCAL_HTML_PREFIX + encodeURIComponent(text)
+}
+
+/**
+ * `\\host\share\…`, `\\?\UNC\…` or a `file:` URL naming a host other than
+ * this one. Opening one makes Windows send the user's NTLM hash to that host,
+ * so it never becomes a link. Markdown targets arrive percent-encoded.
+ */
+function isNetworkPath(text: string): boolean {
+  let decoded = text
+  try {
+    decoded = decodeURIComponent(text)
+  } catch {
+    // A stray `%` is part of the name.
+  }
+  return [text, decoded].some((value) => {
+    if (/^[\\/]{2}/.test(value)) return true
+    // `file:///C:/…` and `file://localhost/…` are local; `file://host/…`,
+    // `file:////host/…` and `file:\\host\…` are not.
+    const url = /^file:([\\/]*)([^\\/]*)/i.exec(value)
+    if (!url) return false
+    const slashes = url[1]!.length
+    return slashes >= 4 || (slashes === 2 && !/^(?:localhost|[a-z]:)?$/i.test(url[2]!))
+  })
 }
 
 interface HastNode {

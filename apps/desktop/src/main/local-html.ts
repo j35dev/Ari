@@ -26,6 +26,10 @@ export function resolveLocalHtml(input: string, baseDir: string | null): string 
     }
   }
   if (!/\.html?$/i.test(path)) throw new Error('Only HTML files open from the chat.')
+  // `\\host\share`, `\\?\UNC\…` and `file://host/…` (which reads as the
+  // former) reach out to another machine, and Windows answers its login
+  // challenge with the user's NTLM hash. Only files on this computer open.
+  if (/^[\\/]{2}/.test(path)) throw new Error('Only files on this computer open from the chat.')
   if (isAbsolute(path)) return resolve(path)
   if (baseDir === null) throw new Error(`Can't tell which folder ${path} is in.`)
   return resolve(baseDir, path)

@@ -1336,7 +1336,8 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
-  it('stops asking for the rest of the turn once the user picks an always-allow option', async () => {
+  it('stops asking for that kind of tool once the user picks an always-allow option', async () => {
+    const session = { ...SESSION, sessionId: 'ari_always_allow' }
     const child = fakeChild()
     const request = (id: number, toolCallId: string, kind: string): void => {
       child.stdout.write(
@@ -1366,10 +1367,11 @@ describe('createAcpAdapter', () => {
     script(child, (method, _params, id) => {
       if (method === 'session/prompt') {
         request(9010, 't1', 'execute')
-        // The agent only grants the one tool it asked about, so it asks again
-        // for the next: that second request is the one that must not park.
-        onReply(9010, () => request(9011, 't2', 'fetch'))
-        onReply(9011, () => {
+        // The agent asks again for a second command: that one must not park.
+        onReply(9010, () => request(9011, 't2', 'execute'))
+        // A different kind of tool still asks.
+        onReply(9011, () => request(9012, 't3', 'fetch'))
+        onReply(9012, () => {
           child.stdout.write(
             `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
           )
@@ -1379,7 +1381,7 @@ describe('createAcpAdapter', () => {
       return standardAgent()(method, _params, id)
     })
 
-    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const adapter = await createAcpAdapter(LAUNCH, session, () => child)
     const iterator = adapter.start()[Symbol.asyncIterator]()
     const events: AgentEvent[] = []
     while (true) {
@@ -1387,20 +1389,24 @@ describe('createAcpAdapter', () => {
       if (next.done === true) break
       events.push(next.value)
       if (next.value.type === 'approval-requested') {
-        adapter.respondApproval(next.value.approvalId, { optionId: 'allow_always' })
+        adapter.respondApproval(
+          next.value.approvalId,
+          next.value.toolName === 'Tool t1' ? { optionId: 'allow_always' } : 'allow',
+        )
       }
     }
-    expect(events.filter((event) => event.type === 'approval-requested')).toHaveLength(1)
-    // The session itself has to follow, or the next turn's fresh agent process
-    // starts back in the mode that asks.
-    expect(events).toContainEqual({ type: 'permission-mode', mode: 'full' })
-    // The agent's wording names one tool; the transcript says what it covers.
-    expect(events).toContainEqual({
-      type: 'notice',
-      message: expect.stringContaining('every tool in this session') as string,
+    expect(
+      events.flatMap((event) => (event.type === 'approval-requested' ? [event.toolName] : [])),
+    ).toEqual(['Tool t1', 'Tool t3'])
+    // The grant covers one kind of tool; the session's mode stays as it was.
+    expect(events.map((event) => event.type)).not.toContain('permission-mode')
+    const reply = (replyId: number) =>
+      child.sent.find((m) => m['id'] === replyId && m['method'] === undefined)
+    // The agent's own persistent option goes back as the user picked it.
+    expect(reply(9010)).toMatchObject({
+      result: { outcome: { outcome: 'selected', optionId: 'allow_always' } },
     })
-    const second = child.sent.find((m) => m['id'] === 9011 && m['method'] === undefined)
-    expect(second).toMatchObject({
+    expect(reply(9011)).toMatchObject({
       result: { outcome: { outcome: 'selected', optionId: 'allow' } },
     })
     await adapter.dispose()
