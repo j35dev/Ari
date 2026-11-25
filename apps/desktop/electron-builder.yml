@@ -51,6 +51,22 @@ asarUnpack:
   # Node-API keyboard-hook prebuilds are loaded by node-gyp-build at runtime.
   - '**/node_modules/uiohook-napi/**'
   - '**/node_modules/node-gyp-build/**'
+# Electron fuses, flipped in the packaged binary before signing.
+# - runAsNode stays on: the agent CLI shims, the browser MCP proxy, the Claude
+#   driver and audio ducking all spawn this executable with ELECTRON_RUN_AS_NODE.
+# - NODE_OPTIONS and --inspect are ignored, so neither an inherited environment
+#   variable nor a command-line flag can inject code or attach a debugger.
+# - The app loads only from app.asar, never a loose resources/app folder.
+# - Cookie encryption is left as it is: turning it on would sign every user out
+#   of the sites they logged into in the in-app browser.
+# - Embedded asar integrity is not enabled: Electron checks it on macOS and
+#   Windows only, and the universal macOS app (split per-arch asars) cannot be
+#   verified without a Mac.
+electronFuses:
+  runAsNode: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
 # Fails the build if the platform pty package did not survive dependency
 # collection — that regression ships a terminal that opens to a dead cursor.
 afterPack: ./packaging/after-pack.js
@@ -83,7 +99,13 @@ mac:
       arch:
         - universal
   category: public.app-category.developer-tools
-  # Signing is optional; signed builds use electron-builder's hardened runtime.
+  # No paid Apple certificate: ad-hoc sign ('-') so the arm64 slice runs at
+  # all once its fuses are flipped. Ad-hoc builds cannot be notarized, and
+  # Squirrel.Mac will not install updates to them (see src/main/updater.ts).
+  identity: '-'
+  notarize: false
+  # Signing uses electron-builder's hardened runtime; the entitlements keep
+  # library validation off, which an ad-hoc signature needs.
   entitlements: packaging/entitlements.mac.plist
   entitlementsInherit: packaging/entitlements.mac.plist
   artifactName: Ari-${version}-universal.${ext}
