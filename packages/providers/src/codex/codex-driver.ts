@@ -30,7 +30,7 @@ import { UNKNOWN_PROVIDER_CAPABILITIES, ONE_SHOT_PROVIDER_CAPABILITIES } from '.
 import { promptWithAttachments, textWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli, writeCliPrompt } from '../spawn-cli'
-import { teardownChild } from '../teardown'
+import { interruptChild, teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
 
@@ -183,7 +183,7 @@ export class CodexDriver implements Driver {
       )
       return codexSlashCommands(await listCodexSkills(connection, request.workspacePath))
     } finally {
-      connection.kill()
+      await connection.shutdown()
     }
   }
 
@@ -236,9 +236,7 @@ export class CodexDriver implements Driver {
     return {
       capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
-      interrupt: () => {
-        if (!child.killed) child.kill()
-      },
+      interrupt: () => interruptChild(child),
       dispose: () => teardownChild(child),
     }
   }
@@ -588,8 +586,8 @@ export async function createCodexAppServerAdapter(
   })
 
   const startupRequest = (method: string, params: unknown, timeoutMs: number): Promise<unknown> =>
-    connection.request(method, params, timeoutMs).catch((error: unknown) => {
-      connection.kill()
+    connection.request(method, params, timeoutMs).catch(async (error: unknown) => {
+      await connection.kill()
       throw error
     })
   await startupRequest(
@@ -621,7 +619,7 @@ export async function createCodexAppServerAdapter(
         ? threadResult.threadId
         : null
   if (threadId === null) {
-    connection.kill()
+    await connection.kill()
     throw new Error('codex app-server returned no thread id')
   }
   rootThreadId = threadId
@@ -648,7 +646,7 @@ export async function createCodexAppServerAdapter(
       connection.respond(requestId, { decision: 'decline' })
     }
     pendingApprovals.clear()
-    connection.kill()
+    void connection.kill()
   }
 
   const turnSettings = {

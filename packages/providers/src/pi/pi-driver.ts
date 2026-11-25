@@ -6,7 +6,7 @@ import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli, writeCliPrompt } from '../spawn-cli'
-import { teardownChild } from '../teardown'
+import { interruptChild, teardownChild } from '../teardown'
 
 const log = createLogger('providers:pi')
 
@@ -66,9 +66,7 @@ export class PiDriver implements Driver {
     return Promise.resolve({
       capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
-      interrupt: () => {
-        if (!child.killed) child.kill()
-      },
+      interrupt: () => interruptChild(child),
       dispose: () => teardownChild(child),
     })
   }

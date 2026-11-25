@@ -27,6 +27,13 @@ const oid = /^[a-f0-9]{40,64}$/
 const component = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const log = createLogger('engine:managed-workspaces')
 const removalOptions = { recursive: true, force: true, maxRetries: 6, retryDelay: 200 } as const
+const ariIdentity = {
+  GIT_AUTHOR_NAME: 'Ari',
+  GIT_AUTHOR_EMAIL: 'ari@localhost',
+  GIT_COMMITTER_NAME: 'Ari',
+  GIT_COMMITTER_EMAIL: 'ari@localhost',
+}
+const SAVED_ON_DELETE = 'Saved by Ari when the session was deleted'
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
 export class ManagedWorkspaces {
@@ -59,6 +66,26 @@ export class ManagedWorkspaces {
       throw new ControlFailure('invalid_request', 'Invalid snapshot ref.')
     if (parent && !oid.test(parent))
       throw new ControlFailure('invalid_request', 'Invalid base commit.')
+    const { head, tree } = await this.#captureTree(cwd)
+    const env = {
+      ...process.env,
+      ...ariIdentity,
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+    }
+    const commit = (
+      await this.#run(
+        cwd,
+        ['commit-tree', tree, '-p', parent ?? head, '-m', 'Ari workspace snapshot'],
+        env,
+      )
+    ).trim()
+    await this.#run(cwd, ['update-ref', ref, commit])
+    return commit
+  }
+
+  /** HEAD and the tree of HEAD plus every non-ignored working file, built in a scratch index. */
+  async #captureTree(cwd: string): Promise<{ head: string; tree: string }> {
     const inside = await this.git.isRepo(cwd)
     if (!inside.ok || !inside.value)
       throw new ControlFailure('workspace_not_git', 'Isolated workers require a Git repository.')
@@ -70,32 +97,93 @@ export class ManagedWorkspaces {
       )
     const scratch = await mkdtemp(join(tmpdir(), 'ari-snapshot-'))
     try {
-      const env = {
-        ...process.env,
-        GIT_INDEX_FILE: join(scratch, 'index'),
-        GIT_AUTHOR_NAME: 'Ari',
-        GIT_AUTHOR_EMAIL: 'ari@localhost',
-        GIT_COMMITTER_NAME: 'Ari',
-        GIT_COMMITTER_EMAIL: 'ari@localhost',
-        GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
-        GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
-      }
+      const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') }
       const head = verifiedHead.value.stdout.trim()
       await this.#run(cwd, ['read-tree', 'HEAD'], env)
       await this.#run(cwd, ['add', '--all', ...snapshotPathspecs(['.'])], env)
       const tree = (await this.#run(cwd, ['write-tree'], env)).trim()
-      const commit = (
-        await this.#run(
-          cwd,
-          ['commit-tree', tree, '-p', parent ?? head, '-m', 'Ari workspace snapshot'],
-          env,
-        )
-      ).trim()
-      await this.#run(cwd, ['update-ref', ref, commit])
-      return commit
+      return { head, tree }
     } finally {
       await rm(scratch, { recursive: true, force: true })
     }
+  }
+
+  /** Resolved object id, or null when the revision does not exist. */
+  async #resolve(cwd: string, revision: string): Promise<string | null> {
+    const result = await this.git.runPlumbing(cwd, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      '--end-of-options',
+      revision,
+    ])
+    return result.ok ? result.value.stdout.trim() || null : null
+  }
+
+  /**
+   * Commits a deleted session's unsaved files (untracked included, ignored
+   * excluded) onto its branch, where `#disposableBranch` decides whether it
+   * stays. The worktree's index and files are untouched.
+   */
+  async #preserveWork(path: string, sessionId: string): Promise<void> {
+    const { head, tree } = await this.#captureTree(path)
+    const dirty = tree !== (await this.#resolve(path, `${head}^{tree}`))
+    const current = await this.git.runPlumbing(path, ['symbolic-ref', '-q', 'HEAD'])
+    const name = current.ok ? current.value.stdout.trim() : ''
+    const checkedOut = name.startsWith('refs/heads/') ? name.slice('refs/heads/'.length) : ''
+    // Never move a branch the session does not own. Work on a detached HEAD or
+    // another branch gets a session branch of its own, judged like any other.
+    const owned = checkedOut !== '' && branchBelongsToSession(checkedOut, sessionId)
+    if (!dirty && owned) return
+    const commit = dirty
+      ? (
+          await this.#run(path, ['commit-tree', tree, '-p', head, '-m', SAVED_ON_DELETE], {
+            ...process.env,
+            ...ariIdentity,
+          })
+        ).trim()
+      : head
+    const branch = owned
+      ? checkedOut
+      : await this.#uniqueBranch(path, orchestrationBranch('saved', sessionId))
+    await this.#run(path, [
+      'update-ref',
+      '-m',
+      'ari: save work from a deleted session',
+      `refs/heads/${branch}`,
+      commit,
+      ...(owned ? [head] : []),
+    ])
+    log.info('saved deleted session work to its branch', { sessionId, branch, commit })
+  }
+
+  /**
+   * A session branch may be deleted only when nothing on it would be lost: it
+   * has no commits past its base, its tree is the one last integrated into the
+   * parent, or another (non-session) branch already contains it.
+   */
+  async #disposableBranch(repo: string, sessionId: string, ref: string): Promise<boolean> {
+    const tip = await this.#resolve(repo, `${ref}^{commit}`)
+    if (!tip) return false
+    const prefix = this.#ref(sessionId)
+    const base = await this.#resolve(repo, `${prefix}/base^{commit}`)
+    if (base && (await this.git.runPlumbing(repo, ['merge-base', '--is-ancestor', tip, base])).ok)
+      return true
+    const integrated = await this.#resolve(repo, `${prefix}/integrated^{tree}`)
+    if (integrated && integrated === (await this.#resolve(repo, `${tip}^{tree}`))) return true
+    const containing = await this.git.runPlumbing(repo, [
+      'for-each-ref',
+      '--format=%(refname)',
+      '--contains',
+      tip,
+      'refs/heads/',
+    ])
+    if (!containing.ok) return false
+    return containing.value.stdout.split('\n').some((line) => {
+      const other = line.trim()
+      if (!other.startsWith('refs/heads/')) return false
+      return !branchBelongsToSession(other.slice('refs/heads/'.length), sessionId)
+    })
   }
 
   async isolate(
@@ -141,6 +229,8 @@ export class ManagedWorkspaces {
    * Removes every Ari-owned trace of a child session: the linked worktree
    * (registration and directory), its `ari/…` branch, and all refs under
    * `refs/ari/orchestration/<sessionId>/` (base, current and snapshots).
+   * Work is never lost: unsaved files are first committed to the session
+   * branch, and a branch holding work found nowhere else is kept.
    * Missing pieces are success, so destroy paths can call it unconditionally
    * and repeat it safely.
    */
@@ -186,6 +276,12 @@ export class ManagedWorkspaces {
       }
       await this.#assertOwned(path)
       const repo = await this.#mainRepo(path)
+      // Unsaved files become a commit on the kept session branch before the
+      // folder goes. A checkout Git cannot read stays for the next retry.
+      if (repo) await this.#preserveWork(path, sessionId)
+      else if (await lstat(join(path, '.git')).catch(() => null))
+        throw new Error('Session worktree could not be inspected; its files were kept.')
+      signal?.throwIfAborted()
       // Git for Windows can descend through junctions while removing a worktree.
       // Unlink them first without walking targets such as shared dependencies.
       await this.#detachLinks(path, signal)
@@ -470,6 +566,11 @@ export class ManagedWorkspaces {
         !/^[A-Za-z0-9._/-]+$/.test(short)
       )
         continue
+      if (!(await this.#disposableBranch(repo, sessionId, name))) {
+        log.info('kept session branch with unmerged work', { sessionId, branch: short })
+        continue
+      }
+      signal?.throwIfAborted()
       await this.git.runPlumbing(repo, ['branch', '-D', short])
     }
   }
@@ -796,6 +897,8 @@ export class ManagedWorkspaces {
         await rm(scratch, { recursive: true, force: true })
       }
     }
+    // Release may drop the child branch once its work matches this state.
+    await this.#run(cwd, ['update-ref', `${this.#ref(child.id)}/integrated`, snapshotCommit])
     return { status: 'integrated', snapshotCommit, files }
   }
 }

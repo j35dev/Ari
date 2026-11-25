@@ -4,6 +4,7 @@ import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_pr
 import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import type { AdapterSession } from './driver'
+import { trackShellWrapper } from './teardown'
 
 const log = createLogger('providers:spawn-cli')
 
@@ -232,10 +233,13 @@ export function spawnCli(
   const stdin = Array.isArray(options.stdio) ? options.stdio[0] : options.stdio
   const pipedStdin = stdin == null || stdin === 'pipe' || stdin === 'overlapped'
   const wrapped = buildShellSpawnArgs(binaryPath, args, pipedStdin)
-  return spawn(wrapped.file, wrapped.args, {
+  const child = spawn(wrapped.file, wrapped.args, {
     ...options,
     windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams
+  // The real CLI is the wrapper's child: stop it with `teardownChild`, never a bare kill().
+  trackShellWrapper(child)
+  return child
 }
 
 /** One-shot CLIs read through EOF; no shell ever parses these prompt bytes. */

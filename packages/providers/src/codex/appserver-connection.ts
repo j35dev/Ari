@@ -189,12 +189,20 @@ export class AppServerConnection {
     return this.#closeWaiter
   }
 
-  kill(): void {
-    if (!this.#child.killed) this.#child.kill()
+  /**
+   * Ends the subprocess tree now. A bare kill() on Windows ends only the npm
+   * `.cmd` shim's cmd.exe and leaves Codex itself running.
+   */
+  kill(): Promise<void> {
+    return this.#teardown(0)
   }
 
   /** Ends a background reader and its subprocess tree after its final request. */
-  async shutdown(): Promise<void> {
+  shutdown(): Promise<void> {
+    return this.#teardown(400)
+  }
+
+  async #teardown(eofGraceMs: number): Promise<void> {
     if (this.#closed) return
     await teardownChild(
       {
@@ -205,7 +213,7 @@ export class AppServerConnection {
           if (event === 'close') void this.#closeWaiter.then(listener, listener)
         },
       },
-      { eofGraceMs: 400, termGraceMs: 600 },
+      { eofGraceMs, termGraceMs: 600 },
     )
   }
 
