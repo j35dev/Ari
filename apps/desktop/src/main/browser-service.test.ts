@@ -58,6 +58,23 @@ describe('BrowserService', () => {
     expect(loadURL).toHaveBeenCalledTimes(1)
   })
 
+  it('closes a tab on request only while nothing is loaded in it', async () => {
+    const blank = fakeGuest()
+    const loaded = fakeGuest()
+    const guests = [blank, loaded]
+    const service = new BrowserService(() => guests.shift()!.guest, vi.fn())
+    await service.open('agent:blank')
+    await service.open('agent:loaded', 'http://localhost:8765/')
+
+    expect(service.closeIfBlank('agent:loaded')).toBe(false)
+    expect(loaded.destroy).not.toHaveBeenCalled()
+    expect(service.has('agent:loaded')).toBe(true)
+
+    expect(service.closeIfBlank('agent:blank')).toBe(true)
+    expect(blank.destroy).toHaveBeenCalled()
+    expect(service.closeIfBlank('agent:gone')).toBe(false)
+  })
+
   it('moves, hides, and destroys the guest', async () => {
     const { guest, goBack, setBounds, setVisible, destroy } = fakeGuest()
     const service = new BrowserService(() => guest, vi.fn())

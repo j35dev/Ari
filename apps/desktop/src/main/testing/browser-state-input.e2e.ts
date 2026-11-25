@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { app, BrowserWindow, nativeImage, WebContentsView } from 'electron'
-import { hostedBrowserGuestFactory, INPUT_FOCUS_HOLD_MS } from '../browser-electron'
+import {
+  AGENT_DESKTOP_VIEWPORT,
+  agentLayout,
+  hostedBrowserGuestFactory,
+  INPUT_FOCUS_HOLD_MS,
+} from '../browser-electron'
 import { startBrowserMcpServer } from '../browser-mcp'
 import { BrowserService, type BrowserGuest } from '../browser-service'
 import { checkNativeBrowserInput } from './browser-native-input'
@@ -140,9 +145,10 @@ async function main(): Promise<void> {
     const capture = await browsers.screenshot(id)
     assert.ok(capture, `${id} has no rendered capture`)
     const image = nativeImage.createFromDataURL(capture)
-    assert.deepEqual(image.getSize(), { width: 800, height: 600 })
+    // A hidden agent page is a desktop window, whatever panel will show it.
+    assert.deepEqual(image.getSize(), AGENT_DESKTOP_VIEWPORT)
     const pixels = image.toBitmap()
-    const offset = (400 * 800 + 600) * 4
+    const offset = (400 * AGENT_DESKTOP_VIEWPORT.width + 600) * 4
     const expected = [255, 242, 234]
     for (const [channel, value] of expected.entries()) {
       const actual = pixels[offset + channel]
@@ -205,10 +211,21 @@ async function main(): Promise<void> {
   browsers.layout('agent:a', bounds, true)
   assert.equal(page.getVisible(), true, 'docked browser is not visible')
   assert.deepEqual(page.getBounds(), bounds)
-  assert.deepEqual(await page.webContents.executeJavaScript('[innerWidth,innerHeight]'), [630, 420])
+  // Narrower than a desktop window, the panel shows the page laid out at
+  // desktop width and scaled to fit; the agent's screenshot is at full size.
+  const fitted = agentLayout(bounds)
+  const [fittedWidth, fittedHeight] = (await page.webContents.executeJavaScript(
+    '[innerWidth,innerHeight]',
+  )) as [number, number]
+  assert.equal(fittedWidth, fitted.width)
+  assert.ok(Math.abs(fittedHeight - fitted.height) <= 1, `fitted height ${fittedHeight}`)
   const shot = await browsers.screenshot('agent:a')
   assert.ok(shot, 'native browser screenshot is empty')
-  assert.deepEqual(nativeImage.createFromDataURL(shot).getSize(), { width: 630, height: 420 })
+  assert.deepEqual(nativeImage.createFromDataURL(shot).getSize(), {
+    width: fittedWidth,
+    height: fittedHeight,
+  })
+  assert.deepEqual(page.getBounds(), bounds, 'the full-size capture left the page out of place')
 
   await checkNativeBrowserInput(win, page)
   const persisted: unknown = await page.webContents.executeJavaScript(
@@ -247,7 +264,10 @@ async function main(): Promise<void> {
     await page.webContents.executeJavaScript('document.querySelector("#field").value'),
     persisted,
   )
-  assert.deepEqual(await page.webContents.executeJavaScript('[innerWidth,innerHeight]'), [400, 300])
+  assert.equal(
+    ((await page.webContents.executeJavaScript('[innerWidth,innerHeight]')) as number[])[0],
+    agentLayout(resized).width,
+  )
   browsers.hideAll()
   assert.ok(
     win.contentView.children.every((view) => !view.getVisible()),
