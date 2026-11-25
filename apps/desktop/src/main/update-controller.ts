@@ -70,10 +70,20 @@ export function createUpdateController(config: {
   createPort: (handlers: UpdateHandlers) => UpdatePort
   publish: (frame: AppUpdateFrame) => void
   enabled: boolean
+  /**
+   * Set when this build cannot install an update itself (Squirrel.Mac only
+   * applies updates signed by the same Developer ID, so an unsigned or ad-hoc
+   * macOS build downloads ~265 MB and then fails). The offer then points at
+   * this release page, and `download` opens it instead of downloading.
+   */
+  manualRelease?: {
+    pageFor: (version: string) => string
+    open: (url: string) => Promise<void>
+  }
   firstCheckDelayMs?: number
   checkIntervalMs?: number
 }): UpdateController {
-  const { publish, enabled } = config
+  const { publish, enabled, manualRelease } = config
   const firstCheckDelayMs = config.firstCheckDelayMs ?? FIRST_CHECK_DELAY_MS
   const checkIntervalMs = config.checkIntervalMs ?? CHECK_INTERVAL_MS
 
@@ -107,6 +117,13 @@ export function createUpdateController(config: {
    * install-on-quit apply, so subscribers return to 'ready' instead of being
    * left on the check's `checking` frame or told the build is current.
    */
+  const availableFrame = (version: string): AppUpdateFrame => ({
+    type: 'available',
+    version,
+    currentVersion: port.currentVersion(),
+    ...(manualRelease ? { releaseUrl: manualRelease.pageFor(version) } : {}),
+  })
+
   const reannounceStaged = (): boolean => {
     if (staged === null) return false
     publish({ type: 'downloaded', version: staged })
@@ -130,7 +147,7 @@ export function createUpdateController(config: {
       // rather than replacing an installer already on disk.
       if (reannounceStaged()) return
       available = version
-      publish({ type: 'available', version, currentVersion: port.currentVersion() })
+      publish(availableFrame(version))
     },
     notAvailable: () => {
       checking = false
@@ -198,6 +215,13 @@ export function createUpdateController(config: {
       return { started: false, reason: 'No update is available to download.' }
     }
     const version = available
+    if (manualRelease) {
+      // Nothing to download here: the person installs the release by hand.
+      void manualRelease
+        .open(manualRelease.pageFor(version))
+        .catch((cause: unknown) => fail(describe(cause), false))
+      return { started: true, reason: null }
+    }
     downloading = true
     downloadVersion = version
     downloadPercent = null
@@ -228,9 +252,7 @@ export function createUpdateController(config: {
     // would offer a second download that `download` then refuses, and would
     // lose the progress the toast is already showing.
     if (downloading && downloadVersion !== null) {
-      const frames: AppUpdateFrame[] = [
-        { type: 'download.started', version: downloadVersion },
-      ]
+      const frames: AppUpdateFrame[] = [{ type: 'download.started', version: downloadVersion }]
       if (downloadPercent !== null) {
         frames.push({ type: 'download.progress', percent: downloadPercent })
       }
@@ -238,7 +260,7 @@ export function createUpdateController(config: {
     }
     if (staged !== null) return [{ type: 'downloaded', version: staged }]
     if (available !== null) {
-      return [{ type: 'available', version: available, currentVersion: port.currentVersion() }]
+      return [availableFrame(available)]
     }
     return []
   }
