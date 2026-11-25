@@ -197,6 +197,94 @@
   border-top: 1px solid var(--ari-border);
 }
 
+/*
+ * Live labels ("Thinking", a step's "Reading") carry a slow light sweep, the
+ * one sign of motion in a working row. Only the label's own glyphs repaint.
+ */
+.ari-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--ari-fg-muted) 0%,
+    var(--ari-fg-muted) 38%,
+    var(--ari-fg) 50%,
+    var(--ari-fg-muted) 62%,
+    var(--ari-fg-muted) 100%
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: ari-shimmer 2.4s linear infinite;
+}
+
+@keyframes ari-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  70%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+/* The live thought: four lines tall at most, pinned to its newest line. */
+.ari-thought-window {
+  max-height: calc(1.625em * 4 + 4px);
+  overflow: hidden;
+}
+
+.ari-thought-window[data-overflow] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em);
+}
+
+/*
+ * A live burst's steps. The newest step slides in under the last; the list is
+ * capped, so the oldest one leaves from the top and the row holds its height.
+ */
+.ari-burst-live > .ari-step-enter {
+  animation: ari-step-enter var(--ari-dur-base) var(--ari-ease-out-expo) both;
+}
+
+@keyframes ari-step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* A burst that just finished folds its steps away rather than vanishing. */
+.ari-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--ari-dur-base) var(--ari-ease-out-expo),
+    opacity var(--ari-dur-base) ease-out;
+}
+
+.ari-fold[data-folded] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.ari-fold > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-shimmer {
+    animation: none;
+    color: var(--ari-fg-muted);
+    background: none;
+  }
+  .ari-burst-live > .ari-step-enter {
+    animation: none;
+  }
+  .ari-fold {
+    transition: none;
+  }
+}
+
 /* Steps of an opened burst arrive with a short fade. */
 .ari-burst-steps {
   animation: ari-burst-reveal var(--ari-dur-fast) ease-out;

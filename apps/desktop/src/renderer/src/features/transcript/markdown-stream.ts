@@ -81,7 +81,10 @@ export function createMarkdownStream(): MarkdownStream {
     render(markdown) {
       try {
         if (whole) return renderWhole(markdown)
-        if (!markdown.startsWith(source)) {
+        // Settled blocks depend on their own source alone, so only a change
+        // there starts over. The live block's tail may be rewritten freely: a
+        // streamed reply closes its open markers anew on every flush.
+        if (!markdown.startsWith(source.slice(0, settledOffset))) {
           settled = []
           settledOffset = 0
         }

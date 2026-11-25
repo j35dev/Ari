@@ -18,6 +18,7 @@ export default defineConfig({
         resolve('src/renderer/testing/streaming-v2.html'),
         resolve('src/renderer/testing/streaming-fixed.html'),
         resolve('src/renderer/testing/subagents-fixed.html'),
+        resolve('src/renderer/testing/stream-replay.html'),
       ],
     },
   },
