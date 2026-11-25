@@ -13,6 +13,19 @@ import { RemoteError } from '../../lib/gateway-client'
 import { checkCommandReceipt } from '../../lib/command-receipt'
 import { WorkingIndicator } from './WorkingIndicator'
 
+/**
+ * A message on its way to the computer, shown in the conversation at once so
+ * a slow link never leaves the user wondering whether the tap registered.
+ * `uncertain` means the answer was lost: it may or may not have arrived, and
+ * only its receipt can say.
+ */
+export interface OutboxEntry {
+  key: string
+  text: string
+  mode: PendingSubmission['mode']
+  state: 'sending' | 'accepted' | 'uncertain'
+}
+
 /** One draft and one receipt key per submission, retained through an uncertain response. */
 export function Composer({
   sessionId,
@@ -22,6 +35,7 @@ export function Composer({
   disabled,
   onSent,
   onError,
+  onOutbox,
 }: {
   sessionId: string
   status: string
@@ -32,13 +46,24 @@ export function Composer({
   disabled: boolean
   onSent: () => Promise<void>
   onError: (error: string) => void
+  /** Where the optimistic copy of a submission is shown; absent, it stays in the field. */
+  onOutbox?: (entry: OutboxEntry | null) => void
 }): ReactNode {
   const app = useApp()
   const deviceId = app.session?.deviceId ?? null
   const [restored] = useState(() => readPending(app.origin, deviceId, sessionId))
-  const [text, setText] = useState(
-    () => restored?.text ?? readDraft(app.origin, sessionId, deviceId),
+  const optimistic = onOutbox !== undefined
+  const [text, setText] = useState(() =>
+    restored !== null && !optimistic ? restored.text : readDraft(app.origin, sessionId, deviceId),
   )
+  const outbox = useRef(onOutbox)
+  useEffect(() => {
+    outbox.current = onOutbox
+  })
+  useEffect(() => {
+    // An unconfirmed submission from before a reload is shown where it was sent.
+    if (restored !== null) outbox.current?.({ ...restored, state: 'uncertain' })
+  }, [restored])
   const [attachments, setAttachments] = useState<AttachmentRef[]>([])
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -88,10 +113,20 @@ export function Composer({
       )
       return
     }
+    const fresh = pending === null
+    const sentAttachments = attachments
     setBusy(true)
-    setChecking(pending !== null)
+    setChecking(!fresh)
     setPending(command)
     setReceipt(null)
+    if (optimistic) {
+      // The words move into the conversation now, not after the round trip.
+      if (fresh) {
+        setText('')
+        setAttachments([])
+      }
+      outbox.current?.({ ...command, state: 'sending' })
+    }
     try {
       if (pending !== null)
         await checkCommandReceipt(
@@ -119,11 +154,21 @@ export function Composer({
           command.key,
         )
       if (!alive.current) return
-      setText('')
-      setAttachments([])
+      if (!optimistic) {
+        setText('')
+        setAttachments([])
+      }
       setPending(null)
       writePending(app.origin, deviceId, sessionId, null)
-      setReceipt(command.mode === 'queue' ? 'Queued on your computer' : 'Accepted by your computer')
+      // A queued message waits behind the running turn rather than joining the chat.
+      outbox.current?.(command.mode === 'queue' ? null : { ...command, state: 'accepted' })
+      setReceipt(
+        command.mode === 'queue'
+          ? 'Queued on your computer'
+          : optimistic
+            ? null
+            : 'Accepted by your computer',
+      )
       await onSent().catch((error: unknown) =>
         onError(
           error instanceof Error
@@ -144,8 +189,19 @@ export function Composer({
       ) {
         setPending(null)
         writePending(app.origin, deviceId, sessionId, null)
+        if (optimistic) {
+          // Refused outright: the words go back where the user can edit and resend them.
+          outbox.current?.(null)
+          if (fresh) {
+            setText((typed) => (typed.trim() ? `${command.text}\n${typed}` : command.text))
+            setAttachments(sentAttachments)
+          }
+        }
         setReceipt('Not accepted. Your draft is still here.')
-      } else setReceipt('Response uncertain. Check the original submission receipt.')
+      } else {
+        outbox.current?.({ ...command, state: 'uncertain' })
+        setReceipt('Response uncertain. Check the original submission receipt.')
+      }
     } finally {
       if (alive.current) {
         setBusy(false)
@@ -215,7 +271,8 @@ export function Composer({
   return (
     <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
       {!disabled &&
-        (running || busy) &&
+        // An optimistic send shows its own state in the conversation.
+        (running || (busy && (!optimistic || checking))) &&
         (checking ? (
           <p role="status" className="mb-2 text-center text-xs text-fg-muted">
             Checking receipt…
@@ -238,7 +295,9 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={1}
-          disabled={busy || pending !== null}
+          // While an optimistic send is in flight the next message can be typed;
+          // an unconfirmed one locks the field until its receipt is checked.
+          disabled={optimistic ? pending !== null && !busy : busy || pending !== null}
           placeholder="Message"
           aria-label="Message the agent"
           className="max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-fg-subtle"

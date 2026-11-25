@@ -87,6 +87,7 @@ function worker() {
     },
     caches: storage,
     fetch: network,
+    setTimeout,
     URL,
     Response,
   })
@@ -125,7 +126,7 @@ describe('actual service worker cache behavior', () => {
     const sw = worker()
     await sw.dispatch('install')
     expect(sw.network).toHaveBeenCalledTimes(6)
-    const entries = sw.stores.get('ari-mobile-v5-shell')!
+    const entries = sw.stores.get('ari-mobile-v6-shell')!
     expect([...entries.keys()].map((url) => new URL(url).pathname)).toEqual([
       '/',
       '/manifest.webmanifest',
@@ -148,12 +149,12 @@ describe('actual service worker cache behavior', () => {
       'ari-mobile-v1-shell',
       'ari-mobile-v4-shell',
       'ari-mobile-v40-shell',
-      'ari-mobile-v5-shell',
+      'ari-mobile-v6-shell',
       'another-app-cache',
     ])
       await sw.storage.open(name)
     await sw.dispatch('activate')
-    expect([...sw.stores.keys()]).toEqual(['ari-mobile-v5-shell', 'another-app-cache'])
+    expect([...sw.stores.keys()]).toEqual(['ari-mobile-v6-shell', 'another-app-cache'])
     expect(sw.claim).not.toHaveBeenCalled()
     expect(sw.skipWaiting).not.toHaveBeenCalled()
     await sw.dispatch('message', { data: { type: 'unrelated' } })
@@ -211,10 +212,10 @@ describe('actual service worker cache behavior', () => {
       await (await sw.fetchEvent('/?view=projects&session=private-id', {}, true))?.text(),
     ).toBe('second')
     expect(sw.network).toHaveBeenCalledTimes(2)
-    expect([...sw.stores.get('ari-mobile-v5-shell')!.keys()]).toEqual([origin + '/'])
+    expect([...sw.stores.get('ari-mobile-v6-shell')!.keys()]).toEqual([origin + '/'])
     expect(
       await sw.stores
-        .get('ari-mobile-v5-shell')!
+        .get('ari-mobile-v6-shell')!
         .get(origin + '/')!
         .text(),
     ).toBe('second')
@@ -249,12 +250,37 @@ describe('actual service worker cache behavior', () => {
     sw.network.mockRejectedValue(new Error('offline'))
     expect((await sw.fetchEvent('/', {}, true))?.type).toBe('error')
     await (
-      await sw.storage.open('ari-mobile-v5-shell')
+      await sw.storage.open('ari-mobile-v6-shell')
     ).put('/', html('private user', { 'cache-control': 'private' }))
     expect((await sw.fetchEvent('/', {}, true))?.type).toBe('error')
-    await (await sw.storage.open('ari-mobile-v5-shell')).put('/', html('public offline shell'))
+    await (await sw.storage.open('ari-mobile-v6-shell')).put('/', html('public offline shell'))
     expect(await (await sw.fetchEvent('/?view=now', {}, true))?.text()).toBe('public offline shell')
-    expect(sw.stores.get('ari-mobile-v5-shell')!.size).toBe(1)
+    expect(sw.stores.get('ari-mobile-v6-shell')!.size).toBe(1)
+  })
+  it('opens the cached shell when the network is slow, and still stores the fresh one', async () => {
+    vi.useFakeTimers()
+    try {
+      const sw = worker()
+      await (await sw.storage.open('ari-mobile-v6-shell')).put('/', html('cached shell'))
+      let answer: (response: Response) => void = () => {}
+      sw.network.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          answer = resolve
+        }),
+      )
+      const reply = sw.fetchEvent('/', {}, true)
+      await vi.advanceTimersByTimeAsync(2600)
+      answer(html('fresh shell'))
+      expect(await (await reply)?.text()).toBe('cached shell')
+      expect(
+        await sw.stores
+          .get('ari-mobile-v6-shell')!
+          .get(origin + '/')!
+          .text(),
+      ).toBe('fresh shell')
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('caches hashed public build assets and serves them without another network request', async () => {
     const sw = worker()

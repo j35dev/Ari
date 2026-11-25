@@ -55,7 +55,11 @@ export function applyUpdate(): void {
   waiting.postMessage({ type: 'ari.skip-waiting' })
 }
 
-/** A small, dismissible banner rather than a reload the user did not ask for. */
+/**
+ * A small, dismissible note rather than a reload the user did not ask for.
+ * It floats above the bottom edge: pinned to the top it sat under the status
+ * bar and the notch, above the screen's own safe-area padding.
+ */
 export function UpdateBanner({
   onApply,
   onDismiss,
@@ -66,7 +70,7 @@ export function UpdateBanner({
   return (
     <div
       role="status"
-      className="flex items-center gap-3 border-b border-accent bg-accent-subtle px-4 py-2 text-xs"
+      className="sheet-rise absolute inset-x-4 bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+4.25rem)] z-40 flex items-center gap-3 rounded-2xl border border-border bg-surface-2 py-1.5 pl-4 pr-1.5 text-xs shadow-[var(--ari-shadow-2)]"
     >
       <span className="flex-1">A new version of Ari is ready.</span>
       <button

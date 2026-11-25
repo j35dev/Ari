@@ -51,6 +51,60 @@ it('shows sending immediately, working through the turn, and removes activity wh
   view.rerender(<Composer {...props} status="idle" />)
   expect(screen.queryByRole('status', { name: /^(Sending|Working)$/ })).toBeNull()
 })
+it('moves a message into the conversation at once and confirms it when accepted', async () => {
+  let accepted: (() => void) | undefined
+  app.session.send.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        accepted = resolve
+      }),
+  )
+  const onOutbox = vi.fn()
+  render(<Composer {...props} status="idle" onOutbox={onOutbox} />)
+  const field = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' })
+  fireEvent.change(field, { target: { value: 'Build it' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+  // Before any answer: the words left the field and wait in the conversation.
+  expect(field.value).toBe('')
+  expect(onOutbox).toHaveBeenLastCalledWith(
+    expect.objectContaining({ text: 'Build it', mode: 'send', state: 'sending' }),
+  )
+  // The next message can be typed while this one travels.
+  expect(field.disabled).toBe(false)
+  await act(async () => {
+    accepted?.()
+  })
+  expect(onOutbox).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'accepted' }))
+  expect(sessionStorage.length).toBe(0)
+})
+it('hands a refused message back to the field, and marks a lost answer as unconfirmed', async () => {
+  const { RemoteError } = await import('../../lib/gateway-client')
+  const onOutbox = vi.fn()
+  app.session.send.mockRejectedValueOnce(new RemoteError('access_revoked', 'Refused'))
+  const view = render(<Composer {...props} status="idle" onOutbox={onOutbox} />)
+  const field = (): HTMLTextAreaElement =>
+    screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message the agent' })
+  fireEvent.change(field(), { target: { value: 'Try this' } })
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+  })
+  expect(onOutbox).toHaveBeenLastCalledWith(null)
+  expect(field().value).toBe('Try this')
+  view.unmount()
+
+  app.session.send.mockRejectedValueOnce(new RemoteError('unreachable', 'Lost'))
+  render(<Composer {...props} status="idle" onOutbox={onOutbox} />)
+  fireEvent.change(field(), { target: { value: 'Maybe sent' } })
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+  })
+  expect(onOutbox).toHaveBeenLastCalledWith(
+    expect.objectContaining({ text: 'Maybe sent', state: 'uncertain' }),
+  )
+  // Only its receipt can settle it; it is never sent again by itself.
+  expect(screen.getByRole('button', { name: 'Check submission receipt' })).toBeTruthy()
+  expect(app.session.send).toHaveBeenCalledTimes(2)
+})
 it('shows working for a turn started on desktop and suppresses stale activity offline', () => {
   const view = render(<Composer {...props} status="running" />)
   expect(screen.getByRole('status').textContent).toBe('Working…')

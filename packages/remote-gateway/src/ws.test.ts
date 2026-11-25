@@ -207,3 +207,37 @@ describe('websocket upgrade', () => {
     socket.close()
   })
 })
+
+describe('websocket keepalive', () => {
+  async function serveWithKeepalive(keepaliveMs: number): Promise<{ port: number; url: string }> {
+    const server = createServer((_req, res) => res.writeHead(404).end())
+    servers.push(server)
+    server.on('upgrade', (req, socket, head) => {
+      acceptUpgrade(req, socket, head, undefined, keepaliveMs)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return { port, url: `ws://127.0.0.1:${port}/events` }
+  }
+
+  it('keeps a responsive client connected through idle time', async () => {
+    // Long enough that a loaded CI runner still answers each ping in time.
+    const { url } = await serveWithKeepalive(250)
+    const socket = new WebSocket(url)
+    await once(socket as unknown as EventTarget, 'open')
+    // Browsers answer pings by themselves; that is all it takes to stay up.
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    expect(socket.readyState).toBe(WebSocket.OPEN)
+    socket.close()
+  })
+
+  it('drops a peer that went silent, so its subscriptions are released', async () => {
+    const { port } = await serveWithKeepalive(40)
+    const { socket } = await handshake(port, '/events')
+    // This raw peer never answers a ping, as a suspended phone would not.
+    socket.on('data', () => {})
+    const start = Date.now()
+    await once(socket, 'close')
+    expect(Date.now() - start).toBeLessThan(2000)
+  })
+})

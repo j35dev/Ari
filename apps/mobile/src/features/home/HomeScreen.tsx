@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Gauge, LoaderCircle, Search, Settings, SquarePen } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { ConnectionStrip } from '../../components/ConnectionStrip'
 import { EmptyState } from '../../components/EmptyState'
 import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
 import { usePullToRefresh } from '../../lib/pull-to-refresh'
-import { shelve, type ShelfRow } from '../../lib/shelves'
+import { isRunning, shelve, type ShelfRow } from '../../lib/shelves'
 import { useAttention } from '../../lib/use-attention'
 import { UsageSheet } from '../usage/UsageSheet'
 import { SessionActions } from './SessionActions'
@@ -31,6 +32,12 @@ export function HomeScreen({
   const [acting, setActing] = useState<SessionSummary | null>(null)
   const [usage, setUsage] = useState(false)
   const { pull, ready, handlers } = usePullToRefresh(() => void app.refresh())
+  // Coming back from a session shows what changed while it was open, not the
+  // list as it was up to fifteen seconds ago.
+  const { refresh } = app
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
   const shelves = useMemo(
     () =>
       shelve(app.sessions, attention.items, { projectId, query, projects: app.projects, archived }),
@@ -44,8 +51,9 @@ export function HomeScreen({
   }, [app.projects, app.sessions])
   const connected = app.connection === 'connected'
   const hostname = app.origin === null ? null : new URL(app.origin).hostname
-  const host = app.activeComputer?.name ?? (
-    hostname === null
+  const host =
+    app.activeComputer?.name ??
+    (hostname === null
       ? 'No computer'
       : ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
         ? 'This computer'
@@ -84,29 +92,19 @@ export function HomeScreen({
         <ComputerButton />
         <div className="mt-4 flex items-baseline justify-between gap-3">
           <h1 className="text-[24px] font-semibold tracking-tight">Sessions</h1>
-          <span role="status" aria-label={`${host}, ${connectionLabel(app.connection)}`} className="text-xs text-fg-subtle">{connectionLabel(app.connection)}</span>
+          <span
+            role="status"
+            aria-label={`${host}, ${connectionLabel(app.connection)}`}
+            className="text-xs text-fg-subtle"
+          >
+            {connectionLabel(app.connection)}
+          </span>
         </div>
       </div>
-      {!connected && (
-        <div
-          role="status"
-          className="mx-5 mb-2 flex shrink-0 items-center gap-3 rounded-xl bg-warning-subtle px-3 text-xs"
-        >
-          <span className="flex-1 py-2">
-            {connectionLabel(app.connection)}. Your agents keep working on the computer.
-          </span>
-          <button
-            type="button"
-            className="min-h-11 font-medium"
-            onClick={() => void app.reconnect()}
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      <ConnectionStrip detail="Agents keep working on the computer" />
       <div
         data-testid="home-scroll"
-        className="min-h-0 flex-1 overflow-y-auto px-5 pb-28"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[calc(7rem+env(safe-area-inset-bottom))]"
         {...handlers}
       >
         <div
@@ -160,11 +158,15 @@ export function HomeScreen({
         )}
         {shelves.length === 0 && (
           <EmptyState
-            title={filtered ? 'Nothing matches' : !connected ? 'Computer unavailable' : 'No sessions yet'}
+            title={
+              filtered ? 'Nothing matches' : !connected ? 'Computer unavailable' : 'No sessions yet'
+            }
             detail={
               filtered
                 ? 'Try another project or a different search.'
-                : !connected ? 'Reconnect to load sessions. Your agents and workspace stay on this computer.' : 'Start one here. The agent works on your computer while you keep an eye on it from your phone.'
+                : !connected
+                  ? 'Reconnect to load sessions. Your agents and workspace stay on this computer.'
+                  : 'Start one here. The agent works on your computer while you keep an eye on it from your phone.'
             }
             action={
               !filtered && (
@@ -187,21 +189,24 @@ export function HomeScreen({
               className={`mb-1 text-xs font-medium ${shelf.id === 'needs-you' ? 'text-warning' : 'text-fg-subtle'}`}
             >
               {shelf.title}
-              <span aria-hidden className="ml-2 tabular-nums text-fg-subtle">{shelf.rows.length}</span>
+              <span aria-hidden className="ml-2 tabular-nums text-fg-subtle">
+                {shelf.rows.length}
+              </span>
             </h2>
             <ul>
               {shelf.rows.map((row) => (
                 <Row
                   key={row.session.id}
                   row={row}
+                  stale={!connected}
                   project={
                     projectId === null
                       ? (app.projects.find((entry) => entry.id === row.session.projectId)?.name ??
                         null)
                       : null
                   }
-                  onOpen={() => onOpen(row.session.id)}
-                  onHold={() => setActing(row.session)}
+                  onOpen={onOpen}
+                  onHold={setActing}
                 />
               ))}
             </ul>
@@ -233,18 +238,21 @@ export function HomeScreen({
   )
 }
 
-function Row({
+const Row = memo(function Row({
   row,
   project,
+  stale,
   onOpen,
   onHold,
 }: {
   row: ShelfRow
   project: string | null
-  onOpen: () => void
-  onHold: () => void
+  /** The computer is out of reach: this is the last state it reported. */
+  stale: boolean
+  onOpen: (sessionId: string) => void
+  onHold: (session: ShelfRow['session']) => void
 }): ReactNode {
-  const { session, ask, agents, parentTitle } = row
+  const { session, ask, agents, parentTitle, state } = row
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const held = useRef(false)
   const cancel = (): void => {
@@ -252,23 +260,40 @@ function Row({
     timer.current = null
   }
   const delegating = agents !== undefined && agents.working > 0
-  const running = session.status === 'running' || delegating
+  /** The session's own turn is executing, as opposed to only its agents'. */
+  const selfRunning = state === 'running' && isRunning(session)
+  const plural = (count: number): string => `${count} agent${count === 1 ? '' : 's'}`
   const detail = [
     project,
     parentTitle === undefined ? null : `Agent of ${parentTitle || 'a session'}`,
-    session.status === 'running'
-      ? 'Working'
-      : delegating
-        ? `${agents.working} of ${agents.total} agent${agents.total === 1 ? '' : 's'} working`
-        : relativeTime(session.updatedAt),
-    agents !== undefined && !delegating
-      ? `${agents.total} agent${agents.total === 1 ? '' : 's'}`
-      : null,
+    state === 'stalled'
+      ? 'Not responding'
+      : state === 'failed'
+        ? `Failed ${relativeTime(session.updatedAt)}`
+        : selfRunning
+          ? stale
+            ? 'Was working'
+            : 'Working'
+          : delegating
+            ? `${agents.working} of ${plural(agents.total)} working`
+            : relativeTime(session.updatedAt),
+    agents === undefined
+      ? null
+      : selfRunning && delegating
+        ? `${plural(agents.working)} working`
+        : delegating
+          ? null
+          : plural(agents.total),
   ]
     .filter((part) => part !== null)
     .join(' · ')
+  // What a running agent is doing, in its own latest words.
+  const doing =
+    selfRunning && session.lastMessagePreview
+      ? session.lastMessagePreview.replace(/\s+/g, ' ').trim()
+      : null
   return (
-    <li>
+    <li className="[contain-intrinsic-size:auto_64px] [content-visibility:auto]">
       <button
         type="button"
         aria-label={`Open ${session.title || 'Untitled session'}`}
@@ -277,18 +302,18 @@ function Row({
         onClick={() => {
           // A hold has already opened the menu; the release must not also open the session.
           if (held.current) held.current = false
-          else onOpen()
+          else onOpen(session.id)
         }}
         onContextMenu={(event) => {
           event.preventDefault()
           cancel()
-          onHold()
+          onHold(session)
         }}
         onTouchStart={() => {
           held.current = false
           timer.current = setTimeout(() => {
             held.current = true
-            onHold()
+            onHold(session)
           }, HOLD_MS)
         }}
         onTouchMove={cancel}
@@ -304,16 +329,33 @@ function Row({
               {parentTitle === undefined ? ask : `Agent of ${parentTitle || 'a session'} · ${ask}`}
             </span>
           ) : (
-            <span className="mt-0.5 block truncate text-xs text-fg-subtle">{detail}</span>
+            <>
+              {doing !== null && (
+                <span className="mt-0.5 block truncate text-[13px] text-fg-muted">{doing}</span>
+              )}
+              <span
+                className={`mt-0.5 block truncate text-xs ${state === 'failed' ? 'text-danger' : state === 'stalled' ? 'text-warning' : 'text-fg-subtle'}`}
+              >
+                {detail}
+              </span>
+            </>
           )}
         </span>
-        {(running || ask !== null) && (
+        {state !== 'idle' && state !== 'failed' && (
           <span
             aria-hidden
-            className={`size-2 shrink-0 rounded-full ${ask !== null ? 'bg-warning' : 'status-pulse bg-success'}`}
+            className={`size-2 shrink-0 rounded-full ${
+              stale
+                ? 'bg-fg-subtle'
+                : state === 'needs-you'
+                  ? 'bg-warning'
+                  : state === 'stalled'
+                    ? 'border border-warning'
+                    : 'status-pulse bg-success'
+            }`}
           />
         )}
       </button>
     </li>
   )
-}
+})

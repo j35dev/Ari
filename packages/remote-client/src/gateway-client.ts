@@ -61,7 +61,20 @@ export interface GatewayClientOptions {
   fetch?: typeof fetch
   /** Injected for tests; defaults to the platform WebSocket. */
   webSocket?: (url: string, protocols: string[]) => WebSocket
+  /**
+   * How long one request may go unanswered before it counts as unreachable.
+   * A phone that wakes on a dead tailnet path otherwise waits for the OS TCP
+   * timeout, which on iOS is over a minute of a spinner.
+   */
+  requestTimeoutMs?: number
+  /** How often an open event stream proves it is alive; tests shorten it. */
+  heartbeatMs?: number
 }
+
+const REQUEST_TIMEOUT_MS = 20_000
+const HEARTBEAT_MS = 10_000
+/** Close code for a stream that stopped answering; reconnecting is expected. */
+export const STALE_STREAM_CODE = 4000
 
 interface Envelope<T> {
   ok: boolean
@@ -78,9 +91,13 @@ export class GatewayClient {
   /** Held in memory only: the device key, not this, is the durable credential. */
   #token: string | null = null
   #lease: string | null = null
+  readonly #requestTimeoutMs: number
+  readonly #heartbeatMs: number
 
   constructor(options: GatewayClientOptions) {
     this.#origin = options.origin.replace(/\/+$/, '')
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS
+    this.#heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS
     this.#fetch = options.fetch ?? ((input, init) => fetch(input, init))
     this.#webSocket =
       options.webSocket ??
@@ -208,6 +225,12 @@ export class GatewayClient {
     const url = `${this.#origin.replace(/^http/, 'ws')}/events`
     const socket = this.#webSocket(url, protocols)
     let closed = false
+    let heard = Date.now()
+    let heartbeat: ReturnType<typeof setInterval> | null = null
+    const stopHeartbeat = (): void => {
+      if (heartbeat !== null) clearInterval(heartbeat)
+      heartbeat = null
+    }
 
     socket.addEventListener('open', () => {
       if (closed) return
@@ -217,9 +240,33 @@ export class GatewayClient {
         ...(options.fromSeq === undefined ? {} : { fromSeq: options.fromSeq }),
       }
       socket.send(JSON.stringify(subscribe))
+      heard = Date.now()
+      // A socket iOS froze in the background still reports OPEN; only an
+      // answer proves the path works. Two missed beats close it so the session
+      // layer reconnects instead of showing a conversation that stopped.
+      heartbeat = setInterval(() => {
+        if (closed) return stopHeartbeat()
+        if (Date.now() - heard > this.#heartbeatMs * 2) {
+          closed = true
+          stopHeartbeat()
+          socket.close()
+          options.onClose?.({
+            code: STALE_STREAM_CODE,
+            reason: 'The event stream stopped answering.',
+          })
+          return
+        }
+        const ping: RemoteClientMessage = { type: 'events.ping' }
+        try {
+          socket.send(JSON.stringify(ping))
+        } catch {
+          // A send on a socket that is already going away; the close event follows.
+        }
+      }, this.#heartbeatMs)
     })
     socket.addEventListener('message', (event) => {
       if (closed) return
+      heard = Date.now()
       const data = typeof event.data === 'string' ? event.data : ''
       try {
         const parsed = remoteServerMessageSchema.safeParse(JSON.parse(data))
@@ -241,12 +288,14 @@ export class GatewayClient {
       }
     })
     socket.addEventListener('close', (event) => {
+      stopHeartbeat()
       if (closed) return
       options.onClose?.({ code: event.code, reason: event.reason })
     })
 
     return () => {
       closed = true
+      stopHeartbeat()
       socket.close()
     }
   }
@@ -261,18 +310,34 @@ export class GatewayClient {
     }
 
     let response: Response
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), this.#requestTimeoutMs)
     try {
       response = await this.#fetch(`${this.#origin}${path}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         redirect: 'error',
+        signal: timeout.signal,
       })
     } catch (error) {
       // No response at all: the phone cannot tell a sleeping desktop from a
       // dropped connection, and the caller is the one that knows how long it
       // has been trying.
-      throw new RemoteError('unreachable', error instanceof Error ? error.message : 'unreachable')
+      throw new RemoteError(
+        'unreachable',
+        timeout.signal.aborted
+          ? 'Your computer did not answer in time.'
+          : error instanceof TypeError
+            ? // The browser's own words ("Failed to fetch", "Load failed") say nothing useful.
+              'Could not reach your computer.'
+            : error instanceof Error
+              ? error.message
+              : 'unreachable',
+      )
+    } finally {
+      // Once the computer has answered, a large body may take its time.
+      clearTimeout(timer)
     }
 
     const envelope = (await response.json().catch(() => null)) as Envelope<T> | null

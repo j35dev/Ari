@@ -1,10 +1,27 @@
-import type { RemoteAttention, RemoteProject } from '@ari/contracts/remote'
-import type { SessionSummary } from '@ari/contracts/rpc'
+import type { RemoteAttention, RemoteProject, RemoteSessionSummary } from '@ari/contracts/remote'
 
 type AttentionItem = RemoteAttention['items'][number]
+type SessionSummary = RemoteSessionSummary
+
+/**
+ * What a row should say about its session, decided once here so the list
+ * cannot show a dead turn as work in progress.
+ *
+ * `stalled` is a session the journal still calls running while nothing runs
+ * on the computer (a provider that died mid-turn). `failed` ended with an
+ * error: it is finished, not waiting on anyone, so it sits with the recent
+ * sessions instead of claiming the user's attention forever.
+ */
+export type RowState = 'needs-you' | 'running' | 'stalled' | 'failed' | 'idle'
+
+/** Running as far as the computer can tell. Older desktops do not report `live`. */
+export function isRunning(session: Pick<SessionSummary, 'status' | 'live'>): boolean {
+  return session.status === 'running' && session.live !== false
+}
 
 export interface ShelfRow {
   session: SessionSummary
+  state: RowState
   /** What the session is waiting on, for a row on the "Needs you" shelf. */
   ask: string | null
   /** The agents this session delegated to, which it stands in for on the list. */
@@ -25,13 +42,14 @@ export interface ShelfFilter {
   archived: boolean
 }
 
+/** Only a pending approval or question needs the user; an old failure does not. */
 function askOf(item: AttentionItem): string | null {
   const [approval] = item.pendingApprovals
   if (approval !== undefined) {
     const more = item.pendingApprovals.length - 1
     return `Wants to use ${approval.toolName}${more > 0 ? `, and ${more} more` : ''}`
   }
-  return item.pendingInputs[0]?.prompt ?? item.error
+  return item.pendingInputs[0]?.prompt ?? null
 }
 
 /**
@@ -91,29 +109,37 @@ export function shelve(
     if (needle && !`${session.title} ${project}`.toLowerCase().includes(needle)) continue
     const ask =
       asks.get(session.id) ??
-      (attention !== null
-        ? null
-        : session.status === 'waiting-approval'
-          ? 'Waiting for your approval'
-          : session.status === 'error'
-            ? 'Stopped with an error'
-            : null)
+      (attention === null && session.status === 'waiting-approval'
+        ? 'Waiting for your approval'
+        : null)
     // A search is asking for a session by name, so it finds agents too.
     if (parent !== undefined && session.archived !== true && ask === null && !needle) continue
     const agents = below(session.id)
-    const working = agents.filter((agent) => agent.status === 'running').length
+    const working = agents.filter(isRunning).length
+    const state: RowState =
+      ask !== null
+        ? 'needs-you'
+        : isRunning(session) || working > 0
+          ? 'running'
+          : session.status === 'running'
+            ? 'stalled'
+            : session.status === 'error'
+              ? 'failed'
+              : 'idle'
     const shelf: Shelf['id'] =
       session.archived === true
         ? 'archived'
-        : ask !== null
+        : state === 'needs-you'
           ? 'needs-you'
-          : session.status === 'running' || working > 0
+          : state === 'running'
             ? 'working'
             : session.pinned === true
               ? 'pinned'
               : 'recent'
     shelves[shelf].push({
       session,
+      // Archived work is finished as far as the list is concerned.
+      state: shelf === 'archived' ? 'idle' : state,
       ask: shelf === 'needs-you' ? ask : null,
       ...(agents.length > 0 ? { agents: { total: agents.length, working } } : {}),
       ...(parent !== undefined ? { parentTitle: parent.title } : {}),
@@ -121,7 +147,7 @@ export function shelve(
   }
   const titles: [Shelf['id'], string][] = [
     ['needs-you', 'Needs you'],
-    ['working', 'Working'],
+    ['working', 'Running'],
     ['pinned', 'Pinned'],
     ['recent', 'Recent'],
     ['archived', 'Archived'],
